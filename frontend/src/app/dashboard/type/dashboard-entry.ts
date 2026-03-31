@@ -48,7 +48,6 @@ export class DashboardEntry {
   likeCount: number;
   isLiked: boolean;
   accessibleUserIds: number[];
-  coverImageUrl?: string;
 
   constructor(public value: DashboardWorkflow | DashboardProject | DashboardFile | DashboardDataset) {
     if (isDashboardWorkflow(value)) {
@@ -123,7 +122,6 @@ export class DashboardEntry {
       this.likeCount = 0;
       this.isLiked = false;
       this.accessibleUserIds = [];
-      this.coverImageUrl = value.dataset.coverImage;
     } else {
       throw new Error("Unexpected type in DashboardEntry.");
     }
