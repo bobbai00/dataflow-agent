@@ -19,40 +19,85 @@
 
 .about-page-container {
   overflow-y: auto;
+  padding-bottom: 80px;
   height: 100%;
   padding: 0 133px;
 }
 
+.content-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  // Add these properties to create a scrollable container
+  height: calc(100vh - 100px); // Adjust the 100px value as needed
+}
+
 .content {
-  margin-top: 40px;
-  max-width: 1600px;
-  width: 100%;
   text-align: left;
+  line-height: 1.6;
 }
 
-.content > h1 {
-  font-size: 40px;
-  font-weight: bold;
-  margin: 0;
+h2 {
+  color: #2c3e50;
+  margin-bottom: 20px;
 }
 
-.content > h2 {
-  font-size: 28px;
-  font-weight: bold;
-  margin-top: 10px;
+p {
+  margin-bottom: 15px;
 }
 
-.content > p {
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.8;
+ul {
+  padding-left: 20px;
+  margin-bottom: 20px;
+}
+
+li {
   margin-bottom: 10px;
+}
+
+strong {
+  color: #3498db;
+}
+
+iframe {
+  margin-top: 30px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 #logo {
   height: 70px;
   padding: 0;
   margin-right: 14px;
+}
+
+// Media query for responsiveness
+@media (max-width: 768px) {
+  .content-wrapper {
+    padding: 0 15px;
+  }
+
+  iframe {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+}
+
+.content-wrapper::-webkit-scrollbar {
+  width: 8px;
+}
+
+.content-wrapper::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.content-wrapper::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.content-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 .workflow-gui-screenshot {

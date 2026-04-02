@@ -50,6 +50,12 @@ export class FileSelectionComponent implements OnInit {
     private datasetService: DatasetService
   ) {}
 
+  extractVersionPath(currentDisplayedFileName: string): string {
+    const pathParts = currentDisplayedFileName.split("/");
+
+    return `/${pathParts[1]}/${pathParts[2]}/${pathParts[3]}`;
+  }
+
   ngOnInit() {
     this.isAccessibleDatasetsLoading = true;
 

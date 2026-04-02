@@ -1325,6 +1325,41 @@ class DatasetResource {
       .fetchInto(classOf[String])
   }
 
+  @GET
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  @Path("/list-directory-objects")
+  def listDirectoryObjects(
+      @QueryParam("datasetName") datasetName: String,
+      @QueryParam("commitHash") commitHash: String,
+      @Auth user: SessionUser
+  ): Response = {
+    val uid = user.getUid
+    withTransaction(context) { ctx =>
+      val datasetDao = new DatasetDao(ctx.configuration())
+      val datasets = datasetDao.fetchByName(datasetName).asScala.toList
+
+      if (datasets.isEmpty || !userHasReadAccess(ctx, datasets.head.getDid, uid))
+        throw new ForbiddenException(ERR_USER_HAS_NO_ACCESS_TO_DATASET_MESSAGE)
+
+      try {
+        val objects = LakeFSStorageClient.retrieveObjectsOfVersion(datasetName, commitHash)
+        val objectsData = objects.map { obj =>
+          Map(
+            "path" -> obj.getPath,
+            "sizeBytes" -> obj.getSizeBytes
+          )
+        }
+        Response.ok(Map("objects" -> objectsData)).build()
+      } catch {
+        case e: Exception =>
+          throw new WebApplicationException(
+            s"Failed to list directory objects: ${e.getMessage}",
+            Response.Status.INTERNAL_SERVER_ERROR
+          )
+      }
+    }
+  }
+
   /**
     * Validates the dataset name.
     *

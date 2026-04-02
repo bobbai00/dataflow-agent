@@ -22,13 +22,9 @@ package org.apache.texera.amber.operator
 import com.fasterxml.jackson.annotation.JsonSubTypes.Type
 import com.fasterxml.jackson.annotation._
 import com.kjetland.jackson.jsonSchema.annotations.JsonSchemaTitle
+import org.apache.amber.operator.cloudmapper.CloudMapperSourceOpDesc
 import org.apache.texera.amber.core.executor.OperatorExecutor
 import org.apache.texera.amber.core.tuple.Schema
-import org.apache.texera.amber.core.virtualidentity.{
-  ExecutionIdentity,
-  OperatorIdentity,
-  WorkflowIdentity
-}
 import org.apache.texera.amber.core.workflow.WorkflowContext.{
   DEFAULT_EXECUTION_ID,
   DEFAULT_WORKFLOW_ID
@@ -138,6 +134,11 @@ import org.apache.texera.amber.operator.visualization.volcanoPlot.VolcanoPlotOpD
 import org.apache.texera.amber.operator.visualization.waterfallChart.WaterfallChartOpDesc
 import org.apache.texera.amber.operator.visualization.wordCloud.WordCloudOpDesc
 import org.apache.commons.lang3.builder.{EqualsBuilder, HashCodeBuilder, ToStringBuilder}
+import org.apache.texera.amber.core.virtualidentity.{
+  ExecutionIdentity,
+  OperatorIdentity,
+  WorkflowIdentity
+}
 import org.apache.texera.amber.operator.sklearn.testing.SklearnTestingOpDesc
 import org.apache.texera.amber.operator.visualization.stripChart.StripChartOpDesc
 
@@ -410,6 +411,10 @@ trait StateTransferFunc
     new Type(
       value = classOf[SklearnAdvancedSVRTrainerOpDesc],
       name = "SVRTrainer"
+    ),
+    new Type(
+      value = classOf[CloudMapperSourceOpDesc],
+      name = "CloudBioMapper"
     ),
     new Type(value = classOf[SklearnTestingOpDesc], name = "SklearnTesting")
   )

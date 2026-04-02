@@ -107,6 +107,7 @@ import { AgentRegistrationComponent } from "./workspace/component/agent-panel/ag
 import { ReActStepDetailModalComponent } from "./workspace/component/agent-panel/react-step-detail-modal/react-step-detail-modal.component";
 import { ReActStepListComponent } from "./workspace/component/agent-panel/react-step-list/react-step-list.component";
 import { InputAutoCompleteComponent } from "./workspace/component/input-autocomplete/input-autocomplete.component";
+import { DirectoryPathInputComponent } from "./workspace/component/directory-path-input/directory-path-input.component";
 import { CollabWrapperComponent } from "./common/formly/collab-wrapper/collab-wrapper/collab-wrapper.component";
 import { NzSwitchModule } from "ng-zorro-antd/switch";
 import { NzRadioModule } from "ng-zorro-antd/radio";
@@ -155,10 +156,15 @@ import { NzTreeViewModule } from "ng-zorro-antd/tree-view";
 import { NzNoAnimationModule } from "ng-zorro-antd/core/no-animation";
 import { TreeModule } from "@ali-hm/angular-tree-component";
 import { FileSelectionComponent } from "./workspace/component/file-selection/file-selection.component";
+import { DirectorySelectionComponent } from "./workspace/component/directory-selection/directory-selection.component";
 import { ResultExportationComponent } from "./workspace/component/result-exportation/result-exportation.component";
 import { ReportGenerationService } from "./workspace/service/report-generation/report-generation.service";
+import { ClusterComponent } from "./dashboard/component/user/cluster/cluster.component";
+import { ClusterManagementModalComponent } from "./dashboard/component/user/cluster/cluster-management-modal/cluster-management-modal.component";
 import { SearchBarComponent } from "./dashboard/component/user/search-bar/search-bar.component";
 import { ListItemComponent } from "./dashboard/component/user/list-item/list-item.component";
+import { ClusterSelectionComponent } from "./workspace/component/cluster-selection/cluster-selection.component";
+import { ClusterAutoCompleteComponent } from "./workspace/component/cluster-autocomplete/cluster-autocomplete.component";
 import { HubComponent } from "./hub/component/hub.component";
 import { HubWorkflowDetailComponent } from "./hub/component/workflow/detail/hub-workflow-detail.component";
 import { LandingPageComponent } from "./hub/component/landing-page/landing-page.component";
@@ -183,9 +189,11 @@ import { NzProgressModule } from "ng-zorro-antd/progress";
 import { ComputingUnitSelectionComponent } from "./workspace/component/power-button/computing-unit-selection.component";
 import { NzSliderModule } from "ng-zorro-antd/slider";
 import { AdminSettingsComponent } from "./dashboard/component/admin/settings/admin-settings.component";
+import { ChatAssistantMultiAgentComponent } from "./workspace/component/left-panel/chat-assistant-multi-agent/chat-assistant-multi-agent.component";
 import { FormlyRepeatDndComponent } from "./common/formly/repeat-dnd/repeat-dnd.component";
 import { NzInputNumberModule } from "ng-zorro-antd/input-number";
 import { NzCheckboxModule } from "ng-zorro-antd/checkbox";
+import { RegistrationRequestModalComponent } from "./common/service/user/registration-request-modal/registration-request-modal.component";
 
 registerLocaleData(en);
 
@@ -258,7 +266,9 @@ registerLocaleData(en);
     ReActStepDetailModalComponent,
     ReActStepListComponent,
     InputAutoCompleteComponent,
+    DirectoryPathInputComponent,
     FileSelectionComponent,
+    DirectorySelectionComponent,
     CollabWrapperComponent,
     AboutComponent,
     UserWorkflowListItemComponent,
@@ -272,8 +282,12 @@ registerLocaleData(en);
     WorkflowRuntimeStatisticsComponent,
     FlarumComponent,
     HighlightSearchTermsPipe,
+    ClusterComponent,
+    ClusterManagementModalComponent,
     SearchBarComponent,
     ListItemComponent,
+    ClusterSelectionComponent,
+    ClusterAutoCompleteComponent,
     HubComponent,
     HubWorkflowDetailComponent,
     LandingPageComponent,
@@ -284,6 +298,8 @@ registerLocaleData(en);
     ComputingUnitSelectionComponent,
     AdminSettingsComponent,
     InlineCodePanelComponent,
+    ChatAssistantMultiAgentComponent,
+    RegistrationRequestModalComponent,
     MarkdownDescriptionComponent,
     AgentInteractionComponent,
   ],

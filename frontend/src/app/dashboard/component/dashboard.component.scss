@@ -95,6 +95,27 @@ nz-content {
   width: 100%;
 }
 
+.nav-links {
+  list-style-type: none;
+  min-height: 70px;
+  height: 70px;
+  padding: 10px;
+  margin: 0;
+  overflow: hidden;
+  background-color: #ffffff;
+  vertical-align: baseline;
+}
+
+.nav-item {
+  float: left;
+  padding: 14px;
+}
+
+.nav-link {
+  color: black;
+  font-weight: bold;
+}
+
 #googleButton {
   float: right;
   padding: 5px 0;

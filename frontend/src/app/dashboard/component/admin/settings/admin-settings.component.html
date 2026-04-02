@@ -191,6 +191,15 @@
       </div>
 
       <div class="submenu-item">
+        <span>CloudBioMapper Clusters</span>
+        <nz-switch
+          class="tab-switch"
+          [(ngModel)]="sidebarTabs.cluster_enabled"
+          [nzDisabled]="!sidebarTabs.your_work_enabled">
+        </nz-switch>
+      </div>
+      
+      <div class="submenu-item">
         <span>Quota</span>
         <nz-switch
           class="tab-switch"

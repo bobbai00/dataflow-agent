@@ -31,6 +31,7 @@ import { AdminUserComponent } from "./dashboard/component/admin/user/admin-user.
 import { AdminExecutionComponent } from "./dashboard/component/admin/execution/admin-execution.component";
 import { AdminGuardService } from "./dashboard/service/admin/guard/admin-guard.service";
 import { SearchComponent } from "./dashboard/component/user/search/search.component";
+import { ClusterComponent } from "./dashboard/component/user/cluster/cluster.component";
 import { FlarumComponent } from "./dashboard/component/user/flarum/flarum.component";
 import { AdminGmailComponent } from "./dashboard/component/admin/gmail/admin-gmail.component";
 import { DatasetDetailComponent } from "./dashboard/component/user/user-dataset/user-dataset-explorer/dataset-detail.component";
@@ -138,6 +139,10 @@ routes.push({
           path: "discussion",
           component: FlarumComponent,
         },
+        {
+          path: "cluster",
+          component: ClusterComponent,
+        },
       ],
     },
     {
@@ -168,7 +173,6 @@ routes.push({
     },
   ],
 });
-
 // default route renders the workspace editor directly; if userSystem is enabled at runtime,
 // AppComponent will navigate to DASHBOARD_ABOUT instead.
 routes.push({

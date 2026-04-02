@@ -39,6 +39,10 @@ import org.apache.texera.web.resource.dashboard.admin.execution.AdminExecutionRe
 import org.apache.texera.web.resource.dashboard.admin.settings.AdminSettingsResource
 import org.apache.texera.web.resource.dashboard.admin.user.AdminUserResource
 import org.apache.texera.web.resource.dashboard.hub.HubResource
+import org.apache.texera.web.resource.dashboard.user.cluster.{
+  ClusterResource,
+  ClusterCallbackResource
+}
 import org.apache.texera.web.resource.dashboard.user.UserResource
 import org.apache.texera.web.resource.dashboard.user.project.{
   ProjectAccessResource,
@@ -142,6 +146,8 @@ class TexeraWebApplication
     environment.jersey.register(classOf[RolesAllowedDynamicFeature])
 
     environment.jersey.register(classOf[AuthResource])
+    environment.jersey.register(classOf[ClusterResource])
+    environment.jersey.register(classOf[ClusterCallbackResource])
     environment.jersey.register(classOf[GoogleAuthResource])
     environment.jersey.register(classOf[UserConfigResource])
     environment.jersey.register(classOf[AdminUserResource])
