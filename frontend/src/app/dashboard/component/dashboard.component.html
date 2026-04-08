@@ -99,16 +99,15 @@
             <span>Datasets</span>
           </li>
           <li
-            *ngIf="sidebarTabs.cluster_enabled"
             nz-menu-item
-            nz-tooltip="Manage your clusters"
+            nz-tooltip="Manage computing units"
             nzMatchRouter="true"
             nzTooltipPlacement="right"
-            routerLink="/dashboard/user/cluster">
+            [routerLink]="DASHBOARD_USER_COMPUTING_UNIT">
             <span
               nz-icon
-              nzType="cluster"></span>
-            <span>CloudBioMapper Clusters</span>
+              nzType="deployment-unit"></span>
+            <span>Computing Units</span>
           </li>
           <li
             *ngIf="sidebarTabs.quota_enabled"

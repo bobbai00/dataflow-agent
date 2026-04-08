@@ -50,7 +50,7 @@ import org.apache.texera.amber.error.ErrorUtils.{
 }
 import org.apache.texera.dao.jooq.generated.tables.pojos.User
 import org.apache.texera.service.util.LargeBinaryManager
-import org.apache.texera.web.model.websocket.event.TexeraWebSocketEvent
+import org.apache.texera.web.model.websocket.event.{CacheUsageUpdateEvent, TexeraWebSocketEvent}
 import org.apache.texera.web.model.websocket.request.WorkflowExecuteRequest
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource
 import org.apache.texera.web.service.WorkflowService.mkWorkflowStateId
@@ -107,16 +107,19 @@ class WorkflowService(
 
   val resultService: ExecutionResultService =
     new ExecutionResultService(workflowId, computingUnitId, stateStore)
+  val cacheService: OperatorPortCacheService = {
+    val dao = new org.apache.texera.web.dao.OperatorPortCacheDao(
+      org.apache.texera.dao.SqlServer.getInstance()
+    )
+    new OperatorPortCacheService(dao)
+  }
   val lifeCycleManager: WorkflowLifecycleManager = new WorkflowLifecycleManager(
     s"workflowId=$workflowId",
     cleanUpTimeout,
     () => {
-      // clear the storage resources associated with the latest execution
-      WorkflowExecutionService
-        .getLatestExecutionId(workflowId, computingUnitId)
-        .foreach(eid => {
-          clearExecutionResources(eid)
-        })
+      // Clear execution-scoped artifacts (runtime stats, result/console docs) for all executions.
+      val executionIds = WorkflowExecutionService.getExecutionIds(workflowId, computingUnitId)
+      clearExecutionResources(executionIds)
       WorkflowService.workflowServiceMapping.remove(mkWorkflowStateId(workflowId))
       if (executionService.getValue != null) {
         // shutdown client
@@ -154,6 +157,10 @@ class WorkflowService(
     new CompositeDisposable(subscriptions :+ errorSubscription: _*)
   }
 
+  /**
+    * Subscribes to execution-scoped websocket events and emits cache usage snapshots
+    * so refreshed sessions can rehydrate cached output labels.
+    */
   def connectToExecution(onNext: TexeraWebSocketEvent => Unit): Disposable = {
     val localDisposable = new CompositeDisposable()
     val disposable = executionService.subscribe { execService: WorkflowExecutionService =>
@@ -165,9 +172,21 @@ class WorkflowService(
         )
         .toSeq
       localDisposable.addAll(subscriptions: _*)
+      emitCacheUsageSnapshot(execService, onNext)
     }
     // Note: this new CompositeDisposable is necessary. DO NOT OPTIMIZE.
     new CompositeDisposable(localDisposable, disposable)
+  }
+
+  /**
+    * Sends the latest cache usage metadata for the current execution to a new subscriber.
+    */
+  private def emitCacheUsageSnapshot(
+      execService: WorkflowExecutionService,
+      onNext: TexeraWebSocketEvent => Unit
+  ): Unit = {
+    val cachedOutputs = execService.executionStateStore.cacheUsageStore.getState.cachedOutputs
+    onNext(CacheUsageUpdateEvent(cachedOutputs))
   }
 
   def disconnect(): Unit = {
@@ -196,11 +215,11 @@ class WorkflowService(
     var controllerConf = ControllerConfig.default
 
     // clean up results from previous run
-    val previousExecutionId =
-      WorkflowExecutionService.getLatestExecutionId(workflowId, req.computingUnitId)
-    previousExecutionId.foreach(eid => {
-      clearExecutionResources(eid)
-    }) // TODO: change this behavior after enabling cache.
+//    val previousExecutionId =
+//      WorkflowExecutionService.getLatestExecutionId(workflowId, req.computingUnitId)
+//    previousExecutionId.foreach(eid => {
+//      clearExecutionResources(eid)
+//    }) // TODO: change this behavior after enabling cache.
 
     workflowContext.executionId = ExecutionsMetadataPersistService.insertNewExecution(
       workflowContext.workflowId,
@@ -275,6 +294,7 @@ class WorkflowService(
         controllerConf,
         workflowContext,
         resultService,
+        cacheService,
         req,
         executionStateStore,
         errorHandler,
@@ -304,27 +324,40 @@ class WorkflowService(
   }
 
   /**
-    * Cleans up all resources associated with a workflow execution.
+    * Cleans up all resources associated with workflow executions.
     *
     * This method performs resource cleanup in the following sequence:
-    *  1. Retrieves all document URIs associated with the execution
-    *  2. Clears URI references from the execution registry
-    *  3. Safely clears all result and console message documents
-    *  4. Expires Iceberg snapshots for runtime statistics
-    *  5. Deletes large binaries from MinIO
+    *  1. Retrieves all document URIs associated with the executions
+    *  2. Invalidates cache entries produced by these executions (cache rows + cached docs + cache-linked operator_port_executions rows)
+    *  3. Clears URI references from the execution registry
+    *  4. Safely clears all result and console message documents
+    *  5. Expires Iceberg snapshots for runtime statistics
+    *  6. Deletes large binaries from MinIO
     *
-    * @param eid The execution identity to clean up resources for
+    * @param executionIds execution identities to clean up resources for
     */
-  private def clearExecutionResources(eid: ExecutionIdentity): Unit = {
-    // Retrieve URIs for all resources associated with this execution
-    val resultUris = WorkflowExecutionsResource.getResultUrisByExecutionId(eid)
-    val consoleMessagesUris = WorkflowExecutionsResource.getConsoleMessagesUriByExecutionId(eid)
+  private def clearExecutionResources(executionIds: Seq[ExecutionIdentity]): Unit = {
+    if (executionIds.isEmpty) {
+      return
+    }
+
+    val runtimeStatsUris =
+      executionIds.flatMap(eid => WorkflowExecutionsResource.getRuntimeStatsUriByExecutionId(eid).toList)
+
+    // Invalidate cache artifacts produced by these executions.
+    val cacheInvalidation = cacheService.invalidateCacheBySourceExecutionsWithArtifacts(executionIds)
+
+    val resultUris = executionIds
+      .flatMap(WorkflowExecutionsResource.getResultUrisByExecutionId)
+      .filterNot(cacheInvalidation.deletedResultUris.contains)
+    val consoleMessagesUris =
+      executionIds.flatMap(WorkflowExecutionsResource.getConsoleMessagesUriByExecutionId)
 
     // Remove references from registry first
-    WorkflowExecutionsResource.deleteConsoleMessageAndExecutionResultUris(eid)
+    executionIds.foreach(WorkflowExecutionsResource.deleteConsoleMessageAndExecutionResultUris)
 
     // Clean up all result and console message documents
-    (resultUris ++ consoleMessagesUris).foreach { uri =>
+    (resultUris ++ consoleMessagesUris).distinct.foreach { uri =>
       try DocumentFactory.openDocument(uri)._1.clear()
       catch {
         case error: Throwable =>
@@ -333,7 +366,7 @@ class WorkflowService(
     }
 
     // Expire any Iceberg snapshots for runtime statistics
-    WorkflowExecutionsResource.getRuntimeStatsUriByExecutionId(eid).foreach { uri =>
+    runtimeStatsUris.distinct.foreach { uri =>
       try {
         DocumentFactory.openDocument(uri)._1 match {
           case iceberg: OnIceberg => iceberg.expireSnapshots()

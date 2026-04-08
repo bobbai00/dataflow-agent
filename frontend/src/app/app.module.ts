@@ -84,6 +84,7 @@ import { RowModalComponent } from "./workspace/component/result-panel/result-pan
 import { OperatorPropertyEditFrameComponent } from "./workspace/component/property-editor/operator-property-edit-frame/operator-property-edit-frame.component";
 import { NzTabsModule } from "ng-zorro-antd/tabs";
 import { VersionsListComponent } from "./workspace/component/left-panel/versions-list/versions-list.component";
+import { CachePanelComponent } from "./workspace/component/left-panel/cache-panel/cache-panel.component";
 import { NzPaginationModule } from "ng-zorro-antd/pagination";
 import { JwtModule } from "@auth0/angular-jwt";
 import { AuthService } from "./common/service/user/auth.service";
@@ -194,6 +195,8 @@ import { FormlyRepeatDndComponent } from "./common/formly/repeat-dnd/repeat-dnd.
 import { NzInputNumberModule } from "ng-zorro-antd/input-number";
 import { NzCheckboxModule } from "ng-zorro-antd/checkbox";
 import { RegistrationRequestModalComponent } from "./common/service/user/registration-request-modal/registration-request-modal.component";
+import { MarkdownDescriptionComponent } from "./dashboard/component/user/markdown-description/markdown-description.component";
+import { UserComputingUnitComponent } from "./dashboard/component/user/user-computing-unit/user-computing-unit.component";
 
 registerLocaleData(en);
 
@@ -209,6 +212,7 @@ registerLocaleData(en);
     SettingsComponent,
     PropertyEditorComponent,
     VersionsListComponent,
+    CachePanelComponent,
     TimeTravelComponent,
     WorkflowEditorComponent,
     ResultPanelComponent,
@@ -302,6 +306,7 @@ registerLocaleData(en);
     RegistrationRequestModalComponent,
     MarkdownDescriptionComponent,
     AgentInteractionComponent,
+    UserComputingUnitComponent,
   ],
   imports: [
     BrowserModule,

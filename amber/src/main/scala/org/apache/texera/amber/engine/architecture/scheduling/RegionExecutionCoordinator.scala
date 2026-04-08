@@ -37,22 +37,35 @@ import org.apache.texera.amber.engine.architecture.controller.execution.{
 }
 import org.apache.texera.amber.engine.architecture.controller.{
   ControllerConfig,
+  ExecutionStateUpdate,
   ExecutionStatsUpdate,
   RuntimeStatisticsPersist,
   WorkerAssignmentUpdate
 }
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands._
-import org.apache.texera.amber.engine.architecture.rpc.controlreturns.EmptyReturn
+import org.apache.texera.amber.engine.architecture.rpc.controlreturns.{
+  EmptyReturn,
+  WorkflowAggregatedState
+}
 import org.apache.texera.amber.engine.architecture.scheduling.config.{
   InputPortConfig,
   OperatorConfig,
   OutputPortConfig,
+  PortConfig,
   ResourceConfig
 }
 import org.apache.texera.amber.engine.architecture.sendsemantics.partitionings.Partitioning
-import org.apache.texera.amber.engine.architecture.worker.statistics.WorkerState
+import org.apache.texera.amber.engine.architecture.worker.statistics.{
+  PortTupleMetricsMapping,
+  TupleMetrics,
+  WorkerState
+}
 import org.apache.texera.amber.engine.common.AmberLogging
 import org.apache.texera.amber.engine.common.FutureBijection._
+import org.apache.texera.amber.engine.common.executionruntimestate.{
+  OperatorMetrics,
+  OperatorStatistics
+}
 import org.apache.texera.amber.engine.common.rpc.AsyncRPCClient
 import org.apache.texera.amber.engine.common.virtualidentity.util.CONTROLLER
 import org.apache.texera.web.SessionState
@@ -92,23 +105,80 @@ import scala.concurrent.duration.Duration
 class RegionExecutionCoordinator(
     region: Region,
     workflowExecution: WorkflowExecution,
+    executionId: org.apache.texera.amber.core.virtualidentity.ExecutionIdentity,
     asyncRPCClient: AsyncRPCClient,
     controllerConfig: ControllerConfig,
     actorService: AkkaActorService,
     actorRefService: AkkaActorRefMappingService
 ) extends AmberLogging {
 
-  initRegionExecution()
-
   private sealed trait RegionExecutionPhase
   private case object Unexecuted extends RegionExecutionPhase
   private case object ExecutingDependeePortsPhase extends RegionExecutionPhase
   private case object ExecutingNonDependeePortsPhase extends RegionExecutionPhase
   private case object Completed extends RegionExecutionPhase
+  private case object CompletedFromCache extends RegionExecutionPhase
 
   private val currentPhaseRef: AtomicReference[RegionExecutionPhase] = new AtomicReference(
     Unexecuted
   )
+
+  if (region.cached) {
+    completeCachedRegion()
+  } else {
+    initRegionExecution()
+  }
+
+  /**
+    * Short-circuit a cached region by recording operator metrics and output URIs without workers,
+    * then emit stats and mark the region as completed.
+    */
+  private def completeCachedRegion(): Unit = {
+    val regionExecution = workflowExecution.getRegionExecution(region.id)
+    val resourceConfig = region.resourceConfig.getOrElse(ResourceConfig())
+    region.getOperators.foreach { op =>
+      val opExecution = regionExecution.initOperatorExecution(op.id)
+      // Cached regions do not create workers; synthesize operator-level metrics instead.
+      val outputMetrics = resourceConfig.portConfigs
+        .collect {
+          case (gpid, cfg: OutputPortConfig) if gpid.opId == op.id =>
+            // Emit metrics only for configured output ports in this cached region.
+            // Use -1 to preserve unknown cached counts in UI/stats instead of reporting 0.
+            val count = cfg.cachedTupleCount.getOrElse(-1L)
+            PortTupleMetricsMapping(gpid.portId, TupleMetrics(count, 0L))
+        }
+        .toSeq
+      val inputMetrics = op.inputPorts.keys
+        // Use -1 to signal skipped/unknown input counts for cached operators.
+        .map(pid => PortTupleMetricsMapping(pid, TupleMetrics(-1L, -1L)))
+        .toSeq
+      val stats = OperatorMetrics(
+        WorkflowAggregatedState.COMPLETED_FROM_CACHE,
+        OperatorStatistics(
+          inputMetrics,
+          outputMetrics
+        )
+      )
+      opExecution.setCachedMetrics(stats)
+    }
+    recordCachedOutputPortResults(resourceConfig)
+    asyncRPCClient.sendToClient(
+      ExecutionStatsUpdate(workflowExecution.getAllRegionExecutionsStats)
+    )
+    setPhase(CompletedFromCache)
+  }
+
+  private def recordCachedOutputPortResults(resourceConfig: ResourceConfig): Unit = {
+    resourceConfig.portConfigs.collect {
+      case (gpid, cfg: OutputPortConfig) =>
+        val storageUri = cfg.storageURI
+        WorkflowExecutionsResource.insertOperatorPortResultUri(
+          eid = executionId,
+          globalPortId = gpid,
+          uri = storageUri
+        )
+    }
+  }
 
   /**
     * Sync the status of `RegionExecution` and transition this coordinator's phase to `Completed` only when the
@@ -191,7 +261,10 @@ class RegionExecutionCoordinator(
     }
   }
 
-  def isCompleted: Boolean = currentPhaseRef.get == Completed
+  def isCompleted: Boolean = {
+    val phase = currentPhaseRef.get
+    phase == Completed || phase == CompletedFromCache
+  }
 
   /**
     * This will sync and transition the region execution phase from one to another depending on its current phase:
@@ -220,12 +293,16 @@ class RegionExecutionCoordinator(
         }
       case ExecutingNonDependeePortsPhase =>
         tryCompleteRegionExecution()
-      case Completed =>
-        // Already completed, no further action needed.
+      case Completed | CompletedFromCache =>
+        // Already completed or used cache, no further action needed.
         Future.Unit
     }
 
   private def executeDependeePortPhase(): Future[Unit] = {
+    if (region.cached) {
+      // Cached region short-circuits all execution.
+      return Future.Unit
+    }
     setPhase(ExecutingDependeePortsPhase)
     if (!region.getOperators.exists(_.dependeeInputs.nonEmpty)) {
       // Skip to the next phase when there are no dependee input ports
@@ -243,10 +320,12 @@ class RegionExecutionCoordinator(
 
   private def executeNonDependeePortPhase(): Future[Unit] = {
     setPhase(ExecutingNonDependeePortsPhase)
-    // Allocate output port storage objects
+    // Register reuse-only output bindings (cache-hit ports) without creating new storage objects.
+    registerReuseOnlyOutputPortResults(region.resourceConfig.get.portConfigs)
+    // Allocate output port storage objects for fresh materializations only.
     region.resourceConfig.get.portConfigs
       .collect {
-        case (id, cfg: OutputPortConfig) => id -> cfg
+        case (id, cfg: OutputPortConfig) if cfg.materialize => id -> cfg
       }
       .foreach {
         case (pid, cfg) =>
@@ -320,6 +399,8 @@ class RegionExecutionCoordinator(
         else
           None
       )
+      // Ensure live execution does not inherit cached operator metrics.
+      operatorExecution.clearCachedMetrics()
 
       if (!existOpExecution) {
         buildOperator(
@@ -352,6 +433,9 @@ class RegionExecutionCoordinator(
       operators: Set[PhysicalOp],
       resourceConfig: ResourceConfig
   ): Future[Seq[EmptyReturn]] = {
+    if (region.cached) {
+      return Future.value(Seq.empty)
+    }
     Future
       .collect(
         operators
@@ -423,7 +507,7 @@ class RegionExecutionCoordinator(
                             if gid == GlobalPortIdentity(
                               opId = physicalOp.id,
                               portId = outputPortId
-                            ) =>
+                            ) && cfg.materialize =>
                           cfg.storageURI.toString
                       }
                       .getOrElse("")
@@ -459,7 +543,29 @@ class RegionExecutionCoordinator(
     )
   }
 
+  /**
+    * Persists result URI bindings for reuse-only output ports so consumers and UI can
+    * resolve cached results in the current execution without rematerialization.
+    */
+  private def registerReuseOnlyOutputPortResults(
+      portConfigs: Map[GlobalPortIdentity, PortConfig]
+  ): Unit = {
+    portConfigs.foreach {
+      case (outputPortId, outputCfg: OutputPortConfig)
+          if !outputPortId.input && !outputCfg.materialize =>
+        WorkflowExecutionsResource.insertOperatorPortResultUri(
+          eid = executionId,
+          globalPortId = outputPortId,
+          uri = outputCfg.storageURI
+        )
+      case _ =>
+    }
+  }
+
   private def connectChannels(links: Set[PhysicalLink]): Future[Seq[EmptyReturn]] = {
+    if (region.cached) {
+      return Future.value(Seq.empty)
+    }
     Future.collect(
       links.map { link: PhysicalLink =>
         asyncRPCClient.controllerInterface.linkWorkers(
@@ -471,6 +577,9 @@ class RegionExecutionCoordinator(
   }
 
   private def openOperators(operators: Set[PhysicalOp]): Future[Seq[EmptyReturn]] = {
+    if (region.cached) {
+      return Future.value(Seq.empty)
+    }
     Future
       .collect(
         operators
@@ -490,6 +599,9 @@ class RegionExecutionCoordinator(
       region: Region,
       isDependeePhase: Boolean
   ): Future[Seq[Unit]] = {
+    if (region.cached) {
+      return Future.value(Seq.empty)
+    }
     val stats = workflowExecution.getAllRegionExecutionsStats
     asyncRPCClient.sendToClient(ExecutionStatsUpdate(stats))
     asyncRPCClient.sendToClient(RuntimeStatisticsPersist(stats))

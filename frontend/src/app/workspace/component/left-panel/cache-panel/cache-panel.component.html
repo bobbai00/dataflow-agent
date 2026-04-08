@@ -1,0 +1,134 @@
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one
+ or more contributor license agreements.  See the NOTICE file
+ distributed with this work for additional information
+ regarding copyright ownership.  The ASF licenses this file
+ to you under the Apache License, Version 2.0 (the
+ "License"); you may not use this file except in compliance
+ with the License.  You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing,
+ software distributed under the License is distributed on an
+ "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ KIND, either express or implied.  See the License for the
+ specific language governing permissions and limitations
+ under the License.
+-->
+
+<div class="cache-panel">
+  <div class="cache-panel__actions">
+    <button
+      nz-button
+      nzSize="small"
+      nzType="default"
+      [disabled]="loading"
+      (click)="refresh()">
+      Refresh
+    </button>
+    <button
+      nz-button
+      nzSize="small"
+      nzType="default"
+      [disabled]="loading || removing || !cacheEntries.length"
+      [nzLoading]="removing"
+      (nzOnConfirm)="clearCacheEntries()"
+      nz-popconfirm
+      nzPopconfirmTitle="Remove all cached results for this workflow?">
+      Clear cache
+    </button>
+    <button
+      nz-button
+      nzSize="small"
+      nzType="default"
+      (click)="toggleAutoInvalidation()">
+      Auto invalidation: {{ autoInvalidationEnabled ? 'On' : 'Off' }}
+    </button>
+    <label class="cache-panel__toggle">
+      <nz-switch
+        nzSize="small"
+        [(ngModel)]="showUsableOnly"
+        (ngModelChange)="updateVisibleEntries()"></nz-switch>
+      <span>Usable by this execution</span>
+    </label>
+    <span
+      class="cache-panel__count"
+      *ngIf="cacheEntries.length">
+      {{ visibleEntries.length }}
+      <ng-container *ngIf="showUsableOnly">of {{ cacheEntries.length }}</ng-container>
+      entries
+    </span>
+  </div>
+
+  <nz-alert
+    *ngIf="invalidationNotice"
+    class="cache-panel__notice"
+    nzType="info"
+    nzShowIcon
+    nzCloseable
+    (nzOnClose)="clearInvalidationNotice()"
+    [nzMessage]="formatInvalidationMessage(invalidationNotice)"
+    [nzDescription]="formatInvalidationTimestamp(invalidationNotice)">
+  </nz-alert>
+
+  <nz-alert
+    *ngIf="manualClearNotice"
+    class="cache-panel__notice"
+    nzType="success"
+    nzShowIcon
+    nzCloseable
+    (nzOnClose)="clearManualClearNotice()"
+    [nzMessage]="formatManualClearMessage(manualClearNotice)"
+    [nzDescription]="formatManualClearTimestamp(manualClearNotice)">
+  </nz-alert>
+
+  <nz-table
+    nzSize="small"
+    [nzSimple]="true"
+    [nzFrontPagination]="false"
+    nzTableLayout="auto"
+    [nzLoading]="loading"
+    *ngIf="loading || visibleEntries.length"
+    [nzData]="visibleEntries">
+    <thead>
+      <tr>
+        <th>Port</th>
+        <th>Cache Info</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        *ngFor="let entry of visibleEntries"
+        [class.cache-usable]="isUsableForExecution(entry)">
+        <td>
+          <div class="cache-port">
+            <div class="cache-port__op">{{ entry.logicalOpId }}</div>
+            <div class="cache-port__layer">{{ entry.layerName }}</div>
+            <div class="cache-port__id">
+              port {{ entry.portId }}<span *ngIf="entry.internal"> (internal)</span>
+            </div>
+          </div>
+        </td>
+        <td>
+          <div class="cache-meta">
+            <nz-tag
+              *ngIf="isUsableForExecution(entry)"
+              nzColor="blue">
+              Usable by this execution
+            </nz-tag>
+            <div>source execution: {{ formatSourceExecutionId(entry.sourceExecutionId) }}</div>
+            <div>tuples: {{ formatTupleCount(entry.tupleCount) }}</div>
+            <div>updated: {{ entry.updatedAt ? (entry.updatedAt | date:'short') : '-' }}</div>
+            <div>hash: {{ shortenSubdagHash(entry.subdagHash) }}</div>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </nz-table>
+
+  <nz-empty
+    *ngIf="!loading && !visibleEntries.length"
+    [nzNotFoundContent]="showUsableOnly ? 'No usable cache entries' : 'No cache entries'">
+  </nz-empty>
+</div>

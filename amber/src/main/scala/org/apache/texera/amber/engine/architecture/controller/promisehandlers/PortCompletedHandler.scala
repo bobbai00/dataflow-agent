@@ -24,7 +24,8 @@ import org.apache.texera.amber.core.WorkflowRuntimeException
 import org.apache.texera.amber.core.workflow.GlobalPortIdentity
 import org.apache.texera.amber.engine.architecture.controller.{
   ControllerAsyncRPCHandlerInitializer,
-  FatalError
+  FatalError,
+  PortMaterialized
 }
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands.{
   AsyncRPCContext,
@@ -33,8 +34,10 @@ import org.apache.texera.amber.engine.architecture.rpc.controlcommands.{
   StatisticsUpdateTarget
 }
 import org.apache.texera.amber.engine.architecture.rpc.controlreturns.EmptyReturn
+import org.apache.texera.amber.engine.architecture.scheduling.config.OutputPortConfig
 import org.apache.texera.amber.engine.common.virtualidentity.util.CONTROLLER
 import org.apache.texera.amber.util.VirtualIdentityUtils
+import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource
 
 /** Notify the completion of a port:
   * - For input port, it means the worker has finished consuming and processing all the data
@@ -81,6 +84,32 @@ trait PortCompletedHandler {
               else operatorExecution.isOutputPortCompleted(msg.portId)
 
             if (isPortCompleted) {
+              // If this is an output port and materialized, notify client (for cache upsert).
+              if (!msg.input) {
+                val isMaterializedOutput = region.resourceConfig
+                  .flatMap(_.portConfigs.get(globalPortId))
+                  .collect { case cfg: OutputPortConfig => cfg.materialize }
+                  .getOrElse(false)
+
+                if (isMaterializedOutput) {
+                  val storageUriOpt =
+                    WorkflowExecutionsResource.getResultUriByPhysicalPortId(
+                      cp.workflowContext.executionId,
+                      globalPortId
+                    )
+                  storageUriOpt.foreach { uri =>
+                    // Prefer runtime statistics over storage reads for tuple counts.
+                    val tupleCount = operatorExecution
+                      .getStats
+                      .operatorStatistics
+                      .outputMetrics
+                      .find(_.portId == msg.portId)
+                      .map(_.tupleMetrics.count)
+                    sendToClient(PortMaterialized(globalPortId, uri, tupleCount))
+                  }
+                }
+              }
+
               cp.workflowExecutionCoordinator
                 .coordinateRegionExecutors(cp.actorService)
                 // Since this message is sent from a worker, any exception from the above code will be returned to that worker.
