@@ -27,9 +27,12 @@ import { ExecuteWorkflowService } from "../../service/execute-workflow/execute-w
 import { fromJointPaperEvent, JointUIService, linkPathStrokeColor } from "../../service/joint-ui/joint-ui.service";
 import { ValidationWorkflowService } from "../../service/validation/validation-workflow.service";
 import { WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
+import { CacheUsageService } from "../../service/workflow-status/cache-usage.service";
+import { WorkflowCacheEntriesService } from "../../service/workflow-status/workflow-cache-entries.service";
 import { WorkflowStatusService } from "../../service/workflow-status/workflow-status.service";
 import { ExecutionState, OperatorState } from "../../types/execute-workflow.interface";
 import { LogicalPort, OperatorLink, OperatorPredicate } from "../../types/workflow-common.interface";
+import { WorkflowCacheEntry } from "../../../dashboard/type/workflow-cache-entry";
 import { auditTime, filter, map, takeUntil } from "rxjs/operators";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { UndoRedoService } from "../../service/undo-redo/undo-redo.service";
@@ -98,6 +101,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private currentOpenedOperatorID: string | null = null;
   private removeButton!: new () => joint.linkTools.Button;
   private breakpointButton!: new () => joint.linkTools.Button;
+  private cachedEntries: ReadonlyArray<WorkflowCacheEntry> = [];
 
   // Inline panels state - per-operator open panels
   public openPanelIds: Set<string> = new Set();
@@ -146,6 +150,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     private validationWorkflowService: ValidationWorkflowService,
     private jointUIService: JointUIService,
     private workflowStatusService: WorkflowStatusService,
+    private cacheUsageService: CacheUsageService,
+    private cacheEntriesService: WorkflowCacheEntriesService,
     private executeWorkflowService: ExecuteWorkflowService,
     private nzModalService: NzModalService,
     private changeDetectorRef: ChangeDetectorRef,
@@ -179,7 +185,30 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     magnet: SVGElement,
     event: joint.dia.Event
   ): boolean {
-    return magnet && magnet.getAttribute("port-group") === "out";
+    const portGroup = WorkflowEditorComponent.getMagnetAttribute(magnet, "port-group");
+    return portGroup === "out";
+  }
+
+  /**
+   * Resolves a port attribute from a magnet or its nearest port element.
+   * This keeps port interactions working even when ports have extra markup.
+   */
+  private static getMagnetAttribute(
+    magnet: SVGElement | null | undefined,
+    attribute: "port" | "port-group"
+  ): string | null {
+    if (!magnet) {
+      return null;
+    }
+    const direct = magnet.getAttribute(attribute);
+    if (direct) {
+      return direct;
+    }
+    const closest = magnet.closest(`[${attribute}]`);
+    if (closest instanceof SVGElement) {
+      return closest.getAttribute(attribute);
+    }
+    return null;
   }
 
   ngAfterViewInit() {
@@ -209,6 +238,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.handlePortHighlightEvent();
     this.registerPortDisplayNameChangeHandler();
     this.handleOperatorStatisticsUpdate();
+    this.handleCacheUsageUpdate();
+    this.handleCacheEntriesUpdate();
     this.handleRegionEvents();
     this.handleOperatorSuggestionHighlightEvent();
     this.handleAgentHoverHighlight();
@@ -354,7 +385,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
               op.operatorID,
               status[op.operatorID],
               this.isSource(op.operatorID),
-              this.isSink(op.operatorID)
+              this.isSink(op.operatorID),
+              this.cacheUsageService.getPortCacheLabels(op.operatorID)
             );
           });
       });
@@ -384,6 +416,73 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       });
   }
 
+  /**
+   * Updates cached output port labels whenever cache usage metadata changes.
+   */
+  private handleCacheUsageUpdate(): void {
+    this.cacheUsageService
+      .getCacheUsageStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(() => {
+        this.workflowActionService
+          .getTexeraGraph()
+          .getAllOperators()
+          .forEach(op => {
+            this.jointUIService.changeOperatorCacheLabels(
+              this.paper,
+              op.operatorID,
+              this.cacheUsageService.getPortCacheLabels(op.operatorID)
+            );
+          });
+      });
+  }
+
+  /**
+   * Updates cached output port indicators whenever cache entries or graph structure changes.
+   */
+  private handleCacheEntriesUpdate(): void {
+    this.cacheEntriesService
+      .getCacheEntriesStream()
+      .pipe(untilDestroyed(this))
+      .subscribe(entries => {
+        this.cachedEntries = entries;
+        this.applyCachedPortIndicators();
+      });
+
+    merge(
+      this.workflowActionService.getTexeraGraph().getOperatorAddStream(),
+      this.workflowActionService.getTexeraGraph().getOperatorDeleteStream(),
+      this.workflowActionService.getTexeraGraph().getPortAddedOrDeletedStream()
+    )
+      .pipe(untilDestroyed(this))
+      .subscribe(() => {
+        this.applyCachedPortIndicators();
+      });
+  }
+
+  /**
+   * Applies cached port indicators based on the latest cache entry snapshot.
+   */
+  private applyCachedPortIndicators(): void {
+    const cachedPortsByOperator = new Map<string, Set<string>>();
+    this.cachedEntries
+      .filter(entry => !entry.internal)
+      .forEach(entry => {
+        if (!cachedPortsByOperator.has(entry.logicalOpId)) {
+          cachedPortsByOperator.set(entry.logicalOpId, new Set<string>());
+        }
+        cachedPortsByOperator.get(entry.logicalOpId)!.add(entry.portId.toString());
+      });
+
+    this.workflowActionService
+      .getTexeraGraph()
+      .getAllOperators()
+      .forEach(op => {
+        const cachedPorts = cachedPortsByOperator.get(op.operatorID) ?? new Set<string>();
+        this.jointUIService.changeOperatorCachedPorts(this.paper, op.operatorID, cachedPorts);
+      });
+  }
+
   private handleRegionEvents(): void {
     this.editor.classList.add("hide-region");
     const Region = joint.dia.Element.define(
@@ -403,21 +502,39 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     );
 
     let regionMap: { regionElement: joint.dia.Element; operators: joint.dia.Cell[] }[] = [];
+    // Track whether regions should be visible (preserved across element recreation)
+    let regionsVisible = false;
+    const colorMap: Record<string, string> = {
+      ExecutingDependeePortsPhase: "rgba(33,150,243,0.2)",
+      ExecutingNonDependeePortsPhase: "rgba(255,213,79,0.2)",
+      Completed: "rgba(76,175,80,0.2)",
+      CompletedFromCache: "rgba(24,144,255,0.3)",
+    };
+
     // update region elements on execution
     this.executeWorkflowService
       .getRegionUpdateStream()
       .pipe(untilDestroyed(this))
       .subscribe(event => {
-        this.paper.model
-          .getCells()
-          .filter(element => element instanceof Region)
-          .forEach(element => element.remove());
+        // Preserve visibility state from existing elements before removing them
+        const existingRegions = this.paper.model.getCells().filter(element => element instanceof Region);
+        if (existingRegions.length > 0) {
+          regionsVisible = existingRegions[0].attr("body/visibility") === "visible";
+        } else {
+          // No existing regions - use the shared state from workflowActionService
+          regionsVisible = this.workflowActionService.getShowRegion();
+        }
+        existingRegions.forEach(element => element.remove());
 
         regionMap = event.regions.map(([id, region]) => {
           const element = new Region({ id: "region-" + id });
           const ops = region.map(id => this.paper.getModelById(id));
           this.paper.model.addCell(element);
           this.updateRegionElement(element, ops);
+          // Apply visibility state
+          if (regionsVisible) {
+            element.attr("body/visibility", "visible");
+          }
           return { regionElement: element, operators: ops };
         });
       });
@@ -433,12 +550,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .getRegionStateStream()
       .pipe(untilDestroyed(this))
       .subscribe(region => {
-        const colorMap: Record<string, string> = {
-          ExecutingDependeePortsPhase: "rgba(33,150,243,0.2)",
-          ExecutingNonDependeePortsPhase: "rgba(255,213,79,0.2)",
-          Completed: "rgba(76,175,80,0.2)",
-        };
-        this.paper.getModelById("region-" + region.id).attr("body/fill", colorMap[region.state]);
+        const element = this.paper.getModelById("region-" + region.id);
+        if (element && colorMap[region.state]) {
+          element.attr("body/fill", colorMap[region.state]);
+        }
       });
   }
 
@@ -884,9 +999,14 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         // set the multi-select mode
         this.wrapper.setMultiSelectMode(<boolean>event[1].shiftKey);
 
+        const portID = WorkflowEditorComponent.getMagnetAttribute(event[2] as SVGElement, "port");
+        if (!portID) {
+          return;
+        }
+
         const clickedPortID: LogicalPort = {
           operatorID: event[0].model.id as string,
-          portID: event[2].getAttribute("port") as string,
+          portID: portID,
         };
 
         if (event[1].shiftKey) {
@@ -998,20 +1118,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     end: joint.dia.LinkEnd,
     linkView: joint.dia.LinkView
   ): boolean {
+    const sourcePortGroup = WorkflowEditorComponent.getMagnetAttribute(sourceMagnet, "port-group");
+    const targetPortGroup = WorkflowEditorComponent.getMagnetAttribute(targetMagnet, "port-group");
+
     // user cannot draw connection starting from the input port (left side)
-    if (sourceMagnet && sourceMagnet.getAttribute("port-group") === "in") {
+    if (sourcePortGroup === "in") {
       return false;
     }
 
     // user cannot connect to the output port (right side)
-    if (targetMagnet && targetMagnet.getAttribute("port-group") === "out") {
+    if (targetPortGroup === "out") {
       return false;
     }
 
     const sourceCellID = sourceView.model.id.toString();
-    const sourcePortID = sourceMagnet?.getAttribute("port");
+    const sourcePortID = WorkflowEditorComponent.getMagnetAttribute(sourceMagnet, "port");
     const targetCellID = targetView.model.id.toString();
-    const targetPortID = targetMagnet?.getAttribute("port");
+    const targetPortID = WorkflowEditorComponent.getMagnetAttribute(targetMagnet, "port");
 
     return this.validateOperatorConnection(sourceCellID, sourcePortID, targetCellID, targetPortID);
   }

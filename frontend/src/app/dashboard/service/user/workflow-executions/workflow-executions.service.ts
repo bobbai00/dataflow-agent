@@ -22,10 +22,15 @@ import { Observable } from "rxjs";
 import { AppSettings } from "../../../../common/app-setting";
 import { HttpClient, HttpParams } from "@angular/common/http";
 import { WorkflowExecutionsEntry } from "../../../type/workflow-executions-entry";
+import { WorkflowCacheEntry } from "../../../type/workflow-cache-entry";
 import { WorkflowRuntimeStatistics } from "../../../type/workflow-runtime-statistics";
-import { ExecutionState } from "../../../../workspace/types/execute-workflow.interface";
+import { ExecutionState, LogicalPlan } from "../../../../workspace/types/execute-workflow.interface";
 
 export const WORKFLOW_EXECUTIONS_API_BASE_URL = `${AppSettings.getApiEndpoint()}/executions`;
+
+export type CacheInvalidationResponse = Readonly<{
+  removedCount: number;
+}>;
 
 @Injectable({
   providedIn: "root",
@@ -90,5 +95,46 @@ export class WorkflowExecutionsService {
     return this.http.get<WorkflowRuntimeStatistics[]>(`${WORKFLOW_EXECUTIONS_API_BASE_URL}/${wid}/stats/${eId}`, {
       params,
     });
+  }
+
+  /**
+   * Retrieves cache entries for the workflow, ordered by most recent update.
+   * Limit and offset are optional; omit to fetch all entries.
+   */
+  retrieveWorkflowCacheEntries(wid: number, limit?: number, offset?: number): Observable<WorkflowCacheEntry[]> {
+    let params = new HttpParams();
+    if (limit !== undefined) {
+      params = params.set("limit", limit.toString());
+    }
+    if (offset !== undefined) {
+      params = params.set("offset", offset.toString());
+    }
+    return this.http.get<WorkflowCacheEntry[]>(`${WORKFLOW_EXECUTIONS_API_BASE_URL}/${wid}/cache`, { params });
+  }
+
+  /**
+   * Deletes all cached outputs for the workflow, including stored result artifacts.
+   */
+  deleteWorkflowCacheEntries(wid: number): Observable<void> {
+    return this.http.post<void>(`${WORKFLOW_EXECUTIONS_API_BASE_URL}/${wid}/cache/clear`, {});
+  }
+
+  /**
+   * Evicts cache entries owned by the provided logical operators.
+   */
+  evictWorkflowCacheEntries(wid: number, logicalOpIds: ReadonlyArray<string>): Observable<void> {
+    return this.http.post<void>(`${WORKFLOW_EXECUTIONS_API_BASE_URL}/${wid}/cache/evict`, {
+      logicalOpIds,
+    });
+  }
+
+  /**
+   * Invalidates cache entries whose fingerprints do not match the provided logical plan.
+   */
+  invalidateWorkflowCacheEntries(wid: number, logicalPlan: LogicalPlan): Observable<CacheInvalidationResponse | null> {
+    return this.http.post<CacheInvalidationResponse | null>(
+      `${WORKFLOW_EXECUTIONS_API_BASE_URL}/${wid}/cache/invalidate`,
+      logicalPlan
+    );
   }
 }

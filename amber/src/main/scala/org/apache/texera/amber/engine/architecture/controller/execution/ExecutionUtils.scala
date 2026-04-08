@@ -50,7 +50,8 @@ object ExecutionUtils {
       WorkflowAggregatedState.RUNNING,
       WorkflowAggregatedState.UNINITIALIZED,
       WorkflowAggregatedState.PAUSED,
-      WorkflowAggregatedState.READY
+      WorkflowAggregatedState.READY,
+      Some(WorkflowAggregatedState.COMPLETED_FROM_CACHE)
     )
 
     def sumMetrics(
@@ -81,6 +82,21 @@ object ExecutionUtils {
     )
   }
 
+  /**
+    * Aggregates execution states into a workflow-level state.
+    *
+    * Priority rules:
+    * - Empty => UNINITIALIZED
+    * - All completed or all terminated => COMPLETED
+    * - All cached (if provided) => COMPLETED_FROM_CACHE
+    * - Any running => RUNNING
+    * - Otherwise, strip terminal states (completed/terminated/cached):
+    *   - None left => COMPLETED (mixed terminal states)
+    *   - All uninitialized => UNINITIALIZED
+    *   - All paused => PAUSED
+    *   - All ready => RUNNING
+    *   - Else => UNKNOWN
+    */
   def aggregateStates[T](
       states: Iterable[T],
       completedState: T,
@@ -88,16 +104,23 @@ object ExecutionUtils {
       runningState: T,
       uninitializedState: T,
       pausedState: T,
-      readyState: T
+      readyState: T,
+      cachedState: Option[T] = None
   ): WorkflowAggregatedState = {
     states match {
       case _ if states.isEmpty                      => WorkflowAggregatedState.UNINITIALIZED
       case _ if states.forall(_ == completedState)  => WorkflowAggregatedState.COMPLETED
       case _ if states.forall(_ == terminatedState) => WorkflowAggregatedState.COMPLETED
-      case _ if states.exists(_ == runningState)    => WorkflowAggregatedState.RUNNING
+      case _ if cachedState.isDefined && states.forall(_ == cachedState.get) =>
+        WorkflowAggregatedState.COMPLETED_FROM_CACHE
+      case _ if states.exists(_ == runningState) => WorkflowAggregatedState.RUNNING
       case _ =>
-        val unCompletedStates = states.filter(_ != completedState)
-        if (unCompletedStates.forall(_ == uninitializedState)) {
+        val terminalStates =
+          Set(completedState, terminatedState) ++ cachedState.toSet
+        val unCompletedStates = states.filterNot(terminalStates.contains)
+        if (unCompletedStates.isEmpty) {
+          WorkflowAggregatedState.COMPLETED
+        } else if (unCompletedStates.forall(_ == uninitializedState)) {
           WorkflowAggregatedState.UNINITIALIZED
         } else if (unCompletedStates.forall(_ == pausedState)) {
           WorkflowAggregatedState.PAUSED
@@ -109,6 +132,12 @@ object ExecutionUtils {
     }
   }
 
+  /**
+    * Aggregates tuple metrics per port, preserving unknown markers for cached inputs.
+    *
+    * A negative count/size indicates an unknown value (e.g., cached input ports),
+    * so any unknown value keeps the aggregated port metrics unknown.
+    */
   def aggregatePortMetrics(
       metrics: Iterable[PortTupleMetricsMapping]
   ): Seq[PortTupleMetricsMapping] = {
@@ -117,8 +146,12 @@ object ExecutionUtils {
       .view
       .map {
         case (portId, mappings) =>
-          val totalCount = mappings.map(_.tupleMetrics.count).sum
-          val totalSize = mappings.map(_.tupleMetrics.size).sum
+          val hasUnknown =
+            mappings.exists(m => m.tupleMetrics.count < 0 || m.tupleMetrics.size < 0)
+          val totalCount =
+            if (hasUnknown) -1L else mappings.map(_.tupleMetrics.count).sum
+          val totalSize =
+            if (hasUnknown) -1L else mappings.map(_.tupleMetrics.size).sum
           PortTupleMetricsMapping(portId, TupleMetrics(totalCount, totalSize))
       }
       .toSeq
