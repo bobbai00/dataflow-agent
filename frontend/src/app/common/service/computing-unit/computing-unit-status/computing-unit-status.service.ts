@@ -24,10 +24,11 @@ import { DashboardWorkflowComputingUnit } from "../../../type/workflow-computing
 import { WorkflowComputingUnitManagingService } from "../workflow-computing-unit/workflow-computing-unit-managing.service";
 import { WorkflowWebsocketService } from "../../../../workspace/service/workflow-websocket/workflow-websocket.service";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
-import { ComputingUnitState } from "../../../type/computing-unit-connection.interface";
-import { isDefined } from "../../../util/predicate";
-import { WorkflowStatusService } from "../../../../workspace/service/workflow-status/workflow-status.service";
-import { UserService } from "../../user/user.service";
+import { ComputingUnitState } from "../../types/computing-unit-connection.interface";
+import { isDefined } from "../../../common/util/predicate";
+import { WorkflowStatusService } from "../workflow-status/workflow-status.service";
+import { WorkflowCacheEntriesService } from "../workflow-status/workflow-cache-entries.service";
+import { UserService } from "../../../common/service/user/user.service";
 
 /**
  * Service that manages and provides access to computing unit status information
@@ -58,6 +59,7 @@ export class ComputingUnitStatusService implements OnDestroy {
     private computingUnitService: WorkflowComputingUnitManagingService,
     private workflowWebsocketService: WorkflowWebsocketService,
     private workflowStatusService: WorkflowStatusService,
+    private workflowCacheEntriesService: WorkflowCacheEntriesService,
     private userService: UserService
   ) {
     // Initialize the service by loading computing units
@@ -161,6 +163,8 @@ export class ComputingUnitStatusService implements OnDestroy {
         if (this.workflowWebsocketService.isConnected) {
           this.workflowWebsocketService.closeWebsocket();
           this.workflowStatusService.clearStatus();
+          // refresh cache panel — cache entries may differ between CUs
+          this.workflowCacheEntriesService.refreshCurrentWorkflowCacheEntries();
         }
 
         this.workflowWebsocketService.openWebsocket(wid, this.userService.getCurrentUser()?.uid, cuid);
@@ -263,6 +267,8 @@ export class ComputingUnitStatusService implements OnDestroy {
         // trigger a single refresh; the refresh pipeline will
         // pull the new list and call updateComputingUnits()
         this.refreshComputingUnitList();
+        // refresh cache panel — backend has cleared cache metadata for this CU
+        this.workflowCacheEntriesService.refreshCurrentWorkflowCacheEntries();
       }),
       map(() => true),
       catchError((err: unknown) => {

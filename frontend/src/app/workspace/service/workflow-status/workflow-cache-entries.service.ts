@@ -152,6 +152,15 @@ export class WorkflowCacheEntriesService {
   }
 
   /**
+   * Refreshes cache entries for the current workflow (if any) and updates shared state.
+   */
+  public refreshCurrentWorkflowCacheEntries(): void {
+    if (this.currentWorkflowId && this.currentWorkflowId > 0) {
+      this.refreshCacheEntries(this.currentWorkflowId).subscribe();
+    }
+  }
+
+  /**
    * Refreshes cache entries for a workflow and updates shared state.
    *
    * @param workflowId Workflow ID to refresh entries for

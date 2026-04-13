@@ -403,6 +403,7 @@ ExecutionCacheService ────→ upsertCachedOutput()     OperatorPortCache
   - Execution cleanup integration:
     - lifecycle timeout (cuid-scoped) clears cache artifacts via `invalidateCacheBySourceExecutions`
     - bulk execution deletion removes cache artifacts via `invalidateCacheBySourceExecutions`
+    - CU termination clears `operator_port_cache` and `operator_port_executions` metadata rows (SQL-only in `ComputingUnitManagingResource`); Iceberg result documents are CU-local and already destroyed with the pod, so no additional document cleanup is needed
 - **Fingerprinting**: `FingerprintUtil` implemented with workflow-based specs for deterministic subDAG hashing
 - **Submission-time lookup**: `WorkflowExecutionService` uses `OperatorPortCacheService.lookupCachedOutputs()` to compute fingerprints for all physical output ports, queries cache, stores hits in `WorkflowSettings.cachedOutputs`
 - **Cache persistence**: `PortCompletedHandler` emits `PortMaterialized` event → `ExecutionCacheService` → `OperatorPortCacheService.upsertCachedOutput()` → `OperatorPortCacheDao.upsert()` (includes fingerprint, URI, tuple count)
