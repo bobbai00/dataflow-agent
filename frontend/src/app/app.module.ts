@@ -110,7 +110,6 @@ import { DatasetVersionSelectorComponent } from "./workspace/component/dataset-v
 import { DatasetSelectionModalComponent } from "./workspace/component/dataset-selection-modal/dataset-selection-modal.component";
 import { ReActStepDetailModalComponent } from "./workspace/component/agent-panel/react-step-detail-modal/react-step-detail-modal.component";
 import { ReActStepListComponent } from "./workspace/component/agent-panel/react-step-list/react-step-list.component";
-import { InputAutoCompleteComponent } from "./workspace/component/input-autocomplete/input-autocomplete.component";
 import { CollabWrapperComponent } from "./common/formly/collab-wrapper/collab-wrapper/collab-wrapper.component";
 import { NzSwitchModule } from "ng-zorro-antd/switch";
 import { NzRadioModule } from "ng-zorro-antd/radio";
@@ -269,8 +268,6 @@ registerLocaleData(en);
     DatasetSelectionModalComponent,
     ReActStepDetailModalComponent,
     ReActStepListComponent,
-    InputAutoCompleteComponent,
-    FileSelectionComponent,
     CollabWrapperComponent,
     AboutComponent,
     UserWorkflowListItemComponent,
