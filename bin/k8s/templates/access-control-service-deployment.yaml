@@ -61,6 +61,10 @@ spec:
             - name: GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED
               value: "true"
             {{- end }}
+            {{- range .Values.texeraEnvVars }}
+            - name: {{ .name }}
+              value: "{{ .value }}"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /api/healthcheck
