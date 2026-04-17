@@ -47,7 +47,7 @@ import { GuiConfigService } from "../../../common/service/gui-config.service";
 import { line, curveCatmullRomClosed } from "d3-shape";
 import concaveman from "concaveman";
 import { AgentActionService } from "../../service/agent-action/agent-action.service";
-import { TexeraCopilotManagerService } from "../../service/copilot/texera-copilot-manager.service";
+import { OperatorResultSummary, TexeraCopilotManagerService } from "../../service/copilot/texera-copilot-manager.service";
 import { OperatorStepRef } from "../../service/copilot/copilot-types";
 import { isPythonUdf } from "../../service/workflow-graph/model/workflow-graph";
 
@@ -169,10 +169,21 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.wrapper = this.workflowActionService.getJointGraphWrapper();
   }
 
+  private operatorSummaries: Map<string, OperatorResultSummary> = new Map();
+
   ngOnInit(): void {
     // Cache the tool constructors
     this.removeButton = WorkflowEditorComponent.getRemoveButton();
     this.breakpointButton = WorkflowEditorComponent.getBreakpointButton();
+
+    this.copilotManagerService.operatorResultSummaries$
+      .pipe(untilDestroyed(this))
+      .subscribe(summaries => {
+        this.operatorSummaries = summaries;
+        if (this.chatPopoverOperator) {
+          this.changeDetectorRef.detectChanges();
+        }
+      });
   }
 
   /**
@@ -2194,16 +2205,16 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.changeDetectorRef.detectChanges();
   }
 
-  getOperatorSampleRecords(_operatorId: string): Record<string, any>[] | undefined {
-    return undefined;
+  getOperatorSampleRecords(operatorId: string): Record<string, any>[] | undefined {
+    return this.operatorSummaries.get(operatorId)?.sampleRecords;
   }
 
-  getOperatorResultStatistics(_operatorId: string): Record<string, string> | undefined {
-    return undefined;
+  getOperatorResultStatistics(operatorId: string): Record<string, string> | undefined {
+    return this.operatorSummaries.get(operatorId)?.resultStatistics;
   }
 
-  isOperatorVisualization(_operatorId: string): boolean {
-    return false;
+  isOperatorVisualization(operatorId: string): boolean {
+    return this.operatorSummaries.get(operatorId)?.sampleRecords?.[0]?.["__is_visualization__"] === true;
   }
 
 
