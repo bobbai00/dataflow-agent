@@ -24,11 +24,11 @@ import { DashboardWorkflowComputingUnit } from "../../../type/workflow-computing
 import { WorkflowComputingUnitManagingService } from "../workflow-computing-unit/workflow-computing-unit-managing.service";
 import { WorkflowWebsocketService } from "../../../../workspace/service/workflow-websocket/workflow-websocket.service";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
-import { ComputingUnitState } from "../../types/computing-unit-connection.interface";
-import { isDefined } from "../../../common/util/predicate";
-import { WorkflowStatusService } from "../workflow-status/workflow-status.service";
-import { WorkflowCacheEntriesService } from "../workflow-status/workflow-cache-entries.service";
-import { UserService } from "../../../common/service/user/user.service";
+import { ComputingUnitState } from "../../../type/computing-unit-connection.interface";
+import { isDefined } from "../../../util/predicate";
+import { WorkflowStatusService } from "../../../../workspace/service/workflow-status/workflow-status.service";
+import { WorkflowCacheEntriesService } from "../../../../workspace/service/workflow-status/workflow-cache-entries.service";
+import { UserService } from "../../user/user.service";
 
 /**
  * Service that manages and provides access to computing unit status information
