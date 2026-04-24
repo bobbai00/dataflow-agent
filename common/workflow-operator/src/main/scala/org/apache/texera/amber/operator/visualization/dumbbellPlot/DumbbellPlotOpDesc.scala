@@ -22,10 +22,9 @@ package org.apache.texera.amber.operator.visualization.dumbbellPlot
 import com.fasterxml.jackson.annotation.{JsonProperty, JsonPropertyDescription}
 import com.kjetland.jackson.jsonSchema.annotations.{JsonSchemaInject, JsonSchemaTitle}
 import org.apache.texera.amber.core.tuple.{AttributeType, Schema}
-import org.apache.texera.amber.core.workflow.OutputPort.OutputMode
 import org.apache.texera.amber.pybuilder.PythonTemplateBuilder.PythonTemplateBuilderStringContext
 import org.apache.texera.amber.pybuilder.PyStringTypes.EncodableString
-import org.apache.texera.amber.core.workflow.{InputPort, OutputPort, PortIdentity}
+import org.apache.texera.amber.core.workflow.PortIdentity
 import org.apache.texera.amber.operator.PythonOperatorDescriptor
 import org.apache.texera.amber.operator.metadata.annotations.AutofillAttributeName
 import org.apache.texera.amber.operator.metadata.{OperatorGroupConstants, OperatorInfo}
@@ -84,7 +83,7 @@ class DumbbellPlotOpDesc extends PythonOperatorDescriptor {
 
   @JsonProperty(value = "showLegends", required = false)
   @JsonSchemaTitle("Show Legends?")
-  @JsonPropertyDescription("whether show legends in the graph")
+  @JsonPropertyDescription("whether to show legends in the graph")
   var showLegends: Boolean = false
 
   override def getOutputSchemas(
@@ -99,7 +98,7 @@ class DumbbellPlotOpDesc extends PythonOperatorDescriptor {
   override def operatorInfo: OperatorInfo =
     OperatorInfo.forVisualization(
       "Dumbbell Plot",
-      "Visualize data in a Dumbbell Plots. A dumbbell plots (also known as a lollipop chart) is typically used to compare two distinct values or time points for the same entity.",
+      "Visualize data in a Dumbbell Plot. A dumbbell plot (also known as a lollipop chart) is typically used to compare two distinct values or time points for the same entity.",
       OperatorGroupConstants.VISUALIZATION_BASIC_GROUP
     )
 
