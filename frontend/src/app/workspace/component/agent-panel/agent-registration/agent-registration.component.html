@@ -47,7 +47,7 @@
       *ngIf="!isLoadingModels && modelTypes.length > 0"
       class="model-cards">
       <div
-        *ngFor="let modelType of modelTypes"
+        *ngFor="let modelType of visibleModelTypes"
         class="model-card"
         [class.selected]="selectedModelType === modelType.id"
         (click)="selectModelType(modelType.id)">
@@ -70,6 +70,19 @@
             nzTheme="fill"></i>
         </div>
       </div>
+      <button
+        *ngIf="hiddenModelCount > 0"
+        class="model-expand-toggle"
+        (click)="toggleShowAllModels()"
+        nz-button
+        nzType="link"
+        nzSize="small">
+        <span
+          nz-icon
+          [nzType]="showAllModels ? 'up' : 'down'"
+          nzTheme="outline"></span>
+        {{ showAllModels ? 'Show less' : 'Show ' + hiddenModelCount + ' more' }}
+      </button>
     </div>
   </div>
 

@@ -48,6 +48,23 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
   public isLoadingModels: boolean = false;
   public hasLoadingError: boolean = false;
 
+  /** Show only the top N models by default; the rest collapse behind "Show more". */
+  private readonly defaultVisibleModelCount = 5;
+  public showAllModels: boolean = false;
+
+  get visibleModelTypes(): ModelType[] {
+    if (this.showAllModels) return this.modelTypes;
+    return this.modelTypes.slice(0, this.defaultVisibleModelCount);
+  }
+
+  get hiddenModelCount(): number {
+    return Math.max(0, this.modelTypes.length - this.defaultVisibleModelCount);
+  }
+
+  toggleShowAllModels(): void {
+    this.showAllModels = !this.showAllModels;
+  }
+
   public traceFileList: NzUploadFile[] = [];
   public traceContent: TraceContent | null = null;
   public computingUnitConnected: boolean = false;

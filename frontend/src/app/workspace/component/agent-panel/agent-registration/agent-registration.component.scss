@@ -20,88 +20,18 @@
 .agent-registration-container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 20px;
+  gap: 12px;
+  padding: 12px 14px;
   height: 100%;
   overflow-y: auto;
 }
 
 .registration-header {
   text-align: center;
+  margin-bottom: 2px;
 
   h3 {
-    margin: 0 0 8px 0;
-    font-size: 20px;
-    font-weight: 600;
-    color: #262626;
-  }
-
-  p {
-    margin: 0;
-    font-size: 14px;
-    color: #8c8c8c;
-  }
-}
-
-.model-type-selection {
-  h4 {
-    margin: 0 0 12px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #262626;
-  }
-}
-
-.model-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.model-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 16px;
-  border: 2px solid #d9d9d9;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  position: relative;
-
-  &:hover {
-    border-color: #1890ff;
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
-  }
-
-  &.selected {
-    border-color: #1890ff;
-    background: #e6f7ff;
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
-  }
-}
-
-.model-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  background: #f0f0f0;
-  border-radius: 8px;
-  flex-shrink: 0;
-
-  i {
-    font-size: 28px;
-    color: #1890ff;
-  }
-}
-
-.model-info {
-  flex: 1;
-
-  h5 {
-    margin: 0 0 4px 0;
+    margin: 0 0 2px 0;
     font-size: 15px;
     font-weight: 600;
     color: #262626;
@@ -109,9 +39,87 @@
 
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: 11px;
     color: #8c8c8c;
-    line-height: 1.4;
+    line-height: 14px;
+  }
+}
+
+.model-type-selection {
+  h4 {
+    margin: 0 0 6px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #595959;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+}
+
+.model-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  position: relative;
+
+  &:hover {
+    border-color: #1890ff;
+    background: #fafbff;
+  }
+
+  &.selected {
+    border-color: #1890ff;
+    background: #e6f7ff;
+  }
+}
+
+.model-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #f0f0f0;
+  border-radius: 5px;
+  flex-shrink: 0;
+
+  i {
+    font-size: 16px;
+    color: #1890ff;
+  }
+}
+
+.model-info {
+  flex: 1;
+  min-width: 0;
+
+  h5 {
+    margin: 0 0 1px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #262626;
+    line-height: 16px;
+  }
+
+  p {
+    margin: 0;
+    font-size: 11px;
+    color: #8c8c8c;
+    line-height: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -119,17 +127,31 @@
   flex-shrink: 0;
 
   i {
-    font-size: 24px;
+    font-size: 16px;
     color: #1890ff;
+  }
+}
+
+.model-expand-toggle {
+  align-self: center;
+  margin-top: 4px;
+  font-size: 12px;
+  padding: 0 8px;
+  height: 24px;
+
+  .anticon {
+    font-size: 11px;
   }
 }
 
 .agent-name-input {
   h4 {
-    margin: 0 0 8px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #262626;
+    margin: 0 0 4px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #595959;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
   }
 
   input {
@@ -138,59 +160,62 @@
 }
 
 .baseline-mode-toggle {
-  padding: 12px;
+  padding: 8px 10px;
   background: #f5f5f5;
-  border-radius: 8px;
+  border-radius: 6px;
 
   label {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 500;
     color: #262626;
   }
 
   .baseline-description {
-    margin: 8px 0 0 24px;
-    font-size: 12px;
+    margin: 4px 0 0 24px;
+    font-size: 11px;
     color: #8c8c8c;
-    line-height: 1.5;
+    line-height: 14px;
   }
 }
 
 .trace-import-section {
   h4 {
-    margin: 0 0 12px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #262626;
+    margin: 0 0 4px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #595959;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
   }
 
   ::ng-deep .ant-upload-drag {
-    border: 2px dashed #d9d9d9;
-    border-radius: 8px;
+    border: 1px dashed #d9d9d9;
+    border-radius: 6px;
     background: #fafafa;
-    transition: all 0.3s ease;
+    padding: 8px !important;
+    transition: border-color 0.15s ease;
 
     &:hover {
       border-color: #1890ff;
     }
 
     .ant-upload-drag-icon {
-      margin-bottom: 8px;
+      margin-bottom: 2px;
 
       i {
-        font-size: 36px;
+        font-size: 18px;
         color: #1890ff;
       }
     }
 
     .ant-upload-text {
-      font-size: 14px;
+      font-size: 12px;
       color: #262626;
-      margin-bottom: 4px;
+      margin-bottom: 0;
     }
 
     .ant-upload-hint {
-      font-size: 12px;
+      font-size: 11px;
       color: #8c8c8c;
     }
   }
@@ -198,21 +223,21 @@
   .trace-loaded-indicator {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    padding: 8px 12px;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 4px 8px;
     background: #f6ffed;
     border: 1px solid #b7eb8f;
     border-radius: 4px;
 
     i {
       color: #52c41a;
-      font-size: 16px;
+      font-size: 13px;
     }
 
     span {
       flex: 1;
-      font-size: 13px;
+      font-size: 11px;
       color: #52c41a;
     }
   }
@@ -223,6 +248,6 @@
   justify-content: center;
 
   button {
-    min-width: 200px;
+    min-width: 160px;
   }
 }
