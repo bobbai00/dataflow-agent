@@ -62,27 +62,36 @@ export class ComputingUnitStatusService implements OnDestroy {
     private workflowCacheEntriesService: WorkflowCacheEntriesService,
     private userService: UserService
   ) {
-    // Initialize the service by loading computing units
-    this.initializeService();
+    // Set up the refresh pipeline first (no fetches yet — gated by user state).
+    this.startRefreshInterval();
+
+    // Fetch only when there is an authenticated user. Re-fetch on login;
+    // clear local state on logout. This avoids spamming /api/computing-unit
+    // (and getting 401s) before the user has signed in.
+    this.userService
+      .userChanged()
+      .pipe(distinctUntilChanged((a, b) => a?.uid === b?.uid), untilDestroyed(this))
+      .subscribe(user => {
+        if (user) {
+          this.refreshComputingUnitList();
+        } else {
+          // user signed out — drop cached list & stop any per-unit polling.
+          this.allComputingUnitsSubject.next([]);
+          this.selectedUnitSubject.next(null);
+          this.stopPollingSelectedUnit();
+        }
+      });
 
     // Monitor websocket connection status
     this.monitorConnectionStatus();
   }
 
-  // Initialize the service with available computing units
-  private initializeService(): void {
-    this.computingUnitService
-      .listComputingUnits()
-      .pipe(untilDestroyed(this))
-      .subscribe(units => {
-        this.setComputingUnitsState(units);
-      });
-
-    // Set up periodic refresh
-    this.startRefreshInterval();
-  }
-
   public refreshComputingUnitList(): void {
+    // Guard: don't fetch /api/computing-unit if there is no authenticated user.
+    // Hitting it without a JWT triggers a 401 from the backend (now correctly
+    // surfaced; previously was a 500). This keeps unauth'd users out of the
+    // network panel entirely.
+    if (!this.userService.getCurrentUser()) return;
     this.refreshComputingUnitListSignal.next();
   }
 
