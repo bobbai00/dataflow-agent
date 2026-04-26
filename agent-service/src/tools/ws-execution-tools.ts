@@ -477,12 +477,19 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   // messages — we poll the snapshot briefly to capture the immediate response.
   const debugPython = tool({
     description:
-      "Send a single Python `pdb` command to a paused Python UDF worker for line-by-line debugging. " +
+      "Send a single Python `pdb` command to a Python UDF worker for line-by-line debugging. " +
       "Output appears as DEBUGGER-level console messages; this tool waits up to 3s for new output " +
-      "and returns it. If your command resumes execution (c/n/s/r) and output hasn't surfaced yet, " +
+      "and returns it. If your command resumes the worker (c/n/s/r) and output hasn't surfaced yet, " +
       "follow up with getConsoleLogs(operatorId, levels=['DEBUGGER']).\n\n" +
+      "**Do NOT call `pauseExecution` before debugPython.** workflow-level (controller) pause " +
+      "prevents the controller from scheduling the worker, so even after the worker accepts the " +
+      "debug command its next instruction can never run. Two correct ways to enter the debugger:\n" +
+      "  1. Wait for the worker to auto-pause on a UDF exception (EXCEPTION_PAUSE) — call this tool " +
+      "directly while the workflow keeps running for everyone else.\n" +
+      "  2. Set a breakpoint with `b N` while the workflow is running; the worker will pause on its " +
+      "own (DEBUG_PAUSE) when the line is hit.\n\n" +
       "Common commands (full pdb syntax supported):\n" +
-      "  - b N         set breakpoint at line N of the UDF source (line numbering relative to the UDF code)\n" +
+      "  - b N         set breakpoint at line N of the UDF source (auto-prefixed with module name)\n" +
       "  - cl          clear all breakpoints   |   cl N: clear at line N\n" +
       "  - n           step over (next line)\n" +
       "  - s           step into a function call\n" +
@@ -494,9 +501,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       "  - w           backtrace\n" +
       "  - a           current function arguments\n" +
       "  - disable / enable [N]   toggle breakpoint(s)\n\n" +
-      "The worker auto-prefixes the UDF module name to `b N`, so you only need the line number. " +
-      "Pdb runs inside the worker process — `p self.cache.clear()` will actually mutate state. " +
-      "Requires execution to be Paused (engine pause, exception pause, or breakpoint hit).",
+      "Pdb runs inside the worker process — `p self.cache.clear()` will actually mutate state.",
     inputSchema: z.object({
       operatorId: z.string().describe("The Python UDF operator."),
       workerId: z
@@ -513,12 +518,11 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         return createErrorResult("No execution in flight. Call startExecution first.");
       }
       const snap0 = watcher.getSnapshot();
-      if (snap0.currentState !== "Paused") {
-        return createErrorResult(
-          `debugPython requires a Paused execution; current state is '${snap0.currentState}'. ` +
-            `Pause the workflow first (or wait for an exception/breakpoint to auto-pause it).`,
-        );
-      }
+      // Intentionally NO workflow-state gate here. workflow-level (controller)
+      // pause prevents the controller from scheduling the worker, so even
+      // after the worker accepts the debug command its next instruction can
+      // never run. The worker enters pdb on its own via EXCEPTION_PAUSE or
+      // a `b N` breakpoint hit while the workflow keeps running.
       const opState = snap0.perOperatorState[operatorId];
       if (!opState) {
         return createErrorResult(
@@ -583,7 +587,8 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       "Queue a hot-replace of an operator's properties (typically the code field of a Python UDF) for a paused execution. " +
       "The engine validates the change synchronously (returned in this tool's result). Application happens on the NEXT " +
       "resumeExecution / retryCurrentTuple — do not expect new code to take effect until you resume. " +
-      "Typical loop: pause → evalPython to inspect → liveModifyOperator → retryCurrentTuple or resumeExecution. " +
+      "Typical loop: wait for the worker to auto-pause on a UDF exception (or hit a `b N` breakpoint via debugPython) → " +
+      "debugPython to inspect tuple_/state → liveModifyOperator → retryCurrentTuple or resumeExecution. " +
       "Requires the execution to be Paused. Properties are merged onto the existing ones (shallow); existing keys " +
       "you don't mention are preserved. Schema-changing edits (port count, output schema) are NOT supported here — " +
       "use the design-time modifyOperator tool and re-run the workflow for those.",

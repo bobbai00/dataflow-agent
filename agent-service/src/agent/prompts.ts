@@ -954,15 +954,23 @@ progressing through Ready → Running → Completed. Boring is good — keep
 watching with another \`awaitExecution\`.
 
 When an operator is \`Running\` but \`no progress in last Xs\` keeps
-recurring, it's wedged. Pausing and looking at \`tuple_\` via debugPython
-will usually tell you what row it stalled on, and \`getConsoleLogs\` may
-have a relevant traceback or print. How long to tolerate quiet ticks
+recurring, it's wedged. Set a breakpoint with
+\`debugPython(opId, workerId, "b N")\` on the suspect line — the worker
+will hit it on the next tuple and pause itself (DEBUG_PAUSE), at which
+point you can \`p tuple_\` and friends. \`getConsoleLogs\` may also have
+a relevant traceback or print. How long to tolerate quiet ticks
 depends on the workload — fast workflows shouldn't go silent for long,
 slow ones might genuinely take minutes between updates. Use judgment.
 
+Do NOT call \`pauseExecution\` to investigate. Workflow-level pause is
+controller-scoped: it stops scheduling the worker, so even after the
+worker accepts a debug command the next instruction can never run. Use
+breakpoints (\`b N\`) or the auto-pause on UDF exceptions instead.
+
 Throughput well below expectation is the same shape of problem without
-a dramatic stall — when it's worth investigating, pause and inspect
-\`tuple_\` for shape, looking for per-row work that should be vectorized.
+a dramatic stall — when it's worth investigating, set a breakpoint and
+inspect \`tuple_\` shape on the next hit, looking for per-row work that
+should be vectorized.
 
 Console errors in the section show only titles. The full traceback lives
 in \`getConsoleLogs(opId)\`. Pull it before forming a hypothesis — type
@@ -1090,8 +1098,11 @@ Things to keep in mind:
   subsequent reads confusing.
 - Schema changes (port count, output columns, operator type) always
   require a design-time edit + restart, never a code-only swap.
-- Pause is cheap; kill loses progress. Pause and inspect first; commit
-  to kill once you have a fix.`;
+- Don't \`pauseExecution\` to enter the debugger — workflow-level pause
+  prevents the controller from scheduling the worker, so debug commands
+  can't make progress. Use \`b N\` breakpoints or rely on EXCEPTION_PAUSE
+  when a UDF crashes. \`killExecution\` is the right answer when
+  progress is unrecoverable.`;
 
 const EXECUTION_BLOCK_NEW_NAD = `## Reading the # Active Execution section
 
@@ -1120,14 +1131,22 @@ progressing through Ready → Running → Completed. Keep watching with
 another \`awaitExecution\` — boring is good.
 
 When an operator is \`Running\` but \`no progress in last Xs\` keeps
-recurring, it's wedged. Pausing and looking at \`tuple_\` via debugPython
-usually tells you what row it stalled on; \`getConsoleLogs\` may have a
-traceback or print. How long to tolerate quiet ticks depends on the
-workload — use judgment.
+recurring, it's wedged. Set a breakpoint
+(\`debugPython(opId, workerId, "b N")\`) on the suspect line and let
+the worker pause itself on the next tuple (DEBUG_PAUSE) so you can
+\`p tuple_\`; \`getConsoleLogs\` may also have a traceback or print.
+How long to tolerate quiet ticks depends on the workload — use
+judgment.
+
+Don't call \`pauseExecution\` to investigate. Workflow-level pause is
+controller-scoped: it stops scheduling the worker, so even after the
+worker accepts a debug command its next instruction can't run. Use
+breakpoints or the auto-pause on UDF exceptions instead.
 
 Throughput well below expectation is the same problem without a
-dramatic stall — pause when worth investigating, inspect \`tuple_\`
-shape, look for per-row work that should be vectorized.
+dramatic stall — set a breakpoint when worth investigating, inspect
+\`tuple_\` shape on the next hit, look for per-row work that should
+be vectorized.
 
 Console errors in the section show only titles. The full traceback
 lives in \`getConsoleLogs(opId)\` — pull it before forming a hypothesis.
@@ -1223,7 +1242,10 @@ Things to keep in mind:
 - Read-only by default — mutating during inspection makes subsequent
   reads confusing.
 - Schema changes always require design-time edit + restart.
-- Pause is cheap; kill loses progress. Pause and inspect first.`;
+- Don't \`pauseExecution\` to enter the debugger — workflow-level pause
+  blocks worker scheduling and the debug command will hang. Use
+  breakpoints (\`b N\`) or EXCEPTION_PAUSE on UDF crashes.
+  \`killExecution\` is for unrecoverable progress.`;
 
 const EXECUTION_BLOCK_LEGACY_FULL = `## Executing the workflow
 

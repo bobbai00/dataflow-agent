@@ -38,13 +38,15 @@ interface MockWatcher {
   killCalled: number;
   awaitCalled: number;
   paginationCalled: { operatorId: string; pageIndex: number; pageSize: number }[];
-  pythonEvalCalled: { operatorId: string; expression: string }[];
+  debugCommandCalled: { operatorId: string; workerId: string; cmd: string }[];
   modifyLogicCalled: { operatorPayload: any }[];
   retryWorkersCalled: string[][];
   snapshot: ExecutionWatcherSnapshot;
   awaitResultOverride?: AwaitResult;
-  pythonEvalResultOverride?: { values: any[] };
-  pythonEvalShouldThrow?: Error;
+  debugCommandShouldThrow?: Error;
+  /** When set, the mock pushes these messages into snapshot.consoleMessagesByOperator
+   *  on the next sendDebugCommand call so the tool's poll-loop can find them. */
+  debugCommandAppendOnSend?: { operatorId: string; messages: any[] };
   modifyLogicResultOverride?: { isValid: boolean; errorMessage: string; applied: boolean };
   modifyLogicShouldThrow?: Error;
 }
@@ -57,7 +59,7 @@ function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
     killCalled: 0,
     awaitCalled: 0,
     paginationCalled: [],
-    pythonEvalCalled: [],
+    debugCommandCalled: [],
     modifyLogicCalled: [],
     retryWorkersCalled: [],
     snapshot,
@@ -110,21 +112,20 @@ function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
     retryWorkers: (workers: string[]) => {
       m.retryWorkersCalled.push(workers);
     },
-    requestPythonEval: async (operatorId: string, expression: string) => {
-      m.pythonEvalCalled.push({ operatorId, expression });
-      if (m.pythonEvalShouldThrow) throw m.pythonEvalShouldThrow;
-      return {
-        type: "PythonExpressionEvaluateResponse" as const,
-        expression,
-        values:
-          m.pythonEvalResultOverride?.values ??
-          [
-            {
-              value: { expression, valueRef: "ref-1", valueStr: "42", valueType: "int", expandable: false },
-              attributes: [],
-            },
-          ],
-      };
+    sendDebugCommand: (req: { operatorId: string; workerId: string; cmd: string }) => {
+      m.debugCommandCalled.push(req);
+      if (m.debugCommandShouldThrow) throw m.debugCommandShouldThrow;
+      if (m.debugCommandAppendOnSend) {
+        const { operatorId, messages } = m.debugCommandAppendOnSend;
+        const existing = m.snapshot.consoleMessagesByOperator[operatorId] ?? [];
+        m.snapshot = {
+          ...m.snapshot,
+          consoleMessagesByOperator: {
+            ...m.snapshot.consoleMessagesByOperator,
+            [operatorId]: [...existing, ...messages],
+          },
+        };
+      }
     },
     start: () => {},
     applyEvent: () => {},
@@ -359,7 +360,7 @@ describe("ws-execution-tools", () => {
     expect(payload.operatorType).toBe("PythonUDFV2");
     expect(payload.code).toBe("new");
     expect(payload.workers).toBe(1); // shallow-merged, preserved
-    expect(result).toContain("logic updated and applied");
+    expect(result).toContain("logic queued (validated)");
     // local state updated
     expect(workflowState.getOperator("op1")!.operatorProperties.code).toBe("new");
   });
@@ -532,36 +533,50 @@ describe("ws-execution-tools", () => {
     expect(result).toContain("No execution in flight");
   });
 
-  test("evalPython: errors when no watcher", async () => {
+  test("debugPython: errors when no watcher", async () => {
     const tools = createWsExecutionTools({
       workflowState,
       watcherSlot,
       getExecutionConfig: () => mockConfig,
     });
-    const result = await (tools.evalPython as any).execute({
+    const result = await (tools.debugPython as any).execute({
       operatorId: "op1",
-      expression: "1+1",
+      workerId: "WF1-op1-main-0",
+      cmd: "p tuple_",
     });
     expect(result).toContain("No execution in flight");
   });
 
-  test("evalPython: errors when not paused", async () => {
-    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+  test("debugPython: works while workflow is Running (no Paused gate)", async () => {
+    // The whole point of removing the Paused gate: workflow-level pause
+    // would actually prevent the worker from progressing past the debug
+    // command. The tool must accept Running and dispatch the command.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
     watcherRef.current = mock.watcher;
     const tools = createWsExecutionTools({
       workflowState,
       watcherSlot,
       getExecutionConfig: () => mockConfig,
     });
-    const result = await (tools.evalPython as any).execute({
+    const result = await (tools.debugPython as any).execute({
       operatorId: "op1",
-      expression: "1+1",
+      workerId: "WF1-op1-main-0",
+      cmd: "b 5",
     });
-    expect(result).toContain("requires a Paused execution");
-    expect(mock.pythonEvalCalled.length).toBe(0);
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "b 5" },
+    ]);
+    expect(result).not.toContain("requires a Paused execution");
   });
 
-  test("evalPython: errors when operator unknown", async () => {
+  test("debugPython: errors when operator unknown", async () => {
     const mock = makeMockWatcher(
       makeMockSnapshot({
         currentState: "Paused",
@@ -576,55 +591,35 @@ describe("ws-execution-tools", () => {
       watcherSlot,
       getExecutionConfig: () => mockConfig,
     });
-    const result = await (tools.evalPython as any).execute({
+    const result = await (tools.debugPython as any).execute({
       operatorId: "missing-op",
-      expression: "1+1",
+      workerId: "WF1-missing-main-0",
+      cmd: "p tuple_",
     });
     expect(result).toContain("not part of the active execution");
-    expect(mock.pythonEvalCalled.length).toBe(0);
+    expect(mock.debugCommandCalled.length).toBe(0);
   });
 
-  test("evalPython: dispatches request and formats single value response", async () => {
+  test("debugPython: dispatches command and surfaces new DEBUGGER output", async () => {
     const mock = makeMockWatcher(
       makeMockSnapshot({
         currentState: "Paused",
         perOperatorState: {
           op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
         },
+        consoleMessagesByOperator: {},
       }),
     );
-    watcherRef.current = mock.watcher;
-    const tools = createWsExecutionTools({
-      workflowState,
-      watcherSlot,
-      getExecutionConfig: () => mockConfig,
-    });
-    const result = await (tools.evalPython as any).execute({
+    mock.debugCommandAppendOnSend = {
       operatorId: "op1",
-      expression: "len(self.cache)",
-    });
-    expect(mock.pythonEvalCalled).toEqual([{ operatorId: "op1", expression: "len(self.cache)" }]);
-    expect(result).toContain("42");
-    expect(result).toContain("int");
-  });
-
-  test("evalPython: formats response with attributes", async () => {
-    const mock = makeMockWatcher(
-      makeMockSnapshot({
-        currentState: "Paused",
-        perOperatorState: {
-          op1: { state: "Paused", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
-        },
-      }),
-    );
-    mock.pythonEvalResultOverride = {
-      values: [
+      messages: [
         {
-          value: { expression: "tuple_", valueRef: "ref-1", valueStr: "{'a': 1, 'b': 2}", valueType: "dict", expandable: true },
-          attributes: [
-            { expression: "a", valueRef: "ref-2", valueStr: "1", valueType: "int", expandable: false },
-            { expression: "b", valueRef: "ref-3", valueStr: "2", valueType: "int", expandable: false },
-          ],
+          workerId: "WF1-op1-main-0",
+          timestamp: { seconds: 0, nanos: 0 },
+          msgType: { name: "DEBUGGER" },
+          source: "pdb",
+          title: "",
+          message: "(Pdb) 42",
         },
       ],
     };
@@ -634,17 +629,18 @@ describe("ws-execution-tools", () => {
       watcherSlot,
       getExecutionConfig: () => mockConfig,
     });
-    const result = await (tools.evalPython as any).execute({
+    const result = await (tools.debugPython as any).execute({
       operatorId: "op1",
-      expression: "tuple_",
+      workerId: "WF1-op1-main-0",
+      cmd: "p len(self.cache)",
     });
-    expect(result).toContain("dict");
-    expect(result).toContain("Attributes:");
-    expect(result).toContain("a:");
-    expect(result).toContain("b:");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "p len(self.cache)" },
+    ]);
+    expect(result).toContain("(Pdb) 42");
   });
 
-  test("evalPython: surfaces request errors", async () => {
+  test("debugPython: surfaces send errors", async () => {
     const mock = makeMockWatcher(
       makeMockSnapshot({
         currentState: "Paused",
@@ -653,19 +649,20 @@ describe("ws-execution-tools", () => {
         },
       }),
     );
-    mock.pythonEvalShouldThrow = new Error("Python eval timed out after 30000ms");
+    mock.debugCommandShouldThrow = new Error("WebSocket closed");
     watcherRef.current = mock.watcher;
     const tools = createWsExecutionTools({
       workflowState,
       watcherSlot,
       getExecutionConfig: () => mockConfig,
     });
-    const result = await (tools.evalPython as any).execute({
+    const result = await (tools.debugPython as any).execute({
       operatorId: "op1",
-      expression: "1/0",
+      workerId: "WF1-op1-main-0",
+      cmd: "n",
     });
     expect(result).toContain("[ERROR]");
-    expect(result).toContain("timed out");
+    expect(result).toContain("WebSocket closed");
   });
 
   test("getOperatorResult: fetches and formats rows", async () => {
