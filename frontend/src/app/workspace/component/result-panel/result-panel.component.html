@@ -92,23 +92,47 @@
       Result Panel{{operatorTitle ? ': ' + operatorTitle : ''}}
     </h4>
     <nz-tabset
+      class="frame-tabs"
       [nzSize]="'small'"
       [nzTabPosition]="'left'">
-      <div *ngIf="frameComponentConfigs.size === 0">
-        <nz-tab nzTitle="Result">
-          <div style="text-align: center">
+      <ng-container *ngIf="frameComponentConfigs.size === 0">
+        <nz-tab [nzTitle]="emptyTitleTpl">
+          <ng-template #emptyTitleTpl>
+            <span class="frame-tab-label">
+              <span
+                nz-icon
+                nzType="table"
+                nzTheme="outline"></span>
+              <span>Result</span>
+            </span>
+          </ng-template>
+          <div class="frame-tab-empty">
+            <span
+              nz-icon
+              nzType="inbox"
+              nzTheme="outline"
+              class="frame-tab-empty-icon"></span>
             <h4>No results available to display.</h4>
           </div>
         </nz-tab>
-      </div>
-      <div *ngFor="let config of frameComponentConfigs | keyvalue">
-        <nz-tab nzTitle="{{config.key}}">
+      </ng-container>
+      <ng-container *ngFor="let config of frameComponentConfigs | keyvalue">
+        <nz-tab [nzTitle]="frameTitleTpl">
+          <ng-template #frameTitleTpl>
+            <span class="frame-tab-label">
+              <span
+                nz-icon
+                [nzType]="iconForFrame(config.key)"
+                nzTheme="outline"></span>
+              <span>{{ config.key }}</span>
+            </span>
+          </ng-template>
           <div #dynamicComponent>
             <ng-container
               *ngComponentOutlet="config.value.component;inputs: config.value.componentInputs"></ng-container>
           </div>
         </nz-tab>
-      </div>
+      </ng-container>
     </nz-tabset>
   </div>
   <nz-resize-handles

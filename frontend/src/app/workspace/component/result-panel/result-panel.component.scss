@@ -111,3 +111,92 @@ $type-colors: (
   width: 100%;
   z-index: 2;
 }
+
+// ─── Vertical (left) frame tabs: pill-style nav, icon + label ──────────────
+.frame-tabs {
+  height: 100%;
+
+  ::ng-deep .ant-tabs-nav {
+    width: 132px !important;
+    background: #fafbfc;
+    border-right: 1px solid #e8e8e8;
+    padding: 6px 6px;
+    margin: 0 !important;
+  }
+
+  ::ng-deep .ant-tabs-nav-list {
+    gap: 2px;
+  }
+
+  ::ng-deep .ant-tabs-tab {
+    margin: 0 !important;
+    padding: 6px 10px !important;
+    border-radius: 6px;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    .ant-tabs-tab-btn {
+      font-size: 12px;
+      line-height: 16px;
+      color: #595959;
+    }
+
+    &:hover {
+      background: #f0f1f3;
+
+      .ant-tabs-tab-btn {
+        color: #262626;
+      }
+    }
+
+    &.ant-tabs-tab-active {
+      background: #e6f4ff;
+
+      .ant-tabs-tab-btn {
+        color: #1677ff;
+        font-weight: 600;
+      }
+    }
+  }
+
+  // Hide the ink bar — replaced visually by the active pill background.
+  ::ng-deep .ant-tabs-ink-bar {
+    display: none !important;
+  }
+
+  ::ng-deep .ant-tabs-content-holder {
+    border-left: none !important;
+    padding-left: 0 !important;
+  }
+}
+
+.frame-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+
+  .anticon {
+    font-size: 14px;
+  }
+}
+
+.frame-tab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: #8c8c8c;
+
+  .frame-tab-empty-icon {
+    font-size: 32px;
+    color: #bfbfbf;
+  }
+
+  h4 {
+    margin: 0;
+    color: #8c8c8c;
+    font-weight: 400;
+  }
+}

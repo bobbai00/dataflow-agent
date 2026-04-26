@@ -68,6 +68,17 @@ export class ResultPanelComponent implements OnInit, OnDestroy {
   componentOutlets!: ElementRef;
   frameComponentConfigs: Map<string, { component: Type<any>; componentInputs: {} }> = new Map();
   protected readonly window = window;
+
+  /** Icon name (ng-zorro / Ant Design icons) for each known frame tab. */
+  private readonly frameIcons: Record<string, string> = {
+    Result: "table",
+    Console: "code",
+    "Static Error": "warning",
+  };
+
+  iconForFrame(name: string): string {
+    return this.frameIcons[name] ?? "appstore";
+  }
   id = -1;
   width = DEFAULT_WIDTH;
   height = DEFAULT_HEIGHT;
