@@ -19,6 +19,7 @@
 
 package org.apache.texera.web.service
 
+import com.typesafe.scalalogging.LazyLogging
 import org.apache.texera.amber.engine.architecture.controller.Workflow
 import org.apache.texera.amber.engine.architecture.rpc.controlcommands.{
   UpdateExecutorRequest,
@@ -41,7 +42,8 @@ class ExecutionReconfigurationService(
     client: AmberClient,
     stateStore: ExecutionStateStore,
     workflow: Workflow
-) extends SubscriptionManager {
+) extends SubscriptionManager
+    with LazyLogging {
 
   // monitors notification from the engine that a reconfiguration on a worker is completed
   //  client.registerCallback[UpdateExecutorCompleted]((evt: UpdateExecutorCompleted) => {
@@ -51,7 +53,9 @@ class ExecutionReconfigurationService(
   //  })
 
   // monitors the reconfiguration state (completed workers) change,
-  // notifies the frontend when all workers of an operator complete reconfiguration
+  // notifies the frontend when all workers of an operator complete reconfiguration.
+  // (Legacy path — kept for compatibility with the old UpdateExecutorCompleted
+  //  callback. Currently nothing populates `completedReconfigurations`.)
   addSubscription(
     stateStore.reconfigurationStore.registerDiffHandler((oldState, newState) => {
       if (
@@ -67,6 +71,20 @@ class ExecutionReconfigurationService(
         } else {
           List()
         }
+      } else {
+        List()
+      }
+    })
+  )
+
+  // New-style completion path: `completedReconfigOpIds` is populated after the
+  // engine's `reconfigureWorkflow` Future succeeds. We diff and emit one
+  // ModifyLogicCompletedEvent for the newly-completed logical op IDs.
+  addSubscription(
+    stateStore.reconfigurationStore.registerDiffHandler((oldState, newState) => {
+      val diff = newState.completedReconfigOpIds -- oldState.completedReconfigOpIds
+      if (diff.nonEmpty) {
+        List(ModifyLogicCompletedEvent(diff.toList))
       } else {
         List()
       }
@@ -114,13 +132,29 @@ class ExecutionReconfigurationService(
     val updateExecutorRequests = reconfigurations.map {
       case (op, _) => UpdateExecutorRequest(op.id, op.opExecInitInfo)
     }
-    client.controllerInterface.reconfigureWorkflow(
+    val reconfiguredLogicalOpIds = reconfigurations.map { case (op, _) => op.id.logicalOpId.id }.toSet
+
+    val future = client.controllerInterface.reconfigureWorkflow(
       WorkflowReconfigureRequest(
         reconfiguration = updateExecutorRequests,
         reconfigurationId = reconfigurationId
       ),
       ()
     )
+
+    // When the engine confirms all workers have applied the new logic, surface
+    // a ModifyLogicCompletedEvent to the frontend by diffing completedReconfigOpIds.
+    future.onSuccess { _ =>
+      stateStore.reconfigurationStore.updateState(old =>
+        old.copy(completedReconfigOpIds = old.completedReconfigOpIds ++ reconfiguredLogicalOpIds)
+      )
+    }
+    future.onFailure { err =>
+      // Surface failure as a no-op for now; the frontend's modify-logic UI doesn't
+      // currently render a per-reconfiguration failure event. Logging is enough
+      // until a richer error event exists.
+      logger.warn(s"Reconfiguration $reconfigurationId failed: ${err.getMessage}")
+    }
 
     // clear all un-scheduled reconfigurations, start a new reconfiguration ID
     stateStore.reconfigurationStore.updateState(_ =>

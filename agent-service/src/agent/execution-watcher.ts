@@ -211,9 +211,6 @@ export interface ModifyLogicResult {
 interface PendingModifyLogic {
   resolve: (r: ModifyLogicResult) => void;
   reject: (err: Error) => void;
-  /** Set after a valid `ModifyLogicResponse` arrives — the resolve waits for
-   *  `ModifyLogicCompletedEvent` next. */
-  validResponse: ModifyLogicResponse | null;
 }
 
 interface PendingAwaiter {
@@ -427,6 +424,11 @@ export class ExecutionWatcher {
         return;
       }
       case "ModifyLogicResponse": {
+        // The engine validates and queues the change synchronously here, but
+        // doesn't actually apply it until the next resume (Fries semantics:
+        // reconfigurations batched during pause, applied on resume). So
+        // resolving on `ModifyLogicResponse` is the right semantic for the
+        // tool — the agent should call resumeExecution to trigger application.
         const e = event as ModifyLogicResponse;
         const queue = this.pendingModifyLogic.get(e.opId);
         if (!queue || queue.length === 0) {
@@ -435,35 +437,29 @@ export class ExecutionWatcher {
           );
           return;
         }
-        const head = queue[0];
-        if (!e.isValid) {
-          // Validation failed — pop and resolve with the rejection.
-          queue.shift();
-          if (queue.length === 0) this.pendingModifyLogic.delete(e.opId);
-          head.resolve({ isValid: false, errorMessage: e.errorMessage, applied: false });
-        } else {
-          // Validation passed — wait for ModifyLogicCompletedEvent before
-          // resolving so the agent knows the new logic actually took effect.
-          head.validResponse = e;
-        }
+        const head = queue.shift()!;
+        if (queue.length === 0) this.pendingModifyLogic.delete(e.opId);
+        head.resolve({
+          isValid: e.isValid,
+          errorMessage: e.errorMessage,
+          // `applied: true` here means "queued and will be applied on resume" —
+          // the actual engine apply happens in performReconfigurationOnResume,
+          // and the corresponding ModifyLogicCompletedEvent surfaces via state
+          // diffing for downstream consumers (UI badges, etc.) but is no longer
+          // gating this Promise.
+          applied: e.isValid,
+        });
         return;
       }
       case "ModifyLogicCompletedEvent": {
+        // After the change above, the Promise is already resolved by the time
+        // ModifyLogicCompletedEvent arrives (engine applies on resume). This
+        // event is still useful for downstream UI consumers, but no longer
+        // drives `pendingModifyLogic` resolution.
         const e = event as ModifyLogicCompletedEvent;
-        for (const opId of e.opIds) {
-          const queue = this.pendingModifyLogic.get(opId);
-          if (!queue || queue.length === 0) continue;
-          const head = queue[0];
-          if (head.validResponse) {
-            queue.shift();
-            if (queue.length === 0) this.pendingModifyLogic.delete(opId);
-            head.resolve({
-              isValid: true,
-              errorMessage: head.validResponse.errorMessage,
-              applied: true,
-            });
-          }
-        }
+        console.log(
+          `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicCompletedEvent: ${e.opIds.join(",")} (engine applied)`,
+        );
         return;
       }
 
@@ -842,7 +838,6 @@ export class ExecutionWatcher {
           clearTimeout(timer);
           reject(err);
         },
-        validResponse: null,
       };
 
       const queue = this.pendingModifyLogic.get(opId) ?? [];

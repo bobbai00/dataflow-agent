@@ -565,8 +565,10 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   // (typically code) on a paused execution without restarting the workflow.
   const liveModifyOperator = tool({
     description:
-      "Hot-replace an operator's properties (typically the code field of a Python UDF) on a paused execution. " +
-      "Used to fix a bug in flight: pause, inspect with evalPython, modify the code, then retryCurrentTuple or resume. " +
+      "Queue a hot-replace of an operator's properties (typically the code field of a Python UDF) for a paused execution. " +
+      "The engine validates the change synchronously (returned in this tool's result). Application happens on the NEXT " +
+      "resumeExecution / retryCurrentTuple — do not expect new code to take effect until you resume. " +
+      "Typical loop: pause → evalPython to inspect → liveModifyOperator → retryCurrentTuple or resumeExecution. " +
       "Requires the execution to be Paused. Properties are merged onto the existing ones (shallow); existing keys " +
       "you don't mention are preserved. Schema-changing edits (port count, output schema) are NOT supported here — " +
       "use the design-time modifyOperator tool and re-run the workflow for those.",
@@ -612,12 +614,13 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
             `Engine rejected the modify-logic request for '${operatorId}': ${result.errorMessage || "(no error message)"}. The original logic is still in effect.`,
           );
         }
-        // Engine validated AND applied → also update local WorkflowState so
-        // future tool reads (getCurrentWorkflow, etc.) see the new code.
+        // Engine validated and queued the change → update local WorkflowState
+        // so subsequent tool reads (getCurrentWorkflow, etc.) see the new code.
+        // The engine actually applies on the next resumeExecution / retryCurrentTuple.
         workflowState.updateOperatorProperties(operatorId, properties);
         return createToolResult(
-          `Operator '${operatorId}' logic updated and applied. The new code will run on the next tuple. ` +
-            `Use resumeExecution to continue, or retryCurrentTuple to re-process the row that was in flight.`,
+          `Operator '${operatorId}' logic queued (validated). It will be applied when you call resumeExecution ` +
+            `or retryCurrentTuple. The new code will run from the next tuple onward.`,
         );
       } catch (err: any) {
         return createErrorResult(`liveModifyOperator failed for '${operatorId}': ${err?.message ?? String(err)}`);

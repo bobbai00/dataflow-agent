@@ -1049,12 +1049,15 @@ and \`input_\` available. Examples worth reaching for first:
 Side effects in the worker persist after evaluation. Stick to read-only
 expressions unless you specifically intend to mutate state.
 
-**Don't use \`liveModifyOperator\`.** It's currently disabled at the
-engine level (the WS path queues changes but the resume-time apply
-throws), and the tool is being removed. Apply fixes via
-\`modifyOperator\` (or \`createOrModifyOperator\` in code mode) at
-design-time, then \`killExecution\` and \`startExecution\` for a clean
-run.
+**\`liveModifyOperator\` is preferred over restart when the workflow has
+already produced upstream output that you don't want to recompute.** It
+hot-replaces the operator's properties (typically \`code\` for a
+Python UDF) on a *paused* execution; the engine re-runs the affected
+operator's workers with the new logic without restarting from the
+source. Pair with \`retryCurrentTuple\` (re-process the row that was
+in flight) or \`resumeExecution\` (continue with new code on the next
+tuple). Schema-changing edits (port count, output schema) are not
+supported live — use design-time \`modifyOperator\` + restart for those.
 
 A typical loop when you can't fix a Python UDF from design-time alone:
 
@@ -1068,10 +1071,16 @@ A typical loop when you can't fix a Python UDF from design-time alone:
    (\`type(tuple_)\`, \`dir(tuple_)\`, \`type(tuple_[k])\`, etc.) to
    build a clear picture of what went wrong. Multiple cheap reads beat
    one wrong fix attempt.
-5. Once you understand the bug, \`modifyOperator\` (or
-   \`createOrModifyOperator\`) with the corrected code.
-6. \`killExecution\` to drop the broken run.
-7. \`startExecution\` again to verify the fix end-to-end.
+5. Once you understand the bug, \`liveModifyOperator(operatorId, {code:
+   "<full updated code>"})\` to swap in the fix. (If the change is
+   schema-altering, fall back to design-time \`modifyOperator\` +
+   \`killExecution\` + \`startExecution\`.)
+6. \`retryCurrentTuple(operatorId)\` to re-run the offending row with
+   the new code, then \`resumeExecution\` to continue. (Or just
+   \`resumeExecution\` if you've decided to skip the bad row via
+   modified code that handles it differently.)
+7. \`awaitExecution\` again to verify the fix carries through to
+   completion.
 
 Things to keep in mind:
 
@@ -1185,10 +1194,13 @@ on guesses about the Python API.
 
 Side effects persist; stick to read-only unless intentional.
 
-**Don't use \`liveModifyOperator\`** — it's disabled at the engine
-level and being removed. Apply fixes via \`modifyOperator\` (or
-\`createOrModifyOperator\`) at design-time, then \`killExecution\` and
-\`startExecution\`.
+**Prefer \`liveModifyOperator\` over restart** when only the operator's
+properties (typically the \`code\` field of a Python UDF) need to
+change and you want to keep upstream progress. It hot-replaces the
+operator on the *paused* execution; pair with \`retryCurrentTuple\` to
+re-run the offending row, or \`resumeExecution\` to continue with the
+new logic on the next tuple. Schema-changing edits (port count, output
+schema) still require design-time \`modifyOperator\` + restart.
 
 A typical loop when design-time iteration isn't converging:
 
@@ -1196,10 +1208,13 @@ A typical loop when design-time iteration isn't converging:
 2. \`getConsoleLogs(operatorId)\` for the full traceback.
 3. \`evalPython(operatorId, ...)\` to ask what the runtime actually
    sees (\`tuple_\`, \`type(tuple_)\`, \`dir(tuple_)\`, etc.)
-4. Once the bug is clear, \`modifyOperator\` (or
-   \`createOrModifyOperator\`) with the corrected code.
-5. \`killExecution\` to drop the broken run.
-6. \`startExecution\` to verify the fix end-to-end.
+4. Once the bug is clear, \`liveModifyOperator(operatorId, {code: "..."})\`
+   to swap in the fix without losing upstream output.
+5. \`retryCurrentTuple(operatorId)\` (re-run the failing row) followed
+   by \`resumeExecution\`, or just \`resumeExecution\` if the fix is to
+   skip/handle the row differently going forward.
+6. If the fix needs schema changes, fall back to design-time
+   \`modifyOperator\` + \`killExecution\` + \`startExecution\`.
 
 Things to keep in mind:
 

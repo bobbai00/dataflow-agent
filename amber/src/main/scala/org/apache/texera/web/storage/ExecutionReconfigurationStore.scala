@@ -26,5 +26,12 @@ import org.apache.texera.amber.operator.StateTransferFunc
 case class ExecutionReconfigurationStore(
     currentReconfigId: Option[String] = None,
     unscheduledReconfigurations: List[(PhysicalOp, Option[StateTransferFunc])] = List(),
-    completedReconfigurations: Set[ActorVirtualIdentity] = Set()
+    completedReconfigurations: Set[ActorVirtualIdentity] = Set(),
+    // Logical op IDs whose reconfiguration has been confirmed-applied by the engine.
+    // Populated after `controllerInterface.reconfigureWorkflow(...)` resolves. The
+    // ws diff handler reads this to emit ModifyLogicCompletedEvent. Exists alongside
+    // `completedReconfigurations` (which keys by worker id) because the new
+    // ReconfigurationHandler doesn't surface per-worker completion events; we only
+    // know "all workers of these ops are done" when the Future succeeds.
+    completedReconfigOpIds: Set[String] = Set.empty
 )
