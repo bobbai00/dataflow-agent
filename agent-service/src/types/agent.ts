@@ -202,6 +202,25 @@ export interface AgentSettings {
   carryMetadata: boolean;
   /** List of allowed operator types for general mode (when empty, all operators are allowed) */
   allowedOperatorTypes: string[];
+  /**
+   * High-level toggle between two coherent execution UXes:
+   *
+   * `true` (default, new mode): the agent gets the WS toolkit
+   *   (startExecution, awaitExecution, pauseExecution, resumeExecution,
+   *   killExecution, getOperatorResult, evalPython, getConsoleLogs,
+   *   retryCurrentTuple). No silent auto-execute on edit. The agent must
+   *   explicitly run the workflow and can introspect at runtime — Python
+   *   UDF exceptions auto-pause the worker so evalPython works directly.
+   *
+   * `false` (legacy mode): the agent gets the synchronous `executeOperator`
+   *   tool plus the silent auto-execute hook on every addOperator /
+   *   modifyOperator / createOrModifyOperator. Build-and-observe UX —
+   *   results "just appear" after each edit. No runtime introspection.
+   *
+   * Use this for A/B testing the same task across both UXes. The two
+   * modes have different toolsets AND different prompts.
+   */
+  executionControl: boolean;
 }
 
 /**
@@ -232,16 +251,34 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   noLogFallback: false,
   carryMetadata: true,
   allowedOperatorTypes: [
+    // Sources
     "CSVFileScan",
-    "Sort",
-    "HashJoin",
-    "Limit",
+    "JSONLFileScan",
+    // Filter / shape
+    "Filter",
     "Projection",
-    "TableLimit",
-    "LineChart",
-    "BarChart",
+    "TypeCasting",
+    "Distinct",
+    "Limit",
+    "Regex",
+    // Aggregate / join / sort
+    "Aggregate",
+    "HashJoin",
+    "Sort",
+    // UDFs
     "PythonUDFV2",
+    "PythonLambdaFunction",
+    // Set ops
+    "Union",
+    // Visualizations
+    "BarChart",
+    "LineChart",
+    "PieChart",
+    "HTMLVisualizer",
+    "WordCloud",
+    "Histogram",
   ],
+  executionControl: true,
 };
 
 // ============================================================================
@@ -326,6 +363,8 @@ export interface AgentSettingsApi {
   carryMetadata?: boolean;
   /** List of allowed operator types for general mode (empty = all operators allowed) */
   allowedOperatorTypes?: string[];
+  /** High-level toggle: WS toolkit + no auto-hook (true) vs sync executeOperator + auto-hook (false). */
+  executionControl?: boolean;
 }
 
 /**
@@ -411,6 +450,8 @@ export interface UpdateAgentSettingsRequest {
   carryMetadata?: boolean;
   /** List of allowed operator types for general mode (empty = all operators allowed) */
   allowedOperatorTypes?: string[];
+  /** High-level toggle: WS toolkit + no auto-hook (true) vs sync executeOperator + auto-hook (false). */
+  executionControl?: boolean;
 }
 
 // ============================================================================

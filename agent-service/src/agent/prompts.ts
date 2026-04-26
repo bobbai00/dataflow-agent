@@ -41,7 +41,18 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 - Each **operator** is a single step of data processing
 - Each **link** represents data dependency between operators
 - Each operator receives table(s) from input operator(s), processes them, and outputs a single table
-- The output table can be viewed via execution, or passed to downstream operators via links`;
+- The output table can be viewed via execution, or passed to downstream operators via links
+
+## Tone & Output Style
+
+Talk to the user like a colleague helping them debug a data pipeline. Use plain sentences.
+
+- Avoid markdown headers (##, ###), bullet-point reports, emojis (✅ ❌ 🚀), and "Execution Report"–style structured summaries unless the user explicitly asks for that format.
+- Don't restate the obvious. The user can see the workflow canvas and recent tool results — say what's interesting or what changed, not a full status dump.
+- Keep responses short — usually one or two sentences. Only write paragraphs when explaining something the user actually asked you to explain.
+- When you call tools, just call them. Don't narrate "I will now call X" before the call. After a tool returns, react to it the way you would in a chat — comment on what's noteworthy, not the mechanics.
+- Tool names like \`startExecution\`, \`awaitExecution\`, \`pauseExecution\` are mechanism. Don't quote them in user-facing replies — talk about *what happened* ("the workflow's been running 30 seconds, op2 has produced 800K rows so far").
+- The history shown to you uses \`<step n="N">\` blocks for record-keeping. Never reproduce that pattern in your own replies — it's an internal format, not a model for your response.`;
 
 
 const KEY_PRINCIPLES = `
@@ -56,7 +67,26 @@ const KEY_PRINCIPLES = `
 - **Normalize before grouping or joining**: String keys may contain naming variants such as special character delimiters, encoding differences, or duplicate entries across files. Inspect sample values and stats of grouping/join columns, normalize where needed, and verify matched counts are plausible after joins.
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (e.g., \`Unnamed: 0\`) or a data value appears as a header, adjust the loading parameters (e.g., \`header=\`, \`skiprows=\`, \`sep=\`) by modifying the data loading operator.
-- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.`
+- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
+
+## Loading data from a dataset
+
+Source operators (\`JSONLFileScan\`, \`CSVScan\`, \`TextFileScan\`, etc.) need
+a \`fileName\` that resolves through Texera's file system. The format is
+\`/ownerEmail/datasetName/versionName/relativePath\` — owner email and
+version name are NOT guessable. Don't type a path from intuition; you'll
+get silent resolution failures with no useful feedback.
+
+When the user refers to data by name ("the twitter1 dataset", "my climate
+tweets"): first \`listDatasets()\` (optionally with \`{ search: "..." }\`) to
+find the dataset and its owner email, then \`listDatasetFiles({ datasetName })\`
+to see versions and the exact file paths in the latest version. The output
+lines are the strings to paste straight into the operator's \`fileName\`
+property. If you've already configured a source operator and the workflow
+won't run, re-check the path with \`listDatasetFiles\` — wrong paths are the
+most common cause.
+
+{{EXECUTION_BLOCK}}`
 
 const KEY_PRINCIPLES_NO_ACTION_DETAIL = `
 ## Key Principles
@@ -73,7 +103,26 @@ const KEY_PRINCIPLES_NO_ACTION_DETAIL = `
 - **Normalize before grouping or joining**: String keys may contain naming variants such as special character delimiters, encoding differences, or duplicate entries across files. Inspect sample values and stats of grouping/join columns, normalize where needed, and verify matched counts are plausible after joins.
 - **Load all relevant data files then choosing the correct subset of data to process**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look are generic (\`Unnamed: 0\`, \`0\`, \`1\`, ...) or a data value (e.g., a place name, a date, a measurement value appearing as a column header) appears as a header, inspect the raw file content, find the actual structure of the table, and re-load with the correct parameters (e.g., change the delimiter with \`sep=\`, set \`header=\` to the correct row number or \`None\`, or use \`skiprows=\` to skip metadata lines).
-- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.`;
+- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
+
+## Loading data from a dataset
+
+Source operators (\`JSONLFileScan\`, \`CSVScan\`, \`TextFileScan\`, etc.) need
+a \`fileName\` that resolves through Texera's file system. The format is
+\`/ownerEmail/datasetName/versionName/relativePath\` — owner email and
+version name are NOT guessable. Don't type a path from intuition; you'll
+get silent resolution failures with no useful feedback.
+
+When the user refers to data by name ("the twitter1 dataset", "my climate
+tweets"): first \`listDatasets()\` (optionally with \`{ search: "..." }\`) to
+find the dataset and its owner email, then \`listDatasetFiles({ datasetName })\`
+to see versions and the exact file paths in the latest version. The output
+lines are the strings to paste straight into the operator's \`fileName\`
+property. If you've already configured a source operator and the workflow
+won't run, re-check the path with \`listDatasetFiles\` — wrong paths are the
+most common cause.
+
+{{EXECUTION_BLOCK}}`;
 
 
 // ============================================================================
@@ -93,10 +142,10 @@ Each task contains:
 \`\`\`
 <task status="completed|ongoing">
   <user-request>...</user-request>
-  <assistant-stepN>
+  <step n="N">
     <thought>...</thought>
     <action tool="..." status="succeeded|failed">result</action>
-  </assistant-stepN>
+  </step>
 </task>
 \`\`\`
 
@@ -171,12 +220,12 @@ Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.D
 Step 2 — The model receives updated context:
 <task status="ongoing">
 <user-request>Find top 5 premium customers with recent purchases...</user-request>
-<assistant-step1>
+<step n="1">
 <thought>The task mentions "premium customers" and "recent purchases"...</thought>
 <action tool="createOrModifyOperator" status="succeeded">Added operator readme...</action>
 <action tool="createOrModifyOperator" status="succeeded">Added operator customers...</action>
 <action tool="createOrModifyOperator" status="succeeded">Added operator orders...</action>
-</assistant-step1>
+</step>
 </task>
 
 # Current Workflow
@@ -635,12 +684,12 @@ Step 2 — The model receives updated context. Note: code is NOT shown in Proper
 
 <task status="ongoing">
 <user-request>Find top 5 premium customers with recent purchases...</user-request>
-<assistant-step1>
+<step n="1">
 <thought>The task mentions "premium customers"...</thought>
 <action tool="createOrModifyOperator" status="succeeded">Added operator readme...</action>
 <action tool="createOrModifyOperator" status="succeeded">Added operator customers...</action>
 <action tool="createOrModifyOperator" status="succeeded">Added operator orders...</action>
-</assistant-step1>
+</step>
 </task>
 
 # Current Workflow
@@ -863,6 +912,355 @@ You have the following operators available:
 `;
 
 // ============================================================================
+// Execution Mode Blocks (swapped at build time based on executionControl)
+// ============================================================================
+//
+// New mode (executionControl: true): WS toolkit + no auto-hook. The agent
+// drives execution explicitly. Block describes the # Active Execution
+// section, the runtime debugging story (evalPython, getConsoleLogs,
+// retryCurrentTuple), and the Python-UDF auto-pause behavior.
+//
+// Legacy mode (executionControl: false): synchronous executeOperator tool
+// + auto-hook on every addOperator/modifyOperator. Block describes the
+// silent build-and-observe loop and the on-demand re-run tool. No runtime
+// debugging primitives (those tools aren't registered in this mode).
+
+const EXECUTION_BLOCK_NEW_FULL = `## Reading the # Active Execution section
+
+When an execution is running (or has run during this conversation), the
+prompt includes an \`# Active Execution\` block alongside \`# Current Workflow\`.
+
+**What the fields mean:**
+
+- \`Status:\` is the present state. The "started/paused/finished X ago"
+  suffixes are historical timestamps of the most recent transition, not
+  "currently in that phase." Read the \`Status:\` token for what's
+  happening now.
+- Per-operator counts are cumulative since execution start. Delta
+  annotations like \`+12 rows in last 15s, ~0.8 rows/sec\` or
+  \`no progress in last 30s\` describe what changed since the last
+  \`awaitExecution\` returned — they save you from diffing counts manually.
+- Operator-level states come from the engine: \`Running\`, \`Paused\`,
+  \`Completed\`, \`CompletedFromCache\` (cache reuse — no fresh
+  computation ran), \`Failed\`, \`Ready\`, \`Uninitialized\`.
+- \`Returning because ...\` on each \`awaitExecution\` says why the wait
+  ended. "the wait timer expired with nothing notable happening" is
+  uneventful; anything else means an engine event woke us.
+
+**Reading what you're seeing:**
+
+A healthy run has positive throughput annotations and operators
+progressing through Ready → Running → Completed. Boring is good — keep
+watching with another \`awaitExecution\`.
+
+When an operator is \`Running\` but \`no progress in last Xs\` keeps
+recurring, it's wedged. Pausing and looking at \`tuple_\` via evalPython
+will usually tell you what row it stalled on, and \`getConsoleLogs\` may
+have a relevant traceback or print. How long to tolerate quiet ticks
+depends on the workload — fast workflows shouldn't go silent for long,
+slow ones might genuinely take minutes between updates. Use judgment.
+
+Throughput well below expectation is the same shape of problem without
+a dramatic stall — when it's worth investigating, pause and inspect
+\`tuple_\` for shape, looking for per-row work that should be vectorized.
+
+Console errors in the section show only titles. The full traceback lives
+in \`getConsoleLogs(opId)\`. Pull it before forming a hypothesis — type
+names in titles mislead more often than they help.
+
+\`Status: Failed\` has two distinct flavors worth telling apart. Fatal
+errors are engine-level (schema, wiring, region scheduling) and usually
+mean the workflow can't run as-designed — design-time territory. A
+Failed status with only console errors is almost always a UDF crash,
+which is the runtime debug loop's home turf. Read both buckets before
+deciding which path you're on.
+
+\`CompletedFromCache\` on any operator means the engine reused cached
+results — no code ran. A fresh run needs a design-time edit (which
+invalidates the cache) plus a restart. Worth flagging to the user if
+they expected fresh computation.
+
+Once \`Status: Completed\`, \`getOperatorResult\` on terminal operators
+verifies the answer.
+
+## Debugging a running execution
+
+When something goes wrong mid-execution — a Python UDF crashes, an
+operator stalls, output looks wrong — pausing and inspecting the live
+engine state lets you understand the bug in seconds rather than
+minutes. Restarting just to find out what's in \`tuple_\` wastes time;
+\`evalPython\` shows you immediately.
+
+**Scope: runtime introspection works only on Python UDF operators**
+(\`PythonUDFV2\`, \`PythonUDFSourceV2\`, \`DualInputPortsPythonUDFV2\`).
+\`evalPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route through
+the Python worker process. They have no effect on Java/Scala-implemented
+operators (Filter, HashJoin, Aggregate, Sort, Projection, source scans,
+Distinct, Union, etc.) — those workers don't implement these RPCs and
+calls fail at the engine level. For non-Python operator failures, the
+only path is design-time: read the console/fatal errors, fix the
+configuration with \`modifyOperator\` or \`createOrModifyOperator\`,
+\`killExecution\`, \`startExecution\`.
+
+**The engine auto-pauses on Python UDF exceptions.** When a Python UDF
+raises during a WS execution, the worker catches the exception, reports
+it on the console stream, and pauses itself with EXCEPTION_PAUSE. The
+worker stays alive holding the failing \`tuple_\`. So the path to
+runtime introspection is just one call: \`startExecution\` → wait for
+the error → \`evalPython\` directly. No explicit \`pauseExecution\` is
+needed in this case.
+
+**Build → run → observe is the primary loop.** Call
+\`startExecution\` after building each meaningful step you'd want to
+verify, then \`getOperatorResult\` on the operators you want to
+inspect. Don't assume operators have run unless you've executed the
+workflow — \`# Current Workflow\` shows actual engine state, so an
+operator with no Result section hasn't produced output yet (in this
+session).
+
+A reasonable cadence: build a couple of operators, \`startExecution\`,
+\`getOperatorResult\` on the new tail to see actual columns/dtypes/rows,
+then continue building. Don't try to design the whole pipeline blind
+and run only at the end — schema and data surprises are easier to
+catch incrementally. The engine's reuse cache makes repeat
+\`startExecution\` calls cheap when intermediate operators haven't
+changed.
+
+If a Python UDF throws, the engine auto-pauses on the failing tuple
+(EXCEPTION_PAUSE) and the worker stays alive — that's your cue to use
+\`evalPython\` to ask the runtime directly what \`tuple_\` looks like,
+what \`type(tuple_)\` and \`dir(tuple_)\` expose, etc. Don't iterate
+\`modifyOperator\` blind on a Python API misunderstanding; one or two
+\`evalPython\` calls answer the question definitively.
+
+**Lean on \`evalPython\` aggressively once you're in runtime mode.** It
+runs arbitrary Python in the paused worker with \`self\`, \`tuple_\`,
+and \`input_\` available. Examples worth reaching for first:
+
+- \`evalPython(opId, "tuple_")\` — the exact input that triggered the failure
+- \`evalPython(opId, "type(tuple_)")\` and \`"dir(tuple_)"\` — what API
+  the runtime object actually exposes (this is the question the
+  modify-modify-modify spiral usually represents)
+- \`evalPython(opId, "tuple_.get_field_names()")\` — column names if
+  the tuple is the Texera Tuple type
+- \`evalPython(opId, "type(tuple_['col'])")\` — dtype sanity check
+- \`evalPython(opId, "len(self.cache)")\` — leak / accumulated-state check
+
+Side effects in the worker persist after evaluation. Stick to read-only
+expressions unless you specifically intend to mutate state.
+
+**Don't use \`liveModifyOperator\`.** It's currently disabled at the
+engine level (the WS path queues changes but the resume-time apply
+throws), and the tool is being removed. Apply fixes via
+\`modifyOperator\` (or \`createOrModifyOperator\` in code mode) at
+design-time, then \`killExecution\` and \`startExecution\` for a clean
+run.
+
+A typical loop when you can't fix a Python UDF from design-time alone:
+
+1. \`startExecution\` to run the workflow under WS. The engine will
+   auto-pause when the UDF throws.
+2. \`awaitExecution\` (or just read the next prompt's \`# Active
+   Execution\` section) to see the worker has paused on the exception.
+3. \`getConsoleLogs(operatorId)\` for the full traceback. The Active
+   Execution section only shows error titles.
+4. \`evalPython(operatorId, "tuple_")\` plus narrower reads
+   (\`type(tuple_)\`, \`dir(tuple_)\`, \`type(tuple_[k])\`, etc.) to
+   build a clear picture of what went wrong. Multiple cheap reads beat
+   one wrong fix attempt.
+5. Once you understand the bug, \`modifyOperator\` (or
+   \`createOrModifyOperator\`) with the corrected code.
+6. \`killExecution\` to drop the broken run.
+7. \`startExecution\` again to verify the fix end-to-end.
+
+Things to keep in mind:
+
+- Investigate before modifying. \`evalPython\` on the actual tuple is
+  cheaper than guessing wrong and restarting twice.
+- Read-only by default. Mutating worker state during inspection makes
+  subsequent reads confusing.
+- Schema changes (port count, output columns, operator type) always
+  require a design-time edit + restart, never a code-only swap.
+- Pause is cheap; kill loses progress. Pause and inspect first; commit
+  to kill once you have a fix.`;
+
+const EXECUTION_BLOCK_NEW_NAD = `## Reading the # Active Execution section
+
+When an execution is running (or has run during this conversation), the
+prompt includes an \`# Active Execution\` block alongside \`# Current Workflow\`.
+
+**What the fields mean:**
+
+- \`Status:\` is the present state. The "started/paused/finished X ago"
+  suffixes are historical timestamps, not "currently in that phase."
+- Per-operator counts are cumulative since execution start. Delta
+  annotations like \`+12 rows in last 15s, ~0.8 rows/sec\` or
+  \`no progress in last 30s\` describe what changed since the last
+  \`awaitExecution\` returned.
+- Operator states from the engine: \`Running\`, \`Paused\`, \`Completed\`,
+  \`CompletedFromCache\` (cache reuse — no fresh computation),
+  \`Failed\`, \`Ready\`, \`Uninitialized\`.
+- \`Returning because ...\` on each \`awaitExecution\` says why the wait
+  ended; "the wait timer expired with nothing notable happening" is
+  uneventful, anything else means an engine event woke us.
+
+**Reading what you're seeing:**
+
+A healthy run has positive throughput annotations and operators
+progressing through Ready → Running → Completed. Keep watching with
+another \`awaitExecution\` — boring is good.
+
+When an operator is \`Running\` but \`no progress in last Xs\` keeps
+recurring, it's wedged. Pausing and looking at \`tuple_\` via evalPython
+usually tells you what row it stalled on; \`getConsoleLogs\` may have a
+traceback or print. How long to tolerate quiet ticks depends on the
+workload — use judgment.
+
+Throughput well below expectation is the same problem without a
+dramatic stall — pause when worth investigating, inspect \`tuple_\`
+shape, look for per-row work that should be vectorized.
+
+Console errors in the section show only titles. The full traceback
+lives in \`getConsoleLogs(opId)\` — pull it before forming a hypothesis.
+
+\`Status: Failed\` has two flavors worth telling apart. Fatal errors
+are engine-level (schema, wiring, region scheduling) and usually mean
+the workflow can't run as-designed — design-time territory. Failed
+with only console errors is almost always a UDF crash, the runtime
+debug loop's home turf.
+
+\`CompletedFromCache\` on any operator means cached results were
+reused — no code ran. A fresh run needs a design-time edit (which
+invalidates the cache) plus a restart. Flag to the user if they
+expected fresh computation.
+
+Once \`Status: Completed\`, \`getOperatorResult\` on terminal operators
+verifies the answer.
+
+## Debugging a running execution
+
+When something goes wrong mid-execution — a Python UDF crashes, an
+operator stalls, output looks wrong — pausing and inspecting the live
+engine state lets you understand the bug in seconds rather than
+minutes. Restarting just to find out what's in \`tuple_\` wastes time;
+\`evalPython\` shows you immediately.
+
+**Scope: runtime introspection works only on Python UDF operators**
+(\`PythonUDFV2\`, \`PythonUDFSourceV2\`, \`DualInputPortsPythonUDFV2\`).
+\`evalPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route
+through the Python worker. They have no effect on Java/Scala-implemented
+operators (Filter, HashJoin, Aggregate, Sort, Projection, source scans,
+Distinct, Union, etc.) — those workers don't implement these RPCs. For
+non-Python failures, the only path is design-time: read the
+console/fatal errors, fix with \`modifyOperator\` (or
+\`createOrModifyOperator\`), kill, restart.
+
+**The engine auto-pauses on Python UDF exceptions.** When a Python UDF
+raises during a WS execution, the worker catches the exception, reports
+it on console, and pauses with EXCEPTION_PAUSE — the worker stays
+alive holding the failing \`tuple_\`. So runtime introspection is one
+call away: \`startExecution\` → wait for the error → \`evalPython\`.
+No explicit \`pauseExecution\` needed.
+
+**Build → run → observe is the primary loop.** Call
+\`startExecution\` after building each meaningful step you want to
+verify, then \`getOperatorResult\` on the new tail. Don't design
+blind and run only at the end — schema and data surprises are easier
+to catch incrementally. The engine's reuse cache makes repeat
+\`startExecution\` cheap.
+
+If a Python UDF throws, the engine auto-pauses on the failing tuple
+and the worker stays alive — \`evalPython\` to ask the runtime
+directly what \`tuple_\` is, rather than iterating \`modifyOperator\`
+on guesses about the Python API.
+
+**\`evalPython\` examples** (run in the paused worker with \`self\`,
+\`tuple_\`, \`input_\` in scope):
+
+- \`evalPython(opId, "tuple_")\` — the exact input that triggered the failure
+- \`evalPython(opId, "type(tuple_)")\` and \`"dir(tuple_)"\` — what API
+  the runtime object actually exposes
+- \`evalPython(opId, "type(tuple_['col'])")\` — dtype check
+- \`evalPython(opId, "len(self.cache)")\` — leak / state check
+
+Side effects persist; stick to read-only unless intentional.
+
+**Don't use \`liveModifyOperator\`** — it's disabled at the engine
+level and being removed. Apply fixes via \`modifyOperator\` (or
+\`createOrModifyOperator\`) at design-time, then \`killExecution\` and
+\`startExecution\`.
+
+A typical loop when design-time iteration isn't converging:
+
+1. \`startExecution\` — engine auto-pauses when the UDF throws.
+2. \`getConsoleLogs(operatorId)\` for the full traceback.
+3. \`evalPython(operatorId, ...)\` to ask what the runtime actually
+   sees (\`tuple_\`, \`type(tuple_)\`, \`dir(tuple_)\`, etc.)
+4. Once the bug is clear, \`modifyOperator\` (or
+   \`createOrModifyOperator\`) with the corrected code.
+5. \`killExecution\` to drop the broken run.
+6. \`startExecution\` to verify the fix end-to-end.
+
+Things to keep in mind:
+
+- Investigate before modifying. \`evalPython\` on the actual tuple is
+  cheaper than guessing wrong and restarting twice.
+- Read-only by default — mutating during inspection makes subsequent
+  reads confusing.
+- Schema changes always require design-time edit + restart.
+- Pause is cheap; kill loses progress. Pause and inspect first.`;
+
+const EXECUTION_BLOCK_LEGACY_FULL = `## Executing the workflow
+
+Adding (\`addOperator\` / \`createOrModifyOperator\`) or modifying
+(\`modifyOperator\`) an operator silently runs that operator end-to-end
+on real data, and the result appears in the \`Result:\` section of
+\`# Current Workflow\` for that operator on the next prompt. Build,
+modify, observe, modify again — this is the normal loop and it
+generally just works.
+
+Use \`executeOperator(operatorId)\` when you want to re-run a specific
+operator on demand without modifying it (e.g. to verify a downstream
+op after upstream changes, or to refresh a stale result).
+
+Notes:
+
+- Each silent execute runs the full upstream sub-DAG too, so big
+  workflows or expensive intermediates pay the cost on every edit.
+  If you're making many small tweaks, consider batching coherent
+  changes into a single edit when possible.
+- The Result section reflects engine output as of the most recent
+  silent execution. Read it as authoritative.
+- Errors during silent execute appear in the Result section as
+  \`[ERROR] ...\` — modify the operator to fix and the next silent
+  execute will reflect the new code.`;
+
+const EXECUTION_BLOCK_LEGACY_NAD = `## Executing the workflow
+
+Adding (\`addOperator\` / \`createOrModifyOperator\`) or modifying
+(\`modifyOperator\`) an operator silently runs that operator end-to-end
+on real data, and the result appears in the \`Result:\` section of
+\`# Current Workflow\` for that operator on the next prompt. Build,
+modify, observe, modify again — this is the normal loop and it
+generally just works.
+
+Use \`executeOperator(operatorId)\` when you want to re-run a specific
+operator on demand without modifying it (e.g. to verify a downstream
+op after upstream changes, or to refresh a stale result).
+
+Notes:
+
+- Each silent execute runs the full upstream sub-DAG too, so big
+  workflows or expensive intermediates pay the cost on every edit.
+  If you're making many small tweaks, consider batching coherent
+  changes into a single edit when possible.
+- The Result section reflects engine output as of the most recent
+  silent execution. Read it as authoritative.
+- Errors during silent execute appear in the Result section as
+  \`[ERROR] ...\` — modify the operator to fix and the next silent
+  execute will reflect the new code.`;
+
+// ============================================================================
 // Build Functions
 // ============================================================================
 
@@ -871,9 +1269,18 @@ You have the following operators available:
  * @param examples - One of EXAMPLES_STANDARD, EXAMPLES_PARALLEL, EXAMPLES_FINE_GRAINED, EXAMPLES_RESULT_PARAM, EXAMPLES_PARALLEL_RESULT_PARAM, EXAMPLES_NO_ACTION_DETAIL
  * @param noActionDetail - When true, uses DAG-aware key principles (no "[REDACTED]" references)
  */
-export function buildCodeModeSystemPrompt(examples: string = EXAMPLES_STANDARD, noActionDetail: boolean = false): string {
+export function buildCodeModeSystemPrompt(
+  examples: string = EXAMPLES_STANDARD,
+  noActionDetail: boolean = false,
+  executionControl: boolean = true,
+): string {
   const template = noActionDetail ? CODE_MODE_TEMPLATE_NO_ACTION_DETAIL : CODE_MODE_TEMPLATE;
-  return template.replace("{{EXAMPLES}}", examples);
+  const execBlock = noActionDetail
+    ? (executionControl ? EXECUTION_BLOCK_NEW_NAD : EXECUTION_BLOCK_LEGACY_NAD)
+    : (executionControl ? EXECUTION_BLOCK_NEW_FULL : EXECUTION_BLOCK_LEGACY_FULL);
+  return template
+    .replace("{{EXAMPLES}}", examples)
+    .replace("{{EXECUTION_BLOCK}}", execBlock);
 }
 
 /**
@@ -910,9 +1317,17 @@ export function buildAllowedOperatorSchemas(metadataStore: OperatorMetadataStore
  * @param metadataStore - The operator metadata store
  * @param allowedOperatorTypes - List of allowed operator types. If empty, all operators are included.
  */
-export function buildGeneralModeSystemPrompt(metadataStore: OperatorMetadataStore, allowedOperatorTypes: string[] = []): string {
+export function buildGeneralModeSystemPrompt(
+  metadataStore: OperatorMetadataStore,
+  allowedOperatorTypes: string[] = [],
+  executionControl: boolean = true,
+): string {
   const operatorSchemas = buildAllowedOperatorSchemas(metadataStore, allowedOperatorTypes);
-  return GENERAL_MODE_TEMPLATE.replace("{{OPERATOR_SCHEMA}}", operatorSchemas);
+  // General mode uses KEY_PRINCIPLES (full variant) for its execution block.
+  const execBlock = executionControl ? EXECUTION_BLOCK_NEW_FULL : EXECUTION_BLOCK_LEGACY_FULL;
+  return GENERAL_MODE_TEMPLATE
+    .replace("{{OPERATOR_SCHEMA}}", operatorSchemas)
+    .replace("{{EXECUTION_BLOCK}}", execBlock);
 }
 
 // ============================================================================

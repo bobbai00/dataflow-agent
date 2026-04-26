@@ -164,6 +164,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     noLogFallback: agentSettings.noLogFallback,
     carryMetadata: agentSettings.carryMetadata,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+    executionControl: agentSettings.executionControl,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -272,6 +273,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           noLogFallback: settings.noLogFallback,
           carryMetadata: settings.carryMetadata,
           allowedOperatorTypes: settings.allowedOperatorTypes,
+          executionControl: settings.executionControl,
         });
       }
 
@@ -312,6 +314,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             noLogFallback: t.Optional(t.Boolean()),
             carryMetadata: t.Optional(t.Boolean()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
+            executionControl: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -526,6 +529,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       noLogFallback: agentSettings.noLogFallback,
       carryMetadata: agentSettings.carryMetadata,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+      executionControl: agentSettings.executionControl,
     };
   })
 
@@ -572,6 +576,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         noLogFallback: settings.noLogFallback,
         carryMetadata: settings.carryMetadata,
         allowedOperatorTypes: settings.allowedOperatorTypes,
+        executionControl: settings.executionControl,
       });
 
       // Return updated settings
@@ -601,6 +606,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         noLogFallback: agentSettings.noLogFallback,
         carryMetadata: agentSettings.carryMetadata,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+        executionControl: agentSettings.executionControl,
       };
     },
     {
@@ -631,6 +637,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         noLogFallback: t.Optional(t.Boolean()),
         carryMetadata: t.Optional(t.Boolean()),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
+        executionControl: t.Optional(t.Boolean()),
       }),
     }
   );

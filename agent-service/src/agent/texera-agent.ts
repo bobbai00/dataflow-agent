@@ -27,6 +27,7 @@ import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "../workflow/workflow-state";
 import { OperatorMetadataStore } from "../tools/metadata-tools";
 import { OperatorResultStore } from "./operator-result-store";
+import { ExecutionWatcher } from "./execution-watcher";
 import { formatOperatorResult, type FormatOptions } from "../tools/result-formatting";
 import type {
   AgentSettings,
@@ -81,6 +82,26 @@ import {
   TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
 } from "../tools/execution-tools";
+import {
+  createWsExecutionTools,
+  TOOL_NAME_START_EXECUTION,
+  TOOL_NAME_AWAIT_EXECUTION,
+  TOOL_NAME_PAUSE_EXECUTION,
+  TOOL_NAME_RESUME_EXECUTION,
+  TOOL_NAME_KILL_EXECUTION,
+  TOOL_NAME_GET_OPERATOR_RESULT,
+  TOOL_NAME_EVAL_PYTHON,
+  TOOL_NAME_LIVE_MODIFY_OPERATOR, //— intentionally not imported; tool
+  // unregistered until engine wire-up lands. See note where it was being
+  // registered.
+  TOOL_NAME_RETRY_CURRENT_TUPLE,
+  TOOL_NAME_GET_CONSOLE_LOGS,
+} from "../tools/ws-execution-tools";
+import {
+  createDatasetTools,
+  TOOL_NAME_LIST_DATASETS,
+  TOOL_NAME_LIST_DATASET_FILES,
+} from "../tools/dataset-tools";
 import { trimNonFrontierResults } from "./context-optimization";
 import { assembleContext } from "./context-assembler";
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
@@ -156,6 +177,12 @@ export class TexeraAgent {
   private stepCounter = 0;
   // Versioned operator result store
   private operatorResultStore: OperatorResultStore;
+  // Long-lived WS-based execution observer (one per agent, see PAUSE_RESUME_PLAN.md).
+  // null when no execution is active. Disposed one turn after terminal state.
+  private executionWatcher: ExecutionWatcher | null = null;
+  /** Turn counter at which to dispose the watcher; null when not scheduled. */
+  private executionWatcherDisposeAtTurn: number | null = null;
+  private turnCounter: number = 0;
 
   // Server-managed state (for HTTP/WebSocket handling)
   /** RxJS subscription for agent action streaming */
@@ -271,7 +298,11 @@ export class TexeraAgent {
    */
   private rebuildSystemPrompt(): void {
     if (this.settings.agentMode === AgentMode.GENERAL) {
-      this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
+      this.systemPrompt = buildGeneralModeSystemPrompt(
+        this.metadataStore,
+        this.settings.allowedOperatorTypes,
+        this.settings.executionControl,
+      );
     } else {
       let examples: string;
       if (this.settings.noActionDetail && this.settings.carryMetadata && this.settings.parallelToolCalls) {
@@ -293,7 +324,11 @@ export class TexeraAgent {
       } else {
         examples = EXAMPLES_STANDARD;
       }
-      this.systemPrompt = buildCodeModeSystemPrompt(examples, this.settings.noActionDetail);
+      this.systemPrompt = buildCodeModeSystemPrompt(
+        examples,
+        this.settings.noActionDetail,
+        this.settings.executionControl,
+      );
     }
     this.settings.systemPrompt = this.systemPrompt;
   }
@@ -362,6 +397,17 @@ export class TexeraAgent {
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
     };
 
+    // Dataset discovery — needed at design-time before any source operator can
+    // be configured. Available whenever we have a user token (independent of
+    // whether execution tools are wired).
+    if (getExecutionConfig) {
+      const datasetTools = createDatasetTools({
+        getUserToken: () => getExecutionConfig().userToken,
+      });
+      tools[TOOL_NAME_LIST_DATASETS] = datasetTools[TOOL_NAME_LIST_DATASETS];
+      tools[TOOL_NAME_LIST_DATASET_FILES] = datasetTools[TOOL_NAME_LIST_DATASET_FILES];
+    }
+
     // Mode-specific tools
     if (this.settings.agentMode === AgentMode.CODE) {
       // CODE mode: Use unified coding tool (creates or modifies operators)
@@ -373,17 +419,69 @@ export class TexeraAgent {
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
     }
 
-    // Add execution tools if delegateConfig is available (requires user token and workflow ID)
-    // In CODE mode, execution is handled inline — no separate executeOperator needed
-    // When noActionDetail is on, executeOperator is also not needed
+    // Execution tools — split between two coherent UXes via `executionControl`:
+    //
+    //   true (new mode): WS toolkit (startExecution, awaitExecution,
+    //     pause/resume/kill, getOperatorResult, evalPython, getConsoleLogs,
+    //     retryCurrentTuple). The agent drives execution explicitly. Auto-hook
+    //     is off (gated below in the post-step block).
+    //
+    //   false (legacy mode): the synchronous `executeOperator` tool the LLM
+    //     can call to (re-)run a single operator on demand. Auto-hook is on
+    //     so most edits don't need an explicit execute call.
+    //
+    // Common preconditions: needs a user token (getExecutionConfig), and we
+    // skip the registration in CODE mode and in simplified/no-action-detail
+    // setups where execution is handled differently.
     if (getExecutionConfig && !this.settings.simplifiedTools && !this.settings.noActionDetail && this.settings.agentMode !== AgentMode.CODE) {
-      tools[TOOL_NAME_EXECUTE_OPERATOR] = createExecuteOperatorTool(
-        this.workflowState,
-        getExecutionConfig,
-        (opId, operatorInfo) => {
-          this.operatorResultStore.set(opId, this.head, operatorInfo);
-        }
-      );
+      if (this.settings.executionControl) {
+        const watcherSlot = {
+          get: () => this.executionWatcher,
+          set: (w: ExecutionWatcher | null) => {
+            this.executionWatcher = w;
+            // When a fresh watcher is installed (new execution starting), clear
+            // any stale dispose schedule from a previous execution. Otherwise
+            // the new execution's terminal snapshot could be disposed too early.
+            if (w !== null) {
+              this.executionWatcherDisposeAtTurn = null;
+            }
+          },
+        };
+        const wsTools = createWsExecutionTools({
+          workflowState: this.workflowState,
+          watcherSlot,
+          getExecutionConfig,
+          getAbortSignal: () => this.abortController?.signal,
+          // Every successful getOperatorResult writes the rows back into the
+          // store so `# Current Workflow`'s Result section stays in sync.
+          onOperatorResult: (operatorId, operatorInfo) => {
+            this.operatorResultStore.set(operatorId, this.head, operatorInfo);
+          },
+        });
+        tools[TOOL_NAME_START_EXECUTION] = wsTools[TOOL_NAME_START_EXECUTION];
+        tools[TOOL_NAME_AWAIT_EXECUTION] = wsTools[TOOL_NAME_AWAIT_EXECUTION];
+        tools[TOOL_NAME_PAUSE_EXECUTION] = wsTools[TOOL_NAME_PAUSE_EXECUTION];
+        tools[TOOL_NAME_RESUME_EXECUTION] = wsTools[TOOL_NAME_RESUME_EXECUTION];
+        tools[TOOL_NAME_KILL_EXECUTION] = wsTools[TOOL_NAME_KILL_EXECUTION];
+        tools[TOOL_NAME_GET_OPERATOR_RESULT] = wsTools[TOOL_NAME_GET_OPERATOR_RESULT];
+        tools[TOOL_NAME_EVAL_PYTHON] = wsTools[TOOL_NAME_EVAL_PYTHON];
+        // liveModifyOperator intentionally NOT registered — engine path
+        // disabled (ExecutionReconfigurationService throws on resume).
+        tools[TOOL_NAME_LIVE_MODIFY_OPERATOR] = wsTools[TOOL_NAME_LIVE_MODIFY_OPERATOR];
+        tools[TOOL_NAME_RETRY_CURRENT_TUPLE] = wsTools[TOOL_NAME_RETRY_CURRENT_TUPLE];
+        tools[TOOL_NAME_GET_CONSOLE_LOGS] = wsTools[TOOL_NAME_GET_CONSOLE_LOGS];
+      } else {
+        // Legacy mode: single sync execute tool. Auto-hook (post-step block
+        // below) keeps results fresh after each edit; this tool lets the LLM
+        // re-run a specific operator on demand without modifying it.
+        tools[TOOL_NAME_EXECUTE_OPERATOR] = createExecuteOperatorTool(
+          this.workflowState,
+          getExecutionConfig,
+          (operatorId, operatorInfo) => {
+            this.operatorResultStore.set(operatorId, this.head, operatorInfo);
+          },
+        );
+      }
     }
 
     return tools;
@@ -620,6 +718,7 @@ export class TexeraAgent {
     noLogFallback?: boolean;
     carryMetadata?: boolean;
     allowedOperatorTypes?: string[];
+    executionControl?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -700,6 +799,10 @@ export class TexeraAgent {
     }
     if (updates.allowedOperatorTypes !== undefined) {
       this.settings.allowedOperatorTypes = updates.allowedOperatorTypes;
+      promptNeedsRebuild = true;
+    }
+    if (updates.executionControl !== undefined && updates.executionControl !== this.settings.executionControl) {
+      this.settings.executionControl = updates.executionControl;
       promptNeedsRebuild = true;
     }
 
@@ -931,8 +1034,10 @@ export class TexeraAgent {
               // (properties are always shown for operators with execution errors).
               const useRedact = this.settings.noActionDetail;
               const visibleSteps = this.getVisibleReActSteps();
+              const executionSnapshot = this.executionWatcher?.getSnapshot() ?? null;
+              const executionSnapshotAtLastWake = this.executionWatcher?.getSnapshotAtLastWake() ?? null;
               let processed = assembleContext(
-                visibleSteps, this.workflowState, this.getFormattedResultsForDAG(), useRedact, compilationResult
+                visibleSteps, this.workflowState, this.getFormattedResultsForDAG(), useRedact, compilationResult, executionSnapshot, executionSnapshotAtLastWake
               );
               // context optimization: trims execution result sections
               if (this.settings.enableContextOptimization) {
@@ -1011,42 +1116,64 @@ export class TexeraAgent {
           this.addStep(agentStep);
           this.head = agentStepId;
 
-          // Post-step auto-execution: execute operators that were successfully added/modified.
-          // Results are stored at the new HEAD (this step's ID).
-          const execConfig = this.buildExecutionConfig();
-          if (execConfig && toolCalls && toolResults) {
-            const EXECUTE_AFTER_TOOLS = new Set([
-              TOOL_NAME_ADD_OPERATOR, TOOL_NAME_MODIFY_OPERATOR,
-              TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
-            ]);
+          // Optional post-step auto-execution hook.
+          //
+          // When `autoExecuteAfterModify` is enabled, after every successful
+          // addOperator / modifyOperator / createOrModifyOperator the system
+          // silently calls executeOperatorAndFormat (synchronous HTTP) on the
+          // touched operator and writes the result into operatorResultStore.
+          // That makes # Current Workflow's Result section "just appear"
+          // without the agent ever calling startExecution. Useful for fast
+          // iterative builds, but it has three structural costs:
+          //   1. Always full-data execution, never sample — every edit
+          //      re-runs the operator end-to-end on real data.
+          //   2. Re-runs upstream sub-DAG too (HashJoin both sides, etc.) —
+          //      pipelines with expensive intermediates pay that cost on
+          //      every edit.
+          //   3. Preempts the WS-debug story. The agent never reaches a
+          //      state where evalPython can help, because every error
+          //      surfaces as a text result string from the HTTP path rather
+          //      than as a paused-on-exception worker.
+          //
+          // Gated on `executionControl: false` (legacy mode). When the
+          // agent has the WS toolkit instead, the hook is off and the agent
+          // drives execution explicitly.
+          if (!this.settings.executionControl) {
+            const execConfig = this.buildExecutionConfig();
+            if (execConfig && toolCalls && toolResults) {
+              const EXECUTE_AFTER_TOOLS = new Set([
+                TOOL_NAME_ADD_OPERATOR, TOOL_NAME_MODIFY_OPERATOR,
+                TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
+              ]);
 
-            for (let i = 0; i < toolCalls.length; i++) {
-              const tc = toolCalls[i];
-              const tr = toolResults[i];
-              if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
+              for (let i = 0; i < toolCalls.length; i++) {
+                const tc = toolCalls[i];
+                const tr = toolResults[i];
+                if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
 
-              // Skip failed tool calls
-              const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
-              if (resultText.startsWith("[ERROR]")) continue;
+                // Skip failed tool calls
+                const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
+                if (resultText.startsWith("[ERROR]")) continue;
 
-              const operatorId = (tc.input as any)?.operatorId;
-              if (!operatorId) continue;
+                const operatorId = (tc.input as any)?.operatorId;
+                if (!operatorId) continue;
 
-              try {
-                await executeOperatorAndFormat(
-                  this.workflowState,
-                  execConfig,
-                  operatorId,
-                  {
-                    abortSignal: this.abortController?.signal,
-                    onResult: (opId, operatorInfo) => {
-                      this.operatorResultStore.set(opId, this.head, operatorInfo);
-                    },
-                  }
-                );
-              } catch (e: any) {
-                // Non-fatal: log but don't fail the step
-                console.warn(`[PostStepExecution] Failed to execute ${operatorId}:`, e?.message || e);
+                try {
+                  await executeOperatorAndFormat(
+                    this.workflowState,
+                    execConfig,
+                    operatorId,
+                    {
+                      abortSignal: this.abortController?.signal,
+                      onResult: (opId, operatorInfo) => {
+                        this.operatorResultStore.set(opId, this.head, operatorInfo);
+                      },
+                    }
+                  );
+                } catch (e: any) {
+                  // Non-fatal: log but don't fail the step
+                  console.warn(`[PostStepExecution] Failed to execute ${operatorId}:`, e?.message || e);
+                }
               }
             }
           }
@@ -1171,6 +1298,27 @@ export class TexeraAgent {
       this.abortController = null;
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
+      this.turnCounter++;
+
+      // Watcher disposal: one turn after the execution reaches a terminal state.
+      // - First turn that observes terminal: schedule disposal at next turn boundary.
+      // - Subsequent turn: dispose.
+      if (this.executionWatcher) {
+        if (this.executionWatcher.isAlive()) {
+          // still alive; carry over to next turn
+        } else if (this.executionWatcherDisposeAtTurn === null) {
+          // schedule for next turn so the LLM sees "Completed" once
+          this.executionWatcherDisposeAtTurn = this.turnCounter + 1;
+        } else if (this.turnCounter >= this.executionWatcherDisposeAtTurn) {
+          try {
+            this.executionWatcher.dispose();
+          } catch (e) {
+            console.warn(`[TexeraAgent ${this.agentId}] watcher dispose threw:`, e);
+          }
+          this.executionWatcher = null;
+          this.executionWatcherDisposeAtTurn = null;
+        }
+      }
     }
   }
 
@@ -1195,12 +1343,23 @@ export class TexeraAgent {
 
   /**
    * Stop the current message processing immediately.
-   * This aborts any ongoing LLM calls and tool executions.
+   * This aborts any ongoing LLM calls and tool executions, and kills any
+   * in-flight workflow execution to avoid leaving an orphan running on the
+   * engine.
    */
   stop(): void {
     this.state = AgentStateEnum.STOPPING;
     if (this.abortController) {
       this.abortController.abort();
+    }
+    // Kill in-flight execution if any. The watcher will dispose itself on
+    // the next finally-block tick when it observes Killed/Terminated.
+    if (this.executionWatcher && this.executionWatcher.isAlive()) {
+      try {
+        this.executionWatcher.kill();
+      } catch (e) {
+        console.warn(`[TexeraAgent ${this.agentId}] kill on stop threw:`, e);
+      }
     }
   }
 
