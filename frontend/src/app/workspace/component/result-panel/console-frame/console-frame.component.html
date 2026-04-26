@@ -72,22 +72,37 @@
     *ngFor="let entry of consoleMessages"
     class="console-message-entry"
     nzNoFlex>
-    <div
-      nz-row
-      nzJustify="end"
-      nzAlign="top">
-      <div
-        nz-col
-        nzSpan="1">
+    <div class="console-message-row">
+      <div class="console-message-badge">
         <nz-badge
           [nzStatus]="getMessageLabel(entry)"
           [nzTitle]="entry.msgType.name"
           class="type-tag"></nz-badge>
       </div>
 
-      <div
-        nz-col
-        nzSpan="15">
+      <div class="console-message-body">
+        <!-- Floated right so it stays on the first line of the body, while the
+             message text wraps around (and below) it when it overflows. -->
+        <div class="console-message-meta">
+          <nz-tag
+            *ngIf="showSource"
+            class="source-tag">
+            {{ entry.source }}
+          </nz-tag>
+          <nz-tag
+            *ngIf="showTimestamp"
+            class="timestamp-tag"
+            nz-tooltip
+            [nzTooltipTitle]="(entry.timestamp.seconds * 1000 + entry.timestamp.nanos * 0.000001) | date : 'yyyy-MM-dd HH:mm:ss.SSS'">
+            {{ (entry.timestamp.seconds * 1000 + entry.timestamp.nanos * 0.000001) | date : "HH:mm:ss" }}
+          </nz-tag>
+          <nz-tag
+            *ngIf="entry.workerId"
+            class="worker-tag"
+            [nzColor]="getWorkerColor(getWorkerIndex(entry.workerId))">
+            {{ workerIdToAbbr(entry.workerId) }}
+          </nz-tag>
+        </div>
         <nz-collapse
           *ngIf="entry.message.length !== 0"
           nzGhost>
@@ -109,122 +124,115 @@
           {{ entry.title }}
         </div>
       </div>
-      <div
-        nz-col
-        nzSpan="8">
-        <div
-          nz-row
-          nzAlign="top"
-          nzJustify="end"
-          nzGutter="0">
-          <div
-            nz-col
-            nzFlex="auto">
-            <nz-tag
-              *ngIf="showSource"
-              class="source-tag">
-              {{ entry.source }}
-            </nz-tag>
-          </div>
-          <div
-            nzcol
-            nz-span="12">
-            <nz-tag
-              *ngIf="showTimestamp"
-              class="timestamp-tag">
-              {{ (entry.timestamp.seconds * 1000 + entry.timestamp.nanos * 0.000001) | date : "M-d-yy, HH:mm:ss.SSS" }}
-            </nz-tag>
-            <nz-tag
-              *ngIf="entry.workerId"
-              class="worker-tag"
-              [nzColor]="getWorkerColor(getWorkerIndex(entry.workerId))">
-              {{ workerIdToAbbr(entry.workerId) }}
-            </nz-tag>
-          </div>
-        </div>
-      </div>
     </div>
   </nz-list-item>
 </nz-list>
 
-<nz-input-group
+<div
   *ngIf="consoleInputEnabled"
-  nzCompact
-  [nzAddOnBefore]="addOnBeforeTemplate"
-  class="console-input-container">
-  <div>
-    <button
-      (click)="onClickSkipTuples()"
-      [disabled]="false"
+  class="debugger-bar">
+  <!-- Action toolbar: media-player style. Continue is the primary, "go" action.
+       Step / Retry / Skip are secondary. Worker target is on the left. -->
+  <div class="debugger-controls">
+    <nz-select
+      class="debugger-worker"
       nzSize="small"
+      [(ngModel)]="targetWorker"
       nz-tooltip
-      nzTooltipTitle="Skip the faulty Tuple"
-      nz-button>
-      <span
-        nz-icon
-        nzType="delete-row"
-        nzTheme="outline">
-      </span>
-      Skip Tuple
-    </button>
-    <button
-      (click)="onClickRetryTuples()"
-      [disabled]="false"
-      nzSize="small"
-      nz-tooltip
-      nzTooltipTitle="Retry the faulty Tuple"
-      nz-button>
-      <span
-        nz-icon
-        nzType="redo"
-        nzTheme="outline">
-      </span>
-      Retry Tuple
-    </button>
-    <button
-      (click)="onClickStep()"
-      nz-button
-      nzSize="small"
-      nz-tooltip
-      nzTooltipTitle="Step"
-      title="Step">
-      <i
-        nz-icon
-        nzTheme="outline"
-        nzType="vertical-left"></i>
-      Step
-    </button>
-    <button
-      (click)="onClickContinue()"
-      nz-button
-      nz-tooltip
-      nzTooltipTitle="Continue"
-      nzSize="small"
-      title="Continue">
-      <i
-        nz-icon
-        nzTheme="outline"
-        nzType="right"></i>
-      Continue
-    </button>
+      nzTooltipTitle="Target worker"
+      nzTooltipPlacement="top">
+      <nz-option
+        *ngFor="let workerId of workerIds"
+        [nzLabel]="workerIdToAbbr(workerId)"
+        [nzValue]="workerId"></nz-option>
+      <nz-option
+        [nzLabel]="ALL_WORKERS"
+        [nzValue]="ALL_WORKERS"></nz-option>
+    </nz-select>
+
+    <div
+      nz-button-group
+      class="debugger-actions">
+      <button
+        nz-button
+        nzSize="small"
+        (click)="onClickSkipTuples()"
+        nz-tooltip
+        nzTooltipTitle="Skip current tuple"
+        nzTooltipPlacement="top">
+        <span
+          nz-icon
+          nzType="forward"
+          nzTheme="outline"></span>
+      </button>
+      <button
+        nz-button
+        nzSize="small"
+        (click)="onClickRetryTuples()"
+        nz-tooltip
+        nzTooltipTitle="Retry current tuple"
+        nzTooltipPlacement="top">
+        <span
+          nz-icon
+          nzType="redo"
+          nzTheme="outline"></span>
+      </button>
+      <button
+        nz-button
+        nzSize="small"
+        (click)="onClickStep()"
+        nz-tooltip
+        nzTooltipTitle="Step over"
+        nzTooltipPlacement="top">
+        <span
+          nz-icon
+          nzType="step-forward"
+          nzTheme="outline"></span>
+      </button>
+      <button
+        nz-button
+        nzType="primary"
+        nzSize="small"
+        (click)="onClickContinue()"
+        nz-tooltip
+        nzTooltipTitle="Continue"
+        nzTooltipPlacement="top">
+        <span
+          nz-icon
+          nzType="caret-right"
+          nzTheme="outline"></span>
+      </button>
+    </div>
   </div>
 
-  <input
-    type="text"
-    nz-input
-    style="width: calc(100% - 160px)"
-    [(ngModel)]="command"
-    (keyup.enter)="submitDebugCommand()" />
-</nz-input-group>
-
-<ng-template #addOnBeforeTemplate>
-  <nz-select [(ngModel)]="targetWorker">
-    <nz-option
-      *ngFor="let workerId of workerIds"
-      [nzLabel]="workerIdToAbbr(workerId)"
-      [nzValue]="workerId"></nz-option>
-    <nz-option
-      [nzLabel]="ALL_WORKERS"
-      [nzValue]="ALL_WORKERS"></nz-option>
-  </nz-select>
-</ng-template>
+  <!-- REPL-style command line -->
+  <div class="debugger-prompt">
+    <span
+      class="debugger-prompt-symbol"
+      nz-icon
+      nzType="right"
+      nzTheme="outline"></span>
+    <input
+      type="text"
+      nz-input
+      nzSize="small"
+      class="debugger-prompt-input"
+      placeholder="enter debug command, press Enter to send"
+      [(ngModel)]="command"
+      (keyup.enter)="submitDebugCommand()" />
+    <button
+      nz-button
+      nzType="default"
+      nzSize="small"
+      (click)="submitDebugCommand()"
+      [disabled]="!command"
+      nz-tooltip
+      nzTooltipTitle="Send"
+      nzTooltipPlacement="top">
+      <span
+        nz-icon
+        nzType="enter"
+        nzTheme="outline"></span>
+    </button>
+  </div>
+</div>

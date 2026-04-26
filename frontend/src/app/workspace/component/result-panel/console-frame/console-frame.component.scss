@@ -46,79 +46,209 @@
   overflow: auto;
   -webkit-user-select: text;
   user-select: text;
+  background: #fff;
+
+  // Tighten ant-list-item default padding (12px top/bottom + 16px sides).
+  ::ng-deep .ant-list-item {
+    padding: 2px 8px !important;
+    border-bottom: 1px solid #f5f5f5 !important;
+
+    &:last-child {
+      border-bottom: none !important;
+    }
+
+    &:hover {
+      background: #fafbfc;
+    }
+  }
+
+  // Strip ant-collapse default padding so the message body lines up flush
+  // with the header.
+  ::ng-deep .collapse-remove-padding .ant-collapse-header {
+    padding: 0 !important;
+    line-height: 18px !important;
+    min-height: 18px !important;
+  }
+
+  ::ng-deep .collapse-remove-padding .ant-collapse-content-box {
+    padding: 2px 0 4px 0 !important;
+  }
 
   .console-message-entry {
-    //border: purple solid;
     width: 100%;
 
-    ::ng-deep .collapse-remove-padding .ant-collapse-header {
-      padding: 0 !important;
+    .collapse-message-header,
+    .console-message {
+      width: 100%;
+      // Modern monospace stack: ui-monospace falls back to SF Mono on macOS,
+      // Cascadia Mono on Windows, etc. JetBrains Mono next if the user has it
+      // installed; then well-known platform monospace fonts; final fallback.
+      font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+        Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      line-height: 18px;
+      letter-spacing: 0;
+      white-space: pre-line;
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     .collapse-message-header {
-      width: 100%;
-      font-family: monaco, serif;
-      font-size: 11px;
-      font-style: normal;
-      font-variant: normal;
-      font-weight: bold;
-      line-height: 14px;
-      white-space: pre-line;
-      color: red;
-      -webkit-user-select: text;
-      user-select: text;
-      //border: solid black;
+      font-weight: 600;
+      color: #cf1322;
     }
 
     .console-message {
-      width: 100%;
-      font-family: monaco, serif;
-      font-size: 11px;
-      font-style: normal;
-      font-variant: normal;
-      font-weight: 200;
-      line-height: 14px;
-      white-space: pre-line;
-      -webkit-user-select: text;
-      user-select: text;
+      font-weight: 400;
+      color: #262626;
       cursor: text;
-      //border: solid black;
     }
 
-    .worker-tag {
-      //width: 100%;
-      font-family: monaco, serif;
-      font-size: 8px;
-      font-style: normal;
-      font-variant: normal;
-      //border: solid red;
-      text-align: end;
+    .console-message-row {
+      display: flex;
+      align-items: flex-start;
+      width: 100%;
+      gap: 6px;
     }
 
-    .timestamp-tag {
-      //width: 100%;
-      font-family: monaco, serif;
-      font-size: 8px;
-      font-style: normal;
-      font-variant: normal;
-      //border: solid green;
-      text-align: end;
+    .console-message-badge {
+      flex: 0 0 auto;
+      width: 8px;
+      // Match the first text line height + center the dot vertically inside it
+      // so the dot aligns with the first character of the message.
+      height: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .console-message-body {
+      flex: 1 1 auto;
+      min-width: 0;
+      // overflow:hidden creates a block formatting context so the floated meta
+      // doesn't escape this body, but the message text still flows around it.
+      overflow: hidden;
+    }
+
+    .console-message-meta {
+      // Float right: meta sticks to the first line, message wraps around (and
+      // below) it when long.
+      float: right;
+      display: inline-flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+      white-space: nowrap;
+    }
+
+    .worker-tag,
+    .timestamp-tag,
+    .source-tag {
+      font-family: monaco, monospace;
+      font-size: 10px;
+      line-height: 14px;
+      margin: 0;
+      padding: 0 5px;
+      border-radius: 2px;
+      white-space: nowrap;
     }
 
     .source-tag {
-      //width: 100%;
-      font-family: monaco, serif;
-      font-size: 8px;
-      font-style: normal;
-      font-variant: normal;
-      //border: solid #0e5df0;
-      text-align: end;
+      color: #0e5df0;
+      background: #f0f5ff;
+      border-color: #adc6ff;
+    }
+
+    .timestamp-tag {
+      color: #8c8c8c;
+      background: transparent;
+      border-color: transparent;
+      padding: 0 2px;
+    }
+
+    .worker-tag {
+      font-weight: 600;
     }
   }
 }
 
-.console-input-container {
+.debugger-bar {
   flex: 0 0 auto;
   width: 100%;
   margin-top: 8px;
+  // Pin to the bottom of the host, above any parent scroll. The console list
+  // above scrolls; the debugger controls stay anchored.
+  position: sticky;
+  bottom: 0;
+  background: #fafafa;
+  padding: 8px 10px;
+  border-top: 1px solid #e8e8e8;
+  border-radius: 4px 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1;
+  box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.debugger-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debugger-worker {
+  width: 180px;
+  flex: 0 0 auto;
+}
+
+.debugger-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+
+  button {
+    // Larger icons for the media-player feel.
+    .anticon {
+      font-size: 14px;
+    }
+  }
+}
+
+.debugger-prompt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: monaco, monospace;
+
+  &:focus-within {
+    border-color: #1890ff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  }
+}
+
+.debugger-prompt-symbol {
+  color: #1890ff;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.debugger-prompt-input {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  font-family: monaco, monospace;
+  font-size: 12px;
+  padding: 2px 0;
+
+  &:focus {
+    box-shadow: none;
+    border: none;
+  }
 }
