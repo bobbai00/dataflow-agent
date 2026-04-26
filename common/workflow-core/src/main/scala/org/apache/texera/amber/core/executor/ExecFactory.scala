@@ -29,6 +29,21 @@ object ExecFactory {
       .asInstanceOf[OperatorExecutor]
   }
 
+  def newExecFromScalaCode(code: String): OperatorExecutor = {
+    ScalaRuntimeCompilation
+      .compileCode(code)
+      .getDeclaredConstructor()
+      .newInstance()
+      .asInstanceOf[OperatorExecutor]
+  }
+
+  def newExecFromCode(code: String, language: String): OperatorExecutor = {
+    language.toLowerCase match {
+      case "scala" => newExecFromScalaCode(code)
+      case _       => newExecFromJavaCode(code)
+    }
+  }
+
   def newExecFromJavaClassName[K](
       className: String,
       descString: String = "",

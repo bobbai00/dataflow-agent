@@ -44,7 +44,7 @@ class SerializationManager(val actorId: ActorVirtualIdentity) extends AmberLoggi
     val executor = execInitMsg.opExecInitInfo match {
       case OpExecWithClassName(className, descString) =>
         ExecFactory.newExecFromJavaClassName(className, descString, workerIdx, workerCount)
-      case OpExecWithCode(code, language) => ExecFactory.newExecFromJavaCode(code)
+      case OpExecWithCode(code, language) => ExecFactory.newExecFromCode(code, language)
       case _                              => throw new UnsupportedOperationException("Unsupported OpExec type")
     }
 
