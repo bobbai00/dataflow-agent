@@ -803,6 +803,17 @@ export class ExecutionWatcher {
   }
 
   /**
+   * Fire-and-forget: send a single pdb command into a Python UDF worker.
+   *
+   * No synchronous response — output arrives later as ConsoleUpdateEvent
+   * with level=DEBUGGER from that worker. Callers (the `debugPython` tool)
+   * poll `consoleMessagesByOperator` to capture the output.
+   */
+  sendDebugCommand(req: { operatorId: string; workerId: string; cmd: string }): void {
+    this.wsClient.sendDebugCommandRequest(req);
+  }
+
+  /**
    * Send a modify-logic request and resolve once the engine has both
    * validated and applied the change.
    *

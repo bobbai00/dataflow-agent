@@ -63,6 +63,7 @@ export type TexeraWebSocketRequest =
   | ResultPaginationRequest
   | PythonExpressionEvaluateRequest
   | ModifyLogicRequest
+  | DebugCommandRequest
   | RetryRequest
   | HeartBeatRequest;
 
@@ -132,6 +133,23 @@ export interface PythonExpressionEvaluateRequest {
 export interface ModifyLogicRequest {
   type: "ModifyLogicRequest";
   operator: { operatorID: string; operatorType: string; [k: string]: any };
+}
+
+/**
+ * Send a single Python pdb command to a worker for line-by-line debugging
+ * of a Python UDF (Udon-style). Worker pipes the command into its in-process
+ * Pdb instance; output comes back as ConsoleUpdateEvent (level=DEBUGGER) on
+ * the same operator/worker, not as a synchronous response.
+ *
+ * The command syntax is plain pdb — `n`, `s`, `c`, `b 5`, `p tuple_`, etc.
+ * The worker auto-prefixes module name to `b LINE`, so callers just give the
+ * line number relative to the UDF source.
+ */
+export interface DebugCommandRequest {
+  type: "DebugCommandRequest";
+  operatorId: string;
+  workerId: string;
+  cmd: string;
 }
 
 /**

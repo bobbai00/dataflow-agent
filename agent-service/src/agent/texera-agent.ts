@@ -90,10 +90,8 @@ import {
   TOOL_NAME_RESUME_EXECUTION,
   TOOL_NAME_KILL_EXECUTION,
   TOOL_NAME_GET_OPERATOR_RESULT,
-  TOOL_NAME_EVAL_PYTHON,
-  TOOL_NAME_LIVE_MODIFY_OPERATOR, //— intentionally not imported; tool
-  // unregistered until engine wire-up lands. See note where it was being
-  // registered.
+  TOOL_NAME_DEBUG_PYTHON,
+  TOOL_NAME_LIVE_MODIFY_OPERATOR,
   TOOL_NAME_RETRY_CURRENT_TUPLE,
   TOOL_NAME_GET_CONSOLE_LOGS,
 } from "../tools/ws-execution-tools";
@@ -422,7 +420,7 @@ export class TexeraAgent {
     // Execution tools — split between two coherent UXes via `executionControl`:
     //
     //   true (new mode): WS toolkit (startExecution, awaitExecution,
-    //     pause/resume/kill, getOperatorResult, evalPython, getConsoleLogs,
+    //     pause/resume/kill, getOperatorResult, debugPython, getConsoleLogs,
     //     retryCurrentTuple). The agent drives execution explicitly. Auto-hook
     //     is off (gated below in the post-step block).
     //
@@ -464,9 +462,7 @@ export class TexeraAgent {
         tools[TOOL_NAME_RESUME_EXECUTION] = wsTools[TOOL_NAME_RESUME_EXECUTION];
         tools[TOOL_NAME_KILL_EXECUTION] = wsTools[TOOL_NAME_KILL_EXECUTION];
         tools[TOOL_NAME_GET_OPERATOR_RESULT] = wsTools[TOOL_NAME_GET_OPERATOR_RESULT];
-        tools[TOOL_NAME_EVAL_PYTHON] = wsTools[TOOL_NAME_EVAL_PYTHON];
-        // liveModifyOperator intentionally NOT registered — engine path
-        // disabled (ExecutionReconfigurationService throws on resume).
+        tools[TOOL_NAME_DEBUG_PYTHON] = wsTools[TOOL_NAME_DEBUG_PYTHON];
         tools[TOOL_NAME_LIVE_MODIFY_OPERATOR] = wsTools[TOOL_NAME_LIVE_MODIFY_OPERATOR];
         tools[TOOL_NAME_RETRY_CURRENT_TUPLE] = wsTools[TOOL_NAME_RETRY_CURRENT_TUPLE];
         tools[TOOL_NAME_GET_CONSOLE_LOGS] = wsTools[TOOL_NAME_GET_CONSOLE_LOGS];
@@ -1131,7 +1127,7 @@ export class TexeraAgent {
           //      pipelines with expensive intermediates pay that cost on
           //      every edit.
           //   3. Preempts the WS-debug story. The agent never reaches a
-          //      state where evalPython can help, because every error
+          //      state where debugPython can help, because every error
           //      surfaces as a text result string from the HTTP path rather
           //      than as a paused-on-exception worker.
           //

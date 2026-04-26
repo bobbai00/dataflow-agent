@@ -207,10 +207,10 @@ export interface AgentSettings {
    *
    * `true` (default, new mode): the agent gets the WS toolkit
    *   (startExecution, awaitExecution, pauseExecution, resumeExecution,
-   *   killExecution, getOperatorResult, evalPython, getConsoleLogs,
+   *   killExecution, getOperatorResult, debugPython, getConsoleLogs,
    *   retryCurrentTuple). No silent auto-execute on edit. The agent must
    *   explicitly run the workflow and can introspect at runtime — Python
-   *   UDF exceptions auto-pause the worker so evalPython works directly.
+   *   UDF exceptions auto-pause the worker so debugPython works directly.
    *
    * `false` (legacy mode): the agent gets the synchronous `executeOperator`
    *   tool plus the silent auto-execute hook on every addOperator /

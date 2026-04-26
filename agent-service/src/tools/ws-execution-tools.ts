@@ -44,7 +44,7 @@ import {
   type AwaitResult,
   type ExecutionWatcherSnapshot,
 } from "../agent/execution-watcher";
-import { getConsoleMessageType, type ConsoleMessage, type EvaluatedValue, type TypedValue } from "../types/execution-ws";
+import { getConsoleMessageType, type ConsoleMessage } from "../types/execution-ws";
 import { getBackendConfig } from "../api/backend-api";
 import type { WorkflowState as AgentWorkflowState } from "../workflow/workflow-state";
 import type { LogicalPlan } from "../api/execution-api";
@@ -59,7 +59,7 @@ export const TOOL_NAME_PAUSE_EXECUTION = "pauseExecution";
 export const TOOL_NAME_RESUME_EXECUTION = "resumeExecution";
 export const TOOL_NAME_KILL_EXECUTION = "killExecution";
 export const TOOL_NAME_GET_OPERATOR_RESULT = "getOperatorResult";
-export const TOOL_NAME_EVAL_PYTHON = "evalPython";
+export const TOOL_NAME_DEBUG_PYTHON = "debugPython";
 export const TOOL_NAME_LIVE_MODIFY_OPERATOR = "liveModifyOperator";
 export const TOOL_NAME_RETRY_CURRENT_TUPLE = "retryCurrentTuple";
 export const TOOL_NAME_GET_CONSOLE_LOGS = "getConsoleLogs";
@@ -176,49 +176,6 @@ function formatMs(ms: number): string {
   const min = Math.floor(sec / 60);
   const remSec = sec % 60;
   return `${min}m${remSec}s`;
-}
-
-/**
- * Render a `PythonExpressionEvaluateResponse` payload as plain English so the
- * LLM can quote it back conversationally without re-formatting.
- *
- * Engine returns a list of `EvaluatedValue { value, attributes }`. Single-value
- * responses (the common case for an expression like `len(self.cache)`) render
- * as "<expr> = <value> :: <type>". Multi-value or attribute-rich responses
- * (e.g. inspecting a dict or object) get a multi-line breakdown.
- */
-function formatPythonEvalResponse(expression: string, values: EvaluatedValue[], maxLen = 4000): string {
-  if (values.length === 0) {
-    return `Evaluating \`${expression}\` returned no value (worker may not be paused, or expression has no result).`;
-  }
-
-  const renderTV = (tv: TypedValue) => `${tv.valueStr} :: ${tv.valueType}`;
-
-  const parts: string[] = [];
-  if (values.length === 1) {
-    const v = values[0];
-    parts.push(`\`${v.value.expression || expression}\` = ${renderTV(v.value)}`);
-    if (v.attributes.length > 0) {
-      parts.push("Attributes:");
-      for (const a of v.attributes) {
-        parts.push(`  - ${a.expression}: ${renderTV(a)}`);
-      }
-    }
-  } else {
-    parts.push(`\`${expression}\` returned ${values.length} values:`);
-    for (const v of values) {
-      parts.push(`- ${v.value.expression || expression} = ${renderTV(v.value)}`);
-      for (const a of v.attributes) {
-        parts.push(`    · ${a.expression}: ${renderTV(a)}`);
-      }
-    }
-  }
-
-  let out = parts.join("\n");
-  if (out.length > maxLen) {
-    out = out.slice(0, maxLen) + `\n… (truncated; full output was ${parts.join("\n").length} chars)`;
-  }
-  return out;
 }
 
 function formatPaginatedRows(table: any[], schema: { attributeName: string; attributeType: string }[]): string {
@@ -513,49 +470,107 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
     },
   });
 
-  // ── evalPython ──
-  const evalPython = tool({
+
+  // ── debugPython ──
+  // Send a single pdb command into a Python UDF worker (Udon-style line-by-line
+  // debugger). Output comes back asynchronously as DEBUGGER-level console
+  // messages — we poll the snapshot briefly to capture the immediate response.
+  const debugPython = tool({
     description:
-      "Evaluate a Python expression inside a paused worker process for the given operator. " +
-      "Use this to inspect runtime state during debugging — e.g. the value of a tuple field, " +
-      "the size of a cache, attributes of an object in scope. The execution must be Paused, and " +
-      "the operator must be a Python UDF (PythonUDFV2 or PythonUDFSourceV2). " +
-      "Expression runs in the worker's Python interpreter with access to `self`, `tuple_`, and " +
-      "any module-level state. Side effects in the worker process persist — keep expressions " +
-      "read-only when possible.",
+      "Send a single Python `pdb` command to a paused Python UDF worker for line-by-line debugging. " +
+      "Output appears as DEBUGGER-level console messages; this tool waits up to 3s for new output " +
+      "and returns it. If your command resumes execution (c/n/s/r) and output hasn't surfaced yet, " +
+      "follow up with getConsoleLogs(operatorId, levels=['DEBUGGER']).\n\n" +
+      "Common commands (full pdb syntax supported):\n" +
+      "  - b N         set breakpoint at line N of the UDF source (line numbering relative to the UDF code)\n" +
+      "  - cl          clear all breakpoints   |   cl N: clear at line N\n" +
+      "  - n           step over (next line)\n" +
+      "  - s           step into a function call\n" +
+      "  - r           run until current function returns\n" +
+      "  - c           continue until next breakpoint or end\n" +
+      "  - p EXPR      print expression value (replaces the older evalPython)\n" +
+      "  - pp EXPR     pretty-print expression\n" +
+      "  - l / ll      list source around current line / for current function\n" +
+      "  - w           backtrace\n" +
+      "  - a           current function arguments\n" +
+      "  - disable / enable [N]   toggle breakpoint(s)\n\n" +
+      "The worker auto-prefixes the UDF module name to `b N`, so you only need the line number. " +
+      "Pdb runs inside the worker process — `p self.cache.clear()` will actually mutate state. " +
+      "Requires execution to be Paused (engine pause, exception pause, or breakpoint hit).",
     inputSchema: z.object({
-      operatorId: z.string().describe("The Python UDF operator whose worker should evaluate the expression."),
-      expression: z
+      operatorId: z.string().describe("The Python UDF operator."),
+      workerId: z
         .string()
-        .min(1)
         .describe(
-          "Any Python expression. Examples: `tuple_['amount']`, `len(self.cache)`, " +
-            "`[k for k in dir(self) if not k.startswith('_')]`, `df.shape`.",
+          "The specific worker (read it from getConsoleLogs output or the # Active Execution prompt). " +
+            "Each worker maintains its own pdb state.",
         ),
+      cmd: z.string().min(1).describe("A single pdb command, e.g. 'n', 'b 5', 'p tuple_'."),
     }),
-    execute: async ({ operatorId, expression }) => {
+    execute: async ({ operatorId, workerId, cmd }) => {
       const watcher = watcherSlot.get();
       if (!watcher) {
-        return createErrorResult("No execution in flight. Call startExecution first, then pauseExecution before evalPython.");
+        return createErrorResult("No execution in flight. Call startExecution first.");
       }
-      const snap = watcher.getSnapshot();
-      if (snap.currentState !== "Paused") {
+      const snap0 = watcher.getSnapshot();
+      if (snap0.currentState !== "Paused") {
         return createErrorResult(
-          `evalPython requires a Paused execution; current state is '${snap.currentState}'. Pause the workflow first.`,
+          `debugPython requires a Paused execution; current state is '${snap0.currentState}'. ` +
+            `Pause the workflow first (or wait for an exception/breakpoint to auto-pause it).`,
         );
       }
-      const opState = snap.perOperatorState[operatorId];
+      const opState = snap0.perOperatorState[operatorId];
       if (!opState) {
         return createErrorResult(
-          `Operator '${operatorId}' is not part of the active execution. Known operators: ${Object.keys(snap.perOperatorState).join(", ") || "(none)"}.`,
+          `Operator '${operatorId}' is not part of the active execution. Known: ${
+            Object.keys(snap0.perOperatorState).join(", ") || "(none)"
+          }.`,
         );
       }
+
+      // Snapshot current DEBUGGER message count so we can return only the
+      // output produced by THIS command.
+      const beforeCount = (snap0.consoleMessagesByOperator[operatorId] ?? []).filter(
+        m => getConsoleMessageType(m) === "DEBUGGER" && m.workerId === workerId,
+      ).length;
+
       try {
-        const evt = await watcher.requestPythonEval(operatorId, expression);
-        return createToolResult(formatPythonEvalResponse(expression, evt.values));
+        watcher.sendDebugCommand({ operatorId, workerId, cmd });
       } catch (err: any) {
-        return createErrorResult(`Failed to evaluate expression on operator '${operatorId}': ${err?.message ?? String(err)}`);
+        return createErrorResult(`Failed to send debug command: ${err?.message ?? String(err)}`);
       }
+
+      // Poll the snapshot for up to 3s waiting for new DEBUGGER output from
+      // this worker. Pdb usually responds within tens of ms, but breakpoint
+      // hits and step-into can take longer when crossing tuple boundaries.
+      const deadline = Date.now() + 3000;
+      let newMessages: ConsoleMessage[] = [];
+      while (Date.now() < deadline) {
+        const all = (watcher.getSnapshot().consoleMessagesByOperator[operatorId] ?? []).filter(
+          m => getConsoleMessageType(m) === "DEBUGGER" && m.workerId === workerId,
+        );
+        if (all.length > beforeCount) {
+          newMessages = all.slice(beforeCount);
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      if (newMessages.length === 0) {
+        return createToolResult(
+          `Sent \`${cmd}\` to ${workerId}. No DEBUGGER output captured within 3s — the command may be still running, ` +
+            `or it resumed the worker (c/n/s/r) without producing visible output yet. ` +
+            `Use getConsoleLogs(operatorId='${operatorId}', levels=['DEBUGGER']) to check later.`,
+        );
+      }
+
+      const lines: string[] = [`Sent \`${cmd}\` to ${workerId}. Debugger output:`];
+      for (const m of newMessages) {
+        const text = m.message?.length > 0 ? m.message : m.title;
+        const trunc = text.length > 600 ? text.slice(0, 600) + "…" : text;
+        lines.push(`  ${trunc}`);
+      }
+      return createToolResult(lines.join("\n"));
     },
   });
 
@@ -723,7 +738,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
     [TOOL_NAME_RESUME_EXECUTION]: resumeExecution,
     [TOOL_NAME_KILL_EXECUTION]: killExecution,
     [TOOL_NAME_GET_OPERATOR_RESULT]: getOperatorResult,
-    [TOOL_NAME_EVAL_PYTHON]: evalPython,
+    [TOOL_NAME_DEBUG_PYTHON]: debugPython,
     [TOOL_NAME_LIVE_MODIFY_OPERATOR]: liveModifyOperator,
     [TOOL_NAME_RETRY_CURRENT_TUPLE]: retryCurrentTuple,
     [TOOL_NAME_GET_CONSOLE_LOGS]: getConsoleLogs,

@@ -36,6 +36,7 @@ import type {
   ResultPaginationRequest,
   PythonExpressionEvaluateRequest,
   ModifyLogicRequest,
+  DebugCommandRequest,
   RetryRequest,
   HeartBeatRequest,
 } from "../types/execution-ws";
@@ -212,6 +213,10 @@ export class ExecutionWsClient {
 
   sendModifyLogicRequest(req: Omit<ModifyLogicRequest, "type">): void {
     this.send({ type: "ModifyLogicRequest", ...req });
+  }
+
+  sendDebugCommandRequest(req: Omit<DebugCommandRequest, "type">): void {
+    this.send({ type: "DebugCommandRequest", ...req });
   }
 
   sendRetryRequest(req: Omit<RetryRequest, "type">): void {

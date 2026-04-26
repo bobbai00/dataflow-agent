@@ -917,7 +917,7 @@ You have the following operators available:
 //
 // New mode (executionControl: true): WS toolkit + no auto-hook. The agent
 // drives execution explicitly. Block describes the # Active Execution
-// section, the runtime debugging story (evalPython, getConsoleLogs,
+// section, the runtime debugging story (debugPython, getConsoleLogs,
 // retryCurrentTuple), and the Python-UDF auto-pause behavior.
 //
 // Legacy mode (executionControl: false): synchronous executeOperator tool
@@ -954,7 +954,7 @@ progressing through Ready → Running → Completed. Boring is good — keep
 watching with another \`awaitExecution\`.
 
 When an operator is \`Running\` but \`no progress in last Xs\` keeps
-recurring, it's wedged. Pausing and looking at \`tuple_\` via evalPython
+recurring, it's wedged. Pausing and looking at \`tuple_\` via debugPython
 will usually tell you what row it stalled on, and \`getConsoleLogs\` may
 have a relevant traceback or print. How long to tolerate quiet ticks
 depends on the workload — fast workflows shouldn't go silent for long,
@@ -989,11 +989,11 @@ When something goes wrong mid-execution — a Python UDF crashes, an
 operator stalls, output looks wrong — pausing and inspecting the live
 engine state lets you understand the bug in seconds rather than
 minutes. Restarting just to find out what's in \`tuple_\` wastes time;
-\`evalPython\` shows you immediately.
+\`debugPython\` shows you immediately.
 
 **Scope: runtime introspection works only on Python UDF operators**
 (\`PythonUDFV2\`, \`PythonUDFSourceV2\`, \`DualInputPortsPythonUDFV2\`).
-\`evalPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route through
+\`debugPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route through
 the Python worker process. They have no effect on Java/Scala-implemented
 operators (Filter, HashJoin, Aggregate, Sort, Projection, source scans,
 Distinct, Union, etc.) — those workers don't implement these RPCs and
@@ -1007,7 +1007,7 @@ raises during a WS execution, the worker catches the exception, reports
 it on the console stream, and pauses itself with EXCEPTION_PAUSE. The
 worker stays alive holding the failing \`tuple_\`. So the path to
 runtime introspection is just one call: \`startExecution\` → wait for
-the error → \`evalPython\` directly. No explicit \`pauseExecution\` is
+the error → \`debugPython\` directly. No explicit \`pauseExecution\` is
 needed in this case.
 
 **Build → run → observe is the primary loop.** Call
@@ -1028,23 +1028,23 @@ changed.
 
 If a Python UDF throws, the engine auto-pauses on the failing tuple
 (EXCEPTION_PAUSE) and the worker stays alive — that's your cue to use
-\`evalPython\` to ask the runtime directly what \`tuple_\` looks like,
+\`debugPython\` to ask the runtime directly what \`tuple_\` looks like,
 what \`type(tuple_)\` and \`dir(tuple_)\` expose, etc. Don't iterate
 \`modifyOperator\` blind on a Python API misunderstanding; one or two
-\`evalPython\` calls answer the question definitively.
+\`debugPython\` calls answer the question definitively.
 
-**Lean on \`evalPython\` aggressively once you're in runtime mode.** It
+**Lean on \`debugPython\` aggressively once you're in runtime mode.** It
 runs arbitrary Python in the paused worker with \`self\`, \`tuple_\`,
 and \`input_\` available. Examples worth reaching for first:
 
-- \`evalPython(opId, "tuple_")\` — the exact input that triggered the failure
-- \`evalPython(opId, "type(tuple_)")\` and \`"dir(tuple_)"\` — what API
+- \`debugPython(opId, workerId, "p tuple_")\` — the exact input that triggered the failure
+- \`debugPython(opId, workerId, "p type(tuple_)")\` and \`"p dir(tuple_)"\` — what API
   the runtime object actually exposes (this is the question the
   modify-modify-modify spiral usually represents)
-- \`evalPython(opId, "tuple_.get_field_names()")\` — column names if
+- \`debugPython(opId, workerId, "p tuple_.get_field_names()")\` — column names if
   the tuple is the Texera Tuple type
-- \`evalPython(opId, "type(tuple_['col'])")\` — dtype sanity check
-- \`evalPython(opId, "len(self.cache)")\` — leak / accumulated-state check
+- \`debugPython(opId, "type(tuple_['col'])")\` — dtype sanity check
+- \`debugPython(opId, workerId, "p len(self.cache)")\` — leak / accumulated-state check
 
 Side effects in the worker persist after evaluation. Stick to read-only
 expressions unless you specifically intend to mutate state.
@@ -1067,7 +1067,7 @@ A typical loop when you can't fix a Python UDF from design-time alone:
    Execution\` section) to see the worker has paused on the exception.
 3. \`getConsoleLogs(operatorId)\` for the full traceback. The Active
    Execution section only shows error titles.
-4. \`evalPython(operatorId, "tuple_")\` plus narrower reads
+4. \`debugPython(operatorId, workerId, "p tuple_")\` plus narrower reads
    (\`type(tuple_)\`, \`dir(tuple_)\`, \`type(tuple_[k])\`, etc.) to
    build a clear picture of what went wrong. Multiple cheap reads beat
    one wrong fix attempt.
@@ -1084,7 +1084,7 @@ A typical loop when you can't fix a Python UDF from design-time alone:
 
 Things to keep in mind:
 
-- Investigate before modifying. \`evalPython\` on the actual tuple is
+- Investigate before modifying. \`debugPython\` on the actual tuple is
   cheaper than guessing wrong and restarting twice.
 - Read-only by default. Mutating worker state during inspection makes
   subsequent reads confusing.
@@ -1120,7 +1120,7 @@ progressing through Ready → Running → Completed. Keep watching with
 another \`awaitExecution\` — boring is good.
 
 When an operator is \`Running\` but \`no progress in last Xs\` keeps
-recurring, it's wedged. Pausing and looking at \`tuple_\` via evalPython
+recurring, it's wedged. Pausing and looking at \`tuple_\` via debugPython
 usually tells you what row it stalled on; \`getConsoleLogs\` may have a
 traceback or print. How long to tolerate quiet ticks depends on the
 workload — use judgment.
@@ -1152,11 +1152,11 @@ When something goes wrong mid-execution — a Python UDF crashes, an
 operator stalls, output looks wrong — pausing and inspecting the live
 engine state lets you understand the bug in seconds rather than
 minutes. Restarting just to find out what's in \`tuple_\` wastes time;
-\`evalPython\` shows you immediately.
+\`debugPython\` shows you immediately.
 
 **Scope: runtime introspection works only on Python UDF operators**
 (\`PythonUDFV2\`, \`PythonUDFSourceV2\`, \`DualInputPortsPythonUDFV2\`).
-\`evalPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route
+\`debugPython\`, \`getConsoleLogs\`, and \`retryCurrentTuple\` route
 through the Python worker. They have no effect on Java/Scala-implemented
 operators (Filter, HashJoin, Aggregate, Sort, Projection, source scans,
 Distinct, Union, etc.) — those workers don't implement these RPCs. For
@@ -1168,7 +1168,7 @@ console/fatal errors, fix with \`modifyOperator\` (or
 raises during a WS execution, the worker catches the exception, reports
 it on console, and pauses with EXCEPTION_PAUSE — the worker stays
 alive holding the failing \`tuple_\`. So runtime introspection is one
-call away: \`startExecution\` → wait for the error → \`evalPython\`.
+call away: \`startExecution\` → wait for the error → \`debugPython\`.
 No explicit \`pauseExecution\` needed.
 
 **Build → run → observe is the primary loop.** Call
@@ -1179,18 +1179,18 @@ to catch incrementally. The engine's reuse cache makes repeat
 \`startExecution\` cheap.
 
 If a Python UDF throws, the engine auto-pauses on the failing tuple
-and the worker stays alive — \`evalPython\` to ask the runtime
+and the worker stays alive — \`debugPython\` to ask the runtime
 directly what \`tuple_\` is, rather than iterating \`modifyOperator\`
 on guesses about the Python API.
 
-**\`evalPython\` examples** (run in the paused worker with \`self\`,
+**\`debugPython\` examples** (run in the paused worker with \`self\`,
 \`tuple_\`, \`input_\` in scope):
 
-- \`evalPython(opId, "tuple_")\` — the exact input that triggered the failure
-- \`evalPython(opId, "type(tuple_)")\` and \`"dir(tuple_)"\` — what API
+- \`debugPython(opId, workerId, "p tuple_")\` — the exact input that triggered the failure
+- \`debugPython(opId, workerId, "p type(tuple_)")\` and \`"p dir(tuple_)"\` — what API
   the runtime object actually exposes
-- \`evalPython(opId, "type(tuple_['col'])")\` — dtype check
-- \`evalPython(opId, "len(self.cache)")\` — leak / state check
+- \`debugPython(opId, "type(tuple_['col'])")\` — dtype check
+- \`debugPython(opId, workerId, "p len(self.cache)")\` — leak / state check
 
 Side effects persist; stick to read-only unless intentional.
 
@@ -1206,7 +1206,7 @@ A typical loop when design-time iteration isn't converging:
 
 1. \`startExecution\` — engine auto-pauses when the UDF throws.
 2. \`getConsoleLogs(operatorId)\` for the full traceback.
-3. \`evalPython(operatorId, ...)\` to ask what the runtime actually
+3. \`debugPython(operatorId, workerId, "p tuple_")\` to ask what the runtime actually
    sees (\`tuple_\`, \`type(tuple_)\`, \`dir(tuple_)\`, etc.)
 4. Once the bug is clear, \`liveModifyOperator(operatorId, {code: "..."})\`
    to swap in the fix without losing upstream output.
@@ -1218,7 +1218,7 @@ A typical loop when design-time iteration isn't converging:
 
 Things to keep in mind:
 
-- Investigate before modifying. \`evalPython\` on the actual tuple is
+- Investigate before modifying. \`debugPython\` on the actual tuple is
   cheaper than guessing wrong and restarting twice.
 - Read-only by default — mutating during inspection makes subsequent
   reads confusing.
