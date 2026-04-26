@@ -20,6 +20,10 @@
 package org.apache.texera.web.service
 
 import org.apache.texera.amber.engine.architecture.controller.Workflow
+import org.apache.texera.amber.engine.architecture.rpc.controlcommands.{
+  UpdateExecutorRequest,
+  WorkflowReconfigureRequest
+}
 import org.apache.texera.amber.engine.common.client.AmberClient
 import org.apache.texera.web.SubscriptionManager
 import org.apache.texera.web.model.websocket.event.TexeraWebSocketEvent
@@ -30,6 +34,7 @@ import org.apache.texera.web.model.websocket.response.{
 }
 import org.apache.texera.web.storage.ExecutionStateStore
 
+import java.util.UUID
 import scala.util.{Failure, Success}
 
 class ExecutionReconfigurationService(
@@ -96,42 +101,31 @@ class ExecutionReconfigurationService(
 
   // actually performs all reconfiguration requests the user made during pause
   // sends ModifyLogic messages to operators and workers,
-  // there are two modes: transactional or non-transactional
-  // in the transactional mode, reconfigurations on multiple operators will be synchronized
-  // in the non-transaction mode, they are not synchronized, this is faster, but can lead to consistency issues
-  // for details, see the Fries reconfiguration paper
+  // see the Fries reconfiguration paper for the algorithm.
+  // Note: StateTransferFunc is currently not threaded through to the engine —
+  // the new UpdateExecutorRequest only carries (targetOpId, newOpExecInitInfo).
   def performReconfigurationOnResume(): Unit = {
     val reconfigurations = stateStore.reconfigurationStore.getState.unscheduledReconfigurations
     if (reconfigurations.isEmpty) {
       return
     }
-    throw new RuntimeException("reconfiguration is tentatively disabled.")
-    //    // schedule all pending reconfigurations to the engine
-    //    val reconfigurationId = UUID.randomUUID().toString
-    //    val modifyLogicReq = AmberModifyLogicRequest(reconfigurations.map {
-    //      case (op, stateTransferFunc) =>
-    //        val bytes = AmberRuntime.serde.serialize(op.opExecInitInfo).get
-    //        val protoAny = Any.of(
-    //          "org.apache.texera.amber.engine.architecture.deploysemantics.layer.OpExecInitInfo",
-    //          ByteString.copyFrom(bytes)
-    //        )
-    //        val stateTransferFuncOpt = stateTransferFunc.map { func =>
-    //          val bytes = AmberRuntime.serde.serialize(func).get
-    //          Any.of(
-    //            "org.apache.texera.workflow.common.operators.StateTransferFunc",
-    //            ByteString.copyFrom(bytes)
-    //          )
-    //        }
-    //        UpdateExecutorRequest(op.id, protoAny, stateTransferFuncOpt)
-    //    })
-    //    client.controllerInterface.reconfigureWorkflow(
-    //      WorkflowReconfigureRequest(modifyLogicReq, reconfigurationId),
-    //      ()
-    //    )
-    //
-    //    // clear all un-scheduled reconfigurations, start a new reconfiguration ID
-    //    stateStore.reconfigurationStore.updateState(_ =>
-    //      ExecutionReconfigurationStore(Some(reconfigurationId))
-    //    )
+
+    val reconfigurationId = UUID.randomUUID().toString
+    val updateExecutorRequests = reconfigurations.map {
+      case (op, _) => UpdateExecutorRequest(op.id, op.opExecInitInfo)
+    }
+    client.controllerInterface.reconfigureWorkflow(
+      WorkflowReconfigureRequest(
+        reconfiguration = updateExecutorRequests,
+        reconfigurationId = reconfigurationId
+      ),
+      ()
+    )
+
+    // clear all un-scheduled reconfigurations, start a new reconfiguration ID
+    stateStore.reconfigurationStore.updateState(_ =>
+      org.apache.texera.web.storage
+        .ExecutionReconfigurationStore(currentReconfigId = Some(reconfigurationId))
+    )
   }
 }
