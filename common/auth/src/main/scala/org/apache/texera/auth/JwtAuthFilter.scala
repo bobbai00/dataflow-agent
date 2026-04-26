@@ -21,7 +21,7 @@ package org.apache.texera.auth
 
 import com.typesafe.scalalogging.LazyLogging
 import jakarta.ws.rs.container.{ContainerRequestContext, ContainerRequestFilter, ResourceInfo}
-import jakarta.ws.rs.core.{Context, HttpHeaders, SecurityContext}
+import jakarta.ws.rs.core.{Context, HttpHeaders, MediaType, Response, SecurityContext}
 import jakarta.ws.rs.ext.Provider
 import org.apache.texera.dao.SqlServer
 import org.apache.texera.dao.jooq.generated.Tables.USER_LAST_ACTIVE_TIME
@@ -40,32 +40,52 @@ class JwtAuthFilter extends ContainerRequestFilter with LazyLogging {
   override def filter(requestContext: ContainerRequestContext): Unit = {
     val authHeader = requestContext.getHeaderString(HttpHeaders.AUTHORIZATION)
 
-    if (authHeader != null && authHeader.startsWith("Bearer ")) {
-      val token = authHeader.substring(7) // Remove "Bearer " prefix
-      val userOpt = JwtParser.parseToken(token)
-
-      if (userOpt.isPresent) {
-        val user = userOpt.get()
-
-        ctx
-          .insertInto(USER_LAST_ACTIVE_TIME)
-          .set(USER_LAST_ACTIVE_TIME.UID, user.getUid)
-          .set(USER_LAST_ACTIVE_TIME.LAST_ACTIVE_TIME, OffsetDateTime.now())
-          .onConflict(USER_LAST_ACTIVE_TIME.UID) // conflict on primary key uid
-          .doUpdate()
-          .set(USER_LAST_ACTIVE_TIME.LAST_ACTIVE_TIME, OffsetDateTime.now())
-          .execute()
-
-        requestContext.setSecurityContext(new SecurityContext {
-          override def getUserPrincipal: Principal = user
-          override def isUserInRole(role: String): Boolean =
-            user.isRoleOf(UserRoleEnum.valueOf(role))
-          override def isSecure: Boolean = false
-          override def getAuthenticationScheme: String = "Bearer"
-        })
-      } else {
-        logger.warn("Invalid JWT: Unable to parse token")
-      }
+    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+      // Reject early so the resource method's `@Auth SessionUser` injection
+      // never runs on an unauthenticated request (which surfaces as a 500
+      // via Dropwizard's IllegalStateExceptionMapper).
+      requestContext.abortWith(
+        Response
+          .status(Response.Status.UNAUTHORIZED)
+          .entity("""{"error":"Authentication required: missing Bearer token"}""")
+          .`type`(MediaType.APPLICATION_JSON)
+          .build()
+      )
+      return
     }
+
+    val token = authHeader.substring(7) // Remove "Bearer " prefix
+    val userOpt = JwtParser.parseToken(token)
+
+    if (!userOpt.isPresent) {
+      logger.warn("Invalid JWT: Unable to parse token")
+      requestContext.abortWith(
+        Response
+          .status(Response.Status.UNAUTHORIZED)
+          .entity("""{"error":"Authentication required: invalid or expired token"}""")
+          .`type`(MediaType.APPLICATION_JSON)
+          .build()
+      )
+      return
+    }
+
+    val user = userOpt.get()
+
+    ctx
+      .insertInto(USER_LAST_ACTIVE_TIME)
+      .set(USER_LAST_ACTIVE_TIME.UID, user.getUid)
+      .set(USER_LAST_ACTIVE_TIME.LAST_ACTIVE_TIME, OffsetDateTime.now())
+      .onConflict(USER_LAST_ACTIVE_TIME.UID) // conflict on primary key uid
+      .doUpdate()
+      .set(USER_LAST_ACTIVE_TIME.LAST_ACTIVE_TIME, OffsetDateTime.now())
+      .execute()
+
+    requestContext.setSecurityContext(new SecurityContext {
+      override def getUserPrincipal: Principal = user
+      override def isUserInRole(role: String): Boolean =
+        user.isRoleOf(UserRoleEnum.valueOf(role))
+      override def isSecure: Boolean = false
+      override def getAuthenticationScheme: String = "Bearer"
+    })
   }
 }
