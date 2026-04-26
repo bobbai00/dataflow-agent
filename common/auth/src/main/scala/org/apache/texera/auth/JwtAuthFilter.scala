@@ -37,20 +37,41 @@ class JwtAuthFilter extends ContainerRequestFilter with LazyLogging {
   private var resourceInfo: ResourceInfo = _
   private def ctx = SqlServer.getInstance().createDSLContext()
 
+  /**
+    * True iff the matched resource method has a parameter annotated with
+    * `@io.dropwizard.auth.Auth` — i.e. the endpoint explicitly needs an
+    * authenticated user injected. Endpoints with only `@RolesAllowed` but no
+    * `@Auth` parameter are intentionally lax (they read feature flags or
+    * other public-ish state) and we should not reject them just because the
+    * caller is anonymous.
+    */
+  private def methodRequiresAuthPrincipal(): Boolean = {
+    val method = Option(resourceInfo).flatMap(ri => Option(ri.getResourceMethod)).orNull
+    if (method == null) return false
+    method.getParameterAnnotations.exists { paramAnns =>
+      paramAnns.exists(a => a.annotationType().getName == "io.dropwizard.auth.Auth")
+    }
+  }
+
   override def filter(requestContext: ContainerRequestContext): Unit = {
     val authHeader = requestContext.getHeaderString(HttpHeaders.AUTHORIZATION)
+    val needsPrincipal = methodRequiresAuthPrincipal()
 
     if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-      // Reject early so the resource method's `@Auth SessionUser` injection
-      // never runs on an unauthenticated request (which surfaces as a 500
-      // via Dropwizard's IllegalStateExceptionMapper).
-      requestContext.abortWith(
-        Response
-          .status(Response.Status.UNAUTHORIZED)
-          .entity("""{"error":"Authentication required: missing Bearer token"}""")
-          .`type`(MediaType.APPLICATION_JSON)
-          .build()
-      )
+      if (needsPrincipal) {
+        // Reject early so the resource method's `@Auth SessionUser` injection
+        // never runs on an unauthenticated request (which would surface as a
+        // 500 via Dropwizard's IllegalStateExceptionMapper).
+        requestContext.abortWith(
+          Response
+            .status(Response.Status.UNAUTHORIZED)
+            .entity("""{"error":"Authentication required: missing Bearer token"}""")
+            .`type`(MediaType.APPLICATION_JSON)
+            .build()
+        )
+      }
+      // Endpoints without @Auth keep their old permissive behavior — let the
+      // request continue with no SecurityContext.
       return
     }
 
@@ -59,13 +80,15 @@ class JwtAuthFilter extends ContainerRequestFilter with LazyLogging {
 
     if (!userOpt.isPresent) {
       logger.warn("Invalid JWT: Unable to parse token")
-      requestContext.abortWith(
-        Response
-          .status(Response.Status.UNAUTHORIZED)
-          .entity("""{"error":"Authentication required: invalid or expired token"}""")
-          .`type`(MediaType.APPLICATION_JSON)
-          .build()
-      )
+      if (needsPrincipal) {
+        requestContext.abortWith(
+          Response
+            .status(Response.Status.UNAUTHORIZED)
+            .entity("""{"error":"Authentication required: invalid or expired token"}""")
+            .`type`(MediaType.APPLICATION_JSON)
+            .build()
+        )
+      }
       return
     }
 
