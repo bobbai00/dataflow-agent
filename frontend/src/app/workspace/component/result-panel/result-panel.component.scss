@@ -61,10 +61,15 @@ $type-colors: (
 );
 
 #content {
-  overflow-y: auto;
+  // Don't let the result panel itself scroll. Each frame inside (Console,
+  // Result, Static Error) manages its own internal scrolling so the panel's
+  // chrome (title, side nav, debugger) stays put.
+  overflow: hidden;
   padding-top: 38px;
   width: inherit;
   height: inherit;
+  display: flex;
+  flex-direction: column;
 }
 
 #result-buttons {
@@ -114,7 +119,50 @@ $type-colors: (
 
 // ─── Vertical (left) frame tabs: pill-style nav, icon + label ──────────────
 .frame-tabs {
+  // Don't override flex-direction here — when nzTabPosition="left" the
+  // <nz-tabset> root is row-flex (nav on left, content on right). Forcing
+  // column flips them to nav-on-top.
+  flex: 1 1 auto;
+  min-height: 0;
   height: 100%;
+
+  // The tab content holder must be a column flex container so the active
+  // frame can take 100% height and have its own internal scroll.
+  ::ng-deep .ant-tabs-content-holder {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::ng-deep .ant-tabs-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+
+  ::ng-deep .ant-tabs-tabpane {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  // The dynamic <div #dynamicComponent> inside each tab — it must also
+  // forward its height down to the dynamically-rendered component (Console,
+  // Result, etc.) so they can size to 100% and scroll internally.
+  ::ng-deep .ant-tabs-tabpane > div {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  ::ng-deep .ant-tabs-tabpane > div > * {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
 
   ::ng-deep .ant-tabs-nav {
     width: 132px !important;

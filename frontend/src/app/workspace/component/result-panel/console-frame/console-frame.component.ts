@@ -72,8 +72,12 @@ export class ConsoleFrameComponent implements OnInit, OnChanges {
   ) {}
 
   ngOnChanges(changes: SimpleChanges): void {
+    const operatorChanged = !!changes.operatorId;
     this.operatorId = changes.operatorId?.currentValue;
-    this.renderConsole();
+    // When the user switches to a different operator, always tail to the
+    // bottom of the new buffer rather than honoring the previous "scrolled
+    // up" position (which was relative to a different operator's messages).
+    this.renderConsole(operatorChanged);
   }
 
   ngOnInit(): void {
@@ -105,22 +109,44 @@ export class ConsoleFrameComponent implements OnInit, OnChanges {
     this.consoleMessages = [];
   }
 
-  renderConsole(): void {
+  renderConsole(forceScrollToBottom: boolean = false): void {
     if (this.operatorId) {
       this.workerIds = this.executeWorkflowService.getWorkerIds(this.operatorId);
 
       // always display console messages
-      this.displayConsoleMessages(this.operatorId);
+      this.displayConsoleMessages(this.operatorId, forceScrollToBottom);
     }
   }
 
-  displayConsoleMessages(operatorId: string): void {
+  displayConsoleMessages(operatorId: string, forceScrollToBottom: boolean = false): void {
+    // Capture whether the user was already near the bottom *before* we mutate
+    // the list. If they were scrolled up reading older output, we leave them
+    // there — only follow the tail when they're already at it (or the caller
+    // explicitly requested it, e.g. on operator switch).
+    const wasAtBottom = forceScrollToBottom || this.isScrolledNearBottom();
+
     this.consoleMessages = operatorId ? this.workflowConsoleService.getConsoleMessages(operatorId) || [] : [];
-    setTimeout(() => {
-      if (this.listElement) {
-        this.listElement.nativeElement.scrollTop = this.listElement.nativeElement.scrollHeight;
-      }
-    }, 0);
+
+    if (wasAtBottom) {
+      // Wait two animation frames: one for Angular to flush the new list
+      // into the DOM, one for the browser to lay it out so scrollHeight
+      // reflects the rendered height.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (this.listElement) {
+            const el = this.listElement.nativeElement as HTMLElement;
+            el.scrollTop = el.scrollHeight;
+          }
+        }),
+      );
+    }
+  }
+
+  private isScrolledNearBottom(threshold: number = 40): boolean {
+    if (!this.listElement) return true; // first render — treat as "at bottom"
+    const el = this.listElement.nativeElement as HTMLElement;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    return distanceFromBottom <= threshold;
   }
 
   submitDebugCommand(): void {

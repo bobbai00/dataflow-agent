@@ -18,11 +18,15 @@
  */
 
 :host {
+  // Fill the frame slot exactly. The frame above us controls our height; we
+  // never extend beyond it (no min-height) so the page never gets a second
+  // scrollbar from the console.
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -38,6 +42,9 @@
 }
 
 .console-list-container {
+  // Take all remaining vertical space inside the frame, but allow the flex
+  // child to shrink below its content height so the inner overflow:auto
+  // actually scrolls instead of pushing the debugger bar off-screen.
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
@@ -176,13 +183,12 @@
 }
 
 .debugger-bar {
+  // Sits naturally at the bottom of the flex column. No sticky/positioning
+  // hacks needed — the list above is the flex-grow child, this is fixed
+  // height. The whole frame doesn't scroll; only the list does.
   flex: 0 0 auto;
   width: 100%;
   margin-top: 8px;
-  // Pin to the bottom of the host, above any parent scroll. The console list
-  // above scrolls; the debugger controls stay anchored.
-  position: sticky;
-  bottom: 0;
   background: #fafafa;
   padding: 8px 10px;
   border-top: 1px solid #e8e8e8;
@@ -190,7 +196,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  z-index: 1;
   box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.04);
 }
 

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit } from "@angular/core";
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, NgZone, OnDestroy, OnInit } from "@angular/core";
 import { combineLatest, fromEvent, merge, Subject } from "rxjs";
 import { NzModalCommentBoxComponent } from "./comment-box-modal/nz-modal-comment-box.component";
 import { NzModalRef, NzModalService } from "ng-zorro-antd/modal";
@@ -164,7 +164,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     private elementRef: ElementRef,
     private config: GuiConfigService,
     private agentActionService: AgentActionService,
-    private copilotManagerService: TexeraCopilotManagerService
+    private copilotManagerService: TexeraCopilotManagerService,
+    private zone: NgZone
   ) {
     this.wrapper = this.workflowActionService.getJointGraphWrapper();
   }
@@ -609,16 +610,26 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private handlePaperPan(): void {
     fromJointPaperEvent(this.paper, "blank:pointerdown")
       .pipe(untilDestroyed(this))
-      .subscribe(() =>
-        fromEvent<MouseEvent>(document, "mousemove")
-          .pipe(takeUntil(fromEvent(document, "mouseup")))
-          .subscribe(event =>
-            this.paper.translate(
-              this.paper.translate().tx + event.movementX / this.paper.scale().sx,
-              this.paper.translate().ty + event.movementY / this.paper.scale().sy
-            )
-          )
-      );
+      .subscribe(() => {
+        // Run outside Angular zone so each mousemove doesn't trigger a full
+        // change-detection cycle. paper.translate is applied immediately —
+        // skipping it would make the canvas feel laggy / not 1:1 with the
+        // mouse (rAF batching dropped pixels in practice).
+        this.zone.runOutsideAngular(() => {
+          fromEvent<MouseEvent>(document, "mousemove")
+            .pipe(takeUntil(fromEvent(document, "mouseup")))
+            .subscribe(event => {
+              // Translate by mouseΔ / scale: at zoom = s, moving the mouse by
+              // dx screen pixels should shift the paper by dx/s units in
+              // paper coordinates (which renders as dx screen px after the
+              // s× scaling — i.e. 1:1 with the cursor).
+              const t = this.paper.translate();
+              const sx = this.paper.scale().sx;
+              const sy = this.paper.scale().sy;
+              this.paper.translate(t.tx + event.movementX / sx, t.ty + event.movementY / sy);
+            });
+        });
+      });
   }
 
   /**
