@@ -48,7 +48,7 @@ export enum CopilotState {
 export interface ReActStep {
   messageId: string;
   stepId: number;
-  role: "user" | "agent";
+  role: "user" | "agent" | "execution";
   content: string;
   isBegin: boolean;
   isEnd: boolean;
@@ -142,7 +142,7 @@ export class TexeraCopilot {
   private emitReActStep(
     messageId: string,
     stepId: number,
-    role: "user" | "agent",
+    role: "user" | "agent" | "execution",
     content: string,
     isBegin: boolean,
     isEnd: boolean,

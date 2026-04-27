@@ -34,8 +34,10 @@ import {
   formatAddOperatorResult,
   formatModifyOperatorResult,
   formatOperatorError,
+  rejectIfExecutionAlive,
 } from "./tools-utility";
 import { formatValidationErrors, formatCompactSchemaForError } from "./metadata-tools";
+import { buildPostMutationValidationWarning } from "./execution-tools";
 
 import type { ToolContext } from "./workflow-tools";
 
@@ -102,6 +104,9 @@ Examples:
       summary: string;
     }) => {
       try {
+        const aliveRejection = rejectIfExecutionAlive("addOperator", context?.getExecutionState);
+        if (aliveRejection) return aliveRejection;
+
         const inputInfo = formatInputArgs(args);
 
         const schemaEntry = operatorSchemas.get(args.operatorType);
@@ -201,6 +206,11 @@ Examples:
           createdLinkPairs.length > 0 ? createdLinkPairs : undefined
         );
 
+        context?.onDagEdit?.();
+
+        const warning = buildPostMutationValidationWarning(workflowState);
+        if (warning) resultMsg += "\n" + warning;
+
         return createToolResult(resultMsg);
       } catch (error: any) {
         return createErrorResult(error.message || String(error));
@@ -246,6 +256,9 @@ Examples:
       summary?: string;
     }) => {
       try {
+        const aliveRejection = rejectIfExecutionAlive("modifyOperator", context?.getExecutionState);
+        if (aliveRejection) return aliveRejection;
+
         const inputInfo = formatInputArgs(args);
 
         const operator = workflowState.getOperator(args.operatorId);
@@ -329,6 +342,18 @@ Examples:
           createdLinkPairs.length > 0 ? createdLinkPairs : undefined,
           deletedLinkPairs.length > 0 ? deletedLinkPairs : undefined
         );
+
+        // Invalidate cached results for this operator and everything
+        // downstream — their stored output is now stale w.r.t. the new
+        // properties/links.
+        if (context?.invalidateResults) {
+          const closure = workflowState.getDownstreamClosure([args.operatorId]);
+          context.invalidateResults(closure);
+        }
+        context?.onDagEdit?.();
+
+        const warning = buildPostMutationValidationWarning(workflowState);
+        if (warning) resultMsg += "\n" + warning;
 
         return createToolResult(resultMsg);
       } catch (error: any) {

@@ -216,6 +216,42 @@ function formatWorkflowValidationErrors(validationResult: WorkflowValidationResu
   return lines.join("\n");
 }
 
+/**
+ * Run `validateWorkflow` on the current state and return a multi-line
+ * warning string suitable for appending to a successful tool result, or
+ * `null` if the whole workflow validates cleanly. Non-fatal: the modifying
+ * tool's primary effect already happened; this just surfaces issues
+ * (schema mismatches, missing input links, etc.) so the agent learns
+ * about them immediately rather than at startExecution time.
+ *
+ * Excluded operator ids let callers omit a just-deleted operator that is
+ * obviously no longer the agent's concern.
+ */
+export function buildPostMutationValidationWarning(
+  workflowState: WorkflowState,
+  excludeOperatorIds: string[] = [],
+): string | null {
+  const result = validateWorkflow(workflowState);
+  if (result.isValid) return null;
+  const filtered: Record<string, Record<string, string>> = {};
+  for (const [opId, errs] of Object.entries(result.errors)) {
+    if (excludeOperatorIds.includes(opId)) continue;
+    filtered[opId] = errs;
+  }
+  if (Object.keys(filtered).length === 0) return null;
+
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("Workflow validation issues (the next startExecution will fail until these are fixed):");
+  for (const [opId, fieldErrors] of Object.entries(filtered)) {
+    lines.push(`  - ${opId}:`);
+    for (const [field, message] of Object.entries(fieldErrors)) {
+      lines.push(`      ${field}: ${message}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 // ============================================================================
 // Logical Plan Builder
 // ============================================================================

@@ -389,6 +389,9 @@ export class TexeraCopilotManagerService {
       messageSource: apiStep.messageSource,
       beforeWorkflowContent: apiStep.beforeWorkflowContent,
       afterWorkflowContent: apiStep.afterWorkflowContent,
+      // Execution steps carry the engine's executionName so the assembler
+      // can filter stale observations after a DAG edit.
+      executionName: apiStep.executionName,
     };
   }
 

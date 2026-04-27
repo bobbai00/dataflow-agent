@@ -50,8 +50,17 @@ export interface ReActStep {
   messageId: string;
   stepId: number;
   timestamp: Date;
-  role: "user" | "agent";
+  /**
+   * - "user": real human input
+   * - "agent": assistant reasoning/tool-call step
+   * - "execution": synthetic observation from the workflow execution stream
+   *   (drained from the watcher mailbox between agent steps; surfaced
+   *   inline so the agent sees what happened on the engine side)
+   */
+  role: "user" | "agent" | "execution";
   content: string;
+  /** For execution steps: the engine's executionName at drain time. */
+  executionName?: string;
   /** For user messages: the actual content sent to the model (may include prepended context) */
   actualContent?: string;
   isBegin: boolean;

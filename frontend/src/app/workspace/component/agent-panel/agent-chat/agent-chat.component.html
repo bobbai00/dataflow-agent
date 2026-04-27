@@ -213,16 +213,17 @@
           *ngFor="let response of visibleSteps; let i = index"
           class="message"
           [class.user-message]="response.role === 'user'"
-          [class.ai-message]="response.role === 'agent'">
-          <!-- Show header for user messages or when isBegin is true for agent messages -->
+          [class.ai-message]="response.role === 'agent'"
+          [class.execution-message]="response.role === 'execution'">
+          <!-- Show header for user messages, execution updates, or when isBegin is true for agent messages -->
           <div
             class="message-header"
-            *ngIf="response.role === 'user' || response.isBegin">
+            *ngIf="response.role === 'user' || response.role === 'execution' || response.isBegin">
             <i
               nz-icon
-              [nzType]="response.role === 'user' ? 'user' : 'robot'"
+              [nzType]="response.role === 'user' ? 'user' : (response.role === 'execution' ? 'thunderbolt' : 'robot')"
               nzTheme="outline"></i>
-            <span class="message-role">{{ response.role === 'user' ? 'You' : agentInfo.name }}</span>
+            <span class="message-role">{{ response.role === 'user' ? 'You' : (response.role === 'execution' ? 'Execution Update' : agentInfo.name) }}</span>
             <!-- Highlight operators toggle button (only for user messages) -->
             <button
               *ngIf="response.role === 'user'"

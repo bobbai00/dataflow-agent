@@ -67,26 +67,32 @@ function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
   m.watcher = {
     pause: () => {
       m.pauseCalled++;
+      // Mirror engine behavior: pause completes synchronously in the mock so
+      // the awaitUntilState loop in pauseExecution sees the target state via
+      // fast-path. Real engine emits Pausing → Paused over WS; we collapse.
+      m.snapshot = { ...m.snapshot, currentState: "Paused" };
     },
     resume: () => {
       m.resumeCalled++;
+      m.snapshot = { ...m.snapshot, currentState: "Running" };
     },
     kill: () => {
       m.killCalled++;
+      m.snapshot = { ...m.snapshot, currentState: "Killed" };
     },
     isAlive: () => {
       const s = m.snapshot.currentState;
       return s !== "Completed" && s !== "Failed" && s !== "Killed" && s !== "Terminated";
     },
     getSnapshot: () => m.snapshot,
-    await: async (timeoutMs: number) => {
+    await: async (_abortSignal?: AbortSignal) => {
       m.awaitCalled++;
       return (
         m.awaitResultOverride ?? {
-          reason: "tick",
-          elapsedSinceStartMs: 1234,
-          elapsedSinceLastWakeMs: timeoutMs,
+          reason: "events" as const,
           snapshot: m.snapshot,
+          diff: {},
+          signals: [],
         }
       );
     },
@@ -129,7 +135,10 @@ function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
     },
     start: () => {},
     applyEvent: () => {},
-    waitForSignificantEvent: async () => ({ reason: "tick" }),
+    isMailboxEmpty: () => true,
+    peekMailbox: () => null,
+    drainMailbox: () => null,
+    shouldSurfaceToPrepareStep: () => false,
     dispose: () => {},
   } as unknown as ExecutionWatcher;
   return m;
@@ -180,41 +189,7 @@ describe("ws-execution-tools", () => {
       getExecutionConfig: () => mockConfig,
     });
     const result = await (tools.startExecution as any).execute({});
-    expect(result).toContain("already in flight");
-  });
-
-  test("awaitExecution: errors when no watcher", async () => {
-    const tools = createWsExecutionTools({
-      workflowState,
-      watcherSlot,
-      getExecutionConfig: () => mockConfig,
-    });
-    const result = await (tools.awaitExecution as any).execute({ maxWaitSeconds: 5 });
-    expect(result).toContain("No execution in flight");
-  });
-
-  test("awaitExecution: returns formatted snapshot from watcher.await", async () => {
-    const mock = makeMockWatcher(
-      makeMockSnapshot({
-        currentState: "Running",
-        perOperatorState: {
-          op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
-        },
-      }),
-    );
-    watcherRef.current = mock.watcher;
-
-    const tools = createWsExecutionTools({
-      workflowState,
-      watcherSlot,
-      getExecutionConfig: () => mockConfig,
-    });
-
-    const result = await (tools.awaitExecution as any).execute({ maxWaitSeconds: 5 });
-    expect(result).toContain("Execution state: Running");
-    expect(result).toContain("op1: Running (input: 100 rows, output: 50 rows)");
-    expect(result).toContain("Returning because the wait timer expired with nothing notable happening");
-    expect(mock.awaitCalled).toBe(1);
+    expect(result).toContain("startExecution requires no execution in flight");
   });
 
   test("pauseExecution: errors when not Running", async () => {
@@ -227,11 +202,11 @@ describe("ws-execution-tools", () => {
       getExecutionConfig: () => mockConfig,
     });
     const result = await (tools.pauseExecution as any).execute({});
-    expect(result).toContain("Cannot pause from state 'Paused'");
+    expect(result).toContain("pauseExecution requires Running state");
     expect(mock.pauseCalled).toBe(0);
   });
 
-  test("pauseExecution: pauses when Running", async () => {
+  test("pauseExecution: pauses when Running and blocks on await", async () => {
     const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
     watcherRef.current = mock.watcher;
 
@@ -243,6 +218,7 @@ describe("ws-execution-tools", () => {
     const result = await (tools.pauseExecution as any).execute({});
     expect(result).toContain("Pause request sent");
     expect(mock.pauseCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
   });
 
   test("resumeExecution: errors when not Paused", async () => {
@@ -255,7 +231,7 @@ describe("ws-execution-tools", () => {
       getExecutionConfig: () => mockConfig,
     });
     const result = await (tools.resumeExecution as any).execute({});
-    expect(result).toContain("Cannot resume from state 'Running'");
+    expect(result).toContain("resumeExecution requires Paused state");
     expect(mock.resumeCalled).toBe(0);
   });
 
@@ -271,9 +247,10 @@ describe("ws-execution-tools", () => {
     const result = await (tools.resumeExecution as any).execute({});
     expect(result).toContain("Resume request sent");
     expect(mock.resumeCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
   });
 
-  test("killExecution: kills regardless of state", async () => {
+  test("killExecution: kills regardless of state and blocks on await", async () => {
     const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
     watcherRef.current = mock.watcher;
 
@@ -285,6 +262,7 @@ describe("ws-execution-tools", () => {
     const result = await (tools.killExecution as any).execute({});
     expect(result).toContain("Kill request sent");
     expect(mock.killCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
   });
 
   test("liveModifyOperator: errors when no watcher", async () => {
@@ -312,7 +290,7 @@ describe("ws-execution-tools", () => {
       operatorId: "op1",
       properties: { code: "print(1)" },
     });
-    expect(result).toContain("requires a Paused execution");
+    expect(result).toContain("requires Paused state");
     expect(mock.modifyLogicCalled.length).toBe(0);
   });
 
@@ -413,7 +391,7 @@ describe("ws-execution-tools", () => {
       getExecutionConfig: () => mockConfig,
     });
     const result = await (tools.retryCurrentTuple as any).execute({ operatorId: "op1" });
-    expect(result).toContain("requires a Paused execution");
+    expect(result).toContain("requires Paused state");
     expect(mock.retryWorkersCalled.length).toBe(0);
   });
 

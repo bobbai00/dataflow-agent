@@ -55,6 +55,37 @@ export function createErrorResult(error: string): string {
   return `[ERROR] ${error}`;
 }
 
+/**
+ * Preflight check for DAG-mutating tools. If an execution is currently
+ * alive, return an error string explaining what to do instead; otherwise
+ * return `null` so the caller can proceed.
+ *
+ * Mirrors the FE policy: while an execution is running/paused/initializing,
+ * the canvas is disabled. The agent service enforces the same constraint
+ * because a divergence between the local DAG and the engine's running plan
+ * is confusing — the agent thinks its edit took effect when it didn't.
+ *
+ * Path the agent should follow instead, depending on intent:
+ *   - Hot-fix Python UDF code on a paused execution → liveModifyOperator
+ *   - Anything else → killExecution first, then edit, then startExecution
+ */
+export function rejectIfExecutionAlive(
+  toolName: string,
+  getExecutionState?: () => { state: string; isAlive: boolean } | null,
+): string | null {
+  if (!getExecutionState) return null;
+  const info = getExecutionState();
+  if (!info || !info.isAlive) return null;
+  return createErrorResult(
+    `${toolName} is not allowed while an execution is alive (current state: '${info.state}'). ` +
+      `Local DAG edits would diverge from the engine's running plan. ` +
+      `To proceed, choose one path:\n` +
+      `  - Hot-fix a Python UDF's code in place: pause if not already, then \`liveModifyOperator\`.\n` +
+      `  - Any other change: \`killExecution\` first, then make the edit, then \`startExecution\`.\n` +
+      `(Read-only tools like \`getOperatorResult\`, \`getConsoleLogs\`, \`evalPython\` work fine in this state.)`,
+  );
+}
+
 // ============================================================================
 // Token Estimation
 // ============================================================================

@@ -140,15 +140,18 @@ export function createDatasetTools(opts: CreateDatasetToolsOptions) {
     description:
       "List datasets the current user can read. Use this when you need to load data " +
       "from a source operator (JSONLFileScan, CSVScan, etc.) and need to know the " +
-      "available datasets and their owner emails. Returns one row per dataset with " +
-      "the owner email needed to construct file paths.",
+      "available datasets and their owner emails. Search is by dataset name only — " +
+      "if the user describes the data semantically (\"climate tweets\", \"my CSV file\") " +
+      "rather than by exact dataset name, just call without `search` to see all " +
+      "available datasets and their files in one round trip.",
     inputSchema: z.object({
       search: z
         .string()
         .optional()
         .describe(
-          "Optional case-insensitive filter on dataset name. Useful when the user " +
-            "mentioned a dataset by name and you want to find it quickly.",
+          "Optional case-insensitive substring filter on dataset name. Use only when " +
+            "you know an exact substring of the dataset's name. If unsure, omit this " +
+            "argument to list all datasets.",
         ),
     }),
     execute: async ({ search }) => {
@@ -161,12 +164,28 @@ export function createDatasetTools(opts: CreateDatasetToolsOptions) {
           const s = search.toLowerCase();
           filtered = datasets.filter(d => d.dataset.name.toLowerCase().includes(s));
         }
-        if (filtered.length === 0) {
-          return createToolResult(
-            search
-              ? `No datasets matching "${search}". Total accessible datasets: ${datasets.length}.`
-              : "No datasets are accessible to this user.",
+        // If the search filter matched nothing, fall back to showing all
+        // datasets in the same response — saves the agent a second call to
+        // discover what's actually available. The agent's named guess
+        // (e.g. "climate") often won't match the actual dataset name (e.g.
+        // "twitter1"), but the dataset they want is right there in the
+        // full list.
+        if (filtered.length === 0 && search && datasets.length > 0) {
+          const lines: string[] = [];
+          lines.push(`No dataset name matches "${search}". Showing all ${datasets.length} accessible datasets instead:`);
+          for (const d of datasets) {
+            lines.push(
+              `  - "${d.dataset.name}" (owner: ${d.ownerEmail}, did=${d.dataset.did}, size: ${formatBytes(d.size ?? 0)})`,
+            );
+          }
+          lines.push("");
+          lines.push(
+            `Use listDatasetFiles({ datasetName: "<name>" }) to see files inside one. The dataset name is the FULL name shown above, not your search term.`,
           );
+          return createToolResult(lines.join("\n"));
+        }
+        if (filtered.length === 0) {
+          return createToolResult("No datasets are accessible to this user.");
         }
         const lines: string[] = [];
         lines.push(`${filtered.length} dataset${filtered.length === 1 ? "" : "s"} accessible:`);

@@ -34,7 +34,9 @@ import {
   formatAddOperatorResult,
   formatModifyOperatorResult,
   formatOperatorError,
+  rejectIfExecutionAlive,
 } from "./tools-utility";
+import { buildPostMutationValidationWarning } from "./execution-tools";
 import type { ToolContext } from "./workflow-tools";
 
 // ============================================================================
@@ -343,6 +345,9 @@ Example: operatorId="filtered" (requires "customers" to exist)
     execute: async (args: { operatorId: string; code: string; summary?: string }) => {
       const coordinator = context?.parallelCoordinator;
       try {
+        const aliveRejection = rejectIfExecutionAlive("createOrModifyOperator", context?.getExecutionState);
+        if (aliveRejection) return aliveRejection;
+
         const { operatorId, code, summary } = args;
 
         // Validate operatorId
@@ -478,6 +483,19 @@ Example: operatorId="filtered" (requires "customers" to exist)
             deletedLinkPairs.length > 0 ? deletedLinkPairs : undefined
           );
         }
+
+        // Invalidate stale cached results: operator + downstream closure.
+        // For new-operator branch, downstream is empty so this is just the
+        // operator itself; for modify branch, output of this op feeds into
+        // anything downstream and those cached results are also stale.
+        if (context?.invalidateResults) {
+          const closure = workflowState.getDownstreamClosure([args.operatorId]);
+          context.invalidateResults(closure);
+        }
+        context?.onDagEdit?.();
+
+        const warning = buildPostMutationValidationWarning(workflowState);
+        if (warning) resultMsg += "\n" + warning;
 
         return createToolResult(resultMsg);
       } catch (error: any) {

@@ -117,4 +117,18 @@ export class OperatorResultStore {
   clear(): void {
     this.store.clear();
   }
+
+  /**
+   * Drop stored results for the given operators. Used to invalidate stale
+   * results when an operator is modified or deleted — the next prompt must
+   * not surface rows that came from the prior code/properties as if they
+   * still reflect the current operator. Pass the downstream closure (op +
+   * everything it feeds), since output of the modified op also taints
+   * downstream cached results.
+   */
+  invalidate(operatorIds: Iterable<string>): void {
+    for (const id of operatorIds) {
+      this.store.delete(id);
+    }
+  }
 }

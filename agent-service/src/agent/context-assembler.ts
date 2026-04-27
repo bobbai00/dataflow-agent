@@ -30,6 +30,7 @@ import type { ReActStep } from "../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../api/compile-api";
 import { extractOperatorInputPortSchemaMap } from "../workflow/workflow-util";
 import type { ExecutionWatcherSnapshot } from "./execution-watcher";
+import { formatAllowedActions, snapshotHasAutoPausedOperator } from "../tools/ws-execution-tools";
 
 /**
  * Build the full model context as a single user message.
@@ -60,13 +61,16 @@ export function assembleContext(
   compilationResult?: WorkflowCompilationResponse | null,
   executionSnapshot?: ExecutionWatcherSnapshot | null,
   /**
-   * Snapshot at the moment the most recent `awaitExecution` returned, plus the
-   * wall-clock time of that wake. When provided, the # Active Execution
-   * section renders deltas (output growth, throughput, stall, transitions)
-   * relative to that snapshot.
+   * The executionName whose `[execution]` ReActSteps should currently be
+   * rendered. Steps tagged with a different (or undefined) executionName
+   * are dropped from the rendered context — that's how DAG edits
+   * invalidate prior-execution observations. `null` means "no execution
+   * is current; drop ALL [execution] steps."
    */
-  executionSnapshotAtLastWake?: { snapshot: ExecutionWatcherSnapshot; atMs: number } | null
+  currentRenderedExecutionName?: string | null,
 ): ModelMessage[] {
+  const filteredSteps = filterStaleExecutionSteps(visibleSteps, currentRenderedExecutionName ?? null);
+  visibleSteps = filteredSteps;
   // Group steps by messageId, preserving insertion order
   const messageIds: string[] = [];
   const stepsByMessage = new Map<string, ReActStep[]>();
@@ -89,6 +93,8 @@ export function assembleContext(
     const steps = stepsByMessage.get(msgId)!;
     // A task is completed when an agent step has isEnd=true (not user steps,
     // which always have isEnd=true as they are single-step messages).
+    // A task is "completed" when an agent step has isEnd=true. Execution-role
+    // steps are appended throughout the task lifetime and never close it.
     const isCompleted = steps.some(s => s.role === "agent" && s.isEnd);
 
     if (isCompleted) {
@@ -109,7 +115,7 @@ export function assembleContext(
 
   // --- Active Execution (between Ongoing Task and Current Workflow) ---
   if (executionSnapshot) {
-    const activeExecutionSection = serializeActiveExecution(executionSnapshot, executionSnapshotAtLastWake ?? null);
+    const activeExecutionSection = serializeActiveExecution(executionSnapshot);
     if (activeExecutionSection) {
       sections.push("");
       sections.push("# Active Execution");
@@ -136,6 +142,26 @@ export function assembleContext(
   return [{ role: "user", content }];
 }
 
+/**
+ * Drop `role: "execution"` steps whose executionName doesn't match the
+ * agent's `currentRenderedExecutionName`. Non-execution steps pass through
+ * untouched. When the parameter is `null` (e.g. after a DAG edit), ALL
+ * execution steps are dropped — they refer to a now-meaningless prior run.
+ *
+ * Stale steps remain in `stepsById` for replay/audit purposes; this
+ * function only changes what the model sees in the assembled context.
+ */
+function filterStaleExecutionSteps(
+  steps: ReActStep[],
+  currentRenderedExecutionName: string | null,
+): ReActStep[] {
+  return steps.filter(s => {
+    if (s.role !== "execution") return true;
+    if (currentRenderedExecutionName === null) return false;
+    return s.executionName === currentRenderedExecutionName;
+  });
+}
+
 // ============================================================================
 // Active Execution Serialization
 // ============================================================================
@@ -154,11 +180,10 @@ function formatElapsedSeconds(ms: number): string {
  *
  * Layout:
  *   - Status line with elapsed times (historical, from `mostRecent*` fields)
- *   - Per-operator state with inline delta annotations vs. last-wake snapshot
- *     (output growth, throughput, stall warnings, state transitions)
+ *   - Per-operator state (current snapshot only; deltas are surfaced via
+ *     [execution] messages drained from the watcher mailbox between steps)
  *   - Recent console errors (if any)
  *   - Fatal errors (if any)
- *   - "Since last wake" line (only if there's a delta worth a callout)
  *   - Soft conversational hint based on current state
  *
  * Elapsed times are computed AT CALL TIME (Date.now() vs snapshot timestamps)
@@ -166,7 +191,6 @@ function formatElapsedSeconds(ms: number): string {
  */
 function serializeActiveExecution(
   s: ExecutionWatcherSnapshot,
-  prev: { snapshot: ExecutionWatcherSnapshot; atMs: number } | null,
 ): string | null {
   const lines: string[] = [];
   const now = Date.now();
@@ -184,15 +208,14 @@ function serializeActiveExecution(
   }
   lines.push(statusLine);
 
-  // ── Per-operator state with delta annotations ──
+  // ── Per-operator state ──
   const opEntries = Object.entries(s.perOperatorState);
   if (opEntries.length > 0) {
     lines.push("");
     lines.push("Per-operator state:");
     for (const [opId, st] of opEntries) {
       const main = `${st.state} (input: ${st.inputTupleCount} rows, output: ${st.outputTupleCount} rows, workers: ${st.numWorkers})`;
-      const delta = renderOperatorDelta(opId, st, prev, now);
-      lines.push(`  - ${opId}: ${main}${delta ? `; ${delta}` : ""}`);
+      lines.push(`  - ${opId}: ${main}`);
     }
   }
 
@@ -217,14 +240,6 @@ function serializeActiveExecution(
     }
   }
 
-  // ── "Since last wake" callout — only if there's something worth saying ──
-  const sinceLastWake = renderSinceLastWake(s, prev, now);
-  if (sinceLastWake.length > 0) {
-    lines.push("");
-    lines.push("Since last wake:");
-    for (const line of sinceLastWake) lines.push(`  - ${line}`);
-  }
-
   // ── Conversational hint based on current state ──
   const hint = availableActionsHint(s.currentState);
   if (hint) {
@@ -232,115 +247,14 @@ function serializeActiveExecution(
     lines.push(hint);
   }
 
+  // ── Allowed-actions reference for the current state ──
+  // Single source of truth shared with tool error messages so the agent
+  // gets the same matrix in both places.
+  lines.push("");
+  lines.push("What you can do in this state:");
+  lines.push(formatAllowedActions(s.currentState, true, snapshotHasAutoPausedOperator(s)));
+
   return lines.join("\n");
-}
-
-/**
- * Render a per-operator delta annotation: throughput, stall, or state
- * transition vs. the last-wake snapshot. Returns null if no prev or no
- * notable delta.
- */
-function renderOperatorDelta(
-  opId: string,
-  current: { state: string; outputTupleCount: number; inputTupleCount: number },
-  prev: { snapshot: ExecutionWatcherSnapshot; atMs: number } | null,
-  now: number,
-): string | null {
-  if (!prev) return null;
-  const prevOp = prev.snapshot.perOperatorState[opId];
-  const elapsedMs = now - prev.atMs;
-  if (elapsedMs <= 0) return null;
-
-  // State transition takes precedence
-  if (prevOp && prevOp.state !== current.state) {
-    return `transitioned ${prevOp.state} → ${current.state} since last wake`;
-  }
-
-  // Output delta
-  if (!prevOp) {
-    // Operator is new since last wake (rare — usually start-of-execution case)
-    if (current.outputTupleCount > 0) return `+${current.outputTupleCount} rows so far`;
-    return null;
-  }
-  const outDelta = current.outputTupleCount - prevOp.outputTupleCount;
-  const elapsedSec = elapsedMs / 1000;
-
-  // Stall: no output growth and the operator is in a state where progress is expected
-  const expectingProgress = current.state === "Running";
-  if (outDelta === 0 && expectingProgress && elapsedSec >= 5) {
-    return `no progress in last ${formatElapsedSeconds(elapsedMs)}`;
-  }
-
-  if (outDelta > 0) {
-    const ratePerSec = outDelta / elapsedSec;
-    const rateStr =
-      ratePerSec >= 100 ? `~${Math.round(ratePerSec)} rows/sec` : `~${ratePerSec.toFixed(1)} rows/sec`;
-    const etaStr = renderEta(current, prevOp, ratePerSec);
-    return `+${outDelta} rows in last ${formatElapsedSeconds(elapsedMs)}, ${rateStr}${etaStr ? `, ${etaStr}` : ""}`;
-  }
-
-  return null;
-}
-
-/**
- * Render an ETA annotation when we can make a defensible estimate. Conditions:
- *   - operator is still actively producing (rate > 0)
- *   - there's a measurable backlog (input count exceeds output count)
- *   - input has stopped growing since last wake (signals upstream is done; if
- *     it's still feeding, ETA would underestimate). Falls back to a "drain
- *     current backlog" framing that the LLM can read as a lower bound.
- *
- * Skipped silently otherwise — we'd rather omit ETA than mislead.
- */
-function renderEta(
-  current: { inputTupleCount: number; outputTupleCount: number },
-  prevOp: { inputTupleCount: number; outputTupleCount: number },
-  ratePerSec: number,
-): string | null {
-  if (ratePerSec <= 0) return null;
-  const remaining = current.inputTupleCount - current.outputTupleCount;
-  if (remaining <= 0) return null;
-
-  const inputStable = current.inputTupleCount === prevOp.inputTupleCount;
-  const etaSec = remaining / ratePerSec;
-  if (!isFinite(etaSec) || etaSec < 1) return null;
-  const etaMs = etaSec * 1000;
-  // Cap absurdly long ETAs — past a point, the number is just noise.
-  if (etaSec > 24 * 3600) return null;
-
-  return inputStable
-    ? `ETA ~${formatElapsedSeconds(etaMs)} to finish current input`
-    : `~${formatElapsedSeconds(etaMs)} to drain current backlog (input still growing)`;
-}
-
-/**
- * Build the "Since last wake:" callout lines: state transitions at the
- * workflow level, new fatal errors, new console errors. Per-operator
- * deltas are already inline; this is for cross-cutting changes.
- */
-function renderSinceLastWake(
-  s: ExecutionWatcherSnapshot,
-  prev: { snapshot: ExecutionWatcherSnapshot; atMs: number } | null,
-  _now: number,
-): string[] {
-  if (!prev) return [];
-  const out: string[] = [];
-
-  if (prev.snapshot.currentState !== s.currentState) {
-    out.push(`workflow state changed: ${prev.snapshot.currentState} → ${s.currentState}`);
-  }
-
-  const newFatals = s.fatalErrors.length - prev.snapshot.fatalErrors.length;
-  if (newFatals > 0) {
-    out.push(`${newFatals} new fatal error(s) (see above)`);
-  }
-
-  const newConsoleErrs = s.recentConsoleErrors.length - prev.snapshot.recentConsoleErrors.length;
-  if (newConsoleErrs > 0) {
-    out.push(`${newConsoleErrs} new console error(s) (see above)`);
-  }
-
-  return out;
 }
 
 /**
@@ -384,7 +298,6 @@ function serializeTask(steps: ReActStep[], status: "completed" | "ongoing"): str
   lines.push(`<task status="${status}">`);
 
   const userStep = steps.find(s => s.role === "user");
-  const assistantSteps = steps.filter(s => s.role === "agent");
 
   // User request
   if (userStep) {
@@ -393,13 +306,26 @@ function serializeTask(steps: ReActStep[], status: "completed" | "ongoing"): str
     lines.push(`</user-request>`);
   }
 
-  // Assistant steps
-  // Wrapper used to be `<assistant-stepN>...</assistant-stepN>`. We saw the
-  // LLM continue that templated pattern in its own output (treating the
-  // history's record-keeping format as a model). The neutral `<step n="N">`
-  // shape with N as an attribute reads as data, not as a continuable element
-  // name, and removes the hallucination temptation.
-  for (const step of assistantSteps) {
+  // Render agent + execution steps in chronological (stepId) order so
+  // [execution] updates appear between the agent steps that bracket them.
+  const interleaved = steps
+    .filter(s => s.role === "agent" || s.role === "execution")
+    .sort((a, b) => a.stepId - b.stepId);
+
+  for (const step of interleaved) {
+    if (step.role === "execution") {
+      lines.push("");
+      lines.push(`<execution-update n="${step.stepId}">`);
+      lines.push(step.content);
+      lines.push(`</execution-update>`);
+      continue;
+    }
+
+    // Wrapper used to be `<assistant-stepN>...</assistant-stepN>`. We saw the
+    // LLM continue that templated pattern in its own output (treating the
+    // history's record-keeping format as a model). The neutral `<step n="N">`
+    // shape with N as an attribute reads as data, not as a continuable element
+    // name, and removes the hallucination temptation.
     lines.push("");
     lines.push(`<step n="${step.stepId}">`);
     if (step.content) {

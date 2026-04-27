@@ -20,32 +20,29 @@
 /**
  * WS-based execution tools.
  *
- * Replaces the sync-HTTP `executeOperator` tool with six decomposed
- * tools that share a long-lived ExecutionWatcher + WS subscription:
+ * Control tools (startExecution / pauseExecution / resumeExecution /
+ * killExecution) send their request and then BLOCK on `watcher.await()`
+ * until the watcher's wake rules fire — no timeout, no `awaitExecution`
+ * sidekick. The watcher is the sole arbiter of "something significant
+ * happened"; tools just report whatever wakes them.
  *
- *   - startExecution
- *   - awaitExecution
- *   - pauseExecution
- *   - resumeExecution
- *   - killExecution
- *   - getOperatorResult
- *
- * The agent's TexeraAgent class owns the ExecutionWatcher slot. Tools
- * receive accessors (getWatcher, setWatcher) so they can read/mutate it.
+ * Inspection / debug tools (getOperatorResult / evalPython /
+ * liveModifyOperator / retryCurrentTuple / getConsoleLogs) are correlation-
+ * or read-based and do NOT block on the watcher.
  */
 
 import { tool } from "ai";
 import { z } from "zod";
 
-import { ExecutionWsClient } from "../api/execution-ws-client";
 import {
   ExecutionWatcher,
   snapshotWasFromCache,
   type AwaitResult,
   type ExecutionWatcherSnapshot,
+  type SnapshotDiff,
+  type WakeSignal,
 } from "../agent/execution-watcher";
 import { getConsoleMessageType, type ConsoleMessage } from "../types/execution-ws";
-import { getBackendConfig } from "../api/backend-api";
 import type { WorkflowState as AgentWorkflowState } from "../workflow/workflow-state";
 import type { LogicalPlan } from "../api/execution-api";
 import { buildLogicalPlan, validateWorkflow, type ExecutionConfig } from "./execution-tools";
@@ -54,7 +51,6 @@ import { createErrorResult, createToolResult } from "./tools-utility";
 // ─── Tool name constants ──────────────────────────────────────────────────
 
 export const TOOL_NAME_START_EXECUTION = "startExecution";
-export const TOOL_NAME_AWAIT_EXECUTION = "awaitExecution";
 export const TOOL_NAME_PAUSE_EXECUTION = "pauseExecution";
 export const TOOL_NAME_RESUME_EXECUTION = "resumeExecution";
 export const TOOL_NAME_KILL_EXECUTION = "killExecution";
@@ -71,111 +67,291 @@ export interface WatcherSlot {
   set(w: ExecutionWatcher | null): void;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
+// ─── State → allowed-actions matrix ──────────────────────────────────────
 
-function buildWsUrl(): string {
-  const cfg = getBackendConfig();
-  // wsEndpoint is e.g. "ws://localhost:8085" — append the WS path.
-  const base = cfg.wsEndpoint.replace(/\/$/, "");
-  return `${base}/wsapi/workflow-websocket`;
+type StateCategory =
+  | "no-execution"
+  | "alive-running"
+  | "alive-running-with-auto-paused-op"
+  | "alive-paused"
+  | "alive-transient";
+
+function categorize(
+  state: string,
+  hasWatcher: boolean,
+  hasAutoPausedOperator: boolean = false,
+): StateCategory {
+  if (!hasWatcher) return "no-execution";
+  switch (state) {
+    case "Uninitialized":
+    case "Completed":
+    case "Failed":
+    case "Killed":
+    case "Terminated":
+      return "no-execution";
+    case "Running":
+      return hasAutoPausedOperator ? "alive-running-with-auto-paused-op" : "alive-running";
+    case "Paused":
+      return "alive-paused";
+    case "Initializing":
+    case "Pausing":
+    case "Resuming":
+    case "Recovering":
+    default:
+      return "alive-transient";
+  }
 }
 
 /**
- * Translate the internal `SignificantEventReason` enum to a natural-language
- * sentence the LLM can surface to the user without sounding like internal
- * jargon.
+ * `hasAutoPausedOperator` flips the matrix into the auto-paused-op variant
+ * — used both when rendering tool-error hints and when assembling the
+ * `# Active Execution` section's "what you can do" footer.
  */
-function naturalWakeReason(
-  reason: AwaitResult["reason"],
-  fromCache: boolean,
+export function formatAllowedActions(
+  state: string,
+  hasWatcher: boolean,
+  hasAutoPausedOperator: boolean = false,
 ): string {
-  if (reason === "completed" && fromCache) {
-    return "the workflow completed by returning cached results without re-running operators";
+  const cat = categorize(state, hasWatcher, hasAutoPausedOperator);
+  const lines: string[] = [];
+  lines.push("Always allowed (read-only / metadata):");
+  lines.push("  - listDatasets, listDatasetFiles, listAllAvailableOperatorTypes, getOperatorSchema");
+  lines.push("");
+
+  switch (cat) {
+    case "no-execution":
+      lines.push("DAG editing: addOperator, modifyOperator, createOrModifyOperator, deleteOperator");
+      lines.push("Execution control: startExecution");
+      lines.push("Inspection: getOperatorResult on operators that have materialized output from a prior run");
+      lines.push("Not available now: pauseExecution, resumeExecution, killExecution,");
+      lines.push("                   evalPython, liveModifyOperator, retryCurrentTuple, getConsoleLogs");
+      lines.push("(They require an alive execution.)");
+      break;
+    case "alive-running":
+      lines.push("Execution control: pauseExecution, killExecution");
+      lines.push("Inspection: getOperatorResult, getConsoleLogs");
+      lines.push("DAG editing is BLOCKED while execution is alive (would diverge from engine plan).");
+      lines.push("  To edit the DAG: killExecution first, then edit, then startExecution.");
+      lines.push("  To hot-fix a Python UDF without restart: pause first, then liveModifyOperator.");
+      lines.push("Not available now: resumeExecution (not paused), startExecution (one is in flight),");
+      lines.push("                   evalPython, liveModifyOperator, retryCurrentTuple (need Paused).");
+      break;
+    case "alive-running-with-auto-paused-op":
+      lines.push("⚠ A Python UDF raised an exception. The engine auto-paused that single worker;");
+      lines.push("  other workers are still running. The workflow as a whole is still Running.");
+      lines.push("");
+      lines.push("Recommended next step: pauseExecution to quiesce the whole workflow, then debug.");
+      lines.push("Execution control: pauseExecution, killExecution");
+      lines.push("Inspection: getConsoleLogs (pull the full traceback), getOperatorResult");
+      lines.push("Not available until you call pauseExecution: evalPython, liveModifyOperator,");
+      lines.push("                                             retryCurrentTuple (need workflow-level Paused).");
+      lines.push("DAG editing is BLOCKED while execution is alive.");
+      break;
+    case "alive-paused":
+      lines.push("Execution control: resumeExecution, killExecution");
+      lines.push("Inspection: getOperatorResult, getConsoleLogs");
+      lines.push("Runtime debug (Python UDF only): evalPython, liveModifyOperator, retryCurrentTuple");
+      lines.push("DAG editing is BLOCKED while execution is alive. To make a structural change:");
+      lines.push("  killExecution first, then addOperator/modifyOperator/createOrModifyOperator/deleteOperator,");
+      lines.push("  then startExecution. (To swap a Python UDF's code in place, use liveModifyOperator instead.)");
+      lines.push("Not available now: pauseExecution (already paused), startExecution (one is in flight).");
+      break;
+    case "alive-transient":
+      lines.push("Execution is in a transient state — wait for the next [execution] update.");
+      lines.push("Available: killExecution, getConsoleLogs, getOperatorResult");
+      lines.push("DAG editing is BLOCKED while execution is alive.");
+      lines.push("Not available now: pauseExecution, resumeExecution, evalPython, liveModifyOperator,");
+      lines.push("                   retryCurrentTuple (wait for Running or Paused first).");
+      break;
   }
-  switch (reason) {
-    case "tick":
-      return "the wait timer expired with nothing notable happening";
-    case "paused":
-      return "the workflow paused";
-    case "resumed":
-      return "the workflow resumed";
-    case "completed":
-      return "the workflow completed";
-    case "completed-from-cache":
-      return "the workflow completed by returning cached results without re-running operators";
-    case "failed":
-      return "the workflow failed";
-    case "killed":
-      return "the workflow was killed";
-    case "console-error":
-      return "a worker logged an error to the console";
-    case "aborted":
-      return "the wait was aborted";
-    default:
-      return String(reason);
-  }
+  return lines.join("\n");
 }
 
-function formatSnapshot(s: ExecutionWatcherSnapshot, awaitResult?: AwaitResult): string {
+/**
+ * True iff any operator's per-op state is Paused while the workflow itself
+ * isn't workflow-level Paused/Pausing — that's the EXCEPTION_PAUSE shape.
+ * Used to decide which allowed-actions matrix variant to render.
+ */
+export function snapshotHasAutoPausedOperator(s: ExecutionWatcherSnapshot): boolean {
+  if (s.currentState === "Paused" || s.currentState === "Pausing") return false;
+  for (const st of Object.values(s.perOperatorState)) {
+    if (st.state === "Paused") return true;
+  }
+  return false;
+}
+
+function rejectWithStateHint(
+  toolName: string,
+  required: string,
+  actualState: string,
+  hasWatcher: boolean,
+  hasAutoPausedOperator: boolean = false,
+): string {
+  const allowed = formatAllowedActions(actualState, hasWatcher, hasAutoPausedOperator);
+  return (
+    `${toolName} requires ${required}; current execution state is '${actualState}'.\n\n` +
+    `Allowed actions right now:\n${allowed}`
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Render the awaited result. Same shape as the [execution] step renderer
+ * in texera-agent.ts but framed as the outcome of the just-issued tool —
+ * narrative paragraph first, structured details after.
+ */
+function renderAwaitResult(result: AwaitResult): string {
+  if (result.reason === "aborted") {
+    return "The wait was aborted before any execution event arrived.";
+  }
+  return renderSnapshotWithDiff(result.snapshot, result.diff, result.signals);
+}
+
+function renderSnapshotWithDiff(
+  snapshot: ExecutionWatcherSnapshot,
+  diff: SnapshotDiff,
+  signals: WakeSignal[],
+): string {
   const lines: string[] = [];
-  const fromCache = snapshotWasFromCache(s);
-  // When cache-served, surface that distinction in the state line itself.
-  if (fromCache) {
-    lines.push(`Execution state: Completed (from cache — engine returned cached results without re-running operators)`);
-  } else {
-    lines.push(`Execution state: ${s.currentState}`);
+
+  // Narrative first.
+  lines.push(composeNarrative(snapshot, diff, signals));
+
+  // Structured details after.
+  const details: string[] = [];
+
+  if (diff.workflowState) {
+    details.push(`State transition: ${diff.workflowState.from} → ${diff.workflowState.to}`);
   }
 
-  if (awaitResult) {
-    lines.push(`Returning because ${naturalWakeReason(awaitResult.reason, fromCache)}.`);
-    lines.push(`Elapsed since execution started: ${formatMs(awaitResult.elapsedSinceStartMs)}.`);
-    lines.push(`Elapsed since last wake: ${formatMs(awaitResult.elapsedSinceLastWakeMs)}.`);
+  if (diff.perOperator && Object.keys(diff.perOperator).length > 0) {
+    details.push("Per-operator changes:");
+    for (const [opId, change] of Object.entries(diff.perOperator)) {
+      const fromStr = change.from
+        ? `${change.from.state} (in: ${change.from.inputTupleCount}, out: ${change.from.outputTupleCount})`
+        : "(new)";
+      const toStr = `${change.to.state} (in: ${change.to.inputTupleCount}, out: ${change.to.outputTupleCount})`;
+      details.push(`  - ${opId}: ${fromStr} → ${toStr}`);
+    }
   }
 
-  if (s.currentState === "Paused" && s.mostRecentPausedAt) {
-    lines.push(`Paused ${formatMs(Date.now() - s.mostRecentPausedAt)} ago.`);
+  if (diff.newConsoleMessages?.length) {
+    const errors = diff.newConsoleMessages.filter(m => getConsoleMessageType(m) === "ERROR");
+    if (errors.length > 0) {
+      details.push(`Console errors (${errors.length}):`);
+      for (const e of errors) {
+        const trunc = e.message.length > 300 ? e.message.slice(0, 300) + "…" : e.message;
+        details.push(`  - [${e.workerId}] ${e.title}: ${trunc}`);
+      }
+    }
   }
 
-  // Per-operator state
-  const ops = Object.entries(s.perOperatorState);
+  if (diff.newFatalErrors?.length) {
+    details.push(`Fatal errors (${diff.newFatalErrors.length}):`);
+    for (const err of diff.newFatalErrors) {
+      const msg = err.message.length > 300 ? err.message.slice(0, 300) + "…" : err.message;
+      details.push(`  - ${err.type ?? "FATAL"}: ${msg}${err.operatorId ? ` (op=${err.operatorId})` : ""}`);
+    }
+  }
+
+  // Current per-operator state — agent often wants the full picture.
+  const ops = Object.entries(snapshot.perOperatorState);
   if (ops.length > 0) {
-    lines.push("");
-    lines.push("Per-operator state:");
+    details.push("Current per-operator state:");
     for (const [opId, st] of ops) {
-      lines.push(`  - ${opId}: ${st.state} (input: ${st.inputTupleCount} rows, output: ${st.outputTupleCount} rows)`);
+      details.push(`  - ${opId}: ${st.state} (input: ${st.inputTupleCount} rows, output: ${st.outputTupleCount} rows)`);
     }
   }
 
-  // Recent console errors (just last few)
-  if (s.recentConsoleErrors.length > 0) {
-    lines.push("");
-    lines.push(`Recent console errors (${s.recentConsoleErrors.length}):`);
-    const showCount = Math.min(s.recentConsoleErrors.length, 3);
-    for (let i = s.recentConsoleErrors.length - showCount; i < s.recentConsoleErrors.length; i++) {
-      const e = s.recentConsoleErrors[i];
-      lines.push(`  - [${e.workerId}] ${e.title}: ${e.message.slice(0, 200)}`);
-    }
+  if (signals.length > 0) {
+    details.push(`Signals: ${signals.map(s => `${s.ruleId}/${s.severity}`).join(", ")}`);
   }
 
-  // Fatal errors
-  if (s.fatalErrors.length > 0) {
+  if (details.length > 0) {
     lines.push("");
-    lines.push(`Fatal errors (${s.fatalErrors.length}):`);
-    for (const err of s.fatalErrors.slice(0, 3)) {
-      lines.push(`  - ${err.type}: ${err.message}`);
-    }
+    lines.push("Details:");
+    for (const d of details) lines.push(d);
   }
 
   return lines.join("\n");
 }
 
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `${sec}s`;
-  const min = Math.floor(sec / 60);
-  const remSec = sec % 60;
-  return `${min}m${remSec}s`;
+/**
+ * Plain-English summary of what happened. Mirrors the prepareStep
+ * narrative composer but reads from snapshot+diff+signals directly (the
+ * tool result doesn't have a Mailbox object — it has the AwaitResult).
+ *
+ * Lead with the most actionable signal class. Mention the in-flight
+ * tuple as a pointer to evalPython rather than rendering it inline
+ * (could be large, sensitive, or both).
+ */
+function composeNarrative(
+  snapshot: ExecutionWatcherSnapshot,
+  diff: SnapshotDiff,
+  signals: WakeSignal[],
+): string {
+  const sigIds = new Set(signals.map(s => s.ruleId));
+  const fromCache = snapshotWasFromCache(snapshot);
+
+  if (sigIds.has("operator-auto-paused")) {
+    const pausedOps: string[] = [];
+    if (diff.perOperator) {
+      for (const [opId, change] of Object.entries(diff.perOperator)) {
+        if (change.to.state === "Paused" && change.from?.state !== "Paused") pausedOps.push(opId);
+      }
+    }
+    const opsList = pausedOps.length > 0 ? pausedOps.join(", ") : "an operator";
+    const errBlurb = consoleErrorOneLiner(diff);
+    let s = `A Python UDF in ${opsList} raised an exception, and the engine auto-paused that worker (the failing tuple is parked in the worker for inspection — see \`evalPython(opId, "tuple_")\` once the workflow is fully Paused). Other workers are still running.`;
+    if (errBlurb) s += ` The error was: ${errBlurb}.`;
+    s += ` Call \`pauseExecution\` to quiesce the whole workflow first; \`liveModifyOperator\`, \`evalPython\`, and \`retryCurrentTuple\` all require workflow-level Paused.`;
+    return s;
+  }
+
+  if (sigIds.has("state-failed") || sigIds.has("fatal-error")) {
+    const fatal = diff.newFatalErrors?.[0];
+    if (fatal) {
+      return `Workflow failed at engine level: ${fatal.type ?? "FATAL"} — ${truncate(fatal.message, 200)}${fatal.operatorId ? ` (operator: ${fatal.operatorId})` : ""}. This is usually wiring/schema, not a UDF bug; design-time fix and restart is the path forward.`;
+    }
+    return `Workflow failed at engine level. See structured details below.`;
+  }
+
+  if (sigIds.has("console-error") && !sigIds.has("operator-auto-paused")) {
+    const err = consoleErrorOneLiner(diff);
+    return `A worker logged an ERROR${err ? `: ${err}` : ""}. The workflow is still running. Pull \`getConsoleLogs(opId)\` for the full traceback.`;
+  }
+
+  if (sigIds.has("state-paused")) {
+    return `Workflow paused. While paused: \`evalPython\` for runtime introspection on Python UDFs, \`liveModifyOperator\` to hot-swap UDF code, \`retryCurrentTuple\` to retry the in-flight row, \`getOperatorResult\` for materialized output. Call \`resumeExecution\` to continue.`;
+  }
+  if (sigIds.has("state-completed-from-cache") || (sigIds.has("state-completed") && fromCache)) {
+    return `Workflow completed by returning cached results — no operators ran fresh. If you expected fresh computation, modify an operator to invalidate the cache and re-run.`;
+  }
+  if (sigIds.has("state-completed")) {
+    return `Workflow completed. Use \`getOperatorResult\` to inspect outputs.`;
+  }
+  if (sigIds.has("state-killed")) {
+    return `Execution killed. All in-flight progress is gone.`;
+  }
+
+  // Fall-through: no specific narrative.
+  if (fromCache) {
+    return `Execution state: Completed (from cache).`;
+  }
+  return `Execution state: ${snapshot.currentState}.`;
+}
+
+function consoleErrorOneLiner(diff: SnapshotDiff): string | null {
+  const errs = (diff.newConsoleMessages ?? []).filter(m => getConsoleMessageType(m) === "ERROR");
+  if (errs.length === 0) return null;
+  const first = errs[0];
+  const head = first.title ? `${first.title}: ${first.message}` : first.message;
+  return truncate(head.split("\n")[0], 180);
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
 function formatPaginatedRows(table: any[], schema: { attributeName: string; attributeType: string }[]): string {
@@ -185,7 +361,6 @@ function formatPaginatedRows(table: any[], schema: { attributeName: string; attr
   lines.push(`Schema: ${schema.map(s => `${s.attributeName}:${s.attributeType}`).join(", ")}`);
   lines.push(`Rows: ${table.length}`);
   lines.push("");
-  // Compact single-line per row
   for (const row of table) {
     const vals = headers.map(h => {
       const v = row[h];
@@ -202,15 +377,8 @@ function formatPaginatedRows(table: any[], schema: { attributeName: string; attr
 export interface CreateWsExecutionToolsOptions {
   workflowState: AgentWorkflowState;
   watcherSlot: WatcherSlot;
-  /** Returns the current execution config (token, workflow id, etc.). */
   getExecutionConfig: () => ExecutionConfig;
-  /** Optional: agent's abort signal for the current message. */
   getAbortSignal?: () => AbortSignal | undefined;
-  /** Called after a successful `getOperatorResult` so the store reflects
-   *  what the agent has fetched — keeps `# Current Workflow` rendering in
-   *  sync with WS-era result fetches (parallel to the post-step hook for
-   *  add/modify operators). Receives the operatorId and a synthesized
-   *  OperatorInfo built from the PaginatedResultEvent. */
   onOperatorResult?: (
     operatorId: string,
     operatorInfo: {
@@ -232,10 +400,9 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   // ── startExecution ──
   const startExecution = tool({
     description:
-      "Start executing the workflow. Returns immediately once the engine has accepted the request. " +
-      "The execution runs in the background; use `awaitExecution` to wait for state changes, " +
-      "`getOperatorResult` to fetch results, `pauseExecution`/`resumeExecution` to control. " +
-      "Only one execution can be in-flight per agent at a time.",
+      "Start executing the workflow. Sends the execute request and BLOCKS until the watcher reports a significant " +
+      "execution event (typically completion, failure, auto-pause due to a runtime error, or a console error). " +
+      "Returns the snapshot + the diff that caused the wake. Only one execution can be in-flight per agent at a time.",
     inputSchema: z.object({
       targetOperatorIds: z
         .array(z.string())
@@ -248,13 +415,17 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
     }),
     execute: async ({ targetOperatorIds }) => {
       try {
-        if (watcherSlot.get() && watcherSlot.get()!.isAlive()) {
+        const watcher = watcherSlot.get();
+        if (!watcher) {
+          return createErrorResult("Execution watcher not initialized — agent missing delegate config?");
+        }
+        if (watcher.isAlive()) {
+          const state = watcher.getSnapshot().currentState;
           return createErrorResult(
-            "An execution is already in flight. Use `awaitExecution` to wait for it, or `killExecution` to abort it before starting another.",
+            rejectWithStateHint("startExecution", "no execution in flight", state, true),
           );
         }
 
-        // Validate workflow
         const validation = validateWorkflow(workflowState);
         if (!validation.isValid) {
           const lines = ["Workflow validation failed:"];
@@ -266,38 +437,22 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
           return createErrorResult(lines.join("\n"));
         }
 
-        // Build logical plan (sub-DAG if targetOperatorIds provided)
         const logicalPlan: LogicalPlan = buildLogicalPlan(workflowState, targetOperatorIds);
         if (logicalPlan.operators.length === 0) {
           return createErrorResult("No operators to execute (workflow is empty or targetOperatorIds resolved to empty sub-DAG).");
         }
 
         const config = getExecutionConfig();
-        const wsClient = new ExecutionWsClient({
-          url: buildWsUrl(),
-          token: config.userToken,
-          workflowId: config.workflowId,
-          computingUnitId: config.computingUnitId ?? 1,
-        });
-
-        // Stale watcher cleanup before opening a new one
-        const staleWatcher = watcherSlot.get();
-        if (staleWatcher) {
-          try {
-            staleWatcher.dispose();
-          } catch {
-            /* ignore */
-          }
-        }
-
-        await wsClient.connect();
+        // Persistent WS: connect once per agent session. Idempotent —
+        // if already connected, this is a no-op. The first call awaits;
+        // subsequent calls return immediately.
+        await watcher.connect();
 
         const executionName = `agent-execution-${Date.now()}`;
-        const watcher = new ExecutionWatcher(wsClient, executionName);
-        watcher.start();
-        watcherSlot.set(watcher);
-
-        wsClient.sendExecuteRequest({
+        // sendExecuteRequest internally calls markExecutionStarting which
+        // resets snapshot/mailbox/seal AND flips inExecution=true so wake
+        // rules fire from this point forward.
+        watcher.sendExecuteRequest({
           executionName,
           engineVersion: "1.0",
           logicalPlan: {
@@ -311,89 +466,46 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
           emailNotificationEnabled: false,
           computingUnitId: config.computingUnitId ?? 1,
         });
-        // Optimistic snapshot bump: closes the gap between sending the request
-        // and the engine emitting Initializing/Running for the new execution.
-        // Any prior-run replay events (like Completed) that arrived between
-        // ws.connect() and now are clobbered here.
-        watcher.markExecutionStarting();
 
-        // Brief synchronous wait: gives a cache-hit (or any other extremely
-        // fast completion) a chance to land before we return, so the tool
-        // result can reflect the actual outcome rather than always reading
-        // "started, use awaitExecution to track." Capped at 2s so slow runs
-        // pay only a small upfront latency. The agent can still call
-        // awaitExecution for longer waits.
-        const earlyResult = await watcher.await(2000, getAbortSignal?.());
-        // Anything other than "tick" (timer expired, nothing happened) is a
-        // real outcome worth returning inline. Terminal states, console
-        // errors, and even unexpected paused-states are all more useful to
-        // surface than a generic "started" string.
-        if (earlyResult.reason !== "tick" && earlyResult.reason !== "aborted") {
-          return createToolResult(
-            `Execution started (name="${executionName}", ${logicalPlan.operators.length} operators${targetOperatorIds ? `, targets=${targetOperatorIds.join(",")}` : ""}).\n\n` +
-              formatSnapshot(earlyResult.snapshot, earlyResult),
-          );
-        }
-        return createToolResult(
-          `Execution started (name="${executionName}", ${logicalPlan.operators.length} operators${targetOperatorIds ? `, targets=${targetOperatorIds.join(",")}` : ""}). Use awaitExecution to track progress.`,
-        );
+        // Block until the watcher reports a significant event. There's no
+        // timeout — engine will eventually emit terminal state, console
+        // error, or get aborted. The agent abort signal is the only way
+        // out for genuinely hung executions.
+        const result = await watcher.await(getAbortSignal?.());
+        const targetSuffix = targetOperatorIds ? `, targets=${targetOperatorIds.join(",")}` : "";
+        const header = `Execution "${executionName}" with ${logicalPlan.operators.length} operators${targetSuffix}.`;
+        return createToolResult(`${header}\n\n${renderAwaitResult(result)}`);
       } catch (err: any) {
         return createErrorResult(`Failed to start execution: ${err?.message ?? String(err)}`);
       }
     },
   });
 
-  // ── awaitExecution ──
-  const awaitExecution = tool({
-    description:
-      "Wait for the next significant event in the running execution (Paused, Failed, Completed, Killed, or a console error), " +
-      "or for the timer to elapse, whichever comes first. Returns the current execution snapshot. " +
-      "Call this repeatedly to watch progress over time. Default wait is 15 seconds.",
-    inputSchema: z.object({
-      maxWaitSeconds: z
-        .number()
-        .int()
-        .min(1)
-        .max(600)
-        .optional()
-        .describe(
-          "Maximum seconds to wait before returning a 'tick' result. Default 15. " +
-            "Use a longer value (e.g. 60) for very slow workflows; shorter (e.g. 5) if you want frequent updates.",
-        ),
-    }),
-    execute: async ({ maxWaitSeconds }) => {
-      const watcher = watcherSlot.get();
-      if (!watcher) {
-        return createErrorResult("No execution in flight. Call startExecution first.");
-      }
-      const timeoutMs = (maxWaitSeconds ?? 15) * 1000;
-      const result = await watcher.await(timeoutMs, getAbortSignal?.());
-      return createToolResult(formatSnapshot(result.snapshot, result));
-    },
-  });
-
   // ── pauseExecution ──
   const pauseExecution = tool({
     description:
-      "Pause the currently running execution. The engine quiesces all workers and emits a Paused state event. " +
-      "Only valid while execution is Running. Returns immediately; use awaitExecution to confirm the Paused state.",
+      "Pause the currently running execution. Sends a pause request and BLOCKS until the watcher reports a wake — " +
+      "typically the workflow reaching Paused, but possibly a terminal state if the workflow finished while pausing. " +
+      "Only valid while execution is Running. The returned snapshot reflects the post-wake state.",
     inputSchema: z.object({}),
     execute: async () => {
       const watcher = watcherSlot.get();
       if (!watcher) return createErrorResult("No execution in flight.");
       const state = watcher.getSnapshot().currentState;
       if (state !== "Running") {
-        return createErrorResult(`Cannot pause from state '${state}'. Pause is only valid when Running.`);
+        return createErrorResult(rejectWithStateHint("pauseExecution", "Running state", state, true));
       }
       watcher.pause();
-      return createToolResult("Pause request sent. Use awaitExecution to confirm the Paused state.");
+      const result = await watcher.await(getAbortSignal?.());
+      return createToolResult(`Pause request sent.\n\n${renderAwaitResult(result)}`);
     },
   });
 
   // ── resumeExecution ──
   const resumeExecution = tool({
     description:
-      "Resume a paused execution. Continues processing from where it was paused. " +
+      "Resume a paused execution. Sends a resume request and BLOCKS until the watcher reports a wake — typically " +
+      "completion, failure, an auto-pause due to a new error, or a console error. " +
       "Only valid while execution is Paused.",
     inputSchema: z.object({}),
     execute: async () => {
@@ -401,10 +513,11 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       if (!watcher) return createErrorResult("No execution in flight.");
       const state = watcher.getSnapshot().currentState;
       if (state !== "Paused") {
-        return createErrorResult(`Cannot resume from state '${state}'. Resume is only valid when Paused.`);
+        return createErrorResult(rejectWithStateHint("resumeExecution", "Paused state", state, true));
       }
       watcher.resume();
-      return createToolResult("Resume request sent. Use awaitExecution to confirm the Running state.");
+      const result = await watcher.await(getAbortSignal?.());
+      return createToolResult(`Resume request sent.\n\n${renderAwaitResult(result)}`);
     },
   });
 
@@ -412,13 +525,14 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   const killExecution = tool({
     description:
       "Kill the currently running or paused execution. Engine shuts down workers immediately. " +
-      "All progress is lost; cannot be undone. Use this when results are clearly unrecoverable.",
+      "BLOCKS until the watcher reports a wake — typically the terminal Killed state. All progress is lost.",
     inputSchema: z.object({}),
     execute: async () => {
       const watcher = watcherSlot.get();
       if (!watcher) return createErrorResult("No execution in flight.");
       watcher.kill();
-      return createToolResult("Kill request sent. The execution will be terminated.");
+      const result = await watcher.await(getAbortSignal?.());
+      return createToolResult(`Kill request sent.\n\n${renderAwaitResult(result)}`);
     },
   });
 
@@ -436,15 +550,9 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       const watcher = watcherSlot.get();
       if (!watcher) return createErrorResult("No execution in flight. Call startExecution first.");
       try {
-        // Engine's pageIndex is 1-based (`from = pageSize * (pageIndex - 1)`).
-        // Translate offset → 1-based page number.
         const pageIndex = Math.floor(offset / limit) + 1;
         const evt = await watcher.requestPaginatedResult(operatorId, pageIndex, limit);
 
-        // Mirror the HTTP path: write the fetched rows into the operator
-        // result store so `# Current Workflow` shows them under Result.
-        // Pull engine state from the snapshot if available so the stored
-        // OperatorInfo carries an accurate state field.
         if (onOperatorResult) {
           const snap = watcher.getSnapshot();
           const opState = snap.perOperatorState[operatorId];
@@ -579,9 +687,6 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   });
 
   // ── liveModifyOperator ──
-  // Distinct from the design-time `modifyOperator` tool (which edits the
-  // workflow DAG) if the execution is not executed. `liveModifyOperator` hot-replaces operator properties
-  // (typically code) on a paused execution without restarting the workflow.
   const liveModifyOperator = tool({
     description:
       "Queue a hot-replace of an operator's properties (typically the code field of a Python UDF) for a paused execution. " +
@@ -596,10 +701,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       operatorId: z.string().describe("The operator to modify."),
       properties: z
         .record(z.any())
-        .describe(
-          "Partial properties object to merge. For Python UDFs, typically `{ code: '<full updated code>' }`. " +
-            "Provide the full new value for each key — values are replaced, not deep-merged.",
-        ),
+        .describe("Partial properties object to merge. For Python UDFs, typically `{ code: '<full updated code>' }`."),
     }),
     execute: async ({ operatorId, properties }) => {
       const watcher = watcherSlot.get();
@@ -609,7 +711,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       const snap = watcher.getSnapshot();
       if (snap.currentState !== "Paused") {
         return createErrorResult(
-          `liveModifyOperator requires a Paused execution; current state is '${snap.currentState}'. Pause the workflow first.`,
+          rejectWithStateHint("liveModifyOperator", "Paused state", snap.currentState, true, snapshotHasAutoPausedOperator(snap)),
         );
       }
       const operator = workflowState.getOperator(operatorId);
@@ -617,9 +719,6 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         return createErrorResult(`Operator '${operatorId}' not found in the workflow.`);
       }
 
-      // Build the wire payload mirroring the FE: operator properties spread
-      // with operatorID + operatorType, no port descriptors. Engine treats
-      // this as the new LogicalOp body for the operator.
       const mergedProperties = { ...operator.operatorProperties, ...properties };
       const operatorPayload = {
         ...mergedProperties,
@@ -652,8 +751,8 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   const retryCurrentTuple = tool({
     description:
       "Re-process the most recent in-flight tuple on the given operator's workers. Pairs with liveModifyOperator: " +
-      "after fixing the code, call retryCurrentTuple to re-run the row that triggered the original failure rather " +
-      "than skipping it. Requires the execution to be Paused, and the operator must have at least one assigned worker.",
+      "after fixing the code, call retryCurrentTuple to re-run the row that triggered the original failure. " +
+      "Requires the execution to be Paused, and the operator must have at least one assigned worker.",
     inputSchema: z.object({
       operatorId: z.string().describe("The operator whose workers should retry their current tuple."),
     }),
@@ -663,7 +762,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       const snap = watcher.getSnapshot();
       if (snap.currentState !== "Paused") {
         return createErrorResult(
-          `retryCurrentTuple requires a Paused execution; current state is '${snap.currentState}'.`,
+          rejectWithStateHint("retryCurrentTuple", "Paused state", snap.currentState, true, snapshotHasAutoPausedOperator(snap)),
         );
       }
       const workers = snap.workerIdsByOperator[operatorId] ?? [];
@@ -676,7 +775,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         watcher.retryWorkers(workers);
         return createToolResult(
           `Retry request sent to ${workers.length} worker${workers.length === 1 ? "" : "s"} of '${operatorId}'. ` +
-            `Use awaitExecution to observe the result, or resumeExecution to continue.`,
+            `Use resumeExecution to continue (which will block until the next significant event).`,
         );
       } catch (err: any) {
         return createErrorResult(`retryCurrentTuple failed for '${operatorId}': ${err?.message ?? String(err)}`);
@@ -688,8 +787,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
   const getConsoleLogs = tool({
     description:
       "Read recent console output (PRINT, ERROR, DEBUGGER) for a specific operator's workers. " +
-      "Use this when investigating why an operator stalled or printed something interesting — " +
-      "the # Active Execution section only shows ERROR-level messages, this tool returns all levels. " +
+      "The # Active Execution section only shows ERROR-level messages by default; this tool returns all levels. " +
       "Buffer holds up to ~50 most recent messages per operator.",
     inputSchema: z.object({
       operatorId: z.string().describe("The operator whose workers' console output you want."),
@@ -717,7 +815,7 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         ? all.filter(m => levels.includes(getConsoleMessageType(m)))
         : all;
       const cap = limit ?? 20;
-      const slice = filtered.slice(-cap).reverse(); // most recent first
+      const slice = filtered.slice(-cap).reverse();
       if (slice.length === 0) {
         return createToolResult(
           `No console messages matching levels=${levels?.join(",")} for operator '${operatorId}'.`,
@@ -738,7 +836,6 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
 
   return {
     [TOOL_NAME_START_EXECUTION]: startExecution,
-    [TOOL_NAME_AWAIT_EXECUTION]: awaitExecution,
     [TOOL_NAME_PAUSE_EXECUTION]: pauseExecution,
     [TOOL_NAME_RESUME_EXECUTION]: resumeExecution,
     [TOOL_NAME_KILL_EXECUTION]: killExecution,

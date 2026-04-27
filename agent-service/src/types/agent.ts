@@ -66,7 +66,15 @@ export interface ReActStep {
   messageId: string;
   stepId: number;
   timestamp: number;
-  role: "user" | "agent";
+  /**
+   * Author of this step.
+   * - "user": real human message.
+   * - "agent": assistant's reasoning/tool-call step.
+   * - "execution": synthetic message authored by the ExecutionWatcher,
+   *   surfacing wake events between agent steps. Rendered as a `[execution]`
+   *   user-role message in the assembled context.
+   */
+  role: "user" | "agent" | "execution";
   content: string;
   /** For user messages: the actual content sent to the model (may include prepended context) */
   actualContent?: string;
@@ -91,6 +99,16 @@ export interface ReActStep {
   beforeWorkflowContent?: WorkflowContent;
   /** Workflow state after this step executed */
   afterWorkflowContent?: WorkflowContent;
+  /**
+   * For `role: "execution"` steps only: the executionName that was active
+   * when the watcher mailbox was drained. Used by the assembler to filter
+   * out [execution] observations that belong to a stale execution — when
+   * the agent does a DAG edit (which conceptually invalidates prior runs),
+   * we clear the "current" pointer and any [execution] step whose
+   * executionName doesn't match the current pointer is omitted from the
+   * rendered context. They stay in `stepsById` for replay/audit.
+   */
+  executionName?: string;
 }
 
 /**
@@ -206,11 +224,12 @@ export interface AgentSettings {
    * High-level toggle between two coherent execution UXes:
    *
    * `true` (default, new mode): the agent gets the WS toolkit
-   *   (startExecution, awaitExecution, pauseExecution, resumeExecution,
-   *   killExecution, getOperatorResult, debugPython, getConsoleLogs,
-   *   retryCurrentTuple). No silent auto-execute on edit. The agent must
-   *   explicitly run the workflow and can introspect at runtime — Python
-   *   UDF exceptions auto-pause the worker so debugPython works directly.
+   *   (startExecution, pauseExecution, resumeExecution, killExecution,
+   *   getOperatorResult, debugPython, getConsoleLogs, retryCurrentTuple).
+   *   Control tools BLOCK on the watcher until a wake rule fires; passive
+   *   monitoring happens via `[execution]` messages drained between steps.
+   *   No silent auto-execute on edit. Python UDF exceptions auto-pause the
+   *   worker so debugPython works directly on the failing row.
    *
    * `false` (legacy mode): the agent gets the synchronous `executeOperator`
    *   tool plus the silent auto-execute hook on every addOperator /

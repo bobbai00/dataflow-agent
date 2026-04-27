@@ -336,6 +336,30 @@ export class WorkflowState {
    * @param targetOperatorId - The unique identifier of the operator from which to start the DFS.
    * @returns An object containing two arrays: `operators` and `links`.
    */
+  /**
+   * Forward closure from one or more starting operators: the starting set
+   * plus every operator transitively reachable via outgoing links. Used to
+   * invalidate stale cached results when an operator is modified/deleted —
+   * the operator itself and everything fed by its output is no longer
+   * trustworthy until re-executed.
+   */
+  getDownstreamClosure(operatorIds: string[]): Set<string> {
+    const closure = new Set<string>();
+    const stack = [...operatorIds];
+    const links = this.getAllLinks();
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (closure.has(id)) continue;
+      closure.add(id);
+      for (const link of links) {
+        if (link.source.operatorID === id && !closure.has(link.target.operatorID)) {
+          stack.push(link.target.operatorID);
+        }
+      }
+    }
+    return closure;
+  }
+
   getSubDAG(targetOperatorId: string): { operators: OperatorPredicate[]; links: OperatorLink[] } {
     const visited = new Set<string>();
     const subDagOperators: OperatorPredicate[] = [];

@@ -18,19 +18,34 @@
  */
 
 /**
- * ExecutionWatcher — in-memory snapshot of an agent's currently-active workflow
- * execution. Updated continuously by an ExecutionWsClient. Queried by tools
- * (awaitExecution, getOperatorResult) and by prepareStep (Active Execution
- * section). One per agent.
+ * ExecutionWatcher — sole arbiter of "something significant happened" in the
+ * running workflow execution. One per agent.
+ *
+ * Architecture (rule-based, no timers):
+ *
+ *   ┌─────────────┐  WS event
+ *   │ WsClient    │ ───────────► applyEvent()
+ *   └─────────────┘                  │
+ *                                    ▼
+ *                       1. compute per-event SnapshotDiff
+ *                       2. mutate snapshot
+ *                       3. run wake rules → WakeSignal[]
+ *                       4. route signals + diff to ONE consumer:
+ *                          • if an awaiter is registered → deliver directly
+ *                          • else → merge into mailbox
+ *
+ * Tool/agent loop interaction:
+ *   • Control tools (start/pause/resume/kill) call `await()` after sending
+ *     their request. `await()` blocks until rules fire, returns the diff +
+ *     signals, no timeout.
+ *   • prepareStep peeks/drains the mailbox to inject `[execution]` user-role
+ *     messages into the conversation between agent steps.
+ *   • Mailbox seals once a terminal-state diff has been drained, so editing-
+ *     phase prepareSteps don't keep re-surfacing stale events.
  */
 
 import type { ExecutionWsClient } from "../api/execution-ws-client";
 import {
-  isConsoleUpdateEvent,
-  isOperatorStatisticsUpdateEvent,
-  isPaginatedResultEvent,
-  isWorkflowErrorEvent,
-  isWorkflowStateEvent,
   getConsoleMessageType,
   type ConsoleMessage,
   type ModifyLogicCompletedEvent,
@@ -39,6 +54,7 @@ import {
   type PaginatedResultEvent,
   type PythonExpressionEvaluateResponse,
   type TexeraWebSocketEvent,
+  type WorkflowExecuteRequest,
   type WorkflowFatalError,
   type WorkflowState,
 } from "../types/execution-ws";
@@ -57,41 +73,60 @@ export interface ExecutionWatcherSnapshot {
   /**
    * Wall-clock when the *current* execution started (set in
    * `markExecutionStarting`, before the engine confirms via Initializing).
-   * Renamed from `startedAt` so the LLM doesn't misread it as "the execution
-   * is currently starting" — these `mostRecent*` timestamps are always
-   * historical, regardless of `currentState`.
    */
   mostRecentStartedAt: number;
   mostRecentPausedAt?: number;
   mostRecentResumedAt?: number;
   /**
    * Set when we transitioned INTO a terminal state; cleared when we transition
-   * out (e.g., engine state-replay then new execution). Read via `currentState`
-   * to know if the execution is currently terminal — this is just the timestamp
-   * of when it most recently became so.
+   * out (e.g., engine state-replay then new execution).
    */
   mostRecentCompletedAt?: number;
   currentState: WorkflowState;
   perOperatorState: Record<string, PerOperatorState>;
-  /** Workers per operator (from WorkerAssignmentUpdateEvent). Needed for retry. */
   workerIdsByOperator: Record<string, string[]>;
-  /** Per-operator currentTuples while paused (from OperatorCurrentTuplesUpdateEvent). */
   currentTuplesByOperator: Record<string, unknown>;
-  /** All recent console messages across all levels and operators (most recent last, ring buffer). */
   recentConsoleMessages: ConsoleMessage[];
-  /** Per-operator console messages (most recent last, capped per op). Lets
-   *  `getConsoleLogs(operatorId)` scope to one operator without re-parsing
-   *  workerIds from the flat buffer. */
   consoleMessagesByOperator: Record<string, ConsoleMessage[]>;
-  /** Filtered view: ERROR-only messages — used to drive console-error significant events. */
   recentConsoleErrors: ConsoleMessage[];
   fatalErrors: WorkflowFatalError[];
-  /** Engine-reported wall-clock duration (ExecutionDurationUpdateEvent), if any. */
   engineDurationMs?: number;
 }
 
-export type SignificantEventReason =
-  | "tick"
+/**
+ * What changed in a single event (or, when coalesced, between mailbox
+ * drains). All fields are optional — the diff only contains what actually
+ * changed. Lists (`newConsoleMessages`, `newFatalErrors`) are NEVER capped;
+ * coalescing concatenates rather than truncating.
+ */
+export interface SnapshotDiff {
+  /** Workflow-level state transition. Coalescing keeps first `from`, latest `to`. */
+  workflowState?: { from: WorkflowState; to: WorkflowState };
+
+  /** Per-operator state transitions. Coalescing keeps first `from`, latest `to` per opId. */
+  perOperator?: Record<string, { from?: PerOperatorState; to: PerOperatorState }>;
+
+  /** Console messages added by this event/window. Concatenated on coalesce. */
+  newConsoleMessages?: ConsoleMessage[];
+
+  /** Fatal errors added. Concatenated on coalesce. */
+  newFatalErrors?: WorkflowFatalError[];
+
+  /** Worker assignments observed. Latest-per-key wins. */
+  newWorkerAssignments?: Record<string, string[]>;
+
+  /** Per-op currentTuples observed. Latest-per-key wins. */
+  newCurrentTuples?: Record<string, unknown>;
+
+  /** Engine-reported duration update. Latest wins. */
+  engineDurationMs?: number;
+}
+
+/**
+ * Reason why a wake fired, surfaced to the agent. Narrow on purpose — we're
+ * being careful about what counts as a discrete signal class. Add cautiously.
+ */
+export type WakeReason =
   | "paused"
   | "resumed"
   | "completed"
@@ -99,40 +134,49 @@ export type SignificantEventReason =
   | "failed"
   | "killed"
   | "console-error"
-  | "aborted";
+  | "fatal-error"
+  /** A single operator's worker auto-paused (typically EXCEPTION_PAUSE on a
+   *  Python UDF) while the workflow as a whole is still Running. */
+  | "operator-auto-paused";
 
-export interface SignificantEventInfo {
-  reason: SignificantEventReason;
-  /** WS event that triggered, if any. */
-  triggeringEvent?: TexeraWebSocketEvent;
+/**
+ * One rule firing. Signals are LABELS over the diff — the data the agent
+ * needs is in the diff itself, signals tell the agent which rules thought
+ * the change was worth surfacing.
+ */
+export interface WakeSignal {
+  ruleId: string;
+  reason: WakeReason;
+  severity: "milestone" | "anomaly" | "critical";
+  summary: string;
+}
+
+export interface MailboxContents {
+  diff: SnapshotDiff;
+  signals: WakeSignal[];
+  firstEventAt: number;
+  lastEventAt: number;
 }
 
 export interface AwaitResult {
-  reason: SignificantEventReason;
-  elapsedSinceStartMs: number;
-  elapsedSinceLastWakeMs: number;
+  reason: "events" | "aborted";
   snapshot: ExecutionWatcherSnapshot;
+  diff: SnapshotDiff;
+  signals: WakeSignal[];
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────
+// ─── State helpers ────────────────────────────────────────────────────────
 
 function isTerminalState(state: WorkflowState): boolean {
   return state === "Completed" || state === "Failed" || state === "Killed" || state === "Terminated";
 }
 
-const SIGNIFICANT_STATE_TRANSITIONS = new Set<WorkflowState>([
-  "Paused",
-  "Completed",
-  "Failed",
-  "Killed",
-  "Terminated",
-]);
+function isStateAlive(state: WorkflowState): boolean {
+  if (isTerminalState(state)) return false;
+  if (state === "Uninitialized") return false;
+  return true;
+}
 
-/**
- * True iff any operator's state string contains "FromCache". The engine emits
- * states like "CompletedFromCache" via OperatorStatisticsUpdateEvent when a
- * cached output was reused instead of running the operator.
- */
 function isAnyOperatorFromCache(perOp: Record<string, PerOperatorState>): boolean {
   for (const st of Object.values(perOp)) {
     if (typeof st.state === "string" && st.state.includes("FromCache")) return true;
@@ -140,39 +184,222 @@ function isAnyOperatorFromCache(perOp: Record<string, PerOperatorState>): boolea
   return false;
 }
 
-/**
- * True iff `currentState` is terminal. The single source of truth — derived
- * from currentState only, never stored as a separate latched field.
- */
 export function snapshotIsTerminal(s: ExecutionWatcherSnapshot): boolean {
   return isTerminalState(s.currentState);
 }
 
-/**
- * True iff the execution reached Completed *and* at least one operator was
- * served from the reuse-cache. Derived from currentState + per-operator state.
- */
 export function snapshotWasFromCache(s: ExecutionWatcherSnapshot): boolean {
   return s.currentState === "Completed" && isAnyOperatorFromCache(s.perOperatorState);
 }
 
-function reasonForState(
-  state: WorkflowState,
-  perOp: Record<string, PerOperatorState>,
-): SignificantEventReason | null {
-  switch (state) {
-    case "Paused":
-      return "paused";
-    case "Completed":
-      return isAnyOperatorFromCache(perOp) ? "completed-from-cache" : "completed";
-    case "Failed":
-      return "failed";
-    case "Killed":
-    case "Terminated":
-      return "killed";
-    default:
-      return null;
+// ─── Wake rules ───────────────────────────────────────────────────────────
+//
+// Each rule is a pure function over (prev, curr, diff) that returns 0+
+// signals. Rules are evaluated per-event; signals merge into the mailbox by
+// ruleId dedupe (first occurrence wins for label fields; the diff carries
+// the underlying data).
+
+type WakeRule = (
+  prev: ExecutionWatcherSnapshot,
+  curr: ExecutionWatcherSnapshot,
+  diff: SnapshotDiff,
+) => WakeSignal[];
+
+const ruleStateMilestone: WakeRule = (_prev, curr, diff) => {
+  if (!diff.workflowState) return [];
+  const to = diff.workflowState.to;
+  if (to === "Paused") {
+    return [{
+      ruleId: "state-paused",
+      reason: "paused",
+      severity: "milestone",
+      summary: `workflow paused`,
+    }];
   }
+  if (to === "Completed") {
+    if (snapshotWasFromCache(curr)) {
+      return [{
+        ruleId: "state-completed-from-cache",
+        reason: "completed-from-cache",
+        severity: "milestone",
+        summary: `workflow completed by returning cached results without re-running operators`,
+      }];
+    }
+    return [{
+      ruleId: "state-completed",
+      reason: "completed",
+      severity: "milestone",
+      summary: `workflow completed`,
+    }];
+  }
+  if (to === "Killed" || to === "Terminated") {
+    return [{
+      ruleId: "state-killed",
+      reason: "killed",
+      severity: "milestone",
+      summary: `workflow ${to.toLowerCase()}`,
+    }];
+  }
+  // Failed is special — we wait for the WorkflowErrorEvent to populate fatal
+  // errors before firing the signal. See ruleFailedAfterFatal.
+  return [];
+};
+
+/**
+ * Failed state requires a fatal-error event to be useful. We fire only when
+ * BOTH have happened; the fatal-error rule below handles the case where the
+ * fatal error arrives after state=Failed.
+ */
+const ruleFailedAfterFatal: WakeRule = (_prev, curr, diff) => {
+  // Fire on either: state just became Failed and we already have errors,
+  // OR new fatal errors arrived while state is Failed.
+  const becameFailed = diff.workflowState?.to === "Failed";
+  const newErrors = (diff.newFatalErrors?.length ?? 0) > 0;
+  if (curr.currentState !== "Failed") return [];
+  if (!becameFailed && !newErrors) return [];
+  if (curr.fatalErrors.length === 0 && !newErrors) return []; // wait for errors
+  return [{
+    ruleId: "state-failed",
+    reason: "failed",
+    severity: "critical",
+    summary: `workflow failed (${curr.fatalErrors.length} fatal error${curr.fatalErrors.length === 1 ? "" : "s"})`,
+  }];
+};
+
+const ruleConsoleError: WakeRule = (_prev, _curr, diff) => {
+  const msgs = diff.newConsoleMessages ?? [];
+  const errors = msgs.filter(m => getConsoleMessageType(m) === "ERROR");
+  if (errors.length === 0) return [];
+  return [{
+    ruleId: "console-error",
+    reason: "console-error",
+    severity: "anomaly",
+    summary: `${errors.length} ERROR-level console message${errors.length === 1 ? "" : "s"}`,
+  }];
+};
+
+/**
+ * Detect per-operator auto-pause: a single operator's per-op state went to
+ * "Paused" while the workflow as a whole is NOT Pausing/Paused. The engine
+ * does this on EXCEPTION_PAUSE — a Python UDF raised, the worker caught it,
+ * paused itself, and parked the failing tuple. Other workers keep running.
+ *
+ * Critical for the agent: the `liveModifyOperator` precondition is workflow-
+ * level Paused, not per-operator. So when this rule fires, the agent must
+ * call `pauseExecution` first to quiesce the rest of the workflow before
+ * `liveModifyOperator` will be allowed.
+ */
+const ruleOperatorAutoPaused: WakeRule = (_prev, curr, diff) => {
+  if (!diff.perOperator) return [];
+  // Only meaningful while workflow itself is non-paused.
+  if (curr.currentState === "Paused" || curr.currentState === "Pausing") return [];
+  const pausedOps: string[] = [];
+  for (const [opId, change] of Object.entries(diff.perOperator)) {
+    if (change.to.state === "Paused" && change.from?.state !== "Paused") {
+      pausedOps.push(opId);
+    }
+  }
+  if (pausedOps.length === 0) return [];
+  return [{
+    ruleId: "operator-auto-paused",
+    reason: "operator-auto-paused",
+    severity: "anomaly",
+    summary: `${pausedOps.length === 1 ? "operator" : "operators"} ${pausedOps.join(", ")} auto-paused (likely EXCEPTION_PAUSE); workflow as a whole still Running. Call pauseExecution before liveModifyOperator.`,
+  }];
+};
+
+const RULES: WakeRule[] = [ruleStateMilestone, ruleFailedAfterFatal, ruleConsoleError, ruleOperatorAutoPaused];
+
+function runRules(
+  prev: ExecutionWatcherSnapshot,
+  curr: ExecutionWatcherSnapshot,
+  diff: SnapshotDiff,
+): WakeSignal[] {
+  const out: WakeSignal[] = [];
+  for (const rule of RULES) {
+    const sigs = rule(prev, curr, diff);
+    for (const s of sigs) out.push(s);
+  }
+  return out;
+}
+
+// ─── Diff coalescing ──────────────────────────────────────────────────────
+
+/**
+ * Merge a per-event diff into the mailbox-accumulated diff. Coalescing rules:
+ *   - workflowState: keep first `from`, latest `to`.
+ *   - perOperator[opId]: keep first `from`, latest `to`.
+ *   - newConsoleMessages / newFatalErrors: concat (no cap).
+ *   - newWorkerAssignments / newCurrentTuples: latest-per-key wins.
+ *   - engineDurationMs: latest wins.
+ */
+function mergeDiff(into: SnapshotDiff, add: SnapshotDiff): SnapshotDiff {
+  const out: SnapshotDiff = { ...into };
+
+  if (add.workflowState) {
+    if (out.workflowState) {
+      out.workflowState = { from: out.workflowState.from, to: add.workflowState.to };
+    } else {
+      out.workflowState = { ...add.workflowState };
+    }
+  }
+
+  if (add.perOperator) {
+    out.perOperator = { ...(out.perOperator ?? {}) };
+    for (const [opId, change] of Object.entries(add.perOperator)) {
+      const existing = out.perOperator[opId];
+      if (existing) {
+        out.perOperator[opId] = { from: existing.from, to: change.to };
+      } else {
+        out.perOperator[opId] = { ...change };
+      }
+    }
+  }
+
+  if (add.newConsoleMessages?.length) {
+    out.newConsoleMessages = [...(out.newConsoleMessages ?? []), ...add.newConsoleMessages];
+  }
+  if (add.newFatalErrors?.length) {
+    out.newFatalErrors = [...(out.newFatalErrors ?? []), ...add.newFatalErrors];
+  }
+  if (add.newWorkerAssignments) {
+    out.newWorkerAssignments = { ...(out.newWorkerAssignments ?? {}), ...add.newWorkerAssignments };
+  }
+  if (add.newCurrentTuples) {
+    out.newCurrentTuples = { ...(out.newCurrentTuples ?? {}), ...add.newCurrentTuples };
+  }
+  if (add.engineDurationMs !== undefined) {
+    out.engineDurationMs = add.engineDurationMs;
+  }
+  return out;
+}
+
+function diffIsEmpty(d: SnapshotDiff): boolean {
+  if (d.workflowState) return false;
+  if (d.perOperator && Object.keys(d.perOperator).length > 0) return false;
+  if (d.newConsoleMessages?.length) return false;
+  if (d.newFatalErrors?.length) return false;
+  if (d.newWorkerAssignments && Object.keys(d.newWorkerAssignments).length > 0) return false;
+  if (d.newCurrentTuples && Object.keys(d.newCurrentTuples).length > 0) return false;
+  if (d.engineDurationMs !== undefined) return false;
+  return true;
+}
+
+/**
+ * Dedupe signals by ruleId — first occurrence wins for the label fields.
+ * The underlying data lives in the diff, so we don't need to merge payloads.
+ */
+function mergeSignals(into: WakeSignal[], add: WakeSignal[]): WakeSignal[] {
+  if (add.length === 0) return into;
+  const out = [...into];
+  const seen = new Set(out.map(s => s.ruleId));
+  for (const s of add) {
+    if (!seen.has(s.ruleId)) {
+      out.push(s);
+      seen.add(s.ruleId);
+    }
+  }
+  return out;
 }
 
 // ─── ExecutionWatcher ─────────────────────────────────────────────────────
@@ -182,29 +409,14 @@ interface PendingPagination {
   reject: (err: Error) => void;
 }
 
-/**
- * One in-flight `evalPython` request waiting for the matching response.
- * Wire format has no requestID, so correlation key is `(operatorId, expression)`.
- * If two evals fire for the same key, responses arrive in send order — hence
- * a FIFO array per key.
- */
 interface PendingPythonEval {
   resolve: (event: PythonExpressionEvaluateResponse) => void;
   reject: (err: Error) => void;
 }
 
-/**
- * One in-flight `liveModifyOperator` request, awaiting both the synchronous
- * `ModifyLogicResponse` (validation) and the asynchronous
- * `ModifyLogicCompletedEvent` (engine has applied the new logic). Correlation
- * key: `opId`.
- */
 export interface ModifyLogicResult {
   isValid: boolean;
   errorMessage: string;
-  /** True iff a `ModifyLogicCompletedEvent` arrived for this opId before
-   *  the timeout. False means the response was valid but we never got
-   *  confirmation that it took effect. */
   applied: boolean;
 }
 
@@ -214,8 +426,7 @@ interface PendingModifyLogic {
 }
 
 interface PendingAwaiter {
-  resolve: (info: SignificantEventInfo) => void;
-  timer: ReturnType<typeof setTimeout> | null;
+  resolve: (r: AwaitResult) => void;
   abortHandler: (() => void) | null;
   abortSignal: AbortSignal | null;
 }
@@ -225,27 +436,45 @@ export class ExecutionWatcher {
   private readonly wsClient: ExecutionWsClient;
   private wsUnsubscribe: (() => void) | null = null;
 
-  // Awaiters waiting for the next significant event (one-shot).
-  private awaiters: Set<PendingAwaiter> = new Set();
-  // Pagination requests keyed by requestID.
+  // ── Mailbox + awaiter ──
+  // At any moment, events go to EXACTLY ONE consumer:
+  //   • if `currentAwaiter` is set, events bypass the mailbox and go to it.
+  //   • else, events accumulate in `mailbox`.
+  // The mailbox is drained by prepareStep (rendering as `[execution]` user
+  // messages) or by an awaiter starting (fast-path: drain mailbox and return
+  // immediately).
+  private mailbox: { diff: SnapshotDiff; signals: WakeSignal[]; firstEventAt: number; lastEventAt: number } | null = null;
+  private mailboxSealed: boolean = false;
+  private currentAwaiter: PendingAwaiter | null = null;
+
+  // ── inExecution gate ──
+  // When false, events are still applied to the snapshot (so the snapshot
+  // mirrors engine state), but wake rules don't fire and nothing reaches
+  // mailbox or awaiter. This lets us:
+  //   - silently absorb engine state-replay on first WS connection (the
+  //     prior workflow's terminal state) before the agent has issued any
+  //     execute request — fixes the spurious "completed" wake from a
+  //     replayed previous run.
+  //   - silently absorb late teardown chatter after a terminal drain —
+  //     the engine may emit a few more events after Killed/Completed that
+  //     are not interesting to the agent.
+  // Flipped to true by `markExecutionStarting()`. Flipped back to false
+  // when the watcher consumes a terminal-state signal.
+  private inExecution: boolean = false;
+  // True once `connect()` has resolved at least once. Subsequent calls are
+  // no-ops. Connection is owned by the watcher now (one per agent), not
+  // per-execution — see TexeraAgent constructor.
+  private connected: boolean = false;
+  private connectPromise: Promise<void> | null = null;
+
+  // ── Correlated request/response queues (unchanged from prior design) ──
   private pendingPagination: Map<string, PendingPagination> = new Map();
-  // Python eval requests, keyed by `${operatorId}::${expression}`. FIFO queue
-  // because the wire protocol has no requestID and we may have multiple of
-  // the same expression in flight (engine responses arrive in send order).
   private pendingPythonEval: Map<string, PendingPythonEval[]> = new Map();
-  // Modify-logic requests, keyed by opId. FIFO queue per op.
   private pendingModifyLogic: Map<string, PendingModifyLogic[]> = new Map();
-  // Track when the last awaitExecution returned (for elapsedSinceLastWakeMs).
-  private lastWakeAt: number;
-  // Snapshot captured at the moment the most recent `await()` returned. The
-  // assembler uses this to compute deltas (output growth, state transitions,
-  // new errors) since the LLM last looked at execution state.
-  private snapshotAtLastWake: ExecutionWatcherSnapshot | null = null;
 
   constructor(wsClient: ExecutionWsClient, executionName: string) {
     this.wsClient = wsClient;
     const now = Date.now();
-    this.lastWakeAt = now;
     this.snapshot = {
       executionName,
       mostRecentStartedAt: now,
@@ -260,35 +489,54 @@ export class ExecutionWatcher {
     };
   }
 
-  /**
-   * Subscribe to the WS client's event stream. Idempotent.
-   */
   start(): void {
     if (this.wsUnsubscribe) return;
     this.wsUnsubscribe = this.wsClient.onEvent(evt => this.applyEvent(evt));
   }
 
   /**
-   * Optimistically mark the snapshot as "an execution is starting right now."
-   * Call this immediately after sending WorkflowExecuteRequest, *before* any
-   * engine state event for the new execution arrives. Closes the small window
-   * during which the snapshot would otherwise still reflect the prior run's
-   * terminal state (which the engine replays to new WS subscribers on connect).
-   *
-   * The engine's subsequent WorkflowStateEvent("Initializing") / "Running"
-   * will overwrite these fields naturally.
+   * Open the WS connection to the engine. Idempotent — safe to call multiple
+   * times; only the first invocation actually connects. Used by the agent
+   * lazily on the first `startExecution`. Replayed state events arriving
+   * after connect are absorbed silently because `inExecution` is still false.
    */
-  markExecutionStarting(): void {
+  async connect(): Promise<void> {
+    if (this.connected) return;
+    if (this.connectPromise) return this.connectPromise;
+    this.connectPromise = this.wsClient.connect().then(() => {
+      this.connected = true;
+    });
+    return this.connectPromise;
+  }
+
+  /**
+   * Send a WorkflowExecuteRequest on the existing WS, then mark the watcher
+   * as in-execution so subsequent rule firings are surfaced. Replaces the
+   * old per-execution "create new ws + watcher" dance — same WS is reused
+   * across executions in a single agent session.
+   */
+  sendExecuteRequest(request: Omit<WorkflowExecuteRequest, "type">): void {
+    this.wsClient.sendExecuteRequest({ ...request });
+    this.markExecutionStarting(request.executionName);
+  }
+
+  /**
+   * Optimistically mark the snapshot as "an execution is starting right now."
+   * Resets per-execution accumulators and clears the mailbox seal. If
+   * `executionName` is provided, updates the watcher's name to that — the
+   * watcher persists across executions (single-WS design), so the name is
+   * a per-execution identifier rather than constructor-time fixed.
+   */
+  markExecutionStarting(executionName?: string): void {
     const now = Date.now();
     this.snapshot = {
       ...this.snapshot,
-      // ── Per-execution lifecycle fields: reset to "fresh execution" ──
+      executionName: executionName ?? this.snapshot.executionName,
       currentState: "Initializing",
-      mostRecentStartedAt: now,            // pivot the start clock to NOW
+      mostRecentStartedAt: now,
       mostRecentCompletedAt: undefined,
       mostRecentPausedAt: undefined,
       mostRecentResumedAt: undefined,
-      // ── Per-execution accumulators: clear (no carryover from prior run) ──
       perOperatorState: {},
       workerIdsByOperator: {},
       currentTuplesByOperator: {},
@@ -297,19 +545,11 @@ export class ExecutionWatcher {
       recentConsoleErrors: [],
       fatalErrors: [],
       engineDurationMs: undefined,
-      // executionName is intentionally NOT reset here — it's set by the
-      // constructor (each call to startExecution constructs a new watcher
-      // with its own fresh executionName).
     };
-    // Reset the wake clock so `elapsedSinceLastWakeMs` on the first
-    // post-start await reflects time since this start, not since watcher
-    // construction.
-    this.lastWakeAt = now;
-    // Clear prior-execution wake snapshot — it's not a meaningful baseline
-    // for diffing against the new run.
-    this.snapshotAtLastWake = null;
-    // Reject any leftover eval/modify awaiters from a prior run — engine
-    // won't answer them after a new execution starts.
+    this.mailbox = null;
+    this.mailboxSealed = false;
+    // Open the gate: events from this point on may produce wake signals.
+    this.inExecution = true;
     for (const [, queue] of this.pendingPythonEval) {
       for (const p of queue) p.reject(new Error("Execution restarted"));
     }
@@ -319,74 +559,77 @@ export class ExecutionWatcher {
     }
     this.pendingModifyLogic.clear();
     console.log(
-      `[ExecutionWatcher ${this.snapshot.executionName}] markExecutionStarting: snapshot reset to Initializing`
+      `[ExecutionWatcher ${this.snapshot.executionName}] markExecutionStarting: snapshot reset to Initializing, inExecution=true`
     );
   }
 
   /**
-   * Apply a single WS event to the snapshot. Public for testing — production
-   * code should rely on the subscription set up in `start()`.
-   *
-   * Dispatch shape mirrors the FE (see ExecuteWorkflowService) — we switch
-   * on `event.type` and update the relevant slice of state. Events that we
-   * don't yet make use of are listed explicitly with TODO/Phase markers so
-   * future work has a clear hook.
-   *
-   * Note on engine state-replay: when we open a fresh WS, the engine replays
-   * the latest WorkflowStateEvent (often the prior run's `Completed`). That
-   * IS the truthful state at connect-time, and we reflect it. The new
-   * execution's events then take over and overwrite naturally.
+   * Apply a single WS event. Public for testing — production wiring is via
+   * the subscription set up in `start()`.
    */
   applyEvent(event: TexeraWebSocketEvent): void {
     const t = (event as { type: string }).type;
+    const prev = this.snapshot;
+    let diff: SnapshotDiff = {};
+
     switch (t) {
-      // ── State + status ──
-      case "WorkflowStateEvent":
-        this.handleWorkflowStateEvent(event as Extract<TexeraWebSocketEvent, { type: "WorkflowStateEvent" }>);
-        return;
-      case "OperatorStatisticsUpdateEvent":
-        this.handleOperatorStatisticsUpdateEvent(
+      case "WorkflowStateEvent": {
+        diff = this.handleWorkflowStateEvent(
+          event as Extract<TexeraWebSocketEvent, { type: "WorkflowStateEvent" }>,
+        );
+        break;
+      }
+      case "OperatorStatisticsUpdateEvent": {
+        diff = this.handleOperatorStatisticsUpdateEvent(
           event as Extract<TexeraWebSocketEvent, { type: "OperatorStatisticsUpdateEvent" }>,
         );
-        return;
-      case "RecoveryStartedEvent":
+        break;
+      }
+      case "RecoveryStartedEvent": {
+        diff = { workflowState: { from: prev.currentState, to: "Recovering" } };
         this.snapshot = { ...this.snapshot, currentState: "Recovering" };
         console.log(`[ExecutionWatcher ${this.snapshot.executionName}] RecoveryStartedEvent → state: Recovering`);
-        return;
+        break;
+      }
       case "WorkerAssignmentUpdateEvent": {
         const e = event as { operatorId: string; workerIds: string[] };
         this.snapshot = {
           ...this.snapshot,
           workerIdsByOperator: { ...this.snapshot.workerIdsByOperator, [e.operatorId]: [...e.workerIds] },
         };
-        return;
+        diff = { newWorkerAssignments: { [e.operatorId]: [...e.workerIds] } };
+        break;
       }
       case "ExecutionDurationUpdateEvent": {
         const e = event as { duration: number };
-        this.snapshot = { ...this.snapshot, engineDurationMs: Number(e.duration) };
-        return;
+        const dur = Number(e.duration);
+        this.snapshot = { ...this.snapshot, engineDurationMs: dur };
+        diff = { engineDurationMs: dur };
+        break;
       }
       case "OperatorCurrentTuplesUpdateEvent": {
-        // Per-operator in-flight tuple snapshot, populated while paused so
-        // the agent can inspect what each worker was holding.
         const e = event as { operatorID: string };
         this.snapshot = {
           ...this.snapshot,
           currentTuplesByOperator: { ...this.snapshot.currentTuplesByOperator, [e.operatorID]: e },
         };
-        return;
+        diff = { newCurrentTuples: { [e.operatorID]: e } };
+        break;
       }
-
-      // ── Console + errors ──
-      case "ConsoleUpdateEvent":
-        this.handleConsoleUpdateEvent(event as Extract<TexeraWebSocketEvent, { type: "ConsoleUpdateEvent" }>);
-        return;
-      case "WorkflowErrorEvent":
-        this.handleWorkflowErrorEvent(event as Extract<TexeraWebSocketEvent, { type: "WorkflowErrorEvent" }>);
-        return;
-
-      // ── Request/response correlation ──
+      case "ConsoleUpdateEvent": {
+        diff = this.handleConsoleUpdateEvent(
+          event as Extract<TexeraWebSocketEvent, { type: "ConsoleUpdateEvent" }>,
+        );
+        break;
+      }
+      case "WorkflowErrorEvent": {
+        diff = this.handleWorkflowErrorEvent(
+          event as Extract<TexeraWebSocketEvent, { type: "WorkflowErrorEvent" }>,
+        );
+        break;
+      }
       case "PaginatedResultEvent": {
+        // Correlation-only — does not contribute to diffs/signals.
         const e = event as Extract<TexeraWebSocketEvent, { type: "PaginatedResultEvent" }>;
         const pending = this.pendingPagination.get(e.requestID);
         if (pending) {
@@ -395,21 +638,10 @@ export class ExecutionWatcher {
         }
         return;
       }
-
-      // ── Heartbeat ──
       case "HeartBeatResponse":
-        return; // silent
-
-      // ── Advanced features (Phases 9-15) — TODO: wire up when those land ──
+        return;
       case "PythonExpressionEvaluateResponse": {
         const e = event as PythonExpressionEvaluateResponse;
-        // Correlation: response carries the original expression but not the
-        // operatorId. We can't disambiguate which operator's worker answered
-        // when multiple ops have a pending eval for the same expression. In
-        // practice the engine routes responses back through the same socket
-        // that sent the request, and we only ever queue one per (op, expr)
-        // from the agent. Match against any pending key whose expression
-        // suffix equals e.expression — first non-empty queue wins.
         const matchedKey = this.findFirstPendingPythonEvalKey(e.expression);
         if (matchedKey) {
           const queue = this.pendingPythonEval.get(matchedKey)!;
@@ -433,20 +665,31 @@ export class ExecutionWatcher {
         const queue = this.pendingModifyLogic.get(e.opId);
         if (!queue || queue.length === 0) {
           console.log(
-            `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicResponse with no pending awaiter (opId=${e.opId})`,
+            `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicResponse received but no pending awaiter (opId=${e.opId}, isValid=${e.isValid}, errorMessage=${JSON.stringify(e.errorMessage)})`,
           );
           return;
         }
         const head = queue.shift()!;
         if (queue.length === 0) this.pendingModifyLogic.delete(e.opId);
+        if (e.isValid) {
+          console.log(
+            `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicResponse VALIDATED (opId=${e.opId}); engine will apply on resume — resolving immediately with applied=true`,
+          );
+        } else {
+          console.log(
+            `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicResponse REJECTED (opId=${e.opId}): ${JSON.stringify(e.errorMessage)}; resolving liveModifyOperator with isValid=false`,
+          );
+        }
         head.resolve({
           isValid: e.isValid,
           errorMessage: e.errorMessage,
-          // `applied: true` here means "queued and will be applied on resume" —
-          // the actual engine apply happens in performReconfigurationOnResume,
-          // and the corresponding ModifyLogicCompletedEvent surfaces via state
-          // diffing for downstream consumers (UI badges, etc.) but is no longer
-          // gating this Promise.
+          // `applied: e.isValid` here means "queued and will be applied on
+          // resume" — the actual engine apply happens in
+          // performReconfigurationOnResume, and the corresponding
+          // ModifyLogicCompletedEvent surfaces via state diffing for
+          // downstream consumers (UI badges, etc.) but is no longer
+          // gating this Promise. Fixes the 30s liveModify timeout where
+          // the worker never reached a tuple boundary to apply.
           applied: e.isValid,
         });
         return;
@@ -458,122 +701,165 @@ export class ExecutionWatcher {
         // drives `pendingModifyLogic` resolution.
         const e = event as ModifyLogicCompletedEvent;
         console.log(
-          `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicCompletedEvent: ${e.opIds.join(",")} (engine applied)`,
+          `[ExecutionWatcher ${this.snapshot.executionName}] ModifyLogicCompletedEvent received for opIds=[${e.opIds.join(", ")}] (engine applied; informational only — Promise was resolved on ModifyLogicResponse)`,
         );
         return;
       }
-
-      // ── Events we don't currently consume but could be useful later ──
       case "WebResultUpdateEvent":
-        // TODO(phase-future): partial result deltas. We currently use
-        // ResultPaginationRequest for explicit fetches. Could supplement.
-        return;
       case "WorkflowAvailableResultEvent":
-        // TODO(phase-future): list of operators with materialized results.
-        // Today we infer from per-operator state; this is more authoritative.
-        return;
       case "CacheStatusUpdateEvent":
       case "CacheUsageUpdateEvent":
       case "CacheEntryUpdateEvent":
-        // TODO(phase-future): reuse-cache visibility (which ops will be
-        // cache-served before they run). Today we surface CompletedFromCache
-        // post-hoc via per-op state.
-        return;
       case "ResultExportResponse":
-        // TODO(phase-future): if/when agent supports export operations.
-        return;
       case "RegionUpdateEvent":
       case "RegionStateEvent":
-        // TODO(phase-future): scheduling region visibility. Internal detail
-        // for now — could expose for advanced execution-plan diagnosis.
-        return;
       case "ClusterStatusUpdateEvent":
-        // TODO(phase-future): cluster health (worker count, node availability).
         return;
-
       default:
         console.log(`[ExecutionWatcher ${this.snapshot.executionName}] unhandled event type: ${t}`);
         return;
     }
+
+    if (diffIsEmpty(diff)) return;
+
+    // inExecution gate: if the agent hasn't issued an execute request yet,
+    // OR we're past a terminal-state drain for the prior execution, the
+    // snapshot still mutates (to mirror engine state) but no signals fire.
+    // This silences engine state-replay on first connect AND post-terminal
+    // teardown chatter — both of which would otherwise mislead the agent.
+    if (!this.inExecution) return;
+
+    const signals = runRules(prev, this.snapshot, diff);
+    // Only surface signal-firing events. Non-signal diffs (e.g. routine
+    // operator-stats updates) are absorbed silently into the snapshot —
+    // the # Active Execution section reads the cumulative snapshot, so
+    // the agent still has visibility into current numbers without
+    // getting woken on every counter tick.
+    if (signals.length === 0) return;
+
+    // If any of the signals is a terminal-state milestone, flip
+    // `inExecution` off AFTER routing — subsequent late events (engine
+    // teardown chatter, etc.) will be silenced. The agent's next
+    // startExecution will flip it back on via markExecutionStarting().
+    const isTerminal = signals.some(s =>
+      s.ruleId === "state-completed" ||
+      s.ruleId === "state-completed-from-cache" ||
+      s.ruleId === "state-failed" ||
+      s.ruleId === "state-killed",
+    );
+    this.routeEvent(diff, signals);
+    if (isTerminal) {
+      this.inExecution = false;
+      console.log(
+        `[ExecutionWatcher ${this.snapshot.executionName}] terminal signal drained; inExecution=false (post-terminal events will be silent)`,
+      );
+    }
   }
 
-  // ─── Per-event handlers ────────────────────────────────────────────────
+  /**
+   * Single-consumer routing: events go to either the registered awaiter OR
+   * the mailbox, never both. Sealed mailbox drops new events.
+   */
+  private routeEvent(diff: SnapshotDiff, signals: WakeSignal[]): void {
+    if (this.currentAwaiter) {
+      const awaiter = this.currentAwaiter;
+      this.currentAwaiter = null;
+      if (awaiter.abortHandler && awaiter.abortSignal) {
+        awaiter.abortSignal.removeEventListener("abort", awaiter.abortHandler);
+      }
+      awaiter.resolve({
+        reason: "events",
+        snapshot: this.getSnapshot(),
+        diff,
+        signals,
+      });
+      return;
+    }
+
+    if (this.mailboxSealed) return;
+
+    const now = Date.now();
+    if (this.mailbox === null) {
+      this.mailbox = { diff, signals, firstEventAt: now, lastEventAt: now };
+    } else {
+      this.mailbox = {
+        diff: mergeDiff(this.mailbox.diff, diff),
+        signals: mergeSignals(this.mailbox.signals, signals),
+        firstEventAt: this.mailbox.firstEventAt,
+        lastEventAt: now,
+      };
+    }
+  }
+
+  // ─── Per-event handlers (return per-event diff, mutate snapshot) ──────
 
   private handleWorkflowStateEvent(
     event: Extract<TexeraWebSocketEvent, { type: "WorkflowStateEvent" }>,
-  ): void {
+  ): SnapshotDiff {
     const newState = event.state;
     const oldState = this.snapshot.currentState;
+    if (newState === oldState) return {};
 
     const enteringTerminal = isTerminalState(newState);
-    this.snapshot = {
+    let next: ExecutionWatcherSnapshot = {
       ...this.snapshot,
       currentState: newState,
       mostRecentCompletedAt: enteringTerminal ? Date.now() : undefined,
     };
 
-    // Pause/resume timestamps
-    if (newState === "Paused" && !this.snapshot.mostRecentPausedAt) {
-      this.snapshot = { ...this.snapshot, mostRecentPausedAt: Date.now() };
+    if (newState === "Paused" && !next.mostRecentPausedAt) {
+      next = { ...next, mostRecentPausedAt: Date.now() };
     } else if (newState === "Running" && oldState === "Resuming") {
-      this.snapshot = { ...this.snapshot, mostRecentResumedAt: Date.now(), mostRecentPausedAt: undefined };
+      next = { ...next, mostRecentResumedAt: Date.now(), mostRecentPausedAt: undefined };
     } else if (
       !isTerminalState(newState) &&
       newState !== "Paused" &&
       newState !== "Pausing" &&
       (oldState === "Paused" || oldState === "Resuming")
     ) {
-      this.snapshot = { ...this.snapshot, mostRecentPausedAt: undefined };
+      next = { ...next, mostRecentPausedAt: undefined };
     }
 
+    this.snapshot = next;
     console.log(
-      `[ExecutionWatcher ${this.snapshot.executionName}] WorkflowStateEvent: ${oldState} -> ${newState}, terminal=${snapshotIsTerminal(this.snapshot)}`,
+      `[ExecutionWatcher ${this.snapshot.executionName}] WorkflowStateEvent: ${oldState} -> ${newState}`,
     );
-
-    if (SIGNIFICANT_STATE_TRANSITIONS.has(newState) && newState !== oldState) {
-      // FE pattern: defer "failed" emission until the follow-up
-      // WorkflowErrorEvent arrives — gives downstream consumers a snapshot
-      // with `fatalErrors` populated rather than a bare "Failed" state.
-      if (newState === "Failed") {
-        console.log(
-          `[ExecutionWatcher ${this.snapshot.executionName}] WorkflowStateEvent("Failed") seen; deferring significant emission until WorkflowErrorEvent arrives.`,
-        );
-        return;
-      }
-      const reason = reasonForState(newState, this.snapshot.perOperatorState);
-      if (reason) {
-        console.log(
-          `[ExecutionWatcher ${this.snapshot.executionName}] emit significant: reason=${reason} (state=${newState})`,
-        );
-        this.emitSignificant({ reason, triggeringEvent: event });
-      }
-    }
+    return { workflowState: { from: oldState, to: newState } };
   }
 
   private handleOperatorStatisticsUpdateEvent(
     event: Extract<TexeraWebSocketEvent, { type: "OperatorStatisticsUpdateEvent" }>,
-  ): void {
+  ): SnapshotDiff {
     const updated: Record<string, PerOperatorState> = { ...this.snapshot.perOperatorState };
+    const perOperator: Record<string, { from?: PerOperatorState; to: PerOperatorState }> = {};
     for (const [opId, metrics] of Object.entries(event.operatorStatistics)) {
       const m = metrics as OperatorAggregatedMetrics;
-      updated[opId] = {
+      const next: PerOperatorState = {
         state: m.operatorState,
         inputTupleCount: Number(m.aggregatedInputRowCount ?? 0),
         outputTupleCount: Number(m.aggregatedOutputRowCount ?? 0),
         numWorkers: Number(m.numWorkers ?? 0),
       };
+      const existing = updated[opId];
+      if (
+        !existing ||
+        existing.state !== next.state ||
+        existing.inputTupleCount !== next.inputTupleCount ||
+        existing.outputTupleCount !== next.outputTupleCount ||
+        existing.numWorkers !== next.numWorkers
+      ) {
+        perOperator[opId] = { from: existing, to: next };
+      }
+      updated[opId] = next;
     }
     this.snapshot = { ...this.snapshot, perOperatorState: updated };
-    // Per-operator stats are noisy by design — never emit significant.
+    if (Object.keys(perOperator).length === 0) return {};
+    return { perOperator };
   }
 
   private handleConsoleUpdateEvent(
     event: Extract<TexeraWebSocketEvent, { type: "ConsoleUpdateEvent" }>,
-  ): void {
-    // Buffer ALL console messages (across all levels) so the agent can pull
-    // recent stdout. Maintain a separate ERROR-only filter to drive the
-    // console-error significant event, and a per-operator map for the
-    // `getConsoleLogs` tool.
+  ): SnapshotDiff {
     const allMerged = [...this.snapshot.recentConsoleMessages, ...event.messages];
     const allTrimmed = allMerged.length > 100 ? allMerged.slice(-100) : allMerged;
 
@@ -603,142 +889,139 @@ export class ExecutionWatcher {
     }
     this.snapshot = updated;
 
-    if (errors.length > 0) {
-      this.emitSignificant({ reason: "console-error", triggeringEvent: event });
-    }
+    return { newConsoleMessages: [...event.messages] };
   }
 
   private handleWorkflowErrorEvent(
     event: Extract<TexeraWebSocketEvent, { type: "WorkflowErrorEvent" }>,
-  ): void {
+  ): SnapshotDiff {
     this.snapshot = {
       ...this.snapshot,
       fatalErrors: [...this.snapshot.fatalErrors, ...event.fatalErrors],
     };
-    // FE pattern: WorkflowErrorEvent typically follows WorkflowStateEvent("Failed").
-    // We deferred the "failed" significant emission earlier; emit it now that
-    // fatalErrors is populated, so awaiters see a coherent snapshot.
-    if (this.snapshot.currentState === "Failed") {
-      console.log(
-        `[ExecutionWatcher ${this.snapshot.executionName}] emit significant: reason=failed (deferred — fatalErrors now populated)`,
-      );
-      this.emitSignificant({ reason: "failed", triggeringEvent: event });
-    }
+    return { newFatalErrors: [...event.fatalErrors] };
   }
 
-  private emitSignificant(info: SignificantEventInfo): void {
-    if (this.awaiters.size === 0) return;
-    // Snapshot the set first because resolvers may add new awaiters re-entrantly.
-    const toFire = [...this.awaiters];
-    this.awaiters.clear();
-    for (const a of toFire) {
-      if (a.timer !== null) clearTimeout(a.timer);
-      if (a.abortHandler && a.abortSignal) {
-        a.abortSignal.removeEventListener("abort", a.abortHandler);
-      }
-      a.resolve(info);
-    }
-  }
+  // ─── Awaiter API ──────────────────────────────────────────────────────
 
   /**
-   * Wait for either the next significant event or the timeout, whichever
-   * fires first. If `abortSignal` is provided and aborts before either,
-   * resolves with reason: "aborted".
+   * Block until at least one wake rule fires, OR fast-path return if the
+   * mailbox already has content. No timeout.
+   *
+   * Single-consumer rule: while one awaiter is registered, new events go
+   * directly to it (bypass mailbox). If a second `await()` is called while
+   * another is in flight, the prior awaiter is rejected — control tools
+   * should not race each other on the same watcher.
    */
-  waitForSignificantEvent(
-    timeoutMs: number,
-    abortSignal?: AbortSignal,
-  ): Promise<SignificantEventInfo> {
+  await(abortSignal?: AbortSignal): Promise<AwaitResult> {
     if (abortSignal?.aborted) {
-      return Promise.resolve({ reason: "aborted" });
+      return Promise.resolve({
+        reason: "aborted",
+        snapshot: this.getSnapshot(),
+        diff: {},
+        signals: [],
+      });
     }
 
-    return new Promise<SignificantEventInfo>(resolve => {
+    // Fast-path: drain mailbox if non-empty.
+    if (this.mailbox !== null) {
+      const m = this.mailbox;
+      this.mailbox = null;
+      return Promise.resolve({
+        reason: "events",
+        snapshot: this.getSnapshot(),
+        diff: m.diff,
+        signals: m.signals,
+      });
+    }
+
+    // No mailbox content. If the mailbox is sealed (terminal+drained), we
+    // STILL block — engine may emit something interesting (e.g. a console
+    // error during teardown). The seal only prevents prepareStep from
+    // re-rendering stale terminal events.
+    return new Promise<AwaitResult>(resolve => {
+      // If a prior awaiter is somehow still registered, evict it.
+      if (this.currentAwaiter) {
+        const stale = this.currentAwaiter;
+        this.currentAwaiter = null;
+        if (stale.abortHandler && stale.abortSignal) {
+          stale.abortSignal.removeEventListener("abort", stale.abortHandler);
+        }
+        stale.resolve({
+          reason: "aborted",
+          snapshot: this.getSnapshot(),
+          diff: {},
+          signals: [],
+        });
+      }
+
       const awaiter: PendingAwaiter = {
         resolve,
-        timer: null,
         abortHandler: null,
         abortSignal: abortSignal ?? null,
       };
-
-      // Timer
-      if (timeoutMs > 0) {
-        awaiter.timer = setTimeout(() => {
-          this.awaiters.delete(awaiter);
-          if (awaiter.abortHandler && awaiter.abortSignal) {
-            awaiter.abortSignal.removeEventListener("abort", awaiter.abortHandler);
-          }
-          resolve({ reason: "tick" });
-        }, timeoutMs);
-      }
-
-      // Abort
       if (abortSignal) {
         awaiter.abortHandler = () => {
-          this.awaiters.delete(awaiter);
-          if (awaiter.timer !== null) clearTimeout(awaiter.timer);
-          resolve({ reason: "aborted" });
+          if (this.currentAwaiter === awaiter) this.currentAwaiter = null;
+          resolve({
+            reason: "aborted",
+            snapshot: this.getSnapshot(),
+            diff: {},
+            signals: [],
+          });
         };
         abortSignal.addEventListener("abort", awaiter.abortHandler, { once: true });
       }
-
-      this.awaiters.add(awaiter);
+      this.currentAwaiter = awaiter;
     });
   }
 
-  /**
-   * Convenience: wait for a significant event, then return a structured
-   * AwaitResult including elapsed timings and a fresh snapshot.
-   *
-   * If the execution is already in a terminal state when called, returns
-   * immediately with a reason derived from the current state (no timer wait).
-   * This handles the race where the engine completes before the agent's first
-   * awaitExecution call (e.g., cache hit returns instantly).
-   */
-  async await(timeoutMs: number, abortSignal?: AbortSignal): Promise<AwaitResult> {
-    let info: SignificantEventInfo;
-    // Fast-path: derive terminal-ness from currentState (single source of
-    // truth — no separate flag to drift out of sync).
-    if (snapshotIsTerminal(this.snapshot)) {
-      const reason = reasonForState(this.snapshot.currentState, this.snapshot.perOperatorState) ?? "completed";
-      console.log(
-        `[ExecutionWatcher ${this.snapshot.executionName}] await: fast-path on terminal state=${this.snapshot.currentState}, reason=${reason}`
-      );
-      info = { reason };
-    } else {
-      console.log(
-        `[ExecutionWatcher ${this.snapshot.executionName}] await: blocking (timeout=${timeoutMs}ms, state=${this.snapshot.currentState})`
-      );
-      info = await this.waitForSignificantEvent(timeoutMs, abortSignal);
-      console.log(
-        `[ExecutionWatcher ${this.snapshot.executionName}] await: returned reason=${info.reason}, state=${this.snapshot.currentState}`
-      );
-    }
-    const now = Date.now();
-    const snapshot = this.getSnapshot();
-    const result: AwaitResult = {
-      reason: info.reason,
-      elapsedSinceStartMs: now - this.snapshot.mostRecentStartedAt,
-      elapsedSinceLastWakeMs: now - this.lastWakeAt,
-      snapshot,
-    };
-    // Stash this snapshot as the reference for "what changed since the LLM
-    // last looked." Subsequent prepareStep renders compare against it; the
-    // next await call replaces it.
-    this.snapshotAtLastWake = snapshot;
-    this.lastWakeAt = now;
-    return result;
+  // ─── Mailbox API (used by prepareStep) ────────────────────────────────
+
+  /** True iff there's nothing for prepareStep to surface right now. */
+  isMailboxEmpty(): boolean {
+    return this.mailbox === null;
   }
 
   /**
-   * The snapshot at the moment the most recent `await()` returned, paired
-   * with the wall-clock time of that wake. Used by the assembler to compute
-   * deltas. Returns null if no `await()` has completed yet.
+   * Peek at the mailbox without draining. Used by prepareStep gating logic
+   * before deciding to render.
    */
-  getSnapshotAtLastWake(): { snapshot: ExecutionWatcherSnapshot; atMs: number } | null {
-    if (this.snapshotAtLastWake === null) return null;
-    return { snapshot: this.snapshotAtLastWake, atMs: this.lastWakeAt };
+  peekMailbox(): MailboxContents | null {
+    return this.mailbox;
   }
+
+  /**
+   * Drain the mailbox. Returns the drained contents and clears.
+   * If the snapshot is currently terminal, ALSO seals — subsequent events
+   * (engine teardown chatter) will not re-fill the mailbox until the next
+   * `markExecutionStarting()`.
+   */
+  drainMailbox(): MailboxContents | null {
+    if (this.mailbox === null) {
+      // Even if nothing to drain, seal at terminal so future stragglers
+      // don't queue up and surface during the editing phase.
+      if (snapshotIsTerminal(this.snapshot)) this.mailboxSealed = true;
+      return null;
+    }
+    const m = this.mailbox;
+    this.mailbox = null;
+    if (snapshotIsTerminal(this.snapshot)) this.mailboxSealed = true;
+    return m;
+  }
+
+  /**
+   * Whether the watcher should currently surface events to the agent via
+   * prepareStep. Editing-phase invariant: once a terminal execution has
+   * been acknowledged (drained at least once with no new content), stop.
+   */
+  shouldSurfaceToPrepareStep(): boolean {
+    if (this.mailbox === null) return false;
+    if (this.mailboxSealed) return false;
+    return true;
+  }
+
+  // ─── Correlated request/response ─────────────────────────────────────
 
   private findFirstPendingPythonEvalKey(expression: string): string | null {
     const suffix = `::${expression}`;
@@ -748,11 +1031,6 @@ export class ExecutionWatcher {
     return null;
   }
 
-  /**
-   * Send a Python eval request and resolve when the matching response event
-   * arrives. Caller should validate that the operator is paused — engine
-   * behavior on a non-paused worker is undefined.
-   */
   requestPythonEval(
     operatorId: string,
     expression: string,
@@ -814,30 +1092,46 @@ export class ExecutionWatcher {
   }
 
   /**
-   * Send a modify-logic request and resolve once the engine has both
-   * validated and applied the change.
+   * Send a modify-logic request. Resolves on `ModifyLogicResponse`:
    *
-   * Resolution paths:
-   *   - `ModifyLogicResponse(isValid=false)` → resolve with `{ isValid: false, ... }` immediately.
-   *   - `ModifyLogicResponse(isValid=true)` then `ModifyLogicCompletedEvent` → resolve with `{ applied: true }`.
-   *   - Timeout → reject. (May happen if the engine validates but never reaches
-   *     a tuple boundary to apply — unusual but possible if the workflow is
-   *     stuck.)
+   *   - `isValid=false` → resolve with `{ isValid: false, applied: false }`.
+   *   - `isValid=true`  → resolve with `{ isValid: true,  applied: true  }`.
+   *
+   * `applied: true` here means "queued and will be applied on resume" — the
+   * actual engine apply happens in performReconfigurationOnResume. The
+   * follow-up `ModifyLogicCompletedEvent` is informational only and no
+   * longer gates this Promise (was the cause of the prior 30s timeout when
+   * the worker couldn't reach a tuple boundary).
+   *
+   * Timeout still possible if the engine never even validates — rare.
    */
   requestModifyLogic(
     operatorPayload: { operatorID: string; operatorType: string; [k: string]: any },
     timeoutMs: number = 30_000,
   ): Promise<ModifyLogicResult> {
     const opId = operatorPayload.operatorID;
+    const propsKeys = Object.keys(operatorPayload).filter(k => k !== "operatorID" && k !== "operatorType");
+    console.log(
+      `[ExecutionWatcher ${this.snapshot.executionName}] requestModifyLogic SEND (opId=${opId}, operatorType=${operatorPayload.operatorType}, propsKeys=[${propsKeys.join(", ")}], timeoutMs=${timeoutMs})`,
+    );
     return new Promise<ModifyLogicResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         const queue = this.pendingModifyLogic.get(opId);
+        const queueDepth = queue?.length ?? 0;
         if (queue) {
           const idx = queue.findIndex(p => p === pending);
           if (idx >= 0) queue.splice(idx, 1);
           if (queue.length === 0) this.pendingModifyLogic.delete(opId);
         }
-        reject(new Error(`liveModifyOperator timed out after ${timeoutMs}ms (opId=${opId})`));
+        const snap = this.snapshot;
+        const opState = snap.perOperatorState[opId]?.state ?? "(unknown)";
+        // Post-merge model: ModifyLogicResponse alone resolves the Promise
+        // (engine queues + applies on resume). A timeout means no response
+        // arrived at all — engine never validated.
+        console.log(
+          `[ExecutionWatcher ${snap.executionName}] requestModifyLogic TIMEOUT (opId=${opId}) — workflow=${snap.currentState}, opState=${opState}, queueDepthAtTimeout=${queueDepth}, no ModifyLogicResponse received`,
+        );
+        reject(new Error(`liveModifyOperator timed out after ${timeoutMs}ms (opId=${opId}) — workflow=${snap.currentState}, opState=${opState}, no ModifyLogicResponse received`));
       }, timeoutMs);
 
       const pending: PendingModifyLogic = {
@@ -870,19 +1164,10 @@ export class ExecutionWatcher {
     });
   }
 
-  /**
-   * Send a retry request to the given workers (typically the workers of an
-   * operator that just had its logic modified). Fire-and-forget — engine has
-   * no synchronous response for retry; observable effect is the next tuple
-   * being reprocessed and showing up in OperatorStatistics / Console events.
-   */
   retryWorkers(workers: string[]): void {
     this.wsClient.sendRetryRequest({ workers });
   }
 
-  /**
-   * Send a pagination request and resolve when the matching event arrives.
-   */
   requestPaginatedResult(
     operatorId: string,
     pageIndex: number,
@@ -933,15 +1218,34 @@ export class ExecutionWatcher {
 
   // ─── Read ───────────────────────────────────────────────────────────────
 
-  /**
-   * Returns a frozen view of the current snapshot.
-   */
   getSnapshot(): ExecutionWatcherSnapshot {
     return { ...this.snapshot, perOperatorState: { ...this.snapshot.perOperatorState } };
   }
 
   isAlive(): boolean {
-    return !snapshotIsTerminal(this.snapshot);
+    return isStateAlive(this.snapshot.currentState);
+  }
+
+  forgetOperators(operatorIds: Iterable<string>): void {
+    const ids = new Set(operatorIds);
+    if (ids.size === 0) return;
+    const perOp = { ...this.snapshot.perOperatorState };
+    const workers = { ...this.snapshot.workerIdsByOperator };
+    const currentTuples = { ...this.snapshot.currentTuplesByOperator };
+    const consoleByOp = { ...this.snapshot.consoleMessagesByOperator };
+    for (const id of ids) {
+      delete perOp[id];
+      delete workers[id];
+      delete currentTuples[id];
+      delete consoleByOp[id];
+    }
+    this.snapshot = {
+      ...this.snapshot,
+      perOperatorState: perOp,
+      workerIdsByOperator: workers,
+      currentTuplesByOperator: currentTuples,
+      consoleMessagesByOperator: consoleByOp,
+    };
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
@@ -951,22 +1255,25 @@ export class ExecutionWatcher {
       this.wsUnsubscribe();
       this.wsUnsubscribe = null;
     }
-    // Resolve any outstanding awaiters with "aborted" so they don't hang
-    const toFire = [...this.awaiters];
-    this.awaiters.clear();
-    for (const a of toFire) {
-      if (a.timer !== null) clearTimeout(a.timer);
-      a.resolve({ reason: "aborted" });
+    if (this.currentAwaiter) {
+      const a = this.currentAwaiter;
+      this.currentAwaiter = null;
+      if (a.abortHandler && a.abortSignal) {
+        a.abortSignal.removeEventListener("abort", a.abortHandler);
+      }
+      a.resolve({
+        reason: "aborted",
+        snapshot: this.getSnapshot(),
+        diff: {},
+        signals: [],
+      });
     }
-    // Reject pending pagination requests
     for (const [, p] of this.pendingPagination) p.reject(new Error("Watcher disposed"));
     this.pendingPagination.clear();
-    // Reject pending Python eval requests
     for (const [, queue] of this.pendingPythonEval) {
       for (const p of queue) p.reject(new Error("Watcher disposed"));
     }
     this.pendingPythonEval.clear();
-    // Reject pending modify-logic requests
     for (const [, queue] of this.pendingModifyLogic) {
       for (const p of queue) p.reject(new Error("Watcher disposed"));
     }

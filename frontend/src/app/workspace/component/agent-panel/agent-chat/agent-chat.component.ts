@@ -881,6 +881,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     // Filter steps to those that should appear as nodes
     const visibleSteps = steps.filter(step => {
       if (step.role === "user") return true;
+      if (step.role === "execution") return true; // engine observations are always visible
       if (step.role === "agent" && step.toolCalls && step.toolCalls.length > 0) return true;
       if (step.role === "agent" && step.isEnd) return true;
       return false;

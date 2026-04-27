@@ -326,6 +326,27 @@
     }
   }
 
+  /*
+   * Execution updates: synthetic [execution] messages drained from the
+   * watcher mailbox between agent steps. Visually distinct from agent
+   * messages — slate-blue tint with a left accent bar — so the user can
+   * tell at a glance "this came from the engine, not the assistant."
+   */
+  &.execution-message {
+    align-self: stretch;
+    max-width: 100%;
+    .message-content {
+      background: #eef3fb;
+      color: #1d3557;
+      border-left: 3px solid #5b8def;
+      font-size: 13px;
+    }
+    .message-header {
+      color: #5b8def;
+      font-weight: 500;
+    }
+  }
+
   &.loading-message .message-content {
     background: #e6f7ff;
     border: 1px solid #91d5ff;

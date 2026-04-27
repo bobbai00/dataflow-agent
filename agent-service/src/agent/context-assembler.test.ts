@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { assembleContext } from "./context-assembler";
 import { WorkflowState } from "../workflow/workflow-state";
 import type { ExecutionWatcherSnapshot } from "./execution-watcher";
+import type { ReActStep } from "../types/agent";
 
 function emptyWorkflow(): WorkflowState {
   return new WorkflowState();
@@ -133,173 +134,72 @@ describe("assembleContext: Active Execution section", () => {
     expect(content).toContain("op=op1");
   });
 
-  test("delta: throughput annotation when output grew since last wake", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 20, numWorkers: 1 },
-      },
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 32, numWorkers: 1 },
-      },
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 15_000, // 15s ago
-    });
+  // Note: per-operator delta annotations and "Since last wake" callouts have
+  // been removed from # Active Execution. Diffs between agent steps are
+  // surfaced via `[execution]` user-role messages drained from the watcher
+  // mailbox; the # Active Execution section now shows the current snapshot
+  // only. See execution-watcher.test.ts for diff/coalesce coverage.
+
+  test("[execution] steps are filtered out when currentRenderedExecutionName is null (post-DAG-edit)", () => {
+    const userStep: ReActStep = {
+      id: "u1", parentId: undefined, messageId: "m1", stepId: 0, timestamp: 0,
+      role: "user", content: "do the thing", isBegin: true, isEnd: true,
+    };
+    const execStep: ReActStep = {
+      id: "e1", parentId: "u1", messageId: "m1", stepId: 1, timestamp: 0,
+      role: "execution", content: "[execution] op2 paused", executionName: "exec-1",
+      isBegin: false, isEnd: false,
+    };
+    const agentStep: ReActStep = {
+      id: "a1", parentId: "e1", messageId: "m1", stepId: 2, timestamp: 0,
+      role: "agent", content: "ok", isBegin: false, isEnd: true,
+    };
+    // currentRenderedExecutionName=null → execStep should be dropped.
+    const msgs = assembleContext(
+      [userStep, execStep, agentStep], emptyWorkflow(), new Map(), false, null, null,
+      null,
+    );
     const content = msgs[0].content as string;
-    expect(content).toContain("+12 rows in last 15s");
-    expect(content).toContain("rows/sec");
-    expect(content).not.toContain("no progress");
+    expect(content).not.toContain("op2 paused");
+    expect(content).toContain("ok"); // agent step still there
   });
 
-  test("delta: ETA annotation when input has stopped growing and there's backlog", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 1000, outputTupleCount: 200, numWorkers: 1 },
-      },
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 1000, outputTupleCount: 300, numWorkers: 1 },
-      },
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 10_000,
-    });
+  test("[execution] steps from non-current executionName are filtered out", () => {
+    const userStep: ReActStep = {
+      id: "u1", parentId: undefined, messageId: "m1", stepId: 0, timestamp: 0,
+      role: "user", content: "do the thing", isBegin: true, isEnd: true,
+    };
+    const oldExec: ReActStep = {
+      id: "e1", parentId: "u1", messageId: "m1", stepId: 1, timestamp: 0,
+      role: "execution", content: "[execution] OLD: op2 paused", executionName: "exec-1",
+      isBegin: false, isEnd: false,
+    };
+    const newExec: ReActStep = {
+      id: "e2", parentId: "e1", messageId: "m1", stepId: 2, timestamp: 0,
+      role: "execution", content: "[execution] NEW: workflow completed", executionName: "exec-2",
+      isBegin: false, isEnd: false,
+    };
+    const msgs = assembleContext(
+      [userStep, oldExec, newExec], emptyWorkflow(), new Map(), false, null, null,
+      "exec-2",
+    );
     const content = msgs[0].content as string;
-    expect(content).toContain("rows/sec");
-    expect(content).toContain("ETA ~");
-    expect(content).toContain("to finish current input");
+    expect(content).not.toContain("OLD: op2 paused");
+    expect(content).toContain("NEW: workflow completed");
   });
 
-  test("delta: ETA annotation framed as 'drain current backlog' when input still growing", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 800, outputTupleCount: 200, numWorkers: 1 },
-      },
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 1000, outputTupleCount: 300, numWorkers: 1 },
-      },
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 10_000,
-    });
-    const content = msgs[0].content as string;
-    expect(content).toContain("drain current backlog");
-    expect(content).toContain("input still growing");
-  });
-
-  test("delta: 'no progress in last Xs' annotation when output frozen during Running", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 32, numWorkers: 1 },
-      },
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 32, numWorkers: 1 },
-      },
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 30_000,
-    });
-    const content = msgs[0].content as string;
-    expect(content).toContain("no progress in last 30s");
-  });
-
-  test("delta: state transition annotation overrides throughput", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
-      },
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      perOperatorState: {
-        op1: { state: "Completed", inputTupleCount: 100, outputTupleCount: 100, numWorkers: 1 },
-      },
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 5_000,
-    });
-    const content = msgs[0].content as string;
-    expect(content).toContain("transitioned Running → Completed");
-  });
-
-  test("'Since last wake:' callout when fatal/console errors are new", () => {
-    const now = Date.now();
-    const prevSnap = snapshotWithDefaults({
-      currentState: "Running",
-      fatalErrors: [],
-      recentConsoleErrors: [],
-    });
-    const curSnap = snapshotWithDefaults({
-      currentState: "Running",
-      fatalErrors: [{ type: "EXEC", message: "boom", operatorId: "op1" }],
-      recentConsoleErrors: [
-        {
-          workerId: "w1",
-          timestamp: { seconds: 0, nanos: 0 },
-          msgType: { name: "ERROR" },
-          source: "test",
-          title: "KeyError",
-          message: "KeyError: 'foo'",
-        },
-      ],
-    });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, curSnap, {
-      snapshot: prevSnap,
-      atMs: now - 5_000,
-    });
-    const content = msgs[0].content as string;
-    expect(content).toContain("Since last wake:");
-    expect(content).toContain("1 new fatal error");
-    expect(content).toContain("1 new console error");
-  });
-
-  test("no 'Since last wake:' callout when nothing new", () => {
-    const now = Date.now();
-    const sameSnap = snapshotWithDefaults({ currentState: "Running" });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, sameSnap, {
-      snapshot: sameSnap,
-      atMs: now - 5_000,
-    });
-    const content = msgs[0].content as string;
-    expect(content).not.toContain("Since last wake:");
-  });
-
-  test("no delta annotations when no prev snapshot (first wake)", () => {
+  test("# Active Execution shows current per-operator snapshot only (no deltas)", () => {
     const snap = snapshotWithDefaults({
       currentState: "Running",
       perOperatorState: {
         op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 32, numWorkers: 1 },
       },
     });
-    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, snap, null);
+    const msgs = assembleContext([], emptyWorkflow(), new Map(), false, null, snap);
     const content = msgs[0].content as string;
     expect(content).toContain("op1: Running");
+    expect(content).toContain("100 rows");
+    expect(content).toContain("32 rows");
     expect(content).not.toContain("rows/sec");
     expect(content).not.toContain("no progress");
     expect(content).not.toContain("Since last wake:");
