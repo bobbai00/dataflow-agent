@@ -28,6 +28,7 @@ import { encode as toonEncode } from "@toon-format/toon";
 import { createErrorResult, formatExecuteOperatorResult } from "./tools-utility";
 import type { WorkflowState } from "../workflow/workflow-state";
 import { getBackendConfig } from "../api/backend-api";
+import { compileWorkflowAsync } from "../api/compile-api";
 import type { LogicalPlan, LogicalLink } from "../api/execution-api";
 import type { OperatorInfo, SyncExecutionResult } from "../types/execution";
 import { OperatorMetadataStore } from "./metadata-tools";
@@ -248,6 +249,52 @@ export function buildPostMutationValidationWarning(
     for (const [field, message] of Object.entries(fieldErrors)) {
       lines.push(`      ${field}: ${message}`);
     }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Compile the workflow against the backend's `/api/compile` endpoint and
+ * return a one-line status the agent can hang their hat on. This is a
+ * STRONGER signal than `buildPostMutationValidationWarning` — compile
+ * actually parses Python, deduces output schemas, and checks references
+ * (e.g. `tuple_['nope']` against the upstream schema). Validation can't.
+ *
+ * Returns:
+ *   - "Compile: PASSED ..." when no operator errors
+ *   - "Compile: FAILED ..." with per-op error lines otherwise
+ *   - null when the workflow is empty or compile is unreachable (network
+ *     error, backend down) — caller should not block on this signal
+ *
+ * Error messages are truncated to keep the tool result readable; the full
+ * message lives on each operator's `Compilation Error:` line in the
+ * `# Current Workflow` DAG render in the next prepareStep.
+ */
+export async function buildPostMutationCompileSummary(
+  workflowState: WorkflowState,
+): Promise<string | null> {
+  if (workflowState.getAllOperators().length === 0) return null;
+  let compilation;
+  try {
+    const logicalPlan = buildLogicalPlan(workflowState);
+    compilation = await compileWorkflowAsync(logicalPlan);
+  } catch {
+    return null;
+  }
+  if (!compilation) return null;
+  const errors = compilation.operatorErrors ?? {};
+  const errorIds = Object.keys(errors);
+  if (errorIds.length === 0) {
+    return "Compile: PASSED (Python syntax checked, output schemas deduced, column references validated).";
+  }
+  const lines: string[] = [
+    `Compile: FAILED for ${errorIds.length} operator${errorIds.length === 1 ? "" : "s"}. ` +
+      `The next startExecution will be rejected until these are fixed:`,
+  ];
+  for (const [opId, err] of Object.entries(errors)) {
+    const msg = ((err as any)?.message ?? String(err)).split("\n")[0];
+    const trunc = msg.length > 240 ? msg.slice(0, 240) + "…" : msg;
+    lines.push(`  - ${opId}: ${trunc}`);
   }
   return lines.join("\n");
 }

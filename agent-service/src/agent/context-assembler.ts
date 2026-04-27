@@ -31,6 +31,7 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../api/com
 import { extractOperatorInputPortSchemaMap } from "../workflow/workflow-util";
 import type { ExecutionWatcherSnapshot } from "./execution-watcher";
 import { formatAllowedActions, snapshotHasAutoPausedOperator } from "../tools/ws-execution-tools";
+import { validateWorkflow } from "../tools/execution-tools";
 
 /**
  * Build the full model context as a single user message.
@@ -129,6 +130,71 @@ export function assembleContext(
     sections.push("");
     sections.push("# Current Workflow");
     sections.push(dagSection);
+  }
+
+  // --- Workflow Validation ---
+  // Two layers of static feedback, both authoritative when present:
+  //
+  //   1. Validation (local, FE-style): structural checks on the DAG —
+  //      required properties, JSON-schema conformance, port wiring.
+  //   2. Compile (engine-side, /api/compile): parses Python, deduces
+  //      output schemas, validates column references against upstream
+  //      schemas. Stronger than validation; catches ~all edit-time
+  //      issues that don't depend on row data.
+  //
+  // We surface BOTH so the agent has a stable, central place to look
+  // before/after each edit instead of inferring correctness from how
+  // the DAG happens to render.
+  if (workflowState.getAllOperators().length > 0) {
+    const validationResult = validateWorkflow(workflowState);
+    sections.push("");
+    sections.push("# Workflow Validation");
+    sections.push("Static checks performed:");
+    sections.push("  - required properties present per operator type (e.g. fileName, code, predicates)");
+    sections.push("  - operator-property values conform to the operator's JSON schema (types, enums, ranges)");
+    sections.push("  - port wiring: each operator has the inputs/outputs it requires");
+    sections.push("Not checked here:");
+    sections.push("  - Python code semantics, runtime exceptions, type-mismatches at row time");
+    sections.push("  - whether the workflow's logic actually answers the user's question");
+    sections.push("  - whether output rows are correct or complete");
+    sections.push("  Only an actual startExecution surfaces those.");
+    if (validationResult.isValid) {
+      sections.push("Result: PASSED. The current workflow can be started without static-validation errors.");
+    } else {
+      sections.push("Result: FAILED. The next startExecution will be rejected until these are fixed:");
+      for (const [opId, errs] of Object.entries(validationResult.errors)) {
+        sections.push(`  - ${opId}:`);
+        for (const [field, msg] of Object.entries(errs)) {
+          sections.push(`      ${field}: ${msg}`);
+        }
+      }
+    }
+
+    // --- Compile (engine-side, sourced from /api/compile when available) ---
+    sections.push("");
+    sections.push("# Compile");
+    sections.push("Engine-side static analysis (POST /api/compile). Stronger than the validation block above:");
+    sections.push("  - parses Python UDF code (catches syntax errors, missing imports)");
+    sections.push("  - deduces each operator's output schema from its code + upstream schemas");
+    sections.push("  - validates column references (e.g. tuple_['col'] against the actual upstream schema)");
+    sections.push("Not checked here:");
+    sections.push("  - runtime row-level exceptions (only execution surfaces those)");
+    sections.push("  - whether the workflow's logic answers the user's question");
+    if (compilationResult) {
+      const errs = compilationResult.operatorErrors ?? {};
+      const errIds = Object.keys(errs);
+      if (errIds.length === 0) {
+        sections.push("Result: PASSED. Output schemas in # Current Workflow below are compile-deduced and authoritative.");
+      } else {
+        sections.push(`Result: FAILED for ${errIds.length} operator${errIds.length === 1 ? "" : "s"}. Per-operator errors are inlined in # Current Workflow as 'Compilation Error:' lines:`);
+        for (const opId of errIds) {
+          const msg = ((errs[opId] as any)?.message ?? "").split("\n")[0];
+          sections.push(`  - ${opId}: ${msg.length > 200 ? msg.slice(0, 200) + "…" : msg}`);
+        }
+      }
+    } else {
+      sections.push("Result: not run this turn (compile API unreachable, or non-GENERAL agent mode). Output schemas in # Current Workflow may be missing.");
+    }
   }
 
   const content = sections.join("\n");
@@ -505,19 +571,32 @@ function serializeOperator(
     if (props && Object.keys(props).length > 0) {
       lines.push(`  Properties:`);
       for (const [key, value] of Object.entries(props)) {
-        if (value !== undefined && value !== null && value !== "") {
-          const valueStr = typeof value === "string" ? value : JSON.stringify(value);
+        if (value === undefined || value === null || value === "") continue;
+        const valueStr = typeof value === "string" ? value : JSON.stringify(value);
+        // Multi-line strings (typically `code` for Python UDFs) get fenced
+        // with triple backticks so the model has an unambiguous terminator
+        // and doesn't read sibling property keys as part of the code block.
+        if (typeof value === "string" && value.includes("\n")) {
+          const lang = key === "code" ? "python" : "";
+          lines.push(`    ${key}: \`\`\`${lang}`);
+          for (const codeLine of valueStr.split("\n")) {
+            lines.push(codeLine);
+          }
+          lines.push(`    \`\`\``);
+        } else {
           lines.push(`    ${key}: ${valueStr}`);
         }
       }
     }
   }
 
-  // Output schema (from compilation) — assume single output port
+  // Output schema (from compilation) — assume single output port.
+  // Labeled "compile-deduced" so the agent treats it as authoritative
+  // when present (vs. absent when compile hasn't run / failed for this op).
   if (outputSchemaMap) {
     const firstSchema = Object.values(outputSchemaMap).find(s => s !== undefined);
     if (firstSchema) {
-      lines.push(`  Output Schema: ${formatSchema(firstSchema)}`);
+      lines.push(`  Output Schema (compile-deduced): ${formatSchema(firstSchema)}`);
     }
   }
 

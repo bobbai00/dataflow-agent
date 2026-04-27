@@ -257,6 +257,63 @@ describe("ExecutionWatcher", () => {
     expect(watcher.peekMailbox()).toBeNull();
   });
 
+  test("contributing events: only wake-firing events recorded; non-wake silently absorbed", async () => {
+    // Emit a non-wake event (Running) — absorbed into snapshot, no recording.
+    mockWs.emit({ type: "WorkflowStateEvent", state: "Running" });
+    expect(watcher.peekMailbox()).toBeNull();
+
+    // Emit a routine stats update — also non-wake.
+    mockWs.emit({
+      type: "OperatorStatisticsUpdateEvent",
+      operatorStatistics: {
+        op1: { operatorState: "Running", aggregatedInputRowCount: 10, aggregatedOutputRowCount: 5, numWorkers: 1 },
+      },
+    });
+    expect(watcher.peekMailbox()).toBeNull();
+
+    // Now emit a wake-firing event (Paused).
+    mockWs.emit({ type: "WorkflowStateEvent", state: "Paused" });
+    const mb = watcher.peekMailbox();
+    expect(mb).not.toBeNull();
+    expect(mb!.contributingEvents).toHaveLength(1);
+    expect((mb!.contributingEvents[0].event as any).type).toBe("WorkflowStateEvent");
+    expect((mb!.contributingEvents[0].event as any).state).toBe("Paused");
+    // beforeSnapshot reflects state just before the Paused event (Running, with stats).
+    expect(mb!.beforeSnapshot.currentState).toBe("Running");
+    expect(mb!.beforeSnapshot.perOperatorState.op1?.inputTupleCount).toBe(10);
+  });
+
+  test("contributing events: multiple wake-firing events accumulate in mailbox", async () => {
+    mockWs.emit({ type: "WorkflowStateEvent", state: "Running" });
+    mockWs.emit({ type: "WorkflowStateEvent", state: "Paused" });
+    mockWs.emit({
+      type: "ConsoleUpdateEvent",
+      operatorId: "op1",
+      messages: [{ msgType: { name: "ERROR" }, message: "boom", title: "T", source: "", workerId: "w1", timestamp: { seconds: 1, nanos: 0 } }],
+    } as ConsoleUpdateEvent);
+    const mb = watcher.peekMailbox();
+    expect(mb).not.toBeNull();
+    // Paused fires state-paused; ConsoleUpdate fires console-error → 2 contributing events.
+    expect(mb!.contributingEvents).toHaveLength(2);
+    expect((mb!.contributingEvents[0].event as any).type).toBe("WorkflowStateEvent");
+    expect((mb!.contributingEvents[1].event as any).type).toBe("ConsoleUpdateEvent");
+    // beforeSnapshot is FIRST-event-wins: state right before the Paused event.
+    expect(mb!.beforeSnapshot.currentState).toBe("Running");
+  });
+
+  test("await() returns contributing events and beforeSnapshot when awaiter resolves directly", async () => {
+    expect(watcher.peekMailbox()).toBeNull();
+    const promise = watcher.await();
+    mockWs.emit({ type: "WorkflowStateEvent", state: "Completed" });
+    const result = await promise;
+    expect(result.contributingEvents).toHaveLength(1);
+    expect((result.contributingEvents[0].event as any).type).toBe("WorkflowStateEvent");
+    expect((result.contributingEvents[0].event as any).state).toBe("Completed");
+    // beforeSnapshot is the snapshot just before Completed — Initializing from beforeEach.
+    expect(result.beforeSnapshot.currentState).toBe("Initializing");
+    expect(result.snapshot.currentState).toBe("Completed");
+  });
+
   test("await() blocks until rule fires when mailbox empty (events bypass mailbox)", async () => {
     expect(watcher.peekMailbox()).toBeNull();
     const promise = watcher.await();

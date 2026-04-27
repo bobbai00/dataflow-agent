@@ -42,6 +42,7 @@ import {
   type SnapshotDiff,
   type WakeSignal,
 } from "../agent/execution-watcher";
+import type { ExecutionDiagnostics } from "../types/agent";
 import { getConsoleMessageType, type ConsoleMessage } from "../types/execution-ws";
 import type { WorkflowState as AgentWorkflowState } from "../workflow/workflow-state";
 import type { LogicalPlan } from "../api/execution-api";
@@ -392,10 +393,44 @@ export interface CreateWsExecutionToolsOptions {
       truncated?: boolean;
     },
   ) => void;
+  /**
+   * Sink for per-control-tool diagnostics. Called once per
+   * start/pause/resume/kill execution after the await resolves. The agent
+   * uses this to stamp `executionDiagnostics[]` onto the resulting ReActStep.
+   * Diagnostics are pure trace metadata — they do NOT flow into the model.
+   */
+  recordExecutionDiagnostics?: (diag: ExecutionDiagnostics) => void;
 }
 
 export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
-  const { workflowState, watcherSlot, getExecutionConfig, getAbortSignal, onOperatorResult } = opts;
+  const { workflowState, watcherSlot, getExecutionConfig, getAbortSignal, onOperatorResult, recordExecutionDiagnostics } = opts;
+
+  /**
+   * Build an ExecutionDiagnostics from a control-tool await result and forward
+   * it to the agent. `awaitBefore` is the snapshot captured by the tool just
+   * before it called `watcher.await()` — used as a fallback for aborted
+   * results where the watcher's own beforeSnapshot is just "current".
+   */
+  function emitDiagnostics(
+    toolName: string,
+    toolCallIdHint: string | undefined,
+    awaitBefore: ExecutionWatcherSnapshot,
+    result: AwaitResult,
+  ): void {
+    if (!recordExecutionDiagnostics) return;
+    recordExecutionDiagnostics({
+      toolName,
+      toolCallId: toolCallIdHint,
+      // Prefer the watcher-reported beforeSnapshot (snapshot just before the
+      // first wake-firing event). Fall back to the pre-await snapshot when
+      // there were no contributing events (aborted, etc.).
+      beforeSnapshot:
+        result.contributingEvents.length > 0 ? result.beforeSnapshot : awaitBefore,
+      afterSnapshot: result.snapshot,
+      contributingEvents: result.contributingEvents,
+      wakeSignals: result.signals,
+    });
+  }
 
   // ── startExecution ──
   const startExecution = tool({
@@ -471,7 +506,9 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         // timeout — engine will eventually emit terminal state, console
         // error, or get aborted. The agent abort signal is the only way
         // out for genuinely hung executions.
+        const awaitBefore = watcher.getSnapshot();
         const result = await watcher.await(getAbortSignal?.());
+        emitDiagnostics(TOOL_NAME_START_EXECUTION, undefined, awaitBefore, result);
         const targetSuffix = targetOperatorIds ? `, targets=${targetOperatorIds.join(",")}` : "";
         const header = `Execution "${executionName}" with ${logicalPlan.operators.length} operators${targetSuffix}.`;
         return createToolResult(`${header}\n\n${renderAwaitResult(result)}`);
@@ -495,8 +532,10 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       if (state !== "Running") {
         return createErrorResult(rejectWithStateHint("pauseExecution", "Running state", state, true));
       }
+      const awaitBefore = watcher.getSnapshot();
       watcher.pause();
       const result = await watcher.await(getAbortSignal?.());
+      emitDiagnostics(TOOL_NAME_PAUSE_EXECUTION, undefined, awaitBefore, result);
       return createToolResult(`Pause request sent.\n\n${renderAwaitResult(result)}`);
     },
   });
@@ -515,8 +554,10 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       if (state !== "Paused") {
         return createErrorResult(rejectWithStateHint("resumeExecution", "Paused state", state, true));
       }
+      const awaitBefore = watcher.getSnapshot();
       watcher.resume();
       const result = await watcher.await(getAbortSignal?.());
+      emitDiagnostics(TOOL_NAME_RESUME_EXECUTION, undefined, awaitBefore, result);
       return createToolResult(`Resume request sent.\n\n${renderAwaitResult(result)}`);
     },
   });
@@ -530,8 +571,10 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
     execute: async () => {
       const watcher = watcherSlot.get();
       if (!watcher) return createErrorResult("No execution in flight.");
+      const awaitBefore = watcher.getSnapshot();
       watcher.kill();
       const result = await watcher.await(getAbortSignal?.());
+      emitDiagnostics(TOOL_NAME_KILL_EXECUTION, undefined, awaitBefore, result);
       return createToolResult(`Kill request sent.\n\n${renderAwaitResult(result)}`);
     },
   });

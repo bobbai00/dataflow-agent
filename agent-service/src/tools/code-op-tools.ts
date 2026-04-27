@@ -36,7 +36,7 @@ import {
   formatOperatorError,
   rejectIfExecutionAlive,
 } from "./tools-utility";
-import { buildPostMutationValidationWarning } from "./execution-tools";
+import { buildPostMutationValidationWarning, buildPostMutationCompileSummary } from "./execution-tools";
 import type { ToolContext } from "./workflow-tools";
 
 // ============================================================================
@@ -496,6 +496,9 @@ Example: operatorId="filtered" (requires "customers" to exist)
 
         const warning = buildPostMutationValidationWarning(workflowState);
         if (warning) resultMsg += "\n" + warning;
+
+        const compileSummary = await buildPostMutationCompileSummary(workflowState);
+        if (compileSummary) resultMsg += "\n" + compileSummary;
 
         return createToolResult(resultMsg);
       } catch (error: any) {

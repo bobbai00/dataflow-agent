@@ -30,7 +30,7 @@ import {
   createErrorResult,
   rejectIfExecutionAlive,
 } from "./tools-utility";
-import { buildPostMutationValidationWarning } from "./execution-tools";
+import { buildPostMutationValidationWarning, buildPostMutationCompileSummary } from "./execution-tools";
 import type { OperatorMetadataStore } from "./metadata-tools";
 import type { ParallelCallCoordinator } from "./parallel-call-coordinator";
 
@@ -129,6 +129,8 @@ export function createDeleteOperatorTool(workflowState: WorkflowState, context?:
         // doesn't need a "no input link" message for an op it just deleted.
         const warning = buildPostMutationValidationWarning(workflowState, [args.operatorId]);
         if (warning) resultMsg += "\n" + warning;
+        const compileSummary = await buildPostMutationCompileSummary(workflowState);
+        if (compileSummary) resultMsg += "\n" + compileSummary;
         return createToolResult(resultMsg);
       } catch (error: any) {
         return createErrorResult(error.message || String(error));

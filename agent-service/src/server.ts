@@ -417,10 +417,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     };
   })
 
-  // Get all ReActSteps
+  // Get raw ModelMessages for the visible conversation (used by trace export/replay).
   .get("/:id/messages", ({ params: { id } }) => {
     const agent = getAgent(id);
-    return { steps: agent.getReActSteps() };
+    return { messages: agent.getModelMessages() };
   })
 
   // Get ReActSteps filtered by operator IDs (for context preview)

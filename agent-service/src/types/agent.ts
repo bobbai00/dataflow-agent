@@ -22,6 +22,41 @@
  */
 
 import type { WorkflowContent } from "./workflow";
+import type {
+  ExecutionWatcherSnapshot,
+  RecordedEvent,
+  WakeSignal,
+} from "../agent/execution-watcher";
+
+// ============================================================================
+// Execution diagnostics (logging-only, NOT sent to the LLM)
+// ============================================================================
+
+/**
+ * Diagnostic record for one control-tool await OR one mailbox drain. Stored on
+ * a ReActStep alongside before/afterWorkflowContent — same role: pure logging
+ * for trace export, replay analysis, and post-hoc debugging. Never reaches the
+ * model; the LLM-facing summary is composed by the tool's narrative renderer
+ * (or the prepareStep mailbox renderer for execution-role steps).
+ *
+ * `contributingEvents` is the raw WebSocket event list — only events that
+ * fired ≥1 wake rule are kept (routine OperatorStatistics ticks etc. are
+ * absorbed silently into the snapshot and dropped here).
+ */
+export interface ExecutionDiagnostics {
+  /** For tool-call diagnostics: the originating tool. Omitted for execution-role-step drains. */
+  toolName?: string;
+  /** For tool-call diagnostics: links back to the tool call. */
+  toolCallId?: string;
+  /** Snapshot just before the first contributing event in this window. */
+  beforeSnapshot: ExecutionWatcherSnapshot;
+  /** Snapshot at the end of the await / drain. */
+  afterSnapshot: ExecutionWatcherSnapshot;
+  /** Wake-firing events received during this window, in arrival order. */
+  contributingEvents: RecordedEvent[];
+  /** Wake signals emitted by the rules over the events above. */
+  wakeSignals: WakeSignal[];
+}
 
 // ============================================================================
 // Agent State
@@ -109,6 +144,16 @@ export interface ReActStep {
    * rendered context. They stay in `stepsById` for replay/audit.
    */
   executionName?: string;
+  /**
+   * Per-step execution diagnostics (NOT sent to the LLM). Populated when:
+   *   - the agent step called one or more execution-control tools (one entry
+   *     per call: start/pause/resume/kill);
+   *   - this is a `role:"execution"` step from a prepareStep mailbox drain
+   *     (single entry, no toolName/toolCallId).
+   * Same role as before/afterWorkflowContent: trace export, time-travel
+   * inspection, post-hoc debugging.
+   */
+  executionDiagnostics?: ExecutionDiagnostics[];
 }
 
 /**

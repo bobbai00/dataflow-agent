@@ -151,11 +151,25 @@ export interface WakeSignal {
   summary: string;
 }
 
+/**
+ * One raw WebSocket event that contributed to a wake signal. Non-wake events
+ * (routine OperatorStatistics ticks, etc.) are absorbed into the snapshot
+ * silently and NOT recorded — the goal is a small, diagnostic-grade list.
+ */
+export interface RecordedEvent {
+  timestamp: number;
+  event: TexeraWebSocketEvent;
+}
+
 export interface MailboxContents {
   diff: SnapshotDiff;
   signals: WakeSignal[];
   firstEventAt: number;
   lastEventAt: number;
+  /** Wake-firing events that landed in this mailbox window, in arrival order. */
+  contributingEvents: RecordedEvent[];
+  /** Snapshot just before the first event in `contributingEvents`. */
+  beforeSnapshot: ExecutionWatcherSnapshot;
 }
 
 export interface AwaitResult {
@@ -163,6 +177,13 @@ export interface AwaitResult {
   snapshot: ExecutionWatcherSnapshot;
   diff: SnapshotDiff;
   signals: WakeSignal[];
+  /** Wake-firing events received during this await (or pulled from mailbox). */
+  contributingEvents: RecordedEvent[];
+  /**
+   * Snapshot just before the first event in `contributingEvents`. For aborted
+   * results (no events), this is the snapshot at the time of the abort.
+   */
+  beforeSnapshot: ExecutionWatcherSnapshot;
 }
 
 // ─── State helpers ────────────────────────────────────────────────────────
@@ -443,7 +464,7 @@ export class ExecutionWatcher {
   // The mailbox is drained by prepareStep (rendering as `[execution]` user
   // messages) or by an awaiter starting (fast-path: drain mailbox and return
   // immediately).
-  private mailbox: { diff: SnapshotDiff; signals: WakeSignal[]; firstEventAt: number; lastEventAt: number } | null = null;
+  private mailbox: MailboxContents | null = null;
   private mailboxSealed: boolean = false;
   private currentAwaiter: PendingAwaiter | null = null;
 
@@ -747,7 +768,8 @@ export class ExecutionWatcher {
       s.ruleId === "state-failed" ||
       s.ruleId === "state-killed",
     );
-    this.routeEvent(diff, signals);
+    const recorded: RecordedEvent = { timestamp: Date.now(), event };
+    this.routeEvent(diff, signals, recorded, prev);
     if (isTerminal) {
       this.inExecution = false;
       console.log(
@@ -760,7 +782,12 @@ export class ExecutionWatcher {
    * Single-consumer routing: events go to either the registered awaiter OR
    * the mailbox, never both. Sealed mailbox drops new events.
    */
-  private routeEvent(diff: SnapshotDiff, signals: WakeSignal[]): void {
+  private routeEvent(
+    diff: SnapshotDiff,
+    signals: WakeSignal[],
+    recorded: RecordedEvent,
+    prevBeforeEvent: ExecutionWatcherSnapshot,
+  ): void {
     if (this.currentAwaiter) {
       const awaiter = this.currentAwaiter;
       this.currentAwaiter = null;
@@ -772,6 +799,8 @@ export class ExecutionWatcher {
         snapshot: this.getSnapshot(),
         diff,
         signals,
+        contributingEvents: [recorded],
+        beforeSnapshot: prevBeforeEvent,
       });
       return;
     }
@@ -780,13 +809,22 @@ export class ExecutionWatcher {
 
     const now = Date.now();
     if (this.mailbox === null) {
-      this.mailbox = { diff, signals, firstEventAt: now, lastEventAt: now };
+      this.mailbox = {
+        diff,
+        signals,
+        firstEventAt: now,
+        lastEventAt: now,
+        contributingEvents: [recorded],
+        beforeSnapshot: prevBeforeEvent,
+      };
     } else {
       this.mailbox = {
         diff: mergeDiff(this.mailbox.diff, diff),
         signals: mergeSignals(this.mailbox.signals, signals),
         firstEventAt: this.mailbox.firstEventAt,
         lastEventAt: now,
+        contributingEvents: [...this.mailbox.contributingEvents, recorded],
+        beforeSnapshot: this.mailbox.beforeSnapshot,
       };
     }
   }
@@ -920,6 +958,8 @@ export class ExecutionWatcher {
         snapshot: this.getSnapshot(),
         diff: {},
         signals: [],
+        contributingEvents: [],
+        beforeSnapshot: this.getSnapshot(),
       });
     }
 
@@ -932,6 +972,8 @@ export class ExecutionWatcher {
         snapshot: this.getSnapshot(),
         diff: m.diff,
         signals: m.signals,
+        contributingEvents: m.contributingEvents,
+        beforeSnapshot: m.beforeSnapshot,
       });
     }
 
@@ -952,6 +994,8 @@ export class ExecutionWatcher {
           snapshot: this.getSnapshot(),
           diff: {},
           signals: [],
+          contributingEvents: [],
+          beforeSnapshot: this.getSnapshot(),
         });
       }
 
@@ -968,6 +1012,8 @@ export class ExecutionWatcher {
             snapshot: this.getSnapshot(),
             diff: {},
             signals: [],
+            contributingEvents: [],
+            beforeSnapshot: this.getSnapshot(),
           });
         };
         abortSignal.addEventListener("abort", awaiter.abortHandler, { once: true });
@@ -1266,6 +1312,8 @@ export class ExecutionWatcher {
         snapshot: this.getSnapshot(),
         diff: {},
         signals: [],
+        contributingEvents: [],
+        beforeSnapshot: this.getSnapshot(),
       });
     }
     for (const [, p] of this.pendingPagination) p.reject(new Error("Watcher disposed"));

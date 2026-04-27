@@ -93,6 +93,8 @@ function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
           snapshot: m.snapshot,
           diff: {},
           signals: [],
+          contributingEvents: [],
+          beforeSnapshot: m.snapshot,
         }
       );
     },
@@ -263,6 +265,36 @@ describe("ws-execution-tools", () => {
     expect(result).toContain("Kill request sent");
     expect(mock.killCalled).toBe(1);
     expect(mock.awaitCalled).toBe(1);
+  });
+
+  test("recordExecutionDiagnostics: control tools forward await events to the sink", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    const wokeSnapshot = makeMockSnapshot({ currentState: "Paused" });
+    mock.awaitResultOverride = {
+      reason: "events",
+      snapshot: wokeSnapshot,
+      diff: { workflowState: { from: "Running", to: "Paused" } },
+      signals: [{ ruleId: "state-paused", reason: "paused", severity: "milestone", summary: "workflow paused" }],
+      contributingEvents: [
+        { timestamp: 1000, event: { type: "WorkflowStateEvent", state: "Paused" } as any },
+      ],
+      beforeSnapshot: makeMockSnapshot({ currentState: "Running" }),
+    };
+    watcherRef.current = mock.watcher;
+    const captured: any[] = [];
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+      recordExecutionDiagnostics: d => captured.push(d),
+    });
+    await (tools.pauseExecution as any).execute({});
+    expect(captured).toHaveLength(1);
+    expect(captured[0].toolName).toBe("pauseExecution");
+    expect(captured[0].wakeSignals.map((s: any) => s.ruleId)).toContain("state-paused");
+    expect(captured[0].contributingEvents).toHaveLength(1);
+    expect(captured[0].beforeSnapshot.currentState).toBe("Running");
+    expect(captured[0].afterSnapshot.currentState).toBe("Paused");
   });
 
   test("liveModifyOperator: errors when no watcher", async () => {

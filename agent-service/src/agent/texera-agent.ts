@@ -39,6 +39,7 @@ import type {
   TokenUsage,
   UserInfo,
   TraceContent,
+  ExecutionDiagnostics,
 } from "../types/agent";
 import {
   AgentState as AgentStateEnum,
@@ -367,6 +368,13 @@ export class TexeraAgent {
   // Callback for streaming ReActSteps
   private stepCallback: ReActStepCallback | null = null;
 
+  /**
+   * Per-step buffer of diagnostics emitted by control tools during the
+   * current `generateText` step. Drained in `onStepFinish` and stamped onto
+   * the resulting agent step. Exists for the duration of a single generation.
+   */
+  private pendingExecutionDiagnostics: ExecutionDiagnostics[] = [];
+
   // Message counter for generating unique IDs
   private messageCounter = 0;
 
@@ -644,6 +652,10 @@ export class TexeraAgent {
           onOperatorResult: (operatorId, operatorInfo) => {
             this.operatorResultStore.set(operatorId, this.head, operatorInfo);
           },
+          // Diagnostics buffer drained by onStepFinish to stamp ReActSteps.
+          recordExecutionDiagnostics: (diag: ExecutionDiagnostics) => {
+            this.pendingExecutionDiagnostics.push(diag);
+          },
         });
         tools[TOOL_NAME_START_EXECUTION] = wsTools[TOOL_NAME_START_EXECUTION];
         tools[TOOL_NAME_PAUSE_EXECUTION] = wsTools[TOOL_NAME_PAUSE_EXECUTION];
@@ -762,6 +774,51 @@ export class TexeraAgent {
       all.push(...steps);
     }
     return all;
+  }
+
+  /**
+   * Reconstruct ModelMessage[] for the conversation visible from the current
+   * HEAD. Used by the /messages endpoint to support trace export/replay.
+   *
+   * Mapping:
+   *  - user step      → { role: "user", content }
+   *  - agent step     → { role: "assistant", content: [text + tool-call parts] }
+   *                     followed by a { role: "tool", content: [tool-result parts] }
+   *                     when the step has toolResults
+   *  - execution step → { role: "user", content: "[execution]\n..." }
+   */
+  getModelMessages(): ModelMessage[] {
+    const messages: ModelMessage[] = [];
+    for (const step of this.getVisibleReActSteps()) {
+      if (step.role === "user") {
+        messages.push({ role: "user", content: step.actualContent ?? step.content });
+        continue;
+      }
+      if (step.role === "execution") {
+        messages.push({ role: "user", content: `[execution]\n${step.content}` });
+        continue;
+      }
+      // role === "agent"
+      const parts: any[] = [];
+      if (step.content) parts.push({ type: "text", text: step.content });
+      if (step.toolCalls) {
+        for (const tc of step.toolCalls) {
+          parts.push({ type: "tool-call", toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input });
+        }
+      }
+      messages.push({ role: "assistant", content: parts.length > 0 ? parts : "" } as ModelMessage);
+      if (step.toolResults && step.toolResults.length > 0) {
+        const toolParts = step.toolResults.map(tr => ({
+          type: "tool-result",
+          toolCallId: tr.toolCallId,
+          toolName: step.toolCalls?.find(c => c.toolCallId === tr.toolCallId)?.toolName ?? "",
+          output: { type: "text", value: typeof tr.output === "string" ? tr.output : JSON.stringify(tr.output) },
+          ...(tr.isError ? { isError: true } : {}),
+        }));
+        messages.push({ role: "tool", content: toolParts } as ModelMessage);
+      }
+    }
+    return messages;
   }
 
   // ============================================================================
@@ -1274,6 +1331,7 @@ export class TexeraAgent {
                 if (drained) {
                   stepIndex++;
                   const execStepId = this.generateStepId();
+                  const afterDrainSnapshot = this.executionWatcher.getSnapshot();
                   const execStep: ReActStep = {
                     id: execStepId,
                     parentId: this.head,
@@ -1285,9 +1343,18 @@ export class TexeraAgent {
                     // Tag with the watcher's current executionName so the
                     // assembler can filter stale ones once the agent does
                     // a DAG edit and clears `currentRenderedExecutionName`.
-                    executionName: this.executionWatcher.getSnapshot().executionName,
+                    executionName: afterDrainSnapshot.executionName,
                     isBegin: false,
                     isEnd: false,
+                    // Trace metadata only — same role as before/afterWorkflowContent.
+                    executionDiagnostics: [
+                      {
+                        beforeSnapshot: drained.beforeSnapshot,
+                        afterSnapshot: afterDrainSnapshot,
+                        contributingEvents: drained.contributingEvents,
+                        wakeSignals: drained.signals,
+                      },
+                    ],
                   };
                   this.addStep(execStep);
                   this.head = execStepId;
@@ -1379,7 +1446,13 @@ export class TexeraAgent {
             inputMessages: lastPreparedMessages,
             beforeWorkflowContent: beforeStepContent,
             afterWorkflowContent: afterStepContent,
+            executionDiagnostics:
+              this.pendingExecutionDiagnostics.length > 0
+                ? this.pendingExecutionDiagnostics
+                : undefined,
           };
+          // Drain after stamping so the next step starts with an empty buffer.
+          this.pendingExecutionDiagnostics = [];
           lastPreparedMessages = undefined;
           this.addStep(agentStep);
           this.head = agentStepId;

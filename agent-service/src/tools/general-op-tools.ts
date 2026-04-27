@@ -37,7 +37,7 @@ import {
   rejectIfExecutionAlive,
 } from "./tools-utility";
 import { formatValidationErrors, formatCompactSchemaForError } from "./metadata-tools";
-import { buildPostMutationValidationWarning } from "./execution-tools";
+import { buildPostMutationValidationWarning, buildPostMutationCompileSummary } from "./execution-tools";
 
 import type { ToolContext } from "./workflow-tools";
 
@@ -211,6 +211,9 @@ Examples:
         const warning = buildPostMutationValidationWarning(workflowState);
         if (warning) resultMsg += "\n" + warning;
 
+        const compileSummary = await buildPostMutationCompileSummary(workflowState);
+        if (compileSummary) resultMsg += "\n" + compileSummary;
+
         return createToolResult(resultMsg);
       } catch (error: any) {
         return createErrorResult(error.message || String(error));
@@ -280,6 +283,13 @@ Examples:
         const createdLinkPairs: { source: string; target: string }[] = [];
         const deletedLinkPairs: { source: string; target: string }[] = [];
 
+        // Snapshot before mutation so we can detect a no-op modify (caller
+        // sent properties that already matched the current state). Without
+        // this signal, an agent loop that re-reads a misleading rendering
+        // and retries the same input gets infinite encouragement.
+        const propsBefore = JSON.parse(JSON.stringify(operator.operatorProperties ?? {}));
+        const linkCountBefore = workflowState.getLinksConnectedToOperator(args.operatorId).length;
+
         // Update properties if provided
         if (args.properties) {
           workflowState.updateOperatorProperties(args.operatorId, args.properties);
@@ -343,6 +353,18 @@ Examples:
           deletedLinkPairs.length > 0 ? deletedLinkPairs : undefined
         );
 
+        // Detect no-op modify: properties unchanged AND no links added/deleted.
+        // Surfaces a definitive "you're stuck" signal when an agent loops on
+        // identical retries because of misleading downstream rendering.
+        const opAfter = workflowState.getOperator(args.operatorId);
+        const propsAfter = JSON.parse(JSON.stringify(opAfter?.operatorProperties ?? {}));
+        const linkCountAfter = workflowState.getLinksConnectedToOperator(args.operatorId).length;
+        const propsChanged = JSON.stringify(propsBefore) !== JSON.stringify(propsAfter);
+        const linksChanged = createdLinkPairs.length > 0 || deletedLinkPairs.length > 0 || linkCountBefore !== linkCountAfter;
+        if (!propsChanged && !linksChanged) {
+          resultMsg += `\nNOTE: This was a no-op — the submitted properties and links already matched the operator's current state. If you expected a change, the operator already looks the way you described it. Re-read # Current Workflow before retrying with identical input.`;
+        }
+
         // Invalidate cached results for this operator and everything
         // downstream — their stored output is now stale w.r.t. the new
         // properties/links.
@@ -353,7 +375,14 @@ Examples:
         context?.onDagEdit?.();
 
         const warning = buildPostMutationValidationWarning(workflowState);
-        if (warning) resultMsg += "\n" + warning;
+        if (warning) {
+          resultMsg += "\n" + warning;
+        } else {
+          resultMsg += "\nWorkflow validation: passed.";
+        }
+
+        const compileSummary = await buildPostMutationCompileSummary(workflowState);
+        if (compileSummary) resultMsg += "\n" + compileSummary;
 
         return createToolResult(resultMsg);
       } catch (error: any) {
