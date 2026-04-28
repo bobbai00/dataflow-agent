@@ -282,6 +282,15 @@ function serializeActiveExecution(
     for (const [opId, st] of opEntries) {
       const main = `${st.state} (input: ${st.inputTupleCount} rows, output: ${st.outputTupleCount} rows, workers: ${st.numWorkers})`;
       lines.push(`  - ${opId}: ${main}`);
+      // Surface actual worker actor IDs so debugPython / retryCurrentTuple
+      // can target a specific worker by its real engine identity (e.g.
+      // "WF4-PythonUDFV2-9a31a1-main-0"). The engine routes the RPC by
+      // ActorVirtualIdentity(workerId); a guess like "worker-0" lands in
+      // the dead-letter queue with no error to the caller.
+      const workers = s.workerIdsByOperator[opId] ?? [];
+      if (workers.length > 0) {
+        lines.push(`      worker ids: ${workers.join(", ")}`);
+      }
     }
   }
 

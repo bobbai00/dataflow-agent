@@ -26,6 +26,7 @@ function snapshotWithDefaults(over: Partial<ExecutionWatcherSnapshot> = {}): Exe
     consoleMessagesByOperator: {},
     recentConsoleErrors: [],
     fatalErrors: [],
+    pauseRequestedByAgent: false,
     ...over,
   };
 }

@@ -27,6 +27,7 @@ function makeMockSnapshot(overrides: Partial<ExecutionWatcherSnapshot> = {}): Ex
     consoleMessagesByOperator: {},
     recentConsoleErrors: [],
     fatalErrors: [],
+    pauseRequestedByAgent: false,
     ...overrides,
   };
 }
@@ -557,6 +558,70 @@ describe("ws-execution-tools", () => {
     expect(result).toContain("No execution in flight");
   });
 
+  test("debugPython: refuses when agent just called pauseExecution (controller pause)", async () => {
+    // The whole reason the gate exists: in a controller-level pause, every
+    // worker's MainLoop is blocked at the control queue and pdb never gets
+    // activated, so commands are silently dropped. The tool must refuse with
+    // a clear instruction telling the agent to resume, then set the breakpoint
+    // while Running.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        pauseRequestedByAgent: true,
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "b 7",
+    });
+    expect(result).toContain("[ERROR]");
+    expect(result).toContain("controller-level pause");
+    expect(result).toContain("resumeExecution");
+    // Critical: nothing should have been sent over the wire — the gate must
+    // short-circuit before sendDebugCommand to avoid the silent-overwrite trap.
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: allows EXCEPTION/DEBUG worker-self-pause (Paused but flag false)", async () => {
+    // Worker auto-paused on a UDF exception (or hit a breakpoint set while
+    // Running). Workflow state is Paused but pauseRequestedByAgent is false.
+    // pdb IS active in this case — the tool must let the command through.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        pauseRequestedByAgent: false,
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "p tuple_",
+    });
+    expect(result).not.toContain("controller-level pause");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "p tuple_" },
+    ]);
+  });
+
   test("debugPython: works while workflow is Running (no Paused gate)", async () => {
     // The whole point of removing the Paused gate: workflow-level pause
     // would actually prevent the worker from progressing past the debug
@@ -584,6 +649,147 @@ describe("ws-execution-tools", () => {
       { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "b 5" },
     ]);
     expect(result).not.toContain("requires a Paused execution");
+  });
+
+  test("debugPython: rejects bare `cl` / `clear` (would silently no-op due to closed stdin)", async () => {
+    // Pdb's do_clear with no arg calls input('Clear all breaks? '), which
+    // reads sys.stdin — but the Python worker is launched with stdin closed
+    // (BasicIO.standard(false)). EOFError → reply='no' → nothing cleared.
+    // The tool must catch this client-side so the agent doesn't burn turns
+    // believing the breakpoints are gone.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    for (const bareCmd of ["cl", "clear", "  cl  ", "clear\t"]) {
+      const result = await (tools.debugPython as any).execute({
+        operatorId: "op1",
+        workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+        cmd: bareCmd,
+      });
+      expect(result).toContain("[ERROR]");
+      expect(result).toContain("sys.stdin");
+      expect(result).toContain("cl N");
+    }
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: allows `cl N` and `clear <bpnum>` (parametrized clear is fine)", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    // Push an immediate DEBUGGER response so the tool's 3s poll-loop exits
+    // on the first iteration; otherwise this test eats 6s of wall time.
+    mock.debugCommandAppendOnSend = {
+      operatorId: "op1",
+      messages: [
+        {
+          workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+          timestamp: { seconds: 0, nanos: 0 },
+          msgType: { name: "DEBUGGER" },
+          source: "pdb",
+          title: "",
+          message: "ack",
+        },
+      ],
+    };
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const r1 = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "cl 7",
+    });
+    expect(r1).not.toContain("[ERROR]");
+    const r2 = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "clear 1",
+    });
+    expect(r2).not.toContain("[ERROR]");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "cl 7" },
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "clear 1" },
+    ]);
+  });
+
+  test("debugPython: rejects guessed workerId not in workerIdsByOperator", async () => {
+    // Real bug seen in production: agent guesses "worker-0" but engine knows
+    // the worker as "WF4-PythonUDFV2-9a31a1-main-0". The RPC then lands in
+    // the dead-letter queue silently. The tool must validate against the
+    // engine-reported worker ids and refuse with a clear message.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "worker-0",
+      cmd: "b 7",
+    });
+    expect(result).toContain("[ERROR]");
+    expect(result).toContain("dead-letter");
+    expect(result).toContain("WF4-PythonUDFV2-9a31a1-main-0");
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: accepts the real workerId from workerIdsByOperator", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "b 7",
+    });
+    expect(result).not.toContain("dead-letter");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "b 7" },
+    ]);
   });
 
   test("debugPython: errors when operator unknown", async () => {

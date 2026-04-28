@@ -641,7 +641,9 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
       "own (DEBUG_PAUSE) when the line is hit.\n\n" +
       "Common commands (full pdb syntax supported):\n" +
       "  - b N         set breakpoint at line N of the UDF source (auto-prefixed with module name)\n" +
-      "  - cl          clear all breakpoints   |   cl N: clear at line N\n" +
+      "  - cl N        clear breakpoint at line N   |   cl <bpnum>: clear by 1-based id from `info break`\n" +
+      "                (bare `cl` / `clear` is REJECTED — pdb's confirmation prompt reads from\n" +
+      "                 sys.stdin which is closed in the worker, so it would silently no-op.)\n" +
       "  - n           step over (next line)\n" +
       "  - s           step into a function call\n" +
       "  - r           run until current function returns\n" +
@@ -669,17 +671,67 @@ export function createWsExecutionTools(opts: CreateWsExecutionToolsOptions) {
         return createErrorResult("No execution in flight. Call startExecution first.");
       }
       const snap0 = watcher.getSnapshot();
-      // Intentionally NO workflow-state gate here. workflow-level (controller)
-      // pause prevents the controller from scheduling the worker, so even
-      // after the worker accepts the debug command its next instruction can
-      // never run. The worker enters pdb on its own via EXCEPTION_PAUSE or
-      // a `b N` breakpoint hit while the workflow keeps running.
+      // Refuse when the agent itself just paused the workflow. In a controller-
+      // level pause, every worker's MainLoop is blocked at the control queue
+      // and never enters the `_switch_context` path that activates pdb.
+      // Commands written to `_debug_in.value` get silently overwritten by the
+      // next put_debug_command and pdb never reads any of them. EXCEPTION_PAUSE
+      // and DEBUG_PAUSE (worker-self-pause from a UDF crash or breakpoint hit)
+      // do NOT set this flag — pdb is genuinely active in those cases and
+      // commands flow through.
+      if (snap0.pauseRequestedByAgent) {
+        return createErrorResult(
+          "debugPython cannot drive pdb during a controller-level pause. " +
+            "You called pauseExecution; the workflow is paused at the controller, which blocks the worker's main loop " +
+            "before pdb can activate, so any pdb command sent now is silently dropped.\n\n" +
+            "Correct workflow:\n" +
+            "  1. resumeExecution to get back to Running.\n" +
+            "  2. debugPython(opId, workerId, 'b N') while Running — sets the breakpoint without pausing.\n" +
+            "  3. awaitExecution — the worker will self-pause (DEBUG_PAUSE) when it hits line N.\n" +
+            "  4. Once paused on the breakpoint, debugPython('p tuple_'), 'n', 's', 'c', etc. now work — pdb is active.\n\n" +
+            "Alternative: if the worker auto-paused on a UDF exception (EXCEPTION_PAUSE), you can call debugPython " +
+            "directly without pausing first; that path is also fine.",
+        );
+      }
       const opState = snap0.perOperatorState[operatorId];
       if (!opState) {
         return createErrorResult(
           `Operator '${operatorId}' is not part of the active execution. Known: ${
             Object.keys(snap0.perOperatorState).join(", ") || "(none)"
           }.`,
+        );
+      }
+      // Reject bare `cl` / `clear`. Pdb's do_clear with no arg falls back to
+      // `input('Clear all breaks? ')`, which reads sys.stdin — but Python
+      // workers are spawned with `BasicIO.standard(false)`, i.e. stdin
+      // closed. The input() raises EOFError, the handler treats reply as
+      // 'no', and nothing is cleared. The agent then thinks the breakpoints
+      // are gone when they aren't. Force a parameter so `do_clear` takes
+      // the unambiguous path.
+      const trimmed = cmd.trim();
+      if (trimmed === "cl" || trimmed === "clear") {
+        return createErrorResult(
+          "Bare `cl` / `clear` is unusable here: pdb tries to read its 'Clear all breaks?' " +
+            "confirmation from sys.stdin, but the Python worker is launched with stdin closed " +
+            "(`BasicIO.standard(false)`). The input() raises EOFError, pdb treats it as 'no', " +
+            "and no breakpoints are cleared.\n\n" +
+            "Use one of these instead:\n" +
+            "  - `cl N` to clear breakpoint at line N (e.g. 'cl 7')\n" +
+            "  - `cl <bpnum>` to clear a specific breakpoint by its 1-based id (run `info break` first)",
+        );
+      }
+      // Validate workerId against the real actor identities. Engine routes
+      // the debug RPC via ActorVirtualIdentity(workerId); a wrong/guessed id
+      // (e.g. "worker-0") matches no actor and silently lands in the
+      // dead-letter queue — caller sees only the COMMAND echo, never any
+      // DEBUGGER output. Real ids look like "WF4-PythonUDFV2-9a31a1-main-0".
+      const knownWorkers = snap0.workerIdsByOperator[operatorId] ?? [];
+      if (knownWorkers.length > 0 && !knownWorkers.includes(workerId)) {
+        return createErrorResult(
+          `Worker '${workerId}' is not assigned to operator '${operatorId}'. ` +
+            `Known workers for this operator: ${knownWorkers.join(", ")}. ` +
+            `Use one of those exact ids — engine routes the debug RPC by actor identity, ` +
+            `so a guessed id like "worker-0" goes to the dead-letter queue and nothing happens.`,
         );
       }
 

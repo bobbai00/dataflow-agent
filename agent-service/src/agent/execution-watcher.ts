@@ -91,6 +91,21 @@ export interface ExecutionWatcherSnapshot {
   recentConsoleErrors: ConsoleMessage[];
   fatalErrors: WorkflowFatalError[];
   engineDurationMs?: number;
+  /**
+   * True iff the current Paused state was triggered by the agent's own
+   * `pause()` call (i.e. the controller-level pauseWorkflow RPC). Reset to
+   * false on resume/kill or whenever currentState leaves Paused/Pausing.
+   *
+   * debugPython uses this to refuse: in a controller-level pause the worker's
+   * MainLoop is blocked at `_check_and_process_control` and never enters the
+   * `_switch_context` path that would let DataProcessor activate `pdb.set_trace`.
+   * Commands sent in this state are silently overwritten in `_debug_in.value`
+   * and never reach pdb. EXCEPTION_PAUSE / DEBUG_PAUSE (worker-self-pause from
+   * a UDF crash or breakpoint hit) leave this flag false — those ARE valid
+   * times to drive pdb, because the worker is paused inside DataProcessor with
+   * pdb already active.
+   */
+  pauseRequestedByAgent: boolean;
 }
 
 /**
@@ -507,6 +522,7 @@ export class ExecutionWatcher {
       consoleMessagesByOperator: {},
       recentConsoleErrors: [],
       fatalErrors: [],
+      pauseRequestedByAgent: false,
     };
   }
 
@@ -566,6 +582,7 @@ export class ExecutionWatcher {
       recentConsoleErrors: [],
       fatalErrors: [],
       engineDurationMs: undefined,
+      pauseRequestedByAgent: false,
     };
     this.mailbox = null;
     this.mailboxSealed = false;
@@ -619,6 +636,9 @@ export class ExecutionWatcher {
           workerIdsByOperator: { ...this.snapshot.workerIdsByOperator, [e.operatorId]: [...e.workerIds] },
         };
         diff = { newWorkerAssignments: { [e.operatorId]: [...e.workerIds] } };
+        console.log(
+          `[ExecutionWatcher ${this.snapshot.executionName}] WorkerAssignmentUpdateEvent: ${e.operatorId} -> [${e.workerIds.join(", ")}]`,
+        );
         break;
       }
       case "ExecutionDurationUpdateEvent": {
@@ -858,7 +878,15 @@ export class ExecutionWatcher {
       next = { ...next, mostRecentPausedAt: undefined };
     }
 
+    // Clear the agent-pause flag once the state is no longer Paused/Pausing,
+    // so a subsequent worker-self-pause (EXCEPTION/DEBUG) is correctly seen
+    // as not-agent-driven.
+    if (newState !== "Paused" && newState !== "Pausing" && next.pauseRequestedByAgent) {
+      next = { ...next, pauseRequestedByAgent: false };
+    }
+
     this.snapshot = next;
+
     console.log(
       `[ExecutionWatcher ${this.snapshot.executionName}] WorkflowStateEvent: ${oldState} -> ${newState}`,
     );
@@ -1251,14 +1279,20 @@ export class ExecutionWatcher {
   // ─── Control ────────────────────────────────────────────────────────────
 
   pause(): void {
+    // Mark immediately so debugPython refuses even before the engine confirms
+    // the Paused state. The flag is mirrored into the snapshot so callers
+    // reading via getSnapshot() see it without racing handleWorkflowStateEvent.
+    this.snapshot = { ...this.snapshot, pauseRequestedByAgent: true };
     this.wsClient.sendPauseRequest();
   }
 
   resume(): void {
+    this.snapshot = { ...this.snapshot, pauseRequestedByAgent: false };
     this.wsClient.sendResumeRequest();
   }
 
   kill(): void {
+    this.snapshot = { ...this.snapshot, pauseRequestedByAgent: false };
     this.wsClient.sendKillRequest();
   }
 

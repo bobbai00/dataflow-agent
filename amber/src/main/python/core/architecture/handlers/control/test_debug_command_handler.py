@@ -24,11 +24,14 @@ import pytest
 from core.architecture.handlers.control.debug_command_handler import (
     WorkerDebugCommandHandler,
 )
-from core.architecture.managers.pause_manager import PauseType
+from core.architecture.managers import StateManager
+from core.architecture.managers.pause_manager import PauseManager, PauseType
+from core.models import InternalQueue
 from proto.org.apache.texera.amber.engine.architecture.rpc import (
     DebugCommandRequest,
     EmptyReturn,
 )
+from proto.org.apache.texera.amber.engine.architecture.worker import WorkerState
 
 
 class TestTranslateDebugCommand:
@@ -153,6 +156,7 @@ class TestDebugCommandAsyncFlow:
             executor_manager=SimpleNamespace(operator_module_name="my_udf"),
             debug_manager=MagicMock(),
             pause_manager=MagicMock(),
+            worker_id="worker-test",
         )
         return instance
 
@@ -193,3 +197,119 @@ class TestDebugCommandAsyncFlow:
             asyncio.run(handler.debug_command(DebugCommandRequest(cmd="")))
         handler.context.debug_manager.put_debug_command.assert_not_called()
         handler.context.pause_manager.resume.assert_not_called()
+
+
+class TestDebugCommandAfterControllerPause:
+    """
+    Question being verified: when a workflow has been globally paused via
+    `pauseExecution` (which sends `pauseWorker()` to every worker, setting
+    USER_PAUSE on each), does sending a debug command (`b N`, then `c`)
+    actually clear that pause on the targeted worker?
+
+    Engine code path (debug_command_handler.py:36-38) calls
+    `pause_manager.resume(USER_PAUSE)` on EVERY debug command — not just on
+    `c`. So the answer at the worker level should be: yes, the worker does
+    transition back to RUNNING locally. This test pins that behavior with a
+    real PauseManager + StateManager (no mocks for pause_manager).
+
+    Caveat (NOT covered by this test, but worth knowing for the agent tool):
+    only the targeted worker's local state flips. The controller still
+    considers the workflow Paused, and upstream workers stay paused, so
+    no NEW tuples flow into this worker. It can only drain whatever was
+    already buffered before the pause.
+    """
+
+    @pytest.fixture
+    def state_manager(self):
+        return StateManager(
+            {
+                WorkerState.UNINITIALIZED: {WorkerState.READY},
+                WorkerState.READY: {WorkerState.PAUSED, WorkerState.RUNNING},
+                WorkerState.RUNNING: {WorkerState.PAUSED, WorkerState.COMPLETED},
+                WorkerState.PAUSED: {WorkerState.RUNNING},
+                WorkerState.COMPLETED: set(),
+            },
+            WorkerState.RUNNING,
+        )
+
+    @pytest.fixture
+    def pause_manager(self, state_manager):
+        return PauseManager(InternalQueue(), state_manager)
+
+    @pytest.fixture
+    def handler(self, pause_manager):
+        instance = WorkerDebugCommandHandler.__new__(WorkerDebugCommandHandler)
+        instance.context = SimpleNamespace(
+            executor_manager=SimpleNamespace(operator_module_name="my_udf"),
+            debug_manager=MagicMock(),
+            pause_manager=pause_manager,
+            worker_id="worker-test",
+        )
+        return instance
+
+    def test_breakpoint_after_global_pause_clears_user_pause(
+        self, handler, pause_manager, state_manager
+    ):
+        # Simulate controller-level pauseWorkflow → pauseWorker on this worker.
+        pause_manager.pause(PauseType.USER_PAUSE)
+        assert pause_manager.is_paused()
+        assert state_manager.confirm_state(WorkerState.PAUSED)
+
+        # Agent sends `b 5` while workflow is "Paused".
+        asyncio.run(handler.debug_command(DebugCommandRequest(cmd="b 5")))
+
+        # Worker locally clears USER_PAUSE and transitions back to RUNNING.
+        # The controller's view is still Paused, but this worker is unblocked
+        # at the queue level and can drain anything already buffered.
+        assert not pause_manager.is_paused()
+        assert state_manager.confirm_state(WorkerState.RUNNING)
+        handler.context.debug_manager.put_debug_command.assert_called_once_with(
+            "b my_udf:5"
+        )
+
+    def test_continue_after_global_pause_clears_user_pause(
+        self, handler, pause_manager, state_manager
+    ):
+        pause_manager.pause(PauseType.USER_PAUSE)
+        assert state_manager.confirm_state(WorkerState.PAUSED)
+
+        asyncio.run(handler.debug_command(DebugCommandRequest(cmd="c")))
+
+        assert not pause_manager.is_paused()
+        assert state_manager.confirm_state(WorkerState.RUNNING)
+        handler.context.debug_manager.put_debug_command.assert_called_once_with("c")
+
+    def test_breakpoint_then_continue_each_clears_user_pause_independently(
+        self, handler, pause_manager, state_manager
+    ):
+        # Re-pausing between commands simulates a controller that re-issues
+        # pauseWorker (e.g. user clicks pause again, or a second workflow-pause
+        # between two debug commands). Each debug command must independently
+        # be sufficient to unblock the worker.
+        pause_manager.pause(PauseType.USER_PAUSE)
+        asyncio.run(handler.debug_command(DebugCommandRequest(cmd="b 5")))
+        assert state_manager.confirm_state(WorkerState.RUNNING)
+
+        pause_manager.pause(PauseType.USER_PAUSE)
+        assert state_manager.confirm_state(WorkerState.PAUSED)
+        asyncio.run(handler.debug_command(DebugCommandRequest(cmd="c")))
+        assert state_manager.confirm_state(WorkerState.RUNNING)
+
+    def test_debug_cmd_does_not_clear_specific_input_pause_only_global(
+        self, handler, pause_manager, state_manager
+    ):
+        # The handler resumes only the three GLOBAL pause types. A specific
+        # input-channel pause set by ECM (epoch/checkpoint) is unrelated and
+        # should NOT be cleared by a debug command. Pin this so a future
+        # "resume everything" change is intentional, not accidental.
+        pause_manager.pause(PauseType.USER_PAUSE)
+        # Add a separate ECM pause as a global type to keep the worker paused
+        # even after the debug-handler resumes the three usual types.
+        pause_manager.pause(PauseType.ECM_PAUSE)
+        assert state_manager.confirm_state(WorkerState.PAUSED)
+
+        asyncio.run(handler.debug_command(DebugCommandRequest(cmd="c")))
+
+        # ECM_PAUSE is NOT in the resume-list; worker stays paused.
+        assert pause_manager.is_paused()
+        assert state_manager.confirm_state(WorkerState.PAUSED)
