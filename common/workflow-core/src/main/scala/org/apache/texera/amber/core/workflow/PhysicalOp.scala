@@ -232,7 +232,7 @@ case class PhysicalOp(
   def getCode: String = {
     opExecInitInfo match {
       case OpExecWithCode(code, _, _) => code
-      case _                       => throw new IllegalAccessError("No code information in this physical operator")
+      case _                          => throw new IllegalAccessError("No code information in this physical operator")
     }
   }
 

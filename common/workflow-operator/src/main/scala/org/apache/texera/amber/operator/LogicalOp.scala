@@ -91,7 +91,10 @@ import org.apache.texera.amber.operator.symmetricDifference.SymmetricDifferenceO
 import org.apache.texera.amber.operator.typecasting.TypeCastingOpDesc
 import org.apache.texera.amber.operator.udf.java.JavaUDFOpDesc
 import org.apache.texera.amber.operator.udf.python._
-import org.apache.texera.amber.operator.udf.python.source.{DataLoadingOpDesc, PythonUDFSourceOpDescV2}
+import org.apache.texera.amber.operator.udf.python.source.{
+  DataLoadingOpDesc,
+  PythonUDFSourceOpDescV2
+}
 import org.apache.texera.amber.operator.udf.r.{RUDFOpDesc, RUDFSourceOpDesc}
 import org.apache.texera.amber.operator.union.UnionOpDesc
 import org.apache.texera.amber.operator.unneststring.UnnestStringOpDesc

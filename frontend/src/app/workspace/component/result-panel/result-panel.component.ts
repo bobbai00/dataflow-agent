@@ -33,6 +33,8 @@ import { WorkflowActionService } from "../../service/workflow-graph/model/workfl
 import { ExecutionState, ExecutionStateInfo } from "../../types/execute-workflow.interface";
 import { ResultTableFrameComponent } from "./result-table-frame/result-table-frame.component";
 import { ConsoleFrameComponent } from "./console-frame/console-frame.component";
+import { StatsFrameComponent } from "./stats-frame/stats-frame.component";
+import { WorkflowStatusService } from "../../service/workflow-status/workflow-status.service";
 import { WorkflowResultService } from "../../service/workflow-result/workflow-result.service";
 import { PanelResizeService } from "../../service/workflow-result/panel-resize/panel-resize.service";
 import { filter } from "rxjs/operators";
@@ -90,7 +92,8 @@ export class ResultPanelComponent implements OnInit, OnDestroy {
     private changeDetectorRef: ChangeDetectorRef,
     private workflowConsoleService: WorkflowConsoleService,
     private resizeService: PanelResizeService,
-    private panelService: PanelService
+    private panelService: PanelService,
+    private workflowStatusService: WorkflowStatusService
   ) {
     this.width = 0;
     this.height = Number(localStorage.getItem("result-panel-height")) || this.height;
@@ -250,6 +253,19 @@ export class ResultPanelComponent implements OnInit, OnDestroy {
       if (this.workflowConsoleService.hasConsoleMessages(this.currentOperatorId) || isPythonUdf(operator)) {
         this.displayConsole(this.currentOperatorId, isPythonUdf(operator));
       }
+      this.maybeDisplayStats(this.currentOperatorId);
+    }
+  }
+
+  private maybeDisplayStats(operatorId: string): void {
+    const stats = this.workflowStatusService.getCurrentStatus()[operatorId]?.resultStatistics;
+    if (stats && Object.keys(stats).length > 0) {
+      this.frameComponentConfigs.set("Statistics", {
+        component: StatsFrameComponent,
+        componentInputs: { operatorId },
+      });
+    } else {
+      this.frameComponentConfigs.delete("Statistics");
     }
   }
 

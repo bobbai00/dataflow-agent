@@ -30,7 +30,8 @@ case class OperatorAggregatedMetrics(
     numWorkers: Long,
     aggregatedDataProcessingTime: Long,
     aggregatedControlProcessingTime: Long,
-    aggregatedIdleTime: Long
+    aggregatedIdleTime: Long,
+    resultStatistics: Map[String, String] = Map.empty
 )
 
 case class OperatorStatisticsUpdateEvent(operatorStatistics: Map[String, OperatorAggregatedMetrics])

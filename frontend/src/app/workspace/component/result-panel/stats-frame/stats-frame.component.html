@@ -1,0 +1,22 @@
+<div class="stats-frame">
+  <ng-container *ngIf="columnStats.length === 0; else statsList">
+    <div class="empty">
+      <h4>No column statistics available for this operator yet.</h4>
+      <p>Statistics are produced by Python operators that emit DataFrame output.</p>
+    </div>
+  </ng-container>
+
+  <ng-template #statsList>
+    <div
+      class="column-card"
+      *ngFor="let col of columnStats">
+      <div class="column-header">{{ col.column }}</div>
+      <table class="stats-table">
+        <tr *ngFor="let row of col.rows">
+          <td class="key">{{ row.key }}</td>
+          <td class="value">{{ row.value }}</td>
+        </tr>
+      </table>
+    </div>
+  </ng-template>
+</div>
