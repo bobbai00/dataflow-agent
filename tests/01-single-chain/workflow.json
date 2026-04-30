@@ -1,0 +1,22 @@
+{
+  "operators": [
+    {
+      "operatorID": "iris_data",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    return pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n"
+    },
+    {
+      "operatorID": "filter_setosa",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_data) -> pd.DataFrame:\n    return iris_data[iris_data['Species'] == 'Iris-setosa'][['Id', 'SepalLengthCm', 'PetalLengthCm']]\n"
+    }
+  ],
+  "links": [
+    {
+      "fromOpId": "iris_data",
+      "toOpId": "filter_setosa",
+      "fromPortIndex": 0,
+      "toPortIndex": 0
+    }
+  ]
+}

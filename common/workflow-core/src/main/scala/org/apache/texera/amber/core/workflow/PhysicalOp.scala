@@ -222,7 +222,7 @@ case class PhysicalOp(
   @JsonIgnore // this is needed to prevent the serialization issue
   def isPythonBased: Boolean = {
     opExecInitInfo match {
-      case OpExecWithCode(_, language) =>
+      case OpExecWithCode(_, language, _) =>
         language == "python" || language == "r-tuple" || language == "r-table"
       case _ => false
     }
@@ -231,7 +231,7 @@ case class PhysicalOp(
   @JsonIgnore
   def getCode: String = {
     opExecInitInfo match {
-      case OpExecWithCode(code, _) => code
+      case OpExecWithCode(code, _, _) => code
       case _                       => throw new IllegalAccessError("No code information in this physical operator")
     }
   }

@@ -178,9 +178,13 @@ class SourceOperator(TupleOperatorV2):
 
     @overrides.final
     def on_finish(self, port: int) -> Iterator[Optional[TupleLike]]:
-        # TODO: change on_finish to output Iterator[Union[TupleLike, TableLike, None]]
-        for i in self.produce():
-            yield from all_output_to_tuple(i)
+        # Yield raw values from produce() (TupleLike or TableLike). The
+        # data_processor's _set_output_tuple intercepts each yield to apply
+        # runtime schema inference / per-column profiling, and then handles
+        # flattening to Tuples via all_output_to_tuple. Pre-flattening here
+        # would convert DataFrame outputs into Tuples before slice 5's
+        # _maybe_apply_runtime_schema can see them.
+        yield from self.produce()
 
     @overrides.final
     def process_tuple(self, tuple_: Tuple, port: int) -> Iterator[Optional[TupleLike]]:

@@ -25,5 +25,14 @@ from proto.org.apache.texera.amber.engine.architecture.rpc import (
 
 class StartChannelHandler(ControlHandler):
     async def start_channel(self, req: EmptyRequest) -> EmptyReturn:
+        # Stamp current_input_port_id from the channel-id before flipping the
+        # marker; same race fix as EndChannelHandler. produce_state_on_start
+        # reads port_id off the marker context, and a stale port from the
+        # previous data_element would route the wrong state.
+        port_id = self.context.input_manager.get_port_id(
+            self.context.current_input_channel_id
+        )
+        if port_id is not None:
+            self.context.tuple_processing_manager.current_input_port_id = port_id
         self.context.tuple_processing_manager.current_internal_marker = StartChannel()
         return EmptyReturn()

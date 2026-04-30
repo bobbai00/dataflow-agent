@@ -79,11 +79,26 @@ class PythonUDFOpDescV2 extends LogicalOp {
   )
   var outputColumns: List[Attribute] = List()
 
+  @JsonProperty(required = true, defaultValue = "false")
+  @JsonSchemaTitle("Infer output schema at runtime")
+  @JsonPropertyDescription(
+    "When checked, the output schema is inferred from the first DataFrame " +
+      "yielded by process_table. Any columns declared above act as a minimum " +
+      "subset constraint. Requires worker count = 1."
+  )
+  var dynamicOutputSchema: Boolean = Boolean.box(false)
+
   override def getPhysicalOp(
       workflowId: WorkflowIdentity,
       executionId: ExecutionIdentity
   ): PhysicalOp = {
     Preconditions.checkArgument(workers >= 1, "Need at least 1 worker.", Array())
+    Preconditions.checkArgument(
+      !dynamicOutputSchema || workers == 1,
+      "dynamicOutputSchema requires worker count = 1 (parallel workers can " +
+        "infer divergent schemas).",
+      Array()
+    )
     val opInfo = this.operatorInfo
     val partitionRequirement: List[Option[PartitionInfo]] = if (inputPorts != null) {
       inputPorts.map(p => Option(p.partitionRequirement))
@@ -118,7 +133,7 @@ class PythonUDFOpDescV2 extends LogicalOp {
           workflowId,
           executionId,
           operatorIdentifier,
-          OpExecWithCode(code, "python")
+          OpExecWithCode(code, "python", dynamicOutputSchema)
         )
         .withParallelizable(true)
         .withSuggestedWorkerNum(workers)
@@ -128,7 +143,7 @@ class PythonUDFOpDescV2 extends LogicalOp {
           workflowId,
           executionId,
           operatorIdentifier,
-          OpExecWithCode(code, "python")
+          OpExecWithCode(code, "python", dynamicOutputSchema)
         )
         .withParallelizable(false)
     }

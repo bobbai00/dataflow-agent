@@ -111,6 +111,7 @@ class PhysicalLink(betterproto.Message):
 class OpExecWithCode(betterproto.Message):
     code: str = betterproto.string_field(1)
     language: str = betterproto.string_field(2)
+    dynamic_output_schema: bool = betterproto.bool_field(3)
 
 
 @dataclass(eq=False, repr=False)

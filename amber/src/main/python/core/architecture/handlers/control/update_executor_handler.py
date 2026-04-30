@@ -28,6 +28,8 @@ class UpdateExecutorHandler(ControlHandler):
     async def update_executor(self, req: UpdateExecutorRequest) -> EmptyReturn:
         op_exec_with_code: OpExecWithCode = get_one_of(req.new_exec_init_info)
         self.context.executor_manager.update_executor(
-            op_exec_with_code.code, self.context.executor_manager.executor.is_source
+            op_exec_with_code.code,
+            self.context.executor_manager.executor.is_source,
+            op_exec_with_code.dynamic_output_schema,
         )
         return EmptyReturn()

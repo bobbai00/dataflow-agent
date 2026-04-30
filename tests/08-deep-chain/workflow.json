@@ -1,0 +1,35 @@
+{
+  "operators": [
+    {
+      "operatorID": "stage0_load",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    return pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n"
+    },
+    {
+      "operatorID": "stage1_normalize",
+      "operatorType": "DataProcessing",
+      "code": "def process(stage0_load) -> pd.DataFrame:\n    df = stage0_load.copy()\n    for c in ['SepalLengthCm', 'SepalWidthCm', 'PetalLengthCm', 'PetalWidthCm']:\n        df[c + '_z'] = (df[c] - df[c].mean()) / df[c].std()\n    return df\n"
+    },
+    {
+      "operatorID": "stage2_features",
+      "operatorType": "DataProcessing",
+      "code": "def process(stage1_normalize) -> pd.DataFrame:\n    df = stage1_normalize.copy()\n    df['petal_area'] = df['PetalLengthCm'] * df['PetalWidthCm']\n    df['sepal_area'] = df['SepalLengthCm'] * df['SepalWidthCm']\n    df['petal_to_sepal_ratio'] = df['petal_area'] / df['sepal_area']\n    return df\n"
+    },
+    {
+      "operatorID": "stage3_filter",
+      "operatorType": "DataProcessing",
+      "code": "def process(stage2_features) -> pd.DataFrame:\n    return stage2_features[stage2_features['petal_area'] > 1.0]\n"
+    },
+    {
+      "operatorID": "stage4_aggregate",
+      "operatorType": "DataProcessing",
+      "code": "def process(stage3_filter) -> pd.DataFrame:\n    return stage3_filter.groupby('Species').agg(\n        count=('Id', 'count'),\n        mean_petal_area=('petal_area', 'mean'),\n        mean_sepal_area=('sepal_area', 'mean'),\n        mean_ratio=('petal_to_sepal_ratio', 'mean')\n    ).reset_index()\n"
+    }
+  ],
+  "links": [
+    {"fromOpId": "stage0_load",      "toOpId": "stage1_normalize",  "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "stage1_normalize", "toOpId": "stage2_features",   "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "stage2_features",  "toOpId": "stage3_filter",     "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "stage3_filter",    "toOpId": "stage4_aggregate",  "fromPortIndex": 0, "toPortIndex": 0}
+  ]
+}

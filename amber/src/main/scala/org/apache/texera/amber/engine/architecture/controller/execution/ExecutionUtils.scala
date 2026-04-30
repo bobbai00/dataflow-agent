@@ -39,7 +39,7 @@ object ExecutionUtils {
       // Return a default OperatorMetrics if metrics are empty
       return OperatorMetrics(
         WorkflowAggregatedState.UNINITIALIZED,
-        OperatorStatistics(Seq.empty, Seq.empty, 0, 0, 0, 0)
+        OperatorStatistics(Seq.empty, Seq.empty, 0, 0, 0, 0, Map.empty)
       )
     }
 
@@ -67,6 +67,12 @@ object ExecutionUtils {
     val dataProcessingTimeSum = metrics.map(_.operatorStatistics.dataProcessingTime).sum
     val controlProcessingTimeSum = metrics.map(_.operatorStatistics.controlProcessingTime).sum
     val idleTimeSum = metrics.map(_.operatorStatistics.idleTime).sum
+    // Merge per-column result_statistics from each physical-op-aggregated map.
+    // Logical operators with multiple physical ops (e.g. Aggregate) get the
+    // union; the column-name keys are typically distinct so collisions are
+    // rare. On collision the later map wins.
+    val resultStatisticsMerged: Map[String, String] =
+      metrics.flatMap(_.operatorStatistics.resultStatistics.toList).toMap
 
     OperatorMetrics(
       aggregatedState,
@@ -76,7 +82,8 @@ object ExecutionUtils {
         numWorkersSum,
         dataProcessingTimeSum,
         controlProcessingTimeSum,
-        idleTimeSum
+        idleTimeSum,
+        resultStatisticsMerged
       )
     )
   }

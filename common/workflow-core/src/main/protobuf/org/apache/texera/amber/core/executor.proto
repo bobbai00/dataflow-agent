@@ -32,6 +32,11 @@ option (scalapb.options) = {
 message OpExecWithCode {
   string code = 1;
   string language = 2;
+  // When true, the Python UDF will infer its output schema from the first
+  // emitted DataFrame instead of using the propagated schema. Declared
+  // output columns become a subset constraint. No-op for non-Python
+  // executors. See PythonUDFOpDescV2.dynamicOutputSchema.
+  bool dynamic_output_schema = 3;
 }
 
 message OpExecWithClassName {

@@ -1,0 +1,44 @@
+{
+  "operators": [
+    {
+      "operatorID": "iris_ids",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id']]\n"
+    },
+    {
+      "operatorID": "iris_sepal",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'SepalLengthCm', 'SepalWidthCm']]\n"
+    },
+    {
+      "operatorID": "iris_petal",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'PetalLengthCm', 'PetalWidthCm']]\n"
+    },
+    {
+      "operatorID": "merged_iris",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_ids, iris_sepal, iris_petal) -> pd.DataFrame:\n    return iris_ids.merge(iris_sepal, on='Id').merge(iris_petal, on='Id')\n"
+    }
+  ],
+  "links": [
+    {
+      "fromOpId": "iris_ids",
+      "toOpId": "merged_iris",
+      "fromPortIndex": 0,
+      "toPortIndex": 0
+    },
+    {
+      "fromOpId": "iris_sepal",
+      "toOpId": "merged_iris",
+      "fromPortIndex": 0,
+      "toPortIndex": 1
+    },
+    {
+      "fromOpId": "iris_petal",
+      "toOpId": "merged_iris",
+      "fromPortIndex": 0,
+      "toPortIndex": 2
+    }
+  ]
+}

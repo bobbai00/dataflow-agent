@@ -96,7 +96,12 @@ case class OperatorInfo(
     truncated: Option[Boolean],
     consoleLogs: Option[List[ConsoleMessageInfo]],
     error: Option[String],
-    warnings: Option[List[String]]
+    warnings: Option[List[String]],
+    // Per-column result statistics from data_processor.py's
+    // _compute_column_stats. JSON-encoded value per column. None when the
+    // operator did not produce stats (non-DataProcessing/DataLoading, or
+    // stats not yet propagated).
+    columnStats: Option[Map[String, String]]
 )
 
 case class SyncExecutionResult(
@@ -449,6 +454,13 @@ class SyncExecutionResource extends LazyLogging {
         .map(_.filter(_.title.startsWith("WARNING: ")).map(_.title))
         .filter(_.nonEmpty)
 
+      // Per-column stats forwarded from WorkerStatistics.result_statistics.
+      // Each value is a JSON-encoded blob (count/null/distinct + type-specific
+      // stats). Empty map -> None so the response stays compact.
+      val columnStats: Option[Map[String, String]] = stats
+        .map(_.operatorStatistics.resultStatistics.toMap)
+        .filter(_.nonEmpty)
+
       operatorInfos(opId) = OperatorInfo(
         state = state,
         inputTuples = inputTuples,
@@ -461,7 +473,8 @@ class SyncExecutionResource extends LazyLogging {
         truncated = truncated,
         consoleLogs = consoleLogs,
         error = errorMsg,
-        warnings = warningMsgs
+        warnings = warningMsgs,
+        columnStats = columnStats
       )
     }
 

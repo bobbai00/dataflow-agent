@@ -71,6 +71,11 @@ public enum AttributeType implements Serializable {
     TIMESTAMP("timestamp", Timestamp.class),
     BINARY("binary", byte[].class),
     LARGE_BINARY("large_binary", LargeBinary.class),
+    // LIST and STRUCT carry JSON-encoded payloads on the wire (pa.string() in
+    // Arrow, ArrowType.Utf8 on the Java side). Used for DataFrame columns whose
+    // values are Python lists or dicts.
+    LIST("list", java.util.List.class),
+    STRUCT("struct", java.util.Map.class),
     ANY("ANY", Object.class);
 
     private final String name;
@@ -112,6 +117,10 @@ public enum AttributeType implements Serializable {
             return BINARY;
         } else if (fieldClass.equals(LargeBinary.class)) {
             return LARGE_BINARY;
+        } else if (java.util.List.class.isAssignableFrom(fieldClass)) {
+            return LIST;
+        } else if (java.util.Map.class.isAssignableFrom(fieldClass)) {
+            return STRUCT;
         } else {
             return ANY;
         }

@@ -77,6 +77,12 @@ message OperatorStatistics{
   int64 data_processing_time = 4;
   int64 control_processing_time = 5;
   int64 idle_time = 6;
+  // Aggregated per-column result statistics across this operator's workers.
+  // Forwarded from WorkerStatistics.result_statistics. JSON-encoded per
+  // column (count/null/distinct + type-specific stats from data_processor.py
+  // _compute_column_stats). Populated only when DataProcessing/DataLoading
+  // run in dynamic-output-schema mode.
+  map<string, string> result_statistics = 7;
 }
 
 message OperatorMetrics{

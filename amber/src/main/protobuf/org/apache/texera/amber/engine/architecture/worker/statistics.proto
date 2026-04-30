@@ -55,6 +55,10 @@ message WorkerStatistics {
   int64 data_processing_time = 3;
   int64 control_processing_time = 4;
   int64 idle_time = 5;
+  // Per-column result statistics, JSON-encoded per column (e.g. count, null,
+  // distinct, min/max/mean for numeric, top-k for string). Empty when the
+  // worker did not compute column-level stats.
+  map<string, string> result_statistics = 6;
 }
 
 message WorkerMetrics {

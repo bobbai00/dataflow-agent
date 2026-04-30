@@ -86,6 +86,10 @@ class OutputManager:
         self._port_storage_writers: typing.Dict[
             PortIdentity, typing.Tuple[Queue, PortStorageWriter, Thread]
         ] = dict()
+        # Storage URI per port. Tracked so recreate_port_storage_writer can
+        # rebuild the document with a new schema after runtime inference
+        # without re-deriving the URI.
+        self._port_storage_uris: typing.Dict[PortIdentity, str] = dict()
 
     def is_missing_output_ports(self):
         """
@@ -126,6 +130,7 @@ class OutputManager:
         Create a separate thread for saving output tuples of a port
         to storage in batch.
         """
+        self._port_storage_uris[port_id] = storage_uri
         document, _ = DocumentFactory.open_document(storage_uri)
         buffered_item_writer = document.writer(str(get_worker_index(self.worker_id)))
         writer_queue = Queue()
@@ -144,8 +149,73 @@ class OutputManager:
             writer_thread,
         )
 
+    def recreate_port_storage_writer(
+        self, port_id: PortIdentity, new_schema: Schema
+    ) -> None:
+        """
+        Stop the current storage writer for `port_id`, rebuild the underlying
+        Iceberg document with `new_schema`, and start a fresh writer + thread
+        bound to the same URI.
+
+        Must be called BEFORE any tuple has been queued for this port: the
+        rebuild uses DocumentFactory.create_document, which is a non-atomic
+        drop-then-create on Iceberg, so any rows already accepted by the old
+        writer would be silently discarded by the override. The empty-queue
+        assertion below enforces this invariant explicitly.
+        """
+        if port_id not in self._port_storage_writers:
+            return
+
+        storage_uri = self._port_storage_uris.get(port_id)
+        if storage_uri is None:
+            logger.warning(
+                f"Cannot recreate port storage writer for {port_id}: no storage URI"
+            )
+            return
+
+        writer_queue, writer, writer_thread = self._port_storage_writers[port_id]
+        # Invariant: recreate happens at first-table-inference time, before
+        # any output tuple has been forwarded to the writer queue. If this
+        # assertion ever fires, the call site has been wired incorrectly and
+        # silent data loss is imminent — fix the call site, do not relax this.
+        assert writer_queue.empty(), (
+            f"recreate_port_storage_writer called after data was queued for "
+            f"{port_id}; this would lose tuples and expose the non-atomic "
+            f"drop-then-create race in DocumentFactory.create_document."
+        )
+
+        writer.stop()
+        writer_thread.join()
+
+        document = DocumentFactory.create_document(storage_uri, new_schema)
+        buffered_item_writer = document.writer(str(get_worker_index(self.worker_id)))
+
+        new_writer_queue = Queue()
+        new_port_storage_writer = PortStorageWriter(
+            buffered_item_writer=buffered_item_writer, queue=new_writer_queue
+        )
+        new_writer_thread = threading.Thread(
+            target=new_port_storage_writer.run,
+            daemon=True,
+            name=f"port_storage_writer_thread_{port_id}",
+        )
+        new_writer_thread.start()
+        self._port_storage_writers[port_id] = (
+            new_writer_queue,
+            new_port_storage_writer,
+            new_writer_thread,
+        )
+        logger.info(f"Recreated port storage writer for {port_id} with new schema")
+
     def get_port(self, port_id=None) -> WorkerPort:
         return list(self._ports.values())[0]
+
+    def get_port_id(self) -> PortIdentity:
+        """
+        Return the (single) output port id. Mirrors the simplification in
+        `get_port`: multi-output ports aren't supported in this code path.
+        """
+        return next(iter(self._ports.keys()))
 
     def get_port_ids(self) -> typing.List[PortIdentity]:
         return list(self._ports.keys())

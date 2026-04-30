@@ -19,10 +19,106 @@
 
 package org.apache.texera.amber.operator
 
+import org.apache.texera.amber.config.UdfConfig
 import org.apache.texera.amber.core.executor.OpExecWithCode
 import org.apache.texera.amber.core.tuple.Schema
 import org.apache.texera.amber.core.virtualidentity.{ExecutionIdentity, WorkflowIdentity}
 import org.apache.texera.amber.core.workflow.{PhysicalOp, PortIdentity, SchemaPropagationFunc}
+
+/**
+  * Utility object for validating Python UDF code at workflow-compile time.
+  *
+  * Used opt-in by code-block descriptors (DataProcessingOpDesc,
+  * DataLoadingOpDesc) to reject file I/O and print statements before the
+  * code is sent to the worker. Existing descriptors that extend the
+  * PythonOperatorDescriptor trait below are unaffected.
+  */
+object PythonCodeValidator {
+
+  /**
+    * Validates Python code for file I/O operations when file I/O is not allowed.
+    * Honors UdfConfig.pythonAllowFileIO — when true, this is a no-op.
+    *
+    * @throws RuntimeException if file I/O operations are detected
+    */
+  def validateNoFileIO(code: String): Unit = {
+    if (UdfConfig.pythonAllowFileIO) {
+      return
+    }
+
+    // Patterns that indicate file I/O operations. Word boundaries and
+    // context-aware patterns reduce false positives.
+    val fileIOPatterns = Seq(
+      ("""(?<![.\w])open\s*\(""".r, "open() function"),
+      ("""\.read\s*\(""".r, ".read() method"),
+      ("""\.write\s*\(""".r, ".write() method"),
+      ("""\.readline\s*\(""".r, ".readline() method"),
+      ("""\.readlines\s*\(""".r, ".readlines() method"),
+      ("""\.writelines\s*\(""".r, ".writelines() method"),
+      ("""(?m)^(?:from\s+os\s+import|import\s+os)""".r, "os module import"),
+      ("""(?m)^(?:from\s+shutil\s+import|import\s+shutil)""".r, "shutil module import"),
+      ("""(?m)^(?:from\s+pathlib\s+import|import\s+pathlib)""".r, "pathlib module import"),
+      ("""(?m)^(?:from\s+io\s+import|import\s+io)""".r, "io module import"),
+      ("""(?m)^(?:from\s+subprocess\s+import|import\s+subprocess)""".r, "subprocess module import"),
+      ("""(?m)^(?:from\s+glob\s+import|import\s+glob)""".r, "glob module import"),
+      ("""Path\s*\(""".r, "Path() constructor")
+    )
+
+    val codeWithoutComments = stripCommentsAndDocstrings(code)
+    val detected = fileIOPatterns.flatMap {
+      case (pattern, description) =>
+        if (pattern.findFirstIn(codeWithoutComments).isDefined) Some(description) else None
+    }
+
+    if (detected.nonEmpty) {
+      throw new RuntimeException(
+        s"File I/O operations are not allowed in Python UDF. " +
+          s"Detected: ${detected.mkString(", ")}. " +
+          s"Please remove file I/O code"
+      )
+    }
+  }
+
+  /**
+    * Validates Python code for print statements.
+    * @throws RuntimeException if print statements are detected
+    */
+  def validateNoPrint(code: String): Unit = {
+    val printPatterns = Seq(
+      ("""(?<![.\w])print\s*\(""".r, "print() function")
+    )
+
+    val codeWithoutComments = stripCommentsAndDocstrings(code)
+    val detected = printPatterns.flatMap {
+      case (pattern, description) =>
+        if (pattern.findFirstIn(codeWithoutComments).isDefined) Some(description) else None
+    }
+
+    if (detected.nonEmpty) {
+      throw new RuntimeException(
+        s"Print statements are not allowed in Python UDF. " +
+          s"Detected: ${detected.mkString(", ")}. " +
+          s"Please remove print statements or use logging instead"
+      )
+    }
+  }
+
+  /**
+    * Generates Python code that embeds an error message as a comment.
+    * Lets compile-time validation errors propagate without interrupting
+    * schema propagation; the upper-level compiler surfaces it later.
+    */
+  def generatePythonCodeForRaisingException(ex: Throwable): String = {
+    s"#EXCEPTION DURING CODE GENERATION: ${ex.getMessage}"
+  }
+
+  private def stripCommentsAndDocstrings(code: String): String = {
+    code
+      .replaceAll("""#.*$""", "")
+      .replaceAll("""'''[\s\S]*?'''""", "\"\"")
+      .replaceAll("\"\"\"[\\s\\S]*?\"\"\"", "\"\"")
+  }
+}
 
 trait PythonOperatorDescriptor extends LogicalOp {
   private def generatePythonCodeForRaisingException(ex: Throwable): String = {

@@ -1,0 +1,42 @@
+{
+  "operators": [
+    {
+      "operatorID": "root_iris",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    return pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n"
+    },
+    {
+      "operatorID": "left_subtree",
+      "operatorType": "DataProcessing",
+      "code": "def process(root_iris) -> pd.DataFrame:\n    return root_iris[root_iris['Species'].isin(['Iris-setosa', 'Iris-versicolor'])]\n"
+    },
+    {
+      "operatorID": "right_subtree",
+      "operatorType": "DataProcessing",
+      "code": "def process(root_iris) -> pd.DataFrame:\n    return root_iris[root_iris['Species'].isin(['Iris-virginica', 'Iris-versicolor'])]\n"
+    },
+    {
+      "operatorID": "left_summary",
+      "operatorType": "DataProcessing",
+      "code": "def process(left_subtree) -> pd.DataFrame:\n    return left_subtree.groupby('Species').agg(\n        count=('Id', 'count'),\n        mean_sepal_len=('SepalLengthCm', 'mean')\n    ).reset_index().assign(side='left')\n"
+    },
+    {
+      "operatorID": "right_summary",
+      "operatorType": "DataProcessing",
+      "code": "def process(right_subtree) -> pd.DataFrame:\n    return right_subtree.groupby('Species').agg(\n        count=('Id', 'count'),\n        mean_petal_len=('PetalLengthCm', 'mean')\n    ).reset_index().assign(side='right')\n"
+    },
+    {
+      "operatorID": "tree_root_summary",
+      "operatorType": "DataProcessing",
+      "code": "def process(left_summary, right_summary) -> pd.DataFrame:\n    import pandas as pd\n    return pd.concat([left_summary, right_summary], ignore_index=True)\n"
+    }
+  ],
+  "links": [
+    {"fromOpId": "root_iris",      "toOpId": "left_subtree",       "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "root_iris",      "toOpId": "right_subtree",      "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "left_subtree",   "toOpId": "left_summary",       "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "right_subtree",  "toOpId": "right_summary",      "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "left_summary",   "toOpId": "tree_root_summary",  "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "right_summary",  "toOpId": "tree_root_summary",  "fromPortIndex": 0, "toPortIndex": 1}
+  ]
+}

@@ -225,7 +225,7 @@ class ExecutionStatsService(
     // Default metrics for new operators
     val defaultMetrics = OperatorMetrics(
       WorkflowAggregatedState.UNINITIALIZED,
-      OperatorStatistics(Seq.empty, Seq.empty, 0, 0, 0, 0)
+      OperatorStatistics(Seq.empty, Seq.empty, 0, 0, 0, 0, Map.empty)
     )
 
     // Determine new and old keys
@@ -249,7 +249,8 @@ class ExecutionStatsService(
             metrics.operatorStatistics.numWorkers,
             metrics.operatorStatistics.dataProcessingTime,
             metrics.operatorStatistics.controlProcessingTime,
-            metrics.operatorStatistics.idleTime
+            metrics.operatorStatistics.idleTime,
+            metrics.operatorStatistics.resultStatistics
           )
         )
     }

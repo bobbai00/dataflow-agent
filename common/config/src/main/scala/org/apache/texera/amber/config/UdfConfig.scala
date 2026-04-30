@@ -27,6 +27,7 @@ object UdfConfig {
 
   // Python specifics
   val pythonPath: String = conf.getString("python.path")
+  val pythonAllowFileIO: Boolean = conf.getBoolean("python.allowFileIO")
   val pythonLogStreamHandlerLevel: String = conf.getString("python.log.streamHandler.level")
   val pythonLogStreamHandlerFormat: String = conf.getString("python.log.streamHandler.format")
   val pythonLogFileHandlerDir: String = conf.getString("python.log.fileHandler.dir")

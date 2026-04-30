@@ -33,6 +33,11 @@ class ExecutorManager:
         self.executor: Optional[Operator] = None
         self.operator_module_name: Optional[str] = None
         self.executor_version: int = 0  # incremental only
+        # When True, the data_processor will infer this UDF's output schema
+        # from the first emitted DataFrame (Table API only). Declared output
+        # columns become a subset constraint. Set by initialize_executor /
+        # update_executor from OpExecWithCode.dynamic_output_schema.
+        self.dynamic_output_schema: bool = False
 
     @cached_property
     def fs(self) -> FS:
@@ -121,7 +126,13 @@ class ExecutorManager:
             and not inspect.isabstract(cls)
         )
 
-    def initialize_executor(self, code: str, is_source: bool, language: str) -> None:
+    def initialize_executor(
+        self,
+        code: str,
+        is_source: bool,
+        language: str,
+        dynamic_output_schema: bool = False,
+    ) -> None:
         """
         Initialize the executor with the given code. The output schema is
         decided by the user.
@@ -130,8 +141,12 @@ class ExecutorManager:
             class declaration.
         :param is_source: Indicating if the operator is used as a source operator.
         :param language: The language of the operator code.
+        :param dynamic_output_schema: If True, the data_processor will infer
+            the output schema from the first emitted DataFrame instead of
+            enforcing the declared schema strictly. Table API only.
         :return:
         """
+        self.dynamic_output_schema = dynamic_output_schema
         if language in ("r-tuple", "r-table"):
             # R support is provided by an optional plugin (texera-rudf)
             executor_type = "Tuple" if language == "r-tuple" else "Table"
@@ -155,7 +170,12 @@ class ExecutorManager:
             "Please use SourceOperator API for source operators."
         )
 
-    def update_executor(self, code: str, is_source: bool) -> None:
+    def update_executor(
+        self,
+        code: str,
+        is_source: bool,
+        dynamic_output_schema: bool = False,
+    ) -> None:
         """
         Update the executor, preserving its state in the __dict__.
         The user is responsible to make sure the state can be used by the new logic.
@@ -163,8 +183,10 @@ class ExecutorManager:
         :param code: The string version of python code, containing one Operator
             class declaration.
         :param is_source: Indicating if the operator is used as a source operator.
+        :param dynamic_output_schema: See initialize_executor.
         :return:
         """
+        self.dynamic_output_schema = dynamic_output_schema
         original_internal_state = self.executor.__dict__
         executor: type(Operator) = self.load_executor_definition(code)
         self.executor = executor()

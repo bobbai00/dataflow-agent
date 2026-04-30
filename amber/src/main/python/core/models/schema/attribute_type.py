@@ -39,6 +39,10 @@ class AttributeType(Enum):
     TIMESTAMP = 6
     BINARY = 7
     LARGE_BINARY = 8
+    # LIST and STRUCT carry JSON-encoded payloads on the wire. Used for
+    # DataFrame columns whose values are Python lists or dicts.
+    LIST = 9
+    STRUCT = 10
 
 
 RAW_TYPE_MAPPING = bidict(
@@ -51,6 +55,8 @@ RAW_TYPE_MAPPING = bidict(
         "TIMESTAMP": AttributeType.TIMESTAMP,
         "BINARY": AttributeType.BINARY,
         "LARGE_BINARY": AttributeType.LARGE_BINARY,
+        "LIST": AttributeType.LIST,
+        "STRUCT": AttributeType.STRUCT,
     }
 )
 
@@ -63,6 +69,8 @@ TO_ARROW_MAPPING = {
     AttributeType.BINARY: pa.binary(),
     AttributeType.TIMESTAMP: pa.timestamp("us"),
     AttributeType.LARGE_BINARY: pa.string(),  # Serialized as URI string
+    AttributeType.LIST: pa.string(),  # JSON-encoded list
+    AttributeType.STRUCT: pa.string(),  # JSON-encoded dict
 }
 
 FROM_ARROW_MAPPING = {
@@ -75,6 +83,13 @@ FROM_ARROW_MAPPING = {
     lib.Type_BINARY: AttributeType.BINARY,
     lib.Type_LARGE_BINARY: AttributeType.BINARY,
     lib.Type_TIMESTAMP: AttributeType.TIMESTAMP,
+    # Native Arrow nested types map to LIST/STRUCT. The JSON-encoded
+    # transport (pa.string()) is preferred, but DataFrames coming in with
+    # native nested arrays should still infer cleanly.
+    lib.Type_LIST: AttributeType.LIST,
+    lib.Type_LARGE_LIST: AttributeType.LIST,
+    lib.Type_STRUCT: AttributeType.STRUCT,
+    lib.Type_MAP: AttributeType.STRUCT,
 }
 
 
@@ -88,6 +103,8 @@ TO_PYOBJECT_MAPPING = {
     AttributeType.BINARY: bytes,
     AttributeType.TIMESTAMP: datetime.datetime,
     AttributeType.LARGE_BINARY: largebinary,
+    AttributeType.LIST: list,
+    AttributeType.STRUCT: dict,
 }
 
 FROM_PYOBJECT_MAPPING = {
@@ -98,4 +115,6 @@ FROM_PYOBJECT_MAPPING = {
     bytes: AttributeType.BINARY,
     datetime.datetime: AttributeType.TIMESTAMP,
     largebinary: AttributeType.LARGE_BINARY,
+    list: AttributeType.LIST,
+    dict: AttributeType.STRUCT,
 }

@@ -25,6 +25,20 @@ from proto.org.apache.texera.amber.engine.architecture.rpc import (
 
 class EndChannelHandler(ControlHandler):
     async def end_channel(self, req: EmptyRequest) -> EmptyReturn:
+        # Resolve the port that this EndChannel belongs to from the channel id
+        # and stamp it onto current_input_port_id BEFORE flipping the marker.
+        # The data_processor thread reads the marker and then queries
+        # current_input_port_id; if a downstream port's DataElement was
+        # processed in the same input-queue drain (sequential-dependencies
+        # workflows with N>=3 inputs do this routinely), current_input_port_id
+        # would otherwise reflect the last data tuple's port — not the port
+        # whose channel just emitted EndChannel — and on_finish() fires for
+        # the wrong port. See tests/03-three-input-merge.
+        port_id = self.context.input_manager.get_port_id(
+            self.context.current_input_channel_id
+        )
+        if port_id is not None:
+            self.context.tuple_processing_manager.current_input_port_id = port_id
         self.context.input_manager.complete_current_port(
             self.context.current_input_channel_id
         )

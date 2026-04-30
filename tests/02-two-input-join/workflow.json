@@ -1,0 +1,33 @@
+{
+  "operators": [
+    {
+      "operatorID": "iris_features",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'SepalLengthCm', 'SepalWidthCm']]\n"
+    },
+    {
+      "operatorID": "iris_labels",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'Species']]\n"
+    },
+    {
+      "operatorID": "joined_iris",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_features, iris_labels) -> pd.DataFrame:\n    return iris_features.merge(iris_labels, on='Id')\n"
+    }
+  ],
+  "links": [
+    {
+      "fromOpId": "iris_features",
+      "toOpId": "joined_iris",
+      "fromPortIndex": 0,
+      "toPortIndex": 0
+    },
+    {
+      "fromOpId": "iris_labels",
+      "toOpId": "joined_iris",
+      "fromPortIndex": 0,
+      "toPortIndex": 1
+    }
+  ]
+}

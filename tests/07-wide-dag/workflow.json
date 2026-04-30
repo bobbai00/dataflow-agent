@@ -1,0 +1,36 @@
+{
+  "operators": [
+    {
+      "operatorID": "iris_a",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'SepalLengthCm', 'SepalWidthCm']]\n"
+    },
+    {
+      "operatorID": "iris_b",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n    return df[['Id', 'PetalLengthCm', 'PetalWidthCm', 'Species']]\n"
+    },
+    {
+      "operatorID": "joined_ab",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_a, iris_b) -> pd.DataFrame:\n    return iris_a.merge(iris_b, on='Id')\n"
+    },
+    {
+      "operatorID": "filter_iris_b",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_b) -> pd.DataFrame:\n    return iris_b[iris_b['PetalLengthCm'] > 4.0]\n"
+    },
+    {
+      "operatorID": "intersection_filtered",
+      "operatorType": "DataProcessing",
+      "code": "def process(joined_ab, filter_iris_b) -> pd.DataFrame:\n    return joined_ab[joined_ab['Id'].isin(filter_iris_b['Id'])]\n"
+    }
+  ],
+  "links": [
+    {"fromOpId": "iris_a",        "toOpId": "joined_ab",            "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "iris_b",        "toOpId": "joined_ab",            "fromPortIndex": 0, "toPortIndex": 1},
+    {"fromOpId": "iris_b",        "toOpId": "filter_iris_b",        "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "joined_ab",     "toOpId": "intersection_filtered","fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "filter_iris_b", "toOpId": "intersection_filtered","fromPortIndex": 0, "toPortIndex": 1}
+  ]
+}

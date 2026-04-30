@@ -144,6 +144,12 @@ object ArrowUtils extends LazyLogging {
       case _: ArrowType.Binary =>
         AttributeType.BINARY
 
+      case _: ArrowType.List =>
+        AttributeType.LIST
+
+      case _: ArrowType.Struct =>
+        AttributeType.STRUCT
+
       case _ =>
         throw new AttributeTypeUtils.AttributeTypeException(
           "Unexpected value: " + srcType.getTypeID
@@ -283,7 +289,9 @@ object ArrowUtils extends LazyLogging {
       case AttributeType.BINARY =>
         new ArrowType.Binary
 
-      case AttributeType.STRING | AttributeType.LARGE_BINARY | AttributeType.ANY =>
+      case AttributeType.STRING | AttributeType.LARGE_BINARY | AttributeType.ANY |
+          AttributeType.LIST | AttributeType.STRUCT =>
+        // LIST and STRUCT are JSON-encoded over the wire, same Arrow type as STRING.
         ArrowType.Utf8.INSTANCE
 
       case _ =>

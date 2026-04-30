@@ -54,13 +54,32 @@ class PythonUDFSourceOpDescV2 extends SourceOperatorDescriptor {
   @JsonPropertyDescription("The columns of the source")
   var columns: List[Attribute] = List.empty
 
+  @JsonProperty(required = true, defaultValue = "false")
+  @JsonSchemaTitle("Infer output schema at runtime")
+  @JsonPropertyDescription(
+    "When checked, the output schema is inferred from the first DataFrame " +
+      "yielded by produce(). Any columns declared above act as a minimum " +
+      "subset constraint. Requires worker count = 1."
+  )
+  var dynamicOutputSchema: Boolean = false
+
   override def getPhysicalOp(
       workflowId: WorkflowIdentity,
       executionId: ExecutionIdentity
   ): PhysicalOp = {
     require(workers >= 1, "Need at least 1 worker.")
+    require(
+      !dynamicOutputSchema || workers == 1,
+      "dynamicOutputSchema requires worker count = 1 (parallel workers can " +
+        "infer divergent schemas)."
+    )
     val physicalOp = PhysicalOp
-      .sourcePhysicalOp(workflowId, executionId, operatorIdentifier, OpExecWithCode(code, "python"))
+      .sourcePhysicalOp(
+        workflowId,
+        executionId,
+        operatorIdentifier,
+        OpExecWithCode(code, "python", dynamicOutputSchema)
+      )
       .withInputPorts(operatorInfo.inputPorts)
       .withOutputPorts(operatorInfo.outputPorts)
       .withIsOneToManyOp(true)

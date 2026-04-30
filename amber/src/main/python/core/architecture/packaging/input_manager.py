@@ -56,6 +56,14 @@ class WorkerPort:
     def get_schema(self) -> Schema:
         return self._schema
 
+    def set_schema(self, schema: Schema) -> None:
+        """
+        Update the schema for this port. Used by runtime schema inference
+        when the actual output of an operator differs from the declared
+        schema (see PythonUDFOpDescV2.dynamicOutputSchema).
+        """
+        self._schema = schema
+
 
 class InputManager:
     SOURCE_STARTER = ActorVirtualIdentity("SOURCE_STARTER")

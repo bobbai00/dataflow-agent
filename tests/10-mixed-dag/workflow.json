@@ -1,0 +1,42 @@
+{
+  "operators": [
+    {
+      "operatorID": "iris_full",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    return pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/iris-species/Iris.csv')\n"
+    },
+    {
+      "operatorID": "movies_subset",
+      "operatorType": "DataLoading",
+      "code": "def load() -> pd.DataFrame:\n    df = pd.read_csv('/Users/baijiadong/Desktop/chenlab/texera/bin/single-node/examples/datasets/popular-movies-of-imdb/TMDb_updated.csv', nrows=150)\n    return df[['id', 'title', 'vote_average']].rename(columns={'id':'Id'})\n"
+    },
+    {
+      "operatorID": "iris_zscore",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_full) -> pd.DataFrame:\n    df = iris_full.copy()\n    df['petal_area'] = df['PetalLengthCm'] * df['PetalWidthCm']\n    df['petal_z'] = (df['petal_area'] - df['petal_area'].mean()) / df['petal_area'].std()\n    return df[['Id', 'Species', 'petal_area', 'petal_z']]\n"
+    },
+    {
+      "operatorID": "iris_outliers",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_zscore) -> pd.DataFrame:\n    return iris_zscore[iris_zscore['petal_z'].abs() > 1.0]\n"
+    },
+    {
+      "operatorID": "iris_movies_join",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_zscore, movies_subset) -> pd.DataFrame:\n    return iris_zscore.merge(movies_subset, on='Id', how='inner')[['Id', 'Species', 'petal_z', 'title', 'vote_average']]\n"
+    },
+    {
+      "operatorID": "final_report",
+      "operatorType": "DataProcessing",
+      "code": "def process(iris_outliers, iris_movies_join) -> pd.DataFrame:\n    outlier_ids = iris_outliers[['Id']].assign(is_outlier=True)\n    return iris_movies_join.merge(outlier_ids, on='Id', how='left').fillna({'is_outlier': False})\n"
+    }
+  ],
+  "links": [
+    {"fromOpId": "iris_full",      "toOpId": "iris_zscore",       "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "iris_zscore",    "toOpId": "iris_outliers",     "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "iris_zscore",    "toOpId": "iris_movies_join",  "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "movies_subset",  "toOpId": "iris_movies_join",  "fromPortIndex": 0, "toPortIndex": 1},
+    {"fromOpId": "iris_outliers",  "toOpId": "final_report",      "fromPortIndex": 0, "toPortIndex": 0},
+    {"fromOpId": "iris_movies_join","toOpId": "final_report",     "fromPortIndex": 0, "toPortIndex": 1}
+  ]
+}
