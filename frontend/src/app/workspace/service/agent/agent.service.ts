@@ -62,6 +62,8 @@ export interface AgentSettingsApi {
   maxSteps?: number;
   /** List of allowed operator types (empty = all operators allowed) */
   allowedOperatorTypes?: string[];
+  /** Agent operating mode: "code" (Python load/process) or "general" (typed operators) */
+  agentMode?: "code" | "general";
 }
 
 /**
@@ -689,6 +691,9 @@ export class AgentService {
    * @param modelType - The LLM model type to use
    * @param customName - Optional custom name for the agent
    * @param workflowId - Optional workflow ID for delegate mode
+   *
+   * The agent always starts in CODE mode (the backend default). Users can
+   * still flip to GENERAL afterwards via the agent's settings panel.
    */
   public createAgent(modelType: string, customName?: string, workflowId?: number): Observable<AgentInfo> {
     return defer(() => {

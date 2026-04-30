@@ -37,6 +37,52 @@ import { AgentInfo, AgentService } from "../../../../service/agent/agent.service
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
 import { WorkflowPersistService } from "../../../../../common/service/workflow-persist/workflow-persist.service";
+import * as dagre from "dagre";
+
+/**
+ * One step rendered as a clickable box in the version tree.
+ */
+export interface TimelineNode {
+  id: string;
+  stepId: string;
+  timestamp: Date;
+  isHead: boolean;
+  isOnHeadPath: boolean;
+  /** Multi-line label: one line per tool call, or message summary */
+  lines: string[];
+  /** Step type for styling */
+  stepType: "initial" | "user" | "agent";
+  messageSource?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * One marker on the vertical time axis, horizontally aligned with a TimelineNode.
+ */
+export interface TimeAxisNode {
+  y: number;
+  /** HH:MM:SS */
+  timeLabel: string;
+  /** "user_request" | "agent_response" | "initial" */
+  actionType?: string;
+  agentName?: string;
+}
+
+/**
+ * One parent→child edge in the version tree, expressed as an SVG path.
+ */
+export interface TreeEdge {
+  sourceId: string;
+  targetId: string;
+  path: string;
+  isOnHeadPath: boolean;
+}
+
+/** Sentinel id used for the synthetic "Ready" root before any real steps. */
+const TIMELINE_INITIAL_STEP_ID = "step-initial";
 
 @UntilDestroy()
 @Component({
@@ -50,6 +96,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   @Input() isActive: boolean = false;
   @ViewChild("messageContainer", { static: false }) messageContainer?: ElementRef;
   @ViewChild("messageInput", { static: false }) messageInput?: ElementRef;
+  @ViewChild("timelineContainer", { static: false }) timelineContainer?: ElementRef;
 
   /** All steps (for timeline rendering) */
   public agentResponses: ReActStep[] = [];
@@ -68,12 +115,22 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   // Current HEAD step ID in the version tree
   public currentHeadId: string | null = null;
 
+  // Timeline tree state
+  public timelineNodes: TimelineNode[] = [];
+  public treeEdges: TreeEdge[] = [];
+  public timeAxisNodes: TimeAxisNode[] = [];
+  public treeCanvasWidth: number = 200;
+  public treeHeight: number = 100;
+  public treePanelWidth: number = 260;
+  public treePanelCollapsed: boolean = false;
+
   // System info modal state
   public settingsMaxCharLimit = 20000; // Default max characters for operator results
   public settingsMaxCellCharLimit = 4000; // Default max characters per cell
   public settingsToolTimeoutSeconds = 120; // 2 minutes default
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
+  public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
   public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
   public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
   public operatorTypeSearchQuery = ""; // Search filter for operator types
@@ -134,6 +191,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.updateVisibleSteps();
         this.shouldScrollToBottom = true;
 
+        // Rebuild timeline whenever responses change
+        this.buildTimelineNodes();
+
         // Automatically highlight the latest visible step
         if (this.visibleSteps.length > 0) {
           const latestIndex = this.visibleSteps.length - 1;
@@ -159,6 +219,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe(headId => {
         this.currentHeadId = headId;
         this.updateVisibleSteps();
+        this.buildTimelineNodes();
         this.cdr.detectChanges();
       });
 
@@ -316,6 +377,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsExecutionTimeoutMinutes = settings.executionTimeoutMinutes ?? 10;
         this.settingsMaxSteps = settings.maxSteps ?? 10;
         this.settingsAllowedOperatorTypes = settings.allowedOperatorTypes ?? [];
+        this.settingsAgentMode = settings.agentMode ?? "code";
       });
 
     // Fetch all available operator types
@@ -537,6 +599,267 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     this.visibleSteps = this.agentResponses.filter(s => ancestorIds.has(s.id));
   }
 
+  // ============================================================================
+  // Timeline tree (version tree with vertical time axis)
+  // ============================================================================
+
+  /**
+   * Build the timeline tree nodes/edges/axis from `agentResponses`.
+   *
+   * Layout:
+   * - Horizontal positions come from dagre (one rank per parent→child branch).
+   * - Vertical positions come from chronological order (constant row spacing),
+   *   so the time axis on the left has evenly-spaced HH:MM:SS labels and each
+   *   node is row-aligned with its label.
+   * - Highlighting follows the HEAD ancestor path: nodes/edges on it are bold,
+   *   the rest are dimmed.
+   */
+  public buildTimelineNodes(): void {
+    const steps = this.agentResponses;
+
+    // Only show user steps and agent steps that performed work or ended a task.
+    const visibleSteps = steps.filter(step => {
+      if (step.role === "user") return true;
+      if (step.role === "agent" && step.toolCalls && step.toolCalls.length > 0) return true;
+      if (step.role === "agent" && step.isEnd) return true;
+      return false;
+    });
+
+    if (visibleSteps.length === 0 && this.currentHeadId !== TIMELINE_INITIAL_STEP_ID) {
+      this.timelineNodes = [];
+      this.treeEdges = [];
+      this.timeAxisNodes = [];
+      this.treeCanvasWidth = 200;
+      this.treeHeight = 100;
+      return;
+    }
+
+    // Synthesize the "Ready" root node positioned just before the earliest step.
+    const earliestTime =
+      visibleSteps.length > 0
+        ? new Date(Math.min(...visibleSteps.map(s => new Date(s.timestamp).getTime())) - 1)
+        : new Date();
+    const initialStep: ReActStep = {
+      id: TIMELINE_INITIAL_STEP_ID,
+      messageId: "",
+      stepId: -1,
+      timestamp: earliestTime,
+      role: "agent",
+      content: "",
+      isBegin: false,
+      isEnd: false,
+    };
+
+    const allSteps = [initialStep, ...visibleSteps.filter(s => s.id !== TIMELINE_INITIAL_STEP_ID)];
+
+    // Walk parent links from HEAD up to the root to get the ancestor set.
+    const headPath = new Set<string>();
+    if (this.currentHeadId) {
+      const stepMap = new Map(allSteps.map(s => [s.id, s]));
+      let current: string | undefined = this.currentHeadId;
+      while (current) {
+        headPath.add(current);
+        current = stepMap.get(current)?.parentId;
+      }
+    }
+
+    const sortedSteps = [...allSteps].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const stepChronIndex = new Map<string, number>();
+    sortedSteps.forEach((step, idx) => stepChronIndex.set(step.id, idx));
+
+    // Per-node width is sized to its longest label line so a long tool-call
+    // label like "Edit clean_data_with_long_id" doesn't get truncated. Width is
+    // bounded so a runaway label can't blow out the rail layout.
+    const minNodeWidth = 80;
+    const maxNodeWidth = 220;
+    const charWidth = 7; // approx px per character for the 12px node font
+    const horizontalPadding = 16;
+    const constantRowSpacing = 40;
+    const marginX = 16;
+    const marginY = 16;
+    const timeAxisWidth = 72;
+
+    const nodeWidths = new Map<string, number>();
+    for (const step of allSteps) {
+      const lines = this.getStepLines(step);
+      const longest = lines.reduce((acc, l) => Math.max(acc, l.length), 0);
+      const width = Math.max(minNodeWidth, Math.min(maxNodeWidth, longest * charWidth + horizontalPadding));
+      nodeWidths.set(step.id, width);
+    }
+
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({
+      rankdir: "TB",
+      nodesep: 24,
+      ranksep: constantRowSpacing,
+      marginx: marginX + timeAxisWidth,
+      marginy: marginY,
+    });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    for (const step of allSteps) {
+      const lines = this.getStepLines(step);
+      const nodeHeight = Math.max(24, lines.length * 18);
+      g.setNode(step.id, { width: nodeWidths.get(step.id)!, height: nodeHeight });
+    }
+
+    const stepIds = new Set(allSteps.map(s => s.id));
+    for (const step of allSteps) {
+      if (step.parentId && stepIds.has(step.parentId)) {
+        g.setEdge(step.parentId, step.id);
+      }
+    }
+
+    dagre.layout(g);
+
+    // Override Y from dagre with constant chronological spacing — every step
+    // sits one row below its predecessor in time, regardless of dagre's rank.
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    for (const step of allSteps) {
+      const dagreNode = g.node(step.id);
+      const chronIdx = stepChronIndex.get(step.id) ?? 0;
+      const y = marginY + chronIdx * constantRowSpacing + 12;
+      nodePositions.set(step.id, { x: dagreNode.x, y });
+    }
+
+    this.timelineNodes = allSteps.map(step => {
+      const pos = nodePositions.get(step.id)!;
+      const lines = this.getStepLines(step);
+      const nodeHeight = Math.max(24, lines.length * 18);
+      const stepType: "initial" | "user" | "agent" =
+        step.id === TIMELINE_INITIAL_STEP_ID ? "initial" : step.role === "user" ? "user" : "agent";
+      return {
+        id: step.id,
+        stepId: step.id,
+        timestamp: new Date(step.timestamp as any),
+        isHead: step.id === this.currentHeadId,
+        isOnHeadPath: headPath.has(step.id),
+        lines,
+        stepType,
+        messageSource: step.messageSource,
+        x: pos.x,
+        y: pos.y,
+        width: nodeWidths.get(step.id)!,
+        height: nodeHeight,
+      };
+    });
+
+    this.timeAxisNodes = sortedSteps.map((step, idx) => {
+      const y = marginY + idx * constantRowSpacing + 12;
+      const d = new Date(step.timestamp as any);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      const actionType =
+        step.id === TIMELINE_INITIAL_STEP_ID
+          ? "initial"
+          : step.role === "user"
+            ? "user_request"
+            : "agent_response";
+      return {
+        y,
+        timeLabel: `${hh}:${mm}:${ss}`,
+        actionType,
+        agentName: this.agentInfo?.name || "Agent",
+      };
+    });
+
+    const nodeMap = new Map(this.timelineNodes.map(n => [n.id, n]));
+    this.treeEdges = g.edges().map(e => {
+      const source = nodeMap.get(e.v)!;
+      const target = nodeMap.get(e.w)!;
+      const isOnPath = headPath.has(e.v) && headPath.has(e.w);
+      const halfH = source.height / 2;
+      const targetHalfH = target.height / 2;
+      const path =
+        source.x === target.x
+          ? `M ${source.x} ${source.y + halfH} L ${target.x} ${target.y - targetHalfH}`
+          : `M ${source.x} ${source.y + halfH} C ${source.x} ${(source.y + target.y) / 2}, ${target.x} ${(source.y + target.y) / 2}, ${target.x} ${target.y - targetHalfH}`;
+      return { sourceId: e.v, targetId: e.w, path, isOnHeadPath: isOnPath };
+    });
+
+    const maxX = Math.max(...this.timelineNodes.map(n => n.x + n.width / 2), 200);
+    const maxY =
+      this.timeAxisNodes.length > 0 ? this.timeAxisNodes[this.timeAxisNodes.length - 1].y + 24 : 100;
+    this.treeCanvasWidth = Math.max(200, maxX + marginX);
+    this.treeHeight = maxY + marginY;
+  }
+
+  /**
+   * Multi-line label for a timeline node. Tool calls become one line each,
+   * showing a verb and the operator id when available.
+   */
+  private getStepLines(step: ReActStep): string[] {
+    if (step.id === TIMELINE_INITIAL_STEP_ID) return ["Ready"];
+    if (step.role === "user") {
+      return [step.messageSource === "feedback" ? "Feedback" : "Input Task"];
+    }
+    if (step.toolCalls && step.toolCalls.length > 0) {
+      return step.toolCalls.map((tc: any) => {
+        const opId = tc.input?.operatorId || "";
+        const toolLabel = this.getToolLabel(tc.toolName);
+        return opId ? `${toolLabel} ${opId}` : toolLabel;
+      });
+    }
+    if (step.isEnd) return ["Task Done"];
+    return ["Thinking..."];
+  }
+
+  /** Short verb for a tool call name. */
+  private getToolLabel(toolName: string): string {
+    switch (toolName) {
+      case "addOperator":
+        return "Add";
+      case "modifyOperator":
+        return "Modify";
+      case "createOrModifyOperator":
+        // CODE-mode unified tool — verb depends on whether the op already existed,
+        // which we can't tell from the call alone. "Edit" reads correctly for both.
+        return "Edit";
+      case "deleteOperator":
+        return "Delete";
+      case "executeOperator":
+        return "Execute";
+      default:
+        return toolName;
+    }
+  }
+
+  /**
+   * Click on a timeline node → checkout that step (move HEAD). The backend
+   * broadcasts a headChange WS message which restores the workflow content.
+   */
+  public onTimelineNodeClick(node: TimelineNode): void {
+    this.agentService.checkoutStep(this.agentInfo.id, node.stepId).subscribe({
+      next: () => {},
+      error: () => {
+        this.notificationService.error(`Checkout to ${node.stepId} failed`);
+      },
+    });
+  }
+
+  /** Drag the splitter between the timeline rail and the chat column. */
+  public onResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = this.treePanelWidth;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - startX;
+      this.treePanelWidth = Math.max(120, Math.min(500, startWidth + delta));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
+
   /**
    * Scroll chat messages to a specific step index.
    */
@@ -625,6 +948,25 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe({
         next: () => this.notificationService.success("Max steps saved"),
         error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the agent mode (code | general). Triggers a system-info refresh so
+   * the System Prompt and Tools tabs reflect the new tool surface.
+   */
+  public saveAgentMode(): void {
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        agentMode: this.settingsAgentMode,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Agent mode set to ${this.settingsAgentMode}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {},
       });
   }
 

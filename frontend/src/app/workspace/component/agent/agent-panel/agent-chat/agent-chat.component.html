@@ -85,6 +85,101 @@
 
   <!-- Custom Chat Interface -->
   <div class="chat-content-wrapper">
+    <!-- Agent Action Tree (git-style version tree with vertical time axis) -->
+    <div
+      #timelineContainer
+      class="timeline-container"
+      [class.collapsed]="treePanelCollapsed"
+      [style.width.px]="treePanelCollapsed ? 24 : treePanelWidth">
+      <div class="tree-panel-header">
+        <button
+          class="tree-collapse-btn"
+          (click)="treePanelCollapsed = !treePanelCollapsed"
+          [title]="treePanelCollapsed ? 'Expand action tree' : 'Collapse action tree'">
+          <i
+            nz-icon
+            [nzType]="treePanelCollapsed ? 'right' : 'left'"
+            nzTheme="outline"></i>
+        </button>
+      </div>
+      <div
+        class="tree-viewport"
+        *ngIf="!treePanelCollapsed">
+        <div
+          class="tree-canvas"
+          [style.width.px]="treeCanvasWidth"
+          [style.height.px]="treeHeight">
+          <div class="time-axis">
+            <div
+              class="time-axis-line"
+              [style.height.px]="treeHeight"></div>
+            <div
+              *ngFor="let tn of timeAxisNodes"
+              class="time-axis-node"
+              [style.top.px]="tn.y - 8">
+              <i
+                *ngIf="tn.actionType === 'user_request'; else agentIcon"
+                nz-icon
+                nzType="user"
+                nzTheme="outline"
+                class="time-axis-icon user-icon"
+                nz-tooltip
+                nzTooltipTitle="User"></i>
+              <ng-template #agentIcon>
+                <i
+                  nz-icon
+                  nzType="robot"
+                  nzTheme="outline"
+                  class="time-axis-icon agent-icon"
+                  nz-tooltip
+                  [nzTooltipTitle]="tn.agentName || 'Agent'"></i>
+              </ng-template>
+              <span class="time-axis-label">{{ tn.timeLabel }}</span>
+            </div>
+          </div>
+          <svg
+            class="tree-edges"
+            [attr.width]="treeCanvasWidth"
+            [attr.height]="treeHeight">
+            <path
+              *ngFor="let edge of treeEdges"
+              [attr.d]="edge.path"
+              [class.on-path]="edge.isOnHeadPath"
+              [class.off-path]="!edge.isOnHeadPath"
+              class="tree-edge" />
+          </svg>
+          <div
+            *ngFor="let node of timelineNodes"
+            class="tree-node"
+            [class.is-head]="node.isHead"
+            [class.on-path]="node.isOnHeadPath"
+            [class.off-path]="!node.isOnHeadPath"
+            [class.user-request]="node.stepType === 'user' && node.messageSource !== 'feedback'"
+            [class.user-feedback]="node.stepType === 'user' && node.messageSource === 'feedback'"
+            [class.agent-response]="node.stepType === 'agent' && node.lines[0] === 'Task Done'"
+            [class.initial]="node.stepType === 'initial'"
+            [style.left.px]="node.x - node.width / 2"
+            [style.top.px]="node.y - node.height / 2"
+            [style.width.px]="node.width"
+            [style.height.px]="node.height"
+            (click)="onTimelineNodeClick(node)">
+            <div class="node-lines">
+              <div
+                *ngFor="let line of node.lines"
+                class="node-line">
+                {{ line }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Resize handle between tree panel and chat -->
+    <div
+      *ngIf="!treePanelCollapsed"
+      class="tree-resize-handle"
+      (mousedown)="onResizeStart($event)"></div>
+
     <!-- Messages and Input Column -->
     <div class="chat-main-column">
       <!-- Messages List -->
@@ -273,6 +368,38 @@
       <!-- Parameters Tab -->
       <nz-tab nzTitle="Parameters">
         <div class="settings-section">
+          <div class="settings-param-item">
+            <label class="settings-param-label">Agent Mode</label>
+            <div class="settings-param-input">
+              <nz-radio-group
+                [(ngModel)]="settingsAgentMode"
+                nzButtonStyle="solid"
+                nzSize="small">
+                <label
+                  nz-radio-button
+                  nzValue="code">
+                  Code
+                </label>
+                <label
+                  nz-radio-button
+                  nzValue="general">
+                  General
+                </label>
+              </nz-radio-group>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveAgentMode()">
+                Save
+              </button>
+              <span class="settings-param-hint">
+                Code mode uses Python <code>load()</code> / <code>process(...)</code>; general mode picks typed
+                operators.
+              </span>
+            </div>
+          </div>
+
           <div class="settings-param-item">
             <label class="settings-param-label">Max Operator Result Character Limit</label>
             <div class="settings-param-input">

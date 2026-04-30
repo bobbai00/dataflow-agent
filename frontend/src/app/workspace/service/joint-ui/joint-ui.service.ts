@@ -503,7 +503,44 @@ export class JointUIService {
     jointPaper: joint.dia.Paper,
     displayName: string
   ): void {
-    jointPaper.getModelById(operator.operatorID).attr(`.${operatorNameClass}/text`, displayName);
+    jointPaper
+      .getModelById(operator.operatorID)
+      .attr(`.${operatorNameClass}/text`, JointUIService.wrapOperatorDisplayName(displayName));
+  }
+
+  /**
+   * Wrap the operator's customDisplayName so the label below the box stays
+   * within ~2× the box width. JointJS renders the label as plain SVG text with
+   * no intrinsic wrapping, so without this a long summary like
+   * "Inner join customers+orders on customer_id; filter ..." would extend
+   * indefinitely and overlap neighboring operators. `joint.util.breakText`
+   * inserts hard newlines at the given pixel width.
+   */
+  private static wrapOperatorDisplayName(text: string): string {
+    if (!text) return text;
+    const maxWidth = JointUIService.DEFAULT_OPERATOR_WIDTH * 3; // 120px — 2× the box
+    try {
+      return joint.util.breakText(text, { width: maxWidth }, { "font-size": "14px" });
+    } catch {
+      // breakText needs DOM measurement; fall back to char-based truncation if
+      // we're somewhere it can't run (e.g. unit tests without document).
+      const approxCharsPerLine = 16;
+      const maxLines = 4;
+      const words = text.split(/\s+/);
+      const lines: string[] = [];
+      let line = "";
+      for (const w of words) {
+        if ((line + " " + w).trim().length > approxCharsPerLine) {
+          lines.push(line.trim());
+          line = w;
+          if (lines.length >= maxLines) break;
+        } else {
+          line = (line + " " + w).trim();
+        }
+      }
+      if (line && lines.length < maxLines) lines.push(line);
+      return lines.join("\n");
+    }
   }
 
   public getCommentElement(commentBox: CommentBox): joint.dia.Element {
@@ -818,13 +855,16 @@ export class JointUIService {
         "ref-y": -10,
       },
       ".texera-operator-name": {
-        text: operatorDisplayName,
+        text: JointUIService.wrapOperatorDisplayName(operatorDisplayName),
         fill: "#595959",
         "font-size": "14px",
         "ref-x": 0.5,
-        "ref-y": 80,
+        // Anchor the label by its top edge so multi-line wrapped text grows
+        // downward only — `"middle"` would centre the wrapped block at ref-y
+        // and the upper lines would climb back into the operator box.
+        "ref-y": JointUIService.DEFAULT_OPERATOR_HEIGHT + 8,
         ref: "rect.body",
-        "y-alignment": "middle",
+        "y-alignment": "top",
         "x-alignment": "middle",
       },
       ".texera-operator-friendly-name": {
