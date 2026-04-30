@@ -38,7 +38,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { OperatorResultSerializationMode } from "./types/agent";
+import { AgentMode, OperatorResultSerializationMode } from "./types/agent";
 
 const agentStore = new Map<string, TexeraAgent>();
 let agentCounter = 0;
@@ -106,6 +106,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+    agentMode: agentSettings.agentMode,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -344,6 +345,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       disabledTools: Array.from(agentSettings.disabledTools),
       maxSteps: agentSettings.maxSteps,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+      agentMode: agentSettings.agentMode,
     };
   })
 
@@ -374,6 +376,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         allowedOperatorTypes: settings.allowedOperatorTypes,
+        agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
       });
 
       const agentSettings = agent.getSettings();
@@ -386,6 +389,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         disabledTools: Array.from(agentSettings.disabledTools),
         maxSteps: agentSettings.maxSteps,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
+        agentMode: agentSettings.agentMode,
       };
     },
     {
@@ -398,6 +402,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxSteps: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
+        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
       }),
     }
   );

@@ -25,6 +25,7 @@ import type { ModelMessage } from "ai";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema } from "../../types/workflow";
 import type { ReActStep } from "../../types/agent";
+import { AgentMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { createLogger } from "../../logger";
@@ -36,7 +37,8 @@ export function assembleContext(
   workflowState: WorkflowState,
   operatorExecutionResults: Map<string, string>,
   useRedact: boolean = false,
-  compilationResult?: WorkflowCompilationResponse | null
+  compilationResult?: WorkflowCompilationResponse | null,
+  agentMode: AgentMode = AgentMode.CODE
 ): ModelMessage[] {
   const messageIds: string[] = [];
   const stepsByMessage = new Map<string, ReActStep[]>();
@@ -79,7 +81,13 @@ export function assembleContext(
     }
   }
 
-  const dagSection = serializeDag(workflowState, operatorExecutionResults, useRedact, compilationResult);
+  const dagSection = serializeDag(
+    workflowState,
+    operatorExecutionResults,
+    useRedact,
+    compilationResult,
+    agentMode
+  );
   if (dagSection) {
     sections.push("");
     sections.push("# Current Dataflow");
@@ -125,8 +133,23 @@ function serializeTask(steps: ReActStep[], status: "completed" | "ongoing"): str
       for (let i = 0; i < step.toolCalls.length; i++) {
         const tc = step.toolCalls[i];
         const tr = step.toolResults?.[i];
-        const statusAttr = tr?.isError ? "failed" : "succeeded";
-        lines.push(`- ${tc.toolName} (${statusAttr})`);
+        const outputStr = formatToolOutputString(tr?.output);
+        // A tool returning `[ERROR] ...` is a failure regardless of the SDK's
+        // structured-error flag. Pure string-based tool returns are how all
+        // workflow tools in this repo report errors.
+        const isFailure = !!tr?.isError || outputStr.startsWith("[ERROR]");
+        const statusAttr = isFailure ? "failed" : "succeeded";
+        const opIdParam = formatOperatorIdParam(tc.input);
+        lines.push(`- ${tc.toolName}${opIdParam} (${statusAttr})`);
+        if (isFailure && outputStr) {
+          // Errors are always surfaced — strip the `[ERROR] ` prefix because the
+          // `(failed)` status already carries that signal, then indent.
+          const errorBody = outputStr.replace(/^\[ERROR\]\s*/, "");
+          lines.push("  Error:");
+          for (const errLine of errorBody.split("\n")) {
+            lines.push(`    ${errLine}`);
+          }
+        }
       }
     }
     lines.push("");
@@ -135,11 +158,36 @@ function serializeTask(steps: ReActStep[], status: "completed" | "ongoing"): str
   return lines.join("\n").trimEnd();
 }
 
+/**
+ * Render the `operatorId=...` argument for a tool-call line in a turn. Other
+ * arguments (code, properties, summary) are intentionally omitted: they are
+ * either too long to fit inline or already discoverable from the live DAG, so
+ * including them only inflates the prompt. Returns `""` if no operatorId.
+ */
+function formatOperatorIdParam(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const opId = (input as Record<string, unknown>).operatorId;
+  if (typeof opId !== "string" || opId.length === 0) return "";
+  return `(operatorId="${opId}")`;
+}
+
+/** Coerce a tool result `output` into a string for substring checks/printing. */
+function formatToolOutputString(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output == null) return "";
+  try {
+    return JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
+}
+
 function serializeDag(
   workflowState: WorkflowState,
   operatorExecutionResults: Map<string, string>,
   useRedact: boolean,
-  compilationResult?: WorkflowCompilationResponse | null
+  compilationResult?: WorkflowCompilationResponse | null,
+  agentMode: AgentMode = AgentMode.CODE
 ): string | null {
   const allOperators = workflowState.getAllOperators();
   if (allOperators.length === 0) return null;
@@ -181,9 +229,19 @@ function serializeDag(
   lines.push("## Operators");
   lines.push("");
 
+  // CODE mode operators are Python load()/process() blocks — their input/output
+  // schema is implied by the function signature and pandas inference, and the
+  // compiler frequently reports them as empty. Surfacing `Input Schema: []` in
+  // every operator block adds noise without information, so suppress in CODE
+  // mode. GENERAL mode keeps schemas because the agent picks typed operators
+  // and uses the schema to validate connections.
+  const showSchemas = agentMode === AgentMode.GENERAL;
+
   for (const op of sortedOps) {
-    const inputSchemaMap = extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks);
-    const outputSchemaMap = outputSchemas[op.operatorID];
+    const inputSchemaMap = showSchemas
+      ? extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks)
+      : undefined;
+    const outputSchemaMap = showSchemas ? outputSchemas[op.operatorID] : undefined;
     const compilationError = compilationErrors[op.operatorID];
     lines.push(
       serializeOperator(

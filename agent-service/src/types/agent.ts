@@ -66,6 +66,16 @@ export enum OperatorResultSerializationMode {
   TSV = "tsv",
 }
 
+/**
+ * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
+ * (Python `def load()` / `def process(...)`); GENERAL uses typed
+ * `addOperator`/`modifyOperator` tools and embeds operator schemas in the prompt.
+ */
+export enum AgentMode {
+  CODE = "code",
+  GENERAL = "general",
+}
+
 export interface AgentSettings {
   systemPrompt: string;
   disabledTools: Set<string>;
@@ -76,6 +86,7 @@ export interface AgentSettings {
   executionTimeoutMs: number;
   maxSteps: number;
   allowedOperatorTypes: string[];
+  agentMode: AgentMode;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -97,6 +108,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "BarChart",
     "PythonUDFV2",
   ],
+  agentMode: AgentMode.CODE,
 };
 
 export interface UserInfo {
@@ -123,6 +135,7 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];
+  agentMode?: "code" | "general";
 }
 
 export interface AgentInfo {
@@ -153,4 +166,5 @@ export interface UpdateAgentSettingsRequest {
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];
+  agentMode?: "code" | "general";
 }

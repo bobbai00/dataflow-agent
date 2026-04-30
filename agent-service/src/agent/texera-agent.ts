@@ -26,21 +26,28 @@ import { WorkflowResultState } from "./workflow-result-state";
 import { formatOperatorResult } from "./tools/result-formatting";
 import type { AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import {
+  AgentMode,
   AgentState as AgentStateEnum,
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
   INITIAL_STEP_ID,
 } from "../types/agent";
-import { buildSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
 import {
-  createAddOperatorTool,
-  createModifyOperatorTool,
   createDeleteOperatorTool,
-  TOOL_NAME_ADD_OPERATOR,
-  TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_DELETE_OPERATOR,
   type ToolContext,
 } from "./tools/workflow-crud-tools";
+import {
+  createAddOperatorTool,
+  createModifyOperatorTool,
+  TOOL_NAME_ADD_OPERATOR,
+  TOOL_NAME_MODIFY_OPERATOR,
+} from "./tools/general-op-tools";
+import {
+  createCreateOrModifyOperatorTool,
+  TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
+} from "./tools/code-op-tools";
 import {
   createExecuteOperatorTool,
   executeOperatorAndFormat,
@@ -175,7 +182,11 @@ export class TexeraAgent {
   }
 
   private rebuildSystemPrompt(): void {
-    this.systemPrompt = buildSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
+    if (this.settings.agentMode === AgentMode.GENERAL) {
+      this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
+    } else {
+      this.systemPrompt = buildCodeModeSystemPrompt();
+    }
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -214,9 +225,18 @@ export class TexeraAgent {
 
     const tools: Record<string, any> = {
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
-      [TOOL_NAME_ADD_OPERATOR]: createAddOperatorTool(this.workflowState, operatorSchemas, context),
-      [TOOL_NAME_MODIFY_OPERATOR]: createModifyOperatorTool(this.workflowState, context),
     };
+
+    if (this.settings.agentMode === AgentMode.CODE) {
+      tools[TOOL_NAME_CREATE_OR_MODIFY_OPERATOR] = createCreateOrModifyOperatorTool(
+        this.workflowState,
+        operatorSchemas,
+        context
+      );
+    } else {
+      tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
+      tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
+    }
 
     if (getExecutionConfig) {
       tools[TOOL_NAME_EXECUTE_OPERATOR] = createExecuteOperatorTool(
@@ -365,6 +385,7 @@ export class TexeraAgent {
     disabledTools?: Set<string>;
     maxSteps?: number;
     allowedOperatorTypes?: string[];
+    agentMode?: AgentMode;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -391,6 +412,10 @@ export class TexeraAgent {
     }
     if (updates.allowedOperatorTypes !== undefined) {
       this.settings.allowedOperatorTypes = updates.allowedOperatorTypes;
+      promptNeedsRebuild = true;
+    }
+    if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
+      this.settings.agentMode = updates.agentMode;
       promptNeedsRebuild = true;
     }
 
@@ -554,7 +579,8 @@ export class TexeraAgent {
             this.workflowState,
             this.getFormattedResultsForDAG(),
             false,
-            compilationResult
+            compilationResult,
+            this.settings.agentMode
           );
           lastPreparedMessages = processed;
           return { messages: processed };
@@ -576,11 +602,18 @@ export class TexeraAgent {
             input: tc.input,
           }));
 
-          const formattedToolResults = toolResults?.map(tr => ({
-            toolCallId: tr.toolCallId,
-            output: tr.output,
-            isError: !!(tr.output as any)?.error,
-          }));
+          const formattedToolResults = toolResults?.map(tr => {
+            // Workflow tools return plain strings; an `[ERROR] ...` prefix is the
+            // failure signal. Also keep the legacy structured-error check so a
+            // tool that returns `{ error: ... }` still flags as failed.
+            const outputStr = typeof tr.output === "string" ? tr.output : "";
+            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
+            return {
+              toolCallId: tr.toolCallId,
+              output: tr.output,
+              isError,
+            };
+          });
 
           const afterStepContent = this.workflowState.getWorkflowContent();
 
@@ -614,7 +647,11 @@ export class TexeraAgent {
 
           const execConfig = this.buildExecutionConfig();
           if (execConfig && toolCalls && toolResults) {
-            const EXECUTE_AFTER_TOOLS = new Set([TOOL_NAME_ADD_OPERATOR, TOOL_NAME_MODIFY_OPERATOR]);
+            const EXECUTE_AFTER_TOOLS = new Set([
+              TOOL_NAME_ADD_OPERATOR,
+              TOOL_NAME_MODIFY_OPERATOR,
+              TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
+            ]);
 
             for (let i = 0; i < toolCalls.length; i++) {
               const tc = toolCalls[i];
