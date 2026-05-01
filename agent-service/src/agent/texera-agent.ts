@@ -836,27 +836,43 @@ export class TexeraAgent {
     const execConfig = this.buildExecutionConfig();
     if (!execConfig || !toolCalls || !toolResults) return;
 
+    // Collect every operator successfully edited in this step, then expand to
+    // the set of downstream sinks. Executing a sink re-runs the edited op and
+    // every descendant on the path, and `executeOperatorAndFormat` calls
+    // `onResult` for every operator in the returned plan — so results for the
+    // edited op + all transitive downstream get stored in one pass.
+    const editedOpIds: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i];
       const tr = toolResults[i];
       if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
-
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
-
       const operatorId = (tc.input as any)?.operatorId;
-      if (!operatorId) continue;
+      if (operatorId) editedOpIds.push(operatorId);
+    }
+    if (editedOpIds.length === 0) return;
 
+    // Union of downstream sinks across all edited ops, deduped. If an edited
+    // op has no enabled descendants its own id is the sink and gets executed.
+    const targets = new Set<string>();
+    for (const opId of editedOpIds) {
+      for (const sink of this.workflowState.getDownstreamSinks(opId)) {
+        targets.add(sink);
+      }
+    }
+
+    for (const target of targets) {
       try {
-        await executeOperatorAndFormat(this.workflowState, execConfig, operatorId, {
+        await executeOperatorAndFormat(this.workflowState, execConfig, target, {
           abortSignal: this.abortController?.signal,
           onResult: (opId, operatorInfo) => {
             this.workflowResultState.set(opId, this.head, operatorInfo);
           },
         });
       } catch (e: any) {
-        this.log.warn({ operatorId, err: e?.message || e }, "post-step execution failed");
+        this.log.warn({ target, err: e?.message || e }, "post-step execution failed");
       }
     }
   }

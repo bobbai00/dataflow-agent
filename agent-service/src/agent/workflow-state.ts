@@ -267,6 +267,53 @@ export class WorkflowState {
     return { operators: subDagOperators, links: subDagLinks };
   }
 
+  /**
+   * Return the set of downstream sink operators reachable from `startOpId`
+   * via outgoing enabled links. A "sink" here is an enabled operator with no
+   * outgoing enabled links. If `startOpId` itself has no outgoing enabled
+   * links it is returned as the sole sink. Disabled operators are skipped.
+   *
+   * Used by post-step execution: after editing an operator, executing each
+   * downstream sink causes the backend to re-run the edited op and every
+   * descendant on the path to that sink.
+   */
+  getDownstreamSinks(startOpId: string): string[] {
+    const startOp = this.getOperator(startOpId);
+    if (!startOp || startOp.isDisabled) return [];
+
+    const allLinks = this.getAllLinks();
+    const visited = new Set<string>();
+    const sinks = new Set<string>();
+    const stack: string[] = [startOpId];
+
+    while (stack.length > 0) {
+      const opId = stack.pop()!;
+      if (visited.has(opId)) continue;
+      visited.add(opId);
+
+      const op = this.getOperator(opId);
+      if (!op || op.isDisabled) continue;
+
+      const outgoing = allLinks.filter(
+        link =>
+          link.source.operatorID === opId &&
+          !this.getOperator(link.target.operatorID)?.isDisabled
+      );
+
+      if (outgoing.length === 0) {
+        sinks.add(opId);
+      } else {
+        for (const link of outgoing) {
+          if (!visited.has(link.target.operatorID)) {
+            stack.push(link.target.operatorID);
+          }
+        }
+      }
+    }
+
+    return Array.from(sinks);
+  }
+
   getFrontierOperators(depth: number): string[] {
     const allOperators = this.getAllOperators();
     if (allOperators.length === 0) return [];
