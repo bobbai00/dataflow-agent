@@ -64,6 +64,28 @@
         </button>
       </div>
 
+      <!-- Import ReAct steps button -->
+      <div class="toolbar-item">
+        <input
+          #reactStepsFileInput
+          type="file"
+          accept="application/json,.json"
+          style="display: none"
+          (change)="onReActStepsFileSelected($event)" />
+        <button
+          nz-button
+          nzType="text"
+          nzSize="small"
+          (click)="reactStepsFileInput.click()"
+          nz-tooltip
+          nzTooltipTitle="Import ReAct steps from JSON (replaces current history)">
+          <i
+            nz-icon
+            nzType="upload"
+            nzTheme="outline"></i>
+        </button>
+      </div>
+
       <!-- Clear button (when available) -->
       <div class="toolbar-item">
         <button

@@ -786,6 +786,7 @@ export class TexeraAgent {
     this.stepsById.clear();
     this.currentMessageId = undefined;
     this.head = INITIAL_STEP_ID;
+    this.workflowResultState.clear();
     const initialStep: ReActStep = {
       id: INITIAL_STEP_ID,
       messageId: "initial",
@@ -797,6 +798,134 @@ export class TexeraAgent {
       isEnd: true,
     };
     this.stepsById.set(INITIAL_STEP_ID, initialStep);
+  }
+
+  /**
+   * Rehydrate the agent from an exported ReAct-step archive (the JSON produced
+   * by the frontend Export button). Replaces all in-memory state — steps,
+   * head, workflow content, result snapshots — with what the archive carries.
+   *
+   * Requirements / contract:
+   * - `steps[]` may be in any order; parent links (`parentId`) define the tree.
+   * - HEAD is set to the deepest leaf on the longest chain (last by timestamp
+   *   among nodes with no children). For a linear export this is the final
+   *   step; for a branched export it picks the most-recently-extended branch.
+   * - The active branch's `afterWorkflowContent` (final step on that branch)
+   *   restores `workflowState` so the live DAG matches the loaded HEAD.
+   * - Operator execution results are NOT in the export — `workflowResultState`
+   *   stays empty until the user re-runs.
+   *
+   * Throws on structural problems (missing parent, cycle, duplicate id) so a
+   * partial state is never installed.
+   */
+  importReActSteps(steps: ReActStep[]): { headId: string; importedCount: number } {
+    if (!Array.isArray(steps) || steps.length === 0) {
+      throw new Error("import requires a non-empty steps array");
+    }
+
+    // Validate ids/parents first; bail before mutating anything.
+    const seenIds = new Set<string>();
+    for (const s of steps) {
+      if (!s || typeof s.id !== "string" || s.id.length === 0) {
+        throw new Error("every step must have a non-empty 'id'");
+      }
+      if (s.id === INITIAL_STEP_ID) continue;
+      if (seenIds.has(s.id)) throw new Error(`duplicate step id: ${s.id}`);
+      seenIds.add(s.id);
+    }
+    const validParent = (pid: string | undefined): boolean =>
+      !pid || pid === INITIAL_STEP_ID || seenIds.has(pid);
+    for (const s of steps) {
+      if (!validParent(s.parentId)) {
+        throw new Error(`step ${s.id} has unknown parentId ${s.parentId}`);
+      }
+    }
+    // Cycle / unreachable check via DFS from INITIAL_STEP_ID.
+    const childrenOf = new Map<string, string[]>();
+    for (const s of steps) {
+      const pid = s.parentId ?? INITIAL_STEP_ID;
+      const arr = childrenOf.get(pid) ?? [];
+      arr.push(s.id);
+      childrenOf.set(pid, arr);
+    }
+    const reachable = new Set<string>();
+    const stack: string[] = [INITIAL_STEP_ID];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (reachable.has(id)) continue;
+      reachable.add(id);
+      for (const c of childrenOf.get(id) ?? []) stack.push(c);
+    }
+    for (const s of steps) {
+      if (s.id !== INITIAL_STEP_ID && !reachable.has(s.id)) {
+        throw new Error(`step ${s.id} is not reachable from the initial step (cycle or detached subtree)`);
+      }
+    }
+
+    // Normalize fields that the export may serialize as strings: `timestamp`
+    // is exported as an ISO string but the in-memory type is `number` (epoch
+    // ms). Coerce so downstream sorts and any consumer reading
+    // step.timestamp behave correctly.
+    const toEpochMs = (v: unknown): number => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string") {
+        const parsed = Date.parse(v);
+        if (Number.isFinite(parsed)) return parsed;
+        const asNum = Number(v);
+        if (Number.isFinite(asNum)) return asNum;
+      }
+      return 0;
+    };
+
+    // Reset state, then ingest in parent-before-child order so addStep's
+    // bookkeeping always sees a known parent. BFS from INITIAL_STEP_ID.
+    this.clearHistory();
+    const stepById = new Map<string, ReActStep>();
+    for (const s of steps) {
+      if (s.id !== INITIAL_STEP_ID) {
+        stepById.set(s.id, { ...s, timestamp: toEpochMs(s.timestamp) });
+      }
+    }
+    const order: ReActStep[] = [];
+    const queue: string[] = [...(childrenOf.get(INITIAL_STEP_ID) ?? [])];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      const s = stepById.get(id);
+      if (!s) continue;
+      order.push(s);
+      for (const c of childrenOf.get(id) ?? []) queue.push(c);
+    }
+    for (const s of order) this.addStep(s);
+
+    // Pick HEAD: leaf with the latest timestamp on its branch.
+    const leaves = order.filter(s => (childrenOf.get(s.id) ?? []).length === 0);
+    if (leaves.length === 0) {
+      throw new Error("import has no leaf steps (impossible after structure check)");
+    }
+    leaves.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    const headStep = leaves[0];
+    this.head = headStep.id;
+
+    // Restore workflow snapshot from HEAD's afterWorkflowContent.
+    if (headStep.afterWorkflowContent) {
+      this.workflowState.setWorkflowContent(headStep.afterWorkflowContent);
+    }
+
+    // Recompute stepCounter from the largest numeric segment in any imported
+    // id of the form `step-<agentId>-<n>-<ts>`, so subsequent generateStepId()
+    // calls don't collide with imported ids.
+    const idPattern = new RegExp(`^step-${this.agentId}-(\\d+)-`);
+    let maxN = 0;
+    for (const s of order) {
+      const m = s.id.match(idPattern);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (Number.isFinite(n) && n > maxN) maxN = n;
+      }
+    }
+    this.stepCounter = maxN;
+
+    return { headId: this.head, importedCount: order.length };
   }
 
   // ============================================================================

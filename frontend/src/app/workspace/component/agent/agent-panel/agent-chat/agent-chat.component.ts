@@ -666,6 +666,54 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       });
   }
 
+  /**
+   * Handler for the hidden <input type="file"> next to the import button.
+   * Reads the selected JSON, validates it carries a `steps` array, then POSTs
+   * to /agents/:id/import-react-steps. The backend broadcasts headChange +
+   * nextContext on success, so timeline / DAG / context panel refresh
+   * automatically via existing WS subscriptions.
+   */
+  public onReActStepsFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // Reset the input so re-selecting the same file fires `change` again.
+    input.value = "";
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      this.notificationService.error("Failed to read file");
+    };
+    reader.onload = () => {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(String(reader.result ?? ""));
+      } catch (e) {
+        this.notificationService.error("File is not valid JSON");
+        return;
+      }
+      const steps = Array.isArray(parsed?.steps) ? parsed.steps : Array.isArray(parsed) ? parsed : null;
+      if (!steps || steps.length === 0) {
+        this.notificationService.error("JSON does not contain a non-empty `steps` array");
+        return;
+      }
+      this.agentService
+        .importReActSteps(this.agentInfo.id, steps)
+        .pipe(untilDestroyed(this))
+        .subscribe({
+          next: result => {
+            this.notificationService.success(`Imported ${result.importedCount} ReAct steps`);
+          },
+          error: err => {
+            console.error("Failed to import ReAct steps:", err);
+            const detail = err?.error?.message || err?.message || "Unknown error";
+            this.notificationService.error(`Import failed: ${detail}`);
+          },
+        });
+    };
+    reader.readAsText(file);
+  }
+
   public isGenerating(): boolean {
     return this.agentState === AgentState.GENERATING;
   }

@@ -302,6 +302,40 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { status: "cleared" };
   })
 
+  .post(
+    "/:id/import-react-steps",
+    ({ params: { id }, body }) => {
+      const agent = getAgent(id);
+      const archive = body as { steps?: unknown };
+      if (!archive || !Array.isArray(archive.steps)) {
+        throw new Error("body must be { steps: ReActStep[] } (the export JSON's `steps` field, or the whole export)");
+      }
+
+      const { headId, importedCount } = agent.importReActSteps(archive.steps as any);
+
+      const allSteps = agent.getAllSteps();
+      const workflowContent = agent.getWorkflowState().getWorkflowContent();
+      broadcastToAgent(id, {
+        type: "headChange",
+        headId,
+        steps: allSteps,
+        workflowContent,
+        operatorResults: getOperatorResultSummaries(agent),
+      });
+      broadcastNextContext(id, agent);
+
+      return { status: "imported", headId, importedCount };
+    },
+    {
+      body: t.Object(
+        {
+          steps: t.Array(t.Any()),
+        },
+        { additionalProperties: true }
+      ),
+    }
+  )
+
   .post("/:id/checkout", ({ params: { id }, body }) => {
     const agent = getAgent(id);
     const { stepId } = body as { stepId: string };

@@ -997,6 +997,19 @@ export class AgentService {
   }
 
   /**
+   * Import a previously-exported ReAct-step archive into an agent. Replaces
+   * existing steps, head, and workflow content. Returns the new headId and
+   * imported step count on success.
+   */
+  public importReActSteps(agentId: string, steps: unknown[]): Observable<{ headId: string; importedCount: number }> {
+    return this.http.post<{ headId: string; importedCount: number }>(
+      `${this.AGENT_API_BASE}/agents/${agentId}/import-react-steps`,
+      { steps },
+      this.agentHeaders(agentId)
+    );
+  }
+
+  /**
    * Clear all messages for an agent.
    */
   public clearMessages(agentId: string): void {
