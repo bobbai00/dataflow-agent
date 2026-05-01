@@ -460,30 +460,40 @@ class DataProcessor(Runnable, Stoppable):
         exception_type = type(exc_info[1]).__name__
         exception_msg = str(exc_info[1])
 
+        # Truncate the code line (often the longest part) rather than the
+        # whole title, so the error type/message is always preserved.
+        def _clip(s: str, n: int) -> str:
+            return s if len(s) <= n else s[: max(0, n - 1)] + "…"
+
         udf_frame, user_line = self._find_user_code_frame(tb)
         if udf_frame is not None:
             code_line = udf_frame.line
             base_name = os.path.basename(udf_frame.filename)
             module_name, _ = os.path.splitext(base_name)
             source = f"{module_name}:{udf_frame.name}:{udf_frame.lineno}"
-            title = (
-                f"(line {user_line}) `{code_line.strip()}` "
-                f"- {exception_type}: {exception_msg}"
-                if code_line
-                else f"(line {user_line}) {exception_type}: {exception_msg}"
-            )[:300]
+            if code_line:
+                title = (
+                    f"(line {user_line}) `{_clip(code_line.strip(), 200)}` "
+                    f"- {exception_type}: {exception_msg}"
+                )
+            else:
+                title = f"(line {user_line}) {exception_type}: {exception_msg}"
         else:
             filename, line_number, func_name, code_line = tb[-1]
             base_name = os.path.basename(filename)
             module_name, _ = os.path.splitext(base_name)
             source = f"{module_name}:{func_name}:{line_number}"
-            title = (
-                f"`{code_line.strip()}` - {exception_type}: {exception_msg}"
-                if code_line
-                else f"{exception_type}: {exception_msg}"
-            )[:300]
+            if code_line:
+                title = (
+                    f"`{_clip(code_line.strip(), 200)}` "
+                    f"- {exception_type}: {exception_msg}"
+                )
+            else:
+                title = f"{exception_type}: {exception_msg}"
 
-        message = "".join(traceback.format_exception(*exc_info))
+        # SyncExecutionResource picks whichever of title/message is longer;
+        # keep message short so the line-number-bearing title wins.
+        message = f"{exception_type}: {exception_msg}"
 
         self._context.console_message_manager.put_message(
             ConsoleMessage(

@@ -607,15 +607,27 @@
   ::ng-deep markdown {
     font-size: 12px;
 
+    // Force long content (URLs, code spans, error lines) to wrap inside the
+    // panel instead of overflowing horizontally.
+    p,
+    li {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
     pre {
       background: #f6f8fa;
       padding: 8px;
       border-radius: 4px;
       overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
     code {
       font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
   }
 }

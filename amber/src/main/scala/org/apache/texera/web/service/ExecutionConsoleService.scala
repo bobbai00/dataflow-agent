@@ -83,6 +83,12 @@ object ConsoleMessageProcessor {
       consoleMessage: ConsoleMessage,
       displayLength: Int
   ): ConsoleMessage = {
+    // ERROR titles carry the user-relative line number, code line, and
+    // exception cause; downstream consumers (SyncExecutionResource → agent
+    // service) need the full text. Don't truncate.
+    if (consoleMessage.msgType == ConsoleMessageType.ERROR) {
+      return consoleMessage
+    }
     // Truncate message title if it exceeds the display length
     val title = consoleMessage.title
     if (title.getBytes.length > displayLength) {
