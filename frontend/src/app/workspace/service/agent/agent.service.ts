@@ -175,6 +175,9 @@ interface AgentStateTracking {
   }>;
   /** Current HEAD step ID in the version tree */
   headIdSubject: BehaviorSubject<string | null>;
+  /** Assembled next-step user-message content (markdown). Empty until the
+   *  backend reports the first nextContext frame. */
+  nextContextSubject: BehaviorSubject<string>;
   workflowSubject: BehaviorSubject<Workflow | null>;
   workflowId?: number;
   stopPolling$: Subject<void>;
@@ -367,6 +370,7 @@ export class AgentService {
           modifiedOperatorIds: string[];
         }>({ viewedOperatorIds: [], addedOperatorIds: [], modifiedOperatorIds: [] }),
         headIdSubject: new BehaviorSubject<string | null>(null),
+        nextContextSubject: new BehaviorSubject<string>(""),
         workflowSubject: new BehaviorSubject<Workflow | null>(null),
         workflowId,
         stopPolling$: new Subject<void>(),
@@ -558,6 +562,15 @@ export class AgentService {
         // Update operator results on HEAD change
         if (message.operatorResults) {
           this.updateOperatorResultSummaries(message.operatorResults);
+        }
+        break;
+
+      case "nextContext":
+        // Real-time preview of the next-step user-message content (markdown).
+        // Pushed by the backend after init / step / complete / clear /
+        // checkout / settings — anything that changes what the model would see.
+        if (typeof message.content === "string") {
+          tracking.nextContextSubject.next(message.content);
         }
         break;
 
@@ -934,6 +947,36 @@ export class AgentService {
   }
 
   /**
+   * Send a debug input to an agent via WebSocket. Bypasses the LLM:
+   *   - plain text → recorded as a single user ReActStep
+   *   - `Function(name='...', arguments='...')` literal → parsed and executed
+   *     as a single tool call with the same post-step auto-execution as the
+   *     LLM-driven path.
+   */
+  public sendDebugInput(agentId: string, content: string, messageSource: "chat" | "feedback" = "chat"): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) {
+      this.notificationService.error(`Agent with ID ${agentId} not found`);
+      return;
+    }
+
+    const tracking = this.agentStateTracking.get(agentId);
+    if (!tracking || !tracking.websocket || tracking.websocket.readyState !== WebSocket.OPEN) {
+      this.notificationService.error("WebSocket connection not available");
+      return;
+    }
+
+    const wsMessage = { type: "debug", content, messageSource };
+
+    try {
+      tracking.websocket.send(JSON.stringify(wsMessage));
+    } catch (error) {
+      console.error("Failed to send debug input to agent:", error);
+      this.notificationService.error("Failed to send debug input");
+    }
+  }
+
+  /**
    * Get the ReActSteps observable stream.
    */
   public getReActStepsObservable(agentId: string): Observable<ReActStep[]> {
@@ -1026,6 +1069,16 @@ export class AgentService {
   public getHeadIdObservable(agentId: string): Observable<string | null> {
     const tracking = this.getOrCreateStateTracking(agentId);
     return tracking.headIdSubject.asObservable();
+  }
+
+  /**
+   * Get the assembled next-step context (markdown) observable for an agent.
+   * Updates whenever the backend broadcasts a `nextContext` frame — after init,
+   * each step, complete, clear, checkout, and settings updates.
+   */
+  public getNextContextObservable(agentId: string): Observable<string> {
+    const tracking = this.getOrCreateStateTracking(agentId);
+    return tracking.nextContextSubject.asObservable();
   }
 
   /**

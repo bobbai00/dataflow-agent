@@ -276,13 +276,73 @@
         </div>
       </div>
 
+      <!-- Next-Step Context Preview — live, identical to what the model would
+           receive on the next prepareStep. Available in both User and Debug modes. -->
+      <div class="next-context-panel">
+        <div class="next-context-header">
+          <button
+            nz-button
+            nzType="text"
+            nzSize="small"
+            class="next-context-toggle"
+            (click)="toggleNextContext()">
+            <i
+              nz-icon
+              [nzType]="showNextContext ? 'down' : 'right'"
+              nzTheme="outline"></i>
+            <span>Next-Step Context</span>
+            <small class="next-context-meta">{{ nextStepContext ? nextStepContext.length + ' chars' : 'empty' }}</small>
+          </button>
+          <button
+            nz-button
+            nzType="text"
+            nzSize="small"
+            class="next-context-copy"
+            [disabled]="!nextStepContext"
+            (click)="copyNextContext($event)"
+            nz-tooltip
+            nzTooltipTitle="Copy raw context to clipboard">
+            <i
+              nz-icon
+              nzType="copy"
+              nzTheme="outline"></i>
+          </button>
+        </div>
+        <div
+          *ngIf="showNextContext"
+          class="next-context-body">
+          <markdown
+            *ngIf="nextStepContext"
+            [data]="nextStepContext"></markdown>
+          <div
+            *ngIf="!nextStepContext"
+            class="next-context-empty">
+            (no context yet — send a message or wait for the agent to initialize)
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Mode bar (User vs Debug). Debug bypasses the LLM. -->
+      <div class="input-mode-bar">
+        <nz-switch
+          [(ngModel)]="debugMode"
+          nzSize="small"
+          nz-tooltip
+          nzTooltipTitle="Debug mode bypasses the LLM. Plain text is recorded as a user step; Function(name='...', arguments='...') is parsed and executed as a single tool call."></nz-switch>
+        <span
+          class="input-mode-label"
+          [class.debug]="debugMode">
+          {{ debugMode ? 'Debug' : 'User' }}
+        </span>
+      </div>
+
       <!-- Input Area -->
       <div class="input-area">
         <textarea
           #messageInput
           nz-input
           [(ngModel)]="currentMessage"
-          placeholder="Ask me anything about your data science tasks..."
+          [placeholder]="inputPlaceholder"
           [nzAutosize]="{ minRows: 1, maxRows: 4 }"
           (keydown.enter)="onEnterPress($any($event))"
           [disabled]="!canSendMessage()"></textarea>

@@ -112,6 +112,33 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public availableTools: Array<{ name: string; description: string; inputSchema: any }> = [];
   public agentState: AgentState = AgentState.UNAVAILABLE;
 
+  /**
+   * Debug mode toggle. When true, the input bypasses the LLM:
+   *   - `Function(name='...', arguments='...')` → parsed and executed as a
+   *     single tool call (no LLM, no ReAct loop).
+   *   - anything else → recorded as a plain user ReActStep (no LLM call).
+   * Tool execution and post-step operator execution still happen, exactly as
+   * if the LLM had produced the same tool call.
+   */
+  public debugMode = false;
+
+  /** Placeholder shown in the input box, switches with debug mode. */
+  public get inputPlaceholder(): string {
+    return this.debugMode
+      ? "Function(name='...', arguments='{...}') or plain text user step"
+      : "Ask me anything about your data science tasks...";
+  }
+
+  /**
+   * Preview of the next-step model context (markdown). Pushed by the agent
+   * service whenever steps, HEAD, workflow, or settings change. Same code
+   * path the LLM actually receives via prepareStep — useful in both User and
+   * Debug modes for inspecting what the next turn will see.
+   */
+  public nextStepContext: string = "";
+  /** Whether the "Next-Step Context" panel is expanded. Collapsed by default. */
+  public showNextContext: boolean = false;
+
   // Current HEAD step ID in the version tree
   public currentHeadId: string | null = null;
 
@@ -220,6 +247,17 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.currentHeadId = headId;
         this.updateVisibleSteps();
         this.buildTimelineNodes();
+        this.cdr.detectChanges();
+      });
+
+    // Subscribe to the next-step context preview (markdown). Backend pushes
+    // this on init and after every step / complete / clear / checkout /
+    // settings change, so the panel always reflects what the LLM would see.
+    this.agentService
+      .getNextContextObservable(this.agentInfo.id)
+      .pipe(untilDestroyed(this))
+      .subscribe(content => {
+        this.nextStepContext = content;
         this.cdr.detectChanges();
       });
 
@@ -415,6 +453,62 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     return !!response.operatorAccess && response.operatorAccess.size > 0;
   }
 
+  /** Toggle the Next-Step Context preview panel. */
+  public toggleNextContext(): void {
+    this.showNextContext = !this.showNextContext;
+  }
+
+  /**
+   * Copy the raw next-step context (the markdown source, not rendered HTML)
+   * to the clipboard. Falls back to a hidden textarea + execCommand when the
+   * async clipboard API is unavailable (e.g. in an insecure context).
+   */
+  public copyNextContext(event: Event): void {
+    event.stopPropagation();
+    if (!this.nextStepContext) {
+      this.notificationService.warning("Next-step context is empty");
+      return;
+    }
+    const text = this.nextStepContext;
+    const done = () => this.notificationService.success(`Copied next-step context (${text.length} chars)`);
+    const fail = (err: unknown) => {
+      console.error("Copy failed:", err);
+      this.notificationService.error("Failed to copy to clipboard");
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(text)
+        .then(done)
+        .catch(() => {
+          if (this.fallbackCopy(text)) done();
+          else fail(new Error("clipboard API rejected and fallback failed"));
+        });
+    } else if (this.fallbackCopy(text)) {
+      done();
+    } else {
+      fail(new Error("no clipboard API available"));
+    }
+  }
+
+  /** Synchronous clipboard write — used when navigator.clipboard is unavailable. */
+  private fallbackCopy(text: string): boolean {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
   public sendMessage(): void {
     if (!this.currentMessage.trim() || !this.canSendMessage()) {
       return;
@@ -424,7 +518,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     this.currentMessage = "";
 
     // Fire-and-forget; responses stream in via the WebSocket subscription.
-    this.agentService.sendMessage(this.agentInfo.id, userMessage);
+    // Debug mode dispatches a `type:"debug"` WS frame instead, which bypasses
+    // the LLM and either records the input as a user step or parses it as a
+    // Function(...) tool call.
+    if (this.debugMode) {
+      this.agentService.sendDebugInput(this.agentInfo.id, userMessage);
+    } else {
+      this.agentService.sendMessage(this.agentInfo.id, userMessage);
+    }
   }
 
   /**

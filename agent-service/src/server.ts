@@ -298,6 +298,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   .post("/:id/clear", ({ params: { id } }) => {
     const agent = getAgent(id);
     agent.clearHistory();
+    broadcastNextContext(id, agent);
     return { status: "cleared" };
   })
 
@@ -319,6 +320,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       workflowContent,
       operatorResults: getOperatorResultSummaries(agent),
     });
+    broadcastNextContext(id, agent);
 
     return {
       status: "checked out",
@@ -379,6 +381,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
       });
 
+      // Settings can change context assembly (agentMode flips schema gating in
+      // the DAG section) — re-broadcast the preview so clients stay in sync.
+      broadcastNextContext(id, agent);
+
       const agentSettings = agent.getSettings();
       return {
         maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
@@ -408,7 +414,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   );
 
 interface WsMessage {
-  type: "message" | "stop";
+  type: "message" | "stop" | "debug";
   content?: string;
   messageSource?: "chat" | "feedback";
 }
@@ -428,7 +434,7 @@ interface OperatorResultSummaryWs {
 }
 
 interface WsOutgoingMessage {
-  type: "step" | "state" | "error" | "complete" | "init" | "headChange";
+  type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext";
   step?: ReActStep;
   state?: string;
   error?: string;
@@ -436,6 +442,10 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
+  /** Assembled next-step user-message content (markdown). Updated whenever
+   * steps, HEAD, workflow, or settings change. Same code path the LLM would
+   * receive on the next prepareStep. */
+  content?: string;
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
@@ -479,6 +489,21 @@ function broadcastToAgent(agentId: string, message: WsOutgoingMessage): void {
   }
 }
 
+/**
+ * Broadcast the assembled next-step context to all WebSocket clients of an
+ * agent. Re-uses TexeraAgent.getNextStepContext() so the preview matches what
+ * the model would actually receive on the next prepareStep. Safe to call from
+ * any handler — failures are logged but don't propagate.
+ */
+function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
+  try {
+    const content = agent.getNextStepContext();
+    broadcastToAgent(agentId, { type: "nextContext", content });
+  } catch (e: any) {
+    wsLog.warn({ agentId, err: e?.message || e }, "failed to compute nextContext");
+  }
+}
+
 export function buildApp() {
   return new Elysia()
     .use(cors())
@@ -509,6 +534,14 @@ export function buildApp() {
           operatorResults: getOperatorResultSummaries(agent),
         };
         ws.send(JSON.stringify(initMessage));
+
+        // Send the initial next-step context preview right after init so the
+        // panel has something to show before any message is sent.
+        try {
+          ws.send(JSON.stringify({ type: "nextContext", content: agent.getNextStepContext() }));
+        } catch (e: any) {
+          wsLog.warn({ agentId, err: e?.message || e }, "failed to send initial nextContext");
+        }
       },
 
       async message(ws, messageData) {
@@ -549,6 +582,7 @@ export function buildApp() {
               step,
               ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
             });
+            broadcastNextContext(agentId, agent);
           });
 
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
@@ -569,11 +603,51 @@ export function buildApp() {
               state: agent.getState(),
               operatorResults: getOperatorResultSummaries(agent),
             });
+            broadcastNextContext(agentId, agent);
 
             wsLog.info({ agentId, steps: result.messages.length }, "agent run complete");
           } catch (error: any) {
             agent.setStepCallback(null);
             broadcastToAgent(agentId, { type: "error", error: error.message });
+          }
+        }
+
+        // Debug input — bypasses the LLM. Mirrors the "message" branch: same
+        // step callback, same state frames; the agent records steps directly.
+        if (msg.type === "debug") {
+          if (!msg.content || typeof msg.content !== "string") {
+            ws.send(JSON.stringify({ type: "error", error: "Debug content is required" }));
+            return;
+          }
+
+          wsLog.info({ agentId, preview: msg.content.substring(0, 50) }, "received debug input");
+
+          agent.setStepCallback((step: ReActStep) => {
+            const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
+            broadcastToAgent(agentId, {
+              type: "step",
+              step,
+              ...(hasToolCalls ? { operatorResults: getOperatorResultSummaries(agent) } : {}),
+            });
+            broadcastNextContext(agentId, agent);
+          });
+
+          broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
+
+          try {
+            await agent.handleDebugInput(msg.content, msg.messageSource);
+            agent.setStepCallback(null);
+            broadcastToAgent(agentId, {
+              type: "complete",
+              state: agent.getState(),
+              operatorResults: getOperatorResultSummaries(agent),
+            });
+            broadcastNextContext(agentId, agent);
+            wsLog.info({ agentId }, "debug input complete");
+          } catch (error: any) {
+            agent.setStepCallback(null);
+            broadcastToAgent(agentId, { type: "error", error: error.message || String(error) });
+            broadcastToAgent(agentId, { type: "state", state: agent.getState() });
           }
         }
       },
