@@ -20,12 +20,16 @@ name := "amber"
 
 enablePlugins(JavaAppPackaging)
 
-// Ship LICENSE-binary, NOTICE-binary, DISCLAIMER-WIP, and the licenses/
+// Ship LICENSE-binary, NOTICE-binary, DISCLAIMER, and the licenses/
 // directory at the top of the Universal dist zip.
-// See project/AddMetaInfLicenseFiles.scala.
+// See project/AddMetaInfLicenseFiles.scala. The Universal zip is jar-only,
+// so we ship LICENSE-binary-java; the dockerfile merges in
+// LICENSE-binary-python at image build time for coordinator/runner.
 Universal / mappings := AddMetaInfLicenseFiles.distMappings(
   (Universal / mappings).value,
-  (ThisBuild / baseDirectory).value
+  (ThisBuild / baseDirectory).value,
+  baseDirectory.value / "LICENSE-binary-java",
+  baseDirectory.value / "NOTICE-binary"
 )
 
 semanticdbEnabled := true
