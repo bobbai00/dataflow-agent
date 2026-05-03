@@ -233,3 +233,106 @@ behavior:
 
 If a full check is too expensive or cannot run locally, state exactly what was
 run and why the omitted check was skipped.
+
+## Fork notes (this checkout)
+
+This is a downstream fork. Items below are either fork-specific or non-obvious
+gotchas not derivable from a quick read of the tree.
+
+### Branch / PR base
+
+- Active branch: `feat/agent-copilot-refactored`.
+- The PR base for this fork's feature work is `feat/agent-copilot` — **not**
+  `master` or upstream `main`. Open fork-internal PRs against
+  `feat/agent-copilot`; only sync to upstream `main` from the fork's main
+  branch.
+- `.java-version` pins JDK 17 locally even though upstream CI still uses
+  Temurin JDK 11. Local builds may diverge from CI on JVM-version-sensitive
+  behavior — verify against CI before assuming a problem is environmental.
+
+### Big-picture architecture (read once, then skim)
+
+`amber/` is one sbt project but contains two logically distinct things, which
+is the most common source of "where does this code live" confusion:
+
+1. **Texera web application** under `org.apache.texera.web.*` — Dropwizard
+   server (REST + websockets + collaboration). Notable resources:
+   `web/resource/aiassistant/` (integration with `agent-service/`),
+   `web/model/websocket/`, `web/model/collab/`, `web/auth/`.
+2. **Amber dataflow engine** under `org.apache.texera.amber.engine.*` — the
+   distributed actor runtime. `engine/architecture/` holds master/worker
+   actor code; workers spawn Python sub-processes that load
+   `pytexera`/`pyamber`.
+
+Typical workflow request path: Frontend → web app (`amber/`) →
+`WorkflowCompilingService` (compiles logical → physical plan) →
+`ComputingUnitManagingService` (allocates compute) → Amber engine
+(executes, streams state/results back over websockets). The sbt module graph
+in `build.sbt` mirrors this — services that compile depend on
+`WorkflowOperator`, services that execute depend on `WorkflowExecutionService`.
+Operator-semantics changes typically touch `common/workflow-operator` (metadata
++ JSON schema), `common/workflow-core` (physical plan / scheduling), the
+engine, and possibly the Python runtime.
+
+### Agent service ↔ Texera
+
+`agent-service/` is a standalone Bun/Elysia process — **not** part of the sbt
+build. It's invoked from `web/resource/aiassistant/` with a user JWT + workflow
+ID, and:
+
+- Reads/writes workflows via REST (`api/workflow-api.ts`).
+- Compiles via `compile-api.ts` (calls `WorkflowCompilingService`).
+- Triggers executions via `execution-api.ts`.
+- Calls LLMs through the LiteLLM proxy configured in
+  `bin/litellm-config.yaml`.
+
+Agent tools live in `agent-service/src/agent/tools/` (CRUD operators,
+code-operator authoring, execution); state is in `workflow-state.ts` /
+`workflow-result-state.ts`; `AgentMode` selects between system prompts in
+`prompts.ts`. **Do not import frontend or amber code from `agent-service/`** —
+it's a separate process boundary.
+
+### Python runtime layout
+
+- `amber/src/main/python/pyamber/` — worker entrypoint, talks to the Scala
+  worker over Arrow Flight RPC. `texera_run_python_worker.py` is the script
+  entry.
+- `amber/src/main/python/pytexera/` — user-facing API that custom Python
+  operators import.
+- `amber/src/main/python/proto/` — generated; regenerate with
+  `bin/python-proto-gen.sh`. The frontend has the parallel
+  `bin/frontend-proto-gen.sh` for its TS protos.
+
+### Gotchas
+
+- **Scalafix before scalafmt**, always — `sbt scalafixAll && sbt scalafmtAll`.
+  Reverse order can leave fixable lint that the formatter then re-formats.
+- **IntelliJ test working directory**: amber tests must run with cwd
+  `amber/`; tests for other services run with cwd at the repo root. Wrong cwd
+  produces confusing classpath/resource-not-found failures.
+- **Pinned dep overrides in `build.sbt`** (don't "upgrade" without checking):
+  Jackson is pinned to `2.18.6` per-module because Dropwizard 4 needs ≥
+  2.16.1; Netty is pinned to `4.1.96.Final` for Arrow 14 compatibility. See
+  the `dependencyOverrides` blocks per project.
+- **Frontend monaco aliasing**: `vscode` and `monaco-editor` are aliased to
+  `@codingame/monaco-vscode-*` via `resolutions` in `frontend/package.json`.
+  Do not "fix" those imports — they're intentional.
+- **Licensing settings**: `common/workflow-operator` uses
+  `asfLicensingSettingsWithVendored` (it vendors mbknor code under a separate
+  attribution); everything else uses `asfLicensingSettings`. Defined in
+  `project/AddMetaInfLicenseFiles.scala`.
+
+### Convenience entry points
+
+- `bin/fix-format.sh [--scala|--frontend|--python|--all]` — wraps the three
+  formatters; CI checks each independently so you can run just the target you
+  touched.
+- `.run/*.run.xml` — IntelliJ run configs are the canonical source for main
+  classes and JVM args of every service (useful when reading `build.sbt`
+  doesn't make it obvious which `Main` to launch).
+- `bin/server.sh`, `bin/workflow-computing-unit.sh` — launch from a built
+  `amber/target/texera-*` distribution after `bin/build-services.sh`
+  (`sbt clean dist` + unzip).
+- `tests/` — end-to-end workflow scenarios with `run_services.sh` /
+  `run_workflows.sh` / `upload_workflows.py` for driving the live stack via
+  REST. These are integration scenarios, not sbt/pytest unit tests.
