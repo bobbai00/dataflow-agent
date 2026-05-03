@@ -90,10 +90,51 @@ psql -h localhost -U postgres -v DB_NAME=texera_db_for_test_cases -f sql/texera_
 Python worker code lives primarily under `amber/src/main/python`.
 
 - Supported CI Python versions: 3.10, 3.11, 3.12, 3.13.
-- Ruff config is in `amber/src/main/python/pyproject.toml`.
+- Ruff config is in `amber/src/main/python/pyproject.toml` (this is a
+  ruff-only config, separate from the project-level `pyproject.toml` at
+  the repo root).
 - Ruff line length is 88 and target version is `py310`.
 - Generated protobuf code under `amber/src/main/python/proto` is excluded from
   Ruff.
+
+### Dependencies
+
+The project-level `pyproject.toml` at the repo root holds the runtime
+Python deps for local development and for the runtime PVE feature (see
+`PveManager.scala`, which `pip install`s the project on each PVE
+creation). `[project.dependencies]` is the base set; `[project.optional-dependencies]`
+defines `dev` (test/lint) and `kramabench` (domain extras). `uv.lock` is
+committed.
+
+Local dev:
+
+```bash
+uv sync --all-extras   # creates .venv with base + dev + kramabench
+.venv/bin/pytest amber/src/main/python   # or whichever target
+```
+
+Plain pip also works for one-off installs:
+
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .[dev]
+```
+
+The `--extra-index-url` is required for the `torch==2.8.0+cpu` pin on Linux
+x86_64. uv reads `[tool.uv.sources]` and handles this automatically; plain
+pip needs the flag.
+
+`amber/dev-requirements.txt` still exists separately — it holds CI-only
+test deps (currently `pytest-cov`) installed *after* the LICENSE-binary
+snapshot so they never appear in `pip-licenses` output.
+
+The legacy `amber/requirements.txt` and `amber/operator-requirements.txt`
+have been removed. Some Docker/CI/licensing helpers still reference them
+(root `Dockerfile`, `bin/computing-unit-{master,worker}.dockerfile`,
+`bin/licensing/check_binary_deps.py`, `.github/labeler.yml`,
+`.github/workflows/build.yml`) and will need follow-up work before those
+paths can be exercised; they don't affect local development on this
+branch.
 
 Useful commands:
 
@@ -104,10 +145,6 @@ ruff format --check .
 pytest -sv
 python -m pytest core/runnables/test_main_loop.py -v
 ```
-
-Install dependencies from `amber/requirements.txt` and
-`amber/operator-requirements.txt` when running the Python runtime or tests
-outside CI.
 
 ## Frontend
 

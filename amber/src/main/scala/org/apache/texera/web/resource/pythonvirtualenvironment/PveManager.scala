@@ -84,18 +84,17 @@ object PveManager {
   ): Unit = {
     queue.put(s"[PVE] Creating new PVE for cuid: $cuid with name: $pveName")
 
-    // NOTE: These paths are derived from computing-unit-master.dockerfile.
-    // If requirements.txt or operator-requirements.txt locations change, update these paths.
-    val requirementsPath =
-      if (isLocal) Paths.get("amber", "requirements.txt")
-      else Paths.get("/tmp", "requirements.txt")
+    // Dependencies are sourced from the project's pyproject.toml — the single
+    // source of truth for Python deps. In local runs the file lives at the
+    // repo root; in container runs computing-unit-{master,worker}.dockerfile
+    // copies pyproject.toml + uv.lock to /tmp.
+    val pyprojectDir =
+      if (isLocal) Paths.get(".").toAbsolutePath.normalize()
+      else Paths.get("/tmp").toAbsolutePath.normalize()
+    val pyprojectFile = pyprojectDir.resolve("pyproject.toml")
 
-    val operatorRequirementsPath =
-      if (isLocal) Paths.get("amber", "operator-requirements.txt")
-      else Paths.get("/tmp", "operator-requirements.txt")
-
-    if (!Files.exists(requirementsPath) || !Files.exists(operatorRequirementsPath)) {
-      queue.put(s"[PVE][ERR] System requirements not found")
+    if (!Files.exists(pyprojectFile)) {
+      queue.put(s"[PVE][ERR] pyproject.toml not found at ${pyprojectFile.toAbsolutePath}")
       return
     }
 
@@ -121,22 +120,11 @@ object PveManager {
       return
     }
 
-    if (!Files.exists(requirementsPath)) {
-      queue.put(s"[PVE][ERR] requirements.txt not found at ${requirementsPath.toAbsolutePath}")
-      return
-    }
+    queue.put(s"[PVE] Installing dependencies from ${pyprojectFile.toAbsolutePath}")
 
-    if (!Files.exists(operatorRequirementsPath)) {
-      queue.put(
-        s"[PVE][ERR] operator-requirements.txt not found at ${operatorRequirementsPath.toAbsolutePath}"
-      )
-      return
-    }
-
-    queue.put(
-      s"[PVE] Installing requirements from ${requirementsPath.toAbsolutePath} and ${operatorRequirementsPath.toAbsolutePath}"
-    )
-
+    // Plain pip doesn't read pyproject's [tool.uv.sources], so add the
+    // PyTorch CPU index explicitly — the torch==2.8.0+cpu marker requires it
+    // on Linux x86_64.
     val installReqCode = Process(
       Seq(
         python,
@@ -146,10 +134,9 @@ object PveManager {
         "install",
         "--progress-bar",
         "off",
-        "-r",
-        requirementsPath.toString,
-        "-r",
-        operatorRequirementsPath.toString
+        "--extra-index-url",
+        "https://download.pytorch.org/whl/cpu",
+        pyprojectDir.toString
       ),
       None,
       envVars.toSeq: _*
@@ -160,10 +147,10 @@ object PveManager {
       )
     )
 
-    queue.put(s"[PVE] requirements install finished with exit code $installReqCode")
+    queue.put(s"[PVE] dependency install finished with exit code $installReqCode")
 
     if (installReqCode != 0) {
-      queue.put(s"[PVE][ERR] Failed to install requirements files (exit=$installReqCode)")
+      queue.put(s"[PVE][ERR] Failed to install dependencies (exit=$installReqCode)")
       return
     }
 
