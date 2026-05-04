@@ -74,8 +74,9 @@ export interface ReActStep {
   parentId?: string;
   /** Source of the user message: "chat" or "feedback" */
   messageSource?: string;
-  /** Workflow state before this step executed */
-  beforeWorkflowContent?: any;
-  /** Workflow state after this step executed */
-  afterWorkflowContent?: any;
 }
+
+// Workflow content is no longer embedded on each step. The agent service
+// pushes a `snapshot` WS event whenever the workflow at HEAD changes, and
+// exposes `GET /api/agents/:id/snapshots/:stepId` for explicit lookups
+// resolved through the snapshot storage's ancestor walk.

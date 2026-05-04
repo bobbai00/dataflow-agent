@@ -348,8 +348,6 @@ export class AgentService {
       id: apiStep.id || `${apiStep.messageId}-${apiStep.stepId || 0}`,
       parentId: apiStep.parentId,
       messageSource: apiStep.messageSource,
-      beforeWorkflowContent: apiStep.beforeWorkflowContent,
-      afterWorkflowContent: apiStep.afterWorkflowContent,
     };
   }
 
@@ -509,17 +507,25 @@ export class AgentService {
           if (convertedStep.id) {
             tracking.headIdSubject.next(convertedStep.id);
           }
+          // Workflow content no longer rides on step events — the agent
+          // service pushes a separate `snapshot` event when the snapshot
+          // storage records a new workflow at HEAD. See the "snapshot"
+          // case below.
+        }
+        break;
 
-          // If the step has afterWorkflowContent, update the workflow
-          if (convertedStep.afterWorkflowContent) {
-            tracking.wsWorkflowActive = true;
-            const existingWorkflow = tracking.workflowSubject.getValue();
-            const workflow = {
-              ...(existingWorkflow || {}),
-              content: convertedStep.afterWorkflowContent,
-            } as Workflow;
-            tracking.workflowSubject.next(workflow);
-          }
+      case "snapshot":
+        // The agent's snapshot storage recorded a new workflow at the given
+        // step id. Refresh the local workflow view so the panel renders the
+        // post-step DAG.
+        if (message.workflow) {
+          tracking.wsWorkflowActive = true;
+          const existingWorkflow = tracking.workflowSubject.getValue();
+          const workflow = {
+            ...(existingWorkflow || {}),
+            content: message.workflow,
+          } as Workflow;
+          tracking.workflowSubject.next(workflow);
         }
         break;
 
@@ -997,16 +1003,44 @@ export class AgentService {
   }
 
   /**
-   * Import a previously-exported ReAct-step archive into an agent. Replaces
-   * existing steps, head, and workflow content. Returns the new headId and
-   * imported step count on success.
+   * Import a previously-exported archive into an agent. Replaces existing
+   * steps, head, and workflow content. The archive shape is
+   * `{ steps, snapshots? }` — `snapshots` is a Record<stepId, WorkflowContent>
+   * that gets loaded into the agent's snapshot storage so workflow lookups
+   * resolve through the same ancestor walk used live.
    */
-  public importReActSteps(agentId: string, steps: unknown[]): Observable<{ headId: string; importedCount: number }> {
+  public importReActSteps(
+    agentId: string,
+    steps: unknown[],
+    snapshots?: Record<string, unknown>,
+  ): Observable<{ headId: string; importedCount: number }> {
     return this.http.post<{ headId: string; importedCount: number }>(
       `${this.AGENT_API_BASE}/agents/${agentId}/import-react-steps`,
-      { steps },
+      { steps, ...(snapshots ? { snapshots } : {}) },
       this.agentHeaders(agentId)
     );
+  }
+
+  /**
+   * Resolve the workflow + visible operator results at a given step via the
+   * agent's snapshot storage. `stepId` may be the literal "head" to read at
+   * the agent's current HEAD without an extra round trip.
+   */
+  public getSnapshot(
+    agentId: string,
+    stepId: string,
+  ): Observable<{
+    stepId: string;
+    workflow: any | null;
+    workflowSourceStepId: string | null;
+    results: Record<string, any>;
+  }> {
+    return this.http.get<{
+      stepId: string;
+      workflow: any | null;
+      workflowSourceStepId: string | null;
+      results: Record<string, any>;
+    }>(`${this.AGENT_API_BASE}/agents/${agentId}/snapshots/${stepId}`, this.agentHeaders(agentId));
   }
 
   /**

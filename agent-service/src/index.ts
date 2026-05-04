@@ -19,7 +19,7 @@
 
 export * from "./types";
 export { WorkflowState } from "./agent/workflow-state";
-export { WorkflowResultState } from "./agent/workflow-result-state";
+export { WorkflowSnapshotStorage } from "./agent/workflow-snapshot-storage";
 export { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 export * from "./agent/tools";
 export { TexeraAgent, type TexeraAgentConfig, type AgentMessageResult } from "./agent/texera-agent";

@@ -17,8 +17,6 @@
  * under the License.
  */
 
-import type { WorkflowContent } from "./workflow";
-
 export enum AgentState {
   UNAVAILABLE = "UNAVAILABLE",
   AVAILABLE = "AVAILABLE",
@@ -58,8 +56,6 @@ export interface ReActStep {
   usage?: TokenUsage;
   inputMessages?: any[];
   messageSource?: "chat" | "feedback";
-  beforeWorkflowContent?: WorkflowContent;
-  afterWorkflowContent?: WorkflowContent;
 }
 
 export enum OperatorResultSerializationMode {

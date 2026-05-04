@@ -21,8 +21,9 @@ import { generateText, type ModelMessage, type LanguageModel, stepCountIs } from
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
+import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { WorkflowResultState } from "./workflow-result-state";
+import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { formatOperatorResult } from "./tools/result-formatting";
 import type { AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import {
@@ -86,14 +87,16 @@ export interface AgentMessageResult {
 }
 
 type ReActStepCallback = (step: ReActStep) => void;
+type SnapshotCallback = (stepId: string, workflow: WorkflowContent) => void;
 
 /**
  * A single Texera agent instance.
  *
  * Owns the conversation (ReAct step tree with HEAD/checkout semantics), the
- * workflow being edited (`WorkflowState`), cached operator execution results
- * (`WorkflowResultState`), and the tool surface exposed to the LLM. Each call
- * to `sendMessage` drives one multi-step generation via the Vercel AI SDK,
+ * workflow being edited (`WorkflowState`), the per-step snapshot storage
+ * (`WorkflowSnapshotStorage`, holding both workflow content and operator
+ * results), and the tool surface exposed to the LLM. Each call to
+ * `sendMessage` drives one multi-step generation via the Vercel AI SDK,
  * streaming step updates to subscribed websockets.
  */
 export class TexeraAgent {
@@ -108,7 +111,7 @@ export class TexeraAgent {
   private head: string = INITIAL_STEP_ID;
   private stepsById: Map<string, ReActStep> = new Map();
   private stepCounter = 0;
-  private workflowResultState: WorkflowResultState;
+  private snapshotStorage: WorkflowSnapshotStorage;
 
   private websockets: Set<any> = new Set();
 
@@ -129,6 +132,7 @@ export class TexeraAgent {
   };
 
   private stepCallback: ReActStepCallback | null = null;
+  private snapshotCallback: SnapshotCallback | null = null;
 
   private messageCounter = 0;
 
@@ -151,7 +155,7 @@ export class TexeraAgent {
 
     this.workflowState = new WorkflowState();
     this.metadataStore = WorkflowSystemMetadata.getInstance();
-    this.workflowResultState = new WorkflowResultState(() => this.getAncestorPath());
+    this.snapshotStorage = new WorkflowSnapshotStorage(stepId => this.getAncestorPath(stepId));
 
     const initialStep: ReActStep = {
       id: INITIAL_STEP_ID,
@@ -251,7 +255,7 @@ export class TexeraAgent {
         this.workflowState,
         getExecutionConfig,
         (opId, operatorInfo) => {
-          this.workflowResultState.set(opId, this.head, operatorInfo);
+          this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
         }
       );
     }
@@ -290,8 +294,8 @@ export class TexeraAgent {
     return this.stepsById;
   }
 
-  getWorkflowResultState(): WorkflowResultState {
-    return this.workflowResultState;
+  getSnapshotStorage(): WorkflowSnapshotStorage {
+    return this.snapshotStorage;
   }
 
   getWebsockets(): Set<any> {
@@ -330,8 +334,12 @@ export class TexeraAgent {
     const step = this.stepsById.get(stepId);
     if (!step && stepId !== INITIAL_STEP_ID) return false;
     this.head = stepId;
-    if (step?.afterWorkflowContent) {
-      this.workflowState.setWorkflowContent(step.afterWorkflowContent);
+    // Restore the workflow visible at this branch via the snapshot storage's
+    // ancestor walk. Falls back to leaving the live workflow untouched if no
+    // ancestor on this branch ever recorded one (e.g. fresh checkout to root).
+    const wf = this.snapshotStorage.getWorkflow(stepId);
+    if (wf) {
+      this.workflowState.setWorkflowContent(wf);
     }
     return true;
   }
@@ -340,8 +348,37 @@ export class TexeraAgent {
     this.stepCallback = callback;
   }
 
+  /**
+   * Subscribe to workflow-snapshot writes. Fires after `maybeSetWorkflowSnapshot`
+   * actually wrote a new entry — i.e., the workflow changed at HEAD. Used by
+   * the websocket layer to push a `snapshot` event so clients can refresh
+   * their view without embedding workflow content in every step event.
+   */
+  setSnapshotCallback(callback: SnapshotCallback | null): void {
+    this.snapshotCallback = callback;
+  }
+
   private generateStepId(): string {
     return `step-${this.agentId}-${++this.stepCounter}-${Date.now()}`;
+  }
+
+  /**
+   * Record a workflow snapshot at HEAD, but only if it differs from what is
+   * already visible via the ancestor walk at HEAD's parent. Steps that don't
+   * mutate the DAG (user message, error, plain "thinking" turn) skip the
+   * write and let lookups fall back to the nearest ancestor's workflow —
+   * this is the dedupe property the storage relies on.
+   *
+   * Must be called AFTER `addStep` advances HEAD to the step we're writing
+   * for.
+   */
+  private maybeSetWorkflowSnapshot(content: WorkflowContent): void {
+    const parentId = this.stepsById.get(this.head)?.parentId;
+    const prev = parentId ? this.snapshotStorage.getWorkflow(parentId) : undefined;
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(content)) {
+      this.snapshotStorage.setWorkflow(this.head, content);
+      this.snapshotCallback?.(this.head, content);
+    }
   }
 
   private addStep(step: ReActStep): void {
@@ -531,7 +568,7 @@ export class TexeraAgent {
     this.currentMessageId = messageId;
 
     try {
-      let beforeStepContent = this.workflowState.getWorkflowContent();
+      const initialWorkflowContent = this.workflowState.getWorkflowContent();
 
       const estimatedInputTokens = Math.ceil(userMessage.length / 4);
       const userStepId = this.generateStepId();
@@ -546,8 +583,6 @@ export class TexeraAgent {
         isBegin: true,
         isEnd: true,
         messageSource,
-        beforeWorkflowContent: beforeStepContent,
-        afterWorkflowContent: beforeStepContent,
         usage: {
           inputTokens: estimatedInputTokens,
           outputTokens: 0,
@@ -556,6 +591,9 @@ export class TexeraAgent {
       };
       this.addStep(userStep);
       this.head = userStepId;
+      // Seed/refresh the snapshot at this step. Skipped if HEAD's parent
+      // already shows the same workflow (no-op turn).
+      this.maybeSetWorkflowSnapshot(initialWorkflowContent);
 
       let isFirstStep = true;
       let lastPreparedMessages: ModelMessage[] | undefined;
@@ -646,16 +684,14 @@ export class TexeraAgent {
                 }
               : undefined,
             inputMessages: lastPreparedMessages,
-            beforeWorkflowContent: beforeStepContent,
-            afterWorkflowContent: afterStepContent,
           };
           lastPreparedMessages = undefined;
           this.addStep(agentStep);
           this.head = agentStepId;
+          this.maybeSetWorkflowSnapshot(afterStepContent);
 
           await this.runPostStepExecution(toolCalls, toolResults);
 
-          beforeStepContent = afterStepContent;
           isFirstStep = false;
         },
       });
@@ -741,9 +777,9 @@ export class TexeraAgent {
 
   private getFormattedResultsForDAG(): Map<string, string> {
     const result = new Map<string, string>();
-    const visible = this.workflowResultState.getAllVisible();
-    for (const [operatorId, entry] of visible) {
-      result.set(operatorId, formatOperatorResult(operatorId, entry.operatorInfo, this.workflowState));
+    const visible = this.snapshotStorage.getAllVisibleResults(this.head);
+    for (const [operatorId, info] of visible) {
+      result.set(operatorId, formatOperatorResult(operatorId, info, this.workflowState));
     }
     return result;
   }
@@ -786,7 +822,7 @@ export class TexeraAgent {
     this.stepsById.clear();
     this.currentMessageId = undefined;
     this.head = INITIAL_STEP_ID;
-    this.workflowResultState.clear();
+    this.snapshotStorage.clear();
     const initialStep: ReActStep = {
       id: INITIAL_STEP_ID,
       messageId: "initial",
@@ -801,24 +837,29 @@ export class TexeraAgent {
   }
 
   /**
-   * Rehydrate the agent from an exported ReAct-step archive (the JSON produced
-   * by the frontend Export button). Replaces all in-memory state — steps,
-   * head, workflow content, result snapshots — with what the archive carries.
+   * Rehydrate the agent from an exported archive `{ steps, snapshots? }`
+   * (the JSON produced by the frontend Export button).
    *
    * Requirements / contract:
    * - `steps[]` may be in any order; parent links (`parentId`) define the tree.
+   * - `snapshots`: optional `Record<stepId, WorkflowContent>`. Each entry is
+   *   loaded into the snapshot storage so reads resolve through the same
+   *   ancestor walk live agent reads use.
    * - HEAD is set to the deepest leaf on the longest chain (last by timestamp
    *   among nodes with no children). For a linear export this is the final
    *   step; for a branched export it picks the most-recently-extended branch.
-   * - The active branch's `afterWorkflowContent` (final step on that branch)
+   * - The workflow visible at HEAD via `snapshotStorage.getWorkflow(headId)`
    *   restores `workflowState` so the live DAG matches the loaded HEAD.
-   * - Operator execution results are NOT in the export — `workflowResultState`
-   *   stays empty until the user re-runs.
+   * - Operator execution results are NOT in the export — the snapshot
+   *   storage's results map stays empty until the user re-runs.
    *
    * Throws on structural problems (missing parent, cycle, duplicate id) so a
    * partial state is never installed.
    */
-  importReActSteps(steps: ReActStep[]): { headId: string; importedCount: number } {
+  importReActSteps(
+    steps: ReActStep[],
+    snapshots?: Record<string, WorkflowContent>,
+  ): { headId: string; importedCount: number } {
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new Error("import requires a non-empty steps array");
     }
@@ -882,9 +923,8 @@ export class TexeraAgent {
     this.clearHistory();
     const stepById = new Map<string, ReActStep>();
     for (const s of steps) {
-      if (s.id !== INITIAL_STEP_ID) {
-        stepById.set(s.id, { ...s, timestamp: toEpochMs(s.timestamp) });
-      }
+      if (s.id === INITIAL_STEP_ID) continue;
+      stepById.set(s.id, { ...s, timestamp: toEpochMs(s.timestamp) });
     }
     const order: ReActStep[] = [];
     const queue: string[] = [...(childrenOf.get(INITIAL_STEP_ID) ?? [])];
@@ -897,6 +937,15 @@ export class TexeraAgent {
     }
     for (const s of order) this.addStep(s);
 
+    // Load workflow snapshots (if provided) into the storage. Iteration order
+    // doesn't matter — the storage is keyed by stepId.
+    if (snapshots) {
+      for (const [stepId, content] of Object.entries(snapshots)) {
+        if (!seenIds.has(stepId)) continue; // ignore snapshots for unknown steps
+        this.snapshotStorage.setWorkflow(stepId, content);
+      }
+    }
+
     // Pick HEAD: leaf with the latest timestamp on its branch.
     const leaves = order.filter(s => (childrenOf.get(s.id) ?? []).length === 0);
     if (leaves.length === 0) {
@@ -906,9 +955,11 @@ export class TexeraAgent {
     const headStep = leaves[0];
     this.head = headStep.id;
 
-    // Restore workflow snapshot from HEAD's afterWorkflowContent.
-    if (headStep.afterWorkflowContent) {
-      this.workflowState.setWorkflowContent(headStep.afterWorkflowContent);
+    // Restore workflow snapshot at HEAD via the snapshot storage's ancestor
+    // walk (populated above from legacy `afterWorkflowContent` fields).
+    const headWorkflow = this.snapshotStorage.getWorkflow(headStep.id);
+    if (headWorkflow) {
+      this.workflowState.setWorkflowContent(headWorkflow);
     }
 
     // Recompute stepCounter from the largest numeric segment in any imported
@@ -952,7 +1003,7 @@ export class TexeraAgent {
    * Run the post-step operator-execution loop for tool calls that just modified
    * the workflow. Skips when there's no execution config (no delegate mode),
    * when the tool isn't in EXECUTE_AFTER_TOOLS, or when the tool result was an
-   * error. Results are stored at the current HEAD via workflowResultState.
+   * error. Results are stored at the current HEAD via snapshotStorage.
    *
    * Used by both `sendMessage` (LLM path) and `handleDebugInput` (debug path)
    * so a Function(...) tool call has identical post-step behaviour to an
@@ -997,7 +1048,7 @@ export class TexeraAgent {
         await executeOperatorAndFormat(this.workflowState, execConfig, target, {
           abortSignal: this.abortController?.signal,
           onResult: (opId, operatorInfo) => {
-            this.workflowResultState.set(opId, this.head, operatorInfo);
+            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
           },
         });
       } catch (e: any) {
@@ -1082,11 +1133,10 @@ export class TexeraAgent {
           isBegin: true,
           isEnd: true,
           messageSource,
-          beforeWorkflowContent: beforeContent,
-          afterWorkflowContent: beforeContent,
         };
         this.addStep(userStep);
         this.head = userStepId;
+        this.maybeSetWorkflowSnapshot(beforeContent);
         return { kind: "user_message", stopped: false };
       }
 
@@ -1127,11 +1177,12 @@ export class TexeraAgent {
           content: `[ERROR] ${message}`,
           isBegin,
           isEnd: false,
-          beforeWorkflowContent: beforeContent,
-          afterWorkflowContent: beforeContent,
         };
         this.addStep(errorStep);
         this.head = errorStepId;
+        // No DAG mutation occurred; the maybeSet helper will skip if the
+        // parent's snapshot already shows the same content.
+        this.maybeSetWorkflowSnapshot(beforeContent);
         return { kind: "function_call", stopped: false, error: message };
       }
 
@@ -1168,11 +1219,10 @@ export class TexeraAgent {
         isEnd: false,
         toolCalls: formattedToolCalls,
         toolResults: formattedToolResults,
-        beforeWorkflowContent: beforeContent,
-        afterWorkflowContent: afterContent,
       };
       this.addStep(agentStep);
       this.head = agentStepId;
+      this.maybeSetWorkflowSnapshot(afterContent);
 
       await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
 

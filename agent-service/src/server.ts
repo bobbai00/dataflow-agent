@@ -270,6 +270,29 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { results: getOperatorResultSummaries(agent) };
   })
 
+  /**
+   * Resolve the workflow + operator results visible at a given step via the
+   * snapshot storage's ancestor walk. Use the literal "head" alias to read
+   * the snapshot at the agent's current HEAD without separately querying it.
+   */
+  .get("/:id/snapshots/:stepId", ({ params: { id, stepId } }) => {
+    const agent = getAgent(id);
+    const resolvedStepId = stepId === "head" ? agent.getHead() : stepId;
+    const storage = agent.getSnapshotStorage();
+    const workflowEntry = storage.getResolvedWorkflow(resolvedStepId);
+    const visibleResults = storage.getAllVisibleResults(resolvedStepId);
+    const results: Record<string, unknown> = {};
+    for (const [opId, info] of visibleResults) {
+      results[opId] = info;
+    }
+    return {
+      stepId: resolvedStepId,
+      workflow: workflowEntry?.value ?? null,
+      workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
+      results,
+    };
+  })
+
   .post(
     "/:id/steps-by-operators",
     ({ params: { id }, body }) => {
@@ -306,12 +329,17 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     "/:id/import-react-steps",
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
-      const archive = body as { steps?: unknown };
+      const archive = body as { steps?: unknown; snapshots?: unknown };
       if (!archive || !Array.isArray(archive.steps)) {
-        throw new Error("body must be { steps: ReActStep[] } (the export JSON's `steps` field, or the whole export)");
+        throw new Error("body must be { steps: ReActStep[], snapshots?: Record<stepId, WorkflowContent> }");
       }
 
-      const { headId, importedCount } = agent.importReActSteps(archive.steps as any);
+      const snapshots =
+        archive.snapshots && typeof archive.snapshots === "object" && !Array.isArray(archive.snapshots)
+          ? (archive.snapshots as Record<string, any>)
+          : undefined;
+
+      const { headId, importedCount } = agent.importReActSteps(archive.steps as any, snapshots);
 
       const allSteps = agent.getAllSteps();
       const workflowContent = agent.getWorkflowState().getWorkflowContent();
@@ -330,6 +358,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       body: t.Object(
         {
           steps: t.Array(t.Any()),
+          snapshots: t.Optional(t.Record(t.String(), t.Any())),
         },
         { additionalProperties: true }
       ),
@@ -468,7 +497,7 @@ interface OperatorResultSummaryWs {
 }
 
 interface WsOutgoingMessage {
-  type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext";
+  type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot";
   step?: ReActStep;
   state?: string;
   error?: string;
@@ -480,14 +509,16 @@ interface WsOutgoingMessage {
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
   content?: string;
+  /** For "snapshot" events: the step the workflow was written under. */
+  stepId?: string;
+  /** For "snapshot" events: the freshly recorded workflow content. */
+  workflow?: any;
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
-  const resultState = agent.getWorkflowResultState();
-  const visible = resultState.getAllVisible();
+  const visible = agent.getSnapshotStorage().getAllVisibleResults(agent.getHead());
   const results: Record<string, OperatorResultSummaryWs> = {};
-  for (const [opId, entry] of visible) {
-    const info = entry.operatorInfo;
+  for (const [opId, info] of visible) {
     results[opId] = {
       state: info.state,
       inputTuples: info.inputTuples,
@@ -621,6 +652,12 @@ export function buildApp() {
             });
             broadcastNextContext(agentId, agent);
           });
+          // Snapshot writes ride alongside step events. The frontend listens
+          // to this stream to refresh its view of the workflow without
+          // embedding workflow content in every step payload.
+          agent.setSnapshotCallback((stepId, workflow) => {
+            broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
+          });
 
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
@@ -628,6 +665,7 @@ export function buildApp() {
             const result = await agent.sendMessage(msg.content, msg.messageSource);
 
             agent.setStepCallback(null);
+            agent.setSnapshotCallback(null);
 
             const allSteps = agent.getReActSteps();
             const lastStep = allSteps[allSteps.length - 1];
@@ -645,6 +683,7 @@ export function buildApp() {
             wsLog.info({ agentId, steps: result.messages.length }, "agent run complete");
           } catch (error: any) {
             agent.setStepCallback(null);
+            agent.setSnapshotCallback(null);
             broadcastToAgent(agentId, { type: "error", error: error.message });
           }
         }
@@ -668,12 +707,16 @@ export function buildApp() {
             });
             broadcastNextContext(agentId, agent);
           });
+          agent.setSnapshotCallback((stepId, workflow) => {
+            broadcastToAgent(agentId, { type: "snapshot", stepId, workflow });
+          });
 
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
             await agent.handleDebugInput(msg.content, msg.messageSource);
             agent.setStepCallback(null);
+            agent.setSnapshotCallback(null);
             broadcastToAgent(agentId, {
               type: "complete",
               state: agent.getState(),
@@ -683,6 +726,7 @@ export function buildApp() {
             wsLog.info({ agentId }, "debug input complete");
           } catch (error: any) {
             agent.setStepCallback(null);
+            agent.setSnapshotCallback(null);
             broadcastToAgent(agentId, { type: "error", error: error.message || String(error) });
             broadcastToAgent(agentId, { type: "state", state: agent.getState() });
           }
