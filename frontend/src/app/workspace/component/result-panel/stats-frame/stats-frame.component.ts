@@ -18,6 +18,7 @@
  */
 
 import { Component, Input, OnChanges, OnInit, SimpleChanges } from "@angular/core";
+import { NgIf, NgFor } from "@angular/common";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { WorkflowStatusService } from "../../../service/workflow-status/workflow-status.service";
 
@@ -31,7 +32,7 @@ interface ColumnStat {
   selector: "texera-stats-frame",
   templateUrl: "./stats-frame.component.html",
   styleUrls: ["./stats-frame.component.scss"],
-  standalone: false,
+  imports: [NgIf, NgFor],
 })
 export class StatsFrameComponent implements OnInit, OnChanges {
   @Input() operatorId?: string;

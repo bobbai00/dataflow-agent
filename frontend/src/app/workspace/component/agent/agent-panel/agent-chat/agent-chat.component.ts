@@ -856,7 +856,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       let current: string | undefined = this.currentHeadId;
       while (current) {
         headPath.add(current);
-        const next = stepMap.get(current)?.parentId;
+        const next: string | undefined = stepMap.get(current)?.parentId;
         if (!next && current !== TIMELINE_INITIAL_STEP_ID) {
           headPath.add(TIMELINE_INITIAL_STEP_ID);
           break;
