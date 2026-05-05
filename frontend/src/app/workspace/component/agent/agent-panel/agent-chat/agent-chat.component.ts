@@ -802,13 +802,20 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const allSteps = [initialStep, ...visibleSteps.filter(s => s.id !== TIMELINE_INITIAL_STEP_ID)];
 
     // Walk parent links from HEAD up to the root to get the ancestor set.
+    // A step with no `parentId` attaches to the synthetic Ready node so the
+    // path still terminates at a single visible root.
     const headPath = new Set<string>();
     if (this.currentHeadId) {
       const stepMap = new Map(allSteps.map(s => [s.id, s]));
       let current: string | undefined = this.currentHeadId;
       while (current) {
         headPath.add(current);
-        current = stepMap.get(current)?.parentId;
+        const next = stepMap.get(current)?.parentId;
+        if (!next && current !== TIMELINE_INITIAL_STEP_ID) {
+          headPath.add(TIMELINE_INITIAL_STEP_ID);
+          break;
+        }
+        current = next;
       }
     }
 
@@ -856,9 +863,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
     const stepIds = new Set(allSteps.map(s => s.id));
     for (const step of allSteps) {
-      if (step.parentId && stepIds.has(step.parentId)) {
-        g.setEdge(step.parentId, step.id);
-      }
+      if (step.id === TIMELINE_INITIAL_STEP_ID) continue;
+      // Backend steps with no parent attach to the synthetic "Ready" node so
+      // the tree always has a single visible root in the timeline.
+      const parent = step.parentId && stepIds.has(step.parentId) ? step.parentId : TIMELINE_INITIAL_STEP_ID;
+      g.setEdge(parent, step.id);
     }
 
     dagre.layout(g);

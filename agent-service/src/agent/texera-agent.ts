@@ -32,7 +32,6 @@ import {
   AgentState as AgentStateEnum,
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
-  INITIAL_STEP_ID,
 } from "../types/agent";
 import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
 import {
@@ -102,15 +101,15 @@ type SnapshotCallback = (stepId: string, workflow: WorkflowContent) => void;
  * streaming step updates to subscribed websockets.
  */
 /**
- * Compact, LLM-friendly summary of the baseline execution. Goes into the
- * synthetic `executeWorkflow` tool result so the model enters turn 1 already
+ * Compact, LLM-friendly summary of agent initialization. Goes into the
+ * synthetic `initialize` tool result so the model enters turn 1 already
  * knowing each operator's row count or error.
  */
-function formatBaselineSummary(
+function formatInitializationSummary(
   runResult: { success: boolean; state: string; opCount: number; errorCount: number; errorText?: string },
   results: Map<string, OperatorInfo>
 ): string {
-  const header = `Baseline run: state=${runResult.state}, operators=${runResult.opCount}, errors=${runResult.errorCount}.`;
+  const header = `Initialization: state=${runResult.state}, operators=${runResult.opCount}, errors=${runResult.errorCount}.`;
   const lines: string[] = [header];
   if (results.size === 0 && runResult.errorText) {
     lines.push(runResult.errorText);
@@ -136,7 +135,12 @@ export class TexeraAgent {
   private state: AgentStateEnum = AgentStateEnum.AVAILABLE;
   private workflowState: WorkflowState;
   private metadataStore: WorkflowSystemMetadata;
-  private head: string = INITIAL_STEP_ID;
+  /**
+   * Active step in the version tree. `undefined` means the agent has no steps
+   * yet (fresh agent, or `clearHistory` just ran). The first appended step
+   * becomes the tree root with `parentId === undefined`.
+   */
+  private head: string | undefined = undefined;
   private stepsById: Map<string, ReActStep> = new Map();
   private stepCounter = 0;
   private snapshotStorage: WorkflowSnapshotStorage;
@@ -185,19 +189,6 @@ export class TexeraAgent {
     this.metadataStore = WorkflowSystemMetadata.getInstance();
     this.snapshotStorage = new WorkflowSnapshotStorage(stepId => this.getAncestorPath(stepId));
 
-    const initialStep: ReActStep = {
-      id: INITIAL_STEP_ID,
-      messageId: "initial",
-      stepId: -1,
-      timestamp: Date.now(),
-      role: "user",
-      content: "",
-      isBegin: true,
-      isEnd: true,
-      parentId: undefined,
-    };
-    this.stepsById.set(INITIAL_STEP_ID, initialStep);
-
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
       systemPrompt: this.systemPrompt,
@@ -212,17 +203,16 @@ export class TexeraAgent {
    * Phase 1 — metadata (always): load operator schemas + system prompt + tools.
    * Phase 2 — delegate (only when `delegateConfig` carries `workflowId`+`userToken`):
    *   (a) fetch the workflow from the backend,
-   *   (b) seed `WorkflowSnapshotStorage` at `INITIAL_STEP_ID` so every later
-   *       step's ancestor walk has a real root snapshot,
-   *   (c) commit `setDelegateConfig` (wires auto-persist + execution tool),
-   *   (d) baseline-execute the loaded workflow once and append a synthetic
-   *       agent-role step carrying an `executeWorkflow` tool call/result so
-   *       the LLM enters turn 1 already aware of the workflow's current state.
+   *   (b) commit `setDelegateConfig` (wires auto-persist + execution tool),
+   *   (c) record a synthetic `initialize` step as the tree root: it carries
+   *       the workflow snapshot, runs a baseline execution if there's
+   *       anything to run, and persists every per-operator result. The LLM
+   *       enters turn 1 already aware of the workflow's current state.
    *
-   * Failure tolerance: every backend call here is wrapped — a missing workflow,
-   * a failed compile, or a runtime error never crashes agent creation. The
-   * worst case is "agent comes up with an empty snapshot and no baseline
-   * step", which the user's first message will recover from on its own.
+   * Failure tolerance: every backend call here is wrapped. A missing workflow
+   * leaves the agent with no steps; a failed run still records the
+   * initialization step with the error captured in the tool result so the
+   * model can react. Agent creation never throws.
    */
   async initialize(delegateConfig?: AgentDelegateConfig): Promise<void> {
     try {
@@ -242,9 +232,10 @@ export class TexeraAgent {
   }
 
   /**
-   * Delegate-mode bootstrap. Fetches the workflow, seeds the snapshot at the
-   * initial version, then runs a baseline execution to populate operator
-   * results. All three stages are independently failure-tolerant.
+   * Delegate-mode bootstrap. Loads the workflow, then records a single
+   * `initialize` step that anchors both the workflow snapshot and any
+   * baseline operator results. If the workflow load fails the agent comes
+   * up with no steps — the user's first message becomes the tree root.
    */
   private async bootstrapDelegate(delegateConfig: AgentDelegateConfig): Promise<void> {
     const { workflowId, userToken } = delegateConfig;
@@ -262,12 +253,9 @@ export class TexeraAgent {
       this.log.warn({ err: error, workflowId }, "initialize: failed to load workflow");
     }
 
-    // Push to the live buffer first (no auto-persist subscription yet) and
-    // seed the snapshot at INITIAL_STEP_ID so a fresh agent already answers
-    // GET /snapshots/head correctly.
+    // Push to the live buffer first (no auto-persist subscription yet).
     if (workflowContent) {
       this.workflowState.setWorkflowContent(workflowContent);
-      this.snapshotStorage.setWorkflow(INITIAL_STEP_ID, workflowContent);
     }
 
     // Commit delegateConfig last so the auto-persist subscription is attached
@@ -280,62 +268,71 @@ export class TexeraAgent {
       computingUnitId: delegateConfig.computingUnitId,
     });
 
-    // Skip baseline execution when there's nothing to run.
-    if (!workflowContent || (workflowContent.operators?.length ?? 0) === 0) {
-      return;
+    if (workflowContent) {
+      await this.recordInitializationStep(workflowContent);
     }
-
-    await this.runBaselineExecution(workflowContent);
   }
 
   /**
-   * Run the loaded workflow once at agent creation, capture every per-op
-   * result (errors included), and append a single agent-role step under
-   * INITIAL_STEP_ID carrying an `executeWorkflow` tool call/result. The LLM
-   * sees this on its next turn — it knows what each operator currently
-   * produces without having to ask.
+   * Append a single root-level `agent` step that represents agent
+   * initialization. The step's `toolCall` is named `initialize`; its result
+   * captures the loaded workflow plus a baseline execution summary. Both the
+   * workflow snapshot and every per-operator result are keyed against this
+   * step's id, so HEAD's ancestor walk has a real anchor for both axes.
+   *
+   * If the workflow has zero operators we skip the backend execute call but
+   * still record the step (so the workflow snapshot has a home).
    */
-  private async runBaselineExecution(workflowContent: WorkflowContent): Promise<void> {
+  private async recordInitializationStep(workflowContent: WorkflowContent): Promise<void> {
     const execConfig = this.buildExecutionConfig();
     if (!execConfig) return;
 
-    const collected = new Map<string, OperatorInfo>();
     const opIds = workflowContent.operators.map(op => op.operatorID);
-
+    const collected = new Map<string, OperatorInfo>();
     let runResult: Awaited<ReturnType<typeof executeWorkflowAndPersist>>;
-    try {
-      runResult = await executeWorkflowAndPersist(this.workflowState, execConfig, {
-        onResult: (opId, info) => {
-          collected.set(opId, info);
-        },
-        opsToViewResult: opIds,
-      });
-    } catch (error) {
-      this.log.warn({ err: error, workflowId: execConfig.workflowId }, "initialize: baseline execution threw");
-      return;
+
+    if (opIds.length === 0) {
+      runResult = { success: true, state: "Empty", opCount: 0, errorCount: 0 };
+    } else {
+      try {
+        runResult = await executeWorkflowAndPersist(this.workflowState, execConfig, {
+          onResult: (opId, info) => {
+            collected.set(opId, info);
+          },
+          opsToViewResult: opIds,
+        });
+      } catch (error) {
+        this.log.warn({ err: error, workflowId: execConfig.workflowId }, "initialize: baseline execution threw");
+        runResult = {
+          success: false,
+          state: "Error",
+          opCount: 0,
+          errorCount: 0,
+          errorText: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
 
-    const baselineMessageId = `msg-${this.agentId}-${++this.messageCounter}-baseline-${Date.now()}`;
-    const baselineStepId = this.generateStepId();
-    const toolCallId = `call-${baselineStepId}-baseline`;
-    const summary = formatBaselineSummary(runResult, collected);
+    const messageId = `msg-${this.agentId}-${++this.messageCounter}-init-${Date.now()}`;
+    const stepId = this.generateStepId();
+    const toolCallId = `call-${stepId}-initialize`;
+    const summary = formatInitializationSummary(runResult, collected);
 
-    const baselineStep: ReActStep = {
-      id: baselineStepId,
-      parentId: INITIAL_STEP_ID,
-      messageId: baselineMessageId,
+    const initStep: ReActStep = {
+      id: stepId,
+      parentId: undefined,
+      messageId,
       stepId: 0,
       timestamp: Date.now(),
       role: "agent",
-      content:
-        "Loaded the existing workflow and ran a baseline execution to capture each operator's current result.",
+      content: "Initialization: loaded workflow and recorded a baseline of each operator's current result.",
       isBegin: true,
       isEnd: true,
       toolCalls: [
         {
-          toolName: "executeWorkflow",
+          toolName: "initialize",
           toolCallId,
-          input: { reason: "baseline at agent init" },
+          input: { workflowId: execConfig.workflowId },
         },
       ],
       toolResults: [
@@ -346,25 +343,25 @@ export class TexeraAgent {
         },
       ],
     };
-    this.addStep(baselineStep);
-    this.head = baselineStepId;
+    this.addStep(initStep);
+    this.head = stepId;
 
-    // Persist results at the baseline step. The workflow snapshot is already
-    // at INITIAL_STEP_ID and unchanged here, so no re-write needed (the
-    // ancestor walk inherits it).
+    // Anchor both the workflow snapshot and every per-op result at this step.
+    this.snapshotStorage.setWorkflow(stepId, workflowContent);
+    this.snapshotCallback?.(stepId, workflowContent);
     for (const [opId, info] of collected) {
-      this.snapshotStorage.setOperatorResult(baselineStepId, opId, info);
+      this.snapshotStorage.setOperatorResult(stepId, opId, info);
     }
 
     this.log.info(
       {
         workflowId: execConfig.workflowId,
-        baselineStepId,
+        stepId,
         opCount: runResult.opCount,
         errorCount: runResult.errorCount,
         state: runResult.state,
       },
-      "baseline execution recorded"
+      "initialization step recorded"
     );
   }
 
@@ -430,7 +427,9 @@ export class TexeraAgent {
         this.workflowState,
         getExecutionConfig,
         (opId, operatorInfo) => {
-          this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+          if (this.head !== undefined) {
+            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+          }
         }
       );
     }
@@ -450,12 +449,13 @@ export class TexeraAgent {
     return this.metadataStore;
   }
 
-  getHead(): string {
+  getHead(): string | undefined {
     return this.head;
   }
 
   getAncestorPath(stepId?: string): string[] {
     const target = stepId ?? this.head;
+    if (!target) return [];
     const chain: string[] = [];
     let current: string | undefined = target;
     while (current) {
@@ -494,20 +494,18 @@ export class TexeraAgent {
   }
 
   getVisibleReActSteps(): ReActStep[] {
-    const path = this.getAncestorPath();
-    return path
-      .filter(id => id !== INITIAL_STEP_ID)
+    return this.getAncestorPath()
       .map(id => this.stepsById.get(id)!)
       .filter(Boolean);
   }
 
   getAllSteps(): ReActStep[] {
-    return Array.from(this.stepsById.values()).filter(s => s.id !== INITIAL_STEP_ID);
+    return Array.from(this.stepsById.values());
   }
 
   checkout(stepId: string): boolean {
     const step = this.stepsById.get(stepId);
-    if (!step && stepId !== INITIAL_STEP_ID) return false;
+    if (!step) return false;
     this.head = stepId;
     // Restore the workflow visible at this branch via the snapshot storage's
     // ancestor walk. Falls back to leaving the live workflow untouched if no
@@ -548,11 +546,13 @@ export class TexeraAgent {
    * for.
    */
   private maybeSetWorkflowSnapshot(content: WorkflowContent): void {
-    const parentId = this.stepsById.get(this.head)?.parentId;
+    const head = this.head;
+    if (head === undefined) return;
+    const parentId = this.stepsById.get(head)?.parentId;
     const prev = parentId ? this.snapshotStorage.getWorkflow(parentId) : undefined;
     if (!prev || JSON.stringify(prev) !== JSON.stringify(content)) {
-      this.snapshotStorage.setWorkflow(this.head, content);
-      this.snapshotCallback?.(this.head, content);
+      this.snapshotStorage.setWorkflow(head, content);
+      this.snapshotCallback?.(head, content);
     }
   }
 
@@ -654,9 +654,9 @@ export class TexeraAgent {
   }
 
   async refreshWorkflowFromBackend(): Promise<void> {
-    // HEAD at a real step means the workflow is determined by that step's snapshot;
-    // only reload from backend when HEAD is the initial sentinel.
-    if (this.head !== INITIAL_STEP_ID) {
+    // Once any step exists, that step's snapshot defines the workflow at HEAD;
+    // only reload from backend for an empty agent (e.g. clearHistory just ran).
+    if (this.head !== undefined) {
       return;
     }
 
@@ -952,6 +952,7 @@ export class TexeraAgent {
 
   private getFormattedResultsForDAG(): Map<string, string> {
     const result = new Map<string, string>();
+    if (this.head === undefined) return result;
     const visible = this.snapshotStorage.getAllVisibleResults(this.head);
     for (const [operatorId, info] of visible) {
       result.set(operatorId, formatOperatorResult(operatorId, info, this.workflowState));
@@ -996,19 +997,8 @@ export class TexeraAgent {
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
     this.currentMessageId = undefined;
-    this.head = INITIAL_STEP_ID;
+    this.head = undefined;
     this.snapshotStorage.clear();
-    const initialStep: ReActStep = {
-      id: INITIAL_STEP_ID,
-      messageId: "initial",
-      stepId: -1,
-      timestamp: Date.now(),
-      role: "user",
-      content: "",
-      isBegin: true,
-      isEnd: true,
-    };
-    this.stepsById.set(INITIAL_STEP_ID, initialStep);
   }
 
   /**
@@ -1045,27 +1035,30 @@ export class TexeraAgent {
       if (!s || typeof s.id !== "string" || s.id.length === 0) {
         throw new Error("every step must have a non-empty 'id'");
       }
-      if (s.id === INITIAL_STEP_ID) continue;
       if (seenIds.has(s.id)) throw new Error(`duplicate step id: ${s.id}`);
       seenIds.add(s.id);
     }
-    const validParent = (pid: string | undefined): boolean =>
-      !pid || pid === INITIAL_STEP_ID || seenIds.has(pid);
+    const validParent = (pid: string | undefined): boolean => !pid || seenIds.has(pid);
     for (const s of steps) {
       if (!validParent(s.parentId)) {
         throw new Error(`step ${s.id} has unknown parentId ${s.parentId}`);
       }
     }
-    // Cycle / unreachable check via DFS from INITIAL_STEP_ID.
+
+    // Build child adjacency. Roots (parentId undefined) are listed under the
+    // synthetic VIRTUAL_ROOT key only for traversal/cycle bookkeeping — they
+    // never become real entries in `stepsById`.
+    const VIRTUAL_ROOT = "__import_root__";
     const childrenOf = new Map<string, string[]>();
     for (const s of steps) {
-      const pid = s.parentId ?? INITIAL_STEP_ID;
-      const arr = childrenOf.get(pid) ?? [];
+      const key = s.parentId ?? VIRTUAL_ROOT;
+      const arr = childrenOf.get(key) ?? [];
       arr.push(s.id);
-      childrenOf.set(pid, arr);
+      childrenOf.set(key, arr);
     }
+    // Cycle / unreachable check: BFS from every root.
     const reachable = new Set<string>();
-    const stack: string[] = [INITIAL_STEP_ID];
+    const stack: string[] = [...(childrenOf.get(VIRTUAL_ROOT) ?? [])];
     while (stack.length > 0) {
       const id = stack.pop()!;
       if (reachable.has(id)) continue;
@@ -1073,8 +1066,8 @@ export class TexeraAgent {
       for (const c of childrenOf.get(id) ?? []) stack.push(c);
     }
     for (const s of steps) {
-      if (s.id !== INITIAL_STEP_ID && !reachable.has(s.id)) {
-        throw new Error(`step ${s.id} is not reachable from the initial step (cycle or detached subtree)`);
+      if (!reachable.has(s.id)) {
+        throw new Error(`step ${s.id} is not reachable from a root (cycle or detached subtree)`);
       }
     }
 
@@ -1094,15 +1087,14 @@ export class TexeraAgent {
     };
 
     // Reset state, then ingest in parent-before-child order so addStep's
-    // bookkeeping always sees a known parent. BFS from INITIAL_STEP_ID.
+    // bookkeeping always sees a known parent. BFS from the virtual root.
     this.clearHistory();
     const stepById = new Map<string, ReActStep>();
     for (const s of steps) {
-      if (s.id === INITIAL_STEP_ID) continue;
       stepById.set(s.id, { ...s, timestamp: toEpochMs(s.timestamp) });
     }
     const order: ReActStep[] = [];
-    const queue: string[] = [...(childrenOf.get(INITIAL_STEP_ID) ?? [])];
+    const queue: string[] = [...(childrenOf.get(VIRTUAL_ROOT) ?? [])];
     while (queue.length > 0) {
       const id = queue.shift()!;
       const s = stepById.get(id);
@@ -1223,7 +1215,9 @@ export class TexeraAgent {
         await executeOperatorAndFormat(this.workflowState, execConfig, target, {
           abortSignal: this.abortController?.signal,
           onResult: (opId, operatorInfo) => {
-            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+            if (this.head !== undefined) {
+              this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+            }
           },
         });
       } catch (e: any) {

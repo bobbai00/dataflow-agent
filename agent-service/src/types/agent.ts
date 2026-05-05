@@ -31,8 +31,6 @@ export interface TokenUsage {
   cachedInputTokens?: number;
 }
 
-export const INITIAL_STEP_ID = "step-initial";
-
 export interface ReActStep {
   id: string;
   parentId?: string;

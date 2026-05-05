@@ -64,9 +64,9 @@ async function createAgentInstance(
     agentName: customName || "Bob",
   });
 
-  // Single bootstrap: metadata + (in delegate mode) workflow load, snapshot
-  // seed at INITIAL_STEP_ID, and a baseline execution that records each
-  // operator's current result against a synthetic agent step.
+  // Single bootstrap: metadata + (in delegate mode) workflow load and a
+  // synthetic `initialize` step that anchors both the workflow snapshot and
+  // every per-operator baseline result.
   await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
@@ -259,6 +259,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     const agent = getAgent(id);
     const resolvedStepId = stepId === "head" ? agent.getHead() : stepId;
     const storage = agent.getSnapshotStorage();
+    // No HEAD yet (fresh agent before any step) → snapshot is empty.
+    if (!resolvedStepId) {
+      return { stepId: null, workflow: null, workflowSourceStepId: null, results: {} };
+    }
     const workflowEntry = storage.getResolvedWorkflow(resolvedStepId);
     const visibleResults = storage.getAllVisibleResults(resolvedStepId);
     const results: Record<string, unknown> = {};
@@ -496,7 +500,9 @@ interface WsOutgoingMessage {
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
-  const visible = agent.getSnapshotStorage().getAllVisibleResults(agent.getHead());
+  const head = agent.getHead();
+  if (!head) return {};
+  const visible = agent.getSnapshotStorage().getAllVisibleResults(head);
   const results: Record<string, OperatorResultSummaryWs> = {};
   for (const [opId, info] of visible) {
     results[opId] = {
