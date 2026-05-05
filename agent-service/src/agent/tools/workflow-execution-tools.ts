@@ -362,6 +362,24 @@ function formatInputOutput(
   return `Input operator(table shape): ${inputPart}\n${outputLine}`;
 }
 
+/**
+ * Persist every operator info that came back from the backend, errored or not.
+ *
+ * The snapshot storage carries errors via `OperatorInfo.error`; there is no
+ * separate error axis. Persisting indiscriminately keeps the storage view of
+ * the workflow consistent with the actual backend run — including
+ * surface-level failures on sibling operators that share the same execution.
+ */
+function persistOperatorResults(
+  operators: Record<string, OperatorInfo> | undefined,
+  onResult?: (operatorId: string, info: OperatorInfo) => void
+): void {
+  if (!onResult || !operators) return;
+  for (const [opId, info] of Object.entries(operators)) {
+    if (info) onResult(opId, info);
+  }
+}
+
 function formatExecutionError(
   compilationErrors?: Record<string, string>,
   operatorErrors?: Array<{ operatorId: string; error: string }>,
@@ -486,15 +504,19 @@ export async function executeOperatorAndFormat(
 
       const errorText = formatExecutionError(compilationErrors, operatorErrors, generalErrors);
 
-      if (options.onResult) {
-        const errorInfo: OperatorInfo = {
+      // Persist every per-op info the backend returned (including errors on
+      // sibling operators), then synthesize one for the requested op if the
+      // backend didn't surface it (e.g. compilation/validation failures where
+      // `result.operators` is empty).
+      persistOperatorResults(result.operators, options.onResult);
+      if (options.onResult && !result.operators?.[operatorId]) {
+        options.onResult(operatorId, {
           state: result.state,
           inputTuples: 0,
           outputTuples: 0,
           resultMode: "table",
           error: errorText,
-        };
-        options.onResult(operatorId, errorInfo);
+        });
       }
 
       return createErrorResult(errorText);
@@ -508,9 +530,8 @@ export async function executeOperatorAndFormat(
     }
 
     if (opInfo.error) {
-      if (options.onResult) {
-        options.onResult(operatorId, opInfo);
-      }
+      // Persist every op the backend reported (any sibling errors land too).
+      persistOperatorResults(result.operators, options.onResult);
       return createErrorResult(formatExecutionError(undefined, [{ operatorId, error: opInfo.error }]));
     }
 
@@ -522,14 +543,9 @@ export async function executeOperatorAndFormat(
     const headers = jsonArray.length > 0 ? Object.keys(jsonArray[0]).filter(k => k !== "__row_index__") : [];
     const columns = headers.length;
 
-    // Notify for every operator in the execution so upstream stats are also stored.
-    if (options.onResult) {
-      for (const [opId, info] of Object.entries(result.operators)) {
-        if (info && !info.error) {
-          options.onResult(opId, info);
-        }
-      }
-    }
+    // Persist every per-op info — sibling errors included — so the snapshot
+    // storage mirrors what the backend actually produced.
+    persistOperatorResults(result.operators, options.onResult);
 
     let dataString = jsonToTableFormat(jsonArray);
 
@@ -580,6 +596,71 @@ export async function executeOperatorAndFormat(
       throw error;
     }
     return createErrorResult(`Execution failed: ${error.message || String(error)}`);
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Execute the entire workflow once and persist every per-operator result
+ * (errors included) via `onResult`. Used by `TexeraAgent.initialize()` to
+ * baseline a freshly loaded workflow before any user turn.
+ *
+ * Returns a structured summary; never throws for backend failures, so the
+ * caller can record a baseline step even when the run errored.
+ */
+export async function executeWorkflowAndPersist(
+  workflowState: WorkflowState,
+  config: ExecutionConfig,
+  options: {
+    abortSignal?: AbortSignal;
+    onResult?: (operatorId: string, info: OperatorInfo) => void;
+    opsToViewResult?: string[];
+  } = {}
+): Promise<{
+  success: boolean;
+  state: string;
+  opCount: number;
+  errorCount: number;
+  errorText?: string;
+}> {
+  const release = await getWorkflowMutex(config.workflowId).acquire();
+
+  try {
+    const logicalPlan = buildLogicalPlan(workflowState, options.opsToViewResult);
+    if (logicalPlan.operators.length === 0) {
+      return { success: false, state: "Empty", opCount: 0, errorCount: 0, errorText: "Workflow has no operators." };
+    }
+
+    const validationResult = validateWorkflow(workflowState);
+    if (!validationResult.isValid) {
+      const errorText = formatWorkflowValidationErrors(validationResult);
+      return { success: false, state: "ValidationFailed", opCount: 0, errorCount: 0, errorText };
+    }
+
+    const result = await executeWorkflowHttp(config, logicalPlan, { abortSignal: options.abortSignal });
+    persistOperatorResults(result.operators, options.onResult);
+
+    const opCount = Object.keys(result.operators).length;
+    const errorCount = Object.values(result.operators).filter(o => o.error).length;
+
+    if (!result.success) {
+      const compilationErrors =
+        result.state === "CompilationFailed" || result.state === "ValidationFailed"
+          ? result.compilationErrors
+          : undefined;
+      const operatorErrors =
+        result.state === "Failed"
+          ? Object.entries(result.operators)
+              .filter(([_, op]) => op.error)
+              .map(([opId, op]) => ({ operatorId: opId, error: op.error! }))
+          : undefined;
+      const generalErrors = result.state === "Killed" ? ["Workflow execution was killed (timeout)."] : result.errors;
+      const errorText = formatExecutionError(compilationErrors, operatorErrors, generalErrors);
+      return { success: false, state: result.state, opCount, errorCount, errorText };
+    }
+
+    return { success: true, state: result.state, opCount, errorCount };
   } finally {
     release();
   }

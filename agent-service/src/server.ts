@@ -23,7 +23,6 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
 import { getBackendConfig } from "./api/backend-api";
 import { extractUserFromToken, validateToken } from "./api/auth-api";
-import { retrieveWorkflow } from "./api/workflow-api";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -65,29 +64,10 @@ async function createAgentInstance(
     agentName: customName || "Bob",
   });
 
-  await agent.initialize();
-
-  if (delegateConfig?.workflowId && delegateConfig.userToken) {
-    try {
-      const workflow = await retrieveWorkflow(delegateConfig.userToken, delegateConfig.workflowId);
-      delegateConfig.workflowName = workflow.name;
-
-      const workflowState = agent.getWorkflowState();
-      workflowState.setWorkflowContent(workflow.content);
-
-      agent.setDelegateConfig({
-        userToken: delegateConfig.userToken,
-        userInfo: delegateConfig.userInfo,
-        workflowId: delegateConfig.workflowId,
-        workflowName: delegateConfig.workflowName,
-        computingUnitId: delegateConfig.computingUnitId,
-      });
-
-      log.info({ agentId, workflowId: delegateConfig.workflowId }, "loaded workflow for agent");
-    } catch (error) {
-      log.warn({ agentId, workflowId: delegateConfig.workflowId, err: error }, "failed to load workflow");
-    }
-  }
+  // Single bootstrap: metadata + (in delegate mode) workflow load, snapshot
+  // seed at INITIAL_STEP_ID, and a baseline execution that records each
+  // operator's current result against a synthetic agent step.
+  await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
   log.info({ agentId, delegate: !!delegateConfig }, "created agent");

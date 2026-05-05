@@ -25,7 +25,8 @@ import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
 import { formatOperatorResult } from "./tools/result-formatting";
-import type { AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type { AgentDelegateConfig, AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
   AgentState as AgentStateEnum,
@@ -52,6 +53,7 @@ import {
 import {
   createExecuteOperatorTool,
   executeOperatorAndFormat,
+  executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
 } from "./tools/workflow-execution-tools";
@@ -99,6 +101,32 @@ type SnapshotCallback = (stepId: string, workflow: WorkflowContent) => void;
  * `sendMessage` drives one multi-step generation via the Vercel AI SDK,
  * streaming step updates to subscribed websockets.
  */
+/**
+ * Compact, LLM-friendly summary of the baseline execution. Goes into the
+ * synthetic `executeWorkflow` tool result so the model enters turn 1 already
+ * knowing each operator's row count or error.
+ */
+function formatBaselineSummary(
+  runResult: { success: boolean; state: string; opCount: number; errorCount: number; errorText?: string },
+  results: Map<string, OperatorInfo>
+): string {
+  const header = `Baseline run: state=${runResult.state}, operators=${runResult.opCount}, errors=${runResult.errorCount}.`;
+  const lines: string[] = [header];
+  if (results.size === 0 && runResult.errorText) {
+    lines.push(runResult.errorText);
+    return lines.join("\n");
+  }
+  for (const [opId, info] of results) {
+    if (info.error) {
+      lines.push(`- ${opId}: ERROR ${info.error}`);
+    } else {
+      const rows = info.totalRowCount ?? info.outputTuples ?? 0;
+      lines.push(`- ${opId}: ${rows} rows`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export class TexeraAgent {
   readonly agentId: string;
   readonly agentName: string;
@@ -178,19 +206,166 @@ export class TexeraAgent {
     this.tools = this.createTools();
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * One-shot bootstrap for a freshly created agent.
+   *
+   * Phase 1 — metadata (always): load operator schemas + system prompt + tools.
+   * Phase 2 — delegate (only when `delegateConfig` carries `workflowId`+`userToken`):
+   *   (a) fetch the workflow from the backend,
+   *   (b) seed `WorkflowSnapshotStorage` at `INITIAL_STEP_ID` so every later
+   *       step's ancestor walk has a real root snapshot,
+   *   (c) commit `setDelegateConfig` (wires auto-persist + execution tool),
+   *   (d) baseline-execute the loaded workflow once and append a synthetic
+   *       agent-role step carrying an `executeWorkflow` tool call/result so
+   *       the LLM enters turn 1 already aware of the workflow's current state.
+   *
+   * Failure tolerance: every backend call here is wrapped — a missing workflow,
+   * a failed compile, or a runtime error never crashes agent creation. The
+   * worst case is "agent comes up with an empty snapshot and no baseline
+   * step", which the user's first message will recover from on its own.
+   */
+  async initialize(delegateConfig?: AgentDelegateConfig): Promise<void> {
     try {
       if (!this.metadataStore.isInitialized()) {
         await this.metadataStore.initializeFromBackend();
       }
-
       this.rebuildSystemPrompt();
-
       this.tools = this.createTools();
       this.log.info({ operatorCount: this.metadataStore.getOperatorCount() }, "agent initialized");
     } catch (error) {
       this.log.error({ err: error }, "failed to initialize metadata");
     }
+
+    if (delegateConfig?.workflowId && delegateConfig.userToken) {
+      await this.bootstrapDelegate(delegateConfig);
+    }
+  }
+
+  /**
+   * Delegate-mode bootstrap. Fetches the workflow, seeds the snapshot at the
+   * initial version, then runs a baseline execution to populate operator
+   * results. All three stages are independently failure-tolerant.
+   */
+  private async bootstrapDelegate(delegateConfig: AgentDelegateConfig): Promise<void> {
+    const { workflowId, userToken } = delegateConfig;
+    if (!workflowId || !userToken) return;
+
+    let workflowContent: WorkflowContent | undefined;
+    let workflowName = delegateConfig.workflowName;
+    try {
+      const { retrieveWorkflow } = await import("../api/workflow-api");
+      const workflow = await retrieveWorkflow(userToken, workflowId);
+      workflowContent = workflow.content;
+      workflowName = workflow.name;
+      this.log.info({ workflowId, workflowName }, "loaded workflow for agent");
+    } catch (error) {
+      this.log.warn({ err: error, workflowId }, "initialize: failed to load workflow");
+    }
+
+    // Push to the live buffer first (no auto-persist subscription yet) and
+    // seed the snapshot at INITIAL_STEP_ID so a fresh agent already answers
+    // GET /snapshots/head correctly.
+    if (workflowContent) {
+      this.workflowState.setWorkflowContent(workflowContent);
+      this.snapshotStorage.setWorkflow(INITIAL_STEP_ID, workflowContent);
+    }
+
+    // Commit delegateConfig last so the auto-persist subscription is attached
+    // AFTER the initial setWorkflowContent — no spurious round-trip.
+    this.setDelegateConfig({
+      userToken,
+      userInfo: delegateConfig.userInfo,
+      workflowId,
+      workflowName,
+      computingUnitId: delegateConfig.computingUnitId,
+    });
+
+    // Skip baseline execution when there's nothing to run.
+    if (!workflowContent || (workflowContent.operators?.length ?? 0) === 0) {
+      return;
+    }
+
+    await this.runBaselineExecution(workflowContent);
+  }
+
+  /**
+   * Run the loaded workflow once at agent creation, capture every per-op
+   * result (errors included), and append a single agent-role step under
+   * INITIAL_STEP_ID carrying an `executeWorkflow` tool call/result. The LLM
+   * sees this on its next turn — it knows what each operator currently
+   * produces without having to ask.
+   */
+  private async runBaselineExecution(workflowContent: WorkflowContent): Promise<void> {
+    const execConfig = this.buildExecutionConfig();
+    if (!execConfig) return;
+
+    const collected = new Map<string, OperatorInfo>();
+    const opIds = workflowContent.operators.map(op => op.operatorID);
+
+    let runResult: Awaited<ReturnType<typeof executeWorkflowAndPersist>>;
+    try {
+      runResult = await executeWorkflowAndPersist(this.workflowState, execConfig, {
+        onResult: (opId, info) => {
+          collected.set(opId, info);
+        },
+        opsToViewResult: opIds,
+      });
+    } catch (error) {
+      this.log.warn({ err: error, workflowId: execConfig.workflowId }, "initialize: baseline execution threw");
+      return;
+    }
+
+    const baselineMessageId = `msg-${this.agentId}-${++this.messageCounter}-baseline-${Date.now()}`;
+    const baselineStepId = this.generateStepId();
+    const toolCallId = `call-${baselineStepId}-baseline`;
+    const summary = formatBaselineSummary(runResult, collected);
+
+    const baselineStep: ReActStep = {
+      id: baselineStepId,
+      parentId: INITIAL_STEP_ID,
+      messageId: baselineMessageId,
+      stepId: 0,
+      timestamp: Date.now(),
+      role: "agent",
+      content:
+        "Loaded the existing workflow and ran a baseline execution to capture each operator's current result.",
+      isBegin: true,
+      isEnd: true,
+      toolCalls: [
+        {
+          toolName: "executeWorkflow",
+          toolCallId,
+          input: { reason: "baseline at agent init" },
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId,
+          output: summary,
+          isError: !runResult.success,
+        },
+      ],
+    };
+    this.addStep(baselineStep);
+    this.head = baselineStepId;
+
+    // Persist results at the baseline step. The workflow snapshot is already
+    // at INITIAL_STEP_ID and unchanged here, so no re-write needed (the
+    // ancestor walk inherits it).
+    for (const [opId, info] of collected) {
+      this.snapshotStorage.setOperatorResult(baselineStepId, opId, info);
+    }
+
+    this.log.info(
+      {
+        workflowId: execConfig.workflowId,
+        baselineStepId,
+        opCount: runResult.opCount,
+        errorCount: runResult.errorCount,
+        state: runResult.state,
+      },
+      "baseline execution recorded"
+    );
   }
 
   private rebuildSystemPrompt(): void {

@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { LanguageModel } from "ai";
 import { TexeraAgent } from "./texera-agent";
 import { INITIAL_STEP_ID, type ReActStep } from "../types/agent";
@@ -412,5 +412,240 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
     visible = Array.from(storage.getAllVisibleResults(agent.getHead()).keys()).sort();
     expect(workflow).toEqual(["L_op"]);
     expect(visible).toEqual(["L_op"]);
+  });
+});
+
+// ============================================================================
+// initialize(delegateConfig) — bootstrap (workflow load + snapshot seed +
+// baseline execution + synthetic agent step)
+// ============================================================================
+
+interface MockEndpoint {
+  match: (url: string, init?: RequestInit) => boolean;
+  respond: (url: string, init?: RequestInit) => Response | Promise<Response>;
+}
+
+function installFetchMock(endpoints: MockEndpoint[]): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    for (const ep of endpoints) {
+      if (ep.match(url, init)) {
+        return await ep.respond(url, init);
+      }
+    }
+    // Default: opaque empty 200 so unrelated endpoints (e.g. metadata) don't crash init.
+    return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+function jsonResponse(body: any, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+/**
+ * Stubs the operator-metadata endpoint with a permissive `TestOp` schema so
+ * `validateWorkflow` doesn't reject our synthetic operators before
+ * `executeWorkflowHttp` even fires.
+ */
+function metadataEndpoint(): MockEndpoint {
+  return {
+    match: url => url.includes("/api/resources/operator-metadata"),
+    respond: () =>
+      jsonResponse({
+        operators: [
+          {
+            operatorType: "TestOp",
+            jsonSchema: { type: "object", additionalProperties: true },
+            additionalMetadata: { userFriendlyName: "Test", operatorDescription: "" },
+          },
+        ],
+        groups: [],
+      }),
+  };
+}
+
+describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => {
+  let restore: () => void = () => {};
+
+  afterEach(() => {
+    restore();
+  });
+
+  test("seeds workflow snapshot at INITIAL_STEP_ID and creates a baseline agent step under it", async () => {
+    const wf = workflowWith(["op1", "op2"]);
+    restore = installFetchMock([
+      metadataEndpoint(),
+      {
+        match: url => url.includes("/api/workflow/") && !url.includes("/persist"),
+        respond: () => jsonResponse({ wid: 42, name: "TestWF", content: wf }),
+      },
+      {
+        match: url => url.includes("/api/execution/"),
+        respond: () =>
+          jsonResponse({
+            success: true,
+            state: "Completed",
+            operators: {
+              op1: { state: "Completed", inputTuples: 0, outputTuples: 5, resultMode: "table", totalRowCount: 5 },
+              op2: { state: "Completed", inputTuples: 5, outputTuples: 5, resultMode: "table", totalRowCount: 5 },
+            },
+          }),
+      },
+    ]);
+
+    const agent = makeAgent();
+    await agent.initialize({ userToken: "tok", workflowId: 42 });
+
+    // Workflow snapshot at INITIAL_STEP_ID
+    const storage = agent.getSnapshotStorage();
+    const initSnapshot = storage.getResolvedWorkflow(INITIAL_STEP_ID);
+    expect(initSnapshot?.value.operators.length).toBe(2);
+    expect(initSnapshot?.sourceStepId).toBe(INITIAL_STEP_ID);
+
+    // Exactly one baseline agent step under INITIAL_STEP_ID
+    const allSteps = agent.getAllSteps();
+    expect(allSteps.length).toBe(1);
+    const baseline = allSteps[0];
+    expect(baseline.role).toBe("agent");
+    expect(baseline.parentId).toBe(INITIAL_STEP_ID);
+    expect(baseline.toolCalls?.[0]?.toolName).toBe("executeWorkflow");
+    expect(baseline.toolResults?.[0]?.isError).toBe(false);
+
+    // HEAD advanced to baseline; results visible there
+    expect(agent.getHead()).toBe(baseline.id);
+    const visible = storage.getAllVisibleResults(baseline.id);
+    expect(visible.size).toBe(2);
+    expect(visible.get("op1")?.totalRowCount).toBe(5);
+    expect(visible.get("op2")?.totalRowCount).toBe(5);
+  });
+
+  test("execution failure: snapshot still seeded, baseline step records error, agent does not crash", async () => {
+    const wf = workflowWith(["op1"]);
+    restore = installFetchMock([
+      metadataEndpoint(),
+      {
+        match: url => url.includes("/api/workflow/") && !url.includes("/persist"),
+        respond: () => jsonResponse({ wid: 7, name: "BrokenWF", content: wf }),
+      },
+      {
+        match: url => url.includes("/api/execution/"),
+        respond: () =>
+          jsonResponse({
+            success: false,
+            state: "Failed",
+            operators: {
+              op1: { state: "Failed", inputTuples: 0, outputTuples: 0, resultMode: "table", error: "boom" },
+            },
+          }),
+      },
+    ]);
+
+    const agent = makeAgent();
+    await agent.initialize({ userToken: "tok", workflowId: 7 });
+
+    // Snapshot at INITIAL is still seeded — failure tolerance.
+    expect(agent.getSnapshotStorage().getWorkflow(INITIAL_STEP_ID)?.operators.length).toBe(1);
+
+    const baseline = agent.getAllSteps()[0];
+    expect(baseline.toolResults?.[0]?.isError).toBe(true);
+
+    // Error preserved in OperatorInfo on the baseline step (uniform error path).
+    const opResult = agent.getSnapshotStorage().getOperatorResult(baseline.id, "op1");
+    expect(opResult?.error).toBe("boom");
+  });
+
+  test("workflow load failure: agent comes up empty, no baseline step, no crash", async () => {
+    restore = installFetchMock([
+      {
+        match: url => url.includes("/api/workflow/") && !url.includes("/persist"),
+        respond: () => new Response("not found", { status: 404 }),
+      },
+    ]);
+
+    const agent = makeAgent();
+    await agent.initialize({ userToken: "tok", workflowId: 99 });
+
+    expect(agent.getSnapshotStorage().getWorkflow(INITIAL_STEP_ID)).toBeUndefined();
+    expect(agent.getAllSteps().length).toBe(0);
+    expect(agent.getHead()).toBe(INITIAL_STEP_ID);
+  });
+
+  test("empty workflow (zero operators): seeds snapshot but skips baseline execution", async () => {
+    const wf = workflowWith([]);
+    let executionCalled = false;
+    restore = installFetchMock([
+      {
+        match: url => url.includes("/api/workflow/") && !url.includes("/persist"),
+        respond: () => jsonResponse({ wid: 1, name: "Empty", content: wf }),
+      },
+      {
+        match: url => url.includes("/api/execution/"),
+        respond: () => {
+          executionCalled = true;
+          return jsonResponse({ success: true, state: "Completed", operators: {} });
+        },
+      },
+    ]);
+
+    const agent = makeAgent();
+    await agent.initialize({ userToken: "tok", workflowId: 1 });
+
+    expect(executionCalled).toBe(false);
+    expect(agent.getSnapshotStorage().getWorkflow(INITIAL_STEP_ID)?.operators.length).toBe(0);
+    expect(agent.getAllSteps().length).toBe(0);
+  });
+
+  test("uniform error persistence: sibling op errors land in storage, not just the requested op", async () => {
+    // Drives executeOperatorAndFormat through createExecuteOperatorTool, with
+    // a mixed-success backend response (one op succeeds with rows, sibling
+    // errors). Both must be persisted at HEAD.
+    const wf = workflowWith(["primary", "sibling"]);
+    restore = installFetchMock([
+      metadataEndpoint(),
+      {
+        match: url => url.includes("/api/workflow/") && !url.includes("/persist"),
+        respond: () => jsonResponse({ wid: 11, name: "Mixed", content: wf }),
+      },
+      {
+        match: url => url.includes("/api/execution/"),
+        respond: () =>
+          jsonResponse({
+            success: true,
+            state: "Completed",
+            operators: {
+              primary: {
+                state: "Completed",
+                inputTuples: 0,
+                outputTuples: 3,
+                resultMode: "table",
+                totalRowCount: 3,
+                result: [{ a: 1 }, { a: 2 }, { a: 3 }],
+              },
+              sibling: {
+                state: "Failed",
+                inputTuples: 0,
+                outputTuples: 0,
+                resultMode: "table",
+                error: "sibling exploded",
+              },
+            },
+          }),
+      },
+    ]);
+
+    const agent = makeAgent();
+    await agent.initialize({ userToken: "tok", workflowId: 11 });
+
+    const baseline = agent.getAllSteps()[0];
+    const visible = agent.getSnapshotStorage().getAllVisibleResults(baseline.id);
+    expect(visible.size).toBe(2);
+    expect(visible.get("primary")?.totalRowCount).toBe(3);
+    // Sibling's error is preserved in storage — proves the writer no longer
+    // drops errored sibling ops on the floor.
+    expect(visible.get("sibling")?.error).toBe("sibling exploded");
   });
 });
