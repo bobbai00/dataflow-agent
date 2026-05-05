@@ -1,150 +1,188 @@
 # AGENTS.md
 
-Guidance for coding agents working in the Apache Texera repository.
+## Architecture Map
 
-## Project Overview
+Apache Texera: Scala/sbt backend services + the Amber workflow execution
+engine, an Angular UI, and the agent service. JVM modules wired in
+[`build.sbt`](build.sbt).
 
-Apache Texera is a collaborative data science and AI/ML workflow system. The
-repo is a multi-language monorepo with Scala/sbt backend services, Python worker
-runtime code, an Angular frontend, and a TypeScript/Bun agent service.
+| Area | Path | Detail |
+| --- | --- | --- |
+| Workflow execution engine (Amber) | `amber/` | [amber/README.md](amber/README.md) |
+| Backend services | `config-service/`, `access-control-service/`, `file-service/`, `computing-unit-managing-service/`, `workflow-compiling-service/` | `build.sbt` |
+| Shared Scala libs | `common/` (`auth`, `config`, `dao`, `workflow-core`, `workflow-operator`, `pybuilder`) | `build.sbt` |
+| Frontend (Angular) | `frontend/` | [frontend/README.md](frontend/README.md) |
+| Agent service (Bun/TS, LLM agents) | `agent-service/` | `agent-service/package.json` |
+| Pyright language service | `pyright-language-service/` | [pyright-language-service/README.md](pyright-language-service/README.md) |
+| Deploy scripts / Dockerfiles | `bin/` | [README](bin/README.md) / [k8s](bin/k8s/README.md) / [single-node](bin/single-node/README.md) |
+| DDL, sbt plugins | `sql/`, `project/` | files therein |
 
-Major areas:
+### Amber breakdown
 
-- `amber/`: workflow execution engine, Scala tests, Python worker runtime, and
-  Python operator dependencies.
-- `common/`: shared Scala modules for auth, config, DAO, workflow core,
-  workflow operators, and Python-template building.
-- `config-service/`, `access-control-service/`, `file-service/`,
-  `computing-unit-managing-service/`, `workflow-compiling-service/`: backend
-  services wired through `build.sbt`.
-- `frontend/`: Angular application. Uses Yarn 4.14.1, Node >= 20.19.0, Nx,
-  Prettier, ESLint, Karma/Jasmine, and ng-zorro.
-- `agent-service/`: TypeScript Elysia service for Texera LLM agents. CI uses
-  Bun 1.3.3.
-- `pyright-language-service/`: TypeScript service for Python language support.
-- `sql/`: database DDL used by local runs and CI.
-- `bin/`: shell scripts and Dockerfiles for services, local deployment, and
-  generated protobuf assets.
+| Path | Role |
+| --- | --- |
+| `amber/src/main/scala` | Pekko actors, scheduler, reconfiguration, fault tolerance, gRPC/proto |
+| `amber/src/main/python/pyamber` | Python engine (`pyamber`) — bridge to the Scala engine |
+| `amber/src/main/python/pytexera` | Python operator SDK exposed to UDFs |
 
-## Ground Rules
+## Where Things Live
 
-- Keep changes narrowly scoped. Do not rewrite unrelated files or move code
-  between services unless the task explicitly requires it.
-- Preserve local user changes. Check `git status --short` before editing and do
-  not revert unrelated dirty files.
-- Follow existing module boundaries and naming patterns. Prefer local helpers
-  and service abstractions over introducing new framework-level utilities.
-- Add or update tests when behavior changes. For small UI-only fixes where unit
-  tests are not practical, document the manual test steps.
-- Never commit secrets, local config, generated build output, caches, or binary
-  artifacts. Examples to avoid include `python_udf.conf`, `.env` files, `target/`,
-  `dist/`, `.pytest_cache/`, `.ruff_cache/`, and local logs.
+| Topic | Source of truth |
+| --- | --- |
+| Contribution / PR / lint / format / testing / license header | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Reporting security issues | [SECURITY.md](SECURITY.md) |
+| PR template | [.github/PULL_REQUEST_TEMPLATE](.github/PULL_REQUEST_TEMPLATE) |
+| Issue templates | [bug](.github/ISSUE_TEMPLATE/bug-template.yaml) / [task](.github/ISSUE_TEMPLATE/task-template.yaml) / [feature](.github/ISSUE_TEMPLATE/feature-template.yaml) |
+| License-header coverage; vendored `workflow-operator` | [.licenserc.yaml](.licenserc.yaml); [project/AddMetaInfLicenseFiles.scala](project/AddMetaInfLicenseFiles.scala) |
+| Local single-node / k8s deploy | [single-node](bin/single-node/README.md), [k8s](bin/k8s/README.md) |
 
-## Licensing
+If a topic is above, **read that file** instead of asking here.
 
-- New source/config files should include the Apache 2.0 ASF license header unless
-  `.licenserc.yaml` excludes that file type or path.
-- Markdown files are excluded from the license-header check.
-- Keep third-party/vendored-code attribution intact. `common/workflow-operator`
-  has special license handling in `project/AddMetaInfLicenseFiles.scala`.
-- GitHub Actions in ASF repositories should use approved actions and preferably
-  pinned SHAs, matching the existing workflow style.
+## Agent-Specific Rules
 
-## Scala / Backend
+### Scope and safety
 
-- Scala version: 2.13.18.
-- Java in CI: Temurin JDK 11.
-- Formatting: `.scalafmt.conf` uses scalafmt 2.6.4 with `maxColumn = 100`.
-- Lint rules live in `.scalafix.conf` and include `ProcedureSyntax` and
-  `RemoveUnused`.
+- Narrowly scoped changes. No unrelated rewrites or cross-service moves.
+- `git status --short` before editing; don't revert unrelated dirty files.
+- Never commit secrets / local config / build output / caches / binaries
+  (`python_udf.conf`, `.env`, `target/`, `dist/`, `.pytest_cache/`,
+  `.ruff_cache/`, logs).
 
-Useful root commands:
+### Develop in a worktree
 
-```bash
-sbt scalafmtCheckAll
-sbt scalafmtAll
-sbt "scalafixAll --check"
-sbt scalafixAll
-sbt clean package
-sbt test
+Leave `texera/` on `main`. One worktree per PR, branched off a freshly
+fetched `upstream/main`.
+
+```
+texera/                      # stays on main, never dirty
+texera-worktrees/<branch>/   # one worktree per PR
 ```
 
-Targeted tests are preferred while iterating. Examples:
+Reset to `upstream/main` at start; `git log upstream/main..HEAD` should
+contain only this PR's commits before pushing; remove the worktree after
+merge.
 
-```bash
-sbt "WorkflowExecutionService/testOnly org.apache.texera.amber.engine.e2e.ReconfigurationSpec"
-sbt "WorkflowCompilingService/testOnly *SomeSpec"
+### Environment
+
+| Component | Version |
+| --- | --- |
+| Java | JDK 11 |
+| Scala | 2.13 |
+| Python | 3.12 |
+| Node | 24 |
+
+One Python venv shared across worktrees, sibling of the texera checkout:
+
+```
+<workspace>/
+├── texera/                   # main checkout
+├── texera-worktrees/<br>/    # per-PR worktrees
+└── venv312/                  # shared Python 3.12 venv
 ```
 
-CI creates PostgreSQL databases from:
-
 ```bash
-psql -h localhost -U postgres -f sql/texera_ddl.sql
-psql -h localhost -U postgres -f sql/iceberg_postgres_catalog.sql
-psql -h localhost -U postgres -f sql/texera_lakefs.sql
-psql -h localhost -U postgres -v DB_NAME=texera_db_for_test_cases -f sql/texera_ddl.sql
+python3.12 -m venv ../venv312 && source ../venv312/bin/activate
+pip install -r amber/requirements.txt -r amber/operator-requirements.txt
 ```
 
-## Python Runtime
+Tests that spawn Python workers need an interpreter path. Edit `python.path`
+in [`udf.conf`](common/config/src/main/resources/udf.conf) or
+`export UDF_PYTHON_PATH="$(pwd)/../venv312/bin/python"` (env var overrides).
+Without it, `sbt` Python-integration tests fail to launch a worker.
 
-Python worker code lives primarily under `amber/src/main/python`.
+### Branch and commit naming
 
-- Supported CI Python versions: 3.10, 3.11, 3.12, 3.13.
-- Ruff config is in `amber/src/main/python/pyproject.toml` (this is a
-  ruff-only config, separate from the project-level `pyproject.toml` at
-  the repo root).
-- Ruff line length is 88 and target version is `py310`.
-- Generated protobuf code under `amber/src/main/python/proto` is excluded from
-  Ruff.
+Short, **Conventional Commits**, same shape for branch and commit subject.
 
-### Dependencies
+| Kind | Branch | Commit |
+| --- | --- | --- |
+| Feature | `feat/agent-workflow-edit` | `feat(agent-service): enable workflow edit` |
+| Bug fix | `fix/marker-replay` | `fix(amber): marker replay during reconfiguration` |
+| Tests | `test/pyamber-handlers` | `test(pyamber): add handler unit tests` |
+| Chore | `chore/angular-21` | `chore(deps): upgrade frontend to Angular 21` |
+| CI | `ci/cache-action-bump` | `ci: bump coursier/cache-action to v8.1.0` |
 
-The project-level `pyproject.toml` at the repo root holds the runtime
-Python deps for local development and for the runtime PVE feature (see
-`PveManager.scala`, which `pip install`s the project on each PVE
-creation). `[project.dependencies]` is the base set; `[project.optional-dependencies]`
-defines `dev` (test/lint) and `kramabench` (domain extras). `uv.lock` is
-committed.
+Both ≤ ~60 chars. For code changes, if you use a scope, use the module name
+(`amber`, `pyamber`, `frontend`, `agent-service`, `file-service`, …) — not
+`amber-python`. Use `chore(deps): ...` for dependency-only updates, and
+`ci: ...` for CI-only changes. No `Co-authored-by:` trailer for the repo
+owner.
 
-Local dev:
+### Issues and PRs
 
-```bash
-uv sync --all-extras   # creates .venv with base + dev + kramabench
-.venv/bin/pytest amber/src/main/python   # or whichever target
+Issue-first; both stay short.
+
+```
+issue (template + Type)  ->  PR (Closes #N, template)  ->  review  ->  merge
 ```
 
-Plain pip also works for one-off installs:
+- Every change starts as an issue (minor typo / docs excepted). File against
+  `apache/texera`, never a fork.
+- Pick the right template **and** set the GitHub Issue **Type** explicitly
+  (`Bug` / `Task` / `Feature`); the template's `type:` frontmatter doesn't
+  always apply on creation.
+- Reference the issue: `Closes #N` (or `Fixes` / `Resolves`, or "related to").
+- Issue titles are **plain prose**; never use the Conventional Commits
+  format (`type(scope): ...`) — that prefix is for commit and PR titles only.
+- Task issues match `task-template.yaml` exactly.
+- Prefer **tables** and small **ASCII diagrams** over long bullets. Don't
+  restate the diff or the template.
+- For bugs, lead with **root cause** and a **before -> after** sketch:
+  ```
+  Before:  reconfiguration -> replay marker -> worker hangs
+  After:   reconfiguration -> replay marker -> resume from checkpoint
+  ```
+- **Frontend PRs**: any visible UI change requires screenshots / GIF,
+  **before / after** side by side. For purely visual fixes that's the
+  primary verification under "How was this PR tested?"; interactive flows
+  also list manual steps (click path, browser, viewport).
 
-```bash
-pip install --extra-index-url https://download.pytorch.org/whl/cpu .
-pip install --extra-index-url https://download.pytorch.org/whl/cpu .[dev]
+### Tests come first
+
+TDD. Write the test before the source change.
+
+```
+write/adjust test (red)  ->  edit source (green)  ->  refactor
 ```
 
-The `--extra-index-url` is required for the `torch==2.8.0+cpu` pin on Linux
-x86_64. uv reads `[tool.uv.sources]` and handles this automatically; plain
-pip needs the flag.
+| Situation | Order |
+| --- | --- |
+| New feature / behavior change | Failing test, then implement. |
+| Bug fix | Regression test reproducing the bug, then fix. |
+| Code with **no tests** | **Characterization tests** pin current behavior first; only then change source. |
+| Refactor (no behavior change) | Tests stay green throughout — no assertion edits. |
 
-`amber/dev-requirements.txt` still exists separately — it holds CI-only
-test deps (currently `pytest-cov`) installed *after* the LICENSE-binary
-snapshot so they never appear in `pip-licenses` output.
+Every test must cover:
 
-The legacy `amber/requirements.txt` and `amber/operator-requirements.txt`
-have been removed. Some Docker/CI/licensing helpers still reference them
-(root `Dockerfile`, `bin/computing-unit-{master,worker}.dockerfile`,
-`bin/licensing/check_binary_deps.py`, `.github/labeler.yml`,
-`.github/workflows/build.yml`) and will need follow-up work before those
-paths can be exercised; they don't affect local development on this
-branch.
+- **Both directions**: positive (valid → expected) **and** negative (invalid
+  / error → specific failure mode).
+- **Edge cases**: empty / null / zero / max / boundary, unicode,
+  concurrency/order, missing or malformed config.
+- **Don't assume valid.** External input (user / API / file / message) must
+  be tested with bad input.
 
-Useful commands:
+Don't claim "tested" without commands. Paste the exact `sbt testOnly` /
+`pytest` / `yarn test:ci` / `bun test` invocation under "How was this PR
+tested?".
 
-```bash
-cd amber/src/main/python
-ruff check .
-ruff format --check .
-pytest -sv
-python -m pytest core/runnables/test_main_loop.py -v
+### CI labels & gating
+
+CI runs are **selected by PR labels**, not by file diff.
+
 ```
+diff -> pr-labeler -> labels on PR -> required-checks maps labels to stacks -> CI runs
+```
+
+- Path → label rules: [`.github/labeler.yml`](.github/labeler.yml)
+- Label → stacks (`LABEL_STACKS`, source of truth):
+  [`.github/workflows/required-checks.yml`](.github/workflows/required-checks.yml).
+  Read it directly; don't duplicate the mapping here.
+- Need extra coverage the diff doesn't imply (e.g. a `common/` change you
+  suspect breaks the frontend)? **Add the relevant label manually**.
+- Empty stack union (docs-only / dev-only / `dependencies` / `feature` /
+  `fix` / `refactor` / `release/*` only) skips every build stack on purpose.
+- `release/*` labels select backport targets; removing one cancels that
+  backport.
 
 ## Frontend
 
@@ -373,3 +411,52 @@ it's a separate process boundary.
 - `tests/` — end-to-end workflow scenarios with `run_services.sh` /
   `run_workflows.sh` / `upload_workflows.py` for driving the live stack via
   REST. These are integration scenarios, not sbt/pytest unit tests.
+
+### Python toolchain
+
+- Supported CI Python versions: 3.10, 3.11, 3.12, 3.13.
+- Ruff config is in `amber/src/main/python/pyproject.toml` (this is a
+  ruff-only config, separate from the project-level `pyproject.toml` at
+  the repo root).
+- Ruff line length is 88 and target version is `py310`.
+- Generated protobuf code under `amber/src/main/python/proto` is excluded from
+  Ruff.
+
+### Dependencies
+
+The project-level `pyproject.toml` at the repo root holds the runtime
+Python deps for local development and for the runtime PVE feature (see
+`PveManager.scala`, which `pip install`s the project on each PVE
+creation). `[project.dependencies]` is the base set; `[project.optional-dependencies]`
+defines `dev` (test/lint) and `kramabench` (domain extras). `uv.lock` is
+committed.
+
+Local dev:
+
+```bash
+uv sync --all-extras   # creates .venv with base + dev + kramabench
+.venv/bin/pytest amber/src/main/python   # or whichever target
+```
+
+Plain pip also works for one-off installs:
+
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .
+pip install --extra-index-url https://download.pytorch.org/whl/cpu .[dev]
+```
+
+The `--extra-index-url` is required for the `torch==2.8.0+cpu` pin on Linux
+x86_64. uv reads `[tool.uv.sources]` and handles this automatically; plain
+pip needs the flag.
+
+`amber/dev-requirements.txt` still exists separately — it holds CI-only
+test deps (currently `pytest-cov`) installed *after* the LICENSE-binary
+snapshot so they never appear in `pip-licenses` output.
+
+The legacy `amber/requirements.txt` and `amber/operator-requirements.txt`
+have been removed. Some Docker/CI/licensing helpers still reference them
+(root `Dockerfile`, `bin/computing-unit-{master,worker}.dockerfile`,
+`bin/licensing/check_binary_deps.py`, `.github/labeler.yml`,
+`.github/workflows/build.yml`) and will need follow-up work before those
+paths can be exercised; they don't affect local development on this
+branch.
