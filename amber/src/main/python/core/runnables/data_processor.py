@@ -448,6 +448,73 @@ class DataProcessor(Runnable, Stoppable):
                 return frame, user_line
         return None, None
 
+    @staticmethod
+    def _read_udf_source(filename: str) -> Optional[str]:
+        """
+        Read a user UDF file end-to-end. Returns None if the file cannot be
+        opened (e.g., already deleted, or permissions); callers fall back to
+        the short error message.
+        """
+        try:
+            with open(filename, "r") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    @staticmethod
+    def _slice_user_code(source: str) -> "tuple[list[str], int]":
+        """
+        For the wrapped DataLoading / DataProcessing UDFs, the source has the
+        shape:
+
+            from pytexera import *           # boilerplate
+            import pandas as pd              # boilerplate
+                                             # boilerplate
+            class GenerateOperator(...)/     # boilerplate (indented body)
+            class ProcessTablesOperator(...) # boilerplate (indented body)
+                ...
+            def load(...) -> ...:            # <-- user code starts here
+                ...
+
+        The user's `def load()` / `def process()` is the first *top-level*
+        `def` (column 0) — the wrapper class methods are all indented. Slice
+        the source to start at that line so the agent sees only what it
+        actually wrote, and so line numbers are user-relative (line 1 = the
+        user's def).
+
+        Returns (lines_starting_at_user_def, offset) where `offset` is the
+        absolute line index (1-based) of the first user line — used to
+        translate the absolute traceback line into a user-relative one.
+        Returns (all_lines, 0) for sources that don't match the wrapping
+        pattern (e.g. raw PythonUDFV2 user code), preserving the old
+        full-file behavior for those.
+        """
+        lines = source.splitlines()
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if stripped.startswith("def ") and line[: len(line) - len(stripped)] == "":
+                # First column-0 `def` — this is the user's function.
+                return lines[i:], i + 1
+        return lines, 0
+
+    @staticmethod
+    def _format_code_with_marker(lines: "list[str]", error_line: int) -> str:
+        """
+        Render `lines` with line numbers (starting at 1), marking
+        `error_line` (1-based index into `lines`) with a `>` arrow so the
+        failing line is obvious. Caller is responsible for slicing the
+        source and translating any absolute line number into the
+        slice-relative one before passing them in.
+        """
+        if not lines:
+            return ""
+        width = len(str(len(lines)))
+        rendered = []
+        for idx, line in enumerate(lines, start=1):
+            marker = ">" if idx == error_line else " "
+            rendered.append(f"{marker} {idx:>{width}} | {line}")
+        return "\n".join(rendered)
+
     def _report_exception(self, exc_info: ExceptionInfo):
         tb = traceback.extract_tb(exc_info[2])
         exception_type = type(exc_info[1]).__name__
@@ -459,6 +526,7 @@ class DataProcessor(Runnable, Stoppable):
             return s if len(s) <= n else s[: max(0, n - 1)] + "…"
 
         udf_frame, user_line = self._find_user_code_frame(tb)
+        full_source: Optional[str] = None
         if udf_frame is not None:
             code_line = udf_frame.line
             base_name = os.path.basename(udf_frame.filename)
@@ -471,6 +539,7 @@ class DataProcessor(Runnable, Stoppable):
                 )
             else:
                 title = f"(line {user_line}) {exception_type}: {exception_msg}"
+            full_source = self._read_udf_source(udf_frame.filename)
         else:
             filename, line_number, func_name, code_line = tb[-1]
             base_name = os.path.basename(filename)
@@ -484,9 +553,29 @@ class DataProcessor(Runnable, Stoppable):
             else:
                 title = f"{exception_type}: {exception_msg}"
 
-        # SyncExecutionResource picks whichever of title/message is longer;
-        # keep message short so the line-number-bearing title wins.
-        message = f"{exception_type}: {exception_msg}"
+        # When the failing frame is user UDF code, embed the user-written
+        # source (line-numbered, with `>` marking the failing line) into
+        # `message`. SyncExecutionResource picks whichever of title/message
+        # is longer, so this verbose dump is what surfaces to the agent.
+        #
+        # We slice off the DataLoading/DataProcessing wrapper boilerplate so
+        # the agent only sees the function it actually wrote, and renumber
+        # starting at 1 (line 1 = user's `def`). For UDFs without that
+        # wrapping (raw PythonUDFV2 etc.), `_slice_user_code` returns the
+        # whole file and `offset` is 0, preserving the absolute numbering.
+        if udf_frame is not None and full_source is not None:
+            user_lines, offset = self._slice_user_code(full_source)
+            error_line_in_slice = udf_frame.lineno - offset + 1 if offset > 0 else udf_frame.lineno
+            annotated = self._format_code_with_marker(user_lines, error_line_in_slice)
+            message = (
+                f"{exception_type}: {exception_msg}\n"
+                f"  at line {error_line_in_slice} in `{udf_frame.name}`\n"
+                f"\n"
+                f"User code:\n"
+                f"{annotated}"
+            )
+        else:
+            message = f"{exception_type}: {exception_msg}"
 
         self._context.console_message_manager.put_message(
             ConsoleMessage(
