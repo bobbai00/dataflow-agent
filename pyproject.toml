@@ -122,6 +122,12 @@ kramabench = [
     "typeguard==4.4.4",
     "pyheaven==0.1.6.8",
 ]
+eval = [
+    # FeTaQA-style native evaluation: corpus BLEU + ROUGE-1/2/L
+    "sacrebleu>=2.4",
+    "rouge-score==0.1.2",
+    "nltk==3.9.1",
+]
 
 [tool.setuptools]
 packages = []

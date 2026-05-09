@@ -95,3 +95,59 @@ export async function retrieveWorkflow(token: string, wid: number): Promise<Work
   }
   return data;
 }
+
+interface DashboardWorkflow {
+  isOwner: boolean;
+  accessLevel: string;
+  ownerName: string;
+  workflow: { wid: number; name: string; description?: string; content: string };
+  projectIDs: number[];
+  ownerId: number;
+}
+
+/**
+ * Insert a brand-new workflow row. Server requires `wid` to be absent.
+ * Returns the freshly assigned `wid`.
+ */
+export async function createWorkflow(
+  token: string,
+  name: string,
+  content: WorkflowContent,
+  description = ""
+): Promise<number> {
+  const config = getBackendConfig();
+  const url = `${config.apiEndpoint}/api/${WORKFLOW_BASE_URL}/create`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: createAuthHeaders(token),
+    body: JSON.stringify({
+      name,
+      description,
+      content: JSON.stringify(content),
+      isPublic: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create workflow: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+  const data = (await response.json()) as DashboardWorkflow;
+  return data.workflow.wid;
+}
+
+export async function deleteWorkflow(token: string, wid: number): Promise<void> {
+  const config = getBackendConfig();
+  const url = `${config.apiEndpoint}/api/${WORKFLOW_BASE_URL}/delete`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: createAuthHeaders(token),
+    body: JSON.stringify({ wids: [wid], pid: null }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to delete workflow ${wid}: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+}

@@ -36,3 +36,74 @@ export interface LogicalPlan {
   opsToViewResult?: string[];
   opsToReuseResult?: string[];
 }
+
+import { getBackendConfig } from "./backend-api";
+import { env } from "../config/env";
+import type { SyncExecutionResult } from "../types/execution";
+
+export interface ExecuteWorkflowOptions {
+  executionName?: string;
+  computingUnitId?: number;
+  timeoutSeconds?: number;
+  maxOperatorResultCharLimit?: number;
+  maxOperatorResultCellCharLimit?: number;
+  abortSignal?: AbortSignal;
+}
+
+/**
+ * POST the logical plan to the sync execution endpoint. Returns the
+ * SyncExecutionResult once execution finishes (success, error, or timeout).
+ *
+ * Does not throw on backend errors — surfaces them via `success: false` so
+ * callers can keep batch processing other workflows.
+ */
+export async function executeWorkflowSync(
+  token: string,
+  workflowId: number,
+  logicalPlan: LogicalPlan,
+  options: ExecuteWorkflowOptions = {}
+): Promise<SyncExecutionResult> {
+  const backendConfig = getBackendConfig();
+  const computingUnitId = options.computingUnitId ?? 0;
+  const executionEndpoint = env.EXECUTION_ENDPOINT_TEMPLATE
+    ? env.EXECUTION_ENDPOINT_TEMPLATE.replace("{cuid}", String(computingUnitId))
+    : backendConfig.executionEndpoint;
+
+  const url = `${executionEndpoint}/api/execution/${workflowId}/${computingUnitId}/run`;
+
+  const opsToViewResult = logicalPlan.opsToViewResult || [];
+  const request = {
+    executionName: options.executionName ?? "e2e-execution",
+    logicalPlan: {
+      operators: logicalPlan.operators,
+      links: logicalPlan.links,
+      opsToViewResult,
+      opsToReuseResult: [],
+    },
+    targetOperatorIds: opsToViewResult,
+    timeoutSeconds: options.timeoutSeconds ?? 300,
+    maxOperatorResultCharLimit: options.maxOperatorResultCharLimit ?? 4000,
+    maxOperatorResultCellCharLimit: options.maxOperatorResultCellCharLimit ?? 2000,
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(request),
+    signal: options.abortSignal,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return {
+      success: false,
+      state: "Error",
+      operators: {},
+      errors: [`HTTP ${response.status} ${response.statusText} - ${errorText}`],
+    };
+  }
+  return (await response.json()) as SyncExecutionResult;
+}

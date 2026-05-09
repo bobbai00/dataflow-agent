@@ -251,6 +251,20 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   })
 
   /**
+   * Return the workflow content the agent is currently editing — i.e., what a
+   * client would see if it asked "show me the workflow as it stands right
+   * now." Convenient endpoint for batch drivers that just want the final
+   * workflow after a turn without paginating through snapshots.
+   */
+  .get("/:id/workflow", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    return {
+      headId: agent.getHead(),
+      workflow: agent.getWorkflowState().getWorkflowContent(),
+    };
+  })
+
+  /**
    * Resolve the workflow + operator results visible at a given step via the
    * snapshot storage's ancestor walk. Use the literal "head" alias to read
    * the snapshot at the agent's current HEAD without separately querying it.
