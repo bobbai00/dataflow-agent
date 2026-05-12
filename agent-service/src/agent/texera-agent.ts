@@ -34,21 +34,14 @@ import {
   OperatorResultSerializationMode,
 } from "../types/agent";
 import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
-import {
-  createDeleteOperatorTool,
-  TOOL_NAME_DELETE_OPERATOR,
-  type ToolContext,
-} from "./tools/workflow-crud-tools";
+import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
 import {
   createAddOperatorTool,
   createModifyOperatorTool,
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
-import {
-  createCreateOrModifyOperatorTool,
-  TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
-} from "./tools/code-op-tools";
+import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import {
   createExecuteOperatorTool,
   executeOperatorAndFormat,
@@ -70,6 +63,16 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
 ]);
+
+function createEmptyWorkflowContent(): WorkflowContent {
+  return {
+    operators: [],
+    operatorPositions: {},
+    links: [],
+    commentBoxes: [],
+    settings: { dataTransferBatchSize: 400 },
+  };
+}
 
 export interface TexeraAgentConfig {
   model: LanguageModel;
@@ -198,23 +201,25 @@ export class TexeraAgent {
   }
 
   /**
-   * One-shot bootstrap for a freshly created agent.
+   * One-shot bootstrap for a freshly created agent. Init always runs;
+   * there is no longer a separate "delegate mode" branch.
    *
-   * Phase 1 — metadata (always): load operator schemas + system prompt + tools.
-   * Phase 2 — delegate (only when `delegateConfig` carries `workflowId`+`userToken`):
-   *   (a) fetch the workflow from the backend,
-   *   (b) commit `setDelegateConfig` (wires auto-persist + execution tool),
-   *   (c) record a synthetic `initialize` step as the tree root: it carries
-   *       the workflow snapshot, runs a baseline execution if there's
-   *       anything to run, and persists every per-operator result. The LLM
-   *       enters turn 1 already aware of the workflow's current state.
-   *
-   * Failure tolerance: every backend call here is wrapped. A missing workflow
-   * leaves the agent with no steps; a failed run still records the
-   * initialization step with the error captured in the tool result so the
-   * model can react. Agent creation never throws.
+   * Phase 1 — metadata: load operator schemas + system prompt + tools.
+   * Phase 2 — workflow load: if `config` carries `userToken`+`workflowId`,
+   *   fetch the workflow from the backend. Failure leaves the agent with
+   *   an empty workflow; init still proceeds.
+   * Phase 3 — backend wiring: if creds are present, `setDelegateConfig`
+   *   wires auto-persist and rebuilds the tool set with the execution
+   *   tool included.
+   * Phase 4 — init step (always): record a synthetic `initialize` agent
+   *   step. The step is action-bearing (it carries an `initialize` tool
+   *   call) and produces one snapshot — the first child of the snapshot
+   *   tree's empty root. If the workflow has operators and we have an
+   *   execution config, a baseline run populates per-operator results on
+   *   that snapshot. Otherwise the step still lands with an empty
+   *   results map. Agent creation never throws.
    */
-  async initialize(delegateConfig?: AgentDelegateConfig): Promise<void> {
+  async initialize(config?: AgentDelegateConfig): Promise<void> {
     try {
       if (!this.metadataStore.isInitialized()) {
         await this.metadataStore.initializeFromBackend();
@@ -226,72 +231,63 @@ export class TexeraAgent {
       this.log.error({ err: error }, "failed to initialize metadata");
     }
 
-    if (delegateConfig?.workflowId && delegateConfig.userToken) {
-      await this.bootstrapDelegate(delegateConfig);
-    }
-  }
+    const haveCreds = !!(config?.workflowId && config.userToken);
 
-  /**
-   * Delegate-mode bootstrap. Loads the workflow, then records a single
-   * `initialize` step that anchors both the workflow snapshot and any
-   * baseline operator results. If the workflow load fails the agent comes
-   * up with no steps — the user's first message becomes the tree root.
-   */
-  private async bootstrapDelegate(delegateConfig: AgentDelegateConfig): Promise<void> {
-    const { workflowId, userToken } = delegateConfig;
-    if (!workflowId || !userToken) return;
-
+    // Phase 2 — try to load the workflow if we have creds.
     let workflowContent: WorkflowContent | undefined;
-    let workflowName = delegateConfig.workflowName;
-    try {
-      const { retrieveWorkflow } = await import("../api/workflow-api");
-      const workflow = await retrieveWorkflow(userToken, workflowId);
-      workflowContent = workflow.content;
-      workflowName = workflow.name;
-      this.log.info({ workflowId, workflowName }, "loaded workflow for agent");
-    } catch (error) {
-      this.log.warn({ err: error, workflowId }, "initialize: failed to load workflow");
+    let workflowName = config?.workflowName;
+    if (haveCreds && config) {
+      try {
+        const { retrieveWorkflow } = await import("../api/workflow-api");
+        const workflow = await retrieveWorkflow(config.userToken!, config.workflowId!);
+        workflowContent = workflow.content;
+        workflowName = workflow.name;
+        this.log.info({ workflowId: config.workflowId, workflowName }, "loaded workflow for agent");
+      } catch (error) {
+        this.log.warn({ err: error, workflowId: config.workflowId }, "initialize: failed to load workflow");
+      }
     }
 
-    // Push to the live buffer first (no auto-persist subscription yet).
-    if (workflowContent) {
-      this.workflowState.setWorkflowContent(workflowContent);
+    const effectiveWorkflow = workflowContent ?? createEmptyWorkflowContent();
+    // Push to the live buffer first so any auto-persist subscription wired
+    // below sees the loaded content rather than the empty default.
+    this.workflowState.setWorkflowContent(effectiveWorkflow);
+
+    // Phase 3 — backend wiring (only if creds present).
+    if (haveCreds && config) {
+      this.setDelegateConfig({
+        userToken: config.userToken!,
+        userInfo: config.userInfo,
+        workflowId: config.workflowId!,
+        workflowName,
+        computingUnitId: config.computingUnitId,
+      });
     }
 
-    // Commit delegateConfig last so the auto-persist subscription is attached
-    // AFTER the initial setWorkflowContent — no spurious round-trip.
-    this.setDelegateConfig({
-      userToken,
-      userInfo: delegateConfig.userInfo,
-      workflowId,
-      workflowName,
-      computingUnitId: delegateConfig.computingUnitId,
-    });
-
-    if (workflowContent) {
-      await this.recordInitializationStep(workflowContent);
-    }
+    // Phase 4 — always record the init step. This anchors the snapshot
+    // tree's first non-root node.
+    await this.recordInitializationStep(effectiveWorkflow);
   }
 
   /**
-   * Append a single root-level `agent` step that represents agent
-   * initialization. The step's `toolCall` is named `initialize`; its result
-   * captures the loaded workflow plus a baseline execution summary. Both the
-   * workflow snapshot and every per-operator result are keyed against this
-   * step's id, so HEAD's ancestor walk has a real anchor for both axes.
+   * Append the agent's `initialize` step at the tree root and create the
+   * first snapshot under the empty root. The tool call is synthetic
+   * (`toolName: "initialize"`) — there is no registered tool of that
+   * name; it exists only so the step participates in the
+   * "tool-calls ⇒ snapshot edge" rule used by every later step.
    *
-   * If the workflow has zero operators we skip the backend execute call but
-   * still record the step (so the workflow snapshot has a home).
+   * Baseline execution runs only when the workflow has operators AND a
+   * backend execution config is wired (i.e. the agent has token +
+   * workflowId). Otherwise we record the step with no per-op results.
    */
   private async recordInitializationStep(workflowContent: WorkflowContent): Promise<void> {
     const execConfig = this.buildExecutionConfig();
-    if (!execConfig) return;
-
     const opIds = workflowContent.operators.map(op => op.operatorID);
     const collected = new Map<string, OperatorInfo>();
     let runResult: Awaited<ReturnType<typeof executeWorkflowAndPersist>>;
 
-    if (opIds.length === 0) {
+    if (opIds.length === 0 || !execConfig) {
+      // No baseline run: either nothing to run, or no backend wiring.
       runResult = { success: true, state: "Empty", opCount: 0, errorCount: 0 };
     } else {
       try {
@@ -332,7 +328,7 @@ export class TexeraAgent {
         {
           toolName: "initialize",
           toolCallId,
-          input: { workflowId: execConfig.workflowId },
+          input: { workflowId: execConfig?.workflowId },
         },
       ],
       toolResults: [
@@ -346,8 +342,9 @@ export class TexeraAgent {
     this.addStep(initStep);
     this.head = stepId;
 
-    // Anchor both the workflow snapshot and every per-op result at this step.
-    this.snapshotStorage.setWorkflow(stepId, workflowContent);
+    // The init step is action-bearing — create its snapshot as the first
+    // child of the storage's empty root.
+    this.snapshotStorage.createSnapshot(stepId, workflowContent);
     this.snapshotCallback?.(stepId, workflowContent);
     for (const [opId, info] of collected) {
       this.snapshotStorage.setOperatorResult(stepId, opId, info);
@@ -355,7 +352,7 @@ export class TexeraAgent {
 
     this.log.info(
       {
-        workflowId: execConfig.workflowId,
+        workflowId: execConfig?.workflowId,
         stepId,
         opCount: runResult.opCount,
         errorCount: runResult.errorCount,
@@ -427,7 +424,12 @@ export class TexeraAgent {
         this.workflowState,
         getExecutionConfig,
         (opId, operatorInfo) => {
-          if (this.head !== undefined) {
+          // The callback fires DURING tool execution, when HEAD is still
+          // the previous step — which may or may not own a snapshot. Skip
+          // when it doesn't; executeOperator is being retired, and the
+          // run that produced this result will be re-issued by
+          // runPostStepExecution on the action-bearing step that owns it.
+          if (this.head !== undefined && this.snapshotStorage.hasSnapshotFor(this.head)) {
             this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
           }
         }
@@ -507,13 +509,10 @@ export class TexeraAgent {
     const step = this.stepsById.get(stepId);
     if (!step) return false;
     this.head = stepId;
-    // Restore the workflow visible at this branch via the snapshot storage's
-    // ancestor walk. Falls back to leaving the live workflow untouched if no
-    // ancestor on this branch ever recorded one (e.g. fresh checkout to root).
-    const wf = this.snapshotStorage.getWorkflow(stepId);
-    if (wf) {
-      this.workflowState.setWorkflowContent(wf);
-    }
+    // Restore the workflow visible at this branch. The storage's reads are
+    // total — if no action-bearing ancestor owns a snapshot on this branch
+    // we fall through to the empty root's empty workflow.
+    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
     return true;
   }
 
@@ -522,8 +521,8 @@ export class TexeraAgent {
   }
 
   /**
-   * Subscribe to workflow-snapshot writes. Fires after `maybeSetWorkflowSnapshot`
-   * actually wrote a new entry — i.e., the workflow changed at HEAD. Used by
+   * Subscribe to workflow-snapshot writes. Fires after a `createSnapshot`
+   * actually committed a new snapshot — i.e., HEAD is action-bearing. Used by
    * the websocket layer to push a `snapshot` event so clients can refresh
    * their view without embedding workflow content in every step event.
    */
@@ -536,24 +535,23 @@ export class TexeraAgent {
   }
 
   /**
-   * Record a workflow snapshot at HEAD, but only if it differs from what is
-   * already visible via the ancestor walk at HEAD's parent. Steps that don't
-   * mutate the DAG (user message, error, plain "thinking" turn) skip the
-   * write and let lookups fall back to the nearest ancestor's workflow —
-   * this is the dedupe property the storage relies on.
+   * Create a snapshot owned by HEAD iff the step is action-bearing (i.e.
+   * it has at least one tool call). Steps without tool calls (user
+   * messages, plain "thinking" replies, error frames) own no snapshot —
+   * lookups for them resolve to the nearest action-bearing ancestor via
+   * the snapshot storage's associated-snapshot rule.
    *
    * Must be called AFTER `addStep` advances HEAD to the step we're writing
    * for.
    */
-  private maybeSetWorkflowSnapshot(content: WorkflowContent): void {
+  private maybeCreateSnapshotForHead(content: WorkflowContent): void {
     const head = this.head;
     if (head === undefined) return;
-    const parentId = this.stepsById.get(head)?.parentId;
-    const prev = parentId ? this.snapshotStorage.getWorkflow(parentId) : undefined;
-    if (!prev || JSON.stringify(prev) !== JSON.stringify(content)) {
-      this.snapshotStorage.setWorkflow(head, content);
-      this.snapshotCallback?.(head, content);
-    }
+    const step = this.stepsById.get(head);
+    if (!step?.toolCalls || step.toolCalls.length === 0) return;
+    if (this.snapshotStorage.hasSnapshotFor(head)) return;
+    this.snapshotStorage.createSnapshot(head, content);
+    this.snapshotCallback?.(head, content);
   }
 
   private addStep(step: ReActStep): void {
@@ -743,8 +741,6 @@ export class TexeraAgent {
     this.currentMessageId = messageId;
 
     try {
-      const initialWorkflowContent = this.workflowState.getWorkflowContent();
-
       const estimatedInputTokens = Math.ceil(userMessage.length / 4);
       const userStepId = this.generateStepId();
       const userStep: ReActStep = {
@@ -766,9 +762,9 @@ export class TexeraAgent {
       };
       this.addStep(userStep);
       this.head = userStepId;
-      // Seed/refresh the snapshot at this step. Skipped if HEAD's parent
-      // already shows the same workflow (no-op turn).
-      this.maybeSetWorkflowSnapshot(initialWorkflowContent);
+      // User steps carry no tool calls and therefore own no snapshot — the
+      // workflow visible here resolves to the nearest action-bearing
+      // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
 
       let isFirstStep = true;
       let lastPreparedMessages: ModelMessage[] | undefined;
@@ -863,7 +859,9 @@ export class TexeraAgent {
           lastPreparedMessages = undefined;
           this.addStep(agentStep);
           this.head = agentStepId;
-          this.maybeSetWorkflowSnapshot(afterStepContent);
+          // Snapshot iff the model emitted tool calls this step; thinking
+          // turns and final summaries don't own a snapshot.
+          this.maybeCreateSnapshotForHead(afterStepContent);
 
           await this.runPostStepExecution(toolCalls, toolResults);
 
@@ -952,7 +950,8 @@ export class TexeraAgent {
 
   private getFormattedResultsForDAG(): Map<string, string> {
     const result = new Map<string, string>();
-    if (this.head === undefined) return result;
+    // Reads are total — undefined head resolves to the empty root's
+    // (empty) results map.
     const visible = this.snapshotStorage.getAllVisibleResults(this.head);
     for (const [operatorId, info] of visible) {
       result.set(operatorId, formatOperatorResult(operatorId, info, this.workflowState));
@@ -1023,7 +1022,7 @@ export class TexeraAgent {
    */
   importReActSteps(
     steps: ReActStep[],
-    snapshots?: Record<string, WorkflowContent>,
+    snapshots?: Record<string, WorkflowContent>
   ): { headId: string; importedCount: number } {
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new Error("import requires a non-empty steps array");
@@ -1104,12 +1103,16 @@ export class TexeraAgent {
     }
     for (const s of order) this.addStep(s);
 
-    // Load workflow snapshots (if provided) into the storage. Iteration order
-    // doesn't matter — the storage is keyed by stepId.
+    // Load workflow snapshots (if provided) into the storage. Iterate in
+    // parent-before-child order on the ReAct tree so each `createSnapshot`
+    // can resolve its parent snapshot via the ancestor walk. Per-operator
+    // results aren't in the export, so each restored snapshot starts with
+    // whatever results its parent snapshot has (typically empty).
     if (snapshots) {
-      for (const [stepId, content] of Object.entries(snapshots)) {
-        if (!seenIds.has(stepId)) continue; // ignore snapshots for unknown steps
-        this.snapshotStorage.setWorkflow(stepId, content);
+      for (const s of order) {
+        const content = snapshots[s.id];
+        if (content === undefined) continue;
+        this.snapshotStorage.createSnapshot(s.id, content);
       }
     }
 
@@ -1122,12 +1125,10 @@ export class TexeraAgent {
     const headStep = leaves[0];
     this.head = headStep.id;
 
-    // Restore workflow snapshot at HEAD via the snapshot storage's ancestor
-    // walk (populated above from legacy `afterWorkflowContent` fields).
-    const headWorkflow = this.snapshotStorage.getWorkflow(headStep.id);
-    if (headWorkflow) {
-      this.workflowState.setWorkflowContent(headWorkflow);
-    }
+    // Restore workflow visible at HEAD. The storage's read is total — if
+    // no action-bearing ancestor recorded one, we land on the empty
+    // root's empty workflow.
+    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(headStep.id));
 
     // Recompute stepCounter from the largest numeric segment in any imported
     // id of the form `step-<agentId>-<n>-<ts>`, so subsequent generateStepId()
@@ -1283,8 +1284,6 @@ export class TexeraAgent {
     this.state = AgentStateEnum.GENERATING;
 
     try {
-      const beforeContent = this.workflowState.getWorkflowContent();
-
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
@@ -1305,7 +1304,8 @@ export class TexeraAgent {
         };
         this.addStep(userStep);
         this.head = userStepId;
-        this.maybeSetWorkflowSnapshot(beforeContent);
+        // No tool calls → no snapshot; reads resolve to the nearest
+        // action-bearing ancestor.
         return { kind: "user_message", stopped: false };
       }
 
@@ -1349,9 +1349,7 @@ export class TexeraAgent {
         };
         this.addStep(errorStep);
         this.head = errorStepId;
-        // No DAG mutation occurred; the maybeSet helper will skip if the
-        // parent's snapshot already shows the same content.
-        this.maybeSetWorkflowSnapshot(beforeContent);
+        // Parse-error step carries no tool calls → owns no snapshot.
         return { kind: "function_call", stopped: false, error: message };
       }
 
@@ -1391,7 +1389,8 @@ export class TexeraAgent {
       };
       this.addStep(agentStep);
       this.head = agentStepId;
-      this.maybeSetWorkflowSnapshot(afterContent);
+      // Function(...) always carries a single tool call → snapshot every time.
+      this.maybeCreateSnapshotForHead(afterContent);
 
       await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
 

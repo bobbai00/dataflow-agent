@@ -34,6 +34,16 @@ function makeOperatorInfo(opId: string, rows: number): OperatorInfo {
   } as unknown as OperatorInfo;
 }
 
+function emptyWorkflow(): WorkflowContent {
+  return {
+    operators: [],
+    operatorPositions: {},
+    links: [],
+    commentBoxes: [],
+    settings: { dataTransferBatchSize: 400 },
+  };
+}
+
 function makeWorkflow(operatorIds: string[]): WorkflowContent {
   return {
     operators: operatorIds.map(
@@ -46,7 +56,7 @@ function makeWorkflow(operatorIds: string[]): WorkflowContent {
           inputPorts: [],
           outputPorts: [],
           showAdvanced: false,
-        }) as any,
+        }) as any
     ),
     operatorPositions: {},
     links: [],
@@ -55,9 +65,9 @@ function makeWorkflow(operatorIds: string[]): WorkflowContent {
   };
 }
 
-describe("WorkflowSnapshotStorage — operator results (ancestor walk)", () => {
-  // Tree: A → B → C   and   A → D (sibling of B).
-  const path = (stepId: string): string[] => {
+// ReAct tree: A → B → C   and   A → D (sibling of B).
+function makeAbcdPath() {
+  return (stepId: string): string[] => {
     const parents: Record<string, string> = { A: "", B: "A", C: "B", D: "A" };
     const chain: string[] = [];
     let cur: string | undefined = stepId;
@@ -67,42 +77,109 @@ describe("WorkflowSnapshotStorage — operator results (ancestor walk)", () => {
     }
     return chain;
   };
+}
 
-  test("walks ancestors leaf→root and returns the most recent visible result", () => {
-    const s = new WorkflowSnapshotStorage(path);
+describe("WorkflowSnapshotStorage — snapshot tree shape", () => {
+  test("the first createSnapshot lands under the empty root and is indexed under its ReAct step", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const rootId = s.getRootSnapshotId();
+    const snap = s.createSnapshot("A", makeWorkflow(["op1"]));
+
+    expect(snap.parentId).toBe(rootId);
+    expect(snap.reactStepId).toBe("A");
+    expect(snap.workflow.operators[0]?.operatorID).toBe("op1");
+    expect(s.hasSnapshotFor("A")).toBe(true);
+    expect(s.getSnapshotById(snap.id)?.reactStepId).toBe("A");
+  });
+
+  test("createSnapshot on a descendant action-bearing step points its parentId at the nearest action-bearing ancestor", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const a = s.createSnapshot("A", makeWorkflow(["op1"]));
+    // B is action-less in this scenario (no snapshot created at B), so C's
+    // parent snapshot is A — not the missing snapshot at B.
+    const c = s.createSnapshot("C", makeWorkflow(["op1", "op2"]));
+
+    expect(c.parentId).toBe(a.id);
+    expect(s.hasSnapshotFor("B")).toBe(false);
+  });
+
+  test("siblings each get their own snapshot rooted at the shared ancestor", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const a = s.createSnapshot("A", makeWorkflow(["op1"]));
+    const b = s.createSnapshot("B", makeWorkflow(["op1", "op_b"]));
+    const d = s.createSnapshot("D", makeWorkflow(["op1", "op_d"]));
+
+    expect(b.parentId).toBe(a.id);
+    expect(d.parentId).toBe(a.id);
+    expect(b.id).not.toBe(d.id);
+  });
+
+  test("createSnapshot twice on the same step throws", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", makeWorkflow(["op1"]));
+    expect(() => s.createSnapshot("A", makeWorkflow(["op2"]))).toThrow(/already exists/);
+  });
+});
+
+describe("WorkflowSnapshotStorage — operator results (snapshot-resolved)", () => {
+  test("an action-less step inherits its ancestor snapshot's results", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", emptyWorkflow());
     s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 1));
-    s.setOperatorResult("B", "op1", makeOperatorInfo("op1", 99)); // newer on this branch
 
+    // B and C own no snapshot — their associated snapshot is A's.
     expect(s.getOperatorResult("A", "op1")?.totalRowCount).toBe(1);
+    expect(s.getOperatorResult("B", "op1")?.totalRowCount).toBe(1);
+    expect(s.getOperatorResult("C", "op1")?.totalRowCount).toBe(1);
+  });
+
+  test("a child snapshot inherits its parent's results and can override them per-op", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", emptyWorkflow());
+    s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 1));
+    s.createSnapshot("B", emptyWorkflow());
+    s.setOperatorResult("B", "op1", makeOperatorInfo("op1", 99)); // override
+
+    expect(s.getOperatorResult("A", "op1")?.totalRowCount).toBe(1); // parent untouched
     expect(s.getOperatorResult("B", "op1")?.totalRowCount).toBe(99);
     expect(s.getOperatorResult("C", "op1")?.totalRowCount).toBe(99); // inherited via B
   });
 
-  test("results on a sibling branch are invisible", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    s.setOperatorResult("D", "op1", makeOperatorInfo("op1", 42)); // sibling-only write
+  test("results on a sibling branch are invisible from the other branch", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", emptyWorkflow());
+    s.createSnapshot("D", emptyWorkflow());
+    s.setOperatorResult("D", "op1", makeOperatorInfo("op1", 42));
 
-    // C is on the A-B-C branch; it should NOT see D's result.
+    // C is on A→B→C. The branch contains no write for op1.
     expect(s.getOperatorResult("C", "op1")).toBeUndefined();
     expect(s.getOperatorResult("D", "op1")?.totalRowCount).toBe(42);
   });
 
-  test("returns undefined for unknown operators", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    expect(s.getOperatorResult("A", "missing")).toBeUndefined();
+  test("setOperatorResult on a step without a snapshot throws", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    expect(() => s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 1))).toThrow(/no snapshot owned by this step/);
   });
 
-  test("getResolvedOperatorResult exposes the source step", () => {
-    const s = new WorkflowSnapshotStorage(path);
+  test("getResolvedOperatorResult preserves the originating step through inheritance", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", emptyWorkflow());
     s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 7));
-    const resolved = s.getResolvedOperatorResult("C", "op1");
-    expect(resolved?.value.totalRowCount).toBe(7);
-    expect(resolved?.sourceStepId).toBe("A"); // earned at A, inherited at C
+    s.createSnapshot("B", emptyWorkflow()); // B inherits op1 from A by reference
+
+    const fromB = s.getResolvedOperatorResult("B", "op1");
+    expect(fromB?.value.totalRowCount).toBe(7);
+    expect(fromB?.sourceStepId).toBe("A"); // earned at A, even when read from B
+
+    const fromC = s.getResolvedOperatorResult("C", "op1");
+    expect(fromC?.sourceStepId).toBe("A"); // also via the action-less C → B → A walk
   });
 
-  test("getAllVisibleResults emits one entry per operator on the branch", () => {
-    const s = new WorkflowSnapshotStorage(path);
+  test("getAllVisibleResults emits the merged map of the associated snapshot", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", emptyWorkflow());
     s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 1));
+    s.createSnapshot("B", emptyWorkflow());
     s.setOperatorResult("B", "op2", makeOperatorInfo("op2", 2));
     s.setOperatorResult("B", "op1", makeOperatorInfo("op1", 99)); // shadows A's op1
 
@@ -113,63 +190,94 @@ describe("WorkflowSnapshotStorage — operator results (ancestor walk)", () => {
   });
 });
 
-describe("WorkflowSnapshotStorage — workflow content (ancestor walk)", () => {
-  const path = (stepId: string): string[] => {
-    const parents: Record<string, string> = { A: "", B: "A", C: "B", D: "A" };
-    const chain: string[] = [];
-    let cur: string | undefined = stepId;
-    while (cur) {
-      chain.unshift(cur);
-      cur = parents[cur] || undefined;
-    }
-    return chain;
-  };
+describe("WorkflowSnapshotStorage — workflow content", () => {
+  test("an action-less step reads its associated snapshot's workflow", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", makeWorkflow(["op1"]));
 
-  test("absent workflow at leaf falls back to the nearest ancestor", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    const wfA = makeWorkflow(["op1"]);
-    s.setWorkflow("A", wfA);
-
-    // B and C never recorded a workflow; they inherit A's.
+    // B and C own no snapshot — they read A's.
+    expect(s.getWorkflow("A")?.operators.length).toBe(1);
     expect(s.getWorkflow("B")?.operators.length).toBe(1);
     expect(s.getWorkflow("C")?.operators.length).toBe(1);
   });
 
-  test("nearer ancestors override farther ones on the same branch", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    s.setWorkflow("A", makeWorkflow(["op1"]));
-    s.setWorkflow("B", makeWorkflow(["op1", "op2"])); // override on path
+  test("a nearer snapshot overrides a farther one on the same branch", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", makeWorkflow(["op1"]));
+    s.createSnapshot("B", makeWorkflow(["op1", "op2"]));
 
     expect(s.getWorkflow("A")?.operators.length).toBe(1);
     expect(s.getWorkflow("B")?.operators.length).toBe(2);
     expect(s.getWorkflow("C")?.operators.length).toBe(2); // inherits from B
   });
 
-  test("a workflow stored on a sibling branch is invisible", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    s.setWorkflow("A", makeWorkflow(["op1"]));
-    s.setWorkflow("D", makeWorkflow(["op1", "op2", "op3"])); // sibling branch
+  test("a snapshot on a sibling branch is invisible", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", makeWorkflow(["op1"]));
+    s.createSnapshot("D", makeWorkflow(["op1", "op2", "op3"]));
 
-    expect(s.getWorkflow("C")?.operators.length).toBe(1); // sees A only
+    expect(s.getWorkflow("C")?.operators.length).toBe(1); // A only
     expect(s.getWorkflow("D")?.operators.length).toBe(3);
   });
 
-  test("getResolvedWorkflow exposes the source step", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    s.setWorkflow("A", makeWorkflow(["op1"]));
+  test("getResolvedWorkflow returns the owning snapshot's reactStepId", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    s.createSnapshot("A", makeWorkflow(["op1"]));
     const r = s.getResolvedWorkflow("C");
     expect(r?.value.operators.length).toBe(1);
     expect(r?.sourceStepId).toBe("A");
   });
 
-  test("getWorkflow returns undefined when no ancestor recorded one", () => {
-    const s = new WorkflowSnapshotStorage(path);
-    expect(s.getWorkflow("C")).toBeUndefined();
+  test("getWorkflow returns the empty root's workflow when no action-bearing ancestor exists", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    // Reads are total. With no snapshots created, the associated snapshot
+    // of any step is the empty root.
+    expect(s.getWorkflow("C").operators).toEqual([]);
+    const resolved = s.getResolvedWorkflow("C");
+    expect(resolved.value.operators).toEqual([]);
+    expect(resolved.sourceStepId).toBeUndefined(); // root has no owning step
+  });
+});
+
+describe("WorkflowSnapshotStorage — empty root", () => {
+  test("a fresh storage already contains a root snapshot with empty workflow + empty results", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const root = s.getRootSnapshot();
+    expect(root.parentId).toBeUndefined();
+    expect(root.reactStepId).toBeUndefined();
+    expect(root.workflow.operators).toEqual([]);
+    expect(root.results.size).toBe(0);
+    expect(s.getRootSnapshotId()).toBe(root.id);
+  });
+
+  test("the first action-bearing step's snapshot points its parentId at the empty root", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const root = s.getRootSnapshot();
+    const a = s.createSnapshot("A", makeWorkflow(["op1"]));
+    expect(a.parentId).toBe(root.id);
+  });
+
+  test("reading at undefined returns the empty root", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    expect(s.getWorkflow(undefined).operators).toEqual([]);
+    expect(s.getAllVisibleResults(undefined).size).toBe(0);
+  });
+
+  test("clear() re-allocates a fresh empty root with a new id", () => {
+    const s = new WorkflowSnapshotStorage(makeAbcdPath());
+    const firstRootId = s.getRootSnapshotId();
+    s.createSnapshot("A", makeWorkflow(["op1"]));
+    s.clear();
+    const secondRootId = s.getRootSnapshotId();
+    expect(secondRootId).not.toBe(firstRootId);
+    // Step-owned data is gone; reads still resolve to the new root.
+    expect(s.hasSnapshotFor("A")).toBe(false);
+    expect(s.getWorkflow("A").operators).toEqual([]);
   });
 });
 
 describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
-  // Linear branch S2 → S3 → S5 (S1 and S4 are stand-ins for "no snapshot here").
+  // Linear branch S2 → S3 → S5 (S1 and S4 stand in for action-less steps).
   const linearPath = (id: string): string[] => {
     const parents: Record<string, string> = { S1: "", S2: "S1", S3: "S2", S4: "S3", S5: "S4" };
     const chain: string[] = [];
@@ -181,18 +289,20 @@ describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
     return chain;
   };
 
-  test("middle-op rewrite without re-executing downstream leaves a STALE downstream result visible (writer-enforced consistency, by design)", () => {
+  test("middle-op rewrite without downstream re-execution leaves a stale downstream result visible (writer-enforced consistency, by design)", () => {
     // DAG semantics A → B → C. At S3 we have a clean run for all three; at S5
-    // the agent rewrites only B's result. C's snapshot at S3 is now logically
-    // outdated, but the storage has no DAG awareness — it inherits C from S3.
+    // the agent rewrites only B's result. C's result at S5's snapshot is
+    // inherited from S3 — the storage has no DAG awareness.
     const s = new WorkflowSnapshotStorage(linearPath);
+    s.createSnapshot("S3", emptyWorkflow());
     s.setOperatorResult("S3", "A", makeOperatorInfo("A", 1));
     s.setOperatorResult("S3", "B", makeOperatorInfo("B", 1));
     s.setOperatorResult("S3", "C", makeOperatorInfo("C", 1));
+    s.createSnapshot("S5", emptyWorkflow());
     s.setOperatorResult("S5", "B", makeOperatorInfo("B", 999));
 
     const visible = s.getAllVisibleResults("S5");
-    expect(visible.get("A")?.totalRowCount).toBe(1); // upstream — correctly inherited
+    expect(visible.get("A")?.totalRowCount).toBe(1); // inherited
     expect(visible.get("B")?.totalRowCount).toBe(999); // freshly written at S5
     expect(visible.get("C")?.totalRowCount).toBe(1); // STALE: inherited from S3
     // The storage trusts the writer (TexeraAgent.runPostStepExecution) to keep
@@ -202,11 +312,11 @@ describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
 
   test("writer also refreshes downstream → no stale result visible", () => {
     const s = new WorkflowSnapshotStorage(linearPath);
+    s.createSnapshot("S3", emptyWorkflow());
     s.setOperatorResult("S3", "A", makeOperatorInfo("A", 1));
     s.setOperatorResult("S3", "B", makeOperatorInfo("B", 1));
     s.setOperatorResult("S3", "C", makeOperatorInfo("C", 1));
-    // Same as above, but now S5 also writes a fresh C — mirrors what
-    // runPostStepExecution does when it walks downstream sinks.
+    s.createSnapshot("S5", emptyWorkflow());
     s.setOperatorResult("S5", "B", makeOperatorInfo("B", 999));
     s.setOperatorResult("S5", "C", makeOperatorInfo("C", 9999));
 
@@ -218,32 +328,29 @@ describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
 });
 
 describe("WorkflowSnapshotStorage — housekeeping", () => {
-  test("clear() drops everything", () => {
+  test("clear() drops every step-owned snapshot and unindexes every step (root is preserved as a fresh empty)", () => {
     const s = new WorkflowSnapshotStorage(() => ["X"]);
-    s.setWorkflow("X", makeWorkflow(["op1"]));
+    s.createSnapshot("X", makeWorkflow(["op1"]));
     s.setOperatorResult("X", "op1", makeOperatorInfo("op1", 5));
     s.clear();
-    expect(s.getWorkflow("X")).toBeUndefined();
+    // Reads are total — they now resolve to the freshly-allocated empty root.
+    expect(s.getWorkflow("X").operators).toEqual([]);
     expect(s.getOperatorResult("X", "op1")).toBeUndefined();
+    expect(s.hasSnapshotFor("X")).toBe(false);
   });
 
-  test("pruneOrphans drops snapshots whose stepId is no longer live", () => {
-    const s = new WorkflowSnapshotStorage(() => ["X", "Y"]);
-    s.setWorkflow("X", makeWorkflow(["op1"]));
-    s.setWorkflow("Y", makeWorkflow(["op2"]));
-    s.setWorkflow("Z", makeWorkflow(["op3"])); // orphan
+  test("pruneOrphans drops snapshots whose owning step is no longer live", () => {
+    const s = new WorkflowSnapshotStorage((id: string) => (id === "Y" ? ["X", "Y"] : [id]));
+    s.createSnapshot("X", makeWorkflow(["op1"]));
+    s.createSnapshot("Y", makeWorkflow(["op2"]));
+    s.createSnapshot("Z", makeWorkflow(["op3"])); // orphan
 
     s.pruneOrphans(new Set(["X", "Y"]));
 
-    // Use the same walker for these reads — Y returns Y's, X returns X's, Z is gone.
-    const walkerY = new WorkflowSnapshotStorage((id: string) => (id === "Y" ? ["X", "Y"] : [id]));
-    walkerY.setWorkflow("X", makeWorkflow(["op1"]));
-    walkerY.setWorkflow("Y", makeWorkflow(["op2"]));
-    walkerY.setWorkflow("Z", makeWorkflow(["op3"]));
-    walkerY.pruneOrphans(new Set(["X", "Y"]));
-
-    expect(walkerY.getWorkflow("Z")).toBeUndefined();
-    expect(walkerY.getWorkflow("Y")?.operators.length).toBe(1); // op2's snapshot kept
-    expect(walkerY.getWorkflow("X")?.operators.length).toBe(1);
+    // Z no longer owns a snapshot → reads at Z resolve to the empty root.
+    expect(s.hasSnapshotFor("Z")).toBe(false);
+    expect(s.getWorkflow("Z").operators).toEqual([]);
+    expect(s.getWorkflow("Y")?.operators.length).toBe(1); // op2's snapshot kept
+    expect(s.getWorkflow("X")?.operators.length).toBe(1);
   });
 });
