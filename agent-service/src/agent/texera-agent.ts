@@ -24,12 +24,12 @@ import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import { formatOperatorResult } from "./tools/result-formatting";
 import type { AgentDelegateConfig, AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
   AgentState as AgentStateEnum,
+  ContextMode,
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
@@ -604,6 +604,7 @@ export class TexeraAgent {
     maxSteps?: number;
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
+    contextMode?: ContextMode;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -635,6 +636,11 @@ export class TexeraAgent {
     if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
       this.settings.agentMode = updates.agentMode;
       promptNeedsRebuild = true;
+    }
+    if (updates.contextMode !== undefined) {
+      this.settings.contextMode = updates.contextMode;
+      // Context mode does not affect the system prompt (we stripped the
+      // mode-specific layout description from prompts.ts).
     }
 
     if (promptNeedsRebuild) {
@@ -794,10 +800,9 @@ export class TexeraAgent {
           const processed = assembleContext(
             visibleSteps,
             this.workflowState,
-            this.getFormattedResultsForDAG(),
-            false,
-            compilationResult,
-            this.settings.agentMode
+            this.snapshotStorage,
+            this.settings.contextMode,
+            { compilationResult, agentMode: this.settings.agentMode }
           );
           lastPreparedMessages = processed;
           return { messages: processed };
@@ -948,17 +953,6 @@ export class TexeraAgent {
     }
   }
 
-  private getFormattedResultsForDAG(): Map<string, string> {
-    const result = new Map<string, string>();
-    // Reads are total — undefined head resolves to the empty root's
-    // (empty) results map.
-    const visible = this.snapshotStorage.getAllVisibleResults(this.head);
-    for (const [operatorId, info] of visible) {
-      result.set(operatorId, formatOperatorResult(operatorId, info, this.workflowState));
-    }
-    return result;
-  }
-
   /**
    * Public preview of the next-step user-message content as a single string.
    *
@@ -975,10 +969,9 @@ export class TexeraAgent {
     const processed = assembleContext(
       visibleSteps,
       this.workflowState,
-      this.getFormattedResultsForDAG(),
-      false,
-      null,
-      this.settings.agentMode
+      this.snapshotStorage,
+      this.settings.contextMode,
+      { compilationResult: null, agentMode: this.settings.agentMode }
     );
     const first = processed[0];
     if (!first) return "";

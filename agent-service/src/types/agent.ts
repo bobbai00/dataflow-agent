@@ -70,6 +70,24 @@ export enum AgentMode {
   GENERAL = "general",
 }
 
+/**
+ * Snapshot-selection policy for serializing the ReAct context (paper §5).
+ * Each mode trades fidelity for token cost.
+ *
+ * - FULL — every snapshot on the path rendered in full; events and snapshots
+ *   are interleaved. Highest cost, highest fidelity.
+ * - DELTA — every snapshot on the path interleaved with its event, but only
+ *   the operators changed by that step's actions are rendered in full; the
+ *   rest are id+description placeholders. Cost scales with distinct edits.
+ * - LATEST — events without per-turn snapshots, plus one trailing block
+ *   containing only the current snapshot. Cheapest; loses trajectory.
+ */
+export enum ContextMode {
+  FULL = "full",
+  DELTA = "delta",
+  LATEST = "latest",
+}
+
 export interface AgentSettings {
   systemPrompt: string;
   disabledTools: Set<string>;
@@ -81,6 +99,7 @@ export interface AgentSettings {
   maxSteps: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
+  contextMode: ContextMode;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -112,6 +131,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "PythonUDFV2",
   ],
   agentMode: AgentMode.CODE,
+  contextMode: ContextMode.LATEST,
 };
 
 export interface UserInfo {
@@ -139,6 +159,7 @@ export interface AgentSettingsApi {
   maxSteps?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
+  contextMode?: "full" | "delta" | "latest";
 }
 
 export interface AgentInfo {
@@ -170,4 +191,5 @@ export interface UpdateAgentSettingsRequest {
   maxSteps?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
+  contextMode?: "full" | "delta" | "latest";
 }

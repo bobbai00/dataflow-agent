@@ -37,7 +37,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentMode, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
 const agentStore = new Map<string, TexeraAgent>();
 let agentCounter = 0;
@@ -87,6 +87,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     maxSteps: agentSettings.maxSteps,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
+    contextMode: agentSettings.contextMode,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -191,6 +192,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
           maxSteps: settings.maxSteps,
           allowedOperatorTypes: settings.allowedOperatorTypes,
+          agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+          contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         });
       }
 
@@ -213,6 +216,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
+            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+            contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
           })
         ),
       }),
@@ -409,6 +414,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       maxSteps: agentSettings.maxSteps,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
       agentMode: agentSettings.agentMode,
+      contextMode: agentSettings.contextMode,
     };
   })
 
@@ -440,10 +446,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxSteps: settings.maxSteps,
         allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+        contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
       });
 
-      // Settings can change context assembly (agentMode flips schema gating in
-      // the DAG section) — re-broadcast the preview so clients stay in sync.
+      // Settings can change context assembly (agentMode flips schema gating,
+      // contextMode flips the selection policy) — re-broadcast the preview
+      // so clients stay in sync.
       broadcastNextContext(id, agent);
 
       const agentSettings = agent.getSettings();
@@ -457,6 +465,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxSteps: agentSettings.maxSteps,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
         agentMode: agentSettings.agentMode,
+        contextMode: agentSettings.contextMode,
       };
     },
     {
@@ -470,6 +479,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         disabledTools: t.Optional(t.Array(t.String())),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+        contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
       }),
     }
   );

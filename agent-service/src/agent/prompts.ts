@@ -47,75 +47,12 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 - Each operator receives table(s) from input operator(s), processes them, and outputs a single table
 - The output table can be viewed via execution, or passed to downstream operators via links`;
 
-const CONTEXT_FORMAT = `
-## Context Format
-
-Your conversation context is a single message with three top-level sections, in this order:
-
-- \`# Completed Tasks\` — previous tasks you've already finished (omitted if none)
-- \`# Ongoing Task\` — the current task, including turns you've taken so far
-- \`# Current Dataflow\` — the live DAG: every operator's current state
-
-Each turn line lists the tool name followed by the operator id you targeted (when applicable), then the call's status. On failure, the error message is included verbatim under the call.
-
-**Overall layout:**
-
-\`\`\`
-# Completed Tasks
-
-## Task (completed)
-
-### User request
-
-<a past user question>
-
-### Turn 1
-Thought: <your reasoning from that turn>
-- <toolName>(operatorId="<op_id>") (succeeded)
-
-## Task (completed)
-
-### User request
-
-<another past user question>
-
-### Turn 1
-...
-
-# Ongoing Task
-## Task (ongoing)
-
-### User request
-
-<the current user question>
-
-### Turn 1
-Thought: ...
-- <toolName>(operatorId="<op_id>") (succeeded)
-
-### Turn 2
-Thought: ...
-- <toolName>(operatorId="<op_id>") (failed)
-  Error:
-    <full error message, possibly multi-line>
-
-# Current Dataflow
-## Operators
-
-### Operator \`<operator_id>\` (<operator_type>, executed|failed|not-executed)
-Summary: <what the operator does>
-Properties:
-  <key>: <value>
-Compilation Error: <message, only if compilation failed>
-Result:
-  <execution output, table shape, and sample data>
-
-### Operator \`<another_operator_id>\` ...
-...
-
-## Links
-- <source_id> → <target_id>
-\`\`\``;
+// Intentionally no "Context Format" section: the rendered context's
+// layout varies by ContextMode (paper §5 — Full / Delta / Latest). Baking
+// the shape of any one mode into the system prompt risks biasing the LLM
+// toward that shape's conventions and confusing it when a different mode
+// is selected. The markdown the agent receives is self-describing, so the
+// model can read the structure directly.
 
 const KEY_PRINCIPLES = `
 ## Key Principles
@@ -137,7 +74,6 @@ const KEY_PRINCIPLES = `
 // ============================================================================
 
 const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
-${CONTEXT_FORMAT}
 {{EXAMPLES}}
 ${KEY_PRINCIPLES}
 `;
@@ -145,19 +81,7 @@ ${KEY_PRINCIPLES}
 const EXAMPLE_COMPACT = `
 ## Example
 
-**Turn 1 — Context received:**
-
-\`\`\`
-# Ongoing Task
-## Task (ongoing)
-
-### User request
-
-Find top 5 premium customers with recent purchases from customers.csv and orders.csv.
-
-# Current Dataflow
-(empty)
-\`\`\`
+**User request:** Find top 5 premium customers with recent purchases from customers.csv and orders.csv.
 
 **Turn 1 — Agent response:**
 
@@ -323,7 +247,6 @@ coro::generator(function(tuple, port) {
 - Only modify the script code field unless necessary.`;
 
 const GENERAL_MODE_TEMPLATE = `${DATAFLOW_INTRO}
-${CONTEXT_FORMAT}
 ${KEY_PRINCIPLES}
 
 ## Available Operators
