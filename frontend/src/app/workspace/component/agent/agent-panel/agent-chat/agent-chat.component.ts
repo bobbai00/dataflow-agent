@@ -56,6 +56,7 @@ import { NzWaveDirective } from "ng-zorro-antd/core/wave";
 import { ReActStepDetailModalComponent } from "../react-step-detail-modal/react-step-detail-modal.component";
 import { NzModalComponent, NzModalContentDirective } from "ng-zorro-antd/modal";
 import { NzTabsComponent, NzTabComponent } from "ng-zorro-antd/tabs";
+import { NzSelectComponent, NzOptionComponent } from "ng-zorro-antd/select";
 import { NzInputNumberComponent } from "ng-zorro-antd/input-number";
 import { NzTagComponent } from "ng-zorro-antd/tag";
 import { NzSwitchComponent } from "ng-zorro-antd/switch";
@@ -135,6 +136,8 @@ const TIMELINE_INITIAL_STEP_ID = "step-initial";
     NzInputGroupComponent,
     NzInputGroupWhitSuffixOrPrefixDirective,
     NzSwitchComponent,
+    NzSelectComponent,
+    NzOptionComponent,
   ],
 })
 export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, OnChanges {
@@ -204,6 +207,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
   public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
+  public settingsContextMode: "full" | "delta" | "latest" = "latest"; // ReAct context selection policy
   public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
   public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
   public operatorTypeSearchQuery = ""; // Search filter for operator types
@@ -462,6 +466,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsMaxSteps = settings.maxSteps ?? 10;
         this.settingsAllowedOperatorTypes = settings.allowedOperatorTypes ?? [];
         this.settingsAgentMode = settings.agentMode ?? "code";
+        this.settingsContextMode = settings.contextMode ?? "latest";
+        // Keep the parent's @Input snapshot in sync so the rest of the UI
+        // (System Prompt tab, registration display, etc.) sees the latest
+        // values rather than the stale ones captured at agent creation.
+        if (this.agentInfo.settings) {
+          this.agentInfo.settings.agentMode = settings.agentMode;
+          this.agentInfo.settings.contextMode = settings.contextMode;
+        }
       });
 
     // Fetch all available operator types
@@ -865,9 +877,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       }
     }
 
-    const sortedSteps = [...allSteps].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    const sortedSteps = [...allSteps].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const stepChronIndex = new Map<string, number>();
     sortedSteps.forEach((step, idx) => stepChronIndex.set(step.id, idx));
 
@@ -957,11 +967,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       const mm = String(d.getMinutes()).padStart(2, "0");
       const ss = String(d.getSeconds()).padStart(2, "0");
       const actionType =
-        step.id === TIMELINE_INITIAL_STEP_ID
-          ? "initial"
-          : step.role === "user"
-            ? "user_request"
-            : "agent_response";
+        step.id === TIMELINE_INITIAL_STEP_ID ? "initial" : step.role === "user" ? "user_request" : "agent_response";
       return {
         y,
         timeLabel: `${hh}:${mm}:${ss}`,
@@ -985,8 +991,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     });
 
     const maxX = Math.max(...this.timelineNodes.map(n => n.x + n.width / 2), 200);
-    const maxY =
-      this.timeAxisNodes.length > 0 ? this.timeAxisNodes[this.timeAxisNodes.length - 1].y + 24 : 100;
+    const maxY = this.timeAxisNodes.length > 0 ? this.timeAxisNodes[this.timeAxisNodes.length - 1].y + 24 : 100;
     this.treeCanvasWidth = Math.max(200, maxX + marginX);
     this.treeHeight = maxY + marginY;
   }
@@ -1170,7 +1175,30 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.notificationService.success(`Agent mode set to ${this.settingsAgentMode}`);
           this.refreshSystemInfo();
         },
-        error: () => {},
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the ReAct context-selection policy (Latest / Full / Delta).
+   *
+   * Affects the assembled context the LLM sees on the next prepareStep, but
+   * does not rebuild the system prompt (the prompt is mode-agnostic), so
+   * no need to call refreshSystemInfo() for prompt content. We still call
+   * it to keep the Parameters tab values in sync after a round-trip.
+   */
+  public saveContextMode(): void {
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        contextMode: this.settingsContextMode,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Context mode set to ${this.settingsContextMode}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
       });
   }
 

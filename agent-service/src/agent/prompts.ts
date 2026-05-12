@@ -45,7 +45,9 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 - Each **operator** is a single step of data processing
 - Each **link** represents data dependency between operators
 - Each operator receives table(s) from input operator(s), processes them, and outputs a single table
-- The output table can be viewed via execution, or passed to downstream operators via links`;
+- The output table can be viewed via execution, or passed to downstream operators via links
+
+After each of your actions, a dataflow snapshot — the operators and their execution results — is produced and surfaced to you in subsequent turns so you can see how the action shaped the state.`;
 
 // Intentionally no "Context Format" section: the rendered context's
 // layout varies by ContextMode (paper §5 — Full / Delta / Latest). Baking

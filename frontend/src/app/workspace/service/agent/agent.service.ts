@@ -64,6 +64,11 @@ export interface AgentSettingsApi {
   allowedOperatorTypes?: string[];
   /** Agent operating mode: "code" (Python load/process) or "general" (typed operators) */
   agentMode?: "code" | "general";
+  /** Snapshot-selection policy for ReAct context (paper §5): "full" interleaves
+   *  every snapshot in full, "delta" interleaves snapshots with only changed
+   *  operators rendered in full, "latest" emits one trailing snapshot of
+   *  the current state. */
+  contextMode?: "full" | "delta" | "latest";
 }
 
 /**
@@ -1012,7 +1017,7 @@ export class AgentService {
   public importReActSteps(
     agentId: string,
     steps: unknown[],
-    snapshots?: Record<string, unknown>,
+    snapshots?: Record<string, unknown>
   ): Observable<{ headId: string; importedCount: number }> {
     return this.http.post<{ headId: string; importedCount: number }>(
       `${this.AGENT_API_BASE}/agents/${agentId}/import-react-steps`,
@@ -1028,7 +1033,7 @@ export class AgentService {
    */
   public getSnapshot(
     agentId: string,
-    stepId: string,
+    stepId: string
   ): Observable<{
     stepId: string;
     workflow: any | null;

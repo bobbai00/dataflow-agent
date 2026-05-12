@@ -305,13 +305,31 @@
 
   .settings-param-input {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
 
+    // Legacy hint placement: still supported for number-input rows that
+    // keep the hint inline with the control. Long hint text wraps onto a
+    // new line via `flex-wrap` on the parent above.
     .settings-param-hint {
       color: #8c8c8c;
       font-size: 12px;
     }
+  }
+
+  // Modern hint placement: a sibling of `.settings-param-input` rather
+  // than a child, so the hint never competes with the radio group / save
+  // button for horizontal space. Use this for radio-button rows whose
+  // hints are long or contain inline markup — putting them inside the
+  // flex row was making the radio group overflow off-modal in some
+  // viewports, which is what made the buttons unclickable.
+  .settings-param-hint-block {
+    display: block;
+    margin-top: 8px;
+    color: #8c8c8c;
+    font-size: 12px;
+    line-height: 1.5;
   }
 }
 
@@ -462,7 +480,9 @@
   border: 1.5px solid #d9d9d9;
   border-radius: 6px;
   cursor: pointer;
-  transition: opacity 0.2s ease, background 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    background 0.2s ease;
   z-index: 1;
 
   &:hover {

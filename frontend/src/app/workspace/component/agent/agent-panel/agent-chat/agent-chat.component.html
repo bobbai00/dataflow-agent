@@ -453,21 +453,17 @@
           <div class="settings-param-item">
             <label class="settings-param-label">Agent Mode</label>
             <div class="settings-param-input">
-              <nz-radio-group
+              <nz-select
                 [(ngModel)]="settingsAgentMode"
-                nzButtonStyle="solid"
-                nzSize="small">
-                <label
-                  nz-radio-button
-                  nzValue="code">
-                  Code
-                </label>
-                <label
-                  nz-radio-button
-                  nzValue="general">
-                  General
-                </label>
-              </nz-radio-group>
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="code"
+                  nzLabel="Code"></nz-option>
+                <nz-option
+                  nzValue="general"
+                  nzLabel="General"></nz-option>
+              </nz-select>
               <button
                 nz-button
                 nzType="primary"
@@ -475,10 +471,43 @@
                 (click)="saveAgentMode()">
                 Save
               </button>
-              <span class="settings-param-hint">
-                Code mode uses Python <code>load()</code> / <code>process(...)</code>; general mode picks typed
-                operators.
-              </span>
+            </div>
+            <div class="settings-param-hint-block">
+              Code mode uses Python <code>load()</code> / <code>process(...)</code>; general mode picks typed operators.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Context Mode</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsContextMode"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="latest"
+                  nzLabel="Latest"></nz-option>
+                <nz-option
+                  nzValue="delta"
+                  nzLabel="Delta"></nz-option>
+                <nz-option
+                  nzValue="full"
+                  nzLabel="Full"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveContextMode()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              Snapshot-selection policy for the ReAct context.
+              <strong>Latest</strong>: events + one trailing snapshot of the current state (cheapest).
+              <strong>Delta</strong>: each turn followed by a snapshot that renders changed operators in full and
+              unchanged ones as id+description placeholders. <strong>Full</strong>: each turn followed by its full
+              snapshot (highest fidelity, most tokens).
             </div>
           </div>
 
