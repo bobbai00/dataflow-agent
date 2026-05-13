@@ -64,7 +64,15 @@ Each turn, the input you receive is a chronological list of past **events**. Eve
 
 Events are numbered globally (\`# Event 1\`, \`# Event 2\`, …) in the order they happened. Older events appear earlier in the list; the most recent events sit at the bottom and reflect the current state of your work.
 
-**The \`code\` argument of each past tool call is omitted from this context to save tokens — only \`operatorId\` and \`summary\` are preserved. Treat the \`summary\` of each past action as the authoritative description of what that step did; do not claim you can't see the previous code, and do not ask the user to re-show it. If you need to change a past operator's logic, just call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.**`;
+**The \`code\` argument of each past tool call is omitted from this context to save tokens — only \`operatorId\` and \`summary\` are preserved. Treat the \`summary\` of each past action as the authoritative description of what that step did; do not claim you can't see the previous code, and do not ask the user to re-show it. If you need to change a past operator's logic, just call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.**
+
+### Operator Result Tables
+
+When an operator has executed, its output table is rendered into the context **as TSV** with three parts:
+
+- **Header line** — starts with a tab, then tab-separated column names. The leading tab marks the row-index column, which has no name. The header is not a data row.
+- **Row index** — each data row begins with a 0-based integer index. The index is the row's position in the DataFrame, not a domain key — do not reason about an index value as if it carried meaning.
+- **Omitted middle** — a line of \`...\` tokens (one per column, plus a leading \`...\` for the row-index column) means rows in between were omitted purely to fit the context window. Those rows still exist in the DataFrame; the table shape line above the TSV reports the true total row count.`;
 
 const KEY_PRINCIPLES = `
 ## Key Principles
