@@ -333,9 +333,11 @@
         <div
           *ngIf="showNextContext"
           class="next-context-body">
-          <markdown
+          <pre
             *ngIf="nextStepContext"
-            [data]="nextStepContext"></markdown>
+            class="next-context-pre">
+{{ nextStepContext }}</pre
+          >
           <div
             *ngIf="!nextStepContext"
             class="next-context-empty">

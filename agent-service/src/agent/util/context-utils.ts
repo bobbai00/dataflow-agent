@@ -80,19 +80,19 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
-  const path = buildPath(visibleSteps, snapshotStorage);
+  const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
   const tasks = groupIntoTasks(path);
 
   let content: string;
   switch (mode) {
     case ContextMode.FULL:
-      content = renderInterleaved(tasks, "full", workflowState, options);
+      content = renderInterleaved(tasks, "full", workflowState, options, initSnapshot);
       break;
     case ContextMode.DELTA:
-      content = renderInterleaved(tasks, "delta", workflowState, options);
+      content = renderInterleaved(tasks, "delta", workflowState, options, initSnapshot);
       break;
     case ContextMode.LATEST:
-      content = renderLatest(tasks, snapshotStorage, workflowState, options);
+      content = renderLatest(tasks, snapshotStorage, workflowState, options, initSnapshot);
       break;
   }
 
@@ -102,6 +102,7 @@ export function assembleContext(
       tasks: tasks.length,
       pathLength: path.length,
       actionBearing: path.filter(n => n.snapshot !== undefined).length,
+      initExcluded: initSnapshot !== undefined,
     },
     "built context"
   );
@@ -117,17 +118,63 @@ export function assembleContext(
  * One node on the event path: the ReAct step itself plus its destination
  * snapshot when the step is action-bearing (carries tool calls). Action-less
  * steps (user message, plain reply, parse error) have `snapshot = undefined`.
+ *
+ * `eventIndex` is a 1-based counter assigned in path order. It drives the
+ * `# Event N (...)` heading so users see a single flat numbering across the
+ * whole context — independent of the underlying ReAct step IDs (which restart
+ * per messageId and are 0-based).
  */
 interface PathNode {
   step: ReActStep;
   snapshot: SnapshotData | undefined;
+  eventIndex: number;
 }
 
-function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): PathNode[] {
-  return visibleSteps.map(step => ({
+/**
+ * The synthetic `initialize` step (Event 0) is the baseline workflow load,
+ * not a user-visible action. We strip it from the rendered path so the LLM
+ * doesn't see the init event, but we preserve its snapshot separately so
+ * the first real action can still diff against it (Delta) and so the
+ * Latest-mode trailing block can fall back to it when no other action has
+ * produced a snapshot yet.
+ *
+ * Identified by the synthetic `initialize` tool call; matches what
+ * `recordInitializationStep` emits in texera-agent.ts.
+ */
+function isInitStep(step: ReActStep): boolean {
+  if (step.role !== "agent") return false;
+  if (!step.toolCalls || step.toolCalls.length !== 1) return false;
+  return step.toolCalls[0].toolName === "initialize";
+}
+
+interface BuiltPath {
+  /** Visible events in chronological order. The init step (Event 0) is
+   *  filtered out here, so `eventIndex` numbers start at 1. */
+  path: PathNode[];
+  /** Snapshot captured at the init step, if it was on the input path. Used
+   *  to seed delta diffing and the Latest-mode trailing fallback. */
+  initSnapshot: SnapshotData | undefined;
+}
+
+function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
+  let initSnapshot: SnapshotData | undefined;
+  const remaining: ReActStep[] = [];
+  for (const step of visibleSteps) {
+    if (isInitStep(step)) {
+      // Capture init's snapshot once for downstream use, then drop the step.
+      if (storage.hasSnapshotFor(step.id)) {
+        initSnapshot = storage.getAssociatedSnapshot(step.id);
+      }
+      continue;
+    }
+    remaining.push(step);
+  }
+  const path: PathNode[] = remaining.map((step, i) => ({
     step,
     snapshot: storage.hasSnapshotFor(step.id) ? storage.getAssociatedSnapshot(step.id) : undefined,
+    eventIndex: i + 1,
   }));
+  return { path, initSnapshot };
 }
 
 interface TaskGroup {
@@ -164,98 +211,69 @@ function renderInterleaved(
   tasks: TaskGroup[],
   flavour: "full" | "delta",
   workflowState: WorkflowState,
-  options: AssembleContextOptions
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined
 ): string {
   // The "current" snapshot is the last one on the path — its operators
   // should carry compiled schemas, the rest should not.
   const lastSnapshotId = lastSnapshotIdOf(tasks);
   const sections: string[] = [];
-  let completedCount = 0;
-  let inOngoing = false;
-  // For Delta: rolling reference to the previous snapshot for diffing.
-  let prevSnapshot: SnapshotData | undefined;
+  // For Delta: rolling reference to the previous snapshot for diffing. The
+  // init snapshot (hidden Event 0) seeds it so the first real action diffs
+  // against the loaded workflow rather than appearing as a from-scratch add.
+  let prevSnapshot: SnapshotData | undefined = initSnapshot;
 
   for (const task of tasks) {
-    if (task.isCompleted) {
-      if (completedCount === 0) sections.push("# Completed Tasks");
-      sections.push("");
-      sections.push(
-        serializeTaskBody(
-          task,
-          "completed",
-          flavour,
-          workflowState,
-          options,
-          lastSnapshotId,
-          () => prevSnapshot,
-          s => {
-            prevSnapshot = s;
-          }
-        )
-      );
-      completedCount++;
-    } else {
-      if (!inOngoing) {
-        inOngoing = true;
-        sections.push("");
-        sections.push("# Ongoing Task");
-      }
-      sections.push(
-        serializeTaskBody(
-          task,
-          "ongoing",
-          flavour,
-          workflowState,
-          options,
-          lastSnapshotId,
-          () => prevSnapshot,
-          s => {
-            prevSnapshot = s;
-          }
-        )
-      );
-      sections.push("");
+    sections.push(
+      serializeTaskBody(
+        task,
+        flavour,
+        workflowState,
+        options,
+        lastSnapshotId,
+        () => prevSnapshot,
+        s => {
+          prevSnapshot = s;
+        }
+      )
+    );
+    sections.push("");
+    if (!task.isCompleted) {
       sections.push(
         "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
       );
     }
   }
-  return sections.join("\n");
+  return sections.join("\n").trimEnd();
 }
 
 function renderLatest(
   tasks: TaskGroup[],
   storage: WorkflowSnapshotStorage,
   workflowState: WorkflowState,
-  options: AssembleContextOptions
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined
 ): string {
   const sections: string[] = [];
-  let completedCount = 0;
-  let inOngoing = false;
 
   for (const task of tasks) {
-    if (task.isCompleted) {
-      if (completedCount === 0) sections.push("# Completed Tasks");
-      sections.push("");
-      sections.push(serializeTaskEventsOnly(task, "completed"));
-      completedCount++;
-    } else {
-      if (!inOngoing) {
-        inOngoing = true;
-        sections.push("");
-        sections.push("# Ongoing Task");
-      }
-      sections.push(serializeTaskEventsOnly(task, "ongoing"));
-      sections.push("");
+    sections.push(serializeTaskEventsOnly(task));
+    sections.push("");
+    if (!task.isCompleted) {
       sections.push(
         "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
       );
     }
   }
 
-  // Trailing snapshot block — Latest's defining feature.
-  const current = lastSnapshotOf(tasks) ?? storage.getRootSnapshot();
-  const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true);
+  // Trailing snapshot block — Latest's defining feature. Prefer the latest
+  // visible-path snapshot; fall back to the hidden init snapshot (so the
+  // baseline workflow still shows up before any non-init action runs);
+  // finally fall back to the empty root.
+  const current = lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
+  // The wrapper is at H1 (`# Current Dataflow`), so the snapshot's section
+  // headings start at H2.
+  const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
   if (dag) {
     sections.push("");
     sections.push("# Current Dataflow");
@@ -274,7 +292,6 @@ function renderLatest(
  */
 function serializeTaskBody(
   task: TaskGroup,
-  status: "completed" | "ongoing",
   flavour: "full" | "delta",
   workflowState: WorkflowState,
   options: AssembleContextOptions,
@@ -283,29 +300,36 @@ function serializeTaskBody(
   setPrev: (s: SnapshotData) => void
 ): string {
   const lines: string[] = [];
-  lines.push(`## Task (${status})`);
-  lines.push("");
-
-  const userStep = task.nodes.find(n => n.step.role === "user")?.step;
-  if (userStep) {
-    lines.push("### User request");
-    lines.push("");
-    lines.push(userStep.content);
-    lines.push("");
-  }
 
   for (const node of task.nodes) {
+    if (node.step.role === "user") {
+      lines.push(serializeUserTurn(node));
+      lines.push("");
+      continue;
+    }
     if (node.step.role !== "agent") continue;
-    lines.push(serializeTurn(node.step));
+
+    lines.push(serializeTurn(node));
+    lines.push("");
 
     if (node.snapshot) {
       const isCurrent = node.snapshot.id === lastSnapshotId;
+      // Each event is `# Event N (...)` at H1, so the inline snapshot
+      // wrapper is H2 and the snapshot's own section headings start at H3.
+      const snapshotHeadingLevel = 2;
+      const snapshotSectionLevel = snapshotHeadingLevel + 1;
       const body =
         flavour === "full"
-          ? serializeSnapshotFull(node.snapshot, workflowState, options, isCurrent)
-          : serializeSnapshotDelta(node.snapshot, getPrev(), workflowState, options, isCurrent);
+          ? serializeSnapshotFull(node.snapshot, workflowState, options, isCurrent, snapshotSectionLevel)
+          : serializeSnapshotDelta(node.snapshot, getPrev(), workflowState, options, isCurrent, snapshotSectionLevel);
       if (body) {
-        lines.push(`#### Snapshot after turn ${node.step.stepId}`);
+        const snapshotHash = "#".repeat(snapshotHeadingLevel);
+        const snapshotTitle =
+          flavour === "full"
+            ? `Completed dataflow after event ${node.eventIndex}`
+            : `Dataflow changes after event ${node.eventIndex}`;
+        lines.push(`${snapshotHash} ${snapshotTitle}`);
+        lines.push("");
         lines.push(body);
         lines.push("");
       }
@@ -316,22 +340,18 @@ function serializeTaskBody(
 }
 
 /** Latest-mode task body: events only, no inline snapshots. */
-function serializeTaskEventsOnly(task: TaskGroup, status: "completed" | "ongoing"): string {
+function serializeTaskEventsOnly(task: TaskGroup): string {
   const lines: string[] = [];
-  lines.push(`## Task (${status})`);
-  lines.push("");
-
-  const userStep = task.nodes.find(n => n.step.role === "user")?.step;
-  if (userStep) {
-    lines.push("### User request");
-    lines.push("");
-    lines.push(userStep.content);
-    lines.push("");
-  }
 
   for (const node of task.nodes) {
+    if (node.step.role === "user") {
+      lines.push(serializeUserTurn(node));
+      lines.push("");
+      continue;
+    }
     if (node.step.role !== "agent") continue;
-    lines.push(serializeTurn(node.step));
+    lines.push(serializeTurn(node));
+    lines.push("");
   }
   return lines.join("\n").trimEnd();
 }
@@ -340,36 +360,80 @@ function serializeTaskEventsOnly(task: TaskGroup, status: "completed" | "ongoing
  *  Turn rendering (shared)
  * ========================================================================= */
 
-function serializeTurn(step: ReActStep): string {
+/** Render a user-role step as `# Event N (User Task)` plus its raw content. */
+function serializeUserTurn(node: PathNode): string {
   const lines: string[] = [];
-  lines.push(`### Turn ${step.stepId}`);
-  if (step.content) lines.push(`Thought: ${step.content}`);
-
-  if (step.toolCalls && step.toolCalls.length > 0) {
-    for (let i = 0; i < step.toolCalls.length; i++) {
-      const tc = step.toolCalls[i];
-      const tr = step.toolResults?.[i];
-      const outputStr = stringifyOutput(tr?.output);
-      const isFailure = !!tr?.isError || outputStr.startsWith("[ERROR]");
-      const statusAttr = isFailure ? "failed" : "succeeded";
-      const opIdParam = formatOperatorIdParam(tc.input);
-      lines.push(`- ${tc.toolName}${opIdParam} (${statusAttr})`);
-      if (isFailure && outputStr) {
-        const errorBody = outputStr.replace(/^\[ERROR\]\s*/, "");
-        lines.push("  Error:");
-        for (const errLine of errorBody.split("\n")) lines.push(`    ${errLine}`);
-      }
-    }
-  }
+  lines.push(`# Event ${node.eventIndex} (User Task)`);
   lines.push("");
+  if (node.step.content) lines.push(node.step.content);
   return lines.join("\n").trimEnd();
 }
 
-function formatOperatorIdParam(input: unknown): string {
+function serializeTurn(node: PathNode): string {
+  const step = node.step;
+  const lines: string[] = [];
+  lines.push(`# Event ${node.eventIndex} (Agent Actions)`);
+  lines.push("");
+  if (step.content) {
+    lines.push(`Thought: ${step.content}`);
+    lines.push("");
+  }
+
+  if (step.toolCalls && step.toolCalls.length > 0) {
+    lines.push("Actions:");
+    for (let i = 0; i < step.toolCalls.length; i++) {
+      const tc = step.toolCalls[i];
+      const tr = step.toolResults?.[i];
+      const params = formatActionParams(tc.input);
+      const output = stringifyOutput(tr?.output).trim();
+      const header = `- ${tc.toolName}${params}`;
+      if (output.length === 0) {
+        // No tool output recorded — emit just the call site so the line still
+        // appears in the trace.
+        lines.push(header);
+      } else if (!output.includes("\n")) {
+        // Single-line output: keep it inline next to the call.
+        lines.push(`${header} (result: ${output})`);
+      } else {
+        // Multi-line output (typical for compile/runtime errors that carry a
+        // stack trace + the user's code): break onto its own indented block,
+        // close the parenthesis on its own line at the same depth as `result:`
+        // so the block is unambiguously bracketed.
+        lines.push(`${header} (result:`);
+        for (const l of output.split("\n")) lines.push(`    ${l}`);
+        lines.push("  )");
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
+/**
+ * Render the call site of a tool invocation. We expose just the two parameters
+ * that carry intent — `operatorId` (which op was touched) and `summary` (the
+ * agent's own description of what the call does) — and drop everything else
+ * (`code`, JSON props, …) to keep turn lines scannable. The summary is what
+ * the agent told the user it was doing, so surfacing it next to the tool name
+ * lets the LLM read its own breadcrumb trail without diving into the
+ * downstream snapshot.
+ */
+function formatActionParams(input: unknown): string {
   if (!input || typeof input !== "object") return "";
-  const opId = (input as Record<string, unknown>).operatorId;
-  if (typeof opId !== "string" || opId.length === 0) return "";
-  return `(operatorId="${opId}")`;
+  const inp = input as Record<string, unknown>;
+  const params: string[] = [];
+  if (typeof inp.operatorId === "string" && inp.operatorId.length > 0) {
+    params.push(`operatorId="${escapeQuotes(inp.operatorId)}"`);
+  }
+  if (typeof inp.summary === "string" && inp.summary.length > 0) {
+    params.push(`summary="${escapeQuotes(inp.summary)}"`);
+  }
+  if (params.length === 0) return "";
+  return `(${params.join(", ")})`;
+}
+
+function escapeQuotes(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function stringifyOutput(output: unknown): string {
@@ -386,34 +450,65 @@ function stringifyOutput(output: unknown): string {
  *  Snapshot rendering (Full and Delta variants of the per-snapshot DAG)
  * ========================================================================= */
 
+/**
+ * `sectionLevel` controls the depth of the "Operators" / "Links" headings (and,
+ * derived, the per-operator headings one level deeper). It exists because the
+ * snapshot is rendered in two contexts whose enclosing heading lives at
+ * different depths:
+ *   - Inline after a turn: parent heading is `#### Completed dataflow after
+ *     turn N` (H4) → pass `sectionLevel = 5` so Operators is H5 and Operator
+ *     `X` is H6, properly nested under the parent.
+ *   - LATEST mode trailing block: parent heading is `# Current Dataflow` (H1)
+ *     → pass `sectionLevel = 2` so Operators is H2 and Operator `X` is H3.
+ */
 function serializeSnapshotFull(
   snapshot: SnapshotData,
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  isCurrent: boolean
+  isCurrent: boolean,
+  sectionLevel: number
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
 
   const lines: string[] = [];
   const { sortedOps, allLinks } = topoSortDag(workflow);
+  const sectionHash = "#".repeat(sectionLevel);
+  const operatorLevel = sectionLevel + 1;
 
-  lines.push("## Operators");
+  lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
-    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks));
+    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
     lines.push("");
   }
-  appendLinkLines(lines, sortedOps, allLinks);
+  appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
   return lines.join("\n").trimEnd();
 }
 
+/**
+ * Delta snapshot: only render operators that are in Δ. Unchanged operators
+ * are omitted entirely — no placeholder, no summary, no heading entry.
+ *
+ * Rationale: every unchanged operator costs ~2 lines × N turns in the rolling
+ * context. The agent already saw each operator in full in the snapshot that
+ * introduced or last modified it, and the trailing `### Links` block keeps the
+ * graph wiring visible so it can recall what each unchanged op-id is. This is
+ * a token-vs-semantic-anchor trade we make in favour of tokens; if the agent
+ * ever struggles to recall what an unchanged op did, swap this back to the
+ * placeholder form (see git blame for the previous implementation).
+ *
+ * If Δ is empty AND there are no links (e.g. a pure deleteOperator that
+ * leaves an empty workflow), the whole snapshot block is dropped — the
+ * caller's `if (body)` check then skips emitting the heading too.
+ */
 function serializeSnapshotDelta(
   snapshot: SnapshotData,
   prevSnapshot: SnapshotData | undefined,
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  isCurrent: boolean
+  isCurrent: boolean,
+  sectionLevel: number
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
@@ -421,18 +516,22 @@ function serializeSnapshotDelta(
   const delta = computeDelta(prevSnapshot, snapshot);
   const lines: string[] = [];
   const { sortedOps, allLinks } = topoSortDag(workflow);
+  const sectionHash = "#".repeat(sectionLevel);
+  const operatorLevel = sectionLevel + 1;
 
-  lines.push("## Operators");
-  lines.push("");
-  for (const op of sortedOps) {
-    if (delta.has(op.operatorID)) {
-      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks));
-    } else {
-      lines.push(serializeOperatorPlaceholder(op, snapshot));
-    }
+  const deltaOps = sortedOps.filter(op => delta.has(op.operatorID));
+  if (deltaOps.length > 0) {
+    lines.push(`${sectionHash} Operators`);
     lines.push("");
+    for (const op of deltaOps) {
+      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
+      lines.push("");
+    }
   }
-  appendLinkLines(lines, sortedOps, allLinks);
+
+  appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
+
+  if (lines.length === 0) return null;
   return lines.join("\n").trimEnd();
 }
 
@@ -485,15 +584,22 @@ function serializeOperatorFull(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   isCurrent: boolean,
-  _allLinks: WorkflowContent["links"]
+  _allLinks: WorkflowContent["links"],
+  operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   const execText = info ? formatOperatorResult(op.operatorID, info, workflowState) : undefined;
-  const hasError = execText !== undefined && execText.includes("[ERROR]");
-  const status = execText ? (hasError ? "failed" : "executed") : "not-executed";
 
+  // No status label in the header. Execution state is conveyed by the Result
+  // section itself:
+  //   - no info             → no `Result:` block (operator hasn't been executed)
+  //   - successful info     → `Result:` block with the data preview
+  //   - error info          → `Result:` block beginning with `[ERROR] …`,
+  //                            which (per the Amber backend's format) carries
+  //                            the user's code + line marker inline.
+  const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
-  lines.push(`### Operator \`${op.operatorID}\` (${op.operatorType}, ${status})`);
+  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
 
   // Schemas only on the current (last) snapshot — compilation only runs
@@ -524,22 +630,6 @@ function serializeOperatorFull(
     for (const l of execText.split("\n")) lines.push("  " + l);
   }
   return lines.join("\n");
-}
-
-/**
- * Delta placeholder: id + type + execution status + description. No
- * properties, no result body. The point is to keep the dataflow's shape
- * visible without re-reading unchanged definitions; including the summary
- * gives the LLM a semantic anchor for each placeholder so it can still
- * reason about what the op does.
- */
-function serializeOperatorPlaceholder(op: OperatorPredicate, snapshot: SnapshotData): string {
-  const info = snapshot.results.get(op.operatorID)?.info;
-  const status = info ? (info.error ? "failed" : "executed") : "not-executed";
-  return [
-    `### Operator \`${op.operatorID}\` (${op.operatorType}, ${status}, unchanged)`,
-    `Summary: ${op.customDisplayName || op.operatorID}`,
-  ].join("\n");
 }
 
 /* ============================================================================
@@ -578,7 +668,12 @@ function topoSortDag(workflow: WorkflowContent) {
   return { sortedOps, allLinks, topoOrder };
 }
 
-function appendLinkLines(lines: string[], sortedOps: OperatorPredicate[], allLinks: WorkflowContent["links"]): void {
+function appendLinkLines(
+  lines: string[],
+  sortedOps: OperatorPredicate[],
+  allLinks: WorkflowContent["links"],
+  sectionLevel: number
+): void {
   if (allLinks.length === 0) return;
   const opOrder = new Map(sortedOps.map((op, i) => [op.operatorID, i]));
   const sortedLinks = [...allLinks].sort((a, b) => {
@@ -587,7 +682,8 @@ function appendLinkLines(lines: string[], sortedOps: OperatorPredicate[], allLin
     if (srcA !== srcB) return srcA - srcB;
     return (opOrder.get(a.target.operatorID) ?? 0) - (opOrder.get(b.target.operatorID) ?? 0);
   });
-  lines.push("## Links");
+  const sectionHash = "#".repeat(sectionLevel);
+  lines.push(`${sectionHash} Links`);
   for (const link of sortedLinks) {
     lines.push(`- ${link.source.operatorID} → ${link.target.operatorID}`);
   }

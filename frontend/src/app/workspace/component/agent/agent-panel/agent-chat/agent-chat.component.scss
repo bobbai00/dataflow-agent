@@ -623,33 +623,23 @@
   padding: 0 12px 8px;
   background: #ffffff;
   border-top: 1px dashed #f0f0f0;
+}
 
-  ::ng-deep markdown {
-    font-size: 12px;
-
-    // Force long content (URLs, code spans, error lines) to wrap inside the
-    // panel instead of overflowing horizontally.
-    p,
-    li {
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }
-
-    pre {
-      background: #f6f8fa;
-      padding: 8px;
-      border-radius: 4px;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    code {
-      font-size: 11px;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-  }
+// Raw text inspector: render the exact context that would be sent to the LLM.
+// We keep this as a <pre> rather than markdown so every newline (including
+// single \n between turn header / thought / tool-call lines) shows up
+// verbatim — markdown collapses single \n to a space, which makes the
+// inspector view diverge from what the model actually receives.
+.next-context-pre {
+  margin: 0;
+  padding: 8px 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #262626;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .next-context-empty {

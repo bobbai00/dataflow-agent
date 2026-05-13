@@ -49,12 +49,22 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 
 After each of your actions, a dataflow snapshot — the operators and their execution results — is produced and surfaced to you in subsequent turns so you can see how the action shaped the state.`;
 
-// Intentionally no "Context Format" section: the rendered context's
-// layout varies by ContextMode (paper §5 — Full / Delta / Latest). Baking
-// the shape of any one mode into the system prompt risks biasing the LLM
-// toward that shape's conventions and confusing it when a different mode
-// is selected. The markdown the agent receives is self-describing, so the
-// model can read the structure directly.
+// Brief, mode-agnostic note on the shape of the context. The exact way each
+// event is followed (or not) by a workflow snapshot varies by ContextMode
+// (paper §5 — Full / Delta / Latest), so we only describe the event list
+// itself here, not the snapshot layout. That keeps the prompt useful for the
+// model without biasing it toward any one mode.
+const CONTEXT_FORMAT = `
+## Context Format
+
+Each turn, the input you receive is a chronological list of past **events**. Every event is one of two kinds:
+
+- **User Task** — a request or follow-up message written by the user.
+- **Agent Actions** — your prior thought together with the tool calls you made on that turn.
+
+Events are numbered globally (\`# Event 1\`, \`# Event 2\`, …) in the order they happened. Older events appear earlier in the list; the most recent events sit at the bottom and reflect the current state of your work.
+
+**The \`code\` argument of each past tool call is omitted from this context to save tokens — only \`operatorId\` and \`summary\` are preserved. Treat the \`summary\` of each past action as the authoritative description of what that step did; do not claim you can't see the previous code, and do not ask the user to re-show it. If you need to change a past operator's logic, just call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.**`;
 
 const KEY_PRINCIPLES = `
 ## Key Principles
@@ -69,51 +79,56 @@ const KEY_PRINCIPLES = `
 - **Understand column semantics**: Before analysis, examine column names and their stats to understand what each column represents. Columns may carry semantic meaning that affects how data should be filtered or interpreted — respect these signals and apply appropriate preprocessing before computing results.
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (e.g., \`Unnamed: 0\`) or a data value appears as a header, adjust the loading parameters (e.g., \`header=\`, \`skiprows=\`, \`sep=\`) by modifying the data loading operator.
-- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.`;
+- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
+- **Every operator MUST return a DataFrame, never \`print()\`**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`**`;
 
 // ============================================================================
 // CODE mode template
 // ============================================================================
 
 const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
-{{EXAMPLES}}
+${CONTEXT_FORMAT}
 ${KEY_PRINCIPLES}
 `;
 
-const EXAMPLE_COMPACT = `
-## Example
-
-**User request:** Find top 5 premium customers with recent purchases from customers.csv and orders.csv.
-
-**Turn 1 — Agent response:**
-
-Thought: "premium" and "recent" are abstract terms — the readme may define them. Load the readme and both data files before interpreting the task.
-
-Tool call: createOrModifyOperator(operatorId="readme", code=\`def load() -> pd.DataFrame:
-    with open('/data/readme.md') as f: return pd.DataFrame([{'content': f.read()}])\`, summary="Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'")
-
-Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/customers.csv')\`, summary="Load customers.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
-
-Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/orders.csv')\`, summary="Load orders.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
-
----
-
-**Turn 2 — Agent response (after seeing the loaded data):**
-
-Thought: The readme defines premium as total spending >= $1000 and recent as the last 30 days. Join customers and orders on customer_id, filter to recent orders, aggregate spending per customer, and return the top 5.
-
-Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customers, orders) -> pd.DataFrame:
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    merged = customers.merge(orders, on='customer_id', how='inner')
-    recent = merged[merged['order_date'] >= cutoff]
-    spending = recent.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
-    premium = spending[spending['total_spending'] >= 1000]
-    return premium.nlargest(5, 'total_spending')\`, summary="Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; filter total_spending >= 1000 (premium threshold); return top 5 rows by total_spending")
-
-**Final answer:** Top 5 premium customers with recent purchases: Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), Eve ($6,290).`;
+// The worked example has been commented out — the prompt now contains just
+// the dataflow intro, the context format note, and the key principles. Keep
+// the text around in case we want to reinstate it later.
+//
+// const EXAMPLE_COMPACT = `
+// ## Example
+//
+// **User request:** Find top 5 premium customers with recent purchases from customers.csv and orders.csv.
+//
+// **Turn 1 — Agent response:**
+//
+// Thought: "premium" and "recent" are abstract terms — the readme may define them. Load the readme and both data files before interpreting the task.
+//
+// Tool call: createOrModifyOperator(operatorId="readme", code=\`def load() -> pd.DataFrame:
+//     with open('/data/readme.md') as f: return pd.DataFrame([{'content': f.read()}])\`, summary="Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'")
+//
+// Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
+//     return pd.read_csv('/data/customers.csv')\`, summary="Load customers.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
+//
+// Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.DataFrame:
+//     return pd.read_csv('/data/orders.csv')\`, summary="Load orders.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
+//
+// ---
+//
+// **Turn 2 — Agent response (after seeing the loaded data):**
+//
+// Thought: The readme defines premium as total spending >= $1000 and recent as the last 30 days. Join customers and orders on customer_id, filter to recent orders, aggregate spending per customer, and return the top 5.
+//
+// Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customers, orders) -> pd.DataFrame:
+//     from datetime import datetime, timedelta
+//     cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+//     merged = customers.merge(orders, on='customer_id', how='inner')
+//     recent = merged[merged['order_date'] >= cutoff]
+//     spending = recent.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
+//     premium = spending[spending['total_spending'] >= 1000]
+//     return premium.nlargest(5, 'total_spending')\`, summary="Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; filter total_spending >= 1000 (premium threshold); return top 5 rows by total_spending")
+//
+// **Final answer:** Top 5 premium customers with recent purchases: Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), Eve ($6,290).`;
 
 // ============================================================================
 // GENERAL mode template + Python/R UDF guides
@@ -249,6 +264,7 @@ coro::generator(function(tuple, port) {
 - Only modify the script code field unless necessary.`;
 
 const GENERAL_MODE_TEMPLATE = `${DATAFLOW_INTRO}
+${CONTEXT_FORMAT}
 ${KEY_PRINCIPLES}
 
 ## Available Operators
@@ -297,11 +313,12 @@ function buildAllowedOperatorSchemas(
 }
 
 /**
- * Build the CODE-mode system prompt: dataflow intro + context format + a
- * worked example + key principles.
+ * Build the CODE-mode system prompt: dataflow intro + context format + key
+ * principles. The worked example was intentionally removed; if you need it
+ * back, restore `EXAMPLE_COMPACT` above and inject it into the template.
  */
 export function buildCodeModeSystemPrompt(): string {
-  return CODE_MODE_TEMPLATE.replace("{{EXAMPLES}}", EXAMPLE_COMPACT);
+  return CODE_MODE_TEMPLATE;
 }
 
 /**

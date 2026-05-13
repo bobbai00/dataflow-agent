@@ -43,10 +43,8 @@ import {
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import {
-  createExecuteOperatorTool,
   executeOperatorAndFormat,
   executeWorkflowAndPersist,
-  TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
 } from "./tools/workflow-execution-tools";
 import { assembleContext } from "./util/context-utils";
@@ -393,8 +391,6 @@ export class TexeraAgent {
       }
     }
 
-    const getExecutionConfig = this.delegateConfig ? () => this.buildExecutionConfig()! : undefined;
-
     const context: ToolContext = {
       metadataStore: this.metadataStore,
       settings: {
@@ -417,23 +413,6 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
-    }
-
-    if (getExecutionConfig) {
-      tools[TOOL_NAME_EXECUTE_OPERATOR] = createExecuteOperatorTool(
-        this.workflowState,
-        getExecutionConfig,
-        (opId, operatorInfo) => {
-          // The callback fires DURING tool execution, when HEAD is still
-          // the previous step — which may or may not own a snapshot. Skip
-          // when it doesn't; executeOperator is being retired, and the
-          // run that produced this result will be re-issued by
-          // runPostStepExecution on the action-bearing step that owns it.
-          if (this.head !== undefined && this.snapshotStorage.hasSnapshotFor(this.head)) {
-            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
-          }
-        }
-      );
     }
 
     return tools;

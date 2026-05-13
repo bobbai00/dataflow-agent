@@ -181,18 +181,37 @@ describe("assembleContext — Latest", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
 
-    expect(c).toContain("# Completed Tasks");
-    expect(c).toContain("# Ongoing Task");
+    // Init is Event 0 and excluded from the rendered context. Visible events
+    // start at Event 1 (the user request), then the agent actions follow.
+    expect(c).toContain("# Event 1 (User Task)"); // user request
+    expect(c).toContain("# Event 2 (Agent Actions)"); // t1
+    expect(c).toContain("# Event 3 (Agent Actions)"); // t2
+    expect(c).toContain("# Event 4 (Agent Actions)"); // t3
+    expect(c).not.toContain("# Event 0"); // init hidden
+    expect(c).not.toContain("- initialize"); // init's action line is hidden too
     expect(c).toContain("# Current Dataflow");
-    // Turn lines present (init has no operatorId in its input so no param suffix)
-    expect(c).toContain("- initialize (succeeded)");
-    expect(c).toContain('- createOrModifyOperator(operatorId="src") (succeeded)');
-    expect(c).toContain('- createOrModifyOperator(operatorId="filt") (succeeded)');
-    // No inline snapshot headers between turns
-    expect(c).not.toContain("#### Snapshot after turn");
-    // Trailing block has the final state
-    expect(c).toContain("### Operator `src` (TestOp, executed)");
-    expect(c).toContain("### Operator `filt` (TestOp, executed)");
+    // The previous task-hierarchy headings are gone entirely.
+    expect(c).not.toContain("# Completed Tasks");
+    expect(c).not.toContain("# Ongoing Task");
+    expect(c).not.toContain("## Task (completed)");
+    expect(c).not.toContain("## Task (ongoing)");
+    // Each agent event's tool-call list is preceded by an "Actions:" label
+    expect(c).toContain("Actions:");
+    // Action lines present, now showing the tool's returned result (no
+    // (succeeded) label). The canonical fixture's tool output is "ok".
+    expect(c).toContain('- createOrModifyOperator(operatorId="src") (result: ok)');
+    expect(c).toContain('- createOrModifyOperator(operatorId="filt") (result: ok)');
+    // No inline snapshot headers between events in LATEST mode.
+    expect(c).not.toContain("Completed dataflow after event");
+    expect(c).not.toContain("Dataflow changes after event");
+    // Trailing block: # Current Dataflow (H1) → Operators (H2) → Operator X (H3)
+    // Status labels were removed from the header — operator state lives only
+    // in the `Result:` block now.
+    expect(c).toContain("### Operator `src` (TestOp)");
+    expect(c).toContain("### Operator `filt` (TestOp)");
+    expect(c).not.toContain("executed");
+    expect(c).not.toContain("failed");
+    expect(c).not.toContain("not-executed");
     expect(c).toContain("## Links");
     expect(c).toContain("- src → filt");
   });
@@ -202,6 +221,38 @@ describe("assembleContext — Latest", () => {
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
     expect(c).toBe("");
   });
+
+  test("init-only path: init is excluded from events but its snapshot still drives # Current Dataflow", () => {
+    // A path with ONLY the synthetic init step exercises the fallback in
+    // renderLatest: no visible events render, but the trailing block should
+    // still show the baseline workflow loaded at init time.
+    const { steps, storage, workflowState } = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "Initialization",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: { workflowId: 1 } }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("init", {
+      operators: [makeOp("baseline")],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult("init", "baseline", makeInfo("baseline", 5));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(c).not.toContain("# Event 0");
+    expect(c).not.toContain("# Event 1");
+    expect(c).not.toContain("- initialize");
+    // Init's snapshot bubbles up to the trailing block.
+    expect(c).toContain("# Current Dataflow");
+    expect(c).toContain("### Operator `baseline`");
+  });
 });
 
 /* ============================================================================
@@ -209,42 +260,58 @@ describe("assembleContext — Latest", () => {
  * ========================================================================= */
 
 describe("assembleContext — Full", () => {
-  test("interleaves each action-bearing turn with its destination snapshot, no trailing block", () => {
+  test("interleaves each action-bearing event with its destination snapshot, no trailing block", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
 
-    // Per-turn snapshot headers
-    expect(c).toContain("#### Snapshot after turn 0"); // init
-    expect(c).toContain("#### Snapshot after turn 1"); // src added
-    expect(c).toContain("#### Snapshot after turn 2"); // filt added
-    // No snapshot after the thought-only final turn
-    expect(c).not.toContain("#### Snapshot after turn 3");
+    // Per-event snapshot headers — Full uses the "Completed dataflow" wording.
+    // With init excluded (Event 0), the visible event indices in this
+    // scenario are: user=1, t1=2, t2=3, t3=4. Snapshots exist for t1 and t2.
+    expect(c).toContain("## Completed dataflow after event 2"); // src added (t1)
+    expect(c).toContain("## Completed dataflow after event 3"); // filt added (t2)
+    // No snapshot for the user request (event 1) or the thought-only t3 (event 4).
+    expect(c).not.toContain("## Completed dataflow after event 1");
+    expect(c).not.toContain("## Completed dataflow after event 4");
+    // Init is excluded entirely.
+    expect(c).not.toContain("# Event 0");
+    expect(c).not.toContain("- initialize");
     // No trailing "# Current Dataflow" block in Full mode
     expect(c).not.toContain("# Current Dataflow");
   });
 
-  test("ordering: snapshot for turn N appears AFTER turn N's lines, BEFORE turn N+1", () => {
+  test("ordering: snapshot for event N appears AFTER event N's lines, BEFORE event N+1", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const turn1 = c.indexOf("### Turn 1");
-    const snap1 = c.indexOf("#### Snapshot after turn 1");
-    const turn2 = c.indexOf("### Turn 2");
-    expect(turn1).toBeGreaterThan(-1);
-    expect(snap1).toBeGreaterThan(turn1);
-    expect(turn2).toBeGreaterThan(snap1);
+    const event2 = c.indexOf("# Event 2 (Agent Actions)");
+    const snap2 = c.indexOf("## Completed dataflow after event 2");
+    const event3 = c.indexOf("# Event 3 (Agent Actions)");
+    expect(event2).toBeGreaterThan(-1);
+    expect(snap2).toBeGreaterThan(event2);
+    expect(event3).toBeGreaterThan(snap2);
   });
 
-  test("renders every operator in full at every snapshot — turn 1's snapshot shows src; turn 2's shows src+filt", () => {
+  test("renders every operator in full at every snapshot — event 2's snapshot shows src; event 3's shows src+filt", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const after1 = c.slice(c.indexOf("#### Snapshot after turn 1"), c.indexOf("### Turn 2"));
-    const after2 = c.slice(c.indexOf("#### Snapshot after turn 2"), c.indexOf("### Turn 3"));
-    expect(after1).toContain("### Operator `src`");
-    expect(after1).not.toContain("### Operator `filt`"); // filt doesn't exist yet at turn 1's snapshot
-    expect(after2).toContain("### Operator `src`");
-    expect(after2).toContain("### Operator `filt`");
+    const after2 = c.slice(c.indexOf("## Completed dataflow after event 2"), c.indexOf("# Event 3 (Agent Actions)"));
+    const after3 = c.slice(c.indexOf("## Completed dataflow after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
+    // Inline snapshots nest under H2 → Operator heading is H4.
+    expect(after2).toContain("#### Operator `src`");
+    expect(after2).not.toContain("#### Operator `filt`"); // filt doesn't exist yet at event 2's snapshot
+    expect(after3).toContain("#### Operator `src`");
+    expect(after3).toContain("#### Operator `filt`");
     // No "unchanged" markers in Full mode — every op is full.
-    expect(after2).not.toContain("unchanged");
+    expect(after3).not.toContain("unchanged");
+  });
+
+  test("inline snapshot section headings sit below the parent H2 wrapper (Operators H3, Operator X H4, Links H3)", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const after3 = c.slice(c.indexOf("## Completed dataflow after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
+    expect(after3).toContain("### Operators");
+    expect(after3).toContain("### Links");
+    expect(after3).toContain("#### Operator `src`");
+    expect(after3).toContain("#### Operator `filt`");
   });
 });
 
@@ -253,31 +320,74 @@ describe("assembleContext — Full", () => {
  * ========================================================================= */
 
 describe("assembleContext — Delta", () => {
-  test("turn 2's snapshot renders filt in full and src as an id+description placeholder", () => {
+  test("event 3's snapshot renders filt in full and omits unchanged src entirely", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    const after2 = c.slice(c.indexOf("#### Snapshot after turn 2"), c.indexOf("### Turn 3"));
+    // After init exclusion: t2 (was event 4) is now event 3.
+    const after3 = c.slice(c.indexOf("## Dataflow changes after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
 
-    expect(after2).toContain("### Operator `filt` (TestOp, executed)");
-    expect(after2).toContain("### Operator `src` (TestOp, executed, unchanged)");
-    // Placeholder keeps the summary (description).
-    expect(after2).toMatch(/### Operator `src`[\s\S]*Summary:/);
-    // Placeholder does NOT include the Result block.
-    const srcStart = after2.indexOf("### Operator `src`");
-    const filtStart = after2.indexOf("### Operator `filt`");
-    expect(filtStart).toBeGreaterThan(srcStart);
-    const srcBlock = after2.slice(srcStart, filtStart);
-    expect(srcBlock).not.toContain("Result:");
-    // filt is in delta → has its Result block.
-    expect(after2).toContain("Result:");
+    // The Δ operator (filt) is rendered in full.
+    expect(after3).toContain("#### Operator `filt` (TestOp)");
+    expect(after3).not.toContain("executed");
+    expect(after3).toContain("Result:");
+    // Unchanged operators (src, existing) are dropped entirely — no
+    // placeholder heading, no Summary, no "unchanged" marker. Their ids
+    // still appear in the trailing Links section.
+    expect(after3).not.toContain("#### Operator `src`");
+    expect(after3).not.toContain("#### Operator `existing`");
+    expect(after3).not.toContain("unchanged");
   });
 
   test("edges of the current snapshot are always emitted (even when only one endpoint is in delta)", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    const after2 = c.slice(c.indexOf("#### Snapshot after turn 2"), c.indexOf("### Turn 3"));
-    expect(after2).toContain("## Links");
-    expect(after2).toContain("- src → filt");
+    const after3 = c.slice(c.indexOf("## Dataflow changes after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
+    expect(after3).toContain("### Links");
+    expect(after3).toContain("- src → filt");
+  });
+
+  test("when Δ is empty (no operator added/modified/re-executed), the operators block is omitted", () => {
+    // Build a scenario where the agent re-runs an action that doesn't touch
+    // any operator: we manually create a snapshot identical to the prior one
+    // (no new ops, no prop changes, no new results sourced at the new step).
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "first",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "a" } }],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "second",
+        // Same operator already exists; toolcall here is just to make this
+        // step action-bearing so a snapshot is created.
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "a" } }],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["a"]));
+    storage.setOperatorResult("a1", "a", makeInfo("a", 5));
+    // a2's snapshot has the same op with the same properties and no new
+    // sourceStepId result → empty Δ.
+    storage.createSnapshot("a2", makeWorkflow(["a"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    // Event numbering: user=1, a1=2, a2=3. a1 added op "a" → its snapshot at
+    // event 2 has a non-empty Δ and DOES render. a2's snapshot at event 3
+    // has an empty Δ (same op, same props, no new sourceStepId result) AND
+    // no links — so the whole snapshot block is dropped.
+    expect(c).toContain("## Dataflow changes after event 2");
+    expect(c).not.toContain("## Dataflow changes after event 3");
   });
 
   test("no trailing # Current Dataflow block", () => {
@@ -359,22 +469,19 @@ describe("assembleContext — cross-mode invariants", () => {
   test("every turn line appears in every mode (snapshot rendering is the only axis that differs)", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const ofMode = (m: ContextMode) => content(assembleContext(steps, workflowState, storage, m, opts));
-    const turnLines = [
-      "### Turn 0",
-      "### Turn 1",
-      "### Turn 2",
-      "### Turn 3",
-      "- initialize (succeeded)",
-      '- createOrModifyOperator(operatorId="src") (succeeded)',
-      '- createOrModifyOperator(operatorId="filt") (succeeded)',
-      "### User request",
+    const eventLines = [
+      // Init is Event 0 and excluded — visible events start at 1.
+      "# Event 1 (User Task)", // user request
+      "# Event 2 (Agent Actions)", // t1
+      "# Event 3 (Agent Actions)", // t2
+      "# Event 4 (Agent Actions)", // t3 (thought-only)
+      '- createOrModifyOperator(operatorId="src") (result: ok)',
+      '- createOrModifyOperator(operatorId="filt") (result: ok)',
       "Build me a pipeline.",
-      "# Completed Tasks",
-      "# Ongoing Task",
     ];
     for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
       const c = ofMode(mode);
-      for (const line of turnLines) {
+      for (const line of eventLines) {
         expect(c).toContain(line);
       }
     }
@@ -413,6 +520,74 @@ describe("assembleContext — cross-mode invariants", () => {
 });
 
 /* ============================================================================
+ *  Action line format (params + result, no `(succeeded)` label)
+ * ========================================================================= */
+
+describe("assembleContext — action line format", () => {
+  test("action lines include summary in params and the tool's returned result", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "loading",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc",
+            input: { operatorId: "src", code: "def load(): ...", summary: "Load customers.csv via pd.read_csv" },
+          },
+        ],
+        toolResults: [
+          { toolCallId: "tc", output: "Added operator src, input ports: 0, output ports: 1", isError: false },
+        ],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // operatorId + summary in the param list, tool output in `(result: ...)`.
+    expect(c).toContain(
+      '- createOrModifyOperator(operatorId="src", summary="Load customers.csv via pd.read_csv") (result: Added operator src, input ports: 0, output ports: 1)'
+    );
+    // No legacy status label and no legacy arrow.
+    expect(c).not.toContain("(succeeded)");
+    expect(c).not.toContain("(failed)");
+    expect(c).not.toContain(") -> ");
+    // The `code` field is not surfaced in the action line.
+    expect(c).not.toContain("def load");
+  });
+
+  test("multi-line tool output is broken onto an indented block", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "trying",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "x", summary: "x" } }],
+        toolResults: [
+          { toolCallId: "tc", output: "[ERROR] something broke\n  hint: try with encoding='latin-1'", isError: true },
+        ],
+        isEnd: true,
+      },
+    ]);
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(c).toContain('- createOrModifyOperator(operatorId="x", summary="x") (result:');
+    expect(c).toContain("    [ERROR] something broke");
+    expect(c).toContain("      hint: try with encoding='latin-1'");
+    // The block is closed by a `)` on its own line at the same depth as `result:`.
+    expect(c).toMatch(/\n  \)(\n|$)/);
+  });
+});
+
+/* ============================================================================
  *  Action-less steps don't own snapshots
  * ========================================================================= */
 
@@ -423,10 +598,11 @@ describe("assembleContext — action-less steps", () => {
       { id: "a", stepId: 1, role: "agent", parentId: "u", messageId: "m1", content: "hi back", isEnd: true },
     ]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    // No snapshots created → no inline snapshot headers
-    expect(c).not.toContain("#### Snapshot after turn");
-    // But the events still render
-    expect(c).toContain("### User request");
+    // No snapshots created → no inline snapshot headers (either flavour name).
+    expect(c).not.toContain("Completed dataflow after event");
+    expect(c).not.toContain("Dataflow changes after event");
+    // But the events still render — user step as event 1 and agent thought as event 2.
+    expect(c).toContain("# Event 1 (User Task)");
     expect(c).toContain("Thought: hi back");
   });
 });

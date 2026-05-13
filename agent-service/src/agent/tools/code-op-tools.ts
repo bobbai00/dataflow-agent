@@ -53,11 +53,41 @@ interface CodeBlockParseResult {
 }
 
 const PYTHON_KEYWORDS = new Set([
-  "False", "None", "True", "and", "as", "assert", "async", "await",
-  "break", "class", "continue", "def", "del", "elif", "else", "except",
-  "finally", "for", "from", "global", "if", "import", "in", "is",
-  "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
-  "while", "with", "yield",
+  "False",
+  "None",
+  "True",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield",
 ]);
 
 export function validatePythonVariableName(name: string): string | null {
@@ -182,6 +212,190 @@ except SyntaxError as e:
   });
 }
 
+/**
+ * Strip Python comments and string literals so a later regex scan for tokens
+ * like `print(` / `return` doesn't match things that aren't actual code.
+ * Handles: `# …` line comments, single/double-quoted strings (with escapes),
+ * and triple-quoted strings. Replaces each match with whitespace of equal
+ * length so line/column numbers stay meaningful if we ever surface them.
+ */
+function stripPythonCommentsAndStrings(code: string): string {
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const c = code[i];
+    // Triple-quoted strings (check before single-quoted).
+    if (code.startsWith('"""', i) || code.startsWith("'''", i)) {
+      const quote = code.substr(i, 3);
+      const end = code.indexOf(quote, i + 3);
+      const stop = end === -1 ? code.length : end + 3;
+      out += blank(code.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    // Single/double-quoted strings.
+    if (c === '"' || c === "'") {
+      const quote = c;
+      let j = i + 1;
+      while (j < code.length) {
+        if (code[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (code[j] === "\n") break;
+        if (code[j] === quote) {
+          j++;
+          break;
+        }
+        j++;
+      }
+      out += blank(code.slice(i, j));
+      i = j;
+      continue;
+    }
+    // Line comments.
+    if (c === "#") {
+      const eol = code.indexOf("\n", i);
+      const stop = eol === -1 ? code.length : eol;
+      out += blank(code.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Reject operator code that violates the "every function returns a DataFrame,
+ * never bare print()" contract. Two checks, run in order — first failure wins:
+ *
+ *   1. `print(` token anywhere in real code (string/comment occurrences are
+ *      stripped first). Prints turn an operator into a side-effect-only step:
+ *      the runtime calls it a success but downstream / the inspector see no
+ *      result data, which leaves the agent stuck.
+ *   2. At least one of the function definitions inside the snippet must
+ *      contain a `return <expr>` (not a bare `return`). A function that falls
+ *      through returns None, which the runtime serializes as "no result data".
+ *
+ * Returns a single sentence describing the problem on failure, or null on
+ * success. Uses Python AST via the system interpreter when available (most
+ * accurate), and falls back to a regex pass over comment/string-stripped code
+ * when Python isn't installed — so the validation still runs in CI containers
+ * without python3.
+ *
+ * IMPORTANT: this runs BEFORE any state mutation in
+ * `createCreateOrModifyOperatorTool`, so a rejected operator never lands in
+ * the workflow.
+ */
+async function validateOperatorContract(code: string): Promise<string | null> {
+  const pyResult = await runPythonContractCheck(code);
+  if (pyResult !== "PYTHON_UNAVAILABLE") return pyResult;
+  return regexContractCheck(code);
+}
+
+/** Exposed for unit tests — exercises the no-Python regex fallback path. */
+export const __forTesting = { regexContractCheck, stripPythonCommentsAndStrings };
+
+async function runPythonContractCheck(code: string): Promise<string | null | "PYTHON_UNAVAILABLE"> {
+  const { spawn } = await import("child_process");
+  return new Promise(resolve => {
+    const pythonCode = `
+import ast, sys
+src = '''${code.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'''
+try:
+    tree = ast.parse(src)
+except SyntaxError:
+    sys.exit(0)
+for n in ast.walk(tree):
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'print':
+        sys.stdout.write('HAS_PRINT')
+        sys.exit(2)
+funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+for fn in funcs:
+    has_value_return = False
+    for sub in ast.walk(fn):
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub is not fn:
+            continue
+        if isinstance(sub, ast.Return) and sub.value is not None:
+            has_value_return = True
+            break
+    if not has_value_return:
+        sys.stdout.write('NO_RETURN:' + fn.name)
+        sys.exit(3)
+sys.exit(0)
+`;
+    const proc = spawn("python3", ["-c", pythonCode]);
+    let stdout = "";
+    let pythonMissing = false;
+    proc.stdout.on("data", data => {
+      stdout += data.toString();
+    });
+    proc.on("close", exitCode => {
+      if (pythonMissing) return resolve("PYTHON_UNAVAILABLE");
+      if (exitCode === 0) return resolve(null);
+      if (exitCode === 2) {
+        return resolve(
+          "Operator code contains `print(...)` — every operator must `return` a pd.DataFrame so downstream operators (and the result inspector) receive data; wrap the values you wanted to print into a single-row DataFrame and return it instead."
+        );
+      }
+      if (exitCode === 3) {
+        const fnName = stdout.replace(/^NO_RETURN:/, "") || "function";
+        return resolve(
+          `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`
+        );
+      }
+      // Any other exit code → treat as inconclusive, let the workflow proceed.
+      resolve(null);
+    });
+    proc.on("error", () => {
+      pythonMissing = true;
+      resolve("PYTHON_UNAVAILABLE");
+    });
+    setTimeout(() => {
+      proc.kill();
+      resolve("PYTHON_UNAVAILABLE");
+    }, 5000);
+  });
+}
+
+function regexContractCheck(code: string): string | null {
+  const stripped = stripPythonCommentsAndStrings(code);
+  if (/\bprint\s*\(/.test(stripped)) {
+    return "Operator code contains `print(...)` — every operator must `return` a pd.DataFrame so downstream operators (and the result inspector) receive data; wrap the values you wanted to print into a single-row DataFrame and return it instead.";
+  }
+  // Find every function header and verify the body contains a value-returning
+  // return. The body of `def name(...):` runs from end-of-header to the next
+  // top-level construct; a regex approximation that walks line-by-line with
+  // indentation tracking works for the well-formed snippets the agent emits.
+  const lines = stripped.split("\n");
+  const funcHeader = /^(\s*)def\s+(\w+)\s*\(/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = funcHeader.exec(lines[i]);
+    if (!m) continue;
+    const indent = m[1].length;
+    const fnName = m[2];
+    let hasValueReturn = false;
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.trim() === "") continue;
+      const leadSpaces = l.match(/^\s*/)![0].length;
+      if (leadSpaces <= indent) break; // function body ended
+      const returnMatch = /^\s*return(\b)(.*)$/.exec(l);
+      if (returnMatch && returnMatch[2].trim().length > 0) {
+        hasValueReturn = true;
+        break;
+      }
+    }
+    if (!hasValueReturn) {
+      return `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`;
+    }
+  }
+  return null;
+}
+
 function validateInputParameters(
   workflowState: WorkflowState,
   parameters: string[]
@@ -273,9 +487,7 @@ Example: operatorId="filtered" (requires "customers" to exist)
     inputSchema: z.object({
       operatorId: z
         .string()
-        .describe(
-          "Unique operator name (valid Python variable). Other operators reference this as input parameter."
-        ),
+        .describe("Unique operator name (valid Python variable). Other operators reference this as input parameter."),
       code: z.string().describe("Python function: def load() or def process(...)"),
       summary: z
         .string()
@@ -303,6 +515,15 @@ Example: operatorId="filtered" (requires "customers" to exist)
         const syntaxError = await validatePythonSyntax(code);
         if (syntaxError) {
           return createErrorResult(`Python syntax error: ${syntaxError}`);
+        }
+
+        // Enforce the "every operator returns a DataFrame, no bare prints"
+        // contract BEFORE any state mutation. A violation never touches the
+        // workflow — the agent gets the one-sentence cause back and must
+        // resubmit code that returns a DataFrame.
+        const contractError = await validateOperatorContract(code);
+        if (contractError) {
+          return createErrorResult(contractError);
         }
 
         let inputOperators: OperatorPredicate[] = [];
