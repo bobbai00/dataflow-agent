@@ -32,7 +32,8 @@ import org.apache.texera.amber.config.PythonUtils
   * for each Computing Unit
   *
   * It supports:
-  * - Creating and initializing isolated Python environments
+  * - Creating and initializing isolated Python environments (with system packages)
+  * - Installing user defined packages
   * - Streaming pip output logs back to the caller
   *
   * Each PVE is stored under:
@@ -40,6 +41,11 @@ import org.apache.texera.amber.config.PythonUtils
   */
 
 object PveManager {
+
+  case class PvePackageResponse(
+      pveName: String,
+      userPackages: Seq[String]
+  )
 
   private val VenvRoot: Path = Paths.get("/tmp/texera-pve/venvs")
 
@@ -61,9 +67,63 @@ object PveManager {
       "PIP_NO_INPUT" -> "1"
     )
 
-  def getSystemPackages(): Seq[String] = {
-    val python = PythonUtils.getPythonExecutable
-    Process(Seq(python, "-m", "pip", "freeze")).!!.split("\n").map(_.trim).filter(_.nonEmpty).toSeq
+  private def readPackageFile(path: Path): Seq[String] = {
+    if (Files.exists(path)) {
+      Files
+        .readAllLines(path)
+        .asScala
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .toSeq
+    } else {
+      Seq()
+    }
+  }
+
+  private def getSystemPath(isLocal: Boolean): Path = {
+    Paths.get(
+      if (isLocal) "amber/system-requirements-lock.txt"
+      else "/tmp/system-requirements-lock.txt"
+    )
+  }
+
+  def getSystemPackages(isLocal: Boolean): Seq[String] = {
+    if (!Files.exists(getSystemPath(isLocal))) {
+      Seq()
+    } else {
+      Files
+        .readAllLines(getSystemPath(isLocal))
+        .asScala
+        .map(_.trim)
+        .filter(line => line.nonEmpty && !line.startsWith("#"))
+        .toSeq
+    }
+  }
+
+  private def runPipInstall(
+      python: String,
+      args: Seq[String],
+      queue: BlockingQueue[String]
+  ): Int = {
+    Process(
+      Seq(
+        python,
+        "-u",
+        "-m",
+        "pip",
+        "install",
+        "--progress-bar",
+        "off",
+        "--no-input"
+      ) ++ args,
+      None,
+      pipEnv.toSeq: _*
+    ).!(
+      ProcessLogger(
+        out => queue.put(s"[pip] $out"),
+        err => queue.put(s"[pip][ERR] $err")
+      )
+    )
   }
 
   /**
@@ -100,7 +160,6 @@ object PveManager {
 
     val venvDirPath = pveDir(cuid, pveName).toAbsolutePath
     val python = pythonBinPath(cuid, pveName).toAbsolutePath.toString
-    val envVars = pipEnv
 
     val createVenvPython = PythonUtils.getPythonExecutable
 
@@ -125,26 +184,14 @@ object PveManager {
     // Plain pip doesn't read pyproject's [tool.uv.sources], so add the
     // PyTorch CPU index explicitly — the torch==2.8.0+cpu marker requires it
     // on Linux x86_64.
-    val installReqCode = Process(
+    val installReqCode = runPipInstall(
+      python,
       Seq(
-        python,
-        "-u",
-        "-m",
-        "pip",
-        "install",
-        "--progress-bar",
-        "off",
         "--extra-index-url",
         "https://download.pytorch.org/whl/cpu",
         pyprojectDir.toString
       ),
-      None,
-      envVars.toSeq: _*
-    ).!(
-      ProcessLogger(
-        out => queue.put(s"[pip] $out"),
-        err => queue.put(s"[pip][ERR] $err")
-      )
+      queue
     )
 
     queue.put(s"[PVE] dependency install finished with exit code $installReqCode")
@@ -157,7 +204,8 @@ object PveManager {
     queue.put(s"[PVE] Created new environment for cuid = $cuid")
   }
 
-  def getEnvironments(cuid: Int): List[String] = {
+  // returns list of PVE names and corresponding user packages for a given CU
+  def getEnvironments(cuid: Int): List[PvePackageResponse] = {
 
     val cuPath = VenvRoot.resolve(cuid.toString)
 
@@ -172,7 +220,17 @@ object PveManager {
         .iterator()
         .asScala
         .filter(path => Files.isDirectory(path))
-        .map(path => path.getFileName.toString)
+        .map { path =>
+          val pveName = path.getFileName.toString
+          val metadataPath = path.resolve("user-packages.txt")
+
+          val userPackages = readPackageFile(metadataPath)
+
+          PvePackageResponse(
+            pveName = pveName,
+            userPackages = userPackages
+          )
+        }
         .toList
     } finally {
       stream.close()
@@ -197,6 +255,188 @@ object PveManager {
         .foreach(path => Files.deleteIfExists(path))
     } finally {
       stream.close()
+    }
+  }
+
+  /**
+    * Installs user requested Python packages into the PVE.
+    *
+    * 1. Executes pip install for each package
+    * 2. Prevents conflicts with system dependencies.
+    * 3. Updates user metadata file
+    * 4. Streams logs back via queue
+    */
+  def installUserPackages(
+      packages: List[String],
+      cuid: Int,
+      queue: BlockingQueue[String],
+      pveName: String,
+      isLocal: Boolean
+  ): Unit = {
+
+    val python = pythonBinPath(cuid, pveName).toAbsolutePath.toString
+
+    if (!Files.exists(Paths.get(python))) {
+      queue.put(s"[PVE][ERR] Python executable not found for PVE: $python")
+      return
+    }
+
+    val metadataPath = cuidDir(cuid, pveName).resolve("user-packages.txt")
+
+    var installedPackages = readPackageFile(metadataPath).toSet
+
+    val systemPackages =
+      if (Files.exists(getSystemPath(isLocal))) {
+        Files
+          .readAllLines(getSystemPath(isLocal))
+          .asScala
+          .map(_.trim)
+          .filter(line => line.nonEmpty && !line.startsWith("#"))
+          .map(line => line.split("==")(0).trim.toLowerCase)
+          .toSet
+      } else {
+        Set[String]()
+      }
+
+    packages.foreach { pkg =>
+      val trimmedPkg = pkg.trim
+
+      if (trimmedPkg.nonEmpty) {
+
+        val userPackageName = trimmedPkg.split("==")(0).trim.toLowerCase
+
+        if (systemPackages.contains(userPackageName)) {
+          queue.put(
+            s"[PVE][ERR] $trimmedPkg is a system package and cannot be installed or modified by the user."
+          )
+          return
+        }
+
+        queue.put(s"[PVE] Installing package: $trimmedPkg")
+
+        val code = runPipInstall(
+          python,
+          Seq(
+            "--constraint", // check against system-requirements-lock
+            getSystemPath(isLocal).toString,
+            trimmedPkg
+          ),
+          queue
+        )
+
+        queue.put(s"[pip] install($trimmedPkg) finished with exit code $code")
+
+        if (code != 0) {
+          queue.put(s"[PVE][ERR] Failed to install package: $trimmedPkg")
+          return
+        }
+
+        installedPackages = installedPackages + trimmedPkg
+
+        Files.write(
+          metadataPath,
+          installedPackages.toSeq.sorted.asJava
+        )
+      }
+    }
+
+    queue.put("[PVE] Final user package list:")
+
+    installedPackages.toSeq.sorted.foreach { pkg =>
+      queue.put(s"[user-package] $pkg")
+    }
+  }
+
+  /**
+    * Uninstalls a user-installed package from the PVE.
+    * 1. Prevents deletion of system packages
+    * 2. Updates user metadata upon success
+    * 3. Returns status messages
+    */
+  def deletePackages(
+      cuid: Int,
+      packageName: String,
+      pveName: String,
+      isLocal: Boolean
+  ): List[String] = {
+    val python = pythonBinPath(cuid, pveName).toAbsolutePath.toString
+    val metadataPath = cuidDir(cuid, pveName).resolve("user-packages.txt")
+
+    if (!Files.exists(Paths.get(python))) {
+      val msg = s"[PVE][ERR] Python executable not found for PVE: $python"
+      println(msg)
+      return List(msg)
+    }
+
+    val trimmedPackageName = packageName.trim
+    val normalizedPackageName = trimmedPackageName.split("==")(0).trim.toLowerCase
+
+    val systemPackages =
+      if (Files.exists(getSystemPath(isLocal))) {
+        Files
+          .readAllLines(getSystemPath(isLocal))
+          .asScala
+          .map(_.trim)
+          .filter(line => line.nonEmpty && !line.startsWith("#"))
+          .map(line => line.split("==")(0).trim.toLowerCase)
+          .toSet
+      } else {
+        Set[String]()
+      }
+
+    if (systemPackages.contains(normalizedPackageName)) {
+      return List(
+        s"[PVE][ERR] $trimmedPackageName is a system package and cannot be deleted."
+      )
+    }
+
+    try {
+      val command = Process(
+        Seq(
+          python,
+          "-u",
+          "-m",
+          "pip",
+          "uninstall",
+          "-y",
+          trimmedPackageName
+        ),
+        None,
+        pipEnv.toSeq: _*
+      )
+
+      val output = scala.collection.mutable.ListBuffer[String]()
+
+      val exitCode = command.!(
+        ProcessLogger(
+          out => {
+            println(s"[pip] $out")
+            output += s"[pip] $out"
+          },
+          err => {
+            System.err.println(s"[pip][ERR] $err")
+            output += s"[pip][ERR] $err"
+          }
+        )
+      )
+
+      if (exitCode == 0) {
+        val updatedPackages = readPackageFile(metadataPath)
+          .filterNot(line => line.split("==")(0).trim.toLowerCase == normalizedPackageName)
+          .sorted
+
+        Files.write(metadataPath, updatedPackages.asJava)
+
+        output += s"[pip] uninstall($trimmedPackageName) finished with exit code $exitCode"
+        output += s"[PVE] Uninstalled $trimmedPackageName successfully"
+      } else {
+        output += s"[PVE][ERR] Failed to uninstall package: $trimmedPackageName"
+      }
+
+      output.toList
+    } catch {
+      case e: Exception =>
+        List(s"[PVE][ERR] Failed to delete package for cuid=$cuid: ${e.getMessage}")
     }
   }
 }
