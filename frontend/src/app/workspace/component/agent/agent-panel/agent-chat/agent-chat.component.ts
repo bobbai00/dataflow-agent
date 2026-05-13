@@ -208,6 +208,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsMaxSteps = 10; // Default max steps per message
   public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
   public settingsContextMode: "full" | "delta" | "latest" = "latest"; // ReAct context selection policy
+  public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
   public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
   public operatorTypeSearchQuery = ""; // Search filter for operator types
@@ -467,12 +468,16 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsAllowedOperatorTypes = settings.allowedOperatorTypes ?? [];
         this.settingsAgentMode = settings.agentMode ?? "code";
         this.settingsContextMode = settings.contextMode ?? "latest";
+        // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
+        // so a missing value here means "enabled" — not "disabled".
+        this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
         if (this.agentInfo.settings) {
           this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
+          this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
         }
       });
 
@@ -1196,6 +1201,29 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe({
         next: () => {
           this.notificationService.success(`Context mode set to ${this.settingsContextMode}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the parallel-tool-calls setting. When enabled, the model may emit
+   * multiple tool calls in one assistant turn; the agent serializes them
+   * topologically via `ToolCallScheduler`. The choice does not change the
+   * system prompt — `refreshSystemInfo()` is still called to keep the
+   * Parameters tab values in sync after the round-trip.
+   */
+  public saveParallelToolCalls(): void {
+    const enabled = this.settingsParallelToolCalls === "enabled";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        parallelToolCalls: enabled,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Parallel tool calls ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service

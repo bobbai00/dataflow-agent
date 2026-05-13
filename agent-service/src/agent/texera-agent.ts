@@ -42,11 +42,8 @@ import {
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import {
-  executeOperatorAndFormat,
-  executeWorkflowAndPersist,
-  type ExecutionConfig,
-} from "./tools/workflow-execution-tools";
+import { ToolCallScheduler } from "./tools/tool-call-scheduler";
+import { executeWorkflowAndPersist, type ExecutionConfig } from "./tools/workflow-execution-tools";
 import { assembleContext } from "./util/context-utils";
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
 import { createLogger } from "../logger";
@@ -415,6 +412,18 @@ export class TexeraAgent {
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
     }
 
+    // When parallel tool calls are enabled the model can emit N tool calls in
+    // one assistant turn; wrap each tool's `execute` so all calls in that
+    // turn land in one batch and run sequentially in dependency order. With
+    // parallel disabled, wrapping is a no-op equivalent (batch size 1), so we
+    // skip the wrap to keep the call path identical to the pre-batching code.
+    if (this.settings.parallelToolCalls) {
+      const scheduler = new ToolCallScheduler();
+      for (const name of Object.keys(tools)) {
+        tools[name] = scheduler.wrap(name, tools[name]);
+      }
+    }
+
     return tools;
   }
 
@@ -584,6 +593,7 @@ export class TexeraAgent {
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
     contextMode?: ContextMode;
+    parallelToolCalls?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -620,6 +630,11 @@ export class TexeraAgent {
       this.settings.contextMode = updates.contextMode;
       // Context mode does not affect the system prompt (we stripped the
       // mode-specific layout description from prompts.ts).
+    }
+    if (updates.parallelToolCalls !== undefined) {
+      this.settings.parallelToolCalls = updates.parallelToolCalls;
+      // The wrap/unwrap decision lives in createTools(); the call below
+      // rebuilds the tool set so the change takes effect on the next turn.
     }
 
     if (promptNeedsRebuild) {
@@ -790,9 +805,12 @@ export class TexeraAgent {
         // reasoning_effort is configured per-model in litellm-config.yaml via extra_body
         // to bypass LiteLLM's param validation — do not pass it here.
         providerOptions: {
-          openai: { parallelToolCalls: false },
-          anthropic: { disableParallelToolUse: true },
-          mistral: { parallelToolCalls: false },
+          // Provider-side parallel tool-call gating. The scheduler downstream
+          // serializes execution into a topological order, so it's safe to
+          // let the model emit multiple tool calls in one turn.
+          openai: { parallelToolCalls: this.settings.parallelToolCalls },
+          anthropic: { disableParallelToolUse: !this.settings.parallelToolCalls },
+          mistral: { parallelToolCalls: this.settings.parallelToolCalls },
         },
         onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
           stepIndex++;
@@ -1140,14 +1158,22 @@ export class TexeraAgent {
   }
 
   /**
-   * Run the post-step operator-execution loop for tool calls that just modified
-   * the workflow. Skips when there's no execution config (no delegate mode),
-   * when the tool isn't in EXECUTE_AFTER_TOOLS, or when the tool result was an
-   * error. Results are stored at the current HEAD via snapshotStorage.
+   * Run the post-step operator-execution batch for tool calls that just
+   * modified the workflow. Skips when there's no execution config (no
+   * delegate mode), when no tool call was an edit, or when every edit
+   * returned an error.
    *
-   * Used by both `sendMessage` (LLM path) and `handleDebugInput` (debug path)
-   * so a Function(...) tool call has identical post-step behaviour to an
-   * LLM-emitted one.
+   * Batched semantics: every successful edit in this step contributes its
+   * downstream sinks to a single `opsToViewResult` set, and we run **one**
+   * `executeWorkflowAndPersist` call. The backend run materializes each sink
+   * once, regardless of how many sibling edits in this turn share upstream
+   * — replacing the previous per-sink loop that re-ran shared upstream once
+   * per sink. Per-operator results (including any backend errors) land via
+   * `onResult` and are persisted at the current HEAD.
+   *
+   * Used by both `sendMessage` (LLM path) and `handleDebugInput` (debug
+   * path) so a Function(...) tool call has identical post-step behaviour to
+   * an LLM-emitted one.
    */
   private async runPostStepExecution(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
@@ -1156,11 +1182,7 @@ export class TexeraAgent {
     const execConfig = this.buildExecutionConfig();
     if (!execConfig || !toolCalls || !toolResults) return;
 
-    // Collect every operator successfully edited in this step, then expand to
-    // the set of downstream sinks. Executing a sink re-runs the edited op and
-    // every descendant on the path, and `executeOperatorAndFormat` calls
-    // `onResult` for every operator in the returned plan — so results for the
-    // edited op + all transitive downstream get stored in one pass.
+    // Collect every operator successfully edited in this step.
     const editedOpIds: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i];
@@ -1174,28 +1196,41 @@ export class TexeraAgent {
     }
     if (editedOpIds.length === 0) return;
 
-    // Union of downstream sinks across all edited ops, deduped. If an edited
-    // op has no enabled descendants its own id is the sink and gets executed.
+    // Build the materialization set: every edited op AND every downstream sink
+    // of every edited op. Including the edited op itself is critical for
+    // parallel-mode batches: if the model creates `A` and `B` in the same turn
+    // where `B` consumes `A`, by post-step time `A` already has `B` as a
+    // descendant, so `getDownstreamSinks(A)` returns `[B]` only. Without
+    // including `A` here, the backend would run `A` (because it's upstream of
+    // `B`) but never materialize its result table — the renderer would then
+    // omit `A`'s `Result:` block, and the model, seeing no result, would loop
+    // trying to "fix" an operator that's actually working. In serial mode this
+    // didn't surface because `A` was a sink at the moment of its own edit.
     const targets = new Set<string>();
     for (const opId of editedOpIds) {
+      targets.add(opId);
       for (const sink of this.workflowState.getDownstreamSinks(opId)) {
         targets.add(sink);
       }
     }
+    if (targets.size === 0) return;
 
-    for (const target of targets) {
-      try {
-        await executeOperatorAndFormat(this.workflowState, execConfig, target, {
-          abortSignal: this.abortController?.signal,
-          onResult: (opId, operatorInfo) => {
-            if (this.head !== undefined) {
-              this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
-            }
-          },
-        });
-      } catch (e: any) {
-        this.log.warn({ target, err: e?.message || e }, "post-step execution failed");
-      }
+    // One execution covers every edit in this step. `executeWorkflowAndPersist`
+    // fires `onResult` for every operator that ran on the backend — including
+    // ones reporting errors — so the snapshot at HEAD ends up consistent with
+    // what the backend actually produced.
+    try {
+      await executeWorkflowAndPersist(this.workflowState, execConfig, {
+        abortSignal: this.abortController?.signal,
+        opsToViewResult: [...targets],
+        onResult: (opId, operatorInfo) => {
+          if (this.head !== undefined) {
+            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+          }
+        },
+      });
+    } catch (e: any) {
+      this.log.warn({ err: e?.message || e, targetCount: targets.size }, "post-step batched execution failed");
     }
   }
 

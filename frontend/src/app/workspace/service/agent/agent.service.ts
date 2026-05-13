@@ -69,6 +69,9 @@ export interface AgentSettingsApi {
    *  operators rendered in full, "latest" emits one trailing snapshot of
    *  the current state. */
   contextMode?: "full" | "delta" | "latest";
+  /** When true, the model may emit multiple tool calls in one assistant turn.
+   *  The agent serializes them in topological order via `ToolCallScheduler`. */
+  parallelToolCalls?: boolean;
 }
 
 /**

@@ -100,6 +100,15 @@ export interface AgentSettings {
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
   contextMode: ContextMode;
+  /**
+   * When true, the model may emit multiple tool calls in a single assistant
+   * turn (provider-side parallel tool calls). The agent still executes them
+   * sequentially in topological order via `ToolCallScheduler` so an op that
+   * references a sibling created in the same turn can't run before its
+   * upstream. When false, the provider is asked to emit one tool call per
+   * turn (the pre-batching behavior).
+   */
+  parallelToolCalls: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -132,6 +141,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ],
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
+  parallelToolCalls: true,
 };
 
 export interface UserInfo {
@@ -160,6 +170,7 @@ export interface AgentSettingsApi {
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
+  parallelToolCalls?: boolean;
 }
 
 export interface AgentInfo {
@@ -192,4 +203,5 @@ export interface UpdateAgentSettingsRequest {
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
+  parallelToolCalls?: boolean;
 }

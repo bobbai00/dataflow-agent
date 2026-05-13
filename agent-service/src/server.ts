@@ -88,6 +88,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
     contextMode: agentSettings.contextMode,
+    parallelToolCalls: agentSettings.parallelToolCalls,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -194,6 +195,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           allowedOperatorTypes: settings.allowedOperatorTypes,
           agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+          parallelToolCalls: settings.parallelToolCalls,
         });
       }
 
@@ -218,6 +220,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
+            parallelToolCalls: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -415,6 +418,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
       agentMode: agentSettings.agentMode,
       contextMode: agentSettings.contextMode,
+      parallelToolCalls: agentSettings.parallelToolCalls,
     };
   })
 
@@ -447,6 +451,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+        parallelToolCalls: settings.parallelToolCalls,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -466,6 +471,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
         agentMode: agentSettings.agentMode,
         contextMode: agentSettings.contextMode,
+        parallelToolCalls: agentSettings.parallelToolCalls,
       };
     },
     {
@@ -480,6 +486,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
         contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
+        parallelToolCalls: t.Optional(t.Boolean()),
       }),
     }
   );
