@@ -25,7 +25,7 @@ import org.apache.texera.amber.core.workflow.{CachedOutput, GlobalPortIdentity, 
 import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde
 import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde.SerdeOps
 import org.apache.texera.dao.SqlServer
-import org.apache.texera.dao.jooq.generated.Tables.OPERATOR_PORT_EXECUTIONS
+import org.apache.texera.dao.jooq.generated.Tables.{OPERATOR_PORT_CACHE, OPERATOR_PORT_EXECUTIONS}
 import org.apache.texera.web.dao.{OperatorPortCacheDao, OperatorPortCacheRecord}
 import org.apache.texera.amber.core.storage.DocumentFactory
 
@@ -235,6 +235,26 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
     }
     deleteCacheEntriesByKeys(workflowId, entriesToDelete)
     entriesToDelete.size
+  }
+
+  /**
+    * Returns the subset of the given URIs that are still referenced by `operator_port_cache`.
+    * Used by execution cleanup to avoid clearing Iceberg tables that another execution still
+    * needs via a cache hit (cached URIs point to a different execution's storage).
+    */
+  def lookupResultUrisInCache(uris: Seq[URI]): Set[URI] = {
+    if (uris.isEmpty) {
+      return Set.empty
+    }
+    val uriStrings = uris.map(_.toString).distinct.asJava
+    context
+      .select(OPERATOR_PORT_CACHE.RESULT_URI)
+      .from(OPERATOR_PORT_CACHE)
+      .where(OPERATOR_PORT_CACHE.RESULT_URI.in(uriStrings))
+      .fetchInto(classOf[String])
+      .asScala
+      .map(URI.create)
+      .toSet
   }
 
   /**

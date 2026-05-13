@@ -353,17 +353,26 @@ class WorkflowService(
     val consoleMessagesUris =
       executionIds.flatMap(WorkflowExecutionsResource.getConsoleMessagesUriByExecutionId)
 
+    // Some result URIs surfaced above are cache-hit URIs that point to a different
+    // execution's Iceberg table; that other execution may still be referenced by a
+    // surviving operator_port_cache row. Skip clearing the underlying document for any
+    // URI that the cache still references, otherwise the next cache hit would resolve
+    // to a deleted table.
+    val urisStillCached = cacheService.lookupResultUrisInCache(resultUris)
+
     // Remove references from registry first
     executionIds.foreach(WorkflowExecutionsResource.deleteConsoleMessageAndExecutionResultUris)
 
     // Clean up all result and console message documents
-    (resultUris ++ consoleMessagesUris).distinct.foreach { uri =>
-      try DocumentFactory.openDocument(uri)._1.clear()
-      catch {
-        case error: Throwable =>
-          logger.debug(s"Error processing document at $uri: ${error.getMessage}")
+    (resultUris ++ consoleMessagesUris).distinct
+      .filterNot(urisStillCached.contains)
+      .foreach { uri =>
+        try DocumentFactory.openDocument(uri)._1.clear()
+        catch {
+          case error: Throwable =>
+            logger.debug(s"Error processing document at $uri: ${error.getMessage}")
+        }
       }
-    }
 
     // Expire any Iceberg snapshots for runtime statistics
     runtimeStatsUris.distinct.foreach { uri =>
