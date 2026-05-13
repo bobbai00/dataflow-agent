@@ -22,7 +22,11 @@ package org.apache.texera.amber.engine.architecture.scheduling
 import com.twitter.util.Future
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.testkit.TestKit
-import org.apache.texera.amber.core.virtualidentity.{ActorVirtualIdentity, ChannelIdentity}
+import org.apache.texera.amber.core.virtualidentity.{
+  ActorVirtualIdentity,
+  ChannelIdentity,
+  ExecutionIdentity
+}
 import org.apache.texera.amber.core.workflow.PhysicalOp
 import org.apache.texera.amber.engine.architecture.common.PekkoActorRefMappingService
 import org.apache.texera.amber.engine.architecture.controller.ControllerConfig
@@ -145,6 +149,7 @@ class RegionExecutionCoordinatorSpec
       region,
       isRestart = false,
       workflowExecution,
+      ExecutionIdentity(0L),
       rpcProbe.asyncRPCClient,
       ControllerConfig(None, None, None, None),
       controller.actorService,

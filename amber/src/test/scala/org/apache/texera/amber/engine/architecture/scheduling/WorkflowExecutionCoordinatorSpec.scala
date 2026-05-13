@@ -74,7 +74,8 @@ class WorkflowExecutionCoordinatorSpec
   }
 
   private def newJumpCoordinator(schedule: Schedule): WorkflowExecutionCoordinator = {
-    val coordinator = new WorkflowExecutionCoordinator(WorkflowExecution(), null, null)
+    val coordinator =
+      new WorkflowExecutionCoordinator(WorkflowExecution(), null, null, ExecutionIdentity(0L))
     coordinator.schedule = schedule
     coordinator
   }
@@ -127,7 +128,8 @@ class WorkflowExecutionCoordinatorSpec
     val workflowCoordinator = new WorkflowExecutionCoordinator(
       workflowExecution,
       ControllerConfig(None, None, None, None),
-      rpcProbe.asyncRPCClient
+      rpcProbe.asyncRPCClient,
+      ExecutionIdentity(0L)
     )
     workflowCoordinator.schedule = Schedule(Map(0 -> Set(firstRegion), 1 -> Set(secondRegion)))
     workflowCoordinator.setupActorRefService(controller.actorRefService)

@@ -37,7 +37,8 @@ import scala.collection.mutable
 class WorkflowExecutionCoordinator(
     workflowExecution: WorkflowExecution,
     controllerConfig: ControllerConfig,
-    asyncRPCClient: AsyncRPCClient
+    asyncRPCClient: AsyncRPCClient,
+    executionId: org.apache.texera.amber.core.virtualidentity.ExecutionIdentity
 ) extends LazyLogging {
 
   var schedule: Schedule = Schedule(Map.empty)
@@ -93,31 +94,39 @@ class WorkflowExecutionCoordinator(
     }
 
     executedRegions.append(nextRegions)
+    val launches = nextRegions
+      .map(region => {
+        val isRestart = workflowExecution.hasRegionExecution(region.id)
+        if (isRestart) {
+          workflowExecution.restartRegionExecution(region)
+        } else {
+          workflowExecution.initRegionExecution(region)
+        }
+        regionExecutionCoordinators(region.id) = new RegionExecutionCoordinator(
+          region,
+          isRestart,
+          workflowExecution,
+          executionId,
+          asyncRPCClient,
+          controllerConfig,
+          actorService,
+          actorRefService
+        )
+        regionExecutionCoordinators(region.id)
+      })
+      .map(_.syncStatusAndTransitionRegionExecutionPhase())
+      .toSeq
     Future
-      .collect(
-        nextRegions
-          .map(region => {
-            val isRestart = workflowExecution.hasRegionExecution(region.id)
-            if (isRestart) {
-              workflowExecution.restartRegionExecution(region)
-            } else {
-              workflowExecution.initRegionExecution(region)
-            }
-            regionExecutionCoordinators(region.id) = new RegionExecutionCoordinator(
-              region,
-              isRestart,
-              workflowExecution,
-              asyncRPCClient,
-              controllerConfig,
-              actorService,
-              actorRefService
-            )
-            regionExecutionCoordinators(region.id)
-          })
-          .map(_.syncStatusAndTransitionRegionExecutionPhase())
-          .toSeq
-      )
+      .collect(launches)
       .unit
+      .flatMap { _ =>
+        if (regionExecutionCoordinators.values.exists(!_.isCompleted)) {
+          Future.Unit
+        } else {
+          // All launched regions finished immediately (e.g., cached); proceed to next batch.
+          coordinateRegionExecutors(actorService)
+        }
+      }
   }
 
   def getRegionOfLink(link: PhysicalLink): Region = {
