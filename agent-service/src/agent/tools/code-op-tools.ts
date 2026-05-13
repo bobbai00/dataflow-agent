@@ -107,6 +107,32 @@ export function validatePythonVariableName(name: string): string | null {
   return null;
 }
 
+/**
+ * Stricter validator used for operator IDs. Enforces camelCase: starts with a
+ * lowercase letter, alphanumeric thereafter — no underscores, no hyphens. The
+ * no-underscore rule mirrors upstream's `GlobalPortIdentitySerde` invariant
+ * (the VFS URI parser reserves `_` as a delimiter, so any logicalOpId
+ * containing `_` is rejected at schedule time).
+ */
+export function validateOperatorId(name: string): string | null {
+  if (!name || name.length === 0) {
+    return "operatorId cannot be empty";
+  }
+  const camelCasePattern = /^[a-z][a-zA-Z0-9]*$/;
+  if (!camelCasePattern.test(name)) {
+    return (
+      `'${name}' is not a valid camelCase operatorId. ` +
+      `Must start with a lowercase letter and contain only letters and digits — ` +
+      `no underscores, hyphens, or other characters. ` +
+      `Example: 'lowHumidityFilter' (not 'low_humidity_filter', 'LowHumidityFilter', or 'low-humidity-filter').`
+    );
+  }
+  if (PYTHON_KEYWORDS.has(name)) {
+    return `'${name}' is a Python reserved keyword and cannot be used as an operatorId.`;
+  }
+  return null;
+}
+
 function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
   const funcPattern = /def\s+(\w+)\s*\(([^)]*)\)/;
   const match = funcPattern.exec(code);
@@ -466,9 +492,13 @@ export function createCreateOrModifyOperatorTool(
 - If operatorId exists: modifies the existing operator (must keep same type)
 
 RULES:
-1. operatorId must be a valid Python variable name
+1. operatorId MUST be a camelCase Python identifier — start with a lowercase letter,
+   contain only letters and digits, NO underscores and NO hyphens.
+   Example: "lowHumidityFilter" — NOT "low_humidity_filter", "LowHumidityFilter", or "low-humidity-filter".
+   (The Texera runtime rejects underscores in operator IDs because they collide with the VFS URI delimiter.)
 2. Function name MUST be exactly "load" or "process"
-3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated
+3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
+   Because every operator id is camelCase, the matching def-process parameter is also camelCase.
 
 ## def load() -> pd.DataFrame
 Load data from files. No input parameters. File I/O allowed.
@@ -480,10 +510,10 @@ Example: operatorId="customers"
 ## def process(opId1, opId2, ...) -> pd.DataFrame
 Transform input data. Each parameter references an existing operator id. Links between operators will be auto-created.
 
-Example: operatorId="filtered" (requires "customers" to exist)
+Example: operatorId="filteredCustomers" (requires "customers" to exist)
   def process(customers) -> pd.DataFrame:
       return customers[customers['age'] > 18]
-  # Creates link: customers-->filtered`,
+  # Creates link: customers-->filteredCustomers`,
     inputSchema: z.object({
       operatorId: z
         .string()
@@ -499,7 +529,7 @@ Example: operatorId="filtered" (requires "customers" to exist)
       try {
         const { operatorId, code, summary } = args;
 
-        const nameValidationError = validatePythonVariableName(operatorId);
+        const nameValidationError = validateOperatorId(operatorId);
         if (nameValidationError) {
           return createErrorResult(`Invalid operatorId: ${nameValidationError}`);
         }

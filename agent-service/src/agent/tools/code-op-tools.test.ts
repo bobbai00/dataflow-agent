@@ -18,10 +18,92 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { __forTesting, createCreateOrModifyOperatorTool } from "./code-op-tools";
+import { __forTesting, createCreateOrModifyOperatorTool, validateOperatorId } from "./code-op-tools";
 import { WorkflowState } from "../workflow-state";
 
 const { regexContractCheck, stripPythonCommentsAndStrings } = __forTesting;
+
+describe("validateOperatorId — camelCase enforcement", () => {
+  test("accepts simple lowercase word", () => {
+    expect(validateOperatorId("customers")).toBeNull();
+  });
+
+  test("accepts camelCase with multiple words", () => {
+    expect(validateOperatorId("lowHumidityFilter")).toBeNull();
+    expect(validateOperatorId("filteredCustomers")).toBeNull();
+    expect(validateOperatorId("avgFatalitiesByYear")).toBeNull();
+  });
+
+  test("accepts camelCase with trailing digits", () => {
+    expect(validateOperatorId("top5")).toBeNull();
+    expect(validateOperatorId("region2")).toBeNull();
+  });
+
+  test("rejects empty string", () => {
+    const err = validateOperatorId("");
+    expect(err).not.toBeNull();
+    expect(err).toContain("cannot be empty");
+  });
+
+  test("rejects snake_case (underscores forbidden)", () => {
+    const err = validateOperatorId("low_humidity_filter");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects a single trailing underscore", () => {
+    const err = validateOperatorId("customers_");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects a leading underscore", () => {
+    const err = validateOperatorId("_priv");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects PascalCase (must start lowercase)", () => {
+    const err = validateOperatorId("LowHumidityFilter");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects kebab-case (hyphens forbidden)", () => {
+    const err = validateOperatorId("low-humidity-filter");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects names starting with a digit", () => {
+    const err = validateOperatorId("5top");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects names containing spaces", () => {
+    const err = validateOperatorId("low humidity");
+    expect(err).not.toBeNull();
+    expect(err).toContain("camelCase");
+  });
+
+  test("rejects names containing punctuation", () => {
+    expect(validateOperatorId("low.humidity")).not.toBeNull();
+    expect(validateOperatorId("low$humidity")).not.toBeNull();
+  });
+
+  test("rejects Python reserved keywords", () => {
+    const err = validateOperatorId("class");
+    expect(err).not.toBeNull();
+    expect(err).toContain("reserved keyword");
+  });
+
+  test("rejects another Python keyword", () => {
+    const err = validateOperatorId("return");
+    expect(err).not.toBeNull();
+    expect(err).toContain("reserved keyword");
+  });
+});
 
 describe("regexContractCheck — rejects print()", () => {
   test("flags a bare print() call", () => {
@@ -114,7 +196,7 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     const { ws, execute } = buildTool();
     const before = ws.getAllOperators().length;
     const result = await execute({
-      operatorId: "inspect_df",
+      operatorId: "inspectDf",
       code: `def process(df):
     print(df.dtypes)
     return df.head()`,
@@ -127,13 +209,13 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     // No operator was added — the workflow is exactly as it was.
     expect(ws.getAllOperators().length).toBe(before);
     expect(ws.getAllOperators().length).toBe(0);
-    expect(ws.getOperator("inspect_df")).toBeUndefined();
+    expect(ws.getOperator("inspectDf")).toBeUndefined();
   });
 
   test("rejects code with no return statement and leaves the workflow untouched", async () => {
     const { ws, execute } = buildTool();
     const result = await execute({
-      operatorId: "side_effect_only",
+      operatorId: "sideEffectOnly",
       code: `def process(df):
     x = df.describe()
     y = x.to_dict()`,
@@ -143,13 +225,13 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     expect(result).toContain("`process`");
     expect(result).toContain("return");
     expect(ws.getAllOperators().length).toBe(0);
-    expect(ws.getOperator("side_effect_only")).toBeUndefined();
+    expect(ws.getOperator("sideEffectOnly")).toBeUndefined();
   });
 
   test("rejects code whose only return is a bare `return` (no value) and leaves the workflow untouched", async () => {
     const { ws, execute } = buildTool();
     const result = await execute({
-      operatorId: "early_exit",
+      operatorId: "earlyExit",
       code: `def process(df):
     if df.empty:
         return
@@ -159,7 +241,7 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     expect(result).toMatch(/^\[ERROR\] /);
     expect(result).toContain("`process`");
     expect(ws.getAllOperators().length).toBe(0);
-    expect(ws.getOperator("early_exit")).toBeUndefined();
+    expect(ws.getOperator("earlyExit")).toBeUndefined();
   });
 
   test("does NOT replace an existing operator's code when the new code violates the contract", async () => {
@@ -168,7 +250,7 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     // should reject the modification AND leave the original `code` property
     // intact.
     const { ws, execute } = buildTool();
-    const opId = "load_csv";
+    const opId = "loadCsv";
     const goodCode = `def load() -> pd.DataFrame:
     return pd.read_csv('/data/x.csv')`;
     // Directly seed the workflow with a DataLoading op carrying the good code.
