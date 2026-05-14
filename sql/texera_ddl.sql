@@ -351,14 +351,15 @@ CREATE TABLE operator_port_executions
 -- operator_port_cache
 CREATE TABLE operator_port_cache
 (
-    workflow_id      INT NOT NULL,
-    global_port_id   VARCHAR(200) NOT NULL,
-    subdag_hash      CHAR(64) NOT NULL,
-    fingerprint_json TEXT NOT NULL,
-    result_uri       TEXT NOT NULL,
-    tuple_count      BIGINT,
-    source_execution_id BIGINT,
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    workflow_id            INT NOT NULL,
+    global_port_id         VARCHAR(200) NOT NULL,
+    subdag_hash            CHAR(64) NOT NULL,
+    fingerprint_json       TEXT NOT NULL,
+    result_uri             TEXT NOT NULL,
+    tuple_count            BIGINT,
+    source_execution_id    BIGINT,
+    result_statistics_json TEXT,
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (workflow_id, global_port_id, subdag_hash),
     FOREIGN KEY (workflow_id) REFERENCES workflow(wid) ON DELETE CASCADE
 );

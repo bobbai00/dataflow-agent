@@ -36,11 +36,16 @@ sealed trait PortConfig {
   *
   * @param storageURI URI bound at planning time for this output port.
   * @param cachedTupleCount Optional cached tuple count for UI/metrics when serving from cache.
+  * @param cachedResultStatistics Per-column stats blob captured at the time of cache write
+  *                               (column name -> JSON). Empty when the cached operator did
+  *                               not publish per-column stats. Replayed into the synthesized
+  *                               OperatorMetrics by RegionExecutionCoordinator on cache hit.
   * @param materialize When false, this output is reuse-only (cache-hit) and must not be freshly materialized.
   */
 final case class OutputPortConfig(
     storageURI: URI,
     cachedTupleCount: Option[Long] = None,
+    cachedResultStatistics: Map[String, String] = Map.empty,
     materialize: Boolean = true
 )
     extends PortConfig {

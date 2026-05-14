@@ -56,7 +56,8 @@ class ExecutionCacheService(
       client
         .registerCallback[PortMaterialized]((evt: PortMaterialized) => {
           logger.info(
-            s"Port materialized: ${evt.portId}, URI: ${evt.resultUri}, tuple count: ${evt.tupleCount}"
+            s"Port materialized: ${evt.portId}, URI: ${evt.resultUri}, tuple count: ${evt.tupleCount}, " +
+              s"result stats columns: ${evt.resultStatistics.size}"
           )
           try {
             cacheService.upsertCachedOutput(
@@ -65,7 +66,8 @@ class ExecutionCacheService(
               evt.portId,
               physicalPlan,
               evt.resultUri,
-              evt.tupleCount
+              evt.tupleCount,
+              evt.resultStatistics
             )
             emitCacheEntryUpdate(evt.portId, evt.tupleCount)
           } catch {

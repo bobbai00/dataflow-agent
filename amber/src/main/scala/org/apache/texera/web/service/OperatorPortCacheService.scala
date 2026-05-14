@@ -19,6 +19,8 @@
 
 package org.apache.texera.web.service
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.texera.amber.core.virtualidentity.{ExecutionIdentity, WorkflowIdentity}
 import org.apache.texera.amber.core.workflow.cache.FingerprintUtil
 import org.apache.texera.amber.core.workflow.{CachedOutput, GlobalPortIdentity, PhysicalPlan}
@@ -32,6 +34,10 @@ import org.apache.texera.amber.core.storage.DocumentFactory
 import java.net.URI
 import scala.jdk.CollectionConverters._
 import scala.util.Try
+
+private object OperatorPortCacheJson {
+  val mapper: ObjectMapper = new ObjectMapper().registerModule(DefaultScalaModule)
+}
 
 /**
   * Service for operator port result caching.
@@ -86,11 +92,30 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
             resultUri = record.resultUri,
             fingerprintJson = record.fingerprintJson,
             tupleCount = record.tupleCount,
-            sourceExecutionId = record.sourceExecutionId.map(ExecutionIdentity(_))
+            sourceExecutionId = record.sourceExecutionId.map(ExecutionIdentity(_)),
+            resultStatistics = decodeResultStatistics(record.resultStatisticsJson)
           )
         }
       }
       .toMap
+  }
+
+  /**
+    * Decode the per-column result statistics blob persisted in the cache. Returns
+    * an empty map if the blob is missing, empty, or malformed (cache hits should
+    * survive stats corruption — the column profiler is best-effort metadata).
+    */
+  private def decodeResultStatistics(raw: Option[String]): Map[String, String] = {
+    raw.filter(_.nonEmpty) match {
+      case None => Map.empty
+      case Some(json) =>
+        Try {
+          OperatorPortCacheJson.mapper
+            .readValue(json, classOf[java.util.Map[String, String]])
+            .asScala
+            .toMap
+        }.getOrElse(Map.empty)
+    }
   }
 
   /**
@@ -114,9 +139,14 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
       portId: GlobalPortIdentity,
       physicalPlan: PhysicalPlan,
       resultUri: URI,
-      tupleCount: Option[Long]
+      tupleCount: Option[Long],
+      resultStatistics: Map[String, String]
   ): Unit = {
     val fingerprint = FingerprintUtil.computeSubdagFingerprint(physicalPlan, portId)
+
+    val statsJson =
+      if (resultStatistics.isEmpty) None
+      else Some(OperatorPortCacheJson.mapper.writeValueAsString(resultStatistics))
 
     dao.upsert(
       OperatorPortCacheRecord(
@@ -126,7 +156,8 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
         fingerprintJson = fingerprint.fingerprintJson,
         resultUri = resultUri,
         tupleCount = tupleCount,
-        sourceExecutionId = Some(executionId.id)
+        sourceExecutionId = Some(executionId.id),
+        resultStatisticsJson = statsJson
       )
     )
   }

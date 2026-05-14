@@ -52,6 +52,7 @@ case class OperatorPortCacheRecord(
     resultUri: URI,
     tupleCount: Option[Long],
     sourceExecutionId: Option[Long],
+    resultStatisticsJson: Option[String] = None,
     updatedAt: Option[OffsetDateTime] = None
 )
 
@@ -86,6 +87,7 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
         OPERATOR_PORT_CACHE.RESULT_URI,
         OPERATOR_PORT_CACHE.TUPLE_COUNT,
         OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID,
+        OPERATOR_PORT_CACHE.RESULT_STATISTICS_JSON,
         OPERATOR_PORT_CACHE.UPDATED_AT
       )
       .from(OPERATOR_PORT_CACHE)
@@ -103,7 +105,8 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
           resultUri = URI.create(record.value5()),
           tupleCount = Option(record.value6()).map(_.longValue()),
           sourceExecutionId = Option(record.value7()).map(_.longValue()),
-          updatedAt = Option(record.value8())
+          resultStatisticsJson = Option(record.value8()),
+          updatedAt = Option(record.value9())
         )
       }
   }
@@ -130,6 +133,7 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
         OPERATOR_PORT_CACHE.RESULT_URI,
         OPERATOR_PORT_CACHE.TUPLE_COUNT,
         OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID,
+        OPERATOR_PORT_CACHE.RESULT_STATISTICS_JSON,
         OPERATOR_PORT_CACHE.UPDATED_AT
       )
       .from(OPERATOR_PORT_CACHE)
@@ -148,7 +152,8 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
           resultUri = URI.create(record.value5()),
           tupleCount = Option(record.value6()).map(_.longValue()),
           sourceExecutionId = Option(record.value7()).map(_.longValue()),
-          updatedAt = Option(record.value8())
+          resultStatisticsJson = Option(record.value8()),
+          updatedAt = Option(record.value9())
         )
       )
       .toSeq
@@ -174,6 +179,7 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
         OPERATOR_PORT_CACHE.RESULT_URI,
         OPERATOR_PORT_CACHE.TUPLE_COUNT,
         OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID,
+        OPERATOR_PORT_CACHE.RESULT_STATISTICS_JSON,
         OPERATOR_PORT_CACHE.UPDATED_AT
       )
       .from(OPERATOR_PORT_CACHE)
@@ -189,7 +195,8 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
           resultUri = URI.create(record.value5()),
           tupleCount = Option(record.value6()).map(_.longValue()),
           sourceExecutionId = Option(record.value7()).map(_.longValue()),
-          updatedAt = Option(record.value8())
+          resultStatisticsJson = Option(record.value8()),
+          updatedAt = Option(record.value9())
         )
       )
       .toSeq
@@ -210,6 +217,7 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
     dbRecord.setResultUri(record.resultUri.toString)
     record.tupleCount.foreach(c => dbRecord.setTupleCount(Long.box(c)))
     record.sourceExecutionId.foreach(eid => dbRecord.setSourceExecutionId(Long.box(eid)))
+    record.resultStatisticsJson.foreach(dbRecord.setResultStatisticsJson)
 
     context
       .insertInto(OPERATOR_PORT_CACHE)
@@ -224,6 +232,7 @@ class OperatorPortCacheDao(sqlServer: SqlServer) {
       .set(OPERATOR_PORT_CACHE.FINGERPRINT_JSON, dbRecord.getFingerprintJson)
       .set(OPERATOR_PORT_CACHE.TUPLE_COUNT, dbRecord.getTupleCount)
       .set(OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID, dbRecord.getSourceExecutionId)
+      .set(OPERATOR_PORT_CACHE.RESULT_STATISTICS_JSON, dbRecord.getResultStatisticsJson)
       .set(OPERATOR_PORT_CACHE.UPDATED_AT, DSL.currentOffsetDateTime())
       .execute()
   }

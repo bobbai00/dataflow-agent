@@ -99,13 +99,23 @@ trait PortCompletedHandler {
                     )
                   storageUriOpt.foreach { uri =>
                     // Prefer runtime statistics over storage reads for tuple counts.
-                    val tupleCount = operatorExecution
-                      .getStats
-                      .operatorStatistics
-                      .outputMetrics
+                    val operatorStats = operatorExecution.getStats.operatorStatistics
+                    val tupleCount = operatorStats.outputMetrics
                       .find(_.portId == msg.portId)
                       .map(_.tupleMetrics.count)
-                    sendToClient(PortMaterialized(globalPortId, uri, tupleCount))
+                    // Per-column stats are operator-level (the Python column profiler
+                    // overwrites one map per worker). Snapshot whatever is current at
+                    // port-completion time; for single-output operators this is the
+                    // stats for this port, for multi-output ops it reflects the most
+                    // recently published port — matching the existing UI semantics.
+                    sendToClient(
+                      PortMaterialized(
+                        globalPortId,
+                        uri,
+                        tupleCount,
+                        operatorStats.resultStatistics.toMap
+                      )
+                    )
                   }
                 }
               }

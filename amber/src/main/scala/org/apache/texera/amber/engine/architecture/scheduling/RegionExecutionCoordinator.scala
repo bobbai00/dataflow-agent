@@ -156,11 +156,24 @@ class RegionExecutionCoordinator(
         // Use -1 to signal skipped/unknown input counts for cached operators.
         .map(pid => PortTupleMetricsMapping(pid, TupleMetrics(-1L, -1L)))
         .toSeq
+      // Replay per-column result statistics persisted with the cache row. Stats are
+      // stored per-port; merge the maps across this operator's output ports so the
+      // synthesized OperatorMetrics carries them just like a live run would. For the
+      // common single-output case it's just one map; for multi-output operators we
+      // pick last-write-wins (mirroring StatisticsManager.set_result_statistics).
+      val mergedResultStats: Map[String, String] = resourceConfig.portConfigs
+        .collect {
+          case (gpid, cfg: OutputPortConfig) if gpid.opId == op.id =>
+            cfg.cachedResultStatistics
+        }
+        .flatten
+        .toMap
       val stats = OperatorMetrics(
         WorkflowAggregatedState.COMPLETED_FROM_CACHE,
         OperatorStatistics(
           inputMetrics,
-          outputMetrics
+          outputMetrics,
+          resultStatistics = mergedResultStats
         )
       )
       opExecution.setCachedMetrics(stats)
