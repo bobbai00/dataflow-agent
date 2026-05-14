@@ -106,7 +106,10 @@ export class FetaqaAdapter implements DatasetAdapter {
   }
 
   buildPrompt(task: Task, _ctx: PromptContext): string {
-    const filePaths = task.dataFiles.map(f => f.localPath);
+    // Show a natural-looking relative path in the prompt —
+    // "fetaqa/data/<task.id>/<file>" — rather than the absolute localPath.
+    // The "fetaqa/" prefix mirrors the on-disk layout under DATA_ROOT.
+    const filePaths = task.dataFiles.map(f => `${this.name}/data/${task.id}/${path.basename(f.localPath)}`);
     return buildNaturalPrompt(task.question, filePaths);
   }
 
