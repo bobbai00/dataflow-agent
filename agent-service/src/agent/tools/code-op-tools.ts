@@ -295,28 +295,57 @@ function stripPythonCommentsAndStrings(code: string): string {
 }
 
 /**
- * Reject operator code that violates the "every function returns a DataFrame,
- * never bare print()" contract. Two checks, run in order — first failure wins:
+ * Result of the operator-code contract check.
  *
- *   1. `print(` token anywhere in real code (string/comment occurrences are
- *      stripped first). Prints turn an operator into a side-effect-only step:
- *      the runtime calls it a success but downstream / the inspector see no
- *      result data, which leaves the agent stuck.
- *   2. At least one of the function definitions inside the snippet must
- *      contain a `return <expr>` (not a bare `return`). A function that falls
- *      through returns None, which the runtime serializes as "no result data".
+ *   - `null`               → code passes all rules.
+ *   - `{ kind: "error" }`  → hard reject; the operator must not land in the
+ *                            workflow. Currently fires when a function has no
+ *                            value-returning `return` — such an operator runs
+ *                            but produces no result data, leaving the agent
+ *                            stuck downstream.
+ *   - `{ kind: "warning" }`→ soft signal; the operator is still added and
+ *                            executed, but a `[WARNING] …` is prepended to
+ *                            the tool result. Currently fires for `print(...)`
+ *                            usage — prints succeed at runtime but their
+ *                            output is dropped (not surfaced as the operator's
+ *                            result), so we discourage them without blocking.
+ */
+type ContractResult = null | { kind: "error" | "warning"; message: string };
+
+const PRINT_WARNING_MESSAGE =
+  "Operator code contains `print(...)` — print output is dropped and not part of the operator's result; only the returned DataFrame is surfaced, so remove the print and expose values via the returned DataFrame instead.";
+
+function noReturnErrorMessage(fnName: string): string {
+  return `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`;
+}
+
+/**
+ * Validate operator code against the "every function returns a DataFrame,
+ * prefer to avoid bare print()" contract. Two checks:
  *
- * Returns a single sentence describing the problem on failure, or null on
- * success. Uses Python AST via the system interpreter when available (most
- * accurate), and falls back to a regex pass over comment/string-stripped code
- * when Python isn't installed — so the validation still runs in CI containers
+ *   1. (hard) At least one of the function definitions inside the snippet
+ *      must contain a `return <expr>` (not a bare `return`). A function that
+ *      falls through returns None, which the runtime serializes as
+ *      "no result data" — rejecting here prevents that dead operator.
+ *   2. (soft) A `print(` token anywhere in real code (string/comment
+ *      occurrences are stripped first) downgrades to a warning. The operator
+ *      is still added/executed, but the result string is prefixed with
+ *      `[WARNING] …` so the agent learns to remove it.
+ *
+ * The hard check is evaluated first — if a function lacks a return, the
+ * print issue is moot (the operator is broken anyway), so we surface the
+ * error and stop.
+ *
+ * Uses Python AST via the system interpreter when available (most accurate),
+ * and falls back to a regex pass over comment/string-stripped code when
+ * Python isn't installed — so the validation still runs in CI containers
  * without python3.
  *
  * IMPORTANT: this runs BEFORE any state mutation in
- * `createCreateOrModifyOperatorTool`, so a rejected operator never lands in
- * the workflow.
+ * `createCreateOrModifyOperatorTool`, so a hard-error operator never lands
+ * in the workflow.
  */
-async function validateOperatorContract(code: string): Promise<string | null> {
+async function validateOperatorContract(code: string): Promise<ContractResult> {
   const pyResult = await runPythonContractCheck(code);
   if (pyResult !== "PYTHON_UNAVAILABLE") return pyResult;
   return regexContractCheck(code);
@@ -325,7 +354,7 @@ async function validateOperatorContract(code: string): Promise<string | null> {
 /** Exposed for unit tests — exercises the no-Python regex fallback path. */
 export const __forTesting = { regexContractCheck, stripPythonCommentsAndStrings };
 
-async function runPythonContractCheck(code: string): Promise<string | null | "PYTHON_UNAVAILABLE"> {
+async function runPythonContractCheck(code: string): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
   const { spawn } = await import("child_process");
   return new Promise(resolve => {
     const pythonCode = `
@@ -335,10 +364,8 @@ try:
     tree = ast.parse(src)
 except SyntaxError:
     sys.exit(0)
-for n in ast.walk(tree):
-    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'print':
-        sys.stdout.write('HAS_PRINT')
-        sys.exit(2)
+# Hard check first: any function missing a value-returning return is a
+# blocker. The print check is moot if the operator is broken anyway.
 funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 for fn in funcs:
     has_value_return = False
@@ -351,6 +378,11 @@ for fn in funcs:
     if not has_value_return:
         sys.stdout.write('NO_RETURN:' + fn.name)
         sys.exit(3)
+# Soft check: any print() call → warning.
+for n in ast.walk(tree):
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'print':
+        sys.stdout.write('HAS_PRINT')
+        sys.exit(2)
 sys.exit(0)
 `;
     const proc = spawn("python3", ["-c", pythonCode]);
@@ -363,15 +395,11 @@ sys.exit(0)
       if (pythonMissing) return resolve("PYTHON_UNAVAILABLE");
       if (exitCode === 0) return resolve(null);
       if (exitCode === 2) {
-        return resolve(
-          "Operator code contains `print(...)` — every operator must `return` a pd.DataFrame so downstream operators (and the result inspector) receive data; wrap the values you wanted to print into a single-row DataFrame and return it instead."
-        );
+        return resolve({ kind: "warning", message: PRINT_WARNING_MESSAGE });
       }
       if (exitCode === 3) {
         const fnName = stdout.replace(/^NO_RETURN:/, "") || "function";
-        return resolve(
-          `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`
-        );
+        return resolve({ kind: "error", message: noReturnErrorMessage(fnName) });
       }
       // Any other exit code → treat as inconclusive, let the workflow proceed.
       resolve(null);
@@ -387,15 +415,11 @@ sys.exit(0)
   });
 }
 
-function regexContractCheck(code: string): string | null {
+function regexContractCheck(code: string): ContractResult {
   const stripped = stripPythonCommentsAndStrings(code);
-  if (/\bprint\s*\(/.test(stripped)) {
-    return "Operator code contains `print(...)` — every operator must `return` a pd.DataFrame so downstream operators (and the result inspector) receive data; wrap the values you wanted to print into a single-row DataFrame and return it instead.";
-  }
-  // Find every function header and verify the body contains a value-returning
-  // return. The body of `def name(...):` runs from end-of-header to the next
-  // top-level construct; a regex approximation that walks line-by-line with
-  // indentation tracking works for the well-formed snippets the agent emits.
+  // Hard check first: any function without a value-returning return is a
+  // blocker. We walk function headers line-by-line with indentation tracking;
+  // this approximation works for the well-formed snippets the agent emits.
   const lines = stripped.split("\n");
   const funcHeader = /^(\s*)def\s+(\w+)\s*\(/;
   for (let i = 0; i < lines.length; i++) {
@@ -416,8 +440,12 @@ function regexContractCheck(code: string): string | null {
       }
     }
     if (!hasValueReturn) {
-      return `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`;
+      return { kind: "error", message: noReturnErrorMessage(fnName) };
     }
+  }
+  // Soft check: print(...) → warning.
+  if (/\bprint\s*\(/.test(stripped)) {
+    return { kind: "warning", message: PRINT_WARNING_MESSAGE };
   }
   return null;
 }
@@ -547,14 +575,15 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           return createErrorResult(`Python syntax error: ${syntaxError}`);
         }
 
-        // Enforce the "every operator returns a DataFrame, no bare prints"
-        // contract BEFORE any state mutation. A violation never touches the
-        // workflow — the agent gets the one-sentence cause back and must
-        // resubmit code that returns a DataFrame.
-        const contractError = await validateOperatorContract(code);
-        if (contractError) {
-          return createErrorResult(contractError);
+        // Enforce the "every operator returns a DataFrame, prefer to avoid
+        // bare prints" contract BEFORE any state mutation. A hard error never
+        // touches the workflow; a warning lets the operator land but is
+        // prepended to the success message so the agent learns to remove it.
+        const contract = await validateOperatorContract(code);
+        if (contract?.kind === "error") {
+          return createErrorResult(contract.message);
         }
+        const contractWarning = contract?.kind === "warning" ? contract.message : null;
 
         let inputOperators: OperatorPredicate[] = [];
         if (isDataProcessing && parameters.length > 0) {
@@ -663,7 +692,8 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           );
         }
 
-        return createToolResult(resultMsg);
+        const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;
+        return createToolResult(finalMsg);
       } catch (error: any) {
         return createErrorResult(formatOperatorError(args.operatorId, error.message || String(error)));
       }

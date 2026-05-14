@@ -88,7 +88,8 @@ const KEY_PRINCIPLES = `
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (e.g., \`Unnamed: 0\`) or a data value appears as a header, adjust the loading parameters (e.g., \`header=\`, \`skiprows=\`, \`sep=\`) by modifying the data loading operator.
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
-- **Every operator MUST return a DataFrame, never \`print()\`**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`**`;
+- **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
+- **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
 
 // ============================================================================
 // CODE mode template

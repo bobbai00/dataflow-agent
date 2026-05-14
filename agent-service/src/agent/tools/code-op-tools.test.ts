@@ -105,68 +105,81 @@ describe("validateOperatorId — camelCase enforcement", () => {
   });
 });
 
-describe("regexContractCheck — rejects print()", () => {
-  test("flags a bare print() call", () => {
-    const err = regexContractCheck(`def process(df):
+describe("regexContractCheck — warns on print()", () => {
+  test("flags a bare print() call as a warning (not an error)", () => {
+    const res = regexContractCheck(`def process(df):
     print(df.columns)
     return df`);
-    expect(err).not.toBeNull();
-    expect(err).toContain("print(...)");
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("warning");
+    expect(res!.message).toContain("print(...)");
   });
 
   test("flags print() with whitespace before the paren", () => {
-    const err = regexContractCheck(`def process(df):
+    const res = regexContractCheck(`def process(df):
     print (df.columns)
     return df`);
-    expect(err).not.toBeNull();
-    expect(err).toContain("print(...)");
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("warning");
+    expect(res!.message).toContain("print(...)");
   });
 
   test("allows the word `print` inside a string literal", () => {
-    const err = regexContractCheck(`def process(df):
+    const res = regexContractCheck(`def process(df):
     return df.assign(note="please print() this row")`);
-    expect(err).toBeNull();
+    expect(res).toBeNull();
   });
 
   test("allows the word `print` inside a comment", () => {
-    const err = regexContractCheck(`def process(df):
+    const res = regexContractCheck(`def process(df):
     # remember to print(...) for the demo
     return df`);
-    expect(err).toBeNull();
+    expect(res).toBeNull();
   });
 });
 
 describe("regexContractCheck — requires a value-returning return", () => {
-  test("flags a function with no return at all", () => {
-    const err = regexContractCheck(`def process(df):
+  test("flags a function with no return at all as an error", () => {
+    const res = regexContractCheck(`def process(df):
     x = df.head()
     x.describe()`);
-    expect(err).not.toBeNull();
-    expect(err).toContain("`process`");
-    expect(err).toContain("return");
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("error");
+    expect(res!.message).toContain("`process`");
+    expect(res!.message).toContain("return");
   });
 
   test("flags a function whose only return is a bare `return`", () => {
-    const err = regexContractCheck(`def process(df):
+    const res = regexContractCheck(`def process(df):
     if df.empty:
         return
     df.describe()`);
-    expect(err).not.toBeNull();
-    expect(err).toContain("`process`");
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("error");
+    expect(res!.message).toContain("`process`");
+  });
+
+  test("missing-return wins over print() when both are present", () => {
+    const res = regexContractCheck(`def process(df):
+    print(df)
+    df.describe()`);
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("error");
+    expect(res!.message).toContain("`process`");
   });
 
   test("accepts a function with a value-returning return", () => {
-    const err = regexContractCheck(`def load() -> pd.DataFrame:
+    const res = regexContractCheck(`def load() -> pd.DataFrame:
     return pd.read_csv('/data/file.csv')`);
-    expect(err).toBeNull();
+    expect(res).toBeNull();
   });
 
   test("accepts a function whose return value is wrapped over multiple lines", () => {
-    const err = regexContractCheck(`def process(df):
+    const res = regexContractCheck(`def process(df):
     return df.assign(
         col=df['a'] + df['b']
     )`);
-    expect(err).toBeNull();
+    expect(res).toBeNull();
   });
 });
 
@@ -192,25 +205,12 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     return { ws, execute };
   }
 
-  test("rejects code containing print() and leaves the workflow untouched", async () => {
-    const { ws, execute } = buildTool();
-    const before = ws.getAllOperators().length;
-    const result = await execute({
-      operatorId: "inspectDf",
-      code: `def process(df):
-    print(df.dtypes)
-    return df.head()`,
-      summary: "Inspect dtypes then return head",
-    });
-    // The tool returns a `[ERROR] <one-sentence cause>` string.
-    expect(typeof result).toBe("string");
-    expect(result).toMatch(/^\[ERROR\] /);
-    expect(result).toContain("print(...)");
-    // No operator was added — the workflow is exactly as it was.
-    expect(ws.getAllOperators().length).toBe(before);
-    expect(ws.getAllOperators().length).toBe(0);
-    expect(ws.getOperator("inspectDf")).toBeUndefined();
-  });
+  // Note: there is no separate "add new operator with print()" test because
+  // the ADD path requires a populated operator-schema map and metadata store
+  // that the test harness can't easily provide without coupling to runtime
+  // wiring. The "DOES replace an existing operator's code when the new code
+  // only triggers a print() warning" test below covers the same warning
+  // behavior end-to-end on the MODIFY path.
 
   test("rejects code with no return statement and leaves the workflow untouched", async () => {
     const { ws, execute } = buildTool();
@@ -244,17 +244,15 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     expect(ws.getOperator("earlyExit")).toBeUndefined();
   });
 
-  test("does NOT replace an existing operator's code when the new code violates the contract", async () => {
+  test("does NOT replace an existing operator's code when the new code fails the hard contract (no return)", async () => {
     // Pre-seed the workflow with a valid DataLoading operator. The agent then
-    // attempts to "modify" it with code that has a print. The contract check
-    // should reject the modification AND leave the original `code` property
-    // intact.
+    // attempts to "modify" it with code that has no value-returning return —
+    // a hard error. The contract check must reject the modification AND leave
+    // the original `code` property intact.
     const { ws, execute } = buildTool();
     const opId = "loadCsv";
     const goodCode = `def load() -> pd.DataFrame:
     return pd.read_csv('/data/x.csv')`;
-    // Directly seed the workflow with a DataLoading op carrying the good code.
-    // We bypass the tool here so we don't depend on schema metadata.
     ws.addOperator({
       operatorID: opId,
       operatorType: "DataLoading",
@@ -269,43 +267,102 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
       dynamicOutputPorts: false,
     } as any);
 
-    const badCode = `def load() -> pd.DataFrame:
-    print('loading...')
-    return pd.read_csv('/data/x.csv')`;
-    const result = await execute({ operatorId: opId, code: badCode, summary: "bad summary" });
+    const noReturnCode = `def load() -> pd.DataFrame:
+    df = pd.read_csv('/data/x.csv')
+    df.describe()`;
+    const result = await execute({ operatorId: opId, code: noReturnCode, summary: "no-return summary" });
     expect(result).toMatch(/^\[ERROR\] /);
-    expect(result).toContain("print(...)");
+    expect(result).toContain("`load`");
     // Original code is still in place — the rejected modification didn't land.
     const op = ws.getOperator(opId);
     expect(op).toBeDefined();
     expect((op!.operatorProperties as any).code).toBe(goodCode);
   });
 
-  test("the error message is a single sentence", async () => {
+  test("DOES replace an existing operator's code when the new code only triggers a print() warning", async () => {
+    // Same pre-seed as the hard-error case above, but this time the new code
+    // contains a print() — soft warning, not a blocker. The modification
+    // should land (new code replaces old) and the result should carry
+    // `[WARNING] …`.
+    const { ws, execute } = buildTool();
+    const opId = "loadCsv";
+    const goodCode = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv')`;
+    ws.addOperator({
+      operatorID: opId,
+      operatorType: "DataLoading",
+      operatorVersion: "v1",
+      operatorProperties: { code: goodCode },
+      inputPorts: [],
+      outputPorts: [{ portID: "output-0", displayName: "" }],
+      showAdvanced: false,
+      isDisabled: false,
+      customDisplayName: opId,
+      dynamicInputPorts: false,
+      dynamicOutputPorts: false,
+    } as any);
+
+    const printCode = `def load() -> pd.DataFrame:
+    print('loading...')
+    return pd.read_csv('/data/x.csv')`;
+    const result = await execute({ operatorId: opId, code: printCode, summary: "with debug print" });
+    expect(result).toMatch(/^\[WARNING\] /);
+    expect(result).toContain("print(...)");
+    // The modification DID land — `code` is the new code now.
+    const op = ws.getOperator(opId);
+    expect(op).toBeDefined();
+    expect((op!.operatorProperties as any).code).toBe(printCode);
+  });
+
+  test("the no-return error message is a single sentence", async () => {
     const { execute } = buildTool();
-    const printResult = await execute({
-      operatorId: "p",
-      code: `def process(df):
-    print(df)
-    return df`,
-      summary: "x",
-    });
     const noReturnResult = await execute({
       operatorId: "n",
-      code: `def process(df):
-    df.describe()`,
+      code: `def load() -> pd.DataFrame:
+    pd.read_csv('/data/x.csv')`,
       summary: "x",
     });
-    for (const msg of [printResult, noReturnResult]) {
-      expect(typeof msg).toBe("string");
-      // Strip the `[ERROR] ` prefix the framework adds; the cause itself must
-      // be one sentence — exactly one terminal `.` (or `!`/`?`), no internal
-      // newlines.
-      const body = (msg as string).replace(/^\[ERROR\]\s*/, "").trim();
-      expect(body).not.toContain("\n");
-      const sentenceTerminators = body.match(/[.!?](?:\s|$)/g) || [];
-      expect(sentenceTerminators.length).toBe(1);
-    }
+    expect(typeof noReturnResult).toBe("string");
+    const body = (noReturnResult as string).replace(/^\[ERROR\]\s*/, "").trim();
+    expect(body).not.toContain("\n");
+    const terminators = body.match(/[.!?](?:\s|$)/g) || [];
+    expect(terminators.length).toBe(1);
+  });
+
+  test("the print() warning line is a single sentence", async () => {
+    // Pre-seed an existing operator so we exercise the MODIFY path (the ADD
+    // path needs schema/metadata wiring this harness doesn't provide).
+    const { ws, execute } = buildTool();
+    const opId = "p";
+    ws.addOperator({
+      operatorID: opId,
+      operatorType: "DataLoading",
+      operatorVersion: "v1",
+      operatorProperties: { code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv')" },
+      inputPorts: [],
+      outputPorts: [{ portID: "output-0", displayName: "" }],
+      showAdvanced: false,
+      isDisabled: false,
+      customDisplayName: opId,
+      dynamicInputPorts: false,
+      dynamicOutputPorts: false,
+    } as any);
+
+    const result = await execute({
+      operatorId: opId,
+      code: `def load() -> pd.DataFrame:
+    print("hi")
+    return pd.read_csv('/data/x.csv')`,
+      summary: "x",
+    });
+    expect(typeof result).toBe("string");
+    // The warning is the FIRST line of the result; the rest is the normal
+    // success message. We test only the warning line itself.
+    const firstLine = (result as string).split("\n", 1)[0];
+    expect(firstLine).toMatch(/^\[WARNING\] /);
+    const body = firstLine.replace(/^\[WARNING\]\s*/, "").trim();
+    const terminators = body.match(/[.!?](?:\s|$)/g) || [];
+    expect(terminators.length).toBe(1);
   });
 });
 
