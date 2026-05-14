@@ -209,6 +209,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
   public settingsContextMode: "full" | "delta" | "latest" = "latest"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
+  public settingsUserTaskDuplicatedAtEnd: "enabled" | "disabled" = "enabled"; // Re-state user task before continuation
   public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
   public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
   public operatorTypeSearchQuery = ""; // Search filter for operator types
@@ -471,6 +472,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
+        // Same default-true treatment as parallelToolCalls.
+        this.settingsUserTaskDuplicatedAtEnd = settings.userTaskDuplicatedAtEnd === false ? "disabled" : "enabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -478,6 +481,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
+          this.agentInfo.settings.userTaskDuplicatedAtEnd = settings.userTaskDuplicatedAtEnd;
         }
       });
 
@@ -1224,6 +1228,28 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe({
         next: () => {
           this.notificationService.success(`Parallel tool calls ${enabled ? "enabled" : "disabled"}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the user-task-duplicated-at-end setting. When enabled, each
+   * in-progress task's continuation block carries a verbatim copy of the
+   * user's last request to keep the objective anchored alongside where the
+   * model resumes. Pure render-time toggle; no system prompt rebuild.
+   */
+  public saveUserTaskDuplicatedAtEnd(): void {
+    const enabled = this.settingsUserTaskDuplicatedAtEnd === "enabled";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        userTaskDuplicatedAtEnd: enabled,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`User task duplication ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service

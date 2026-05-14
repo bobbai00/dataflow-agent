@@ -543,6 +543,36 @@
           </div>
 
           <div class="settings-param-item">
+            <label class="settings-param-label">Re-state User Task at End</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsUserTaskDuplicatedAtEnd"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="enabled"
+                  nzLabel="Enabled"></nz-option>
+                <nz-option
+                  nzValue="disabled"
+                  nzLabel="Disabled"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveUserTaskDuplicatedAtEnd()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When <strong>enabled</strong>, the user's task text is re-emitted as a <code>User's request is: …</code>
+              line right before the per-task continuation. Re-anchors the model on the immediate objective at the cost
+              of one extra copy of the prompt per turn. When <strong>disabled</strong>, only the original
+              <code># Event N (User Task)</code> block appears.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
             <label class="settings-param-label">Max Operator Result Character Limit</label>
             <div class="settings-param-input">
               <nz-input-number

@@ -109,6 +109,15 @@ export interface AgentSettings {
    * turn (the pre-batching behavior).
    */
   parallelToolCalls: boolean;
+  /**
+   * When true, the last user message of each in-progress task is duplicated
+   * verbatim right before the per-task "keep working" exhortation, as a
+   * `User's request is: ...` block. Combats objective drift on long ReAct
+   * traces by re-anchoring the model on the immediate target adjacent to
+   * where it resumes generation. Costs one extra copy of the task prompt
+   * per assembled context.
+   */
+  userTaskDuplicatedAtEnd: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -142,6 +151,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
   parallelToolCalls: true,
+  userTaskDuplicatedAtEnd: true,
 };
 
 export interface UserInfo {
@@ -171,6 +181,7 @@ export interface AgentSettingsApi {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
+  userTaskDuplicatedAtEnd?: boolean;
 }
 
 export interface AgentInfo {
@@ -204,4 +215,5 @@ export interface UpdateAgentSettingsRequest {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
+  userTaskDuplicatedAtEnd?: boolean;
 }

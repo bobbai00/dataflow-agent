@@ -45,6 +45,11 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
+  /** When true, each in-progress task's continuation block is prefixed with
+   *  a verbatim re-statement of that task's last user message. Re-anchors
+   *  the model on the immediate target adjacent to where it resumes
+   *  generation, at the cost of one extra copy of the task prompt. */
+  userTaskDuplicatedAtEnd?: boolean;
 }
 
 /**
@@ -239,9 +244,7 @@ function renderInterleaved(
     );
     sections.push("");
     if (!task.isCompleted) {
-      sections.push(
-        "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
-      );
+      sections.push(renderTaskContinuation(task, options));
     }
   }
   return sections.join("\n").trimEnd();
@@ -260,9 +263,7 @@ function renderLatest(
     sections.push(serializeTaskEventsOnly(task));
     sections.push("");
     if (!task.isCompleted) {
-      sections.push(
-        "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
-      );
+      sections.push(renderTaskContinuation(task, options));
     }
   }
 
@@ -280,6 +281,36 @@ function renderLatest(
     sections.push(dag);
   }
   return sections.join("\n");
+}
+
+/**
+ * Render the per-task "keep working" continuation block emitted after every
+ * in-progress task body. Always carries the exhortation; when
+ * `options.userTaskDuplicatedAtEnd` is set, prefixes it with a verbatim
+ * `User's request is: ...` copy of the task's latest user message so the
+ * objective sits adjacent to where the model resumes.
+ */
+function renderTaskContinuation(task: TaskGroup, options: AssembleContextOptions): string {
+  const lines: string[] = [];
+  if (options.userTaskDuplicatedAtEnd) {
+    const lastUserContent = findLastUserContent(task);
+    if (lastUserContent) {
+      lines.push(`User's request is: ${lastUserContent}`);
+      lines.push("");
+    }
+  }
+  lines.push(
+    "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
+  );
+  return lines.join("\n");
+}
+
+function findLastUserContent(task: TaskGroup): string | undefined {
+  for (let i = task.nodes.length - 1; i >= 0; i--) {
+    const n = task.nodes[i];
+    if (n.step.role === "user" && n.step.content) return n.step.content;
+  }
+  return undefined;
 }
 
 /* ============================================================================

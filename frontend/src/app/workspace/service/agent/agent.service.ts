@@ -72,6 +72,10 @@ export interface AgentSettingsApi {
   /** When true, the model may emit multiple tool calls in one assistant turn.
    *  The agent serializes them in topological order via `ToolCallScheduler`. */
   parallelToolCalls?: boolean;
+  /** When true, each in-progress task's continuation block is prefixed with a
+   *  verbatim copy of the user's last request — re-anchors the model on the
+   *  immediate target right before it resumes. */
+  userTaskDuplicatedAtEnd?: boolean;
 }
 
 /**

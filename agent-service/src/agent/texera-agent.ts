@@ -594,6 +594,7 @@ export class TexeraAgent {
     agentMode?: AgentMode;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
+    userTaskDuplicatedAtEnd?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -635,6 +636,10 @@ export class TexeraAgent {
       this.settings.parallelToolCalls = updates.parallelToolCalls;
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
+    }
+    if (updates.userTaskDuplicatedAtEnd !== undefined) {
+      this.settings.userTaskDuplicatedAtEnd = updates.userTaskDuplicatedAtEnd;
+      // Pure render-time toggle — read at the next assembleContext call.
     }
 
     if (promptNeedsRebuild) {
@@ -796,7 +801,11 @@ export class TexeraAgent {
             this.workflowState,
             this.snapshotStorage,
             this.settings.contextMode,
-            { compilationResult, agentMode: this.settings.agentMode }
+            {
+              compilationResult,
+              agentMode: this.settings.agentMode,
+              userTaskDuplicatedAtEnd: this.settings.userTaskDuplicatedAtEnd,
+            }
           );
           lastPreparedMessages = processed;
           return { messages: processed };
@@ -968,7 +977,11 @@ export class TexeraAgent {
       this.workflowState,
       this.snapshotStorage,
       this.settings.contextMode,
-      { compilationResult: null, agentMode: this.settings.agentMode }
+      {
+        compilationResult: null,
+        agentMode: this.settings.agentMode,
+        userTaskDuplicatedAtEnd: this.settings.userTaskDuplicatedAtEnd,
+      }
     );
     const first = processed[0];
     if (!first) return "";
