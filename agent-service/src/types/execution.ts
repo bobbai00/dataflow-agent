@@ -41,7 +41,7 @@ export interface OperatorInfo {
   consoleLogs?: ConsoleMessage[];
   error?: string;
   warnings?: string[];
-  resultStatistics?: Record<string, string>;
+  columnStats?: Record<string, string>;
 }
 
 export interface SyncExecutionResult {

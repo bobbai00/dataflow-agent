@@ -50,6 +50,10 @@ export interface AssembleContextOptions {
    *  the model on the immediate target adjacent to where it resumes
    *  generation, at the cost of one extra copy of the task prompt. */
   userTaskDuplicatedAtEnd?: boolean;
+  /** When true, every non-error operator result whose `OperatorInfo` carries
+   *  `columnStats` is followed by a `Column stats:` section listing
+   *  per-column stats (one column per line). Off by default. */
+  statsEnabled?: boolean;
 }
 
 /**
@@ -619,7 +623,9 @@ function serializeOperatorFull(
   operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
-  const execText = info ? formatOperatorResult(op.operatorID, info, workflowState) : undefined;
+  const execText = info
+    ? formatOperatorResult(op.operatorID, info, workflowState, { statsEnabled: options.statsEnabled })
+    : undefined;
 
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:

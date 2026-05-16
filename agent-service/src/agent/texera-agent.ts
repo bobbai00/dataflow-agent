@@ -636,6 +636,7 @@ export class TexeraAgent {
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     userTaskDuplicatedAtEnd?: boolean;
+    statsEnabled?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -681,6 +682,12 @@ export class TexeraAgent {
     if (updates.userTaskDuplicatedAtEnd !== undefined) {
       this.settings.userTaskDuplicatedAtEnd = updates.userTaskDuplicatedAtEnd;
       // Pure render-time toggle — read at the next assembleContext call.
+    }
+    if (updates.statsEnabled !== undefined) {
+      this.settings.statsEnabled = updates.statsEnabled;
+      // Pure render-time toggle — controls whether `Column stats:` is
+      // appended to each non-error operator's Result block at context-
+      // assembly time. Read at the next assembleContext call.
     }
 
     if (promptNeedsRebuild) {
@@ -846,6 +853,7 @@ export class TexeraAgent {
               compilationResult,
               agentMode: this.settings.agentMode,
               userTaskDuplicatedAtEnd: this.settings.userTaskDuplicatedAtEnd,
+              statsEnabled: this.settings.statsEnabled,
             }
           );
           lastPreparedMessages = processed;

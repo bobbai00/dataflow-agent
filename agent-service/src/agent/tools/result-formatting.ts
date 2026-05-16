@@ -21,7 +21,19 @@ import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowState } from "../workflow-state";
 import { formatExecuteOperatorResult } from "./tools-utility";
 
-export function formatOperatorResult(operatorId: string, opInfo: OperatorInfo, workflowState: WorkflowState): string {
+export interface FormatOperatorResultOptions {
+  /** When true and `opInfo.columnStats` is a non-empty map, append a
+   *  `Column stats:` block — one indented line per column. Errors are
+   *  rendered the same way regardless. Defaults to false. */
+  statsEnabled?: boolean;
+}
+
+export function formatOperatorResult(
+  operatorId: string,
+  opInfo: OperatorInfo,
+  workflowState: WorkflowState,
+  options: FormatOperatorResultOptions = {}
+): string {
   if (opInfo.error) {
     return `[ERROR] ${opInfo.error}`;
   }
@@ -61,7 +73,25 @@ export function formatOperatorResult(operatorId: string, opInfo: OperatorInfo, w
   ].filter(Boolean);
 
   const briefSummary = formatExecuteOperatorResult(operatorId);
-  return [briefSummary, ...metadataLines, dataString].filter(Boolean).join("\n");
+  const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
+  return [briefSummary, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+}
+
+/**
+ * Render a `Column stats:` block from `OperatorInfo.columnStats`.
+ * The backend's per-column annotation is already a `Record<column, string>`,
+ * so we just sort by column name and emit one indented line per column.
+ * Returns `undefined` when the map is missing, empty, or otherwise unhelpful
+ * (caller treats `undefined` as "omit this section entirely").
+ */
+function formatColumnStats(stats: Record<string, string> | undefined): string | undefined {
+  if (!stats) return undefined;
+  const entries = Object.entries(stats).filter(([, v]) => typeof v === "string" && v.length > 0);
+  if (entries.length === 0) return undefined;
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  const lines = ["Column stats:"];
+  for (const [col, stat] of entries) lines.push(`  ${col}: ${stat}`);
+  return lines.join("\n");
 }
 
 function formatInputOutputMetadata(

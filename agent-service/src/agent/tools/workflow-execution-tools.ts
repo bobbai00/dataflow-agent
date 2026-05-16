@@ -370,13 +370,37 @@ function formatInputOutput(
  * the workflow consistent with the actual backend run — including
  * surface-level failures on sibling operators that share the same execution.
  */
-function persistOperatorResults(
+/**
+ * Forward each per-operator info the backend returned to `onResult`, but
+ * skip *stub* entries: an `OperatorInfo` that carries neither a `result`
+ * array nor an `error` string contributes no real information about the
+ * operator's run. The backend emits these for ops it acknowledged but
+ * could not materialize — typically a downstream op whose upstream
+ * errored, e.g. legal-hard-2's `findMaxRate` after a buggy `metroStats`
+ * rewrite.
+ *
+ * Persisting stubs is harmful because it overrides the snapshot's
+ * inherited result (which, post tight-accuracy inheritance, has already
+ * been gated on the operator and its upstream being unchanged from the
+ * parent). Without this guard the model would see `(no result data)` in
+ * place of a still-valid prior value and loop trying to fix an operator
+ * that is fine — exactly the failure mode that caused
+ * `DataflowSystemGPT5Mini` to burn 50 steps on legal-hard-2.
+ *
+ * Exported for unit tests; production callers go through the helpers
+ * above (`executeOperatorAndFormat`, `executeWorkflowAndPersist`).
+ */
+export function persistOperatorResults(
   operators: Record<string, OperatorInfo> | undefined,
   onResult?: (operatorId: string, info: OperatorInfo) => void
 ): void {
   if (!onResult || !operators) return;
   for (const [opId, info] of Object.entries(operators)) {
-    if (info) onResult(opId, info);
+    if (!info) continue;
+    const hasResult = info.result !== undefined && info.result !== null;
+    const hasError = typeof info.error === "string" && info.error.length > 0;
+    if (!hasResult && !hasError) continue;
+    onResult(opId, info);
   }
 }
 

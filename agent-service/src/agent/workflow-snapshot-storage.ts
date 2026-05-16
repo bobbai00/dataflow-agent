@@ -18,7 +18,7 @@
  */
 
 import type { OperatorInfo } from "../types/execution";
-import type { WorkflowContent } from "../types/workflow";
+import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -94,9 +94,22 @@ function createEmptyWorkflow(): WorkflowContent {
  * ReAct tree (found via `getAncestorPath`), falling back to the empty
  * root.
  *
+
  * Snapshots are full states (workflow + results), not deltas: on
  * `createSnapshot` the new node inherits the parent's results, then
  * writes during the owning step override entries on top.
+ *
+ * **Tight-accuracy invariant.** Inheritance is *selective*: a parent
+ * result entry is dropped during `createSnapshot` whenever its operator —
+ * or any operator transitively upstream of it in the child's DAG — has
+ * been modified between parent and child. This makes every snapshot's
+ * results map tightly bound to that snapshot's specific workflow version,
+ * so a downstream cached value can never silently outlive a change to one
+ * of its inputs. The writer (post-step execution) then re-fills entries
+ * that the backend can materialize; entries the backend can't materialize
+ * stay absent and the renderer omits the `Result:` block — the agent
+ * sees a clear "not yet executed in this state" signal instead of a
+ * stale value.
  */
 export class WorkflowSnapshotStorage {
   /** Every snapshot, keyed by its own id (includes the empty root). */
@@ -145,8 +158,20 @@ export class WorkflowSnapshotStorage {
   /**
    * Create a snapshot owned by `reactStepId`. The parent snapshot is the
    * nearest ReAct-ancestor of `reactStepId` that owns a snapshot; if no
-   * such ancestor exists, the parent is the empty root. The new snapshot
-   * inherits the parent's results map (by reference per-entry).
+   * such ancestor exists, the parent is the empty root.
+   *
+   * The new snapshot **selectively** inherits the parent's results map —
+   * each entry is carried forward only when neither the entry's operator
+   * nor any transitive upstream ancestor in the child's DAG was modified
+   * between parent and child. Stale entries (under that rule) are
+   * dropped, preserving the tight-accuracy invariant described in the
+   * class-level docstring.
+   *
+   * When the parent or child workflow has no operators (e.g. the empty
+   * root, or "phantom-op" test setups that write results without a real
+   * DAG), the invalidation set is empty and every parent entry is
+   * inherited — preserving backward compatibility with callers that
+   * exercise results storage in isolation.
    *
    * @throws if a snapshot already exists for `reactStepId`.
    */
@@ -155,7 +180,14 @@ export class WorkflowSnapshotStorage {
       throw new Error(`Snapshot already exists for ReAct step ${reactStepId}`);
     }
     const parentSnapshotId = this.findParentSnapshotId(reactStepId);
-    const parentResults = this.snapshots.get(parentSnapshotId)!.results;
+    const parentSnap = this.snapshots.get(parentSnapshotId)!;
+
+    const stale = computeStaleResultOps(parentSnap.workflow, workflow);
+    const inherited = new Map<string, ResultEntry>();
+    for (const [opId, entry] of parentSnap.results) {
+      if (stale.has(opId)) continue;
+      inherited.set(opId, entry);
+    }
 
     const id = this.generateSnapshotId();
     const snapshot: SnapshotData = {
@@ -163,9 +195,9 @@ export class WorkflowSnapshotStorage {
       parentId: parentSnapshotId,
       reactStepId,
       workflow,
-      // Copy entries by reference — ResultEntry is immutable; overrides
-      // replace the entry, never mutate it in place.
-      results: new Map(parentResults),
+      // Entries are carried forward by reference — ResultEntry is
+      // immutable; overrides replace the entry, never mutate in place.
+      results: inherited,
     };
     this.snapshots.set(id, snapshot);
     this.snapshotByReactStepId.set(reactStepId, id);
@@ -304,4 +336,121 @@ export class WorkflowSnapshotStorage {
   private generateSnapshotId(): string {
     return `snap-${++this.snapshotCounter}-${Date.now()}`;
   }
+}
+
+// ── tight-accuracy helpers ─────────────────────────────────────────────
+
+/**
+ * Operators that should NOT inherit their parent-snapshot result entry
+ * when transitioning from `prev` workflow to `curr` workflow.
+ *
+ * An operator id `X` is "stale" — and therefore excluded from inheritance —
+ * if any of the following hold in `curr`:
+ *
+ *   1. `X` is new (not present in `prev`).
+ *   2. `X` exists in `prev` but its execution-affecting predicate fields
+ *      differ between `prev` and `curr` (operatorType, operatorVersion,
+ *      operatorProperties, inputPorts, outputPorts, isDisabled).
+ *   3. The set of incoming links targeting `X` differs between `prev` and
+ *      `curr` (e.g. a link was rewired so `X` now reads from a different
+ *      upstream).
+ *   4. Some ancestor of `X` in `curr`'s DAG is itself stale.
+ *
+ * Returns the union as a Set. Operators present in `prev` but absent in
+ * `curr` are not in the result — they cannot contribute to a `curr`
+ * snapshot's results map anyway, so explicit invalidation is unnecessary.
+ *
+ * If `prev` or `curr` has no operators the result is empty, preserving
+ * the unconditional-inheritance behaviour the storage uses in phantom-op
+ * tests and the empty-root → first-snapshot transition.
+ *
+ * Exported so unit tests can exercise the predicate / link / transitivity
+ * branches in isolation; `createSnapshot` is the sole production caller.
+ */
+export function computeStaleResultOps(prev: WorkflowContent, curr: WorkflowContent): Set<string> {
+  const stale = new Set<string>();
+  if (curr.operators.length === 0 || prev.operators.length === 0) return stale;
+
+  const prevOps = new Map<string, OperatorPredicate>();
+  for (const op of prev.operators) prevOps.set(op.operatorID, op);
+
+  // (1)+(2): direct predicate changes or freshly-added operators.
+  for (const op of curr.operators) {
+    const before = prevOps.get(op.operatorID);
+    if (!before || !operatorPredicateEqual(before, op)) {
+      stale.add(op.operatorID);
+    }
+  }
+
+  // (3): incoming-link set differs even though the operator itself is
+  // unchanged. The cached result was produced against a different upstream
+  // topology and would no longer reflect this snapshot.
+  const prevIn = collectIncomingEdgeKeys(prev);
+  const currIn = collectIncomingEdgeKeys(curr);
+  for (const op of curr.operators) {
+    if (stale.has(op.operatorID)) continue;
+    const a = prevIn.get(op.operatorID);
+    const b = currIn.get(op.operatorID);
+    if (!sortedArrayEqual(a, b)) stale.add(op.operatorID);
+  }
+
+  // (4): transitive descendants in `curr`'s DAG.
+  if (stale.size === 0) return stale;
+  const childrenOf = new Map<string, string[]>();
+  for (const link of curr.links) {
+    const list = childrenOf.get(link.source.operatorID) ?? [];
+    list.push(link.target.operatorID);
+    childrenOf.set(link.source.operatorID, list);
+  }
+  const queue: string[] = [...stale];
+  while (queue.length > 0) {
+    const opId = queue.shift()!;
+    for (const downstream of childrenOf.get(opId) ?? []) {
+      if (!stale.has(downstream)) {
+        stale.add(downstream);
+        queue.push(downstream);
+      }
+    }
+  }
+  return stale;
+}
+
+/**
+ * Equality predicate over the fields of `OperatorPredicate` that affect
+ * execution. UI-only fields (`customDisplayName`, `viewResult`,
+ * `markedForReuse`, `showAdvanced`) are intentionally ignored — toggling
+ * them on the dashboard should not blow away a perfectly good cached
+ * result. Uses `JSON.stringify` deep-compare on the nested shape fields;
+ * the agent constructs these objects programmatically so key ordering is
+ * deterministic in practice (matches the pattern in `context-utils.ts`'s
+ * `computeDelta`).
+ */
+function operatorPredicateEqual(a: OperatorPredicate, b: OperatorPredicate): boolean {
+  if (a.operatorType !== b.operatorType) return false;
+  if (a.operatorVersion !== b.operatorVersion) return false;
+  if (!!a.isDisabled !== !!b.isDisabled) return false;
+  if (JSON.stringify(a.operatorProperties) !== JSON.stringify(b.operatorProperties)) return false;
+  if (JSON.stringify(a.inputPorts) !== JSON.stringify(b.inputPorts)) return false;
+  if (JSON.stringify(a.outputPorts) !== JSON.stringify(b.outputPorts)) return false;
+  return true;
+}
+
+function collectIncomingEdgeKeys(wf: WorkflowContent): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const link of wf.links) {
+    const key = `${link.source.operatorID}:${link.source.portID}→${link.target.portID}`;
+    const list = m.get(link.target.operatorID) ?? [];
+    list.push(key);
+    m.set(link.target.operatorID, list);
+  }
+  for (const list of m.values()) list.sort();
+  return m;
+}
+
+function sortedArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  const av = a ?? [];
+  const bv = b ?? [];
+  if (av.length !== bv.length) return false;
+  for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+  return true;
 }

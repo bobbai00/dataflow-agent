@@ -324,3 +324,80 @@ describe("jsonToTableFormat - row index gaps", () => {
     expect(out.endsWith("9\tz")).toBe(true);
   });
 });
+
+describe("formatOperatorResult - statsEnabled column stats", () => {
+  const info = makeOpInfo({
+    result: [{ a: 1, b: "x" }],
+    outputTuples: 1,
+    columnStats: {
+      a: "type=int; non_null=1; min=1; max=1",
+      b: "type=string; non_null=1; cardinality=1",
+    },
+  });
+
+  test("statsEnabled=false: no Column stats block", () => {
+    const out = formatOperatorResult("op1", info, EMPTY_STATE, { statsEnabled: false });
+    expect(out).not.toContain("Column stats:");
+  });
+
+  test("statsEnabled default off: no Column stats block", () => {
+    const out = formatOperatorResult("op1", info, EMPTY_STATE);
+    expect(out).not.toContain("Column stats:");
+  });
+
+  test("statsEnabled=true: appends sorted Column stats block under the data preview", () => {
+    const out = formatOperatorResult("op1", info, EMPTY_STATE, { statsEnabled: true });
+    expect(out).toContain("Column stats:");
+    expect(out).toContain("  a: type=int; non_null=1; min=1; max=1");
+    expect(out).toContain("  b: type=string; non_null=1; cardinality=1");
+    // alphabetical: 'a' line precedes 'b' line.
+    expect(out.indexOf("  a:")).toBeLessThan(out.indexOf("  b:"));
+    // appears at the end (after data), not before the preview.
+    expect(out.indexOf("Column stats:")).toBeGreaterThan(out.indexOf("Output table shape"));
+  });
+
+  test("statsEnabled=true + no columnStats: omits the stats section", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ result: [{ a: 1 }], outputTuples: 1 }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).not.toContain("Column stats:");
+  });
+
+  test("statsEnabled=true + empty columnStats map: omits the stats section", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ result: [{ a: 1 }], outputTuples: 1, columnStats: {} }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).not.toContain("Column stats:");
+  });
+
+  test("statsEnabled=true on errored op: error renders verbatim, stats are suppressed", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ error: "boom", columnStats: { a: "type=int" } }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).toBe("[ERROR] boom");
+  });
+
+  test("statsEnabled=true filters out empty-string column entries", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        result: [{ a: 1 }],
+        outputTuples: 1,
+        columnStats: { a: "type=int", b: "" },
+      }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).toContain("  a: type=int");
+    expect(out).not.toContain("  b: ");
+  });
+});

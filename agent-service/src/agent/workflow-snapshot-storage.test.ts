@@ -18,9 +18,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
+import { WorkflowSnapshotStorage, computeStaleResultOps } from "./workflow-snapshot-storage";
 import type { OperatorInfo } from "../types/execution";
-import type { WorkflowContent } from "../types/workflow";
+import type { OperatorLink, WorkflowContent } from "../types/workflow";
 
 function makeOperatorInfo(opId: string, rows: number): OperatorInfo {
   return {
@@ -324,6 +324,272 @@ describe("WorkflowSnapshotStorage — DAG-staleness behavior", () => {
     expect(visible.get("A")?.totalRowCount).toBe(1);
     expect(visible.get("B")?.totalRowCount).toBe(999);
     expect(visible.get("C")?.totalRowCount).toBe(9999); // refreshed → consistent
+  });
+});
+
+/**
+ * Helpers for the DAG-aware inheritance tests.
+ *
+ * Operators are constructed with two input ports and one output port so the
+ * tests can assemble arbitrary chains via `linksFromChain` without each test
+ * having to spell out port descriptions.
+ */
+function makeDagWorkflow(opSpecs: Array<{ id: string; props?: Record<string, any> }>, links: OperatorLink[] = []): WorkflowContent {
+  return {
+    operators: opSpecs.map(
+      ({ id, props }) =>
+        ({
+          operatorID: id,
+          operatorType: "TestOp",
+          operatorVersion: "1",
+          operatorProperties: props ?? {},
+          inputPorts: [
+            { portID: "in-0", displayName: "in-0", disallowMultiInputs: true, isDynamicPort: false },
+            { portID: "in-1", displayName: "in-1", disallowMultiInputs: true, isDynamicPort: true },
+          ],
+          outputPorts: [{ portID: "out-0", displayName: "out-0" }],
+          showAdvanced: false,
+        }) as any
+    ),
+    operatorPositions: {},
+    links,
+    commentBoxes: [],
+    settings: { dataTransferBatchSize: 400 },
+  };
+}
+
+function link(sourceOp: string, targetOp: string, targetPort: "in-0" | "in-1" = "in-0", linkId?: string): OperatorLink {
+  return {
+    linkID: linkId ?? `${sourceOp}-${targetOp}-${targetPort}`,
+    source: { operatorID: sourceOp, portID: "out-0" },
+    target: { operatorID: targetOp, portID: targetPort },
+  };
+}
+
+// ReAct chain helper: parent stepId followed by child stepId. Mirrors the
+// linear-branch style of the existing `linearPath` helper.
+function chainPath(parent: string, child: string) {
+  return (id: string): string[] => (id === child ? [parent, child] : id === parent ? [parent] : [id]);
+}
+
+describe("WorkflowSnapshotStorage — DAG-aware inheritance (tight accuracy)", () => {
+  test("identical workflow → every parent result inherits", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    const wf = makeDagWorkflow([{ id: "A" }, { id: "B" }], [link("A", "B")]);
+    s.createSnapshot("P", wf);
+    s.setOperatorResult("P", "A", makeOperatorInfo("A", 1));
+    s.setOperatorResult("P", "B", makeOperatorInfo("B", 2));
+
+    s.createSnapshot("C", wf);
+
+    expect(s.getOperatorResult("C", "A")?.totalRowCount).toBe(1);
+    expect(s.getOperatorResult("C", "B")?.totalRowCount).toBe(2);
+  });
+
+  test("operator's own properties change → its entry drops; siblings inherit", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    // A → B; A → D. B and D are siblings (both consume A).
+    const wfP = makeDagWorkflow(
+      [{ id: "A" }, { id: "B", props: { code: "v1" } }, { id: "D" }],
+      [link("A", "B"), link("A", "D")]
+    );
+    s.createSnapshot("P", wfP);
+    s.setOperatorResult("P", "A", makeOperatorInfo("A", 1));
+    s.setOperatorResult("P", "B", makeOperatorInfo("B", 2));
+    s.setOperatorResult("P", "D", makeOperatorInfo("D", 3));
+
+    const wfC = makeDagWorkflow(
+      [{ id: "A" }, { id: "B", props: { code: "v2" } }, { id: "D" }],
+      [link("A", "B"), link("A", "D")]
+    );
+    s.createSnapshot("C", wfC);
+
+    expect(s.getOperatorResult("C", "A")?.totalRowCount).toBe(1);
+    expect(s.getOperatorResult("C", "B")).toBeUndefined(); // own props changed
+    expect(s.getOperatorResult("C", "D")?.totalRowCount).toBe(3); // unrelated sibling
+  });
+
+  test("modifying an upstream invalidates the whole transitive downstream", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    // A → B → C2 (named C2 to avoid colliding with the stepId "C")
+    const wfP = makeDagWorkflow(
+      [{ id: "A", props: { code: "v1" } }, { id: "B" }, { id: "C2" }],
+      [link("A", "B"), link("B", "C2")]
+    );
+    s.createSnapshot("P", wfP);
+    s.setOperatorResult("P", "A", makeOperatorInfo("A", 1));
+    s.setOperatorResult("P", "B", makeOperatorInfo("B", 2));
+    s.setOperatorResult("P", "C2", makeOperatorInfo("C2", 3));
+
+    const wfC = makeDagWorkflow(
+      [{ id: "A", props: { code: "v2" } }, { id: "B" }, { id: "C2" }],
+      [link("A", "B"), link("B", "C2")]
+    );
+    s.createSnapshot("C", wfC);
+
+    expect(s.getOperatorResult("C", "A")).toBeUndefined();
+    expect(s.getOperatorResult("C", "B")).toBeUndefined();
+    expect(s.getOperatorResult("C", "C2")).toBeUndefined();
+  });
+
+  test("legal-hard-2 shape: upstream modified, downstream sinks no longer leak stale 'Executed' entry", () => {
+    // metroStats → processIdentityTheft → {findMaxRate, inspectMerged}.
+    // Reproduces the precise topology of legal-hard-2 at step 21 → step 22.
+    const s = new WorkflowSnapshotStorage(chainPath("S21", "S22"));
+    const wfS21 = makeDagWorkflow(
+      [
+        { id: "metroStats", props: { code: "v1" } },
+        { id: "identityTheftCSVs" },
+        { id: "processIdentityTheft" },
+        { id: "findMaxRate" },
+        { id: "inspectMerged" },
+      ],
+      [
+        link("metroStats", "processIdentityTheft", "in-0"),
+        link("identityTheftCSVs", "processIdentityTheft", "in-1"),
+        link("processIdentityTheft", "findMaxRate"),
+        link("processIdentityTheft", "inspectMerged"),
+      ]
+    );
+    s.createSnapshot("S21", wfS21);
+    s.setOperatorResult("S21", "metroStats", makeOperatorInfo("metroStats", 387));
+    s.setOperatorResult("S21", "identityTheftCSVs", makeOperatorInfo("identityTheftCSVs", 764));
+    s.setOperatorResult("S21", "processIdentityTheft", makeOperatorInfo("processIdentityTheft", 452));
+    s.setOperatorResult("S21", "findMaxRate", makeOperatorInfo("findMaxRate", 0));
+    s.setOperatorResult("S21", "inspectMerged", makeOperatorInfo("inspectMerged", 4));
+
+    // Step 22: agent rewrites metroStats (new buggy code).
+    const wfS22 = makeDagWorkflow(
+      [
+        { id: "metroStats", props: { code: "v2-buggy" } },
+        { id: "identityTheftCSVs" },
+        { id: "processIdentityTheft" },
+        { id: "findMaxRate" },
+        { id: "inspectMerged" },
+      ],
+      wfS21.links as OperatorLink[]
+    );
+    s.createSnapshot("S22", wfS22);
+
+    // identityTheftCSVs is on a parallel branch — survives.
+    expect(s.getOperatorResult("S22", "identityTheftCSVs")?.totalRowCount).toBe(764);
+    // metroStats was edited → entry dropped (writer will rewrite it).
+    expect(s.getOperatorResult("S22", "metroStats")).toBeUndefined();
+    // processIdentityTheft is downstream of metroStats → dropped.
+    expect(s.getOperatorResult("S22", "processIdentityTheft")).toBeUndefined();
+    // findMaxRate / inspectMerged are downstream of processIdentityTheft → dropped.
+    expect(s.getOperatorResult("S22", "findMaxRate")).toBeUndefined();
+    expect(s.getOperatorResult("S22", "inspectMerged")).toBeUndefined();
+  });
+
+  test("rewiring an in-edge invalidates the target chain even if predicates are byte-equal", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    // Parent: A → C2. Child: A → B → C2 (link rerouted; B added).
+    const wfP = makeDagWorkflow([{ id: "A" }, { id: "C2" }], [link("A", "C2")]);
+    s.createSnapshot("P", wfP);
+    s.setOperatorResult("P", "A", makeOperatorInfo("A", 1));
+    s.setOperatorResult("P", "C2", makeOperatorInfo("C2", 2));
+
+    const wfC = makeDagWorkflow([{ id: "A" }, { id: "B" }, { id: "C2" }], [link("A", "B"), link("B", "C2")]);
+    s.createSnapshot("C", wfC);
+
+    expect(s.getOperatorResult("C", "A")?.totalRowCount).toBe(1); // unchanged
+    expect(s.getOperatorResult("C", "B")).toBeUndefined(); // newly added
+    expect(s.getOperatorResult("C", "C2")).toBeUndefined(); // in-edge changed
+  });
+
+  test("deleting an operator does not affect unrelated branches", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    // Parent: A → B; D standalone. Child: D only (A and B deleted, link gone).
+    const wfP = makeDagWorkflow([{ id: "A" }, { id: "B" }, { id: "D" }], [link("A", "B")]);
+    s.createSnapshot("P", wfP);
+    s.setOperatorResult("P", "A", makeOperatorInfo("A", 1));
+    s.setOperatorResult("P", "B", makeOperatorInfo("B", 2));
+    s.setOperatorResult("P", "D", makeOperatorInfo("D", 3));
+
+    const wfC = makeDagWorkflow([{ id: "D" }], []);
+    s.createSnapshot("C", wfC);
+
+    expect(s.getOperatorResult("C", "D")?.totalRowCount).toBe(3); // unrelated, kept
+  });
+
+  test("empty parent → child workflow: every freshly-added op is stale (no parent entries to inherit)", () => {
+    const s = new WorkflowSnapshotStorage(chainPath("P", "C"));
+    // Parent has an empty workflow (typical for the first action-bearing step
+    // after the empty root).
+    s.createSnapshot("P", emptyWorkflow());
+    // Child introduces A → B.
+    const wfC = makeDagWorkflow([{ id: "A" }, { id: "B" }], [link("A", "B")]);
+    s.createSnapshot("C", wfC);
+
+    expect(s.getOperatorResult("C", "A")).toBeUndefined();
+    expect(s.getOperatorResult("C", "B")).toBeUndefined();
+  });
+});
+
+describe("computeStaleResultOps — unit tests", () => {
+  test("returns empty when both workflows are empty", () => {
+    expect(computeStaleResultOps(emptyWorkflow(), emptyWorkflow()).size).toBe(0);
+  });
+
+  test("returns empty when workflows are identical", () => {
+    const wf = makeDagWorkflow([{ id: "A" }, { id: "B" }], [link("A", "B")]);
+    expect(computeStaleResultOps(wf, wf).size).toBe(0);
+  });
+
+  test("marks modified op and its transitive downstream", () => {
+    const prev = makeDagWorkflow(
+      [{ id: "A", props: { code: "v1" } }, { id: "B" }, { id: "C2" }],
+      [link("A", "B"), link("B", "C2")]
+    );
+    const curr = makeDagWorkflow(
+      [{ id: "A", props: { code: "v2" } }, { id: "B" }, { id: "C2" }],
+      [link("A", "B"), link("B", "C2")]
+    );
+    expect(computeStaleResultOps(prev, curr)).toEqual(new Set(["A", "B", "C2"]));
+  });
+
+  test("does not mark siblings unrelated to the change", () => {
+    const prev = makeDagWorkflow(
+      [{ id: "A" }, { id: "B", props: { code: "v1" } }, { id: "D" }],
+      [link("A", "B"), link("A", "D")]
+    );
+    const curr = makeDagWorkflow(
+      [{ id: "A" }, { id: "B", props: { code: "v2" } }, { id: "D" }],
+      [link("A", "B"), link("A", "D")]
+    );
+    const stale = computeStaleResultOps(prev, curr);
+    expect(stale.has("B")).toBe(true);
+    expect(stale.has("D")).toBe(false);
+    expect(stale.has("A")).toBe(false);
+  });
+
+  test("ignores UI-only field changes (customDisplayName)", () => {
+    const op = (extra: Record<string, any>) => ({
+      operatorID: "A",
+      operatorType: "TestOp",
+      operatorVersion: "1",
+      operatorProperties: {},
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      ...extra,
+    });
+    const prev: WorkflowContent = {
+      operators: [op({ customDisplayName: "alpha" }) as any],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    };
+    const curr: WorkflowContent = {
+      operators: [op({ customDisplayName: "beta" }) as any],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    };
+    expect(computeStaleResultOps(prev, curr).size).toBe(0);
   });
 });
 

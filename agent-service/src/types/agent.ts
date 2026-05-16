@@ -118,6 +118,15 @@ export interface AgentSettings {
    * per assembled context.
    */
   userTaskDuplicatedAtEnd: boolean;
+  /**
+   * When true, each non-error operator result that the backend annotated
+   * with `columnStats` is followed by a `Column stats:` section in
+   * the assembled context (one line per column: `name: stat1; stat2; ...`).
+   * Helps the model reason about column semantics (numeric vs categorical,
+   * cardinality, null counts) without re-issuing inspection operators.
+   * Disabled by default to keep the baseline context small.
+   */
+  statsEnabled: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -152,6 +161,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   contextMode: ContextMode.LATEST,
   parallelToolCalls: true,
   userTaskDuplicatedAtEnd: true,
+  statsEnabled: false,
 };
 
 export interface UserInfo {
@@ -182,6 +192,7 @@ export interface AgentSettingsApi {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   userTaskDuplicatedAtEnd?: boolean;
+  statsEnabled?: boolean;
 }
 
 export interface AgentInfo {
@@ -216,4 +227,5 @@ export interface UpdateAgentSettingsRequest {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   userTaskDuplicatedAtEnd?: boolean;
+  statsEnabled?: boolean;
 }

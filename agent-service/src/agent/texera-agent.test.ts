@@ -707,8 +707,14 @@ describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => 
             success: true,
             state: "Completed",
             operators: {
-              op1: { state: "Completed", inputTuples: 0, outputTuples: 5, resultMode: "table", totalRowCount: 5 },
-              op2: { state: "Completed", inputTuples: 5, outputTuples: 5, resultMode: "table", totalRowCount: 5 },
+              // `result: []` (any array) is what the real backend sends when
+              // an op has been materialized. `persistOperatorResults` treats a
+              // missing `result` field — with no `error` either — as a
+              // backend-side stub for an unmaterialized op and skips it. So
+              // the mock has to mirror the real backend's shape for a
+              // Completed operator.
+              op1: { state: "Completed", inputTuples: 0, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
+              op2: { state: "Completed", inputTuples: 5, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
             },
           }),
       },

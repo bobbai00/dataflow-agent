@@ -90,6 +90,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
+    statsEnabled: agentSettings.statsEnabled,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -198,6 +199,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           userTaskDuplicatedAtEnd: settings.userTaskDuplicatedAtEnd,
+          statsEnabled: settings.statsEnabled,
         });
       }
 
@@ -224,6 +226,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             userTaskDuplicatedAtEnd: t.Optional(t.Boolean()),
+            statsEnabled: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -423,6 +426,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
       userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
+      statsEnabled: agentSettings.statsEnabled,
     };
   })
 
@@ -457,6 +461,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         userTaskDuplicatedAtEnd: settings.userTaskDuplicatedAtEnd,
+        statsEnabled: settings.statsEnabled,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -478,6 +483,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
         userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
+        statsEnabled: agentSettings.statsEnabled,
       };
     },
     {
@@ -494,6 +500,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         userTaskDuplicatedAtEnd: t.Optional(t.Boolean()),
+        statsEnabled: t.Optional(t.Boolean()),
       }),
     }
   );
@@ -515,7 +522,7 @@ interface OperatorResultSummaryWs {
   consoleLogCount?: number;
   totalRowCount?: number;
   sampleRecords?: Record<string, any>[];
-  resultStatistics?: Record<string, string>;
+  columnStats?: Record<string, string>;
 }
 
 interface WsOutgoingMessage {
@@ -557,7 +564,7 @@ function getOperatorResultSummaries(agent: TexeraAgent): Record<string, Operator
       consoleLogCount: info.consoleLogs?.length,
       totalRowCount: info.totalRowCount,
       sampleRecords: info.result,
-      resultStatistics: info.resultStatistics,
+      columnStats: info.columnStats,
     };
   }
   return results;
