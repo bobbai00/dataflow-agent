@@ -43,7 +43,11 @@ import {
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
-import { executeWorkflowAndPersist, type ExecutionConfig } from "./tools/workflow-execution-tools";
+import {
+  executeWorkflowAndPersist,
+  TOOL_NAME_EXECUTE_OPERATOR,
+  type ExecutionConfig,
+} from "./tools/workflow-execution-tools";
 import { assembleContext } from "./util/context-utils";
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
 import { createLogger } from "../logger";
@@ -425,6 +429,43 @@ export class TexeraAgent {
     }
 
     return tools;
+  }
+
+  /**
+   * Build a tool registry for `importReActSteps` replay. Includes CRUD tools
+   * for BOTH code and general modes so any exported session is replayable
+   * regardless of the agent's current `agentMode`. No scheduler wrapping —
+   * the replay loop awaits each call sequentially.
+   */
+  private buildReplayTools(): Record<string, any> {
+    const operatorSchemas = new Map<string, any>();
+    for (const type of Object.keys(this.metadataStore.getAllOperatorTypes())) {
+      const jsonSchema = this.metadataStore.getSchema(type);
+      const additionalMetadata = this.metadataStore.getAdditionalMetadata(type);
+      if (jsonSchema) {
+        operatorSchemas.set(type, { jsonSchema, additionalMetadata });
+      }
+    }
+
+    const context: ToolContext = {
+      metadataStore: this.metadataStore,
+      settings: {
+        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
+        toolTimeoutMs: this.settings.toolTimeoutMs,
+        executionTimeoutMs: this.settings.executionTimeoutMs,
+      },
+    };
+
+    return {
+      [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
+      [TOOL_NAME_ADD_OPERATOR]: createAddOperatorTool(this.workflowState, operatorSchemas, context),
+      [TOOL_NAME_MODIFY_OPERATOR]: createModifyOperatorTool(this.workflowState, context),
+      [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
+        this.workflowState,
+        operatorSchemas,
+        context
+      ),
+    };
   }
 
   getState(): AgentStateEnum {
@@ -1009,9 +1050,20 @@ export class TexeraAgent {
    *
    * Requirements / contract:
    * - `steps[]` may be in any order; parent links (`parentId`) define the tree.
-   * - `snapshots`: optional `Record<stepId, WorkflowContent>`. Each entry is
-   *   loaded into the snapshot storage so reads resolve through the same
-   *   ancestor walk live agent reads use.
+   * - `snapshots`: optional `Record<stepId, WorkflowContent>` — explicit
+   *   per-step overrides. When provided for a step, that snapshot is loaded
+   *   verbatim and replay is skipped for that step.
+   * - Steps without explicit snapshots are reconstructed by *replaying* their
+   *   workflow-CRUD tool calls against a clean `WorkflowState` rooted at the
+   *   parent step's content. Replay is DFS-ordered so each step's snapshot is
+   *   created after its parent's. Skipped tool names:
+   *     - the synthetic `initialize` (no registered tool),
+   *     - `executeOperator` (no workflow execution on import).
+   *   Individual tool failures are logged and ignored; the original session
+   *   may itself have produced error toolResults.
+   * - Replay starts from an empty workflow when no parent snapshot exists,
+   *   so a session that loaded a non-empty baseline at init will lose
+   *   operators that were never touched by tool calls.
    * - HEAD is set to the deepest leaf on the longest chain (last by timestamp
    *   among nodes with no children). For a linear export this is the final
    *   step; for a branched export it picks the most-recently-extended branch.
@@ -1023,10 +1075,10 @@ export class TexeraAgent {
    * Throws on structural problems (missing parent, cycle, duplicate id) so a
    * partial state is never installed.
    */
-  importReActSteps(
+  async importReActSteps(
     steps: ReActStep[],
     snapshots?: Record<string, WorkflowContent>
-  ): { headId: string; importedCount: number } {
+  ): Promise<{ headId: string; importedCount: number }> {
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new Error("import requires a non-empty steps array");
     }
@@ -1106,16 +1158,53 @@ export class TexeraAgent {
     }
     for (const s of order) this.addStep(s);
 
-    // Load workflow snapshots (if provided) into the storage. Iterate in
-    // parent-before-child order on the ReAct tree so each `createSnapshot`
-    // can resolve its parent snapshot via the ancestor walk. Per-operator
-    // results aren't in the export, so each restored snapshot starts with
-    // whatever results its parent snapshot has (typically empty).
-    if (snapshots) {
-      for (const s of order) {
-        const content = snapshots[s.id];
-        if (content === undefined) continue;
-        this.snapshotStorage.createSnapshot(s.id, content);
+    // Reconstruct snapshots in DFS order: for each action-bearing step,
+    // restore `workflowState` to its parent's content, replay the step's
+    // workflow-CRUD tool calls (skipping `initialize` and `executeOperator`),
+    // then snapshot the result. Explicit `snapshots[id]` overrides replay.
+    // Per-operator results aren't in the export, so each restored snapshot
+    // starts with whatever results its parent snapshot has (typically empty).
+    const replayTools = this.buildReplayTools();
+    const explicitSnapshots = snapshots ?? {};
+    type ReplayFrame = { id: string; parentContent: WorkflowContent };
+    const frames: ReplayFrame[] = [];
+    const emptyRoot = createEmptyWorkflowContent();
+    for (const rootId of childrenOf.get(VIRTUAL_ROOT) ?? []) {
+      frames.push({ id: rootId, parentContent: emptyRoot });
+    }
+    while (frames.length > 0) {
+      const { id, parentContent } = frames.pop()!;
+      const step = stepById.get(id)!;
+      let myContent = parentContent;
+      let ownsSnapshot = false;
+
+      if (explicitSnapshots[id] !== undefined) {
+        this.snapshotStorage.createSnapshot(id, explicitSnapshots[id]);
+        myContent = explicitSnapshots[id];
+        ownsSnapshot = true;
+      } else if (step.toolCalls && step.toolCalls.length > 0) {
+        this.workflowState.setWorkflowContent(parentContent);
+        for (const tc of step.toolCalls) {
+          if (tc.toolName === "initialize" || tc.toolName === TOOL_NAME_EXECUTE_OPERATOR) continue;
+          const tool = replayTools[tc.toolName];
+          if (!tool?.execute) {
+            this.log.warn({ stepId: id, toolName: tc.toolName }, "import replay: unknown tool, skipped");
+            continue;
+          }
+          try {
+            await tool.execute(tc.input);
+          } catch (err) {
+            this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: tool threw, continuing");
+          }
+        }
+        myContent = this.workflowState.getWorkflowContent();
+        this.snapshotStorage.createSnapshot(id, myContent);
+        ownsSnapshot = true;
+      }
+
+      const childContent = ownsSnapshot ? myContent : parentContent;
+      for (const childId of childrenOf.get(id) ?? []) {
+        frames.push({ id: childId, parentContent: childContent });
       }
     }
 

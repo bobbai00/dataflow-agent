@@ -336,7 +336,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
   .post(
     "/:id/import-react-steps",
-    ({ params: { id }, body }) => {
+    async ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const archive = body as { steps?: unknown; snapshots?: unknown };
       if (!archive || !Array.isArray(archive.steps)) {
@@ -348,7 +348,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           ? (archive.snapshots as Record<string, any>)
           : undefined;
 
-      const { headId, importedCount } = agent.importReActSteps(archive.steps as any, snapshots);
+      const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
 
       const allSteps = agent.getAllSteps();
       const workflowContent = agent.getWorkflowState().getWorkflowContent();

@@ -156,7 +156,7 @@ describe("TexeraAgent — clearHistory", () => {
 });
 
 describe("TexeraAgent — importReActSteps", () => {
-  test("imports a linear chain and lands HEAD at the leaf", () => {
+  test("imports a linear chain and lands HEAD at the leaf", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
@@ -164,7 +164,7 @@ describe("TexeraAgent — importReActSteps", () => {
       makeStep({ id: "s3", parentId: "s2", messageId: "m1", stepId: 2, role: "agent", content: "b", timestamp: 3 }),
     ];
 
-    const { headId, importedCount } = agent.importReActSteps(steps);
+    const { headId, importedCount } = await agent.importReActSteps(steps);
 
     expect(importedCount).toBe(3);
     expect(headId).toBe("s3");
@@ -172,7 +172,7 @@ describe("TexeraAgent — importReActSteps", () => {
     expect(agent.getAncestorPath()).toEqual(["s1", "s2", "s3"]);
   });
 
-  test("imports a branched tree; HEAD picks the latest-timestamp leaf", () => {
+  test("imports a branched tree; HEAD picks the latest-timestamp leaf", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -204,12 +204,12 @@ describe("TexeraAgent — importReActSteps", () => {
       }),
     ];
 
-    const { headId } = agent.importReActSteps(steps);
+    const { headId } = await agent.importReActSteps(steps);
     expect(headId).toBe("right");
     expect(agent.getAncestorPath()).toEqual(["root", "right"]);
   });
 
-  test("loads provided snapshots into the storage and restores HEAD's workflow", () => {
+  test("loads provided snapshots into the storage and restores HEAD's workflow", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
@@ -219,7 +219,7 @@ describe("TexeraAgent — importReActSteps", () => {
       s2: workflowWith(["op1", "op2"]),
     };
 
-    agent.importReActSteps(steps, snapshots);
+    await agent.importReActSteps(steps, snapshots);
 
     expect(agent.getHead()).toBe("s2");
     // Live workflow restored from HEAD's snapshot
@@ -234,7 +234,7 @@ describe("TexeraAgent — importReActSteps", () => {
     expect(wf?.operators.length).toBe(2);
   });
 
-  test("rejects steps with unknown parentId", () => {
+  test("rejects steps with unknown parentId", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -247,10 +247,10 @@ describe("TexeraAgent — importReActSteps", () => {
         timestamp: 1,
       }),
     ];
-    expect(() => agent.importReActSteps(steps)).toThrow(/unknown parentId/);
+    await expect(agent.importReActSteps(steps)).rejects.toThrow(/unknown parentId/);
   });
 
-  test("rejects duplicate step ids", () => {
+  test("rejects duplicate step ids", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -272,12 +272,12 @@ describe("TexeraAgent — importReActSteps", () => {
         timestamp: 2,
       }),
     ];
-    expect(() => agent.importReActSteps(steps)).toThrow(/duplicate step id/);
+    await expect(agent.importReActSteps(steps)).rejects.toThrow(/duplicate step id/);
   });
 });
 
 describe("TexeraAgent — checkout (time travel)", () => {
-  test("moves HEAD and restores the workflow visible at that step via storage ancestor walk", () => {
+  test("moves HEAD and restores the workflow visible at that step via storage ancestor walk", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -312,7 +312,7 @@ describe("TexeraAgent — checkout (time travel)", () => {
       left: workflowWith(["L_op"]),
       right: workflowWith(["R_op"]),
     };
-    agent.importReActSteps(steps, snapshots);
+    await agent.importReActSteps(steps, snapshots);
 
     // Imported HEAD is "right"
     expect(
@@ -347,12 +347,12 @@ describe("TexeraAgent — checkout (time travel)", () => {
     expect(agent.getHead()).toBe(before);
   });
 
-  test("checkout to a step whose ancestors own no snapshot restores the empty-root workflow", () => {
+  test("checkout to a step whose ancestors own no snapshot restores the empty-root workflow", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
     ];
-    agent.importReActSteps(steps); // no snapshots provided
+    await agent.importReActSteps(steps); // no snapshots provided
 
     // Pre-populate live workflow externally.
     agent.getWorkflowState().setWorkflowContent(workflowWith(["pre-op"]));
@@ -365,7 +365,7 @@ describe("TexeraAgent — checkout (time travel)", () => {
 });
 
 describe("TexeraAgent — visibility (branch filtering)", () => {
-  test("getReActSteps returns the entire forest; getVisibleReActSteps only HEAD's branch", () => {
+  test("getReActSteps returns the entire forest; getVisibleReActSteps only HEAD's branch", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -396,7 +396,7 @@ describe("TexeraAgent — visibility (branch filtering)", () => {
         timestamp: 200,
       }),
     ];
-    agent.importReActSteps(steps);
+    await agent.importReActSteps(steps);
 
     expect(agent.getReActSteps().length).toBe(3); // forest
     expect(agent.getVisibleReActSteps().map(s => s.id)).toEqual(["root", "right"]);
@@ -412,7 +412,7 @@ describe("TexeraAgent — visibility (branch filtering)", () => {
 // ============================================================================
 
 describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
-  test("operator-result inheritance walks the active branch's ancestors", () => {
+  test("operator-result inheritance walks the active branch's ancestors", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
@@ -427,7 +427,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
       }),
       makeStep({ id: "s3", parentId: "s2", messageId: "m1", stepId: 2, role: "agent", content: "noop", timestamp: 3 }),
     ];
-    agent.importReActSteps(steps);
+    await agent.importReActSteps(steps);
 
     const storage = agent.getSnapshotStorage();
     storage.createSnapshot("s2", emptyWorkflow()); // s2 is the action-bearing step
@@ -442,7 +442,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
     expect(visible.get("B")?.totalRowCount).toBe(200);
   });
 
-  test("middle-op rewrite WITHOUT downstream re-execution leaves a stale downstream result visible", () => {
+  test("middle-op rewrite WITHOUT downstream re-execution leaves a stale downstream result visible", async () => {
     // Documents the writer-enforced-consistency design property at the agent
     // level. Mirrors the storage-level test, but this time HEAD is set via
     // checkout/import so the path comes from the real ReActStep tree.
@@ -468,7 +468,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
         timestamp: 3,
       }),
     ];
-    agent.importReActSteps(steps);
+    await agent.importReActSteps(steps);
 
     const storage = agent.getSnapshotStorage();
     storage.createSnapshot("s2", emptyWorkflow());
@@ -484,7 +484,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
     expect(visible.get("C")?.totalRowCount).toBe(1); // STALE; storage has no DAG awareness
   });
 
-  test("middle-op rewrite WITH downstream re-execution at the new step yields a consistent visible map", () => {
+  test("middle-op rewrite WITH downstream re-execution at the new step yields a consistent visible map", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
@@ -507,7 +507,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
         timestamp: 3,
       }),
     ];
-    agent.importReActSteps(steps);
+    await agent.importReActSteps(steps);
 
     const storage = agent.getSnapshotStorage();
     storage.createSnapshot("s2", emptyWorkflow());
@@ -524,7 +524,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
     expect(visible.get("C")?.totalRowCount).toBe(9999);
   });
 
-  test("results on a sibling branch are invisible from the active branch", () => {
+  test("results on a sibling branch are invisible from the active branch", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -555,7 +555,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
         timestamp: 200,
       }),
     ];
-    agent.importReActSteps(steps);
+    await agent.importReActSteps(steps);
 
     const storage = agent.getSnapshotStorage();
     storage.createSnapshot("left", emptyWorkflow());
@@ -570,7 +570,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
     expect(storage.getAllVisibleResults("right").get("X")?.totalRowCount).toBe(200);
   });
 
-  test("workflow + results stay consistent under checkout (snapshot storage co-evolves with HEAD)", () => {
+  test("workflow + results stay consistent under checkout (snapshot storage co-evolves with HEAD)", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -605,7 +605,7 @@ describe("TexeraAgent ↔ WorkflowSnapshotStorage integration", () => {
       left: workflowWith(["L_op"]),
       right: workflowWith(["R_op"]),
     };
-    agent.importReActSteps(steps, snapshots);
+    await agent.importReActSteps(steps, snapshots);
 
     const storage = agent.getSnapshotStorage();
     storage.setOperatorResult("left", "L_op", makeOpInfo("L_op", 11));
