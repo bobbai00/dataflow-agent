@@ -21,7 +21,7 @@ import { describe, expect, test } from "bun:test";
 import { __forTesting, createCreateOrModifyOperatorTool, validateOperatorId } from "./code-op-tools";
 import { WorkflowState } from "../workflow-state";
 
-const { regexContractCheck, stripPythonCommentsAndStrings } = __forTesting;
+const { regexContractCheck, stripPythonCommentsAndStrings, normalizeCodeForCompare, formatBeforeAfterCodeBlock } = __forTesting;
 
 describe("validateOperatorId — camelCase enforcement", () => {
   test("accepts simple lowercase word", () => {
@@ -363,6 +363,140 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     const body = firstLine.replace(/^\[WARNING\]\s*/, "").trim();
     const terminators = body.match(/[.!?](?:\s|$)/g) || [];
     expect(terminators.length).toBe(1);
+  });
+});
+
+describe("normalizeCodeForCompare", () => {
+  test("treats identical code as identical", () => {
+    const a = "def load():\n    return pd.read_csv('x.csv')";
+    expect(normalizeCodeForCompare(a)).toBe(normalizeCodeForCompare(a));
+  });
+
+  test("ignores whitespace differences (extra spaces, blank lines, indentation noise)", () => {
+    const a = "def load():\n    return pd.read_csv('x.csv', skiprows=2)";
+    const b = "def load():\n\n        return  pd.read_csv('x.csv',    skiprows=2)\n";
+    expect(normalizeCodeForCompare(a)).toBe(normalizeCodeForCompare(b));
+  });
+
+  test("detects an actual kwarg change as different", () => {
+    const a = "def load():\n    return pd.read_csv('x.csv', skiprows=2)";
+    const b = "def load():\n    return pd.read_csv('x.csv', skiprows=3)";
+    expect(normalizeCodeForCompare(a)).not.toBe(normalizeCodeForCompare(b));
+  });
+});
+
+describe("formatBeforeAfterCodeBlock", () => {
+  test("includes both blocks labelled 'Before code:' and 'After code:'", () => {
+    const out = formatBeforeAfterCodeBlock("def load(): return 1", "def load(): return 2", false);
+    expect(out).toContain("Before code:");
+    expect(out).toContain("After code:");
+    expect(out).toContain("def load(): return 1");
+    expect(out).toContain("def load(): return 2");
+    expect(out).not.toContain("WARNING");
+  });
+
+  test("prepends a WARNING line when the modification was a no-op", () => {
+    const code = "def load(): return pd.read_csv('x.csv')";
+    const out = formatBeforeAfterCodeBlock(code, code, true);
+    expect(out.startsWith("WARNING:")).toBe(true);
+    expect(out).toContain("no-op");
+    expect(out).toContain("pivot");
+    expect(out).toContain("thrashing");
+    // Block contents still present after the warning.
+    expect(out).toContain("Before code:");
+    expect(out).toContain("After code:");
+  });
+});
+
+describe("createOrModifyOperator — before/after code block in result", () => {
+  function buildTool() {
+    const ws = new WorkflowState();
+    const tool = createCreateOrModifyOperatorTool(ws, new Map(), undefined);
+    const execute = (args: { operatorId: string; code: string; summary?: string }): Promise<string> =>
+      (tool.execute as any)(args, {} as any);
+    return { ws, execute };
+  }
+
+  function seedOp(ws: WorkflowState, opId: string, code: string) {
+    ws.addOperator({
+      operatorID: opId,
+      operatorType: "DataLoading",
+      operatorVersion: "v1",
+      operatorProperties: { code },
+      inputPorts: [],
+      outputPorts: [{ portID: "output-0", displayName: "" }],
+      showAdvanced: false,
+      isDisabled: false,
+      customDisplayName: opId,
+      dynamicInputPorts: false,
+      dynamicOutputPorts: false,
+    } as any);
+  }
+
+  test("modifying an existing operator appends Before/After block to the tool result", async () => {
+    const { ws, execute } = buildTool();
+    const opId = "csvLoader";
+    const before = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv')`;
+    seedOp(ws, opId, before);
+    const after = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv', skiprows=2)`;
+    const result = await execute({ operatorId: opId, code: after, summary: "with skiprows=2" });
+
+    expect(typeof result).toBe("string");
+    // The normal "Operator X modified" line is still emitted somewhere in the result.
+    expect(result).toContain(opId);
+    // The Before/After block is attached.
+    expect(result).toContain("Before code:");
+    expect(result).toContain("After code:");
+    expect(result).toContain("skiprows=2"); // the new code
+    expect(result).not.toContain("WARNING:"); // codes differ → no no-op signal
+  });
+
+  test("submitting code byte-identical to the existing operator's code triggers the no-op WARNING", async () => {
+    const { ws, execute } = buildTool();
+    const opId = "csvLoader";
+    const before = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv', skiprows=2)`;
+    seedOp(ws, opId, before);
+    // Re-submit the exact same code (this is what mods 6 and 7 of legal-hard-7
+    // looked like in practice: same logic, only a comment moved).
+    const result = await execute({ operatorId: opId, code: before, summary: "still skiprows=2" });
+    expect(result).toContain("WARNING");
+    expect(result).toContain("no-op");
+    expect(result).toContain("pivot");
+    expect(result).toContain("Before code:");
+    expect(result).toContain("After code:");
+  });
+
+  test("whitespace-only differences also count as a no-op (warning fires)", async () => {
+    const { ws, execute } = buildTool();
+    const opId = "csvLoader";
+    const before = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv', skiprows=2)`;
+    seedOp(ws, opId, before);
+    // Same code with extra whitespace and a blank line. Normalize should compare equal.
+    const after = `def load() -> pd.DataFrame:
+
+        return  pd.read_csv('/data/x.csv',    skiprows=2)
+`;
+    const result = await execute({ operatorId: opId, code: after, summary: "reformatted only" });
+    expect(result).toContain("WARNING");
+    expect(result).toContain("no-op");
+  });
+
+  test("a real kwarg change does NOT trigger the no-op WARNING even with similar shape", async () => {
+    const { ws, execute } = buildTool();
+    const opId = "csvLoader";
+    const before = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv', skiprows=2)`;
+    seedOp(ws, opId, before);
+    const after = `def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv', skiprows=3)`;
+    const result = await execute({ operatorId: opId, code: after, summary: "skiprows=3" });
+    expect(result).not.toContain("WARNING");
+    expect(result).toContain("Before code:");
+    expect(result).toContain("After code:");
   });
 });
 

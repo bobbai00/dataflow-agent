@@ -137,6 +137,73 @@ describe("formatOperatorResult - table shape and metadata", () => {
   });
 });
 
+describe("formatOperatorResult - wide-table column cap", () => {
+  // Build a single row with N columns; values are the column names so we
+  // can assert exactly which ones are kept vs dropped.
+  const makeWideRow = (n: number): Record<string, any> => {
+    const r: Record<string, any> = {};
+    for (let i = 0; i < n; i++) r[`col_${i.toString().padStart(3, "0")}`] = `c${i}`;
+    return r;
+  };
+
+  test("does not truncate at 50 columns or fewer (the threshold itself is the boundary)", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 1, result: [makeWideRow(50)] }),
+      EMPTY_STATE
+    );
+    expect(out).toContain("Output table shape: (1, 50)");
+    expect(out).not.toContain("showing first");
+    // every column header is present
+    for (let i = 0; i < 50; i++) expect(out).toContain(`col_${i.toString().padStart(3, "0")}`);
+  });
+
+  test("with >50 columns: keeps first 25 + last 25, drops middle, surfaces truncation notice", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 1, result: [makeWideRow(200)] }),
+      EMPTY_STATE
+    );
+    // The shape line reports the TRUE total — not the rendered subset.
+    expect(out).toContain("Output table shape: (1, 200)");
+    // The truncation banner appears as its own metadata line.
+    expect(out).toContain("(showing first 25 and last 25 of 200 columns)");
+    // First 25 kept (col_000 .. col_024)
+    expect(out).toContain("col_000");
+    expect(out).toContain("col_024");
+    // Middle dropped (col_025 .. col_174)
+    expect(out).not.toContain("col_025");
+    expect(out).not.toContain("col_100");
+    expect(out).not.toContain("col_174");
+    // Last 25 kept (col_175 .. col_199)
+    expect(out).toContain("col_175");
+    expect(out).toContain("col_199");
+    // The data row also has the `...` separator between left and right halves.
+    const dataLine = out.split("\n").find(l => l.startsWith("0\t"));
+    expect(dataLine).toBeDefined();
+    expect(dataLine!.split("\t")).toContain("...");
+  });
+
+  test("column-stats block applies the same cap with a parallel notice", () => {
+    const stats: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) stats[`col_${i.toString().padStart(3, "0")}`] = `{"count":1,"null":0}`;
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 1, result: [makeWideRow(200)], columnStats: stats }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).toContain("Column stats (showing first 25 and last 25 of 200 columns):");
+    // First kept (alphabetical sort means col_000..col_024)
+    expect(out).toContain("col_000: {");
+    expect(out).toContain("col_024: {");
+    // Middle dropped
+    expect(out).not.toContain("col_100: {");
+    // Last kept
+    expect(out).toContain("col_199: {");
+  });
+});
+
 describe("formatOperatorResult - input port metadata", () => {
   test("omits input metadata when inputPortShapes is missing", () => {
     const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 1, result: [{ a: 1 }] }), EMPTY_STATE);

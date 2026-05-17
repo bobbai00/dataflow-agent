@@ -192,6 +192,47 @@ function findOperatorByName(workflowState: WorkflowState, operatorName: string):
 }
 
 /**
+ * Whitespace-normalize a code blob for byte-comparison purposes: trim each
+ * line, collapse internal whitespace runs to one space, drop empty lines.
+ * Two snippets that differ only in comments, formatting, or blank-line spacing
+ * compare equal under this normalization — that's exactly the class of
+ * "no-op modification" we want to flag.
+ */
+function normalizeCodeForCompare(s: string): string {
+  return s
+    .split("\n")
+    .map(l => l.replace(/\s+/g, " ").trim())
+    .filter(l => l.length > 0)
+    .join("\n");
+}
+
+/**
+ * Render the before/after code diff block that's appended to every modifyOperator
+ * tool result. The agent reads this on its next turn (it lives in the action's
+ * `(result: ...)` body in the event list), so a no-op is unmistakably visible
+ * without the agent having to call any other tool.
+ *
+ * When `isNoOp` is true, prepend a loud WARNING + explicit instruction to pivot
+ * strategy — this is the operator-thrashing prevention signal.
+ */
+function formatBeforeAfterCodeBlock(before: string, after: string, isNoOp: boolean): string {
+  const parts: string[] = [];
+  if (isNoOp) {
+    parts.push(
+      "WARNING: the code you just submitted is byte-identical (after whitespace normalization) to the prior version — this modification was a no-op. " +
+        "If you intended to alter behavior, you must change strategy (e.g., add a separate inspector operator to look at the data, " +
+        "switch the loader function, change column-selection logic) — not another small tweak to this same operator. " +
+        "Repeating near-identical modifications without pivoting is parametric thrashing and will not converge."
+    );
+  }
+  parts.push("Before code:");
+  parts.push(before);
+  parts.push("After code:");
+  parts.push(after);
+  return parts.join("\n");
+}
+
+/**
  * Validate Python syntax via the system Python interpreter. Returns null on
  * success, or the stderr output on syntax error. Silently skips when Python is
  * not installed (validation is best-effort).
@@ -352,7 +393,7 @@ async function validateOperatorContract(code: string): Promise<ContractResult> {
 }
 
 /** Exposed for unit tests — exercises the no-Python regex fallback path. */
-export const __forTesting = { regexContractCheck, stripPythonCommentsAndStrings };
+export const __forTesting = { regexContractCheck, stripPythonCommentsAndStrings, normalizeCodeForCompare, formatBeforeAfterCodeBlock };
 
 async function runPythonContractCheck(code: string): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
   const { spawn } = await import("child_process");
@@ -643,6 +684,10 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           );
         } else {
           // === MODIFY EXISTING OPERATOR ===
+          // Capture the previous code BEFORE we mutate it so we can show the
+          // before/after diff (and detect no-op modifications) in the tool result.
+          const beforeCode = String((existingOperator.operatorProperties as any)?.code ?? "");
+
           const isExistingDataLoading = existingOperator.operatorType === DATA_LOADING_OPERATOR_TYPE;
           const isExistingDataProcessing = existingOperator.operatorType === DATA_PROCESSING_OPERATOR_TYPE;
 
@@ -690,6 +735,14 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
             createdLinkPairs.length > 0 ? createdLinkPairs : undefined,
             deletedLinkPairs.length > 0 ? deletedLinkPairs : undefined
           );
+
+          // Always include a Before/After code block in the modify result so
+          // the agent can compare its prior code against what it just submitted
+          // on the next turn. When the two are identical (after whitespace
+          // normalization), prepend an explicit WARNING — this is the
+          // operator-thrashing prevention signal.
+          const isNoOp = normalizeCodeForCompare(beforeCode) === normalizeCodeForCompare(code) && code.length > 0;
+          resultMsg = `${resultMsg}\n${formatBeforeAfterCodeBlock(beforeCode, code, isNoOp)}`;
         }
 
         const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;

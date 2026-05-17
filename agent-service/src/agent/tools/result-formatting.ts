@@ -28,6 +28,15 @@ export interface FormatOperatorResultOptions {
   statsEnabled?: boolean;
 }
 
+/** Wide DataFrames blow up Latest-mode context because the whole result is
+ *  re-echoed every turn. Cap both the TSV preview and the stats block at
+ *  this many columns: keep the first half and the last half, drop the
+ *  middle, and surface a "(showing N of M columns)" notice so the agent
+ *  knows the view is truncated. Defaults chosen to keep an 8-turn run on
+ *  a 300-column table well under 100k input tokens. */
+const MAX_DISPLAYED_COLUMNS = 50;
+const MAX_STATS_COLUMNS = 50;
+
 export function formatOperatorResult(
   operatorId: string,
   opInfo: OperatorInfo,
@@ -48,6 +57,7 @@ export function formatOperatorResult(
       ? Object.keys(jsonArray[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__")
       : [];
   const columns = headers.length;
+  const columnsTruncated = columns > MAX_DISPLAYED_COLUMNS;
 
   const isViz = jsonArray.length > 0 && jsonArray[0]["__is_visualization__"] === true;
   const serializableArray = isViz
@@ -69,6 +79,7 @@ export function formatOperatorResult(
 
   const metadataLines = [
     formatInputOutputMetadata(workflowState, operatorId, opInfo, columns),
+    columnsTruncated ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)` : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
@@ -89,8 +100,21 @@ function formatColumnStats(stats: Record<string, string> | undefined): string | 
   const entries = Object.entries(stats).filter(([, v]) => typeof v === "string" && v.length > 0);
   if (entries.length === 0) return undefined;
   entries.sort(([a], [b]) => a.localeCompare(b));
-  const lines = ["Column stats:"];
-  for (const [col, stat] of entries) lines.push(`  ${col}: ${stat}`);
+  // Wide tables: keep first half + last half by column name, drop the middle.
+  // Symmetric to jsonToTableFormat so the displayed table columns and the
+  // stats columns line up (modulo the sort orders, which differ — stats are
+  // alphabetical, table preview is insertion order).
+  const total = entries.length;
+  let shown = entries;
+  let header = "Column stats:";
+  if (total > MAX_STATS_COLUMNS) {
+    const leftCount = Math.ceil(MAX_STATS_COLUMNS / 2);
+    const rightCount = Math.floor(MAX_STATS_COLUMNS / 2);
+    shown = [...entries.slice(0, leftCount), ...entries.slice(-rightCount)];
+    header = `Column stats (showing first ${leftCount} and last ${rightCount} of ${total} columns):`;
+  }
+  const lines = [header];
+  for (const [col, stat] of shown) lines.push(`  ${col}: ${stat}`);
   return lines.join("\n");
 }
 
@@ -133,34 +157,59 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   if (!jsonResult || jsonResult.length === 0) return "";
 
   const hasRowIndex = "__row_index__" in jsonResult[0];
-  const headers = Object.keys(jsonResult[0]).filter(h => h !== "__row_index__");
-  if (headers.length === 0) return "";
+  const allHeaders = Object.keys(jsonResult[0]).filter(h => h !== "__row_index__");
+  if (allHeaders.length === 0) return "";
 
-  const headerLine = "\t" + headers.join("\t");
+  // Wide tables: render only the first half + last half of columns, joined
+  // by a `...` separator (mirrors pandas display). The headline metadata
+  // line in formatOperatorResult already announces the truncation.
+  const totalCols = allHeaders.length;
+  const truncated = totalCols > MAX_DISPLAYED_COLUMNS;
+  let leftHeaders: string[];
+  let rightHeaders: string[];
+  if (truncated) {
+    const leftCount = Math.ceil(MAX_DISPLAYED_COLUMNS / 2);
+    const rightCount = Math.floor(MAX_DISPLAYED_COLUMNS / 2);
+    leftHeaders = allHeaders.slice(0, leftCount);
+    rightHeaders = allHeaders.slice(-rightCount);
+  } else {
+    leftHeaders = allHeaders;
+    rightHeaders = [];
+  }
+
+  const renderHeader = (hs: string[]) => hs.join("\t");
+  const headerLine = truncated
+    ? "\t" + renderHeader(leftHeaders) + "\t...\t" + renderHeader(rightHeaders)
+    : "\t" + renderHeader(leftHeaders);
+
+  const renderCell = (val: unknown): string => {
+    if (val === null) return "NaN";
+    if (val === undefined) return "";
+    if (typeof val === "number" || typeof val === "boolean") return String(val);
+    if (typeof val === "string") {
+      if (val === "NULL") return "NaN";
+      return val.replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+    }
+    return JSON.stringify(val);
+  };
+
   const formattedRows: string[] = [];
   let prevIndex = -1;
-
   for (let i = 0; i < jsonResult.length; i++) {
     const row = jsonResult[i];
     const rowIndex = hasRowIndex ? (row["__row_index__"] as number) : i;
 
     if (prevIndex >= 0 && rowIndex > prevIndex + 1) {
-      const dots = headers.map(() => "...").join("\t");
+      // Row gap separator. Columns are already capped; just emit one `...` per visible cell.
+      const visibleCols = truncated ? leftHeaders.length + 1 + rightHeaders.length : leftHeaders.length;
+      const dots = Array(visibleCols).fill("...").join("\t");
       formattedRows.push(`...\t${dots}`);
     }
     prevIndex = rowIndex;
 
-    const cells = headers.map(h => {
-      const val = row[h];
-      if (val === null) return "NaN";
-      if (val === undefined) return "";
-      if (typeof val === "number" || typeof val === "boolean") return String(val);
-      if (typeof val === "string") {
-        if (val === "NULL") return "NaN";
-        return val.replace(/\t/g, "\\t").replace(/\n/g, "\\n");
-      }
-      return JSON.stringify(val);
-    });
+    const leftCells = leftHeaders.map(h => renderCell(row[h]));
+    const rightCells = rightHeaders.map(h => renderCell(row[h]));
+    const cells = truncated ? [...leftCells, "...", ...rightCells] : leftCells;
     formattedRows.push(`${rowIndex}\t${cells.join("\t")}`);
   }
 

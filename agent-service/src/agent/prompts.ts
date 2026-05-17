@@ -86,7 +86,8 @@ const KEY_PRINCIPLES = `
 - **Debug by isolating**: When encountering unexpected results, isolate the problematic logic into its own operator.
 - **Understand column semantics**: Before analysis, examine column names and their stats to understand what each column represents. Columns may carry semantic meaning that affects how data should be filtered or interpreted — respect these signals and apply appropriate preprocessing before computing results.
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
-- **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (e.g., \`Unnamed: 0\`) or a data value appears as a header, adjust the loading parameters (e.g., \`header=\`, \`skiprows=\`, \`sep=\`) by modifying the data loading operator.
+- **Use the exact data paths the task gives you**: The task message provides a list of data file paths (e.g., \`data/foo/input/bar.csv\`). Use those strings verbatim in your operator code. In particular: (a) do NOT prepend a leading \`/\` to make them absolute — the paths are relative to the working directory and adding \`/\` will turn them into absolute filesystem paths that don't exist; (b) do NOT invent or normalize filenames that look "cleaner" (e.g., truncating a date suffix, dropping a \`-v2\`, changing \`.text\` to \`.txt\`) — the file on disk is named exactly what the task said. If a load fails with \`FileNotFoundError\` on a path the task explicitly provided, the failure is almost always a typo in your own code, not a missing file — re-check the path character-for-character before changing strategy. When the task path contains a wildcard, use \`glob.glob(...)\` and assert at least one match before iterating.
+- **Carefully load data files and be aware of the uncleaned data**: Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows above the data, or multiple tables in one file. Do not assume a file is a clean CSV. After loading a file, inspect the returned rows. If you discover issues — semicolon delimiters, leading comment/metadata rows, a blank line before the real header, multi-table CSVs (blank-line-separated blocks each with their own header) — modify the loader operator in place with the correct parameters (\`sep=\`, \`header=\`, \`skiprows=\`, etc.) and re-load. After loading, always examine the result. If column names look auto-generated (\`Unnamed: 0\`, \`0\`, \`1\`, …) or a clear data value appears as a column header, that is confirmation the file was not loaded correctly: the real header row was missed and a data row was used instead. Do NOT guess column meanings — re-inspect the raw bytes and fix \`skiprows\`/\`header\` before any downstream filter or join.
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
 - **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
@@ -95,9 +96,188 @@ const KEY_PRINCIPLES = `
 // CODE mode template
 // ============================================================================
 
+// ============================================================================
+// Worked example (CODE mode)
+// ============================================================================
+//
+// Adapted from the original feat/agent-copilot branch and retargeted to the
+// current Event format (see context-utils.ts). The example teaches four
+// motifs without naming them:
+//   - Turn 1: independent loads fired as parallel tool calls.
+//   - Turn 2: a load whose result has auto-generated headers
+//     (`Unnamed: 0, …`) — agent re-inspects the raw bytes and modifies the
+//     loader in place with the correct `skiprows=`.
+//   - Turn 3: agent reads loaded data, picks up domain definitions from the
+//     readme, and builds the join/filter/aggregate.
+//   - Turn 4: agent notices its own logic missed a threshold filter, then
+//     fixes the source operator (NOT a downstream patch).
+//
+// Each turn shows what context the agent receives + what response it emits,
+// so the model learns the exact `# Event N (...)`, `Thought:`, `Actions:`,
+// and `# Current Dataflow` shape it is supposed to read and react to.
+const EXAMPLE_COMPACT = `
+## Example
+
+**Turn 1 — Context received:**
+
+\`\`\`
+# Event 1 (User Task)
+
+Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
+
+Above is user's request. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+
+# Current Dataflow
+(empty)
+\`\`\`
+
+**Turn 1 — Agent response (three parallel tool calls in one turn):**
+
+Thought: I need readme.md, customers.csv, and orders.csv. These three loads are independent — none reads another's output — so I will issue them in a single turn as parallel tool calls.
+
+Tool call: createOrModifyOperator(operatorId="readme", code=\`def load() -> pd.DataFrame:
+    with open('/data/readme.md') as f:
+        return pd.DataFrame([{'content': f.read()}])\`, summary="Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'")
+
+Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
+    return pd.read_csv('/data/customers.csv')\`, summary="Load customers.csv via pd.read_csv (defaults: comma delimiter, first row as header, UTF-8)")
+
+Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.DataFrame:
+    return pd.read_csv('/data/orders.csv')\`, summary="Load orders.csv via pd.read_csv (defaults: comma delimiter, first row as header, UTF-8)")
+
+---
+
+**Turn 2 — Context received (snapshot now shows the three executed loads):**
+
+\`\`\`
+# Event 2 (Agent Actions)
+
+Actions:
+- createOrModifyOperator(operatorId="readme") (result: Added operator readme, input ports: 0, output ports: 1)
+- createOrModifyOperator(operatorId="customers") (result: Added operator customers, input ports: 0, output ports: 1)
+- createOrModifyOperator(operatorId="orders") (result: Added operator orders, input ports: 0, output ports: 1)
+
+Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+
+# Current Dataflow
+## Operators
+
+### Operator \`readme\` (DataLoading)
+Summary: Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'
+Result:
+  Output table shape: (1, 1)
+  \tcontent
+  0\tPremium customer: total spending >= $1000. Recent purchase: within last 30 days.
+
+### Operator \`customers\` (DataLoading)
+Summary: Load customers.csv via pd.read_csv (defaults: comma delimiter, first row as header, UTF-8)
+Result:
+  Output table shape: (10000, 5)
+  \tUnnamed: 0\tUnnamed: 1\tUnnamed: 2\tUnnamed: 3\tUnnamed: 4
+  0\t# CSN customer extract\tNaN\tNaN\tNaN\tNaN
+  1\t# generated 2024-01-15\tNaN\tNaN\tNaN\tNaN
+  2\tcustomer_id\tname\temail\tsignup_date\ttier
+  3\tC001\tAlice\talice@example.com\t2023-01-15\tgold
+
+### Operator \`orders\` (DataLoading)
+Summary: Load orders.csv via pd.read_csv (defaults: comma delimiter, first row as header, UTF-8)
+Result:
+  Output table shape: (50000, 4)
+  \torder_id\tcustomer_id\tamount\torder_date
+  0\tO001\tC001\t250.00\t2024-11-05
+\`\`\`
+
+**Turn 2 — Agent response (notice + fix the source loader, do not add a downstream cleaner):**
+
+Thought: The customers result has \`Unnamed: 0..4\` headers, and rows 0 and 1 hold comment text rather than data — the real header row is at index 2. The first two rows of the file are metadata comments. Fix the customers loader in place with skiprows=2 instead of stacking a downstream operator to patch up the columns.
+
+Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
+    return pd.read_csv('/data/customers.csv', skiprows=2)\`, summary="Load customers.csv via pd.read_csv with skiprows=2 (first two rows are comment metadata); real header is the third row")
+
+---
+
+**Turn 3 — Context received (customers now loads cleanly):**
+
+\`\`\`
+# Event 3 (Agent Actions)
+
+Actions:
+- createOrModifyOperator(operatorId="customers") (result: Updated operator customers)
+
+Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+
+# Current Dataflow
+## Operators
+
+### Operator \`customers\` (DataLoading)
+Summary: Load customers.csv via pd.read_csv with skiprows=2 (first two rows are comment metadata); real header is the third row
+Result:
+  Output table shape: (9998, 5)
+  \tcustomer_id\tname\temail\tsignup_date\ttier
+  0\tC001\tAlice\talice@example.com\t2023-01-15\tgold
+\`\`\`
+
+**Turn 3 — Agent response (use the now-clean inputs to build the analysis):**
+
+Thought: customers loads cleanly. The readme tells me premium = total spending >= $1000 and recent = within last 30 days. Now I can join customers and orders on customer_id, filter to recent orders, aggregate spending per customer, and return the top 5.
+
+Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customers, orders) -> pd.DataFrame:
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    merged = customers.merge(orders, on='customer_id', how='inner')
+    recent = merged[merged['order_date'] >= cutoff]
+    spending = recent.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
+    return spending.nlargest(5, 'total_spending')\`, summary="Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; return top 5 rows by total_spending")
+
+---
+
+**Turn 4 — Context received (snapshot of \`top5\`'s result):**
+
+\`\`\`
+# Event 4 (Agent Actions)
+
+Actions:
+- createOrModifyOperator(operatorId="top5") (result: Added operator top5, input ports: 2, output ports: 1)
+
+Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+
+# Current Dataflow
+## Operators
+(... readme, customers, orders unchanged ...)
+
+### Operator \`top5\` (DataProcessing)
+Summary: Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; return top 5 rows by total_spending
+Result:
+  Output table shape: (5, 3)
+  \tcustomer_id\tname\ttotal_spending
+  0\tC001\tAlice\t12450.00
+  1\tC047\tBob\t9820.00
+
+## Links
+- customers → top5
+- orders → top5
+\`\`\`
+
+**Turn 4 — Agent response (notice missing logic, fix the source operator in place):**
+
+Thought: The 5 rows returned all exceed $1000 by coincidence, but my code never applied the \`>= 1000\` premium threshold — the logic is wrong even though this particular result looks fine. Fix \`top5\` in place by inserting the threshold filter before \`nlargest\`, rather than stacking a downstream operator to patch the output.
+
+Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customers, orders) -> pd.DataFrame:
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+    merged = customers.merge(orders, on='customer_id', how='inner')
+    recent = merged[merged['order_date'] >= cutoff]
+    spending = recent.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
+    premium = spending[spending['total_spending'] >= 1000]
+    return premium.nlargest(5, 'total_spending')\`, summary="Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; filter total_spending >= 1000 (premium threshold); return top 5 rows by total_spending")
+
+**Final answer (after the corrected top5 executes):** The top 5 premium customers with recent purchases are Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), and Eve ($6,290).
+`;
+
 const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
 ${CONTEXT_FORMAT}
 ${KEY_PRINCIPLES}
+${EXAMPLE_COMPACT}
 `;
 
 // The worked example has been commented out — the prompt now contains just

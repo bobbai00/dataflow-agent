@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { assembleContext, computeDelta } from "./context-utils";
+import { assembleContext, computeDelta, __forTesting } from "./context-utils";
+const { computeBeforeAfterTrimSet, stripBeforeAfterBlock } = __forTesting;
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
@@ -548,17 +549,79 @@ describe("assembleContext — action line format", () => {
       },
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    // operatorId + summary in the param list, tool output in `(result: ...)`.
-    expect(c).toContain(
+    // In Latest mode the historical action's `summary` is dropped when its
+    // operator is still alive in the trailing snapshot (the snapshot's
+    // `Summary:` line already carries the latest version). FULL and DELTA
+    // modes don't dedupe — they keep the summary on every historical line.
+    const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(cLatest).toContain(
+      '- createOrModifyOperator(operatorId="src") (result: Added operator src, input ports: 0, output ports: 1)'
+    );
+    // The trailing snapshot still carries the operator's Summary line.
+    expect(cLatest).toContain("Summary: TestOp src");
+
+    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    expect(cFull).toContain(
       '- createOrModifyOperator(operatorId="src", summary="Load customers.csv via pd.read_csv") (result: Added operator src, input ports: 0, output ports: 1)'
     );
-    // No legacy status label and no legacy arrow.
-    expect(c).not.toContain("(succeeded)");
-    expect(c).not.toContain("(failed)");
-    expect(c).not.toContain(") -> ");
-    // The `code` field is not surfaced in the action line.
-    expect(c).not.toContain("def load");
+
+    // No legacy status label and no legacy arrow, in any mode.
+    for (const c of [cLatest, cFull]) {
+      expect(c).not.toContain("(succeeded)");
+      expect(c).not.toContain("(failed)");
+      expect(c).not.toContain(") -> ");
+      // The `code` field is not surfaced in the action line.
+      expect(c).not.toContain("def load");
+    }
+  });
+
+  test("Latest mode KEEPS summary when the action's operator is no longer in the current snapshot", () => {
+    // Scenario: agent added `tmp`, then deleted it. The trailing snapshot
+    // contains only `keeper`, so `tmp` is gone — its historical action must
+    // still carry the summary because the snapshot won't show it anywhere.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "add",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "add tmp",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc1",
+            input: { operatorId: "tmp", summary: "Throwaway scratch loader" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "Added operator tmp", isError: false }],
+      },
+      {
+        id: "del",
+        stepId: 2,
+        role: "agent",
+        parentId: "add",
+        messageId: "m1",
+        content: "delete tmp; add keeper",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc2",
+            input: { operatorId: "keeper", summary: "The op that survives" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "Added operator keeper", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("add", makeWorkflow(["tmp"]));
+    storage.createSnapshot("del", makeWorkflow(["keeper"])); // trailing snapshot lacks tmp
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // `tmp` no longer in snapshot → its historical action must keep the summary.
+    expect(c).toContain('- createOrModifyOperator(operatorId="tmp", summary="Throwaway scratch loader")');
+    // `keeper` is in the snapshot → its summary is dropped on the action line.
+    expect(c).toContain('- createOrModifyOperator(operatorId="keeper") (result: Added operator keeper)');
   });
 
   test("multi-line tool output is broken onto an indented block", () => {
@@ -604,5 +667,194 @@ describe("assembleContext — action-less steps", () => {
     // But the events still render — user step as event 1 and agent thought as event 2.
     expect(c).toContain("# Event 1 (User Task)");
     expect(c).toContain("Thought: hi back");
+  });
+});
+
+/* ============================================================================
+ *  Per-operator before/after block trimming (Design C cap)
+ *
+ *  Mode-orthogonal: tested on every ContextMode below. The cap keeps only
+ *  the most-recent modify result's before/after block for each operatorId
+ *  intact in the rendered event list; older mods for that op get trimmed
+ *  down to just their headline message (`Operator X modified`). ADDs are
+ *  ignored — they don't carry a before/after block, so they don't compete
+ *  with MODIFYs for the budget.
+ * ========================================================================= */
+
+describe("stripBeforeAfterBlock", () => {
+  test("strips a complete before/after block", () => {
+    const out = "Operator foo modified\nBefore code:\ndef load(): return 1\nAfter code:\ndef load(): return 2";
+    expect(stripBeforeAfterBlock(out)).toBe("Operator foo modified");
+  });
+
+  test("strips a WARNING + before/after block (cuts at the earlier marker)", () => {
+    const out =
+      "Operator foo modified\nWARNING: no-op detected, pivot strategy\nBefore code:\ndef load(): return 1\nAfter code:\ndef load(): return 1";
+    expect(stripBeforeAfterBlock(out)).toBe("Operator foo modified");
+  });
+
+  test("is idempotent on outputs without a block (e.g. ADD results, errors)", () => {
+    expect(stripBeforeAfterBlock("Added operator foo, input ports: 0, output ports: 1")).toBe(
+      "Added operator foo, input ports: 0, output ports: 1"
+    );
+    expect(stripBeforeAfterBlock("[ERROR] something went wrong")).toBe("[ERROR] something went wrong");
+  });
+});
+
+describe("computeBeforeAfterTrimSet", () => {
+  function pathNode(stepId: string, calls: Array<{ op: string; out: string }>): any {
+    return {
+      step: {
+        id: stepId,
+        role: "agent",
+        toolCalls: calls.map(c => ({ toolName: "createOrModifyOperator", input: { operatorId: c.op } })),
+        toolResults: calls.map(c => ({ output: c.out })),
+      },
+    };
+  }
+
+  test("keeps the most-recent mod per operatorId intact, trims earlier ones", () => {
+    const before = "OK\nBefore code:\nx\nAfter code:\ny";
+    const path = [
+      pathNode("s1", [{ op: "loader", out: before }]),
+      pathNode("s2", [{ op: "loader", out: before }]),
+      pathNode("s3", [{ op: "loader", out: before }]),
+    ];
+    const trim = computeBeforeAfterTrimSet(path);
+    // First two are trimmed; the latest stays intact.
+    expect(trim.has("s1:0")).toBe(true);
+    expect(trim.has("s2:0")).toBe(true);
+    expect(trim.has("s3:0")).toBe(false);
+  });
+
+  test("budget is per operatorId — different ops don't compete", () => {
+    const before = "OK\nBefore code:\nx\nAfter code:\ny";
+    const path = [
+      pathNode("s1", [{ op: "loader", out: before }]),
+      pathNode("s2", [{ op: "cleaner", out: before }]),
+      pathNode("s3", [{ op: "loader", out: before }]),
+      pathNode("s4", [{ op: "cleaner", out: before }]),
+    ];
+    const trim = computeBeforeAfterTrimSet(path);
+    // For "loader": s1 is older → trim; s3 is latest → keep.
+    expect(trim.has("s1:0")).toBe(true);
+    expect(trim.has("s3:0")).toBe(false);
+    // For "cleaner": s2 is older → trim; s4 is latest → keep.
+    expect(trim.has("s2:0")).toBe(true);
+    expect(trim.has("s4:0")).toBe(false);
+  });
+
+  test("ADD results (no before/after marker) are NOT counted toward the per-op budget", () => {
+    const addOut = "Added operator loader, input ports: 0, output ports: 1";
+    const modOut = "Operator loader modified\nBefore code:\nx\nAfter code:\ny";
+    const path = [
+      pathNode("s1", [{ op: "loader", out: addOut }]), // ADD — not counted
+      pathNode("s2", [{ op: "loader", out: modOut }]),
+      pathNode("s3", [{ op: "loader", out: modOut }]),
+    ];
+    const trim = computeBeforeAfterTrimSet(path);
+    // ADD is never in the trim set (it has nothing to trim anyway).
+    expect(trim.has("s1:0")).toBe(false);
+    // First MOD is trimmed, second (latest) is kept.
+    expect(trim.has("s2:0")).toBe(true);
+    expect(trim.has("s3:0")).toBe(false);
+  });
+
+  test("non-createOrModifyOperator tool calls are ignored entirely", () => {
+    const path = [
+      pathNode("s1", [{ op: "loader", out: "OK\nBefore code:\nx\nAfter code:\ny" }]),
+      // Simulate an unrelated tool call by adding a node with toolName=other.
+      {
+        step: {
+          id: "s2",
+          role: "agent",
+          toolCalls: [{ toolName: "deleteOperator", input: { operatorId: "loader" } }],
+          toolResults: [{ output: "Deleted operator: loader" }],
+        },
+      } as any,
+      pathNode("s3", [{ op: "loader", out: "OK\nBefore code:\nx\nAfter code:\ny" }]),
+    ];
+    const trim = computeBeforeAfterTrimSet(path);
+    expect(trim.has("s1:0")).toBe(true); // older MOD
+    expect(trim.has("s3:0")).toBe(false); // latest MOD
+  });
+});
+
+describe("assembleContext — before/after trim applied to rendered event list", () => {
+  function makeMod(
+    id: string,
+    stepId: number,
+    parentId: string,
+    opId: string,
+    summary: string,
+    code: string,
+    out: string
+  ): Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role"> {
+    return {
+      id,
+      stepId,
+      role: "agent",
+      parentId,
+      messageId: "m1",
+      content: "",
+      toolCalls: [
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: `tc-${id}`,
+          input: { operatorId: opId, code, summary } as any,
+        },
+      ],
+      toolResults: [{ toolCallId: `tc-${id}`, output: out, isError: false }],
+    };
+  }
+
+  const modOut1 =
+    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=1)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=2)";
+  const modOut2 =
+    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=2)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=3)";
+  const modOut3 =
+    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=3)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=4)";
+
+  for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+    test(`mode ${ContextMode[mode]}: keeps only the most-recent mod's before/after for an operator`, () => {
+      const { steps, storage, workflowState } = buildScenario([
+        { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
+        makeMod("a1", 1, "u", "loader", "first mod", "code-1", modOut1),
+        makeMod("a2", 2, "a1", "loader", "second mod", "code-2", modOut2),
+        makeMod("a3", 3, "a2", "loader", "third mod", "code-3", modOut3),
+      ]);
+      storage.createSnapshot("a3", makeWorkflow(["loader"]));
+      const c = content(assembleContext(steps, workflowState, storage, mode, opts));
+      // Latest mod's content is fully present.
+      expect(c).toContain("skiprows=3"); // before code of latest = after code of mod 2
+      expect(c).toContain("skiprows=4"); // after code of latest
+      // Older mods' before/after blocks must be stripped. Earlier-version
+      // skiprows values that would only appear in trimmed blocks must NOT show up.
+      expect(c).not.toContain("skiprows=1");
+      // Older mods' headline lines (one per mod) are still present so the chain is visible.
+      const modifiedHits = (c.match(/Operator loader modified/g) || []).length;
+      expect(modifiedHits).toBe(3); // all three mods still render their headline
+    });
+  }
+
+  test("budget is per operatorId — modifying a different op does not consume the loader budget", () => {
+    const cleanerModOut =
+      "Operator cleaner modified\nBefore code:\ndef process(x): return x\nAfter code:\ndef process(x): return x.dropna()";
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
+      makeMod("a1", 1, "u", "loader", "first loader mod", "c", modOut1),
+      makeMod("a2", 2, "a1", "cleaner", "first cleaner mod", "c", cleanerModOut),
+      makeMod("a3", 3, "a2", "loader", "second loader mod", "c", modOut2),
+    ]);
+    storage.createSnapshot("a3", makeWorkflow(["loader", "cleaner"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // Latest loader mod kept (modOut2 carries skiprows=3 in its After code).
+    expect(c).toContain("skiprows=3");
+    // Earlier loader mod trimmed: skiprows=1 (its Before) and skiprows=2's role-as-After do NOT
+    // appear in any trimmed-but-now-removed block. skiprows=2 IS still present (it's the
+    // Before code of the kept mod), so we don't assert against it.
+    expect(c).not.toContain("skiprows=1");
+    // Cleaner mod kept (only one mod for that op).
+    expect(c).toContain("dropna");
   });
 });

@@ -92,16 +92,24 @@ export function assembleContext(
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
   const tasks = groupIntoTasks(path);
 
+  // Mode-orthogonal: for every createOrModifyOperator call that carries a
+  // before/after code block, keep only the most-recent N per operatorId
+  // intact when rendering the event list. Older mods' results get trimmed to
+  // just the "Operator X modified" line. Without this cap, long thrash
+  // sequences accumulate before/after blocks across turns and compound
+  // context bloat — paying for diff signal we've already surfaced once.
+  const beforeAfterTrimSet = computeBeforeAfterTrimSet(path);
+
   let content: string;
   switch (mode) {
     case ContextMode.FULL:
-      content = renderInterleaved(tasks, "full", workflowState, options, initSnapshot);
+      content = renderInterleaved(tasks, "full", workflowState, options, initSnapshot, beforeAfterTrimSet);
       break;
     case ContextMode.DELTA:
-      content = renderInterleaved(tasks, "delta", workflowState, options, initSnapshot);
+      content = renderInterleaved(tasks, "delta", workflowState, options, initSnapshot, beforeAfterTrimSet);
       break;
     case ContextMode.LATEST:
-      content = renderLatest(tasks, snapshotStorage, workflowState, options, initSnapshot);
+      content = renderLatest(tasks, snapshotStorage, workflowState, options, initSnapshot, beforeAfterTrimSet);
       break;
   }
 
@@ -165,6 +173,90 @@ interface BuiltPath {
   initSnapshot: SnapshotData | undefined;
 }
 
+/**
+ * Global cap (per operatorId) on how many recent createOrModifyOperator
+ * before/after blocks are kept intact in the rendered event list. The
+ * before/after block is appended to every modifyOperator tool result by
+ * `code-op-tools.ts` (Design C). Without a cap, long thrash sequences
+ * accumulate per-mod before/after pairs in the past-action history, which
+ * compounds context bloat across turns — we pay for diff signal we've
+ * already surfaced once. Trim is mode-orthogonal: every mode renders the
+ * event list with the same shape, so this cap applies everywhere uniformly.
+ *
+ * `1` means "only the most recent mod's before/after stays visible per op";
+ * all older mods' results get stripped down to their headline message.
+ * Tune by changing this constant.
+ */
+const MAX_RECENT_BEFORE_AFTER_PER_OPERATOR = 1;
+
+/**
+ * Sentinel substrings that mark the start of a before/after block inside a
+ * modify-operator tool result. Both forms exist:
+ *   - `\nWARNING: ...` — the no-op warning (Design C's loud signal)
+ *   - `\nBefore code:` — the always-on before/after block header
+ * The WARNING (when present) comes before the Before code block, so the
+ * earliest match is the cut point.
+ */
+const BEFORE_AFTER_BLOCK_MARKERS = ["\nWARNING:", "\nBefore code:"];
+
+/**
+ * Per-operator step+toolCall index → "trim this one's before/after block".
+ *
+ * Walks every action-bearing node in chronological order, grouping
+ * createOrModifyOperator calls by `input.operatorId`, then for each group
+ * marks all-but-the-last-N calls as trimmable. ADD calls (whose results
+ * carry no before/after block) are excluded from the count via the marker
+ * check so the budget is spent only on results that actually carry the
+ * block we're trying to dedupe.
+ *
+ * Returns a `Set<string>` of `"${stepId}:${toolCallIdx}"` keys.
+ */
+function computeBeforeAfterTrimSet(path: PathNode[]): Set<string> {
+  const callsByOp = new Map<string, string[]>();
+  for (const node of path) {
+    if (node.step.role !== "agent") continue;
+    const tcs = node.step.toolCalls ?? [];
+    const trs = node.step.toolResults ?? [];
+    for (let i = 0; i < tcs.length; i++) {
+      const tc = tcs[i];
+      if (!tc || tc.toolName !== "createOrModifyOperator") continue;
+      const opId = (tc.input as { operatorId?: unknown })?.operatorId;
+      if (typeof opId !== "string" || opId.length === 0) continue;
+      const out = String(trs[i]?.output ?? "");
+      // Only count results that actually carry a before/after block. ADDs
+      // don't, so they don't compete with MODIFYs for the budget.
+      if (!BEFORE_AFTER_BLOCK_MARKERS.some(m => out.includes(m))) continue;
+      const key = `${node.step.id}:${i}`;
+      const arr = callsByOp.get(opId) ?? [];
+      arr.push(key);
+      callsByOp.set(opId, arr);
+    }
+  }
+  const toTrim = new Set<string>();
+  for (const [, keys] of callsByOp) {
+    const trimCount = Math.max(0, keys.length - MAX_RECENT_BEFORE_AFTER_PER_OPERATOR);
+    for (let i = 0; i < trimCount; i++) toTrim.add(keys[i]);
+  }
+  return toTrim;
+}
+
+/**
+ * Strip the before/after block (and any preceding `\nWARNING:` line) from a
+ * modify-operator tool result, returning just the headline message
+ * (`Operator X modified` etc.). Idempotent on outputs that have no block.
+ */
+function stripBeforeAfterBlock(output: string): string {
+  let cut = output.length;
+  for (const marker of BEFORE_AFTER_BLOCK_MARKERS) {
+    const idx = output.indexOf(marker);
+    if (idx >= 0 && idx < cut) cut = idx;
+  }
+  return output.substring(0, cut);
+}
+
+/** Exposed for unit tests. */
+export const __forTesting = { computeBeforeAfterTrimSet, stripBeforeAfterBlock };
+
 function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
   let initSnapshot: SnapshotData | undefined;
   const remaining: ReActStep[] = [];
@@ -221,7 +313,8 @@ function renderInterleaved(
   flavour: "full" | "delta",
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined
+  initSnapshot: SnapshotData | undefined,
+  beforeAfterTrimSet: Set<string>
 ): string {
   // The "current" snapshot is the last one on the path — its operators
   // should carry compiled schemas, the rest should not.
@@ -243,7 +336,8 @@ function renderInterleaved(
         () => prevSnapshot,
         s => {
           prevSnapshot = s;
-        }
+        },
+        beforeAfterTrimSet
       )
     );
     sections.push("");
@@ -259,23 +353,26 @@ function renderLatest(
   storage: WorkflowSnapshotStorage,
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined
+  initSnapshot: SnapshotData | undefined,
+  beforeAfterTrimSet: Set<string>
 ): string {
   const sections: string[] = [];
 
+  // Trailing snapshot — picked early so we can compute which operator IDs
+  // are still alive in the current dataflow. For every past tool call whose
+  // `operatorId` is still in that set, the snapshot below already prints the
+  // operator's latest Summary line; emitting the same `summary="..."` on the
+  // historical action line is pure duplication. Drop it on that subset.
+  const current = lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
+  const liveOperatorIds = new Set(current.workflow.operators.map(o => o.operatorID));
+
   for (const task of tasks) {
-    sections.push(serializeTaskEventsOnly(task));
+    sections.push(serializeTaskEventsOnly(task, liveOperatorIds, beforeAfterTrimSet));
     sections.push("");
     if (!task.isCompleted) {
       sections.push(renderTaskContinuation(task, options));
     }
   }
-
-  // Trailing snapshot block — Latest's defining feature. Prefer the latest
-  // visible-path snapshot; fall back to the hidden init snapshot (so the
-  // baseline workflow still shows up before any non-init action runs);
-  // finally fall back to the empty root.
-  const current = lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
   // The wrapper is at H1 (`# Current Dataflow`), so the snapshot's section
   // headings start at H2.
   const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
@@ -332,7 +429,8 @@ function serializeTaskBody(
   options: AssembleContextOptions,
   lastSnapshotId: string | undefined,
   getPrev: () => SnapshotData | undefined,
-  setPrev: (s: SnapshotData) => void
+  setPrev: (s: SnapshotData) => void,
+  beforeAfterTrimSet: Set<string>
 ): string {
   const lines: string[] = [];
 
@@ -344,7 +442,7 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node));
+    lines.push(serializeTurn(node, undefined, beforeAfterTrimSet));
     lines.push("");
 
     if (node.snapshot) {
@@ -374,8 +472,21 @@ function serializeTaskBody(
   return lines.join("\n").trimEnd();
 }
 
-/** Latest-mode task body: events only, no inline snapshots. */
-function serializeTaskEventsOnly(task: TaskGroup): string {
+/**
+ * Latest-mode task body: events only, no inline snapshots.
+ *
+ * `omitSummaryForOpIds` (Latest-mode optimization): IDs whose operators still
+ * exist in the trailing `# Current Dataflow` snapshot. Past tool calls that
+ * touched those operators get rendered without their `summary="..."` param
+ * because the snapshot's per-operator `Summary:` line already carries the
+ * latest version — emitting it on the historical action line is duplicate
+ * tokens. Pass `undefined` (or omit) to keep the summary on every call.
+ */
+function serializeTaskEventsOnly(
+  task: TaskGroup,
+  omitSummaryForOpIds?: Set<string>,
+  beforeAfterTrimSet?: Set<string>
+): string {
   const lines: string[] = [];
 
   for (const node of task.nodes) {
@@ -385,7 +496,7 @@ function serializeTaskEventsOnly(task: TaskGroup): string {
       continue;
     }
     if (node.step.role !== "agent") continue;
-    lines.push(serializeTurn(node));
+    lines.push(serializeTurn(node, omitSummaryForOpIds, beforeAfterTrimSet));
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -404,7 +515,11 @@ function serializeUserTurn(node: PathNode): string {
   return lines.join("\n").trimEnd();
 }
 
-function serializeTurn(node: PathNode): string {
+function serializeTurn(
+  node: PathNode,
+  omitSummaryForOpIds?: Set<string>,
+  beforeAfterTrimSet?: Set<string>
+): string {
   const step = node.step;
   const lines: string[] = [];
   lines.push(`# Event ${node.eventIndex} (Agent Actions)`);
@@ -419,8 +534,11 @@ function serializeTurn(node: PathNode): string {
     for (let i = 0; i < step.toolCalls.length; i++) {
       const tc = step.toolCalls[i];
       const tr = step.toolResults?.[i];
-      const params = formatActionParams(tc.input);
-      const output = stringifyOutput(tr?.output).trim();
+      const params = formatActionParams(tc.input, omitSummaryForOpIds);
+      const trimKey = `${step.id}:${i}`;
+      const rawOutput = stringifyOutput(tr?.output);
+      const trimmedOutput = beforeAfterTrimSet?.has(trimKey) ? stripBeforeAfterBlock(rawOutput) : rawOutput;
+      const output = trimmedOutput.trim();
       const header = `- ${tc.toolName}${params}`;
       if (output.length === 0) {
         // No tool output recorded — emit just the call site so the line still
@@ -452,15 +570,24 @@ function serializeTurn(node: PathNode): string {
  * the agent told the user it was doing, so surfacing it next to the tool name
  * lets the LLM read its own breadcrumb trail without diving into the
  * downstream snapshot.
+ *
+ * Optimization (Latest mode): if `omitSummaryForOpIds` is provided AND this
+ * call's `operatorId` is in it, drop `summary="..."` from the rendered line.
+ * Used when the trailing `# Current Dataflow` snapshot already prints the
+ * latest Summary for that operator, making the historical copy pure
+ * duplication. Calls without an `operatorId` (or whose op was deleted) keep
+ * the summary so the trail isn't lost.
  */
-function formatActionParams(input: unknown): string {
+function formatActionParams(input: unknown, omitSummaryForOpIds?: Set<string>): string {
   if (!input || typeof input !== "object") return "";
   const inp = input as Record<string, unknown>;
   const params: string[] = [];
-  if (typeof inp.operatorId === "string" && inp.operatorId.length > 0) {
-    params.push(`operatorId="${escapeQuotes(inp.operatorId)}"`);
+  const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
+  if (opId.length > 0) {
+    params.push(`operatorId="${escapeQuotes(opId)}"`);
   }
-  if (typeof inp.summary === "string" && inp.summary.length > 0) {
+  const skipSummary = opId.length > 0 && omitSummaryForOpIds?.has(opId) === true;
+  if (!skipSummary && typeof inp.summary === "string" && inp.summary.length > 0) {
     params.push(`summary="${escapeQuotes(inp.summary)}"`);
   }
   if (params.length === 0) return "";
