@@ -110,15 +110,6 @@ export interface AgentSettings {
    */
   parallelToolCalls: boolean;
   /**
-   * When true, the last user message of each in-progress task is duplicated
-   * verbatim right before the per-task "keep working" exhortation, as a
-   * `User's request is: ...` block. Combats objective drift on long ReAct
-   * traces by re-anchoring the model on the immediate target adjacent to
-   * where it resumes generation. Costs one extra copy of the task prompt
-   * per assembled context.
-   */
-  userTaskDuplicatedAtEnd: boolean;
-  /**
    * When true, each non-error operator result that the backend annotated
    * with `columnStats` is followed by a `Column stats:` section in
    * the assembled context (one line per column: `name: stat1; stat2; ...`).
@@ -127,6 +118,25 @@ export interface AgentSettings {
    * Disabled by default to keep the baseline context small.
    */
   statsEnabled: boolean;
+  /**
+   * Hard cap on how many of the most-recent (non-init) ReActStep events are
+   * rendered into the assembled context. A "very large" default
+   * (10_000) effectively disables the cap for normal-sized traces; setting
+   * it to a small finite number caps total context regardless of step count.
+   *
+   * When this drops events, a `(... N earlier events omitted ...)` notice is
+   * prepended and the user-task echo at the bottom is force-enabled (so the
+   * agent still sees the question even at cap=0).
+   */
+  recentEventsCap: number;
+  /**
+   * When the cap is in effect, include the full `code` parameter of each
+   * kept `createOrModifyOperator` action in the rendered context. Outside
+   * the kept window, code is never rendered (events are dropped entirely).
+   * Default: true — with a small cap, the agent should be able to read the
+   * code of the most recent actions.
+   */
+  includeCodeInRecentEvents: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -160,8 +170,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
   parallelToolCalls: true,
-  userTaskDuplicatedAtEnd: true,
   statsEnabled: false,
+  recentEventsCap: 10000,
+  includeCodeInRecentEvents: true,
 };
 
 export interface UserInfo {
@@ -191,8 +202,9 @@ export interface AgentSettingsApi {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
-  userTaskDuplicatedAtEnd?: boolean;
   statsEnabled?: boolean;
+  recentEventsCap?: number;
+  includeCodeInRecentEvents?: boolean;
 }
 
 export interface AgentInfo {
@@ -226,6 +238,7 @@ export interface UpdateAgentSettingsRequest {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
-  userTaskDuplicatedAtEnd?: boolean;
   statsEnabled?: boolean;
+  recentEventsCap?: number;
+  includeCodeInRecentEvents?: boolean;
 }

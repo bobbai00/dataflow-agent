@@ -635,8 +635,9 @@ export class TexeraAgent {
     agentMode?: AgentMode;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
-    userTaskDuplicatedAtEnd?: boolean;
     statsEnabled?: boolean;
+    recentEventsCap?: number;
+    includeCodeInRecentEvents?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -679,15 +680,19 @@ export class TexeraAgent {
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
     }
-    if (updates.userTaskDuplicatedAtEnd !== undefined) {
-      this.settings.userTaskDuplicatedAtEnd = updates.userTaskDuplicatedAtEnd;
-      // Pure render-time toggle — read at the next assembleContext call.
-    }
     if (updates.statsEnabled !== undefined) {
       this.settings.statsEnabled = updates.statsEnabled;
       // Pure render-time toggle — controls whether `Column stats:` is
       // appended to each non-error operator's Result block at context-
       // assembly time. Read at the next assembleContext call.
+    }
+    if (updates.recentEventsCap !== undefined) {
+      this.settings.recentEventsCap = updates.recentEventsCap;
+      // Pure render-time toggle — read at the next assembleContext call.
+    }
+    if (updates.includeCodeInRecentEvents !== undefined) {
+      this.settings.includeCodeInRecentEvents = updates.includeCodeInRecentEvents;
+      // Pure render-time toggle — read at the next assembleContext call.
     }
 
     if (promptNeedsRebuild) {
@@ -852,8 +857,9 @@ export class TexeraAgent {
             {
               compilationResult,
               agentMode: this.settings.agentMode,
-              userTaskDuplicatedAtEnd: this.settings.userTaskDuplicatedAtEnd,
               statsEnabled: this.settings.statsEnabled,
+              recentEventsCap: this.settings.recentEventsCap,
+              includeCodeInRecentEvents: this.settings.includeCodeInRecentEvents,
             }
           );
           lastPreparedMessages = processed;
@@ -1029,7 +1035,9 @@ export class TexeraAgent {
       {
         compilationResult: null,
         agentMode: this.settings.agentMode,
-        userTaskDuplicatedAtEnd: this.settings.userTaskDuplicatedAtEnd,
+        statsEnabled: this.settings.statsEnabled,
+        recentEventsCap: this.settings.recentEventsCap,
+        includeCodeInRecentEvents: this.settings.includeCodeInRecentEvents,
       }
     );
     const first = processed[0];

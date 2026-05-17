@@ -45,15 +45,41 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
-  /** When true, each in-progress task's continuation block is prefixed with
-   *  a verbatim re-statement of that task's last user message. Re-anchors
-   *  the model on the immediate target adjacent to where it resumes
-   *  generation, at the cost of one extra copy of the task prompt. */
-  userTaskDuplicatedAtEnd?: boolean;
   /** When true, every non-error operator result whose `OperatorInfo` carries
    *  `columnStats` is followed by a `Column stats:` section listing
    *  per-column stats (one column per line). Off by default. */
   statsEnabled?: boolean;
+  /**
+   * Hard cap on how many of the most-recent (non-init) ReActStep events are
+   * rendered into the context. `Infinity` (or any number >= the path length)
+   * disables the cap — same behavior as before this option existed.
+   *
+   * Counted at the ReActStep level: one user message or one agent step =
+   * one event. The init step is excluded from the count (it's structural,
+   * not behavioral; its workflow state is in the trailing snapshot already).
+   *
+   * When the cap drops one or more events, a `(... N earlier events
+   * omitted ...)` marker is emitted under the `# Recent Agent Events`
+   * header. The latest user-task content (anywhere in the original path)
+   * always lives in the top-level `# User Task` section regardless of the
+   * cap — so cap=0 still leaves the agent with the question + the snapshot.
+   *
+   * Use case: bound total context size when traces grow long (high step
+   * count) regardless of whether any single operator is being thrashed.
+   * Default: Infinity (off).
+   */
+  recentEventsCap?: number;
+  /**
+   * When the cap is in effect, include the full `code` parameter of each
+   * kept `createOrModifyOperator` action in the rendered context. Outside
+   * the kept window, code is never rendered (events are dropped entirely).
+   * Default: true.
+   *
+   * With a small `recentEventsCap`, the agent should be able to read the
+   * code of the recent actions to make sense of them — the "code is
+   * omitted from past tool calls" contract loosens within the window.
+   */
+  includeCodeInRecentEvents?: boolean;
 }
 
 /**
@@ -89,28 +115,90 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
-  const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+  const { path: fullPath, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+
+  // ── Recent-events cap ────────────────────────────────────────────────
+  // Apply the cap on the post-init path (init step was already excluded by
+  // buildPath). `capActive` (finite cap) enables code restoration for the
+  // kept events; `willTruncate` (cap < path length) drops the omitted
+  // earlier events and prepends a truncation notice.
+  const cap = options.recentEventsCap ?? Infinity;
+  const capActive = Number.isFinite(cap);
+  const willTruncate = capActive && cap < fullPath.length;
+  const path = willTruncate ? fullPath.slice(fullPath.length - cap) : fullPath;
+  const droppedEventCount = fullPath.length - path.length;
+  const includeCodeForKept = capActive && (options.includeCodeInRecentEvents ?? true);
+
+  // The latest user-message content from the FULL path lives in its own
+  // top-of-prompt `# User Task` block — single source of truth, always
+  // present, never duplicated. Its step id lets renderers skip rendering
+  // the same user event inline in the recent-events list. Older user
+  // messages (multi-task continuation) still render inline as
+  // `## User Event N`.
+  const latestUserStep = findLatestUserStepInPath(fullPath);
+  const latestUserContent = latestUserStep?.step.content;
+  const latestUserStepId = latestUserStep?.step.id;
+
   const tasks = groupIntoTasks(path);
 
-  // Mode-orthogonal: for every createOrModifyOperator call that carries a
-  // before/after code block, keep only the most-recent N per operatorId
-  // intact when rendering the event list. Older mods' results get trimmed to
-  // just the "Operator X modified" line. Without this cap, long thrash
-  // sequences accumulate before/after blocks across turns and compound
-  // context bloat — paying for diff signal we've already surfaced once.
-  const beforeAfterTrimSet = computeBeforeAfterTrimSet(path);
+  // Header info for `# Recent Agent Events (last K of N)`.
+  const recentHeaderSuffix = willTruncate
+    ? ` (last ${path.length} of ${fullPath.length} events)`
+    : "";
+  const truncationNotice =
+    droppedEventCount > 0
+      ? `(... ${droppedEventCount} earlier event${droppedEventCount === 1 ? "" : "s"} omitted to keep context focused on recent work ...)`
+      : undefined;
 
   let content: string;
   switch (mode) {
     case ContextMode.FULL:
-      content = renderInterleaved(tasks, "full", workflowState, options, initSnapshot, beforeAfterTrimSet);
+      content = renderInterleaved(
+        tasks,
+        "full",
+        workflowState,
+        options,
+        initSnapshot,
+        includeCodeForKept,
+        latestUserContent,
+        latestUserStepId,
+        recentHeaderSuffix,
+        truncationNotice
+      );
       break;
     case ContextMode.DELTA:
-      content = renderInterleaved(tasks, "delta", workflowState, options, initSnapshot, beforeAfterTrimSet);
+      content = renderInterleaved(
+        tasks,
+        "delta",
+        workflowState,
+        options,
+        initSnapshot,
+        includeCodeForKept,
+        latestUserContent,
+        latestUserStepId,
+        recentHeaderSuffix,
+        truncationNotice
+      );
       break;
-    case ContextMode.LATEST:
-      content = renderLatest(tasks, snapshotStorage, workflowState, options, initSnapshot, beforeAfterTrimSet);
+    case ContextMode.LATEST: {
+      // Compute the trailing snapshot from the FULL path (not the truncated
+      // window) so cap=0 still renders the workflow state.
+      const fullPathCurrent = lastSnapshotOfPath(fullPath);
+      content = renderLatest(
+        tasks,
+        snapshotStorage,
+        workflowState,
+        options,
+        initSnapshot,
+        includeCodeForKept,
+        latestUserContent,
+        latestUserStepId,
+        recentHeaderSuffix,
+        truncationNotice,
+        fullPathCurrent
+      );
       break;
+    }
   }
 
   log.debug(
@@ -173,89 +261,23 @@ interface BuiltPath {
   initSnapshot: SnapshotData | undefined;
 }
 
-/**
- * Global cap (per operatorId) on how many recent createOrModifyOperator
- * before/after blocks are kept intact in the rendered event list. The
- * before/after block is appended to every modifyOperator tool result by
- * `code-op-tools.ts` (Design C). Without a cap, long thrash sequences
- * accumulate per-mod before/after pairs in the past-action history, which
- * compounds context bloat across turns — we pay for diff signal we've
- * already surfaced once. Trim is mode-orthogonal: every mode renders the
- * event list with the same shape, so this cap applies everywhere uniformly.
- *
- * `1` means "only the most recent mod's before/after stays visible per op";
- * all older mods' results get stripped down to their headline message.
- * Tune by changing this constant.
- */
-const MAX_RECENT_BEFORE_AFTER_PER_OPERATOR = 1;
-
-/**
- * Sentinel substrings that mark the start of a before/after block inside a
- * modify-operator tool result. Both forms exist:
- *   - `\nWARNING: ...` — the no-op warning (Design C's loud signal)
- *   - `\nBefore code:` — the always-on before/after block header
- * The WARNING (when present) comes before the Before code block, so the
- * earliest match is the cut point.
- */
-const BEFORE_AFTER_BLOCK_MARKERS = ["\nWARNING:", "\nBefore code:"];
-
-/**
- * Per-operator step+toolCall index → "trim this one's before/after block".
- *
- * Walks every action-bearing node in chronological order, grouping
- * createOrModifyOperator calls by `input.operatorId`, then for each group
- * marks all-but-the-last-N calls as trimmable. ADD calls (whose results
- * carry no before/after block) are excluded from the count via the marker
- * check so the budget is spent only on results that actually carry the
- * block we're trying to dedupe.
- *
- * Returns a `Set<string>` of `"${stepId}:${toolCallIdx}"` keys.
- */
-function computeBeforeAfterTrimSet(path: PathNode[]): Set<string> {
-  const callsByOp = new Map<string, string[]>();
-  for (const node of path) {
-    if (node.step.role !== "agent") continue;
-    const tcs = node.step.toolCalls ?? [];
-    const trs = node.step.toolResults ?? [];
-    for (let i = 0; i < tcs.length; i++) {
-      const tc = tcs[i];
-      if (!tc || tc.toolName !== "createOrModifyOperator") continue;
-      const opId = (tc.input as { operatorId?: unknown })?.operatorId;
-      if (typeof opId !== "string" || opId.length === 0) continue;
-      const out = String(trs[i]?.output ?? "");
-      // Only count results that actually carry a before/after block. ADDs
-      // don't, so they don't compete with MODIFYs for the budget.
-      if (!BEFORE_AFTER_BLOCK_MARKERS.some(m => out.includes(m))) continue;
-      const key = `${node.step.id}:${i}`;
-      const arr = callsByOp.get(opId) ?? [];
-      arr.push(key);
-      callsByOp.set(opId, arr);
-    }
+/** Pick the latest user-role node from a full path. Used to hoist the
+ *  latest user message into the `# User Task` block at the top of the
+ *  rendered context, and to skip rendering the same node inline within
+ *  `# Recent Agent Events` (older user messages still render inline as
+ *  `## User Event N`). */
+function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
+  for (let i = path.length - 1; i >= 0; i--) {
+    const n = path[i];
+    if (n.step.role === "user" && n.step.content) return n;
   }
-  const toTrim = new Set<string>();
-  for (const [, keys] of callsByOp) {
-    const trimCount = Math.max(0, keys.length - MAX_RECENT_BEFORE_AFTER_PER_OPERATOR);
-    for (let i = 0; i < trimCount; i++) toTrim.add(keys[i]);
-  }
-  return toTrim;
-}
-
-/**
- * Strip the before/after block (and any preceding `\nWARNING:` line) from a
- * modify-operator tool result, returning just the headline message
- * (`Operator X modified` etc.). Idempotent on outputs that have no block.
- */
-function stripBeforeAfterBlock(output: string): string {
-  let cut = output.length;
-  for (const marker of BEFORE_AFTER_BLOCK_MARKERS) {
-    const idx = output.indexOf(marker);
-    if (idx >= 0 && idx < cut) cut = idx;
-  }
-  return output.substring(0, cut);
+  return undefined;
 }
 
 /** Exposed for unit tests. */
-export const __forTesting = { computeBeforeAfterTrimSet, stripBeforeAfterBlock };
+export const __forTesting = {
+  findLatestUserStepInPath,
+};
 
 function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
   let initSnapshot: SnapshotData | undefined;
@@ -308,43 +330,96 @@ function groupIntoTasks(path: PathNode[]): TaskGroup[] {
  *  Rendering: interleaved (FULL & DELTA) + trailing-snapshot (LATEST)
  * ========================================================================= */
 
+/**
+ * Layout (shared across all modes):
+ *
+ *   # User Task
+ *
+ *   <latest user-message content>
+ *
+ *   # Recent Agent Events (last K of N events)
+ *
+ *   (... M earlier events omitted ...)
+ *
+ *   ## Agent Event N
+ *   Thought: ...
+ *   Actions:
+ *   - createOrModifyOperator(operatorId="...", summary="...")
+ *       code: |
+ *         ...
+ *       (result: ...)
+ *
+ *   ## User Event N   ← only when an older user-message lies inside the
+ *                       cap window (multi-task continuation). The latest
+ *                       user message is hoisted to `# User Task` above.
+ *
+ *   # Current Dataflow   ← FULL/DELTA modes also emit inline snapshots
+ *                          between events under "Recent Agent Events"
+ *                          (`### Dataflow ... after event N`).
+ *   ## Operators
+ *   ### Operator `x` (Type)
+ *   ...
+ */
 function renderInterleaved(
   tasks: TaskGroup[],
   flavour: "full" | "delta",
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
-  beforeAfterTrimSet: Set<string>
+  includeCodeForKept = false,
+  latestUserContent: string | undefined = undefined,
+  latestUserStepId: string | undefined = undefined,
+  recentHeaderSuffix = "",
+  truncationNotice: string | undefined = undefined
 ): string {
-  // The "current" snapshot is the last one on the path — its operators
-  // should carry compiled schemas, the rest should not.
   const lastSnapshotId = lastSnapshotIdOf(tasks);
   const sections: string[] = [];
+
+  // 1. # User Task
+  if (latestUserContent) {
+    sections.push("# User Task");
+    sections.push("");
+    sections.push(latestUserContent);
+    sections.push("");
+  }
+
+  // 2. # Recent Agent Events
+  sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
+  sections.push("");
+  if (truncationNotice) {
+    sections.push(truncationNotice);
+    sections.push("");
+  }
   // For Delta: rolling reference to the previous snapshot for diffing. The
   // init snapshot (hidden Event 0) seeds it so the first real action diffs
   // against the loaded workflow rather than appearing as a from-scratch add.
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
-
+  let renderedAny = false;
   for (const task of tasks) {
-    sections.push(
-      serializeTaskBody(
-        task,
-        flavour,
-        workflowState,
-        options,
-        lastSnapshotId,
-        () => prevSnapshot,
-        s => {
-          prevSnapshot = s;
-        },
-        beforeAfterTrimSet
-      )
+    const body = serializeTaskBody(
+      task,
+      flavour,
+      workflowState,
+      options,
+      lastSnapshotId,
+      () => prevSnapshot,
+      s => {
+        prevSnapshot = s;
+      },
+      includeCodeForKept,
+      latestUserStepId
     );
-    sections.push("");
-    if (!task.isCompleted) {
-      sections.push(renderTaskContinuation(task, options));
+    if (body) {
+      sections.push(body);
+      sections.push("");
+      renderedAny = true;
     }
   }
+  if (!renderedAny && !truncationNotice) {
+    sections.push("(no agent actions yet)");
+    sections.push("");
+  }
+
   return sections.join("\n").trimEnd();
 }
 
@@ -354,64 +429,59 @@ function renderLatest(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
-  beforeAfterTrimSet: Set<string>
+  includeCodeForKept = false,
+  latestUserContent: string | undefined = undefined,
+  latestUserStepId: string | undefined = undefined,
+  recentHeaderSuffix = "",
+  truncationNotice: string | undefined = undefined,
+  fullPathCurrentOverride: SnapshotData | undefined = undefined
 ): string {
   const sections: string[] = [];
 
-  // Trailing snapshot — picked early so we can compute which operator IDs
-  // are still alive in the current dataflow. For every past tool call whose
-  // `operatorId` is still in that set, the snapshot below already prints the
-  // operator's latest Summary line; emitting the same `summary="..."` on the
-  // historical action line is pure duplication. Drop it on that subset.
-  const current = lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
+  // 1. # User Task
+  if (latestUserContent) {
+    sections.push("# User Task");
+    sections.push("");
+    sections.push(latestUserContent);
+    sections.push("");
+  }
+
+  // 2. # Recent Agent Events
+  sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
+  sections.push("");
+  if (truncationNotice) {
+    sections.push(truncationNotice);
+    sections.push("");
+  }
+
+  // Trailing snapshot picked from the full path (cap-independent) so it
+  // survives even when truncation drops every visible task. Falls back to
+  // the in-window scan, the init snapshot, and finally the storage root.
+  const current = fullPathCurrentOverride ?? lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
   const liveOperatorIds = new Set(current.workflow.operators.map(o => o.operatorID));
 
+  let renderedAny = false;
   for (const task of tasks) {
-    sections.push(serializeTaskEventsOnly(task, liveOperatorIds, beforeAfterTrimSet));
-    sections.push("");
-    if (!task.isCompleted) {
-      sections.push(renderTaskContinuation(task, options));
+    const body = serializeTaskEventsOnly(task, liveOperatorIds, includeCodeForKept, latestUserStepId);
+    if (body) {
+      sections.push(body);
+      sections.push("");
+      renderedAny = true;
     }
   }
-  // The wrapper is at H1 (`# Current Dataflow`), so the snapshot's section
-  // headings start at H2.
+  if (!renderedAny && !truncationNotice) {
+    sections.push("(no agent actions yet)");
+    sections.push("");
+  }
+
+  // 3. # Current Dataflow — sectionLevel=2 keeps "## Operators" at H2 and
+  //    "### Operator `x` (Type)" at H3, nested under the H1 wrapper.
   const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
   if (dag) {
-    sections.push("");
     sections.push("# Current Dataflow");
     sections.push(dag);
   }
-  return sections.join("\n");
-}
-
-/**
- * Render the per-task "keep working" continuation block emitted after every
- * in-progress task body. Always carries the exhortation; when
- * `options.userTaskDuplicatedAtEnd` is set, prefixes it with a verbatim
- * `User's request is: ...` copy of the task's latest user message so the
- * objective sits adjacent to where the model resumes.
- */
-function renderTaskContinuation(task: TaskGroup, options: AssembleContextOptions): string {
-  const lines: string[] = [];
-  if (options.userTaskDuplicatedAtEnd) {
-    const lastUserContent = findLastUserContent(task);
-    if (lastUserContent) {
-      lines.push(`User's request is: ${lastUserContent}`);
-      lines.push("");
-    }
-  }
-  lines.push(
-    "Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow."
-  );
-  return lines.join("\n");
-}
-
-function findLastUserContent(task: TaskGroup): string | undefined {
-  for (let i = task.nodes.length - 1; i >= 0; i--) {
-    const n = task.nodes[i];
-    if (n.step.role === "user" && n.step.content) return n.step.content;
-  }
-  return undefined;
+  return sections.join("\n").trimEnd();
 }
 
 /* ============================================================================
@@ -430,26 +500,31 @@ function serializeTaskBody(
   lastSnapshotId: string | undefined,
   getPrev: () => SnapshotData | undefined,
   setPrev: (s: SnapshotData) => void,
-  beforeAfterTrimSet: Set<string>
+  includeCode = false,
+  latestUserStepId: string | undefined = undefined
 ): string {
   const lines: string[] = [];
 
   for (const node of task.nodes) {
     if (node.step.role === "user") {
-      lines.push(serializeUserTurn(node));
+      // The latest user message is hoisted into the top-level `# User Task`
+      // block by the caller. Skip it here so it doesn't appear twice.
+      if (node.step.id === latestUserStepId) continue;
+      lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, undefined, beforeAfterTrimSet));
+    lines.push(serializeTurn(node, undefined, includeCode));
     lines.push("");
 
     if (node.snapshot) {
       const isCurrent = node.snapshot.id === lastSnapshotId;
-      // Each event is `# Event N (...)` at H1, so the inline snapshot
-      // wrapper is H2 and the snapshot's own section headings start at H3.
-      const snapshotHeadingLevel = 2;
+      // Events render as `## Agent Event N` at H2 (nested under H1
+      // `# Recent Agent Events`), so the inline snapshot wrapper goes at H3
+      // and the snapshot's own section headings start at H4.
+      const snapshotHeadingLevel = 3;
       const snapshotSectionLevel = snapshotHeadingLevel + 1;
       const body =
         flavour === "full"
@@ -481,22 +556,29 @@ function serializeTaskBody(
  * because the snapshot's per-operator `Summary:` line already carries the
  * latest version — emitting it on the historical action line is duplicate
  * tokens. Pass `undefined` (or omit) to keep the summary on every call.
+ *
+ * `latestUserStepId`: when set, any user-role node with this step id is
+ * skipped (it's been hoisted to the top-level `# User Task` block). Older
+ * user-role nodes inside the cap window still render inline as
+ * `## User Event N`.
  */
 function serializeTaskEventsOnly(
   task: TaskGroup,
   omitSummaryForOpIds?: Set<string>,
-  beforeAfterTrimSet?: Set<string>
+  includeCode = false,
+  latestUserStepId: string | undefined = undefined
 ): string {
   const lines: string[] = [];
 
   for (const node of task.nodes) {
     if (node.step.role === "user") {
-      lines.push(serializeUserTurn(node));
+      if (node.step.id === latestUserStepId) continue;
+      lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;
     }
     if (node.step.role !== "agent") continue;
-    lines.push(serializeTurn(node, omitSummaryForOpIds, beforeAfterTrimSet));
+    lines.push(serializeTurn(node, omitSummaryForOpIds, includeCode));
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -506,10 +588,13 @@ function serializeTaskEventsOnly(
  *  Turn rendering (shared)
  * ========================================================================= */
 
-/** Render a user-role step as `# Event N (User Task)` plus its raw content. */
-function serializeUserTurn(node: PathNode): string {
+/** Inline render of an older user-role step inside `# Recent Agent Events`.
+ *  Emits H2 `## User Event N` to nest under the H1 wrapper. The latest
+ *  user step is never rendered here — it lives in the top-level
+ *  `# User Task` block. */
+function serializeUserEventInline(node: PathNode): string {
   const lines: string[] = [];
-  lines.push(`# Event ${node.eventIndex} (User Task)`);
+  lines.push(`## User Event ${node.eventIndex}`);
   lines.push("");
   if (node.step.content) lines.push(node.step.content);
   return lines.join("\n").trimEnd();
@@ -518,11 +603,11 @@ function serializeUserTurn(node: PathNode): string {
 function serializeTurn(
   node: PathNode,
   omitSummaryForOpIds?: Set<string>,
-  beforeAfterTrimSet?: Set<string>
+  includeCode = false
 ): string {
   const step = node.step;
   const lines: string[] = [];
-  lines.push(`# Event ${node.eventIndex} (Agent Actions)`);
+  lines.push(`## Agent Event ${node.eventIndex}`);
   lines.push("");
   if (step.content) {
     lines.push(`Thought: ${step.content}`);
@@ -535,11 +620,27 @@ function serializeTurn(
       const tc = step.toolCalls[i];
       const tr = step.toolResults?.[i];
       const params = formatActionParams(tc.input, omitSummaryForOpIds);
-      const trimKey = `${step.id}:${i}`;
-      const rawOutput = stringifyOutput(tr?.output);
-      const trimmedOutput = beforeAfterTrimSet?.has(trimKey) ? stripBeforeAfterBlock(rawOutput) : rawOutput;
-      const output = trimmedOutput.trim();
+      const output = stringifyOutput(tr?.output).trim();
       const header = `- ${tc.toolName}${params}`;
+      const codeBlock = includeCode ? extractActionCode(tc.input) : undefined;
+      if (codeBlock !== undefined) {
+        // Emit the full `code` parameter below the action header so the
+        // agent can see what was submitted. Indented to match the result
+        // block style below.
+        lines.push(header);
+        lines.push("    code: |");
+        for (const l of codeBlock.split("\n")) lines.push(`      ${l}`);
+        if (output.length === 0) {
+          // no result block to follow
+        } else if (!output.includes("\n")) {
+          lines.push(`    (result: ${output})`);
+        } else {
+          lines.push(`    (result:`);
+          for (const l of output.split("\n")) lines.push(`      ${l}`);
+          lines.push("    )");
+        }
+        continue;
+      }
       if (output.length === 0) {
         // No tool output recorded — emit just the call site so the line still
         // appears in the trace.
@@ -560,6 +661,15 @@ function serializeTurn(
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+/** Pull a usable `code` string out of a tool call's input. Returns
+ *  `undefined` when the call carries no code parameter (e.g.
+ *  deleteOperator) or it's empty. */
+function extractActionCode(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const c = (input as Record<string, unknown>).code;
+  return typeof c === "string" && c.length > 0 ? c : undefined;
 }
 
 /**
@@ -859,6 +969,16 @@ function lastSnapshotOf(tasks: TaskGroup[]): SnapshotData | undefined {
     for (let j = t.nodes.length - 1; j >= 0; j--) {
       if (t.nodes[j].snapshot) return t.nodes[j].snapshot;
     }
+  }
+  return undefined;
+}
+
+/** Find the most-recent attached snapshot across the original (untruncated)
+ *  path. Used so the trailing `# Current Dataflow` block survives even when
+ *  the recent-events cap drops every visible task. */
+function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
+  for (let i = path.length - 1; i >= 0; i--) {
+    if (path[i].snapshot) return path[i].snapshot;
   }
   return undefined;
 }

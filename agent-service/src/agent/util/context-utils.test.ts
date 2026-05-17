@@ -19,7 +19,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { assembleContext, computeDelta, __forTesting } from "./context-utils";
-const { computeBeforeAfterTrimSet, stripBeforeAfterBlock } = __forTesting;
+const { findLatestUserContentInPath } = __forTesting;
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
@@ -178,41 +178,43 @@ const opts = { compilationResult: null, agentMode: AgentMode.CODE };
  * ========================================================================= */
 
 describe("assembleContext — Latest", () => {
-  test("emits events without per-turn snapshots, plus one trailing # Current Dataflow block", () => {
+  test("emits # User Task + # Recent Agent Events + # Current Dataflow", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
 
-    // Init is Event 0 and excluded from the rendered context. Visible events
-    // start at Event 1 (the user request), then the agent actions follow.
-    expect(c).toContain("# Event 1 (User Task)"); // user request
-    expect(c).toContain("# Event 2 (Agent Actions)"); // t1
-    expect(c).toContain("# Event 3 (Agent Actions)"); // t2
-    expect(c).toContain("# Event 4 (Agent Actions)"); // t3
+    // 1. # User Task block carries the latest user message verbatim.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("Build me a pipeline.");
+
+    // 2. # Recent Agent Events: only the AGENT events are rendered inline;
+    //    the latest user event (Event 1) is hoisted to # User Task and not
+    //    duplicated here.
+    expect(c).toContain("# Recent Agent Events");
+    expect(c).toContain("## Agent Event 2"); // t1
+    expect(c).toContain("## Agent Event 3"); // t2
+    expect(c).toContain("## Agent Event 4"); // t3
+    expect(c).not.toContain("## User Event 1"); // hoisted, not rendered inline
+    expect(c).not.toContain("# Event 1 (User Task)"); // legacy shape gone
+    expect(c).not.toContain("# Event 2 (Agent Actions)"); // legacy shape gone
     expect(c).not.toContain("# Event 0"); // init hidden
     expect(c).not.toContain("- initialize"); // init's action line is hidden too
+    // Old echo line at the bottom is gone — # User Task replaced it.
+    expect(c).not.toContain("User's request is:");
+    expect(c).not.toContain("Above is user's request");
+
+    // 3. # Current Dataflow trailing block.
     expect(c).toContain("# Current Dataflow");
-    // The previous task-hierarchy headings are gone entirely.
-    expect(c).not.toContain("# Completed Tasks");
-    expect(c).not.toContain("# Ongoing Task");
-    expect(c).not.toContain("## Task (completed)");
-    expect(c).not.toContain("## Task (ongoing)");
-    // Each agent event's tool-call list is preceded by an "Actions:" label
+
+    // Each agent event's tool-call list is preceded by an "Actions:" label.
     expect(c).toContain("Actions:");
-    // Action lines present, now showing the tool's returned result (no
-    // (succeeded) label). The canonical fixture's tool output is "ok".
     expect(c).toContain('- createOrModifyOperator(operatorId="src") (result: ok)');
     expect(c).toContain('- createOrModifyOperator(operatorId="filt") (result: ok)');
     // No inline snapshot headers between events in LATEST mode.
     expect(c).not.toContain("Completed dataflow after event");
     expect(c).not.toContain("Dataflow changes after event");
-    // Trailing block: # Current Dataflow (H1) → Operators (H2) → Operator X (H3)
-    // Status labels were removed from the header — operator state lives only
-    // in the `Result:` block now.
+    // Trailing block: # Current Dataflow (H1) → ## Operators (H2) → ### Operator X (H3).
     expect(c).toContain("### Operator `src` (TestOp)");
     expect(c).toContain("### Operator `filt` (TestOp)");
-    expect(c).not.toContain("executed");
-    expect(c).not.toContain("failed");
-    expect(c).not.toContain("not-executed");
     expect(c).toContain("## Links");
     expect(c).toContain("- src → filt");
   });
@@ -220,7 +222,14 @@ describe("assembleContext — Latest", () => {
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    expect(c).toBe("");
+    // No user task and no events; the snapshot fallback to storage.getRootSnapshot()
+    // returns undefined for an empty storage too, so we get an empty body.
+    // The minimal rendering still emits the # Recent Agent Events header (with
+    // "(no agent actions yet)" inside), but nothing above or below.
+    expect(c).not.toContain("# User Task");
+    expect(c).not.toContain("# Current Dataflow");
+    expect(c).toContain("# Recent Agent Events");
+    expect(c).toContain("(no agent actions yet)");
   });
 
   test("init-only path: init is excluded from events but its snapshot still drives # Current Dataflow", () => {
@@ -265,14 +274,17 @@ describe("assembleContext — Full", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
 
+    // # User Task + # Recent Agent Events headers apply to FULL mode too.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("# Recent Agent Events");
+
     // Per-event snapshot headers — Full uses the "Completed dataflow" wording.
-    // With init excluded (Event 0), the visible event indices in this
-    // scenario are: user=1, t1=2, t2=3, t3=4. Snapshots exist for t1 and t2.
-    expect(c).toContain("## Completed dataflow after event 2"); // src added (t1)
-    expect(c).toContain("## Completed dataflow after event 3"); // filt added (t2)
+    // Inline snapshots now nest under ## Agent Event N (H2) → snapshot wrapper at H3.
+    expect(c).toContain("### Completed dataflow after event 2"); // src added (t1)
+    expect(c).toContain("### Completed dataflow after event 3"); // filt added (t2)
     // No snapshot for the user request (event 1) or the thought-only t3 (event 4).
-    expect(c).not.toContain("## Completed dataflow after event 1");
-    expect(c).not.toContain("## Completed dataflow after event 4");
+    expect(c).not.toContain("### Completed dataflow after event 1");
+    expect(c).not.toContain("### Completed dataflow after event 4");
     // Init is excluded entirely.
     expect(c).not.toContain("# Event 0");
     expect(c).not.toContain("- initialize");
@@ -283,9 +295,9 @@ describe("assembleContext — Full", () => {
   test("ordering: snapshot for event N appears AFTER event N's lines, BEFORE event N+1", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const event2 = c.indexOf("# Event 2 (Agent Actions)");
-    const snap2 = c.indexOf("## Completed dataflow after event 2");
-    const event3 = c.indexOf("# Event 3 (Agent Actions)");
+    const event2 = c.indexOf("## Agent Event 2");
+    const snap2 = c.indexOf("### Completed dataflow after event 2");
+    const event3 = c.indexOf("## Agent Event 3");
     expect(event2).toBeGreaterThan(-1);
     expect(snap2).toBeGreaterThan(event2);
     expect(event3).toBeGreaterThan(snap2);
@@ -294,25 +306,26 @@ describe("assembleContext — Full", () => {
   test("renders every operator in full at every snapshot — event 2's snapshot shows src; event 3's shows src+filt", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const after2 = c.slice(c.indexOf("## Completed dataflow after event 2"), c.indexOf("# Event 3 (Agent Actions)"));
-    const after3 = c.slice(c.indexOf("## Completed dataflow after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
-    // Inline snapshots nest under H2 → Operator heading is H4.
-    expect(after2).toContain("#### Operator `src`");
-    expect(after2).not.toContain("#### Operator `filt`"); // filt doesn't exist yet at event 2's snapshot
-    expect(after3).toContain("#### Operator `src`");
-    expect(after3).toContain("#### Operator `filt`");
+    const after2 = c.slice(c.indexOf("### Completed dataflow after event 2"), c.indexOf("## Agent Event 3"));
+    const after3 = c.slice(c.indexOf("### Completed dataflow after event 3"), c.indexOf("## Agent Event 4"));
+    // Inline snapshots nest under ## Agent Event N (H2) → wrapper H3 → Operators H4 → Operator X H5.
+    expect(after2).toContain("##### Operator `src`");
+    expect(after2).not.toContain("##### Operator `filt`"); // filt doesn't exist yet at event 2's snapshot
+    expect(after3).toContain("##### Operator `src`");
+    expect(after3).toContain("##### Operator `filt`");
     // No "unchanged" markers in Full mode — every op is full.
     expect(after3).not.toContain("unchanged");
   });
 
-  test("inline snapshot section headings sit below the parent H2 wrapper (Operators H3, Operator X H4, Links H3)", () => {
+  test("inline snapshot section headings sit two levels below the agent-event header", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const after3 = c.slice(c.indexOf("## Completed dataflow after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
-    expect(after3).toContain("### Operators");
-    expect(after3).toContain("### Links");
-    expect(after3).toContain("#### Operator `src`");
-    expect(after3).toContain("#### Operator `filt`");
+    const after3 = c.slice(c.indexOf("### Completed dataflow after event 3"), c.indexOf("## Agent Event 4"));
+    // Snapshot wrapper at H3; Operators/Links at H4; Operator X at H5.
+    expect(after3).toContain("#### Operators");
+    expect(after3).toContain("#### Links");
+    expect(after3).toContain("##### Operator `src`");
+    expect(after3).toContain("##### Operator `filt`");
   });
 });
 
@@ -325,25 +338,26 @@ describe("assembleContext — Delta", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     // After init exclusion: t2 (was event 4) is now event 3.
-    const after3 = c.slice(c.indexOf("## Dataflow changes after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
+    // Inline snapshots nest at H3 in the new layout → Operator X at H5.
+    const after3 = c.slice(c.indexOf("### Dataflow changes after event 3"), c.indexOf("## Agent Event 4"));
 
     // The Δ operator (filt) is rendered in full.
-    expect(after3).toContain("#### Operator `filt` (TestOp)");
+    expect(after3).toContain("##### Operator `filt` (TestOp)");
     expect(after3).not.toContain("executed");
     expect(after3).toContain("Result:");
     // Unchanged operators (src, existing) are dropped entirely — no
     // placeholder heading, no Summary, no "unchanged" marker. Their ids
     // still appear in the trailing Links section.
-    expect(after3).not.toContain("#### Operator `src`");
-    expect(after3).not.toContain("#### Operator `existing`");
+    expect(after3).not.toContain("##### Operator `src`");
+    expect(after3).not.toContain("##### Operator `existing`");
     expect(after3).not.toContain("unchanged");
   });
 
   test("edges of the current snapshot are always emitted (even when only one endpoint is in delta)", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    const after3 = c.slice(c.indexOf("## Dataflow changes after event 3"), c.indexOf("# Event 4 (Agent Actions)"));
-    expect(after3).toContain("### Links");
+    const after3 = c.slice(c.indexOf("### Dataflow changes after event 3"), c.indexOf("## Agent Event 4"));
+    expect(after3).toContain("#### Links");
     expect(after3).toContain("- src → filt");
   });
 
@@ -387,8 +401,8 @@ describe("assembleContext — Delta", () => {
     // event 2 has a non-empty Δ and DOES render. a2's snapshot at event 3
     // has an empty Δ (same op, same props, no new sourceStepId result) AND
     // no links — so the whole snapshot block is dropped.
-    expect(c).toContain("## Dataflow changes after event 2");
-    expect(c).not.toContain("## Dataflow changes after event 3");
+    expect(c).toContain("### Dataflow changes after event 2");
+    expect(c).not.toContain("### Dataflow changes after event 3");
   });
 
   test("no trailing # Current Dataflow block", () => {
@@ -471,14 +485,18 @@ describe("assembleContext — cross-mode invariants", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const ofMode = (m: ContextMode) => content(assembleContext(steps, workflowState, storage, m, opts));
     const eventLines = [
-      // Init is Event 0 and excluded — visible events start at 1.
-      "# Event 1 (User Task)", // user request
-      "# Event 2 (Agent Actions)", // t1
-      "# Event 3 (Agent Actions)", // t2
-      "# Event 4 (Agent Actions)", // t3 (thought-only)
+      // The latest user task is hoisted to # User Task at the top — its
+      // content appears there (not as an inline event).
+      "# User Task",
+      "Build me a pipeline.",
+      "# Recent Agent Events",
+      // Init is Event 0 and excluded — visible events start at 1; only
+      // agent events render inline (the user message at Event 1 was hoisted).
+      "## Agent Event 2", // t1
+      "## Agent Event 3", // t2
+      "## Agent Event 4", // t3 (thought-only)
       '- createOrModifyOperator(operatorId="src") (result: ok)',
       '- createOrModifyOperator(operatorId="filt") (result: ok)',
-      "Build me a pipeline.",
     ];
     for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
       const c = ofMode(mode);
@@ -664,8 +682,11 @@ describe("assembleContext — action-less steps", () => {
     // No snapshots created → no inline snapshot headers (either flavour name).
     expect(c).not.toContain("Completed dataflow after event");
     expect(c).not.toContain("Dataflow changes after event");
-    // But the events still render — user step as event 1 and agent thought as event 2.
-    expect(c).toContain("# Event 1 (User Task)");
+    // Latest user message hoisted to # User Task.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("hi");
+    // Agent thought rendered inline as ## Agent Event 2.
+    expect(c).toContain("## Agent Event 2");
     expect(c).toContain("Thought: hi back");
   });
 });
@@ -681,180 +702,285 @@ describe("assembleContext — action-less steps", () => {
  *  with MODIFYs for the budget.
  * ========================================================================= */
 
-describe("stripBeforeAfterBlock", () => {
-  test("strips a complete before/after block", () => {
-    const out = "Operator foo modified\nBefore code:\ndef load(): return 1\nAfter code:\ndef load(): return 2";
-    expect(stripBeforeAfterBlock(out)).toBe("Operator foo modified");
-  });
+/* The per-operator before/after trim machinery has been removed — the
+ * modify result is now just `Operator X modified` (plus the optional
+ * no-op WARNING line), and per-action code is rendered via the
+ * `recentEventsCap` / `includeCodeInRecentEvents` path tested below. */
 
-  test("strips a WARNING + before/after block (cuts at the earlier marker)", () => {
-    const out =
-      "Operator foo modified\nWARNING: no-op detected, pivot strategy\nBefore code:\ndef load(): return 1\nAfter code:\ndef load(): return 1";
-    expect(stripBeforeAfterBlock(out)).toBe("Operator foo modified");
-  });
+/* ============================================================================
+ *  recentEventsCap + includeCodeInRecentEvents
+ * ========================================================================= */
 
-  test("is idempotent on outputs without a block (e.g. ADD results, errors)", () => {
-    expect(stripBeforeAfterBlock("Added operator foo, input ports: 0, output ports: 1")).toBe(
-      "Added operator foo, input ports: 0, output ports: 1"
-    );
-    expect(stripBeforeAfterBlock("[ERROR] something went wrong")).toBe("[ERROR] something went wrong");
-  });
-});
-
-describe("computeBeforeAfterTrimSet", () => {
-  function pathNode(stepId: string, calls: Array<{ op: string; out: string }>): any {
-    return {
-      step: {
-        id: stepId,
+describe("assembleContext — recentEventsCap (event-count truncation)", () => {
+  /** Build a long-ish scenario: 1 user + N agent steps, each a modify on
+   *  operator `op_i` with a tiny code snippet so we can assert what's kept. */
+  function buildLongScenario(n: number) {
+    const inputs: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "Find the answer." },
+    ];
+    let prev = "u";
+    for (let i = 1; i <= n; i++) {
+      inputs.push({
+        id: `a${i}`,
+        stepId: i,
         role: "agent",
-        toolCalls: calls.map(c => ({ toolName: "createOrModifyOperator", input: { operatorId: c.op } })),
-        toolResults: calls.map(c => ({ output: c.out })),
-      },
-    };
+        messageId: "m1",
+        parentId: prev,
+        content: `Step ${i} thought`,
+        isBegin: i === 1,
+        isEnd: false,
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: `tc${i}`,
+            input: { operatorId: `op${i}`, summary: `mod ${i}`, code: `def load(): return ${i}` },
+          },
+        ],
+        toolResults: [{ toolCallId: `tc${i}`, output: `result-${i}`, isError: false }],
+      });
+      prev = `a${i}`;
+    }
+    return buildScenario(inputs);
   }
 
-  test("keeps the most-recent mod per operatorId intact, trims earlier ones", () => {
-    const before = "OK\nBefore code:\nx\nAfter code:\ny";
-    const path = [
-      pathNode("s1", [{ op: "loader", out: before }]),
-      pathNode("s2", [{ op: "loader", out: before }]),
-      pathNode("s3", [{ op: "loader", out: before }]),
-    ];
-    const trim = computeBeforeAfterTrimSet(path);
-    // First two are trimmed; the latest stays intact.
-    expect(trim.has("s1:0")).toBe(true);
-    expect(trim.has("s2:0")).toBe(true);
-    expect(trim.has("s3:0")).toBe(false);
+  test("cap=Infinity (default): every event is preserved (no truncation notice)", () => {
+    const { steps, storage, workflowState } = buildLongScenario(6);
+    storage.createSnapshot("a6", makeWorkflow(["op1", "op2", "op3", "op4", "op5", "op6"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // # User Task hoisted from the latest user event.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("Find the answer.");
+    // # Recent Agent Events header, no "(last K of N events)" suffix when no truncation.
+    expect(c).toMatch(/# Recent Agent Events\n/);
+    // All 6 agent events render; the user event is hoisted (not inline).
+    expect(c).toContain("## Agent Event 2");
+    expect(c).toContain("## Agent Event 7");
+    expect(c).not.toContain("## User Event 1"); // hoisted
+    expect(c).not.toContain("earlier event");
   });
 
-  test("budget is per operatorId — different ops don't compete", () => {
-    const before = "OK\nBefore code:\nx\nAfter code:\ny";
-    const path = [
-      pathNode("s1", [{ op: "loader", out: before }]),
-      pathNode("s2", [{ op: "cleaner", out: before }]),
-      pathNode("s3", [{ op: "loader", out: before }]),
-      pathNode("s4", [{ op: "cleaner", out: before }]),
-    ];
-    const trim = computeBeforeAfterTrimSet(path);
-    // For "loader": s1 is older → trim; s3 is latest → keep.
-    expect(trim.has("s1:0")).toBe(true);
-    expect(trim.has("s3:0")).toBe(false);
-    // For "cleaner": s2 is older → trim; s4 is latest → keep.
-    expect(trim.has("s2:0")).toBe(true);
-    expect(trim.has("s4:0")).toBe(false);
+  test("cap=3: only the 3 most-recent events appear, with truncation notice and (last K of N) header", () => {
+    const { steps, storage, workflowState } = buildLongScenario(6);
+    storage.createSnapshot("a6", makeWorkflow(["op1", "op2", "op3", "op4", "op5", "op6"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 3,
+      })
+    );
+    // 1 user + 6 agent = 7 events; cap=3 drops the oldest 4.
+    expect(c).toContain("# Recent Agent Events (last 3 of 7 events)");
+    expect(c).toContain("4 earlier events omitted");
+    // Earlier events dropped.
+    expect(c).not.toContain("## Agent Event 2");
+    expect(c).not.toContain("## Agent Event 4");
+    // Three most-recent agent events kept.
+    expect(c).toContain("## Agent Event 5");
+    expect(c).toContain("## Agent Event 6");
+    expect(c).toContain("## Agent Event 7");
+    // # User Task still hoists the latest user message even though the
+    // original user event sits outside the kept window.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("Find the answer.");
   });
 
-  test("ADD results (no before/after marker) are NOT counted toward the per-op budget", () => {
-    const addOut = "Added operator loader, input ports: 0, output ports: 1";
-    const modOut = "Operator loader modified\nBefore code:\nx\nAfter code:\ny";
-    const path = [
-      pathNode("s1", [{ op: "loader", out: addOut }]), // ADD — not counted
-      pathNode("s2", [{ op: "loader", out: modOut }]),
-      pathNode("s3", [{ op: "loader", out: modOut }]),
-    ];
-    const trim = computeBeforeAfterTrimSet(path);
-    // ADD is never in the trim set (it has nothing to trim anyway).
-    expect(trim.has("s1:0")).toBe(false);
-    // First MOD is trimmed, second (latest) is kept.
-    expect(trim.has("s2:0")).toBe(true);
-    expect(trim.has("s3:0")).toBe(false);
+  test("cap=0: no events kept, but # User Task and # Current Dataflow survive", () => {
+    const { steps, storage, workflowState } = buildLongScenario(4);
+    storage.createSnapshot("a4", makeWorkflow(["op1", "op2", "op3", "op4"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 0,
+      })
+    );
+    // No agent or user events visible inline.
+    expect(c).not.toContain("## Agent Event");
+    expect(c).not.toContain("## User Event");
+    // Truncation notice present under # Recent Agent Events.
+    expect(c).toContain("# Recent Agent Events (last 0 of 5 events)");
+    expect(c).toContain("5 earlier events omitted");
+    // # User Task is the single source of truth for the question.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("Find the answer.");
+    // Snapshot still rendered.
+    expect(c).toContain("# Current Dataflow");
+    expect(c).toContain("### Operator `op4`");
+    // No legacy echo lines.
+    expect(c).not.toContain("User's request is:");
+    expect(c).not.toContain("Above is user's request");
   });
 
-  test("non-createOrModifyOperator tool calls are ignored entirely", () => {
-    const path = [
-      pathNode("s1", [{ op: "loader", out: "OK\nBefore code:\nx\nAfter code:\ny" }]),
-      // Simulate an unrelated tool call by adding a node with toolName=other.
+  test("cap=0 still hoists the latest user message into # User Task", () => {
+    const { steps, storage, workflowState } = buildLongScenario(2);
+    storage.createSnapshot("a2", makeWorkflow(["op1", "op2"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 0,
+      })
+    );
+    // # User Task is always present at the top regardless of cap.
+    expect(c.indexOf("# User Task")).toBeLessThan(c.indexOf("# Recent Agent Events"));
+    expect(c).toContain("Find the answer.");
+  });
+
+  test("cap >= path length: no truncation notice (cap is effectively off)", () => {
+    const { steps, storage, workflowState } = buildLongScenario(3);
+    storage.createSnapshot("a3", makeWorkflow(["op1", "op2", "op3"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 50,
+      })
+    );
+    expect(c).not.toContain("earlier events omitted");
+    expect(c).toContain("# User Task");
+    expect(c).toContain("## Agent Event 2");
+    expect(c).toContain("## Agent Event 4");
+  });
+
+  test("multi-task continuation: latest user message is hoisted; older user message renders inline as ## User Event N", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u1", stepId: 0, role: "user", messageId: "m1", content: "first question" },
       {
-        step: {
-          id: "s2",
-          role: "agent",
-          toolCalls: [{ toolName: "deleteOperator", input: { operatorId: "loader" } }],
-          toolResults: [{ output: "Deleted operator: loader" }],
-        },
-      } as any,
-      pathNode("s3", [{ op: "loader", out: "OK\nBefore code:\nx\nAfter code:\ny" }]),
-    ];
-    const trim = computeBeforeAfterTrimSet(path);
-    expect(trim.has("s1:0")).toBe(true); // older MOD
-    expect(trim.has("s3:0")).toBe(false); // latest MOD
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m1",
+        parentId: "u1",
+        content: "first answer",
+        isEnd: true,
+      },
+      { id: "u2", stepId: 2, role: "user", messageId: "m2", parentId: "a1", content: "second question" },
+      {
+        id: "a2",
+        stepId: 3,
+        role: "agent",
+        messageId: "m2",
+        parentId: "u2",
+        content: "working on it",
+      },
+    ]);
+    storage.createSnapshot("a2", makeWorkflow([]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // The LATEST user message is in # User Task.
+    expect(c).toContain("# User Task");
+    expect(c).toContain("second question");
+    // The OLDER user message renders inline at its event index inside # Recent Agent Events.
+    expect(c).toContain("## User Event 1");
+    expect(c).toContain("first question");
+    // The latest user message is NOT duplicated inline (no ## User Event 3).
+    expect(c).not.toContain("## User Event 3");
+    // The agent events surround the older user message in chronological order.
+    const aEvent2Idx = c.indexOf("## Agent Event 2");
+    const uEvent3Idx = c.indexOf("## User Event 3");
+    expect(aEvent2Idx).toBeGreaterThan(-1);
+    expect(uEvent3Idx).toBe(-1);
+    expect(c.indexOf("## Agent Event 4")).toBeGreaterThan(c.indexOf("## User Event 1"));
   });
 });
 
-describe("assembleContext — before/after trim applied to rendered event list", () => {
-  function makeMod(
-    id: string,
-    stepId: number,
-    parentId: string,
-    opId: string,
-    summary: string,
-    code: string,
-    out: string
-  ): Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role"> {
-    return {
-      id,
-      stepId,
-      role: "agent",
-      parentId,
-      messageId: "m1",
-      content: "",
-      toolCalls: [
-        {
-          toolName: "createOrModifyOperator",
-          toolCallId: `tc-${id}`,
-          input: { operatorId: opId, code, summary } as any,
-        },
-      ],
-      toolResults: [{ toolCallId: `tc-${id}`, output: out, isError: false }],
-    };
-  }
-
-  const modOut1 =
-    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=1)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=2)";
-  const modOut2 =
-    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=2)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=3)";
-  const modOut3 =
-    "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=3)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=4)";
-
-  for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
-    test(`mode ${mode}: keeps only the most-recent mod's before/after for an operator`, () => {
-      const { steps, storage, workflowState } = buildScenario([
-        { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
-        makeMod("a1", 1, "u", "loader", "first mod", "code-1", modOut1),
-        makeMod("a2", 2, "a1", "loader", "second mod", "code-2", modOut2),
-        makeMod("a3", 3, "a2", "loader", "third mod", "code-3", modOut3),
-      ]);
-      storage.createSnapshot("a3", makeWorkflow(["loader"]));
-      const c = content(assembleContext(steps, workflowState, storage, mode, opts));
-      // Latest mod's content is fully present.
-      expect(c).toContain("skiprows=3"); // before code of latest = after code of mod 2
-      expect(c).toContain("skiprows=4"); // after code of latest
-      // Older mods' before/after blocks must be stripped. Earlier-version
-      // skiprows values that would only appear in trimmed blocks must NOT show up.
-      expect(c).not.toContain("skiprows=1");
-      // Older mods' headline lines (one per mod) are still present so the chain is visible.
-      const modifiedHits = (c.match(/Operator loader modified/g) || []).length;
-      expect(modifiedHits).toBe(3); // all three mods still render their headline
-    });
-  }
-
-  test("budget is per operatorId — modifying a different op does not consume the loader budget", () => {
-    const cleanerModOut =
-      "Operator cleaner modified\nBefore code:\ndef process(x): return x\nAfter code:\ndef process(x): return x.dropna()";
-    const { steps, storage, workflowState } = buildScenario([
-      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
-      makeMod("a1", 1, "u", "loader", "first loader mod", "c", modOut1),
-      makeMod("a2", 2, "a1", "cleaner", "first cleaner mod", "c", cleanerModOut),
-      makeMod("a3", 3, "a2", "loader", "second loader mod", "c", modOut2),
+describe("assembleContext — includeCodeInRecentEvents (code restoration in kept window)", () => {
+  function buildSmallCodeScenario() {
+    return buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "Load and process." },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m1",
+        parentId: "u",
+        content: "Loading.",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc-a1",
+            input: {
+              operatorId: "src",
+              summary: "Load source.csv",
+              code: "def load() -> pd.DataFrame:\n    return pd.read_csv('src.csv', skiprows=2)",
+            },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc-a1", output: "ok", isError: false }],
+      },
     ]);
-    storage.createSnapshot("a3", makeWorkflow(["loader", "cleaner"]));
+  }
+
+  test("cap=Infinity: code stays hidden from past actions (existing contract)", () => {
+    const { steps, storage, workflowState } = buildSmallCodeScenario();
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    // Latest loader mod kept (modOut2 carries skiprows=3 in its After code).
-    expect(c).toContain("skiprows=3");
-    // Earlier loader mod trimmed: skiprows=1 (its Before) and skiprows=2's role-as-After do NOT
-    // appear in any trimmed-but-now-removed block. skiprows=2 IS still present (it's the
-    // Before code of the kept mod), so we don't assert against it.
-    expect(c).not.toContain("skiprows=1");
-    // Cleaner mod kept (only one mod for that op).
-    expect(c).toContain("dropna");
+    expect(c).not.toContain("pd.read_csv");
+    expect(c).not.toContain("code:");
+  });
+
+  test("cap finite + includeCodeInRecentEvents=true (default): code appears for kept events", () => {
+    const { steps, storage, workflowState } = buildSmallCodeScenario();
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 5,
+      })
+    );
+    expect(c).toContain("code: |");
+    expect(c).toContain("pd.read_csv('src.csv', skiprows=2)");
+  });
+
+  test("cap finite + includeCodeInRecentEvents=false: code stays hidden even within window", () => {
+    const { steps, storage, workflowState } = buildSmallCodeScenario();
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 5,
+        includeCodeInRecentEvents: false,
+      })
+    );
+    expect(c).not.toContain("pd.read_csv");
+    expect(c).not.toContain("code:");
+  });
+
+  test("code-restoration applies only to events INSIDE the kept window", () => {
+    // 6 agent steps, cap=2 → only the last 2 events keep code; older ones are gone entirely.
+    const inputs: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "Build it." },
+    ];
+    let prev = "u";
+    for (let i = 1; i <= 6; i++) {
+      inputs.push({
+        id: `a${i}`,
+        stepId: i,
+        role: "agent",
+        messageId: "m1",
+        parentId: prev,
+        content: `step ${i}`,
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: `tc${i}`,
+            input: { operatorId: `op${i}`, code: `SENTINEL_${i} = ${i}` },
+          },
+        ],
+        toolResults: [{ toolCallId: `tc${i}`, output: "ok", isError: false }],
+      });
+      prev = `a${i}`;
+    }
+    const { steps, storage, workflowState } = buildScenario(inputs);
+    storage.createSnapshot("a6", makeWorkflow(["op1", "op2", "op3", "op4", "op5", "op6"]));
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        recentEventsCap: 2,
+      })
+    );
+    // SENTINEL_1..4 belonged to dropped events — their code lines must be gone.
+    for (let i = 1; i <= 4; i++) {
+      expect(c).not.toContain(`SENTINEL_${i} = ${i}`);
+    }
+    // SENTINEL_5..6 are in the kept window — code must be visible.
+    expect(c).toContain("SENTINEL_5 = 5");
+    expect(c).toContain("SENTINEL_6 = 6");
   });
 });

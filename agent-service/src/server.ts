@@ -89,8 +89,9 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     agentMode: agentSettings.agentMode,
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
-    userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
     statsEnabled: agentSettings.statsEnabled,
+    recentEventsCap: agentSettings.recentEventsCap,
+    includeCodeInRecentEvents: agentSettings.includeCodeInRecentEvents,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -198,8 +199,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
-          userTaskDuplicatedAtEnd: settings.userTaskDuplicatedAtEnd,
           statsEnabled: settings.statsEnabled,
+          recentEventsCap: settings.recentEventsCap,
+          includeCodeInRecentEvents: settings.includeCodeInRecentEvents,
         });
       }
 
@@ -225,8 +227,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
-            userTaskDuplicatedAtEnd: t.Optional(t.Boolean()),
             statsEnabled: t.Optional(t.Boolean()),
+            recentEventsCap: t.Optional(t.Number()),
+            includeCodeInRecentEvents: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -425,7 +428,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       agentMode: agentSettings.agentMode,
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
-      userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
       statsEnabled: agentSettings.statsEnabled,
     };
   })
@@ -460,8 +462,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
-        userTaskDuplicatedAtEnd: settings.userTaskDuplicatedAtEnd,
         statsEnabled: settings.statsEnabled,
+        recentEventsCap: settings.recentEventsCap,
+        includeCodeInRecentEvents: settings.includeCodeInRecentEvents,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -482,8 +485,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         agentMode: agentSettings.agentMode,
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
-        userTaskDuplicatedAtEnd: agentSettings.userTaskDuplicatedAtEnd,
         statsEnabled: agentSettings.statsEnabled,
+        recentEventsCap: agentSettings.recentEventsCap,
+        includeCodeInRecentEvents: agentSettings.includeCodeInRecentEvents,
       };
     },
     {
@@ -499,8 +503,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
         contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
-        userTaskDuplicatedAtEnd: t.Optional(t.Boolean()),
         statsEnabled: t.Optional(t.Boolean()),
+        recentEventsCap: t.Optional(t.Number()),
+        includeCodeInRecentEvents: t.Optional(t.Boolean()),
       }),
     }
   );

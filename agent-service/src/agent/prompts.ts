@@ -57,14 +57,15 @@ After each of your actions, a dataflow snapshot — the operators and their exec
 const CONTEXT_FORMAT = `
 ## Context Format
 
-Each turn, the input you receive is a chronological list of past **events**. Every event is one of two kinds:
+Every turn the input you receive has three top-level sections, in order:
 
-- **User Task** — a request or follow-up message written by the user.
-- **Agent Actions** — your prior thought together with the tool calls you made on that turn.
+1. **\`# User Task\`** — the user's most recent request, verbatim. Always present. This is the single source of truth for what you are trying to solve; it is never duplicated elsewhere in the prompt.
 
-Events are numbered globally (\`# Event 1\`, \`# Event 2\`, …) in the order they happened. Older events appear earlier in the list; the most recent events sit at the bottom and reflect the current state of your work.
+2. **\`# Recent Agent Events (last K of N events)\`** — your own action history, capped to the most recent K turns (controlled by the \`recentEventsCap\` setting; default keeps a large window). When the cap drops older turns you'll see a \`(... M earlier events omitted ...)\` notice at the top of this section. Each kept event is one of:
+   - \`## Agent Event N\` — your thought and the tool calls you made on that turn. For events inside the cap window the full \`code\` argument of each \`createOrModifyOperator\` call is rendered as an indented \`code: |\` block under the action header, so you can read exactly what was submitted.
+   - \`## User Event N\` — only appears when the user sent more than one message in this chat. The latest user message is in \`# User Task\` above; older ones (multi-task continuations) show up inline here.
 
-**The \`code\` argument of each past tool call is omitted from this context to save tokens — only \`operatorId\` and \`summary\` are preserved. Treat the \`summary\` of each past action as the authoritative description of what that step did; do not claim you can't see the previous code, and do not ask the user to re-show it. If you need to change a past operator's logic, just call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.**
+3. **\`# Current Dataflow\`** — a snapshot of the workflow state right now: every operator's id, type, summary, and (where executed) result preview. This block is independent of the cap — even if every recent event was dropped, the snapshot tells you what's in the DAG today. Operator code is **not** in this snapshot; if you need to inspect the code of an operator you wrote recently, find it in the matching \`## Agent Event N\` block above. To modify a past operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.
 
 ### Operator Result Tables
 
@@ -87,7 +88,7 @@ const KEY_PRINCIPLES = `
 - **Understand column semantics**: Before analysis, examine column names and their stats to understand what each column represents. Columns may carry semantic meaning that affects how data should be filtered or interpreted — respect these signals and apply appropriate preprocessing before computing results.
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Use the exact data paths the task gives you**: The task message provides a list of data file paths (e.g., \`data/foo/input/bar.csv\`). Use those strings verbatim in your operator code. In particular: (a) do NOT prepend a leading \`/\` to make them absolute — the paths are relative to the working directory and adding \`/\` will turn them into absolute filesystem paths that don't exist; (b) do NOT invent or normalize filenames that look "cleaner" (e.g., truncating a date suffix, dropping a \`-v2\`, changing \`.text\` to \`.txt\`) — the file on disk is named exactly what the task said. If a load fails with \`FileNotFoundError\` on a path the task explicitly provided, the failure is almost always a typo in your own code, not a missing file — re-check the path character-for-character before changing strategy. When the task path contains a wildcard, use \`glob.glob(...)\` and assert at least one match before iterating.
-- **Carefully load data files and be aware of the uncleaned data**: Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows above the data, or multiple tables in one file. Do not assume a file is a clean CSV. After loading a file, inspect the returned rows. If you discover issues — semicolon delimiters, leading comment/metadata rows, a blank line before the real header, multi-table CSVs (blank-line-separated blocks each with their own header) — modify the loader operator in place with the correct parameters (\`sep=\`, \`header=\`, \`skiprows=\`, etc.) and re-load. After loading, always examine the result. If column names look auto-generated (\`Unnamed: 0\`, \`0\`, \`1\`, …) or a clear data value appears as a column header, that is confirmation the file was not loaded correctly: the real header row was missed and a data row was used instead. Do NOT guess column meanings — re-inspect the raw bytes and fix \`skiprows\`/\`header\` before any downstream filter or join.
+- **Handle messy data files**: Load each data file directly in a single \`def load()\` operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows above the data, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (\`Unnamed: 0\`, \`0\`, \`1\`, …) or a data value (a place name, a date, a measurement) appears as a column header, the real header row was missed — fix the same loader operator in place with the correct parameters (\`sep=\`, \`header=\`, \`skiprows=\`, \`encoding=\`, etc.). Do not stack a downstream cleaner; do not split inspection into a separate probe operator.
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
 - **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
@@ -121,11 +122,13 @@ const EXAMPLE_COMPACT = `
 **Turn 1 — Context received:**
 
 \`\`\`
-# Event 1 (User Task)
+# User Task
 
 Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
 
-Above is user's request. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+# Recent Agent Events
+
+(no agent actions yet)
 
 # Current Dataflow
 (empty)
@@ -150,14 +153,18 @@ Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.D
 **Turn 2 — Context received (snapshot now shows the three executed loads):**
 
 \`\`\`
-# Event 2 (Agent Actions)
+# User Task
+
+Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
+
+# Recent Agent Events
+
+## Agent Event 2
 
 Actions:
 - createOrModifyOperator(operatorId="readme") (result: Added operator readme, input ports: 0, output ports: 1)
 - createOrModifyOperator(operatorId="customers") (result: Added operator customers, input ports: 0, output ports: 1)
 - createOrModifyOperator(operatorId="orders") (result: Added operator orders, input ports: 0, output ports: 1)
-
-Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
 
 # Current Dataflow
 ## Operators
@@ -199,12 +206,16 @@ Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> p
 **Turn 3 — Context received (customers now loads cleanly):**
 
 \`\`\`
-# Event 3 (Agent Actions)
+# User Task
+
+Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
+
+# Recent Agent Events
+
+## Agent Event 3
 
 Actions:
 - createOrModifyOperator(operatorId="customers") (result: Updated operator customers)
-
-Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
 
 # Current Dataflow
 ## Operators
@@ -234,12 +245,16 @@ Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customer
 **Turn 4 — Context received (snapshot of \`top5\`'s result):**
 
 \`\`\`
-# Event 4 (Agent Actions)
+# User Task
+
+Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
+
+# Recent Agent Events
+
+## Agent Event 4
 
 Actions:
 - createOrModifyOperator(operatorId="top5") (result: Added operator top5, input ports: 2, output ports: 1)
-
-Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
 
 # Current Dataflow
 ## Operators
