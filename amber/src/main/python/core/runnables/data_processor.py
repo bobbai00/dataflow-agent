@@ -387,6 +387,15 @@ class DataProcessor(Runnable, Stoppable):
                 pass
         else:
             try:
+                # String-typed columns: report the top-10 most-frequent values.
+                # A previous experiment trimmed this to 3 to shrink the per-
+                # column stat payload on high-cardinality string columns; that
+                # saved 50-80% input tokens on geometry-heavy tasks but visibly
+                # degraded answer accuracy on enumeration-style questions
+                # (e.g. wildfire-easy-2 went from ✓ to wrong). Per-cell size
+                # is still bounded by SyncExecutionResource.truncateColumnStatsValues
+                # using the agent's maxOperatorResultCellCharLimit — that's the
+                # right knob for size control. Keep the entry count at 10.
                 top = non_null.astype(str).value_counts().head(10)
                 out["top_10"] = [
                     {"value": k, "count": int(v)} for k, v in top.items()

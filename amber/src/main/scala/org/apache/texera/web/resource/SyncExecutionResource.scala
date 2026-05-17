@@ -472,8 +472,16 @@ class SyncExecutionResource extends LazyLogging {
       // Per-column stats forwarded from WorkerStatistics.result_statistics.
       // Each value is a JSON-encoded blob (count/null/distinct + type-specific
       // stats). Empty map -> None so the response stays compact.
+      //
+      // The blob's string-typed sub-fields (notably top_10[i].value for string
+      // columns) are NOT bounded by the cell-char limit applied to tuple
+      // results, so a column whose values are large strings (e.g. WKT
+      // geometries) would otherwise ship multi-MB stats payloads that blow
+      // the LLM context. Walk every value JSON and apply the same per-cell
+      // truncation we use on tuple cells.
       val columnStats: Option[Map[String, String]] = stats
         .map(_.operatorStatistics.resultStatistics.toMap)
+        .map(m => truncateColumnStatsValues(m, maxOperatorResultCellCharLimit))
         .filter(_.nonEmpty)
 
       operatorInfos(opId) = OperatorInfo(
@@ -745,6 +753,68 @@ class SyncExecutionResource extends LazyLogging {
       mapper: ObjectMapper
   ): Int = {
     mapper.writeValueAsString(tuple).length + 1 // +1 for the array separator
+  }
+
+  /**
+    * Recursively walk a parsed JSON node and replace every textual leaf whose
+    * raw length exceeds `maxChars` with a symmetric-truncated copy. Numeric,
+    * boolean, and null leaves are passed through; arrays and objects are
+    * rebuilt with truncated children. Used to bound the size of per-column
+    * stat blobs before they leave the engine — the `top_10[i].value` slot is
+    * the dominant offender for high-cardinality string columns.
+    */
+  private def truncateStringsInJsonValue(
+      node: com.fasterxml.jackson.databind.JsonNode,
+      maxChars: Int
+  ): com.fasterxml.jackson.databind.JsonNode = {
+    import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode, TextNode}
+
+    if (node == null || node.isNull) {
+      node
+    } else if (node.isTextual) {
+      val text = node.asText()
+      if (text.length > maxChars) new TextNode(symmetricTruncateCellValue(text, maxChars)) else node
+    } else if (node.isArray) {
+      val arr = node.asInstanceOf[ArrayNode]
+      val out = arr.arrayNode()
+      val it = arr.elements()
+      while (it.hasNext) out.add(truncateStringsInJsonValue(it.next(), maxChars))
+      out
+    } else if (node.isObject) {
+      val obj = node.asInstanceOf[ObjectNode]
+      val out = obj.objectNode()
+      val it = obj.fields()
+      while (it.hasNext) {
+        val e = it.next()
+        out.set(e.getKey, truncateStringsInJsonValue(e.getValue, maxChars))
+      }
+      out
+    } else {
+      node
+    }
+  }
+
+  /**
+    * Per-column stat blobs are `String → JSON`-encoded values. For each
+    * column we parse the JSON, truncate any oversized string leaves, and
+    * re-serialize. If parsing fails (unexpected shape), the original value is
+    * left untouched — never block stats on a parser hiccup.
+    */
+  private def truncateColumnStatsValues(
+      stats: Map[String, String],
+      maxCellChars: Int
+  ): Map[String, String] = {
+    val mapper = new ObjectMapper()
+    stats.map {
+      case (col, statJson) =>
+        try {
+          val node = mapper.readTree(statJson)
+          val truncated = truncateStringsInJsonValue(node, maxCellChars)
+          col -> mapper.writeValueAsString(truncated)
+        } catch {
+          case _: Exception => col -> statJson
+        }
+    }
   }
 
   private def symmetricTruncateCellValue(text: String, maxChars: Int): String = {
