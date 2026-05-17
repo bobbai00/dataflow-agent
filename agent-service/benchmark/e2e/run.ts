@@ -39,6 +39,7 @@ import type { OperatorPredicate, WorkflowContent } from "../../src/types/workflo
 import type { OperatorInfo, SyncExecutionResult } from "../../src/types/execution";
 
 import { CODE_WORKFLOW_SPECS } from "./code-workflows";
+import { CODE_MODE_WORKFLOW_SPECS } from "./code-mode-workflows";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -59,6 +60,14 @@ interface WorkflowJob {
   name: string; // unique persisted name for this run
   description: string;
   content: WorkflowContent;
+  /**
+   * Optional STRICT post-execution validator. When set, this runs after the
+   * standard "all sinks produced rows" check and may throw to fail the job
+   * even if the workflow technically reached `Completed`. The code-mode
+   * specs use it to assert port→parameter mapping, exact column sets, and
+   * expected row values.
+   */
+  validate?: (result: SyncExecutionResult) => void;
 }
 
 interface DatasetUsage {
@@ -100,6 +109,16 @@ function buildCodeWorkflows(): WorkflowJob[] {
     name: spec.name,
     description: spec.description,
     content: spec.build(DATA_DIR),
+  }));
+}
+
+function buildCodeModeWorkflows(): WorkflowJob[] {
+  return CODE_MODE_WORKFLOW_SPECS.map(spec => ({
+    label: spec.name,
+    name: spec.name,
+    description: spec.description,
+    content: spec.build(DATA_DIR),
+    validate: spec.validate,
   }));
 }
 
@@ -358,7 +377,21 @@ async function runWorkflow(
     timeoutSeconds: TIMEOUT_SECONDS,
     executionName: `e2e:${job.label}`,
   });
-  const ok = printExecutionResult(job.label, result, sinks);
+  let ok = printExecutionResult(job.label, result, sinks);
+
+  // Apply strict per-spec validators when present. These run AFTER the
+  // generic "sinks emitted rows" check so we still get the surface
+  // diagnostics if execution itself failed; a thrown validator demotes
+  // the job to a failure even when the runtime reached Completed.
+  if (ok && job.validate) {
+    try {
+      job.validate(result);
+      log(`✓ ${job.label}: strict validators all passed`);
+    } catch (err) {
+      logErr(`✗ ${job.label}: validator failed: ${err instanceof Error ? err.message : String(err)}`);
+      ok = false;
+    }
+  }
   return { wid, ok };
 }
 
@@ -376,7 +409,10 @@ async function main(): Promise<void> {
 
   const generalWorkflows = await loadGeneralWorkflows();
   const codeWorkflows = buildCodeWorkflows();
-  log(`loaded ${generalWorkflows.length} general + ${codeWorkflows.length} code workflows`);
+  const codeModeWorkflows = buildCodeModeWorkflows();
+  log(
+    `loaded ${generalWorkflows.length} general + ${codeWorkflows.length} code + ${codeModeWorkflows.length} code-mode workflows`
+  );
 
   const usage = collectDatasetUsage(generalWorkflows);
   log(`general workflows reference ${usage.size} dataset(s): ${[...usage.keys()].join(", ") || "(none)"}`);
@@ -406,7 +442,7 @@ async function main(): Promise<void> {
       rewriteDatasetPaths(generalWorkflows, remap);
     }
 
-    const allJobs = [...generalWorkflows, ...codeWorkflows];
+    const allJobs = [...generalWorkflows, ...codeWorkflows, ...codeModeWorkflows];
     for (const job of allJobs) {
       try {
         const { wid, ok } = await runWorkflow(token, job, runId, cuid);

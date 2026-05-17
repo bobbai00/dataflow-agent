@@ -816,7 +816,7 @@ describe("assembleContext — before/after trim applied to rendered event list",
     "Operator loader modified\nBefore code:\ndef load(): return pd.read_csv('a', skiprows=3)\nAfter code:\ndef load(): return pd.read_csv('a', skiprows=4)";
 
   for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
-    test(`mode ${ContextMode[mode]}: keeps only the most-recent mod's before/after for an operator`, () => {
+    test(`mode ${mode}: keeps only the most-recent mod's before/after for an operator`, () => {
       const { steps, storage, workflowState } = buildScenario([
         { id: "u", stepId: 0, role: "user", messageId: "m1", content: "go" },
         makeMod("a1", 1, "u", "loader", "first mod", "code-1", modOut1),
