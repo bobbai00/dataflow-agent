@@ -15,6 +15,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\"",
     "e2e": "bun run benchmark/e2e/run.ts",
     "e2e:errors": "bun run benchmark/e2e/error-run.ts",
+    "e2e:agent": "bun run benchmark/e2e/agent-run.ts",
     "trace-gen": "bun run benchmark/llm-training-data-generation/run.ts",
     "trace-eval": "bun run benchmark/llm-training-data-generation/evaluate.ts"
   },
