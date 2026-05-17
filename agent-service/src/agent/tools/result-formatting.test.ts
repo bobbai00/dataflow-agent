@@ -204,6 +204,86 @@ describe("formatOperatorResult - wide-table column cap", () => {
   });
 });
 
+describe("formatOperatorResult - column-stats schema is opaque", () => {
+  // Locks in the contract that agent-service does NOT look inside the stat
+  // JSON blob it gets from the backend. The blob's shape can change
+  // (top_10 → top_3, new percentile keys, new dtype-specific summaries,
+  // outright deprecations) without the renderer needing a code change. If
+  // any of these tests start failing, someone added a backend-coupled
+  // assumption to the renderer — push that back into the backend instead.
+
+  function renderWithStats(stats: Record<string, string>): string {
+    return formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 1, result: [{ a: 1 }], columnStats: stats }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+  }
+
+  test("renames inside the stat JSON (top_10 → top_3) are emitted unchanged", () => {
+    const old = { sentinel: `{"count":3,"null":0,"distinct":3,"top_10":[{"value":"A","count":2},{"value":"B","count":1}]}` };
+    const fresh = { sentinel: `{"count":3,"null":0,"distinct":3,"top_3":[{"value":"A","count":2},{"value":"B","count":1}]}` };
+    const outOld = renderWithStats(old);
+    const outFresh = renderWithStats(fresh);
+    // Each rendering carries its own key string verbatim — renderer is shape-agnostic.
+    expect(outOld).toContain("top_10");
+    expect(outOld).not.toContain("top_3");
+    expect(outFresh).toContain("top_3");
+    expect(outFresh).not.toContain("top_10");
+    // Both renderings carry the same per-value content.
+    expect(outOld).toContain('"value":"A"');
+    expect(outFresh).toContain('"value":"A"');
+  });
+
+  test("dropping per-column entry count from 10 to 3 just produces a shorter blob", () => {
+    const ten = {
+      sentinel:
+        `{"count":10,"distinct":10,"top_10":[` +
+        Array.from({ length: 10 }, (_, i) => `{"value":"v${i}","count":1}`).join(",") +
+        `]}`,
+    };
+    const three = {
+      sentinel:
+        `{"count":10,"distinct":10,"top_3":[` +
+        Array.from({ length: 3 }, (_, i) => `{"value":"v${i}","count":1}`).join(",") +
+        `]}`,
+    };
+    const outTen = renderWithStats(ten);
+    const outThree = renderWithStats(three);
+    // The shorter blob's rendered Column-stats section is smaller, by close to the
+    // size of the 7 dropped entries — proves the renderer pass-through is faithful.
+    const tenStats = outTen.split("Column stats:")[1] ?? "";
+    const threeStats = outThree.split("Column stats:")[1] ?? "";
+    expect(threeStats.length).toBeLessThan(tenStats.length);
+    // Sanity: the kept entries appear in the top_3 render; the dropped ones don't.
+    expect(outThree).toContain('"value":"v0"');
+    expect(outThree).toContain('"value":"v2"');
+    expect(outThree).not.toContain('"value":"v9"');
+  });
+
+  test("a brand-new stat key the renderer has never heard of is still emitted verbatim", () => {
+    const blob = { sentinel: `{"count":5,"unicorn_metric":3.14,"value_histogram":{"bins":[1,2,3]}}` };
+    const out = renderWithStats(blob);
+    // The renderer just echoes the JSON blob; no key whitelist, no shape check.
+    expect(out).toContain("unicorn_metric");
+    expect(out).toContain("3.14");
+    expect(out).toContain("value_histogram");
+  });
+
+  test("an oversized string inside the stat blob is rendered as-is (the backend owns truncation)", () => {
+    // Documents the explicit division of responsibility: the agent-service does
+    // NOT re-truncate per-cell within stat blobs. The backend's
+    // truncateColumnStatsValues is what bounds the size. If a test later wants
+    // a safety net here, change the renderer AND update this assertion.
+    const huge = "X".repeat(200);
+    const stats = { sentinel: `{"count":1,"top_3":[{"value":"${huge}","count":1}]}` };
+    const out = renderWithStats(stats);
+    // The 200-char "X..." block is present unmodified.
+    expect(out).toContain("X".repeat(200));
+  });
+});
+
 describe("formatOperatorResult - input port metadata", () => {
   test("omits input metadata when inputPortShapes is missing", () => {
     const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 1, result: [{ a: 1 }] }), EMPTY_STATE);
