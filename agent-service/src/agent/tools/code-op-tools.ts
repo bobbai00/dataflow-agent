@@ -192,14 +192,74 @@ function findOperatorByName(workflowState: WorkflowState, operatorName: string):
 }
 
 /**
- * Whitespace-normalize a code blob for byte-comparison purposes: trim each
- * line, collapse internal whitespace runs to one space, drop empty lines.
- * Two snippets that differ only in comments, formatting, or blank-line spacing
- * compare equal under this normalization — that's exactly the class of
- * "no-op modification" we want to flag.
+ * Strip Python docstrings (triple-quoted strings) and `#` line comments from
+ * code, leaving regular single/double-quoted string literals intact (those
+ * carry data — file paths, separators, regex patterns — and removing them
+ * would erase signal). Replaces matched ranges with whitespace of equal
+ * length so line/column numbers stay aligned with the original.
+ *
+ * Used by `normalizeCodeForCompare` so the no-op detector ignores
+ * docstring/comment-only edits — a docstring rewrite passing as "code
+ * change" was the most common way models leaked past a naive byte check.
+ */
+function stripDocstringsAndComments(code: string): string {
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const c = code[i];
+    // Triple-quoted strings → blanked (treat as docstring).
+    if (code.startsWith('"""', i) || code.startsWith("'''", i)) {
+      const quote = code.substr(i, 3);
+      const end = code.indexOf(quote, i + 3);
+      const stop = end === -1 ? code.length : end + 3;
+      out += blank(code.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    // Regular single/double-quoted strings → kept verbatim (carry data).
+    if (c === '"' || c === "'") {
+      const quote = c;
+      let j = i + 1;
+      while (j < code.length) {
+        if (code[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (code[j] === "\n") break;
+        if (code[j] === quote) {
+          j++;
+          break;
+        }
+        j++;
+      }
+      out += code.slice(i, j);
+      i = j;
+      continue;
+    }
+    // `#` line comments → blanked.
+    if (c === "#") {
+      const eol = code.indexOf("\n", i);
+      const stop = eol === -1 ? code.length : eol;
+      out += blank(code.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Whitespace-normalize a code blob for byte-comparison purposes after
+ * stripping docstrings + line comments. Two snippets that differ only in
+ * comments, docstrings, formatting, or blank-line spacing compare equal
+ * under this normalization — that's exactly the class of "no-op
+ * modification" we want to flag.
  */
 function normalizeCodeForCompare(s: string): string {
-  return s
+  return stripDocstringsAndComments(s)
     .split("\n")
     .map(l => l.replace(/\s+/g, " ").trim())
     .filter(l => l.length > 0)
@@ -207,29 +267,22 @@ function normalizeCodeForCompare(s: string): string {
 }
 
 /**
- * Render the before/after code diff block that's appended to every modifyOperator
- * tool result. The agent reads this on its next turn (it lives in the action's
- * `(result: ...)` body in the event list), so a no-op is unmistakably visible
- * without the agent having to call any other tool.
- *
- * When `isNoOp` is true, prepend a loud WARNING + explicit instruction to pivot
- * strategy — this is the operator-thrashing prevention signal.
+ * Render the no-op WARNING line appended to a modifyOperator tool result
+ * when the agent submits code byte-identical to the prior version (after
+ * stripping docstrings/comments and normalizing whitespace). Returns the
+ * empty string when the modification is meaningful — in that case the
+ * result is just "Operator X modified" and the agent reads the actual code
+ * from the rendered context (which carries `code: |` blocks for the most
+ * recent N events under the `recentEventsCap` policy).
  */
-function formatBeforeAfterCodeBlock(before: string, after: string, isNoOp: boolean): string {
-  const parts: string[] = [];
-  if (isNoOp) {
-    parts.push(
-      "WARNING: the code you just submitted is byte-identical (after whitespace normalization) to the prior version — this modification was a no-op. " +
-        "If you intended to alter behavior, you must change strategy (e.g., add a separate inspector operator to look at the data, " +
-        "switch the loader function, change column-selection logic) — not another small tweak to this same operator. " +
-        "Repeating near-identical modifications without pivoting is parametric thrashing and will not converge."
-    );
-  }
-  parts.push("Before code:");
-  parts.push(before);
-  parts.push("After code:");
-  parts.push(after);
-  return parts.join("\n");
+function formatNoOpWarning(): string {
+  return (
+    "WARNING: the code you just submitted matches the prior version after stripping docstrings/comments and normalizing whitespace — " +
+    "this modification was a no-op. " +
+    "If you intended to alter behavior, you must change strategy (e.g., switch the loader function, " +
+    "change column-selection logic, look at a different upstream operator's result) — not another small tweak to this same operator. " +
+    "Repeating near-identical modifications without pivoting is parametric thrashing and will not converge."
+  );
 }
 
 /**
@@ -393,7 +446,13 @@ async function validateOperatorContract(code: string): Promise<ContractResult> {
 }
 
 /** Exposed for unit tests — exercises the no-Python regex fallback path. */
-export const __forTesting = { regexContractCheck, stripPythonCommentsAndStrings, normalizeCodeForCompare, formatBeforeAfterCodeBlock };
+export const __forTesting = {
+  regexContractCheck,
+  stripPythonCommentsAndStrings,
+  stripDocstringsAndComments,
+  normalizeCodeForCompare,
+  formatNoOpWarning,
+};
 
 async function runPythonContractCheck(code: string): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
   const { spawn } = await import("child_process");
@@ -736,13 +795,17 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
             deletedLinkPairs.length > 0 ? deletedLinkPairs : undefined
           );
 
-          // Always include a Before/After code block in the modify result so
-          // the agent can compare its prior code against what it just submitted
-          // on the next turn. When the two are identical (after whitespace
-          // normalization), prepend an explicit WARNING — this is the
-          // operator-thrashing prevention signal.
+          // Emit a loud WARNING when the agent submitted code byte-identical
+          // to the prior version (after stripping docstrings/comments and
+          // normalizing whitespace) — operator-thrashing prevention signal.
+          // The actual code of recent modifications is visible to the agent
+          // via the `code: |` blocks rendered for events inside the
+          // `recentEventsCap` window, so we don't need to repeat before/after
+          // here for non-noop modifications.
           const isNoOp = normalizeCodeForCompare(beforeCode) === normalizeCodeForCompare(code) && code.length > 0;
-          resultMsg = `${resultMsg}\n${formatBeforeAfterCodeBlock(beforeCode, code, isNoOp)}`;
+          if (isNoOp) {
+            resultMsg = `${resultMsg}\n${formatNoOpWarning()}`;
+          }
         }
 
         const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;

@@ -21,7 +21,13 @@ import { describe, expect, test } from "bun:test";
 import { __forTesting, createCreateOrModifyOperatorTool, validateOperatorId } from "./code-op-tools";
 import { WorkflowState } from "../workflow-state";
 
-const { regexContractCheck, stripPythonCommentsAndStrings, normalizeCodeForCompare, formatBeforeAfterCodeBlock } = __forTesting;
+const {
+  regexContractCheck,
+  stripPythonCommentsAndStrings,
+  stripDocstringsAndComments,
+  normalizeCodeForCompare,
+  formatNoOpWarning,
+} = __forTesting;
 
 describe("validateOperatorId — camelCase enforcement", () => {
   test("accepts simple lowercase word", () => {
@@ -366,6 +372,40 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
   });
 });
 
+describe("stripDocstringsAndComments", () => {
+  test("blanks triple-quoted docstrings", () => {
+    const out = stripDocstringsAndComments(`def f():
+    """First line of docstring.
+    Second line."""
+    return 1`);
+    expect(out).not.toContain("First line");
+    expect(out).not.toContain("Second line");
+    expect(out).toContain("return 1");
+  });
+
+  test("blanks # line comments", () => {
+    const out = stripDocstringsAndComments(`x = 1  # this is a comment with read_csv inside
+y = 2`);
+    expect(out).not.toContain("this is a comment");
+    expect(out).not.toContain("read_csv inside");
+    expect(out).toContain("x = 1");
+    expect(out).toContain("y = 2");
+  });
+
+  test("keeps regular single/double-quoted strings verbatim (they carry data)", () => {
+    const out = stripDocstringsAndComments(`return pd.read_csv('/data/x.csv', sep=';', encoding="utf-8")`);
+    expect(out).toContain("'/data/x.csv'");
+    expect(out).toContain("';'");
+    expect(out).toContain('"utf-8"');
+  });
+
+  test("preserves line numbers (blanked region keeps newlines)", () => {
+    const orig = `def f():\n    """doc"""\n    return 1`;
+    const out = stripDocstringsAndComments(orig);
+    expect(out.split("\n").length).toBe(orig.split("\n").length);
+  });
+});
+
 describe("normalizeCodeForCompare", () => {
   test("treats identical code as identical", () => {
     const a = "def load():\n    return pd.read_csv('x.csv')";
@@ -378,37 +418,42 @@ describe("normalizeCodeForCompare", () => {
     expect(normalizeCodeForCompare(a)).toBe(normalizeCodeForCompare(b));
   });
 
+  test("treats docstring-only changes as equal (logic is the no-op signal)", () => {
+    const a = `def load():\n    """Load X."""\n    return pd.read_csv('x.csv')`;
+    const b = `def load():\n    """Reload X with extra explanation about provenance."""\n    return pd.read_csv('x.csv')`;
+    expect(normalizeCodeForCompare(a)).toBe(normalizeCodeForCompare(b));
+  });
+
+  test("treats comment-only changes as equal", () => {
+    const a = `def load():\n    # try the obvious read first\n    return pd.read_csv('x.csv')`;
+    const b = `def load():\n    # NOTE: this should match the user-given path exactly\n    return pd.read_csv('x.csv')`;
+    expect(normalizeCodeForCompare(a)).toBe(normalizeCodeForCompare(b));
+  });
+
   test("detects an actual kwarg change as different", () => {
     const a = "def load():\n    return pd.read_csv('x.csv', skiprows=2)";
     const b = "def load():\n    return pd.read_csv('x.csv', skiprows=3)";
     expect(normalizeCodeForCompare(a)).not.toBe(normalizeCodeForCompare(b));
   });
+
+  test("a real string-literal change (separator, path) is detected as different", () => {
+    const a = "def load():\n    return pd.read_csv('x.csv', sep=',')";
+    const b = "def load():\n    return pd.read_csv('x.csv', sep=';')";
+    expect(normalizeCodeForCompare(a)).not.toBe(normalizeCodeForCompare(b));
+  });
 });
 
-describe("formatBeforeAfterCodeBlock", () => {
-  test("includes both blocks labelled 'Before code:' and 'After code:'", () => {
-    const out = formatBeforeAfterCodeBlock("def load(): return 1", "def load(): return 2", false);
-    expect(out).toContain("Before code:");
-    expect(out).toContain("After code:");
-    expect(out).toContain("def load(): return 1");
-    expect(out).toContain("def load(): return 2");
-    expect(out).not.toContain("WARNING");
-  });
-
-  test("prepends a WARNING line when the modification was a no-op", () => {
-    const code = "def load(): return pd.read_csv('x.csv')";
-    const out = formatBeforeAfterCodeBlock(code, code, true);
+describe("formatNoOpWarning", () => {
+  test("returns a single-paragraph WARNING line mentioning no-op, pivot, thrashing", () => {
+    const out = formatNoOpWarning();
     expect(out.startsWith("WARNING:")).toBe(true);
     expect(out).toContain("no-op");
     expect(out).toContain("pivot");
     expect(out).toContain("thrashing");
-    // Block contents still present after the warning.
-    expect(out).toContain("Before code:");
-    expect(out).toContain("After code:");
   });
 });
 
-describe("createOrModifyOperator — before/after code block in result", () => {
+describe("createOrModifyOperator — modify result shape (post-cleanup)", () => {
   function buildTool() {
     const ws = new WorkflowState();
     const tool = createCreateOrModifyOperatorTool(ws, new Map(), undefined);
@@ -433,70 +478,86 @@ describe("createOrModifyOperator — before/after code block in result", () => {
     } as any);
   }
 
-  test("modifying an existing operator appends Before/After block to the tool result", async () => {
+  test("a real code change emits ONLY 'Operator X modified' — no diff body, no WARNING", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    const before = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv')`;
-    seedOp(ws, opId, before);
-    const after = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv', skiprows=2)`;
-    const result = await execute({ operatorId: opId, code: after, summary: "with skiprows=2" });
-
-    expect(typeof result).toBe("string");
-    // The normal "Operator X modified" line is still emitted somewhere in the result.
+    seedOp(ws, opId, "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv')");
+    const result = await execute({
+      operatorId: opId,
+      code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)",
+      summary: "with skiprows=2",
+    });
     expect(result).toContain(opId);
-    // The Before/After block is attached.
-    expect(result).toContain("Before code:");
-    expect(result).toContain("After code:");
-    expect(result).toContain("skiprows=2"); // the new code
-    expect(result).not.toContain("WARNING:"); // codes differ → no no-op signal
+    expect(result).toContain("modified");
+    expect(result).not.toContain("WARNING");
+    expect(result).not.toContain("@@");
+    expect(result).not.toContain("Code diff");
+    expect(result).not.toContain("Before code:");
+    expect(result).not.toContain("After code:");
   });
 
-  test("submitting code byte-identical to the existing operator's code triggers the no-op WARNING", async () => {
+  test("submitting code byte-identical to the prior version triggers the no-op WARNING", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    const before = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv', skiprows=2)`;
-    seedOp(ws, opId, before);
-    // Re-submit the exact same code (this is what mods 6 and 7 of legal-hard-7
-    // looked like in practice: same logic, only a comment moved).
-    const result = await execute({ operatorId: opId, code: before, summary: "still skiprows=2" });
+    const code = "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)";
+    seedOp(ws, opId, code);
+    const result = await execute({ operatorId: opId, code, summary: "still skiprows=2" });
     expect(result).toContain("WARNING");
     expect(result).toContain("no-op");
     expect(result).toContain("pivot");
-    expect(result).toContain("Before code:");
-    expect(result).toContain("After code:");
   });
 
-  test("whitespace-only differences also count as a no-op (warning fires)", async () => {
+  test("docstring-only edit counts as a no-op (the most common thrash leak)", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    const before = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv', skiprows=2)`;
-    seedOp(ws, opId, before);
-    // Same code with extra whitespace and a blank line. Normalize should compare equal.
-    const after = `def load() -> pd.DataFrame:
-
-        return  pd.read_csv('/data/x.csv',    skiprows=2)
-`;
-    const result = await execute({ operatorId: opId, code: after, summary: "reformatted only" });
+    seedOp(
+      ws,
+      opId,
+      'def load() -> pd.DataFrame:\n    """Load X."""\n    return pd.read_csv("x.csv", skiprows=2)'
+    );
+    const result = await execute({
+      operatorId: opId,
+      code:
+        'def load() -> pd.DataFrame:\n    """Reload X with extra notes about provenance."""\n    return pd.read_csv("x.csv", skiprows=2)',
+      summary: "rewrote docstring only",
+    });
     expect(result).toContain("WARNING");
     expect(result).toContain("no-op");
   });
 
-  test("a real kwarg change does NOT trigger the no-op WARNING even with similar shape", async () => {
+  test("whitespace-only differences also count as a no-op", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    const before = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv', skiprows=2)`;
-    seedOp(ws, opId, before);
-    const after = `def load() -> pd.DataFrame:
-    return pd.read_csv('/data/x.csv', skiprows=3)`;
-    const result = await execute({ operatorId: opId, code: after, summary: "skiprows=3" });
+    seedOp(
+      ws,
+      opId,
+      "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)"
+    );
+    const result = await execute({
+      operatorId: opId,
+      code:
+        "def load() -> pd.DataFrame:\n\n        return  pd.read_csv('/data/x.csv',    skiprows=2)\n",
+      summary: "reformatted only",
+    });
+    expect(result).toContain("WARNING");
+    expect(result).toContain("no-op");
+  });
+
+  test("a real kwarg change does NOT trigger the no-op WARNING", async () => {
+    const { ws, execute } = buildTool();
+    const opId = "csvLoader";
+    seedOp(
+      ws,
+      opId,
+      "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)"
+    );
+    const result = await execute({
+      operatorId: opId,
+      code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=3)",
+      summary: "skiprows=3",
+    });
     expect(result).not.toContain("WARNING");
-    expect(result).toContain("Before code:");
-    expect(result).toContain("After code:");
+    expect(result).toContain("modified");
   });
 });
 
