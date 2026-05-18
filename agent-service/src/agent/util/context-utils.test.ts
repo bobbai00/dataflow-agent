@@ -784,7 +784,7 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
     expect(c).toContain("Find the answer.");
   });
 
-  test("cap=0: no events kept, but # User Task and # Current Dataflow survive", () => {
+  test("cap=0: # Recent Agent Events section omitted entirely, # User Task and # Current Dataflow survive", () => {
     const { steps, storage, workflowState } = buildLongScenario(4);
     storage.createSnapshot("a4", makeWorkflow(["op1", "op2", "op3", "op4"]));
     const c = content(
@@ -796,9 +796,11 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
     // No agent or user events visible inline.
     expect(c).not.toContain("## Agent Event");
     expect(c).not.toContain("## User Event");
-    // Truncation notice present under # Recent Agent Events.
-    expect(c).toContain("# Recent Agent Events (last 0 of 5 events)");
-    expect(c).toContain("5 earlier events omitted");
+    // Recent Agent Events is suppressed entirely — no degenerate
+    // "(last 0 of N events)" header, no truncation notice. The prompt jumps
+    // straight from # User Task to # Current Dataflow.
+    expect(c).not.toContain("# Recent Agent Events");
+    expect(c).not.toContain("earlier events omitted");
     // # User Task is the single source of truth for the question.
     expect(c).toContain("# User Task");
     expect(c).toContain("Find the answer.");
@@ -819,9 +821,13 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
         recentEventsCap: 0,
       })
     );
-    // # User Task is always present at the top regardless of cap.
-    expect(c.indexOf("# User Task")).toBeLessThan(c.indexOf("# Recent Agent Events"));
+    // # User Task is always present at the top, and with cap=0 the Recent
+    // Agent Events section is gone so # User Task is followed directly by
+    // # Current Dataflow.
+    expect(c).toContain("# User Task");
     expect(c).toContain("Find the answer.");
+    expect(c).not.toContain("# Recent Agent Events");
+    expect(c.indexOf("# User Task")).toBeLessThan(c.indexOf("# Current Dataflow"));
   });
 
   test("cap >= path length: no truncation notice (cap is effectively off)", () => {

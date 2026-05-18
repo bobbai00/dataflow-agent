@@ -152,6 +152,12 @@ export function assembleContext(
     droppedEventCount > 0
       ? `(... ${droppedEventCount} earlier event${droppedEventCount === 1 ? "" : "s"} omitted to keep context focused on recent work ...)`
       : undefined;
+  // recentEventsCap=0 is an explicit opt-out, not a "0 of N" display. The
+  // degenerate header `# Recent Agent Events (last 0 of N events)` followed
+  // by nothing but a truncation notice reads as a contradiction, so we drop
+  // the entire section in that case and let the prompt jump straight from
+  // `# User Task` to `# Current Dataflow`.
+  const skipRecentEventsSection = cap === 0;
 
   let content: string;
   switch (mode) {
@@ -166,7 +172,8 @@ export function assembleContext(
         latestUserContent,
         latestUserStepId,
         recentHeaderSuffix,
-        truncationNotice
+        truncationNotice,
+        skipRecentEventsSection
       );
       break;
     case ContextMode.DELTA:
@@ -180,7 +187,8 @@ export function assembleContext(
         latestUserContent,
         latestUserStepId,
         recentHeaderSuffix,
-        truncationNotice
+        truncationNotice,
+        skipRecentEventsSection
       );
       break;
     case ContextMode.LATEST: {
@@ -198,7 +206,8 @@ export function assembleContext(
         latestUserStepId,
         recentHeaderSuffix,
         truncationNotice,
-        fullPathCurrent
+        fullPathCurrent,
+        skipRecentEventsSection
       );
       break;
     }
@@ -373,7 +382,8 @@ function renderInterleaved(
   latestUserContent: string | undefined = undefined,
   latestUserStepId: string | undefined = undefined,
   recentHeaderSuffix = "",
-  truncationNotice: string | undefined = undefined
+  truncationNotice: string | undefined = undefined,
+  skipRecentEventsSection = false
 ): string {
   const lastSnapshotId = lastSnapshotIdOf(tasks);
   const sections: string[] = [];
@@ -386,41 +396,43 @@ function renderInterleaved(
     sections.push("");
   }
 
-  // 2. # Recent Agent Events
-  sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
-  sections.push("");
-  if (truncationNotice) {
-    sections.push(truncationNotice);
+  // 2. # Recent Agent Events (skipped entirely when cap=0)
+  if (!skipRecentEventsSection) {
+    sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
     sections.push("");
-  }
-  // For Delta: rolling reference to the previous snapshot for diffing. The
-  // init snapshot (hidden Event 0) seeds it so the first real action diffs
-  // against the loaded workflow rather than appearing as a from-scratch add.
-  let prevSnapshot: SnapshotData | undefined = initSnapshot;
-  let renderedAny = false;
-  for (const task of tasks) {
-    const body = serializeTaskBody(
-      task,
-      flavour,
-      workflowState,
-      options,
-      lastSnapshotId,
-      () => prevSnapshot,
-      s => {
-        prevSnapshot = s;
-      },
-      includeCodeForKept,
-      latestUserStepId
-    );
-    if (body) {
-      sections.push(body);
+    if (truncationNotice) {
+      sections.push(truncationNotice);
       sections.push("");
-      renderedAny = true;
     }
-  }
-  if (!renderedAny && !truncationNotice) {
-    sections.push("(no agent actions yet)");
-    sections.push("");
+    // For Delta: rolling reference to the previous snapshot for diffing. The
+    // init snapshot (hidden Event 0) seeds it so the first real action diffs
+    // against the loaded workflow rather than appearing as a from-scratch add.
+    let prevSnapshot: SnapshotData | undefined = initSnapshot;
+    let renderedAny = false;
+    for (const task of tasks) {
+      const body = serializeTaskBody(
+        task,
+        flavour,
+        workflowState,
+        options,
+        lastSnapshotId,
+        () => prevSnapshot,
+        s => {
+          prevSnapshot = s;
+        },
+        includeCodeForKept,
+        latestUserStepId
+      );
+      if (body) {
+        sections.push(body);
+        sections.push("");
+        renderedAny = true;
+      }
+    }
+    if (!renderedAny && !truncationNotice) {
+      sections.push("(no agent actions yet)");
+      sections.push("");
+    }
   }
 
   return sections.join("\n").trimEnd();
@@ -437,7 +449,8 @@ function renderLatest(
   latestUserStepId: string | undefined = undefined,
   recentHeaderSuffix = "",
   truncationNotice: string | undefined = undefined,
-  fullPathCurrentOverride: SnapshotData | undefined = undefined
+  fullPathCurrentOverride: SnapshotData | undefined = undefined,
+  skipRecentEventsSection = false
 ): string {
   const sections: string[] = [];
 
@@ -449,12 +462,14 @@ function renderLatest(
     sections.push("");
   }
 
-  // 2. # Recent Agent Events
-  sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
-  sections.push("");
-  if (truncationNotice) {
-    sections.push(truncationNotice);
+  // 2. # Recent Agent Events (skipped entirely when cap=0)
+  if (!skipRecentEventsSection) {
+    sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
     sections.push("");
+    if (truncationNotice) {
+      sections.push(truncationNotice);
+      sections.push("");
+    }
   }
 
   // Trailing snapshot picked from the full path (cap-independent) so it
@@ -463,22 +478,26 @@ function renderLatest(
   const current = fullPathCurrentOverride ?? lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
   const liveOperatorIds = new Set(current.workflow.operators.map(o => o.operatorID));
 
-  let renderedAny = false;
-  for (const task of tasks) {
-    const body = serializeTaskEventsOnly(task, liveOperatorIds, includeCodeForKept, latestUserStepId);
-    if (body) {
-      sections.push(body);
-      sections.push("");
-      renderedAny = true;
+  if (!skipRecentEventsSection) {
+    let renderedAny = false;
+    for (const task of tasks) {
+      const body = serializeTaskEventsOnly(task, liveOperatorIds, includeCodeForKept, latestUserStepId);
+      if (body) {
+        sections.push(body);
+        sections.push("");
+        renderedAny = true;
+      }
     }
-  }
-  if (!renderedAny && !truncationNotice) {
-    sections.push("(no agent actions yet)");
-    sections.push("");
+    if (!renderedAny && !truncationNotice) {
+      sections.push("(no agent actions yet)");
+      sections.push("");
+    }
   }
 
   // 3. # Current Dataflow — sectionLevel=2 keeps "## Operators" at H2 and
-  //    "### Operator `x` (Type)" at H3, nested under the H1 wrapper.
+  //    "### Operator `x` (Type)" at H3, nested under the H1 wrapper. This
+  //    block is independent of the cap, so it still renders when cap=0
+  //    even though `# Recent Agent Events` is suppressed above.
   const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
   if (dag) {
     sections.push("# Current Dataflow");

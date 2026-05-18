@@ -61,7 +61,7 @@ Every turn the input you receive has three top-level sections, in order:
 
 1. **\`# User Task\`** — the user's most recent request, verbatim. Always present. This is the single source of truth for what you are trying to solve; it is never duplicated elsewhere in the prompt.
 
-2. **\`# Recent Agent Events (last K of N events)\`** — your own action history, capped to the most recent K turns (controlled by the \`recentEventsCap\` setting; default keeps a large window). When the cap drops older turns you'll see a \`(... M earlier events omitted ...)\` notice at the top of this section. Each kept event is one of:
+2. **\`# Recent Agent Events (last K of N events)\`** — your own action history, capped to the most recent K turns (controlled by the \`recentEventsCap\` setting; default keeps a large window). When the cap drops older turns you'll see a \`(... M earlier events omitted ...)\` notice at the top of this section. (When the cap is set to 0 the entire section is omitted — the prompt jumps straight from \`# User Task\` to \`# Current Dataflow\`.) Each kept event is one of:
    - \`## Agent Event N\` — your thought and the tool calls you made on that turn. For events inside the cap window the full \`code\` argument of each \`createOrModifyOperator\` call is rendered as an indented \`code: |\` block under the action header, so you can read exactly what was submitted.
    - \`## User Event N\` — only appears when the user sent more than one message in this chat. The latest user message is in \`# User Task\` above; older ones (multi-task continuations) show up inline here.
 
