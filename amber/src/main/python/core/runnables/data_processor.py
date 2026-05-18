@@ -545,22 +545,77 @@ class DataProcessor(Runnable, Stoppable):
                 return lines[i:], i + 1
         return lines, 0
 
+    # Code-elision tuning knobs. Below this many lines we never elide
+    # (showing the whole function is cheaper and clearer). Above it we
+    # show the first PREFIX_LINES, a marker_window of ±MARKER_RADIUS
+    # lines around the failing line, and the last SUFFIX_LINES — joined
+    # into contiguous ranges with `…` between non-adjacent ones. With a
+    # 200-line function and a mid-function marker, this caps the body
+    # at roughly PREFIX + 2*MARKER_RADIUS+1 + SUFFIX ≈ 24 code lines.
+    _FULL_BLOCK_THRESHOLD = 20
+    _PREFIX_LINES = 5
+    _MARKER_RADIUS = 4
+    _SUFFIX_LINES = 10
+    _NO_MARKER_PREFIX_LINES = 10
+    _NO_MARKER_SUFFIX_LINES = 10
+
     @staticmethod
     def _format_code_with_marker(lines: "list[str]", error_line: int) -> str:
         """
         Render `lines` with line numbers (starting at 1), marking
         `error_line` (1-based index into `lines`) with a `>` arrow so the
-        failing line is obvious. Caller is responsible for slicing the
-        source and translating any absolute line number into the
-        slice-relative one before passing them in.
+        failing line is obvious.
+
+        For functions longer than `_FULL_BLOCK_THRESHOLD` the body is
+        elided: we always keep the first `_PREFIX_LINES`, the last
+        `_SUFFIX_LINES`, and (when a marker is set) `_MARKER_RADIUS`
+        lines on either side of the marker. The kept indices are
+        collapsed into contiguous ranges and rendered with `…` between
+        non-adjacent ranges, so small functions just get the full view
+        and big ones get a bounded summary that always includes the
+        failing line + the function signature + the return statement.
+
+        `error_line` ≤ 0 (or out of range) means "no specific failing
+        line is known" — the marker is suppressed and the no-marker
+        prefix/suffix rule applies.
         """
         if not lines:
             return ""
-        width = len(str(len(lines)))
-        rendered = []
-        for idx, line in enumerate(lines, start=1):
-            marker = ">" if idx == error_line else " "
-            rendered.append(f"{marker} {idx:>{width}} | {line}")
+        n = len(lines)
+        width = len(str(n))
+        has_marker = error_line is not None and 1 <= error_line <= n
+
+        # Short functions: show everything, no elision.
+        if n <= DataProcessor._FULL_BLOCK_THRESHOLD:
+            kept = set(range(1, n + 1))
+        else:
+            kept: set = set()
+            if has_marker:
+                for i in range(1, min(DataProcessor._PREFIX_LINES, n) + 1):
+                    kept.add(i)
+                lo = max(1, error_line - DataProcessor._MARKER_RADIUS)
+                hi = min(n, error_line + DataProcessor._MARKER_RADIUS)
+                for i in range(lo, hi + 1):
+                    kept.add(i)
+                for i in range(max(1, n - DataProcessor._SUFFIX_LINES + 1), n + 1):
+                    kept.add(i)
+            else:
+                for i in range(1, min(DataProcessor._NO_MARKER_PREFIX_LINES, n) + 1):
+                    kept.add(i)
+                for i in range(max(1, n - DataProcessor._NO_MARKER_SUFFIX_LINES + 1), n + 1):
+                    kept.add(i)
+
+        rendered: List[str] = []
+        ellipsis_row = f"  {' ' * width}   …"
+        prev = 0
+        for i in range(1, n + 1):
+            if i not in kept:
+                continue
+            if prev > 0 and i > prev + 1:
+                rendered.append(ellipsis_row)
+            marker = ">" if has_marker and i == error_line else " "
+            rendered.append(f"{marker} {i:>{width}} | {lines[i - 1]}")
+            prev = i
         return "\n".join(rendered)
 
     def _report_exception(self, exc_info: ExceptionInfo):

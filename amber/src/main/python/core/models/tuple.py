@@ -191,6 +191,24 @@ class Tuple:
             self._field_data = OrderedDict(tuple_like.to_dict())
         else:
             self._field_data = OrderedDict(tuple_like) if tuple_like else OrderedDict()
+
+        # Normalize field-name keys to str. The rest of the framework
+        # treats column names as strings: `get_field_names` already
+        # stringifies on read, `__setitem__` asserts `isinstance(_, str)`,
+        # and the schema layer types attributes by str-typed names.
+        # But the Tuple constructor accepts arbitrary dict-like input,
+        # and pandas DataFrames built via `pd.read_*(header=None)` carry
+        # an integer RangeIndex as columns — so without normalization
+        # `_field_data` ends up keyed by ints while every reader stringifies
+        # them, producing a `KeyError: '0'` on the first cast_to_schema /
+        # validate_schema pass. Normalize once at construction so the
+        # invariant ("keys are str") holds for the rest of the Tuple's
+        # lifetime.
+        if any(not isinstance(k, str) for k in self._field_data.keys()):
+            self._field_data = OrderedDict(
+                (str(k), v) for k, v in self._field_data.items()
+            )
+
         self._schema: typing.Optional[Schema] = schema
 
     def __getitem__(self, item: typing.Union[int, str]) -> Field:

@@ -319,3 +319,79 @@ class TestTuple:
         assert len(tuples) == 1
         tuple_ = tuples[0]
         assert tuple_["large_binary_field"] is None
+
+
+class TestTupleKeyNormalization:
+    """
+    Regression coverage for the `pd.read_excel(header=None)` failure mode
+    captured in the archeology trace `new-new-trace.json`.
+
+    When the user's UDF returns a DataFrame whose columns are a RangeIndex
+    of ints (which `pd.read_*(header=None)` always produces), the Tuple's
+    `_field_data` was keyed by int while `get_field_names()` stringified
+    on read. Downstream code — schema inference, `cast_to_schema`,
+    `validate_schema` — used the stringified names to look back into
+    `_field_data`, hitting `KeyError: '0'` because `_field_data[0]` and
+    `_field_data["0"]` are different keys.
+
+    The fix normalizes keys to str at construction. These tests pin
+    down the invariant so future Tuple constructor changes don't
+    regress it.
+    """
+
+    def test_int_keyed_dict_normalized_to_str(self):
+        t = Tuple({0: "Region", 1: "Site", 11: "K"})
+        assert t.get_field_names() == ("0", "1", "11")
+        # __getitem__ now finds the underlying value by str key.
+        assert t["0"] == "Region"
+        assert t["1"] == "Site"
+        assert t["11"] == "K"
+        # Positional access by int still works (treated as index, not key).
+        assert t[0] == "Region"
+        assert t[2] == "K"
+
+    def test_pandas_series_with_int_index_normalized(self):
+        # Mirrors what `Table(df).as_tuples()` builds when the source
+        # DataFrame has integer column labels — `pandas.Series.to_dict()`
+        # of such a series produces int-keyed dicts.
+        series = pandas.Series(["Region", "Site", "Layer"], index=[0, 1, 2])
+        t = Tuple(series)
+        assert t.get_field_names() == ("0", "1", "2")
+        assert t["0"] == "Region"
+
+    def test_dataframe_with_header_none_round_trips_through_finalize(self):
+        # End-to-end: a 3x4 DataFrame with header=None-style int columns,
+        # finalize against a schema inferred via str column names.
+        # Pre-fix this would raise KeyError on the very first
+        # finalize() because cast_to_schema reads str keys but
+        # _field_data was int-keyed.
+        from core.models.schema.schema import Schema
+        from core.models.schema.attribute_type import AttributeType
+
+        df = pandas.DataFrame(
+            [["Region", "Site", "Layer", "K"]]
+            + [["ODP 967", "D", "1", "10665.81"]] * 2,
+            columns=[0, 1, 2, 3],  # int RangeIndex (header=None shape)
+        )
+        schema = Schema()
+        for c in df.columns:
+            schema.add(str(c), AttributeType.STRING)
+
+        # Build tuples the same way `Table(df).as_tuples()` does.
+        for raw in df.itertuples(index=False, name=None):
+            t = Tuple(dict(zip(df.columns, raw)))
+            t.finalize(schema)  # → cast_to_schema, validate_schema
+            # Round-trip lookup works on every field.
+            for col in df.columns:
+                assert t[str(col)] == raw[col]
+
+    def test_string_keyed_dict_is_not_unnecessarily_recopied(self):
+        # If all keys are already strings, normalization should be a no-op.
+        # We can't assert "same OrderedDict instance" (the implementation
+        # might still copy for other reasons), but we can assert the
+        # observable contract: keys remain identical strings.
+        original = {"col_a": 1, "col_b": 2}
+        t = Tuple(original)
+        assert list(t.get_field_names()) == ["col_a", "col_b"]
+        assert t["col_a"] == 1
+        assert t["col_b"] == 2
