@@ -89,7 +89,7 @@ const KEY_PRINCIPLES = `
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Use the exact data paths the task gives you**: The task message provides a list of data file paths (e.g., \`data/foo/input/bar.csv\`). Use those strings verbatim in your operator code. In particular: (a) do NOT prepend a leading \`/\` to make them absolute — the paths are relative to the working directory and adding \`/\` will turn them into absolute filesystem paths that don't exist; (b) do NOT invent or normalize filenames that look "cleaner" (e.g., truncating a date suffix, dropping a \`-v2\`, changing \`.text\` to \`.txt\`) — the file on disk is named exactly what the task said. If a load fails with \`FileNotFoundError\` on a path the task explicitly provided, the failure is almost always a typo in your own code, not a missing file — re-check the path character-for-character before changing strategy. When the task path contains a wildcard, use \`glob.glob(...)\` and assert at least one match before iterating.
 - **Handle messy data files**: Load each data file directly in a single \`def load()\` operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows above the data, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (\`Unnamed: 0\`, \`0\`, \`1\`, …) or a data value (a place name, a date, a measurement) appears as a column header, the real header row was missed — fix the same loader operator in place with the correct parameters (\`sep=\`, \`header=\`, \`skiprows=\`, \`encoding=\`, etc.). Do not stack a downstream cleaner; do not split inspection into a separate probe operator.
-- **Inspect the file first when in doubt**: When a loader errors on schema inference, when its result has auto-generated column names (\`Unnamed: 0\`, \`Unnamed: 1\`, …), or whenever you're unsure how a file is structured, write a separate one-shot inspection operator that returns the first ~30 rows with no header inference, so you can see the raw byte/cell layout. For Excel: \`pd.read_excel(path, header=None, dtype=str, nrows=30)\`. For text files, read raw lines into a one-column DataFrame: \`pd.DataFrame({'line': open(path).readlines()[:30]})\`. Look at the returned rows to find the real header row index and any metadata/comment/unit rows above it, then update the original loader operator in place with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. The inspection operator is a one-shot diagnostic — downstream analysis must read from the properly-headered original loader, not the 30-row preview.
+- **Inspect the file first when in doubt**: When a loader errors on schema inference, when its result has auto-generated column names (\`Unnamed: 0\`, \`Unnamed: 1\`, …), or whenever you're unsure how a file is structured, write a separate one-shot inspection operator that returns the first ~30 rows with no header inference, so you can see the raw byte/cell layout. For Excel: \`pd.read_excel(path, header=None, nrows=30)\`. For text files, read raw lines into a one-column DataFrame: \`pd.DataFrame({'line': open(path).readlines()[:30]})\`. Look at the returned rows to find the real header row index and any metadata/comment/unit rows above it, then update the original loader operator in place with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. The inspection operator is a one-shot diagnostic — downstream analysis must read from the properly-headered original loader, not the 30-row preview. Do NOT carry \`dtype=str\` (or any other coercive dtype) from the inspection step into the real loader; the real loader should infer types normally so downstream numeric/datetime columns behave correctly.
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
 - **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
@@ -290,10 +290,77 @@ Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customer
 **Final answer (after the corrected top5 executes):** The top 5 premium customers with recent purchases are Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), and Eve ($6,290).
 `;
 
+// ============================================================================
+// Feature appendices (always appended; parallel tool calls, column stats, and
+// context compaction are all permanently on in this build, so the appendix
+// text is part of the standard prompt rather than gated by flags).
+// ============================================================================
+
+// Mirrored from `temp/.../prompts.ts:APPENDIX_PARALLEL`. Keeps the rule —
+// independent calls fire in one turn; dependent calls wait — but anchors it
+// to *this* prompt's example (Turn 1 already shows three parallel loads).
+const APPENDIX_PARALLEL = `
+## Parallel tool calls
+
+When tool calls are independent — different data loads, disjoint branches of the DAG, operators that don't depend on each other's output — emit them in a single turn as parallel tool calls instead of one per turn. This reduces round-trips and saves tokens. In the example above, the three loads in Turn 1 (\`readme\`, \`customers\`, \`orders\`) are independent and are fired together in a single turn for that reason.
+
+Do not parallelize dependent calls. An operator whose \`process(...)\` parameters reference another operator must be issued after that operator exists — so the join/aggregate step in Turn 3 cannot be parallel with the loads in Turn 1.`;
+
+// Mirrored from `temp/.../prompts.ts:APPENDIX_CARRY_METADATA`. The displayed
+// types here (\`str\` / \`bool\` / \`numeric\` / \`datetime\`) and the per-type
+// fields match what \`_compute_column_stats\` in
+// \`amber/.../runnables/data_processor.py\` actually emits today — keep these
+// two in sync if the stats format ever changes engine-side.
+const APPENDIX_CARRY_METADATA = `
+## Column Stats
+
+Each operator's result includes a "Column Stats" block beneath the sample rows. Format: one line per column, with a parenthesized data type (\`str\` / \`bool\` / \`numeric\` / \`datetime\`), null count, and type-specific details:
+- \`str\`: \`null\`, \`distinct\`, plus \`top_10={...}\` listing the value-frequency pairs when \`distinct <= 10\` (omitted for high-cardinality columns).
+- \`bool\`: \`null\`, \`true\`, \`false\`.
+- \`numeric\`: \`null\`, \`mean\`, \`min\`, \`max\` (numbers compactly formatted: integer-valued floats drop the trailing \`.0\`).
+- \`datetime\`: \`null\`, \`min\`, \`max\` (ISO date strings; trailing \` 00:00:00\` stripped for date-only columns).
+
+Example, appended to an operator's Result:
+
+\`\`\`
+  Column Stats:
+  - "tier" (str): null=0, distinct=3, top_10={"gold"=4200, "silver"=3800, "bronze"=2000}
+  - "customer_id" (str): null=0, distinct=10000
+  - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
+  - "amount" (numeric): null=0, mean=219.2, min=95, max=520
+\`\`\`
+
+Examine Column Stats before deciding the next action:
+- **Loads**: verify types and null counts match expectations.
+- **Join keys**: check that distinct counts on both sides are consistent with the join type you intend (e.g. a many-to-one join's right-side distinct count should be ~= its row count).
+- **Aggregates**: check that result ranges (min/max/mean) are plausible before reporting.
+
+If Column Stats reveal a problem (unexpected nulls, wrong type, suspicious distribution), fix the operator producing the issue rather than masking it downstream.`;
+
+// Adapted from \`temp/.../prompts.ts:APPENDIX_NO_ACTION_DETAIL\` to match
+// *this* prompt's context format: code is not in the dataflow snapshot, but
+// — unlike full compaction — past tool calls' code IS preserved in the
+// \`## Agent Event N\` blocks of \`# Recent Agent Events\`, subject to the
+// \`recentEventsCap\` cap.
+const APPENDIX_NO_ACTION_DETAIL = `
+## Operator code is not in the dataflow snapshot
+
+The DAG shown in \`# Current Dataflow\` does NOT carry operator code — every operator block exposes only id, type, summary, and (when executed) result preview. To read the code you wrote earlier, find the matching \`## Agent Event N\` block in \`# Recent Agent Events\` above; the \`code: |\` argument of each \`createOrModifyOperator\` call is preserved there.
+
+The events list is capped (via \`recentEventsCap\`), so for operators added many turns ago the code may have already fallen out of the kept window. Two consequences:
+
+- **Write summaries rich enough to reconstruct intent without seeing the code.** For loads, include the filename and any non-default parameters (skiprows, header, delimiter, encoding, nrows). For processing, include the column names involved, join keys and type, filter conditions with thresholds, groupby keys, and aggregation methods. Treat the summary as the long-term semantic record; the code is only short-term context.
+- **When modifying a past operator, re-submit the full operator code.** You cannot patch by reference. If the older operator's code has aged out of the events window, write fresh code that matches the summary, then call \`createOrModifyOperator\` with the same \`operatorId\` to overwrite.
+
+(The cap also drops older events with a \`(... M earlier events omitted ...)\` notice at the top of \`# Recent Agent Events\` when it fires; if you see that notice, treat any operator referenced only in the omitted span as code-gone and reconstruct from its summary.)`;
+
 const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
 ${CONTEXT_FORMAT}
 ${KEY_PRINCIPLES}
 ${EXAMPLE_COMPACT}
+${APPENDIX_PARALLEL}
+${APPENDIX_CARRY_METADATA}
+${APPENDIX_NO_ACTION_DETAIL}
 `;
 
 // The worked example has been commented out — the prompt now contains just
