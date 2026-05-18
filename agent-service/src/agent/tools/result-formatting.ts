@@ -90,10 +90,16 @@ export function formatOperatorResult(
 
 /**
  * Render a `Column stats:` block from `OperatorInfo.columnStats`.
- * The backend's per-column annotation is already a `Record<column, string>`,
- * so we just sort by column name and emit one indented line per column.
- * Returns `undefined` when the map is missing, empty, or otherwise unhelpful
- * (caller treats `undefined` as "omit this section entirely").
+ *
+ * The backend ships per-column annotations as pre-formatted display strings
+ * of the shape `"(<type>): k=v, k=v, ..."` (see
+ * data_processor._compute_column_stats). The renderer wraps each one with
+ * `- "<col>" ` and emits them under the header — no JSON parsing happens
+ * on this side, so the backend can freely change which stats it surfaces
+ * per type without coordinating a renderer update.
+ *
+ * Returns `undefined` when the map is missing, empty, or otherwise
+ * unhelpful (caller treats `undefined` as "omit this section entirely").
  */
 function formatColumnStats(stats: Record<string, string> | undefined): string | undefined {
   if (!stats) return undefined;
@@ -114,7 +120,7 @@ function formatColumnStats(stats: Record<string, string> | undefined): string | 
     header = `Column stats (showing first ${leftCount} and last ${rightCount} of ${total} columns):`;
   }
   const lines = [header];
-  for (const [col, stat] of shown) lines.push(`  ${col}: ${stat}`);
+  for (const [col, stat] of shown) lines.push(`- "${col}" ${stat}`);
   return lines.join("\n");
 }
 

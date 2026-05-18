@@ -66,7 +66,10 @@ export interface AssembleContextOptions {
    *
    * Use case: bound total context size when traces grow long (high step
    * count) regardless of whether any single operator is being thrashed.
-   * Default: Infinity (off).
+   * Caller-side default (AssembleContextOptions): Infinity (off) when this
+   * field isn't passed. Agent-level default (DEFAULT_AGENT_SETTINGS in
+   * `types/agent.ts`): 2 — only the two most recent events render inline,
+   * older ones become a `(... N earlier events omitted ...)` notice.
    */
   recentEventsCap?: number;
   /**
@@ -856,7 +859,7 @@ function serializeOperatorFull(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   isCurrent: boolean,
-  _allLinks: WorkflowContent["links"],
+  allLinks: WorkflowContent["links"],
   operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
@@ -866,11 +869,18 @@ function serializeOperatorFull(
 
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:
-  //   - no info             → no `Result:` block (operator hasn't been executed)
-  //   - successful info     → `Result:` block with the data preview
-  //   - error info          → `Result:` block beginning with `[ERROR] …`,
-  //                            which (per the Amber backend's format) carries
-  //                            the user's code + line marker inline.
+  //   - no info AND no errored upstream → no `Result:` block
+  //     (operator hasn't been executed yet)
+  //   - no info BUT an upstream op has info.error
+  //                                    → `Result: (skipped — upstream
+  //     operator `X` errored; …)` so the agent can distinguish "blocked
+  //     by upstream failure" from "not yet built". Walks transitively
+  //     through upstreams that themselves have no info, so a long
+  //     skipped chain points back to the actual root-cause error.
+  //   - successful info               → `Result:` block with the data preview
+  //   - error info                    → `Result:` block beginning with
+  //     `[ERROR] …`, which (per the Amber backend's format) carries the
+  //     user's code + line marker inline.
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
@@ -902,8 +912,74 @@ function serializeOperatorFull(
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
+  } else if (!info) {
+    // No own result/error AND no info entry for this op. Distinguish
+    // "blocked by upstream error" from "not yet executed" by walking
+    // upstreams transitively (through ops that also have no info) to
+    // find any ancestor with info.error.
+    const failedUpstreams = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
+    if (failedUpstreams.length > 0) {
+      const noun = failedUpstreams.length === 1 ? "operator" : "operators";
+      const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
+      lines.push(
+        `Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`
+      );
+    }
   }
   return lines.join("\n");
+}
+
+/**
+ * Walk upstream from `opId` and return the set of ancestor operators
+ * whose `info.error` is set, when this op has no info of its own.
+ *
+ * Traversal rules:
+ *   - If an ancestor has `info.error` → record it, do not traverse past it
+ *     (it's the chain's root cause for this branch).
+ *   - If an ancestor has an `info` without an error → traversal of this
+ *     branch stops (that ancestor ran successfully; it's not why our
+ *     op was blocked).
+ *   - If an ancestor has no `info` → keep walking; the error might be
+ *     further up.
+ *
+ * Returns deduplicated upstream IDs in DAG-link discovery order.
+ */
+function collectFailedUpstreamRoots(
+  opId: string,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"]
+): string[] {
+  const childToParents = new Map<string, string[]>();
+  for (const link of allLinks) {
+    const arr = childToParents.get(link.target.operatorID) ?? [];
+    arr.push(link.source.operatorID);
+    childToParents.set(link.target.operatorID, arr);
+  }
+  const visited = new Set<string>();
+  const failed: string[] = [];
+  const seen = new Set<string>();
+  const queue: string[] = [...(childToParents.get(opId) ?? [])];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    const upInfo = snapshot.results.get(cur)?.info;
+    if (upInfo?.error) {
+      if (!seen.has(cur)) {
+        seen.add(cur);
+        failed.push(cur);
+      }
+      continue;
+    }
+    if (upInfo) {
+      // Ran successfully — not why we're blocked.
+      continue;
+    }
+    for (const p of childToParents.get(cur) ?? []) {
+      if (!visited.has(p)) queue.push(p);
+    }
+  }
+  return failed;
 }
 
 /* ============================================================================

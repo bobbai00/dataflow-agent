@@ -115,18 +115,24 @@ export interface AgentSettings {
    * the assembled context (one line per column: `name: stat1; stat2; ...`).
    * Helps the model reason about column semantics (numeric vs categorical,
    * cardinality, null counts) without re-issuing inspection operators.
-   * Disabled by default to keep the baseline context small.
+   * Enabled by default — the type+summary line per column carries enough
+   * signal to noticeably shift the model's decisions on the next turn at
+   * relatively low token cost.
    */
   statsEnabled: boolean;
   /**
    * Hard cap on how many of the most-recent (non-init) ReActStep events are
-   * rendered into the assembled context. A "very large" default
-   * (10_000) effectively disables the cap for normal-sized traces; setting
-   * it to a small finite number caps total context regardless of step count.
+   * rendered into the assembled context. Default is **2** — only the two
+   * most recent ReActStep events render inline under `# Recent Agent
+   * Events`; older ones are replaced with a `(... N earlier events
+   * omitted ...)` notice. Combined with `# User Task` (always present)
+   * and `# Current Dataflow` (always present), the agent retains the
+   * question + the workflow state + the two most recent moves regardless
+   * of how long the trace gets.
    *
-   * When this drops events, a `(... N earlier events omitted ...)` notice is
-   * prepended and the user-task echo at the bottom is force-enabled (so the
-   * agent still sees the question even at cap=0).
+   * To effectively disable the cap, set a very large number (e.g. 10_000).
+   * Set to 0 to drop every event entirely (only the user task and the
+   * current dataflow remain).
    */
   recentEventsCap: number;
   /**
@@ -170,8 +176,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
   parallelToolCalls: true,
-  statsEnabled: false,
-  recentEventsCap: 10000,
+  statsEnabled: true,
+  recentEventsCap: 2,
   includeCodeInRecentEvents: true,
 };
 

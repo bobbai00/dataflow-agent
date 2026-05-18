@@ -186,7 +186,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
 
   test("column-stats block applies the same cap with a parallel notice", () => {
     const stats: Record<string, string> = {};
-    for (let i = 0; i < 200; i++) stats[`col_${i.toString().padStart(3, "0")}`] = `{"count":1,"null":0}`;
+    for (let i = 0; i < 200; i++) stats[`col_${i.toString().padStart(3, "0")}`] = "(numeric): null=0";
     const out = formatOperatorResult(
       "op1",
       makeOpInfo({ outputTuples: 1, result: [makeWideRow(200)], columnStats: stats }),
@@ -195,22 +195,24 @@ describe("formatOperatorResult - wide-table column cap", () => {
     );
     expect(out).toContain("Column stats (showing first 25 and last 25 of 200 columns):");
     // First kept (alphabetical sort means col_000..col_024)
-    expect(out).toContain("col_000: {");
-    expect(out).toContain("col_024: {");
+    expect(out).toContain(`- "col_000" (numeric): null=0`);
+    expect(out).toContain(`- "col_024" (numeric): null=0`);
     // Middle dropped
-    expect(out).not.toContain("col_100: {");
+    expect(out).not.toContain(`- "col_100"`);
     // Last kept
-    expect(out).toContain("col_199: {");
+    expect(out).toContain(`- "col_199" (numeric): null=0`);
   });
 });
 
 describe("formatOperatorResult - column-stats schema is opaque", () => {
-  // Locks in the contract that agent-service does NOT look inside the stat
-  // JSON blob it gets from the backend. The blob's shape can change
-  // (top_10 → top_3, new percentile keys, new dtype-specific summaries,
-  // outright deprecations) without the renderer needing a code change. If
-  // any of these tests start failing, someone added a backend-coupled
-  // assumption to the renderer — push that back into the backend instead.
+  // Locks in the contract that agent-service does NOT look inside the per-
+  // column stat string it gets from the backend. The backend produces
+  // pre-formatted display lines (current shape: "(<type>): k=v, k=v, …")
+  // and the renderer just wraps each with `- "<col>" `. Future backend
+  // changes — new type labels, renamed fields, added stats — flow through
+  // unchanged without a renderer update. If any of these tests start
+  // failing, someone added a backend-coupled assumption to the renderer —
+  // push that back into the backend instead.
 
   function renderWithStats(stats: Record<string, string>): string {
     return formatOperatorResult(
@@ -221,65 +223,47 @@ describe("formatOperatorResult - column-stats schema is opaque", () => {
     );
   }
 
-  test("renames inside the stat JSON (top_10 → top_3) are emitted unchanged", () => {
-    const old = { sentinel: `{"count":3,"null":0,"distinct":3,"top_10":[{"value":"A","count":2},{"value":"B","count":1}]}` };
-    const fresh = { sentinel: `{"count":3,"null":0,"distinct":3,"top_3":[{"value":"A","count":2},{"value":"B","count":1}]}` };
+  test("renamed stat keys flow through (top_10 → top_3) without renderer awareness", () => {
+    const old = { sentinel: `(str): null=0, distinct=3, top_10={"A"=2, "B"=1}` };
+    const fresh = { sentinel: `(str): null=0, distinct=3, top_3={"A"=2, "B"=1}` };
     const outOld = renderWithStats(old);
     const outFresh = renderWithStats(fresh);
-    // Each rendering carries its own key string verbatim — renderer is shape-agnostic.
     expect(outOld).toContain("top_10");
     expect(outOld).not.toContain("top_3");
     expect(outFresh).toContain("top_3");
     expect(outFresh).not.toContain("top_10");
     // Both renderings carry the same per-value content.
-    expect(outOld).toContain('"value":"A"');
-    expect(outFresh).toContain('"value":"A"');
-  });
-
-  test("dropping per-column entry count from 10 to 3 just produces a shorter blob", () => {
-    const ten = {
-      sentinel:
-        `{"count":10,"distinct":10,"top_10":[` +
-        Array.from({ length: 10 }, (_, i) => `{"value":"v${i}","count":1}`).join(",") +
-        `]}`,
-    };
-    const three = {
-      sentinel:
-        `{"count":10,"distinct":10,"top_3":[` +
-        Array.from({ length: 3 }, (_, i) => `{"value":"v${i}","count":1}`).join(",") +
-        `]}`,
-    };
-    const outTen = renderWithStats(ten);
-    const outThree = renderWithStats(three);
-    // The shorter blob's rendered Column-stats section is smaller, by close to the
-    // size of the 7 dropped entries — proves the renderer pass-through is faithful.
-    const tenStats = outTen.split("Column stats:")[1] ?? "";
-    const threeStats = outThree.split("Column stats:")[1] ?? "";
-    expect(threeStats.length).toBeLessThan(tenStats.length);
-    // Sanity: the kept entries appear in the top_3 render; the dropped ones don't.
-    expect(outThree).toContain('"value":"v0"');
-    expect(outThree).toContain('"value":"v2"');
-    expect(outThree).not.toContain('"value":"v9"');
+    expect(outOld).toContain(`"A"=2`);
+    expect(outFresh).toContain(`"A"=2`);
   });
 
   test("a brand-new stat key the renderer has never heard of is still emitted verbatim", () => {
-    const blob = { sentinel: `{"count":5,"unicorn_metric":3.14,"value_histogram":{"bins":[1,2,3]}}` };
+    const blob = { sentinel: `(unicorn): null=5, unicorn_metric=3.14, histogram_bins=[1,2,3]` };
     const out = renderWithStats(blob);
-    // The renderer just echoes the JSON blob; no key whitelist, no shape check.
+    // No key whitelist, no shape check, no JSON parse — backend string is the truth.
+    expect(out).toContain("unicorn");
     expect(out).toContain("unicorn_metric");
     expect(out).toContain("3.14");
-    expect(out).toContain("value_histogram");
+    expect(out).toContain("histogram_bins");
+  });
+
+  test("a brand-new type label is rendered as-is in the parenthesised header", () => {
+    // Backend invents a new type tag (e.g. "categorical-ordered"); renderer
+    // just emits it. Today's known types are bool/numeric/str/datetime,
+    // but the renderer never enumerates them.
+    const blob = { sentinel: `(categorical-ordered): null=0, levels=["low","mid","high"]` };
+    const out = renderWithStats(blob);
+    expect(out).toContain(`- "sentinel" (categorical-ordered): null=0, levels=["low","mid","high"]`);
   });
 
   test("an oversized string inside the stat blob is rendered as-is (the backend owns truncation)", () => {
     // Documents the explicit division of responsibility: the agent-service does
-    // NOT re-truncate per-cell within stat blobs. The backend's
-    // truncateColumnStatsValues is what bounds the size. If a test later wants
-    // a safety net here, change the renderer AND update this assertion.
+    // NOT re-truncate within stat strings. The backend's
+    // truncateColumnStatsValues (Scala) is what bounds the size. If a test
+    // later wants a safety net here, change the renderer AND update this assertion.
     const huge = "X".repeat(200);
-    const stats = { sentinel: `{"count":1,"top_3":[{"value":"${huge}","count":1}]}` };
+    const stats = { sentinel: `(str): null=0, distinct=1, top_10={"${huge}"=1}` };
     const out = renderWithStats(stats);
-    // The 200-char "X..." block is present unmodified.
     expect(out).toContain("X".repeat(200));
   });
 });
@@ -473,12 +457,16 @@ describe("jsonToTableFormat - row index gaps", () => {
 });
 
 describe("formatOperatorResult - statsEnabled column stats", () => {
+  // Backend ships pre-formatted display strings per column, of the shape
+  // "(<type>): k=v, k=v, ...". The renderer wraps each with `- "<col>" `
+  // and emits them under a `Column stats:` block. These fixtures use the
+  // real backend shape produced by data_processor._compute_column_stats.
   const info = makeOpInfo({
     result: [{ a: 1, b: "x" }],
     outputTuples: 1,
     columnStats: {
-      a: "type=int; non_null=1; min=1; max=1",
-      b: "type=string; non_null=1; cardinality=1",
+      a: "(numeric): null=0, mean=1, min=1, max=1",
+      b: "(str): null=0, distinct=1, top_10={\"x\"=1}",
     },
   });
 
@@ -495,10 +483,10 @@ describe("formatOperatorResult - statsEnabled column stats", () => {
   test("statsEnabled=true: appends sorted Column stats block under the data preview", () => {
     const out = formatOperatorResult("op1", info, EMPTY_STATE, { statsEnabled: true });
     expect(out).toContain("Column stats:");
-    expect(out).toContain("  a: type=int; non_null=1; min=1; max=1");
-    expect(out).toContain("  b: type=string; non_null=1; cardinality=1");
-    // alphabetical: 'a' line precedes 'b' line.
-    expect(out.indexOf("  a:")).toBeLessThan(out.indexOf("  b:"));
+    expect(out).toContain(`- "a" (numeric): null=0, mean=1, min=1, max=1`);
+    expect(out).toContain(`- "b" (str): null=0, distinct=1, top_10={"x"=1}`);
+    // alphabetical: '- "a"' precedes '- "b"'.
+    expect(out.indexOf(`- "a"`)).toBeLessThan(out.indexOf(`- "b"`));
     // appears at the end (after data), not before the preview.
     expect(out.indexOf("Column stats:")).toBeGreaterThan(out.indexOf("Output table shape"));
   });
@@ -526,7 +514,7 @@ describe("formatOperatorResult - statsEnabled column stats", () => {
   test("statsEnabled=true on errored op: error renders verbatim, stats are suppressed", () => {
     const out = formatOperatorResult(
       "op1",
-      makeOpInfo({ error: "boom", columnStats: { a: "type=int" } }),
+      makeOpInfo({ error: "boom", columnStats: { a: "(numeric): null=0" } }),
       EMPTY_STATE,
       { statsEnabled: true }
     );
@@ -539,12 +527,37 @@ describe("formatOperatorResult - statsEnabled column stats", () => {
       makeOpInfo({
         result: [{ a: 1 }],
         outputTuples: 1,
-        columnStats: { a: "type=int", b: "" },
+        columnStats: { a: "(numeric): null=0", b: "" },
       }),
       EMPTY_STATE,
       { statsEnabled: true }
     );
-    expect(out).toContain("  a: type=int");
-    expect(out).not.toContain("  b: ");
+    expect(out).toContain(`- "a" (numeric): null=0`);
+    expect(out).not.toContain(`- "b"`);
+  });
+
+  test("statsEnabled=true: renders the full per-type set (bool / numeric / str / datetime / high-cardinality str)", () => {
+    // Mirrors the exact shape data_processor._compute_column_stats emits.
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 1,
+        result: [{ is_premium: true, tier: "gold", customer_id: "C001", signup_date: "2023-01-15", amount: 250 }],
+        columnStats: {
+          is_premium: "(bool): null=0, true=4200, false=5800",
+          tier: `(str): null=0, distinct=3, top_10={"gold"=4200, "silver"=3800, "bronze"=2000}`,
+          customer_id: "(str): null=0, distinct=10000",
+          signup_date: "(datetime): null=0, min=2023-01-15, max=2024-06-30",
+          amount: "(numeric): null=0, mean=219.2, min=95, max=520",
+        },
+      }),
+      EMPTY_STATE,
+      { statsEnabled: true }
+    );
+    expect(out).toContain(`- "is_premium" (bool): null=0, true=4200, false=5800`);
+    expect(out).toContain(`- "tier" (str): null=0, distinct=3, top_10={"gold"=4200, "silver"=3800, "bronze"=2000}`);
+    expect(out).toContain(`- "customer_id" (str): null=0, distinct=10000`);
+    expect(out).toContain(`- "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30`);
+    expect(out).toContain(`- "amount" (numeric): null=0, mean=219.2, min=95, max=520`);
   });
 });

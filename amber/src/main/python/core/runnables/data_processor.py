@@ -15,7 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import json
 import math
 import os
 import re
@@ -24,7 +23,7 @@ import traceback
 from contextlib import contextmanager
 from loguru import logger
 from threading import Event
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import pandas
 import pyarrow as pa
@@ -93,8 +92,8 @@ def _to_dataframe(output: Any) -> Optional[pandas.DataFrame]:
 
 def _sanitize_float(value: Any) -> Optional[float]:
     """
-    Coerce a pandas describe() result to a JSON-safe float. NaN and Inf
-    become None so json.dumps can serialize without `allow_nan=True`.
+    Coerce a pandas describe() result to a finite float. NaN and Inf
+    become None so callers don't have to special-case them.
     """
     if value is None:
         return None
@@ -105,6 +104,28 @@ def _sanitize_float(value: Any) -> Optional[float]:
     if math.isnan(f) or math.isinf(f):
         return None
     return f
+
+
+def _format_number(value: float) -> str:
+    """
+    Compact numeric formatting for the stats line: integer-valued floats
+    drop the decimal point ("95.0" -> "95"), other floats use up to 4
+    significant digits via `:.4g` ("219.234" -> "219.2", "0.000456" -> "0.000456").
+    """
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.4g}"
+
+
+def _format_datetime(value: Any) -> str:
+    """
+    Datetime stringification. Strips a trailing "00:00:00" so date-only
+    columns render as "2023-01-15" instead of "2023-01-15 00:00:00".
+    """
+    s = str(value)
+    if s.endswith(" 00:00:00"):
+        return s[: -len(" 00:00:00")]
+    return s
 
 
 def _validate_declared_is_subset(declared: Schema, inferred: Schema) -> None:
@@ -330,79 +351,97 @@ class DataProcessor(Runnable, Stoppable):
         Compute per-column statistics from the DataFrame and publish them
         via StatisticsManager.set_result_statistics so they ride out on the
         next WorkerStatistics emission.
+
+        Each emitted value is a pre-formatted display string of the shape
+        `"(type): k=v, k=v, ..."` — the agent-service renderer just wraps
+        each one with `- "col" ` and emits it under a `Column stats:` block,
+        so the format is fully owned here. See `_compute_column_stats` for
+        the per-type field set.
         """
         stats: Dict[str, str] = {}
         for col_name in df.columns:
             col = df[col_name]
-            stats[str(col_name)] = json.dumps(self._compute_column_stats(col))
+            stats[str(col_name)] = self._compute_column_stats(col)
         self._context.statistics_manager.set_result_statistics(stats)
 
     @staticmethod
-    def _compute_column_stats(col: pandas.Series) -> Dict[str, Any]:
+    def _compute_column_stats(col: pandas.Series) -> str:
         """
-        Compute a small, JSON-serializable per-column stats blob:
-          - count / null / distinct (always)
-          - numeric: mean / std / min / p25 / median / p75 / max
-          - boolean: true / false counts
-          - datetime: min / max (ISO strings)
-          - string / object: top-10 value frequencies
-        NaN/Inf are sanitized to None so the output is valid JSON.
-        """
-        total = int(len(col))
-        null = int(col.isna().sum())
-        out: Dict[str, Any] = {
-            "count": total,
-            "null": null,
-            "distinct": int(col.dropna().nunique()),
-        }
+        Produce a per-column stats display line of the form
+        `"(<type>): null=N[, <type-specific kvs>]"`. The caller wraps it
+        with `- "<colname>" ` to get the final rendered line.
 
+        Per-type field set:
+          - bool      → null, true, false
+          - numeric   → null, mean, min, max         (mean rounded to 4 sig figs;
+                                                       integer-valued floats drop
+                                                       the trailing .0)
+          - datetime  → null, min, max               (ISO strings; trailing
+                                                       " 00:00:00" stripped for
+                                                       date-only columns)
+          - str/other → null, distinct[, top_10={...}]
+                                                      (top_10 omitted when
+                                                       distinct > 10 — the long
+                                                       tail would be misleading)
+
+        Intentionally drops the older `count` / `std` / `p25` / `median` /
+        `p75` fields — they were noisy and the agent rarely acted on them.
+        """
+        null = int(col.isna().sum())
         non_null = col.dropna()
-        if non_null.empty:
-            return out
+        parts = [f"null={null}"]
 
         if pandas.api.types.is_bool_dtype(col):
-            out["true"] = int((non_null == True).sum())  # noqa: E712
-            out["false"] = int((non_null == False).sum())  # noqa: E712
+            col_type = "bool"
+            if not non_null.empty:
+                parts.append(f"true={int((non_null == True).sum())}")  # noqa: E712
+                parts.append(f"false={int((non_null == False).sum())}")  # noqa: E712
         elif pandas.api.types.is_numeric_dtype(col):
-            try:
-                desc = non_null.describe(percentiles=[0.25, 0.5, 0.75])
-                out.update(
-                    {
-                        "mean": _sanitize_float(desc.get("mean")),
-                        "std": _sanitize_float(desc.get("std")),
-                        "min": _sanitize_float(desc.get("min")),
-                        "p25": _sanitize_float(desc.get("25%")),
-                        "median": _sanitize_float(desc.get("50%")),
-                        "p75": _sanitize_float(desc.get("75%")),
-                        "max": _sanitize_float(desc.get("max")),
-                    }
-                )
-            except Exception:
-                pass
+            col_type = "numeric"
+            if not non_null.empty:
+                try:
+                    mean = _sanitize_float(non_null.mean())
+                    cmin = _sanitize_float(non_null.min())
+                    cmax = _sanitize_float(non_null.max())
+                    if mean is not None:
+                        parts.append(f"mean={_format_number(mean)}")
+                    if cmin is not None:
+                        parts.append(f"min={_format_number(cmin)}")
+                    if cmax is not None:
+                        parts.append(f"max={_format_number(cmax)}")
+                except Exception:
+                    pass
         elif pandas.api.types.is_datetime64_any_dtype(col):
-            try:
-                out["min"] = str(non_null.min())
-                out["max"] = str(non_null.max())
-            except Exception:
-                pass
+            col_type = "datetime"
+            if not non_null.empty:
+                try:
+                    parts.append(f"min={_format_datetime(non_null.min())}")
+                    parts.append(f"max={_format_datetime(non_null.max())}")
+                except Exception:
+                    pass
         else:
-            try:
-                # String-typed columns: report the top-10 most-frequent values.
-                # A previous experiment trimmed this to 3 to shrink the per-
-                # column stat payload on high-cardinality string columns; that
-                # saved 50-80% input tokens on geometry-heavy tasks but visibly
-                # degraded answer accuracy on enumeration-style questions
-                # (e.g. wildfire-easy-2 went from ✓ to wrong). Per-cell size
-                # is still bounded by SyncExecutionResource.truncateColumnStatsValues
-                # using the agent's maxOperatorResultCellCharLimit — that's the
-                # right knob for size control. Keep the entry count at 10.
-                top = non_null.astype(str).value_counts().head(10)
-                out["top_10"] = [
-                    {"value": k, "count": int(v)} for k, v in top.items()
-                ]
-            except Exception:
-                pass
-        return out
+            col_type = "str"
+            distinct = int(non_null.nunique())
+            parts.append(f"distinct={distinct}")
+            # Only surface top_10 for low-cardinality string columns. The
+            # cutoff (10) matches the head-size below; high-cardinality
+            # columns (e.g. customer_id) get just null + distinct, which is
+            # what the agent actually needs to know about them. Per-cell
+            # size is still bounded downstream by
+            # SyncExecutionResource.truncateColumnStatsValues using the
+            # agent's maxOperatorResultCellCharLimit, so an explosion in
+            # value width can't blow the context budget either.
+            if not non_null.empty and 0 < distinct <= 10:
+                try:
+                    top = non_null.astype(str).value_counts().head(10)
+                    inner = ", ".join(
+                        f'"{k}"={int(v)}' for k, v in top.items()
+                    )
+                    parts.append(f"top_10={{{inner}}}")
+                except Exception:
+                    pass
+
+        return f"({col_type}): " + ", ".join(parts)
 
     def _set_output_state(self, output_state: State) -> None:
         """
@@ -550,41 +589,68 @@ class DataProcessor(Runnable, Stoppable):
                 title = f"(line {user_line}) {exception_type}: {exception_msg}"
             full_source = self._read_udf_source(udf_frame.filename)
         else:
-            filename, line_number, func_name, code_line = tb[-1]
+            # No user-UDF frame on the traceback — the exception was raised
+            # in framework code (e.g. schema validation after `def load()`
+            # returned). The deepest frame's code line (`raise TypeError(`)
+            # is meaningless to the agent, so use the exception message
+            # itself as the title.
+            filename, line_number, func_name, _ = tb[-1]
             base_name = os.path.basename(filename)
             module_name, _ = os.path.splitext(base_name)
             source = f"{module_name}:{func_name}:{line_number}"
-            if code_line:
-                title = (
-                    f"`{_clip(code_line.strip(), 200)}` "
-                    f"- {exception_type}: {exception_msg}"
-                )
-            else:
-                title = f"{exception_type}: {exception_msg}"
+            title = f"{exception_type}: {_clip(exception_msg, 400)}"
+            # Best-effort: recover the running operator's UDF source via
+            # the executor module that ExecutorManager registered. Even
+            # without a traceback frame in user code, we can still show
+            # *what code was running* — invaluable for diagnosing
+            # post-UDF framework errors (the climateMeasurements
+            # `Unmatched type for field ...` case).
+            full_source = self._read_running_operator_source()
 
-        # When the failing frame is user UDF code, embed the user-written
-        # source (line-numbered, with `>` marking the failing line) into
-        # `message`. SyncExecutionResource picks whichever of title/message
-        # is longer, so this verbose dump is what surfaces to the agent.
-        #
-        # We slice off the DataLoading/DataProcessing wrapper boilerplate so
-        # the agent only sees the function it actually wrote, and renumber
-        # starting at 1 (line 1 = user's `def`). For UDFs without that
-        # wrapping (raw PythonUDFV2 etc.), `_slice_user_code` returns the
-        # whole file and `offset` is 0, preserving the absolute numbering.
-        if udf_frame is not None and full_source is not None:
+        # Build the message. Two-layer format — the multi-frame
+        # traceback is intentionally omitted; the exception's top-level
+        # summary plus the operator's full source is what the agent
+        # needs. Two best-effort layers:
+        #   1. the exception line itself,
+        #   2. the operator's UDF code, always included when we can
+        #      recover it:
+        #        - if a user-UDF frame was on the traceback, annotate
+        #          the failing line with `>` and prefix with
+        #          `at line N in <func>`,
+        #        - otherwise show the code unmarked under a neutral
+        #          header — we don't claim where the failure originated.
+        parts: List[str] = [f"{exception_type}: {exception_msg}"]
+
+        if full_source is not None:
             user_lines, offset = self._slice_user_code(full_source)
-            error_line_in_slice = udf_frame.lineno - offset + 1 if offset > 0 else udf_frame.lineno
-            annotated = self._format_code_with_marker(user_lines, error_line_in_slice)
-            message = (
-                f"{exception_type}: {exception_msg}\n"
-                f"  at line {error_line_in_slice} in `{udf_frame.name}`\n"
-                f"\n"
-                f"User code:\n"
-                f"{annotated}"
-            )
-        else:
-            message = f"{exception_type}: {exception_msg}"
+            if udf_frame is not None and user_lines:
+                error_line_in_slice = (
+                    udf_frame.lineno - offset + 1 if offset > 0 else udf_frame.lineno
+                )
+                annotated = self._format_code_with_marker(
+                    user_lines, error_line_in_slice
+                )
+                parts.append(f"  at line {error_line_in_slice} in `{udf_frame.name}`")
+                parts.append("")
+                parts.append("Operator code:")
+                parts.append(annotated)
+            elif user_lines:
+                # No UDF frame → no specific line to mark. Show the
+                # operator's code without a `>` under a neutral header
+                # that doesn't speculate about where the failure came
+                # from — the exception type+message above already
+                # carries that signal.
+                annotated = self._format_code_with_marker(
+                    user_lines, error_line=-1
+                )
+                parts.append("")
+                parts.append(
+                    "An execution error happened while running the operator. "
+                    "The operator's code was:"
+                )
+                parts.append(annotated)
+
+        message = "\n".join(parts)
 
         self._context.console_message_manager.put_message(
             ConsoleMessage(
@@ -596,6 +662,32 @@ class DataProcessor(Runnable, Stoppable):
                 message=message,
             )
         )
+
+    def _read_running_operator_source(self) -> Optional[str]:
+        """
+        Recover the source of the currently running operator's UDF when
+        no UDF frame is present in the traceback (e.g. an exception
+        raised in framework code after the operator's `def load()` /
+        `def process()` returned).
+
+        ExecutorManager stores the dynamic module name it imported the
+        user code under (e.g. `udf-v3`). We look the module up in
+        `sys.modules` and read its `__file__`.
+        """
+        try:
+            exec_mgr = getattr(self._context, "executor_manager", None)
+            module_name = getattr(exec_mgr, "operator_module_name", None) if exec_mgr else None
+            if not module_name:
+                return None
+            mod = sys.modules.get(module_name)
+            if mod is None:
+                return None
+            mod_file = getattr(mod, "__file__", None)
+            if not mod_file:
+                return None
+            return self._read_udf_source(mod_file)
+        except Exception:
+            return None
 
     def stop(self):
         self._running.clear()

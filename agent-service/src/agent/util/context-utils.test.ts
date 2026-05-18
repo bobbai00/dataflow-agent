@@ -984,3 +984,253 @@ describe("assembleContext — includeCodeInRecentEvents (code restoration in kep
     expect(c).toContain("SENTINEL_6 = 6");
   });
 });
+
+/* ============================================================================
+ *  Skipped-upstream Result placeholder
+ *  --------------------------------------------------------------------------
+ *  When upstream errors, Amber stops the entire workflow execution
+ *  (`AllForOneStrategy` supervision in Controller.scala). Downstream ops
+ *  that were scheduled in the same batch end up with no `info` entry at
+ *  all — from the agent's view this looks identical to "not yet built".
+ *  The renderer adds a `Result: (skipped — upstream operator ... errored)`
+ *  marker so the model can distinguish "blocked" from "missing".
+ *
+ *  Mirrors the archeology trace's symptom: a batch creates two
+ *  independent loaders (radiocarbon + climateMeasurements), climate
+ *  fails in framework code, and downstream ops that depend on either
+ *  loader end up with no Result block.
+ * ========================================================================= */
+describe("assembleContext — skipped-upstream Result placeholder", () => {
+  test("downstream of errored upstream renders a skipped marker", () => {
+    const scenario = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: {} }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "Build it." },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "Loading climateMeasurements; then process to extract Potassium.",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc-load",
+            input: { operatorId: "climateMeasurements" },
+          },
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc-proc",
+            input: { operatorId: "processClimate" },
+          },
+        ],
+        toolResults: [
+          { toolCallId: "tc-load", output: "ok", isError: false },
+          { toolCallId: "tc-proc", output: "ok", isError: false },
+        ],
+      },
+    ]);
+    // Workflow: climateMeasurements → processClimate. Climate errored
+    // (the `Unmatched type for field 'Unnamed: 2'` case from
+    // archeology); processClimate has no info because Amber stopped
+    // the whole DAG when climate's worker crashed.
+    scenario.storage.createSnapshot(
+      "t1",
+      makeWorkflow(["climateMeasurements", "processClimate"], [["climateMeasurements", "processClimate"]])
+    );
+    scenario.storage.setOperatorResult(
+      "t1",
+      "climateMeasurements",
+      makeInfo("climateMeasurements", 0, "TypeError: Unmatched type for field 'Unnamed: 2'")
+    );
+    // intentionally no setOperatorResult for processClimate
+
+    const c = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+
+    // Upstream renders its [ERROR] block normally.
+    expect(c).toContain("[ERROR]");
+    expect(c).toContain("Unmatched type for field 'Unnamed: 2'");
+
+    // Downstream gets the skipped marker pointing at the errored upstream.
+    expect(c).toContain(
+      "Result: (skipped — upstream operator `climateMeasurements` errored; see [ERROR] above)"
+    );
+  });
+
+  test("skipped marker walks transitively through ops with no info", () => {
+    // A → B → C: A errored, B has no info (blocked), C has no info
+    // (also blocked). C's marker should still point at A — the
+    // root-cause ancestor — rather than at B (which has no error of
+    // its own).
+    const scenario = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: {} }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "x" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "build A→B→C",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot(
+      "t1",
+      makeWorkflow(["A", "B", "C"], [["A", "B"], ["B", "C"]])
+    );
+    scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "RuntimeError: bad"));
+    // B and C: no info → transitively blocked by A
+
+    const c = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+
+    // Both B and C should point at A as the root-cause ancestor.
+    expect(c).toContain("Result: (skipped — upstream operator `A` errored; see [ERROR] above)");
+    // The placeholder appears for both B and C — count occurrences.
+    const matches = c.match(/Result: \(skipped — upstream operator `A` errored/g);
+    expect(matches?.length ?? 0).toBe(2);
+  });
+
+  test("multiple errored direct upstreams are listed together", () => {
+    // A → C, B → C; both A and B errored. C is blocked by both.
+    const scenario = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: {} }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "x" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "join two failing sources",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot(
+      "t1",
+      makeWorkflow(["A", "B", "C"], [["A", "C"], ["B", "C"]])
+    );
+    scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
+    scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
+    // C: no info
+
+    const c = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+
+    // Both upstreams referenced together (plural "operators"); order
+    // tracks the link discovery order.
+    expect(c).toMatch(
+      /Result: \(skipped — upstream operators `A`, `B` errored; see \[ERROR\] above\)/
+    );
+  });
+
+  test("no placeholder when upstream ran successfully", () => {
+    // A succeeded, B downstream has no info (e.g. workflow paused
+    // before B was scheduled). We should NOT emit a skipped marker —
+    // B genuinely hasn't been executed; nothing failed.
+    const scenario = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: {} }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "x" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "load A; B is queued for later",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot("t1", makeWorkflow(["A", "B"], [["A", "B"]]));
+    scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 5));
+    // B: no info, but A succeeded
+
+    const c = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+
+    expect(c).not.toContain("skipped");
+    expect(c).not.toContain("Result: (skipped");
+  });
+
+  test("no placeholder when op has its own info (errored OR successful)", () => {
+    // The placeholder only fires when an op has no info at all. If
+    // the op itself errored, we already render the [ERROR] block.
+    // If it succeeded, we render its data preview.
+    const scenario = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: {} }],
+        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "x" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "build A→B; both ran",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot("t1", makeWorkflow(["A", "B"], [["A", "B"]]));
+    scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
+    scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
+
+    const c = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+
+    // No skipped marker — B has its own error block.
+    expect(c).not.toContain("Result: (skipped");
+    // But both error messages should be present.
+    expect(c).toContain("A failed");
+    expect(c).toContain("B failed");
+  });
+});

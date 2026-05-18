@@ -795,10 +795,13 @@ class SyncExecutionResource extends LazyLogging {
   }
 
   /**
-    * Per-column stat blobs are `String → JSON`-encoded values. For each
-    * column we parse the JSON, truncate any oversized string leaves, and
-    * re-serialize. If parsing fails (unexpected shape), the original value is
-    * left untouched — never block stats on a parser hiccup.
+    * Per-column stat blobs are currently a `String → "(type): k=v, …"`
+    * pre-formatted display line per column (the renderer just wraps each
+    * with `- "col" ` under a `Column stats:` block). For backward compat
+    * with older callers that still ship JSON-typed values, we first try
+    * parsing as a JSON object/array and walk it to truncate oversized
+    * string leaves; if that doesn't apply (the typical new path), we fall
+    * back to symmetric string truncation against the same per-cell budget.
     */
   private def truncateColumnStatsValues(
       stats: Map[String, String],
@@ -806,14 +809,21 @@ class SyncExecutionResource extends LazyLogging {
   ): Map[String, String] = {
     val mapper = new ObjectMapper()
     stats.map {
-      case (col, statJson) =>
-        try {
-          val node = mapper.readTree(statJson)
-          val truncated = truncateStringsInJsonValue(node, maxCellChars)
-          col -> mapper.writeValueAsString(truncated)
-        } catch {
-          case _: Exception => col -> statJson
-        }
+      case (col, raw) =>
+        val truncated =
+          try {
+            val node = mapper.readTree(raw)
+            if (node != null && (node.isObject || node.isArray)) {
+              mapper.writeValueAsString(truncateStringsInJsonValue(node, maxCellChars))
+            } else {
+              // Bare JSON scalar (string/number/bool/null) — not a structured
+              // stat blob; treat as plain text and symmetric-truncate.
+              symmetricTruncateCellValue(raw, maxCellChars)
+            }
+          } catch {
+            case _: Exception => symmetricTruncateCellValue(raw, maxCellChars)
+          }
+        col -> truncated
     }
   }
 
