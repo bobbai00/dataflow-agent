@@ -158,7 +158,17 @@ async function main(): Promise<void> {
     cuid = cu.computingUnit.cuid;
     log(`  cuid=${cuid}`);
 
-    for (const spec of AGENT_DRIVEN_SPECS) {
+    const filter = process.env.TEXERA_AGENT_SPEC_FILTER;
+    const specs = filter
+      ? AGENT_DRIVEN_SPECS.filter(s => s.name.toLowerCase().includes(filter.toLowerCase()))
+      : AGENT_DRIVEN_SPECS;
+    if (specs.length === 0) {
+      logErr(`no specs match TEXERA_AGENT_SPEC_FILTER="${filter}". Available specs:`);
+      for (const s of AGENT_DRIVEN_SPECS) logErr(`  - ${s.name}`);
+      process.exit(1);
+    }
+    if (filter) log(`filter="${filter}" → running ${specs.length}/${AGENT_DRIVEN_SPECS.length} specs`);
+    for (const spec of specs) {
       try {
         const result = await runSpec(spec, { token, cuid, runId });
         results.push({ name: spec.name, result });

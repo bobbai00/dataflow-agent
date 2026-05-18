@@ -25,7 +25,9 @@ import { getBackendConfig } from "../../api/backend-api";
 import { env } from "../../config/env";
 import type { LogicalPlan, LogicalLink } from "../../api/execution-api";
 import type { OperatorInfo, SyncExecutionResult } from "../../types/execution";
+import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { createLogger } from "../../logger";
 
@@ -248,6 +250,52 @@ function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string
     operators: operatorsList,
     links: linksList,
     opsToViewResult: allOpsToView,
+  };
+}
+
+/**
+ * Build a LogicalPlan from an explicit subDAG (typically one produced
+ * by `partitionOpsByIndependence`). Differs from `buildLogicalPlan` in
+ * that the operator set is supplied externally rather than derived
+ * from the WorkflowState's current state, so multiple disjoint
+ * partition groups can each ship their own plan.
+ */
+function buildLogicalPlanFromSubDAG(
+  workflowState: WorkflowState,
+  subDAG: { operators: OperatorPredicate[]; links: OperatorLink[] },
+  opsToView: string[]
+): LogicalPlan {
+  const getInputPortOrdinal = (operatorID: string, inputPortID: string): number => {
+    const op = workflowState.getOperator(operatorID);
+    if (!op) return 0;
+    const idx = op.inputPorts.findIndex(port => port.portID === inputPortID);
+    return idx >= 0 ? idx : 0;
+  };
+  const getOutputPortOrdinal = (operatorID: string, outputPortID: string): number => {
+    const op = workflowState.getOperator(operatorID);
+    if (!op) return 0;
+    const idx = op.outputPorts.findIndex(port => port.portID === outputPortID);
+    return idx >= 0 ? idx : 0;
+  };
+
+  const operatorsList = subDAG.operators.map(op => ({
+    ...op.operatorProperties,
+    operatorID: op.operatorID,
+    operatorType: op.operatorType,
+    inputPorts: op.inputPorts,
+    outputPorts: op.outputPorts,
+  }));
+  const linksList: LogicalLink[] = subDAG.links.map(link => ({
+    fromOpId: link.source.operatorID,
+    fromPortId: { id: getOutputPortOrdinal(link.source.operatorID, link.source.portID), internal: false },
+    toOpId: link.target.operatorID,
+    toPortId: { id: getInputPortOrdinal(link.target.operatorID, link.target.portID), internal: false },
+  }));
+  const opIds = new Set(operatorsList.map(op => op.operatorID));
+  return {
+    operators: operatorsList,
+    links: linksList,
+    opsToViewResult: opsToView.filter(id => opIds.has(id)),
   };
 }
 
@@ -628,7 +676,16 @@ export async function executeOperatorAndFormat(
 /**
  * Execute the entire workflow once and persist every per-operator result
  * (errors included) via `onResult`. Used by `TexeraAgent.initialize()` to
- * baseline a freshly loaded workflow before any user turn.
+ * baseline a freshly loaded workflow before any user turn, and by the
+ * post-tool execution step that runs after a batch of createOrModifyOperator
+ * tool calls in the same turn.
+ *
+ * When `opsToViewResult` has multiple entries with disjoint upstream
+ * closures, each independent subDAG is shipped as its own sync execution
+ * request — Amber's worker-supervisor scope is per-controller
+ * (`AllForOneStrategy` in Controller.scala), so a failure in one
+ * sub-execution cannot stop another. Single-op and single-group cases
+ * fall through to the original one-request path.
  *
  * Returns a structured summary; never throws for backend failures, so the
  * caller can record a baseline step even when the run errored.
@@ -651,15 +708,30 @@ export async function executeWorkflowAndPersist(
   const release = await getWorkflowMutex(config.workflowId).acquire();
 
   try {
-    const logicalPlan = buildLogicalPlan(workflowState, options.opsToViewResult);
-    if (logicalPlan.operators.length === 0) {
-      return { success: false, state: "Empty", opCount: 0, errorCount: 0, errorText: "Workflow has no operators." };
-    }
-
+    // Validation is structural and doesn't depend on which subset is
+    // being executed, so run it once up front whether we partition or not.
     const validationResult = validateWorkflow(workflowState);
     if (!validationResult.isValid) {
       const errorText = formatWorkflowValidationErrors(validationResult);
       return { success: false, state: "ValidationFailed", opCount: 0, errorCount: 0, errorText };
+    }
+
+    const opsToView = options.opsToViewResult ?? [];
+
+    // Multi-op case: partition into independent groups. Only switch to
+    // the per-group execution path when partitioning actually yields
+    // more than one group — a single group behaves identically to the
+    // original code path, which we preserve below.
+    if (opsToView.length > 1) {
+      const groups = partitionOpsByIndependence(workflowState, opsToView);
+      if (groups.length > 1) {
+        return await executeGroupsSequentially(workflowState, config, groups, options);
+      }
+    }
+
+    const logicalPlan = buildLogicalPlan(workflowState, opsToView);
+    if (logicalPlan.operators.length === 0) {
+      return { success: false, state: "Empty", opCount: 0, errorCount: 0, errorText: "Workflow has no operators." };
     }
 
     const result = await executeWorkflowHttp(config, logicalPlan, { abortSignal: options.abortSignal });
@@ -688,6 +760,111 @@ export async function executeWorkflowAndPersist(
   } finally {
     release();
   }
+}
+
+/**
+ * Execute each partition group as its own sync request, sequentially.
+ *
+ * Sequential rather than parallel: each sync request opens its own
+ * controller actor in Amber and the backend serializes them per
+ * workflow anyway (we hold the per-workflow mutex from the caller).
+ * Sequential execution also keeps per-group results streaming back
+ * to `onResult` in a deterministic order, which simplifies the
+ * snapshot the agent sees on its next turn.
+ *
+ * Per-group execution failure does NOT abort the remaining groups —
+ * that's the whole point: independent ops should preserve their
+ * results even when a sibling op errors. The aggregated summary
+ * reports `success=false` if any group failed, but every group's
+ * per-op `info` (including the failed one's `error` and the
+ * succeeded ones' `result`) is persisted via `onResult`.
+ */
+async function executeGroupsSequentially(
+  workflowState: WorkflowState,
+  config: ExecutionConfig,
+  groups: PartitionGroup[],
+  options: {
+    abortSignal?: AbortSignal;
+    onResult?: (operatorId: string, info: OperatorInfo) => void;
+  }
+): Promise<{
+  success: boolean;
+  state: string;
+  opCount: number;
+  errorCount: number;
+  errorText?: string;
+}> {
+  const mergedOps: Record<string, OperatorInfo> = {};
+  const groupErrors: string[] = [];
+  let anyFailure = false;
+  let aggregateState = "Completed";
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    if (options.abortSignal?.aborted) {
+      const err = new Error("Execution aborted") as Error & { name: string };
+      err.name = "AbortError";
+      throw err;
+    }
+
+    const group = groups[gi];
+    const plan = buildLogicalPlanFromSubDAG(workflowState, group.subDAG, group.opsToView);
+    if (plan.operators.length === 0) continue;
+
+    log.info(
+      { groupIndex: gi, totalGroups: groups.length, opsToView: group.opsToView },
+      "Executing partition group"
+    );
+
+    try {
+      const result = await executeWorkflowHttp(config, plan, { abortSignal: options.abortSignal });
+      persistOperatorResults(result.operators, options.onResult);
+
+      for (const [opId, info] of Object.entries(result.operators)) {
+        mergedOps[opId] = info;
+      }
+
+      if (!result.success) {
+        anyFailure = true;
+        // Prefer "Failed" over more specific states when later groups
+        // succeed — the agent's response surface mostly branches on
+        // `result.success`, but the state string is shown in logs.
+        if (aggregateState === "Completed") aggregateState = result.state;
+        const compilationErrors =
+          result.state === "CompilationFailed" || result.state === "ValidationFailed"
+            ? result.compilationErrors
+            : undefined;
+        const operatorErrors =
+          result.state === "Failed"
+            ? Object.entries(result.operators)
+                .filter(([_, op]) => op.error)
+                .map(([opId, op]) => ({ operatorId: opId, error: op.error! }))
+            : undefined;
+        const generalErrors =
+          result.state === "Killed" ? ["Workflow execution was killed (timeout)."] : result.errors;
+        const text = formatExecutionError(compilationErrors, operatorErrors, generalErrors);
+        if (text) groupErrors.push(text);
+      }
+    } catch (error: any) {
+      if (error.name === "AbortError") throw error;
+      anyFailure = true;
+      if (aggregateState === "Completed") aggregateState = "Failed";
+      const msg = error?.message || String(error);
+      groupErrors.push(`Group ${gi + 1} (ops: ${group.opsToView.join(", ")}) failed: ${msg}`);
+    }
+  }
+
+  const opCount = Object.keys(mergedOps).length;
+  const errorCount = Object.values(mergedOps).filter(o => o.error).length;
+  if (anyFailure) {
+    return {
+      success: false,
+      state: aggregateState,
+      opCount,
+      errorCount,
+      errorText: groupErrors.join("\n\n"),
+    };
+  }
+  return { success: true, state: "Completed", opCount, errorCount };
 }
 
 export function createExecuteOperatorTool(

@@ -398,6 +398,135 @@ function validateT3(snapshot: AgentSnapshot, _turn: AgentTurnResult): void {
 }
 
 /* ============================================================================
+ *  T4 — parallel independent ops with one failing
+ *
+ *  Asks the agent to add TWO disjoint DataLoading operators in a single
+ *  batch — `goodLoader` (returns a valid 4-row DataFrame) and `badLoader`
+ *  (intentionally reads from a path that does not exist, so the backend
+ *  will error). With agent-service-level subDAG partitioning, the two
+ *  ops form independent groups and the good loader's result is preserved
+ *  even though the bad loader failed in its own group.
+ *
+ *  Validator asserts:
+ *   - Both operators exist with the correct types and port shapes.
+ *   - `goodLoader` has a non-empty result of exactly the 4 rows asked for.
+ *   - `badLoader` has an error message (the agent's [ERROR] block).
+ *   - The agent emitted both `createOrModifyOperator` calls inside a
+ *     SINGLE assistant step (parallel tool-calls), proving we actually
+ *     exercised the multi-op batched-execution code path that the
+ *     partition module is supposed to split apart.
+ * ========================================================================= */
+
+const T4_GOOD_OP_ID = "goodLoader";
+const T4_BAD_OP_ID = "badLoader";
+const T4_EXPECTED_GOOD_ROWS: Record<string, number>[] = [
+  { id: 1, value: 100 },
+  { id: 2, value: 200 },
+  { id: 3, value: 300 },
+  { id: 4, value: 400 },
+];
+const T4_EXPECTED_GOOD_COLUMNS = ["id", "value"];
+
+const T4_PROMPT = `Build a workflow with EXACTLY TWO operators by emitting BOTH \`createOrModifyOperator\` tool calls in the SAME assistant message (parallel tool calls in one batch). Do not split them across two turns. After both are created, end with the final answer "done".
+
+The two operators are INDEPENDENT — neither reads from the other. Use these EXACT operatorIds:
+
+(1) operatorId: "${T4_GOOD_OP_ID}"
+    summary: "Load a 4-row synthetic DataFrame with columns id and value."
+    code (use this code character-for-character):
+\`\`\`python
+def load() -> pd.DataFrame:
+    import pandas as pd
+    return pd.DataFrame({
+        "id": [1, 2, 3, 4],
+        "value": [100, 200, 300, 400],
+    })
+\`\`\`
+
+(2) operatorId: "${T4_BAD_OP_ID}"
+    summary: "Load a CSV from a path that intentionally does not exist (will error)."
+    code (use this code character-for-character — the file path is intentionally invalid and the load is expected to fail):
+\`\`\`python
+def load() -> pd.DataFrame:
+    import pandas as pd
+    return pd.read_csv('/tmp/this-file-does-not-exist-${T4_BAD_OP_ID}.csv')
+\`\`\`
+
+Both operators MUST be emitted as parallel tool calls in the same assistant turn. Do not chain them. After both tool results come back, output the final answer "done".`;
+
+function validateT4(snapshot: AgentSnapshot, turn: AgentTurnResult): void {
+  const wf = requireWorkflow(snapshot);
+
+  // (a) Both ops exist with the right type and shape.
+  for (const opId of [T4_GOOD_OP_ID, T4_BAD_OP_ID]) {
+    const op = requireOperator(wf, opId);
+    assertEqual(op.operatorType, "DataLoading", `T4: ${opId} operator type`);
+    assertEqual(op.inputPorts.length, 0, `T4: ${opId} input port count`);
+    assertEqual(op.outputPorts.length, 1, `T4: ${opId} output port count`);
+  }
+
+  // (b) goodLoader has the correct rows.
+  const goodInfo = requireResult(snapshot, T4_GOOD_OP_ID);
+  const rows = rowsOf(goodInfo).map(r => ({ id: Number(r.id), value: Number(r.value) }));
+  assertEqual(rows.length, T4_EXPECTED_GOOD_ROWS.length, `T4: ${T4_GOOD_OP_ID} row count`);
+  assertEqual(columnsOf(goodInfo).sort(), [...T4_EXPECTED_GOOD_COLUMNS].sort(), `T4: ${T4_GOOD_OP_ID} column set`);
+  for (const want of T4_EXPECTED_GOOD_ROWS) {
+    const found = rows.find(r => r.id === want.id);
+    if (!found || found.value !== want.value) {
+      throw new SpecAssertionError(
+        `T4: ${T4_GOOD_OP_ID} row id=${want.id} expected value=${want.value}, got ${JSON.stringify(found)}`
+      );
+    }
+  }
+
+  // (c) badLoader has an error recorded. Without partitioning, Amber's
+  //     AllForOneStrategy would stop ALL workers when badLoader failed,
+  //     leaving goodLoader with no info at all — so this assertion is
+  //     load-bearing: a bad-loader error AND a good-loader success in
+  //     the SAME terminal snapshot can only happen when the partition
+  //     module sent them as separate sync requests.
+  const badInfo = (snapshot.results as Record<string, OperatorInfo>)[T4_BAD_OP_ID];
+  if (!badInfo) {
+    throw new SpecAssertionError(`T4: ${T4_BAD_OP_ID} has no execution result entry in the head snapshot`);
+  }
+  if (!badInfo.error) {
+    throw new SpecAssertionError(
+      `T4: ${T4_BAD_OP_ID} was expected to fail (non-existent CSV path) but reported no error. ` +
+        `Backend state=${badInfo.state}, totalRowCount=${badInfo.totalRowCount ?? 0}`
+    );
+  }
+
+  // (d) Both operators were created from a SINGLE assistant step's
+  //     parallel tool-call array — confirms we actually exercised the
+  //     batched-execution path that partitioning is designed to split.
+  //     We look for any one agent step whose toolCalls list contains
+  //     both createOrModifyOperator entries for goodLoader and
+  //     badLoader.
+  const stepWithBothCalls = turn.steps.find(s => {
+    if (s.role !== "agent" || !s.toolCalls) return false;
+    const createIds = s.toolCalls
+      .filter(c => c.toolName === "createOrModifyOperator")
+      .map(c => (c.input as { operatorId?: string })?.operatorId);
+    return createIds.includes(T4_GOOD_OP_ID) && createIds.includes(T4_BAD_OP_ID);
+  });
+  if (!stepWithBothCalls) {
+    const summary = turn.steps
+      .filter(s => s.role === "agent" && s.toolCalls?.length)
+      .map(
+        s =>
+          `step ${s.stepId}: ${s.toolCalls!
+            .map(c => `${c.toolName}(${(c.input as { operatorId?: string })?.operatorId ?? "?"})`)
+            .join(", ")}`
+      )
+      .join(" | ");
+    throw new SpecAssertionError(
+      `T4: agent did not emit both ${T4_GOOD_OP_ID} and ${T4_BAD_OP_ID} as parallel tool calls in the same step. ` +
+        `Saw: [${summary}]`
+    );
+  }
+}
+
+/* ============================================================================
  *  An empty workflow to start each spec from. Each spec gets its own fresh
  *  workflow via createWorkflow so the agent starts with a clean slate.
  * ========================================================================= */
@@ -435,5 +564,16 @@ export const AGENT_DRIVEN_SPECS: AgentDrivenSpec[] = [
       "sentinel readings prove the documented port→parameter mapping.",
     prompt: T3_PROMPT,
     validate: validateT3,
+  },
+  {
+    name: "[AgentDriven] T4 parallel independent ops, one failing → subDAG partition",
+    description:
+      "Agent emits two independent DataLoading ops as parallel tool calls in one batch; one of them " +
+      "intentionally reads a non-existent file. Validator asserts the good op's result is preserved " +
+      "alongside the bad op's [ERROR] block — which can only happen when agent-service-level " +
+      "subDAG partitioning splits the batch into separate sync executions (without it, Amber's " +
+      "AllForOneStrategy supervisor would kill the good op's worker too).",
+    prompt: T4_PROMPT,
+    validate: validateT4,
   },
 ];
