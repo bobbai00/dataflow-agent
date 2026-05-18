@@ -72,10 +72,20 @@ export interface AgentSettingsApi {
   /** When true, the model may emit multiple tool calls in one assistant turn.
    *  The agent serializes them in topological order via `ToolCallScheduler`. */
   parallelToolCalls?: boolean;
-  /** When true, each in-progress task's continuation block is prefixed with a
-   *  verbatim copy of the user's last request — re-anchors the model on the
-   *  immediate target right before it resumes. */
-  userTaskDuplicatedAtEnd?: boolean;
+  /** When true, every non-error operator result that the backend annotated
+   *  with `columnStats` is followed by a `Column stats:` block (one line per
+   *  column) in the assembled context. */
+  statsEnabled?: boolean;
+  /** Hard cap on how many of the most-recent (non-init) ReActStep events are
+   *  rendered into the assembled context. Default 10000 = effectively off;
+   *  small finite values (0..N) bound total context size regardless of step
+   *  count. When the cap drops events, a `(... N earlier events omitted ...)`
+   *  marker is emitted under `# Recent Agent Events`. */
+  recentEventsCap?: number;
+  /** When the cap is in effect, include the full `code` parameter of each
+   *  kept `createOrModifyOperator` action in the rendered context (as an
+   *  indented `code: |` block). Default true. */
+  includeCodeInRecentEvents?: boolean;
 }
 
 /**

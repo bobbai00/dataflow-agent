@@ -209,7 +209,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsAgentMode: "code" | "general" = "code"; // Agent operating mode
   public settingsContextMode: "full" | "delta" | "latest" = "latest"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
-  public settingsUserTaskDuplicatedAtEnd: "enabled" | "disabled" = "enabled"; // Re-state user task before continuation
+  public settingsStatsEnabled: "enabled" | "disabled" = "enabled"; // Append Column stats block to operator results
+  public settingsRecentEventsCap: number = 2; // Cap on rendered events; <Infinity drops older events
+  public settingsIncludeCodeInRecentEvents: "enabled" | "disabled" = "enabled"; // Render code: | block for events in the cap window
   public settingsAllowedOperatorTypes: string[] = []; // Allowed operator types for general mode
   public allAvailableOperatorTypes: Array<{ type: string; description: string }> = []; // All operator types from backend
   public operatorTypeSearchQuery = ""; // Search filter for operator types
@@ -472,8 +474,15 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
-        // Same default-true treatment as parallelToolCalls.
-        this.settingsUserTaskDuplicatedAtEnd = settings.userTaskDuplicatedAtEnd === false ? "disabled" : "enabled";
+        // Backend default for `statsEnabled` is true — missing means "enabled".
+        this.settingsStatsEnabled = settings.statsEnabled === false ? "disabled" : "enabled";
+        // Backend default for `recentEventsCap` is 2 — keep only the two most
+        // recent ReActStep events in the rendered context. Use a large value
+        // (10000+) to effectively disable the cap; use 0 to drop all events.
+        this.settingsRecentEventsCap = settings.recentEventsCap ?? 2;
+        // Backend default for `includeCodeInRecentEvents` is true; missing → "enabled".
+        this.settingsIncludeCodeInRecentEvents =
+          settings.includeCodeInRecentEvents === false ? "disabled" : "enabled";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -481,7 +490,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
-          this.agentInfo.settings.userTaskDuplicatedAtEnd = settings.userTaskDuplicatedAtEnd;
+          this.agentInfo.settings.statsEnabled = settings.statsEnabled;
+          this.agentInfo.settings.recentEventsCap = settings.recentEventsCap;
+          this.agentInfo.settings.includeCodeInRecentEvents = settings.includeCodeInRecentEvents;
         }
       });
 
@@ -1235,21 +1246,72 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the user-task-duplicated-at-end setting. When enabled, each
-   * in-progress task's continuation block carries a verbatim copy of the
-   * user's last request to keep the objective anchored alongside where the
-   * model resumes. Pure render-time toggle; no system prompt rebuild.
+   * Save the stats-enabled setting. When enabled, every non-error operator
+   * result whose `OperatorInfo` carries `columnStats` is followed by a
+   * `Column stats:` block listing per-column type + summary stats. Pure
+   * render-time toggle; no system prompt rebuild.
    */
-  public saveUserTaskDuplicatedAtEnd(): void {
-    const enabled = this.settingsUserTaskDuplicatedAtEnd === "enabled";
+  public saveStatsEnabled(): void {
+    const enabled = this.settingsStatsEnabled === "enabled";
     this.agentService
       .updateAgentSettings(this.agentInfo.id, {
-        userTaskDuplicatedAtEnd: enabled,
+        statsEnabled: enabled,
       })
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => {
-          this.notificationService.success(`User task duplication ${enabled ? "enabled" : "disabled"}`);
+          this.notificationService.success(`Column stats ${enabled ? "enabled" : "disabled"}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the recent-events cap. Bounds how many of the most-recent
+   * ReActStep events get rendered into the assembled context. Large
+   * values (10000+) effectively disable the cap; small values (0..N)
+   * drop older events with a `(... N earlier events omitted ...)` marker
+   * under `# Recent Agent Events`. Latest user message is always
+   * preserved at the top in `# User Task` regardless of the cap. Pure
+   * render-time toggle; no system prompt rebuild.
+   */
+  public saveRecentEventsCap(): void {
+    const cap = Math.max(0, Math.floor(this.settingsRecentEventsCap ?? 10000));
+    // Snap the local field back to the sanitized value so the UI matches
+    // what was actually sent.
+    this.settingsRecentEventsCap = cap;
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        recentEventsCap: cap,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Recent events cap set to ${cap}`);
+          this.refreshSystemInfo();
+        },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /**
+   * Save the include-code-in-recent-events setting. When the cap is in
+   * effect (recentEventsCap finite), kept createOrModifyOperator events
+   * render their full `code` parameter as an indented `code: |` block
+   * under the action header. When false, code is never surfaced in past
+   * events. Pure render-time toggle; no system prompt rebuild.
+   */
+  public saveIncludeCodeInRecentEvents(): void {
+    const enabled = this.settingsIncludeCodeInRecentEvents === "enabled";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, {
+        includeCodeInRecentEvents: enabled,
+      })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {
+          this.notificationService.success(`Code in recent events ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
         error: () => {}, // Error already handled by service

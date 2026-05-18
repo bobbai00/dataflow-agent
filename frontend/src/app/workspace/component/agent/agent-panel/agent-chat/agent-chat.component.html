@@ -543,10 +543,10 @@
           </div>
 
           <div class="settings-param-item">
-            <label class="settings-param-label">Re-state User Task at End</label>
+            <label class="settings-param-label">Column Stats Block</label>
             <div class="settings-param-input">
               <nz-select
-                [(ngModel)]="settingsUserTaskDuplicatedAtEnd"
+                [(ngModel)]="settingsStatsEnabled"
                 nzSize="small"
                 style="width: 180px">
                 <nz-option
@@ -560,15 +560,73 @@
                 nz-button
                 nzType="primary"
                 nzSize="small"
-                (click)="saveUserTaskDuplicatedAtEnd()">
+                (click)="saveStatsEnabled()">
                 Save
               </button>
             </div>
             <div class="settings-param-hint-block">
-              When <strong>enabled</strong>, the user's task text is re-emitted as a <code>User's request is: …</code>
-              line right before the per-task continuation. Re-anchors the model on the immediate objective at the cost
-              of one extra copy of the prompt per turn. When <strong>disabled</strong>, only the original
-              <code># Event N (User Task)</code> block appears.
+              When <strong>enabled</strong>, every non-error operator result is followed by a <code>Column stats:</code>
+              block — one line per column showing the type and type-specific summary (null/distinct/top_10 for strings,
+              null/mean/min/max for numerics, null/true/false for bools, etc.). Helps the model reason about column
+              semantics without re-issuing inspection operators. When <strong>disabled</strong>, only the data preview
+              + shape metadata is rendered.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Recent Events Cap</label>
+            <div class="settings-param-input">
+              <nz-input-number
+                [(ngModel)]="settingsRecentEventsCap"
+                [nzMin]="0"
+                [nzStep]="1"
+                nzSize="small"
+                style="width: 180px"></nz-input-number>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveRecentEventsCap()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              Hard cap on how many of the most-recent ReActStep events get rendered under
+              <code># Recent Agent Events</code>. Counts both user messages and agent turns; init step excluded.
+              Default is <strong>2</strong> — only the two most recent events are kept; older ones are replaced with
+              a <code>(... N earlier events omitted ...)</code> notice. Use a large value (<strong>10000+</strong>) to
+              effectively disable the cap, or <strong>0</strong> to drop every event entirely.
+              <code># User Task</code> and <code># Current Dataflow</code> always render regardless.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Include Code in Recent Events</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsIncludeCodeInRecentEvents"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="enabled"
+                  nzLabel="Enabled"></nz-option>
+                <nz-option
+                  nzValue="disabled"
+                  nzLabel="Disabled"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveIncludeCodeInRecentEvents()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When <strong>enabled</strong> (default), events kept inside the recent-events window render their full
+              <code>code</code> parameter as an indented <code>code: |</code> block under the action header — the
+              agent can read exactly what was submitted. When <strong>disabled</strong>, the code is omitted; the
+              agent only sees the operator id + summary on past actions.
             </div>
           </div>
 
