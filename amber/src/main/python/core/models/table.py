@@ -17,11 +17,51 @@
 
 import pandas
 from pampy import match
-from typing import Iterator, TypeVar, List
+from typing import Dict, Iterator, List, Optional, Tuple as TypingTuple, TypeVar
 
 from core.models import Tuple, TupleLike
 
 TableLike = TypeVar("TableLike", pandas.DataFrame, List[TupleLike])
+
+
+def deduplicate_columns(
+    columns: List[str],
+) -> TypingTuple[List[str], Optional[Dict[str, str]]]:
+    """
+    Rename duplicate column names so every name in the returned list is
+    unique, following pandas' own convention: `col`, `col.1`, `col.2`, …
+
+    Required by `Table.as_tuples`: it builds each row's Tuple via
+    `dict(zip(columns, row))`, which silently drops every duplicate's value
+    when two columns share a name. Deduping the column-name list before
+    the zip preserves all cells.
+
+    Returns `(columns, None)` when no renames were needed, so callers can
+    cheaply detect the no-op case and skip emitting a console hint.
+    """
+    seen_counts: Dict[str, int] = {}
+    all_names = set(columns)
+    new_columns: List[str] = []
+    rename_map: Dict[str, str] = {}
+    for col in columns:
+        if col not in seen_counts:
+            seen_counts[col] = 0
+            new_columns.append(col)
+        else:
+            seen_counts[col] += 1
+            suffix = seen_counts[col]
+            new_name = f"{col}.{suffix}"
+            # Edge case: original columns already contain "col.N" — bump
+            # the suffix past it so we don't collide.
+            while new_name in all_names or new_name in rename_map.values():
+                suffix += 1
+                new_name = f"{col}.{suffix}"
+            seen_counts[col] = suffix
+            rename_map[f"{col}@{suffix}"] = new_name
+            new_columns.append(new_name)
+    if not rename_map:
+        return columns, None
+    return new_columns, rename_map
 
 
 class Table(pandas.DataFrame):
@@ -68,12 +108,18 @@ class Table(pandas.DataFrame):
 
     def as_tuples(self) -> Iterator[Tuple]:
         """
-        Convert rows of the table into Tuples, and returning an iterator of Tuples
-        following their row index order.
-        :return:
+        Convert rows of the table into Tuples, in row-index order.
+
+        Column labels are stringified first (a DataFrame produced via
+        `pd.read_excel(header=None)` carries an int RangeIndex; the engine's
+        Schema/Tuple layer is str-keyed throughout), then deduplicated so
+        that two columns sharing a name don't silently collapse to a single
+        Tuple field via `dict(zip(...))`.
         """
+        str_columns = [str(col) for col in self.columns]
+        deduped_columns, _ = deduplicate_columns(str_columns)
         for raw_tuple in self.itertuples(index=False, name=None):
-            yield Tuple(dict(zip(self.columns, raw_tuple)))
+            yield Tuple(dict(zip(deduped_columns, raw_tuple)))
 
     def __eq__(self, other: "Table") -> bool:
         if isinstance(other, Table):

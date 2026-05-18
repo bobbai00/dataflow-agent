@@ -30,7 +30,11 @@ from typing import Any, List, Iterator, Callable
 from typing_extensions import Protocol, runtime_checkable
 
 from core.models.type.large_binary import largebinary
-from .schema.attribute_type import TO_PYOBJECT_MAPPING, AttributeType
+from .schema.attribute_type import (
+    TO_PYOBJECT_MAPPING,
+    AttributeType,
+    coerce_value_to_type,
+)
 from .schema.field import Field
 from .schema.schema import Schema
 
@@ -315,14 +319,21 @@ class Tuple:
 
     def cast_to_schema(self, schema: Schema) -> None:
         """
-        Safely cast each field value to match the target schema.
-        If failed, the value will stay not changed.
-        This current conducts two kinds of casts:
-            1. cast NaN to None;
-            2. cast any object to bytes (using pickle).
-        :param schema: The target Schema that describes the target AttributeType to
-            cast.
-        :return:
+        Safely cast each field value to match the target schema. If a cast
+        fails the value stays as-is and `validate_schema` will surface the
+        mismatch afterwards.
+
+        Three kinds of casts run in order:
+          1. NaN / pd.NA → None  (so nulls type-check as `type(None)`)
+          2. coerce_value_to_type — bridges the mismatch between pandas /
+             numpy scalars (e.g. `numpy.int64`, `numpy.float64`,
+             `pandas.Timestamp`) and the engine's expected Python types
+             (`int`, `float`, `datetime.datetime`). Without this step the
+             schema-inferred LONG column rejects the `numpy.int64` cells
+             that pandas extension dtypes emit through `itertuples`.
+          3. Legacy BINARY pickling — objects with no obvious coercion path
+             get pickled with the "pickle    " marker so they survive
+             round-trip.
         """
         for field_name in self.get_field_names():
             try:
@@ -331,13 +342,28 @@ class Tuple:
                 # convert NaN to None to support null value conversion
                 if checknull(field_value):
                     self[field_name] = None
+                    continue
 
-                if field_value is not None:
-                    field_type = schema.get_attr_type(field_name)
-                    if field_type == AttributeType.BINARY and not isinstance(
-                        field_value, bytes
-                    ):
+                if field_value is None:
+                    continue
+
+                field_type = schema.get_attr_type(field_name)
+
+                # BINARY's legacy contract: non-bytes values are pickled with
+                # a "pickle    " marker so downstream readers can recover the
+                # original Python object. Routing them through
+                # coerce_value_to_type would lossy-cast (e.g. a list of ints
+                # via `bytes(list)` becomes an opaque byte string with no way
+                # to reconstruct the list), so handle BINARY here before the
+                # generic coercion path. Bytes values pass through unchanged.
+                if field_type == AttributeType.BINARY:
+                    if not isinstance(field_value, bytes):
                         self[field_name] = b"pickle    " + pickle.dumps(field_value)
+                    continue
+
+                coerced = coerce_value_to_type(field_value, field_type)
+                if coerced is not field_value:
+                    self[field_name] = coerced
             except Exception as err:
                 # Surpass exceptions during cast.
                 # Keep the value as it is if the cast fails, and continue to attempt

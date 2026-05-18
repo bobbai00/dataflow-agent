@@ -128,34 +128,14 @@ def _format_datetime(value: Any) -> str:
     return s
 
 
-def _validate_declared_is_subset(declared: Schema, inferred: Schema) -> None:
-    """
-    Enforce the subset-constraint contract for `dynamicOutputSchema=true`:
-    every column declared by the user must appear in the inferred schema with
-    the same type. Extra inferred columns are allowed.
-    """
-    inferred_pairs = dict(inferred.as_key_value_pairs())
-    for name, declared_type in declared.as_key_value_pairs():
-        if name not in inferred_pairs:
-            raise RuntimeError(
-                f"Declared output column '{name}' missing from yielded "
-                f"DataFrame (inferred columns: {list(inferred_pairs.keys())})"
-            )
-        if inferred_pairs[name] != declared_type:
-            raise RuntimeError(
-                f"Declared output column '{name}': expected "
-                f"{declared_type}, got {inferred_pairs[name]}"
-            )
-
-
 class DataProcessor(Runnable, Stoppable):
     def __init__(self, context: Context):
         self._running = Event()
         self._context = context
-        # Cached after the first table yield: inferred-or-declared schema
-        # against which subsequent tables are validated for equality. None
-        # means "no table observed yet."
-        self._fixed_output_schema: Optional[Schema] = None
+        # Set to True after the first DataFrame yield triggers schema
+        # inference + (optional) port rewrite. Subsequent yields skip the
+        # inference work and reuse whatever port schema is now active.
+        self._schema_inferred: bool = False
 
     def run(self) -> None:
         """
@@ -270,81 +250,154 @@ class DataProcessor(Runnable, Stoppable):
 
     def _maybe_apply_runtime_schema(self, output: Any) -> None:
         """
-        Table-API path: on each yielded Table, infer schema from dtypes,
-        apply subset/strict validation against the declared schema, set the
-        port schema on the first table, and publish per-column statistics.
-        No-op for non-Table yields and for tuple-yielding operators.
+        Table-API path. On the first yielded DataFrame, infer the schema from
+        the DataFrame's dtypes and reconcile against the declared port schema:
+          - declared empty → silently rewrite port + recreate writers
+          - declared non-empty + mismatch → raise (UDF contract violation)
+          - declared non-empty + match → no-op
+        Subsequent yields skip inference and reuse the now-active port
+        schema; per-column stats are still recomputed on every yield so the
+        agent renderer sees the most recent table. No-op for non-Table
+        yields (tuple-yielding UDFs must declare their schema upfront).
         """
         df = _to_dataframe(output)
         if df is None:
-            return  # tuple-yielding UDF or non-table output
+            return
 
-        inferred = self._infer_schema_from_dataframe(df)
-        dynamic = self._context.executor_manager.dynamic_output_schema
-
-        if self._fixed_output_schema is None:
+        if not self._schema_inferred:
+            self._schema_inferred = True
+            inferred = self._infer_schema_from_dataframe(df)
             declared = self._context.output_manager.get_port().get_schema()
-            if dynamic:
-                _validate_declared_is_subset(declared, inferred)
-                if inferred != declared:
-                    self._context.output_manager.get_port().set_schema(inferred)
-                    self._context.output_manager.recreate_port_storage_writer(
-                        self._context.output_manager.get_port_id(), inferred
-                    )
-                self._fixed_output_schema = inferred
-            else:
-                if inferred != declared:
+            if inferred != declared:
+                if declared.get_attr_names():
                     raise RuntimeError(
                         f"Output schema mismatch: declared {declared}, "
-                        f"got {inferred}. Set dynamicOutputSchema=true to "
-                        f"accept inferred schemas."
+                        f"got {inferred}."
                     )
-                self._fixed_output_schema = declared
-        else:
-            if inferred != self._fixed_output_schema:
-                raise RuntimeError(
-                    f"Schema drift across yielded tables: first "
-                    f"{self._fixed_output_schema}, got {inferred}"
+                self._context.output_manager.get_port().set_schema(inferred)
+                for port_id in self._context.output_manager.get_port_ids():
+                    self._context.output_manager.recreate_port_storage_writer(
+                        port_id, inferred
+                    )
+                logger.info(
+                    f"Schema inferred from DataFrame dtypes: {inferred}"
                 )
 
         self._publish_column_stats(df)
 
     def _infer_schema_from_dataframe(self, df: pandas.DataFrame) -> Schema:
         """
-        Build a Texera Schema from a pandas DataFrame's dtypes. Object columns
-        are sampled to distinguish STRING / LIST / STRUCT.
+        Build a Texera Schema from a pandas DataFrame's dtypes. Object
+        columns are handed off to `_infer_type_from_object_column`, which
+        runs a whole-column `pandas.api.types.infer_dtype` scan (handles
+        nulls and mixed-numeric properly); other dtypes go through
+        `_map_pandas_dtype_to_attribute_type`, which understands pandas
+        extension dtypes (Int64/Float64/boolean/string/categorical/
+        timedelta64) and the numpy primitives.
+
+        Column-name handling matches `Table.as_tuples`: labels are
+        stringified (a `pd.read_excel(header=None)` DataFrame carries int
+        RangeIndex labels) and deduplicated (two columns called "x" become
+        "x" and "x.1") so the inferred Schema lines up cell-for-cell with
+        the deduped Tuples produced downstream. Columns are read
+        positionally via `df.iloc[:, i]` rather than `df[name]` so a
+        duplicate label doesn't return a DataFrame instead of a Series
+        (which would `AttributeError` on `.dtype`).
         """
+        from core.models.table import deduplicate_columns
+
+        str_columns = [str(c) for c in df.columns]
+        deduped_columns, _ = deduplicate_columns(str_columns)
         schema = Schema()
-        for col_name in df.columns:
-            col = df[col_name]
-            dtype_name = str(col.dtype)
-            if dtype_name in _PANDAS_DTYPE_TO_ATTRIBUTE_TYPE:
-                attr_type = _PANDAS_DTYPE_TO_ATTRIBUTE_TYPE[dtype_name]
-            elif dtype_name.startswith("datetime64"):
-                attr_type = AttributeType.TIMESTAMP
-            else:
+        for i, col_name in enumerate(deduped_columns):
+            col = df.iloc[:, i]
+            if pandas.api.types.is_object_dtype(col):
                 attr_type = self._infer_type_from_object_column(col)
-            schema.add(str(col_name), attr_type)
+            else:
+                attr_type = self._map_pandas_dtype_to_attribute_type(col.dtype)
+            schema.add(col_name, attr_type)
         return schema
 
     @staticmethod
     def _infer_type_from_object_column(col: pandas.Series) -> AttributeType:
         """
-        For pandas object-dtype columns, sample non-null values to decide
-        between STRING, LIST, and STRUCT. Empty / all-null falls back to
-        STRING (the safest default for downstream serialization).
+        Infer an AttributeType for an object-dtype column. Uses pandas'
+        `infer_dtype` so a column of `[1, None, 2]` types as LONG (not
+        whatever the first non-null cell happens to be) and a column of
+        `[1, 1.5, None]` types as DOUBLE.
+
+        Falls back to type-sampling when pandas reports `mixed` (or one of
+        the catch-all kinds): up to 100 non-null values are inspected, and
+        a column is LIST/STRUCT only when *every* sampled value is a list
+        or dict respectively. Anything else (truly mixed, or unknown kind
+        with no values to sample) falls back to STRING, which is the
+        safest type for downstream serialization.
         """
-        sample = col.dropna()
-        if sample.empty:
+        inferred = pandas.api.types.infer_dtype(col, skipna=True)
+
+        if inferred == "integer":
+            return AttributeType.LONG
+        if inferred == "floating" or inferred == "mixed-integer-float":
+            # Floats can represent ints, so a mix of the two is still DOUBLE.
+            return AttributeType.DOUBLE
+        if inferred == "boolean":
+            return AttributeType.BOOL
+        if inferred == "string":
             return AttributeType.STRING
-        first = sample.iloc[0]
-        if isinstance(first, list):
+        if inferred == "bytes":
+            return AttributeType.BINARY
+        if inferred in ("datetime", "datetime64", "date"):
+            return AttributeType.TIMESTAMP
+
+        non_null = col.dropna()
+        if non_null.empty:
+            return AttributeType.STRING
+
+        sample = non_null.head(100)
+        types_seen = set(type(v) for v in sample)
+        if types_seen == {list}:
             return AttributeType.LIST
-        if isinstance(first, dict):
+        if types_seen == {dict}:
             return AttributeType.STRUCT
-        if isinstance(first, (bytes, bytearray)):
+        if types_seen == {bytes} or types_seen == {bytearray}:
             return AttributeType.BINARY
         return AttributeType.STRING
+
+    @staticmethod
+    def _map_pandas_dtype_to_attribute_type(dtype) -> AttributeType:
+        """
+        Map a numpy/pandas dtype to an AttributeType. Covers numpy primitives
+        via the lookup table, then falls back to string-name matching for
+        pandas extension dtypes (capitalized nullable types, StringDtype,
+        CategoricalDtype, datetime64 with tz, timedelta64). Unknown dtypes
+        default to BINARY, which gets pickled downstream.
+        """
+        dtype_str = str(dtype)
+        if dtype_str in _PANDAS_DTYPE_TO_ATTRIBUTE_TYPE:
+            return _PANDAS_DTYPE_TO_ATTRIBUTE_TYPE[dtype_str]
+        # Pandas nullable integer types: Int8/Int16/Int32/Int64, UInt8…UInt64.
+        if dtype_str.startswith("Int") or dtype_str.startswith("UInt"):
+            return AttributeType.LONG
+        # Pandas nullable float types: Float32, Float64.
+        if dtype_str.startswith("Float"):
+            return AttributeType.DOUBLE
+        # Pandas nullable boolean.
+        if dtype_str == "boolean":
+            return AttributeType.BOOL
+        # Pandas StringDtype.
+        if dtype_str == "string":
+            return AttributeType.STRING
+        # Categorical — stringify the categories for downstream consumption.
+        if hasattr(dtype, "categories"):
+            return AttributeType.STRING
+        # datetime64 with or without tz (e.g. "datetime64[ns, UTC]").
+        if dtype_str.startswith("datetime64") or hasattr(dtype, "tz"):
+            return AttributeType.TIMESTAMP
+        # timedelta64 — store as int nanoseconds.
+        if dtype_str.startswith("timedelta64"):
+            return AttributeType.LONG
+        logger.debug(f"Unknown pandas dtype {dtype_str!r}, defaulting to BINARY")
+        return AttributeType.BINARY
 
     def _publish_column_stats(self, df: pandas.DataFrame) -> None:
         """
@@ -357,11 +410,22 @@ class DataProcessor(Runnable, Stoppable):
         each one with `- "col" ` and emits it under a `Column stats:` block,
         so the format is fully owned here. See `_compute_column_stats` for
         the per-type field set.
+
+        Columns are read positionally via `df.iloc[:, i]` (not `df[name]`)
+        so duplicate labels — e.g. a DataFrame with two columns both named
+        "x" — return a Series per column rather than a DataFrame, which is
+        what `_compute_column_stats` needs. Names are deduped through the
+        same `deduplicate_columns` helper as `Table.as_tuples` so the stats
+        keys line up with the engine's Schema field names.
         """
+        from core.models.table import deduplicate_columns
+
+        str_columns = [str(c) for c in df.columns]
+        deduped_columns, _ = deduplicate_columns(str_columns)
         stats: Dict[str, str] = {}
-        for col_name in df.columns:
-            col = df[col_name]
-            stats[str(col_name)] = self._compute_column_stats(col)
+        for i, col_name in enumerate(deduped_columns):
+            col = df.iloc[:, i]
+            stats[col_name] = self._compute_column_stats(col)
         self._context.statistics_manager.set_result_statistics(stats)
 
     @staticmethod

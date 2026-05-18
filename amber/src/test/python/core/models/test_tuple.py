@@ -395,3 +395,106 @@ class TestTupleKeyNormalization:
         assert list(t.get_field_names()) == ["col_a", "col_b"]
         assert t["col_a"] == 1
         assert t["col_b"] == 2
+
+
+class TestTupleNumpyCoercion:
+    """
+    Caught by the runtime-schema e2e: when a pandas DataFrame (especially
+    one with an extension dtype like Int64 / Float64) is row-exploded via
+    `itertuples`, the resulting field values are numpy scalars
+    (`numpy.int64`, `numpy.float64`). `numpy.int64` is NOT a subclass of
+    Python `int`, so the post-cast `validate_schema` step would reject
+    them with `Unmatched type for field …`.
+
+    `cast_to_schema` must run `coerce_value_to_type` to normalize numpy
+    scalars to native Python types before validation.
+    """
+
+    def test_numpy_int64_normalizes_to_python_int_for_LONG(self):
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("n", AttributeType.LONG)
+
+        t = Tuple({"n": np.int64(42)})
+        # Pre-finalize: still a numpy scalar.
+        assert isinstance(t["n"], np.int64)
+
+        t.finalize(schema)  # cast_to_schema → validate_schema
+
+        # After finalize: plain Python int and value preserved.
+        assert type(t["n"]) is int
+        assert t["n"] == 42
+
+    def test_numpy_float64_passes_validation_for_DOUBLE(self):
+        # Unlike numpy.int64, numpy.float64 IS a subclass of Python float,
+        # so validate_schema accepts it directly and coerce_value_to_type's
+        # fast-path leaves it alone. No transformation expected; this test
+        # just guards that finalize() doesn't error on a numpy float arriving
+        # at a DOUBLE column.
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("x", AttributeType.DOUBLE)
+
+        t = Tuple({"x": np.float64(3.5)})
+        t.finalize(schema)  # must not raise
+
+        assert isinstance(t["x"], float)  # numpy.float64 is-a float
+        assert t["x"] == 3.5
+
+    def test_numpy_bool_normalizes_to_python_bool_for_BOOL(self):
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("flag", AttributeType.BOOL)
+
+        # numpy bool_ is also not Python bool on every platform.
+        t = Tuple({"flag": np.bool_(True)})
+        t.finalize(schema)
+        assert type(t["flag"]) is bool
+        assert t["flag"] is True
+
+    def test_pandas_nullable_int64_NA_becomes_None(self):
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("n", AttributeType.LONG)
+
+        # pd.NA fires `checknull` true, so cast_to_schema rewrites it to None
+        # *before* the int-coercion branch. Validate the contract end-to-end.
+        t = Tuple({"n": pandas.NA})
+        t.finalize(schema)
+        assert t["n"] is None
+
+    def test_numpy_int64_with_NaN_partner_field(self):
+        # End-to-end shape: simulate a row coming out of a DataFrame that
+        # holds both an Int64 value and a float NaN cell — both branches of
+        # cast_to_schema (coerce + checknull) must fire correctly in the
+        # same finalize() call.
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("n", AttributeType.LONG)
+        schema.add("missing", AttributeType.LONG)
+
+        t = Tuple({"n": np.int64(5), "missing": float("nan")})
+        t.finalize(schema)
+        assert type(t["n"]) is int
+        assert t["n"] == 5
+        assert t["missing"] is None
+
+    def test_string_value_for_LONG_target_coerces_via_int_cast(self):
+        # Mirrors a real agent failure case where one operator returns "42"
+        # (object dtype, str) but the downstream LONG schema accepts only
+        # int. coerce_value_to_type must run `int(value)` so the engine
+        # bridges the small mismatch instead of failing the workflow.
+        from core.models.schema.attribute_type import AttributeType
+
+        schema = Schema()
+        schema.add("n", AttributeType.LONG)
+
+        t = Tuple({"n": "42"})
+        t.finalize(schema)
+        assert type(t["n"]) is int
+        assert t["n"] == 42

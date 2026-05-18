@@ -573,3 +573,469 @@ class TestRunInvariant:
         assert "expected exactly one queued input" in str(excinfo.value)
         assert "marker=True" in str(excinfo.value)
         assert "tuple=True" in str(excinfo.value)
+
+
+# ----------------------------------------------------------------------
+# Runtime schema inference (DataFrame -> Texera Schema)
+# ----------------------------------------------------------------------
+
+import pandas as _pd  # noqa: E402  -- placed below the existing tests so the
+# inference suite below does not perturb the import-order assumptions of the
+# earlier classes (which deliberately import `from core...` without pandas).
+import numpy as _np  # noqa: E402
+
+from core.models.schema import Schema  # noqa: E402
+from core.models.schema.attribute_type import AttributeType  # noqa: E402
+from core.models.table import Table  # noqa: E402
+from proto.org.apache.texera.amber.core import PortIdentity  # noqa: E402
+
+
+class TestMapPandasDtypeToAttributeType:
+    """
+    `_map_pandas_dtype_to_attribute_type` is the dtype-keyed half of schema
+    inference: it handles every column that is *not* `object` dtype. Coverage
+    target: every branch listed in the function docstring.
+    """
+
+    @pytest.mark.parametrize(
+        "series_input, expected",
+        [
+            # numpy primitives (lookup-table hits)
+            (_pd.Series([1, 2, 3], dtype="int8"), AttributeType.LONG),
+            (_pd.Series([1, 2, 3], dtype="int16"), AttributeType.LONG),
+            (_pd.Series([1, 2, 3], dtype="int32"), AttributeType.LONG),
+            (_pd.Series([1, 2, 3], dtype="int64"), AttributeType.LONG),
+            (_pd.Series([1, 2, 3], dtype="uint32"), AttributeType.LONG),
+            (_pd.Series([1.0, 2.0], dtype="float32"), AttributeType.DOUBLE),
+            (_pd.Series([1.0, 2.0], dtype="float64"), AttributeType.DOUBLE),
+            (_pd.Series([True, False], dtype="bool"), AttributeType.BOOL),
+            # numpy datetime64 (handled by the prefix-match fallback)
+            (
+                _pd.Series(_pd.to_datetime(["2024-01-01", "2024-01-02"])),
+                AttributeType.TIMESTAMP,
+            ),
+            # pandas nullable extension dtypes
+            (_pd.Series([1, _pd.NA], dtype="Int64"), AttributeType.LONG),
+            (_pd.Series([1, _pd.NA], dtype="Int32"), AttributeType.LONG),
+            (_pd.Series([1, _pd.NA], dtype="UInt16"), AttributeType.LONG),
+            (_pd.Series([1.5, _pd.NA], dtype="Float64"), AttributeType.DOUBLE),
+            (_pd.Series([True, _pd.NA], dtype="boolean"), AttributeType.BOOL),
+            (_pd.Series(["a", "b"], dtype="string"), AttributeType.STRING),
+            # Categorical maps to STRING regardless of underlying category dtype.
+            (_pd.Series(["x", "y"], dtype="category"), AttributeType.STRING),
+            (
+                _pd.Series([1, 2], dtype=_pd.CategoricalDtype([1, 2])),
+                AttributeType.STRING,
+            ),
+            # timedelta64 -> LONG (nanoseconds).
+            (
+                _pd.Series(_pd.to_timedelta(["1 days", "2 days"])),
+                AttributeType.LONG,
+            ),
+        ],
+    )
+    def test_known_dtype_maps_to_expected_type(self, series_input, expected):
+        from core.runnables.data_processor import DataProcessor
+
+        assert (
+            DataProcessor._map_pandas_dtype_to_attribute_type(series_input.dtype)
+            == expected
+        )
+
+    def test_datetime_with_timezone_maps_to_timestamp(self):
+        from core.runnables.data_processor import DataProcessor
+
+        # datetime64[ns, UTC] — the `tz` attribute path + the
+        # "datetime64" prefix both cover this; assert it lands on TIMESTAMP.
+        ser = _pd.Series(_pd.to_datetime(["2024-01-01"], utc=True))
+        assert (
+            DataProcessor._map_pandas_dtype_to_attribute_type(ser.dtype)
+            == AttributeType.TIMESTAMP
+        )
+
+
+class TestInferTypeFromObjectColumn:
+    """
+    Object-dtype columns can mean almost anything: nullable basic types, real
+    strings, mixed types, or homogeneous list/dict cells. The function leans
+    on `pandas.api.types.infer_dtype` for the "pandas can tell" cases and
+    falls back to type-sampling for the rest.
+    """
+
+    @pytest.mark.parametrize(
+        "series_values, expected",
+        [
+            # nulls preserved → still types as LONG via infer_dtype="integer"
+            ([1, 2, None, 3], AttributeType.LONG),
+            ([1, None, 2], AttributeType.LONG),
+            # nulls + floats → "floating"
+            ([1.5, None, 2.5], AttributeType.DOUBLE),
+            # mixed int+float → "mixed-integer-float" → DOUBLE
+            ([1, 2.5, 3], AttributeType.DOUBLE),
+            # booleans with nulls
+            ([True, False, None], AttributeType.BOOL),
+            # genuine strings
+            (["a", "b", None, "c"], AttributeType.STRING),
+            # all None / all-NaN object column → STRING (safest default)
+            ([None, None, None], AttributeType.STRING),
+            # empty object series → STRING
+            ([], AttributeType.STRING),
+        ],
+    )
+    def test_pandas_infer_dtype_paths(self, series_values, expected):
+        from core.runnables.data_processor import DataProcessor
+
+        ser = _pd.Series(series_values, dtype="object")
+        assert DataProcessor._infer_type_from_object_column(ser) == expected
+
+    def test_homogeneous_list_column_is_LIST(self):
+        from core.runnables.data_processor import DataProcessor
+
+        ser = _pd.Series([[1, 2], [3, 4], [5]], dtype="object")
+        assert (
+            DataProcessor._infer_type_from_object_column(ser)
+            == AttributeType.LIST
+        )
+
+    def test_homogeneous_dict_column_is_STRUCT(self):
+        from core.runnables.data_processor import DataProcessor
+
+        ser = _pd.Series([{"a": 1}, {"b": 2}], dtype="object")
+        assert (
+            DataProcessor._infer_type_from_object_column(ser)
+            == AttributeType.STRUCT
+        )
+
+    def test_mixed_list_and_dict_falls_back_to_STRING(self):
+        from core.runnables.data_processor import DataProcessor
+
+        # types_seen == {list, dict} — neither pure-list nor pure-dict, and
+        # pandas reports `mixed`, so the safe fallback (STRING) wins.
+        ser = _pd.Series([[1], {"a": 1}], dtype="object")
+        assert (
+            DataProcessor._infer_type_from_object_column(ser)
+            == AttributeType.STRING
+        )
+
+    def test_mixed_int_and_str_falls_back_to_STRING(self):
+        from core.runnables.data_processor import DataProcessor
+
+        ser = _pd.Series([1, "two", 3], dtype="object")
+        assert (
+            DataProcessor._infer_type_from_object_column(ser)
+            == AttributeType.STRING
+        )
+
+    def test_homogeneous_bytes_column_is_BINARY(self):
+        from core.runnables.data_processor import DataProcessor
+
+        # pandas.api.types.infer_dtype reports "bytes" for pure-bytes object
+        # columns, which is covered directly by the infer_dtype branch.
+        ser = _pd.Series([b"\x00\x01", b"\x02"], dtype="object")
+        assert (
+            DataProcessor._infer_type_from_object_column(ser)
+            == AttributeType.BINARY
+        )
+
+
+class TestInferSchemaFromDataframe:
+    """
+    The DataFrame -> Schema seam exercises the wiring of the two helpers
+    above into a realistic DataFrame. Verifies (a) column order is preserved,
+    (b) non-string column labels are stringified, (c) object columns are
+    routed through the infer_dtype helper.
+    """
+
+    def test_mixed_dtype_dataframe(self):
+        from core.runnables.data_processor import DataProcessor
+
+        dp = DataProcessor.__new__(DataProcessor)
+        # Every Series must be the same length: pandas aligns DataFrame-from-
+        # dict by padding shorter Series with NaN, and "int64" can't hold NaN,
+        # which silently promotes int columns to float64. Three rows
+        # everywhere keeps every dtype intact while still letting the object
+        # columns carry a None.
+        df = _pd.DataFrame(
+            {
+                "i64": _pd.Series([1, 2, 3], dtype="int64"),
+                "f64": _pd.Series([1.5, 2.5, 3.5], dtype="float64"),
+                "b": _pd.Series([True, False, True], dtype="bool"),
+                # pandas nullable Int64 (extension)
+                "i64_ext": _pd.Series([1, _pd.NA, 3], dtype="Int64"),
+                # object with nulls — pandas infer_dtype sees "integer"
+                "obj_int": _pd.Series([10, None, 20], dtype="object"),
+                # object with strings
+                "obj_str": _pd.Series(["x", None, "y"], dtype="object"),
+                # categorical → STRING
+                "cat": _pd.Series(["a", "b", "a"], dtype="category"),
+            }
+        )
+        schema = dp._infer_schema_from_dataframe(df)
+        assert schema.as_key_value_pairs() == [
+            ("i64", AttributeType.LONG),
+            ("f64", AttributeType.DOUBLE),
+            ("b", AttributeType.BOOL),
+            ("i64_ext", AttributeType.LONG),
+            ("obj_int", AttributeType.LONG),
+            ("obj_str", AttributeType.STRING),
+            ("cat", AttributeType.STRING),
+        ]
+
+    def test_non_string_column_labels_are_stringified(self):
+        # A DataFrame from `pd.read_excel(..., header=None)` has RangeIndex
+        # int labels (0, 1, 2…). The inferred schema must carry them as
+        # strings so the engine's Schema (str-keyed) stays consistent with
+        # downstream Tuple key handling.
+        from core.runnables.data_processor import DataProcessor
+
+        dp = DataProcessor.__new__(DataProcessor)
+        df = _pd.DataFrame([[1, "a"], [2, "b"]])  # columns: RangeIndex 0,1
+        schema = dp._infer_schema_from_dataframe(df)
+        names = schema.get_attr_names()
+        assert names == ["0", "1"]
+        assert all(isinstance(n, str) for n in names)
+
+    def test_duplicate_column_names_dedup_during_inference(self):
+        # Caught by the runtime-schema e2e: a DataFrame with two columns
+        # both labelled "x" used to crash inference because `df["x"]`
+        # returns a DataFrame (not a Series) and DataFrame has no .dtype.
+        # Inferred schema must use dedup-aware names ("x", "x.1") so it
+        # lines up with the deduped Tuples that Table.as_tuples emits.
+        from core.runnables.data_processor import DataProcessor
+
+        dp = DataProcessor.__new__(DataProcessor)
+        df = _pd.DataFrame(
+            data=_np.array([[1, 100], [2, 200]]),
+            columns=["x", "x"],
+        )
+        schema = dp._infer_schema_from_dataframe(df)
+        assert schema.get_attr_names() == ["x", "x.1"]
+        # Both columns are int64 — both should be LONG.
+        assert schema.as_key_value_pairs() == [
+            ("x", AttributeType.LONG),
+            ("x.1", AttributeType.LONG),
+        ]
+
+
+# Convenience helpers for the apply-runtime-schema tests below.
+def _make_dp_with_empty_port(context):
+    """
+    Register a single output port with an empty Schema (the "no declared
+    columns" case the agent-driven UDF flow uses), so the first DataFrame
+    yield will trigger silent port-schema rewrite.
+    """
+    from core.runnables.data_processor import DataProcessor
+
+    port_id = PortIdentity(id=0, internal=False)
+    context.output_manager.add_output_port(port_id, Schema())
+    return DataProcessor(context), port_id
+
+
+def _make_dp_with_declared_port(context, declared: Schema):
+    from core.runnables.data_processor import DataProcessor
+
+    port_id = PortIdentity(id=0, internal=False)
+    context.output_manager.add_output_port(port_id, declared)
+    return DataProcessor(context), port_id
+
+
+class TestMaybeApplyRuntimeSchema:
+    """
+    First-yield contract:
+      - declared schema empty → silently rewrite port to inferred schema
+      - declared schema non-empty & matches → no rewrite
+      - declared schema non-empty & mismatches → RuntimeError
+    Subsequent yields:
+      - never re-infer (no drift error even if dtypes change)
+      - stats are still recomputed every yield
+    Non-Table yields are no-ops (tuple-yielding operators are not in scope).
+    """
+
+    def test_first_yield_with_empty_declared_rewrites_port_schema(self, context):
+        dp, _ = _make_dp_with_empty_port(context)
+        df = _pd.DataFrame(
+            {
+                "n": _pd.Series([1, 2], dtype="int64"),
+                "s": _pd.Series(["a", "b"], dtype="object"),
+            }
+        )
+
+        dp._maybe_apply_runtime_schema(df)
+
+        port_schema = context.output_manager.get_port().get_schema()
+        assert port_schema.as_key_value_pairs() == [
+            ("n", AttributeType.LONG),
+            ("s", AttributeType.STRING),
+        ]
+        assert dp._schema_inferred is True
+        # Stats published as part of the same call. Reading the private
+        # `_result_statistics` rather than constructing a full WorkerStatistics
+        # proto keeps the test focused on the apply-runtime-schema contract.
+        assert context.statistics_manager._result_statistics != {}
+
+    def test_first_yield_with_matching_declared_does_not_change_port(self, context):
+        declared = Schema()
+        declared.add("n", AttributeType.LONG)
+        declared.add("s", AttributeType.STRING)
+        dp, _ = _make_dp_with_declared_port(context, declared)
+        df = _pd.DataFrame(
+            {"n": _pd.Series([1, 2], dtype="int64"), "s": ["a", "b"]}
+        )
+
+        dp._maybe_apply_runtime_schema(df)
+
+        port_schema = context.output_manager.get_port().get_schema()
+        # Same instance — no rewrite happened.
+        assert port_schema is declared
+        assert dp._schema_inferred is True
+
+    def test_first_yield_with_mismatched_declared_raises(self, context):
+        declared = Schema()
+        declared.add("n", AttributeType.STRING)  # wrong type vs. inferred LONG
+        dp, _ = _make_dp_with_declared_port(context, declared)
+        df = _pd.DataFrame({"n": _pd.Series([1, 2], dtype="int64")})
+
+        with pytest.raises(RuntimeError) as excinfo:
+            dp._maybe_apply_runtime_schema(df)
+        # Both the declared and inferred schemas should appear in the message
+        # so the UDF author can see the diff without re-running.
+        msg = str(excinfo.value)
+        assert "Output schema mismatch" in msg
+        assert "declared" in msg
+        assert "got" in msg
+
+    def test_second_yield_does_not_reinfer_or_raise_on_drift(self, context):
+        # Per the per-yield-but-sticky contract: once schema_inferred is set,
+        # later yields with *different* dtypes must NOT raise — they just
+        # reuse the cached port schema (which is what the agent renderer
+        # rendered from the first yield) and publish fresh column stats.
+        dp, _ = _make_dp_with_empty_port(context)
+        first = _pd.DataFrame({"x": _pd.Series([1, 2], dtype="int64")})
+        dp._maybe_apply_runtime_schema(first)
+        port_after_first = context.output_manager.get_port().get_schema()
+
+        # Second yield: same column name but a DIFFERENT dtype (string).
+        # Old (sticky-fixed) code would have raised RuntimeError on drift;
+        # new (prototype) code must accept it silently.
+        second = _pd.DataFrame({"x": ["a", "b"]})
+        dp._maybe_apply_runtime_schema(second)
+
+        # Port schema unchanged from after the first yield.
+        port_after_second = context.output_manager.get_port().get_schema()
+        assert (
+            port_after_first.as_key_value_pairs()
+            == port_after_second.as_key_value_pairs()
+        )
+
+    def test_stats_published_on_every_yield(self, context):
+        # Confirms `_publish_column_stats` runs on each yield, not just the
+        # first. The agent renderer expects the *most recent* table's stats.
+        dp, _ = _make_dp_with_empty_port(context)
+        dp._maybe_apply_runtime_schema(
+            _pd.DataFrame({"x": _pd.Series([1, 2], dtype="int64")})
+        )
+        first_stats = dict(context.statistics_manager._result_statistics)
+        assert "x" in first_stats
+
+        # Second yield with two non-null + one null. Stats must reflect the
+        # new shape (null=1) — overwriting, not appending.
+        dp._maybe_apply_runtime_schema(
+            _pd.DataFrame(
+                {"x": _pd.Series([10, 20, None], dtype="object")}
+            )
+        )
+        second_stats = dict(context.statistics_manager._result_statistics)
+        assert second_stats["x"] != first_stats["x"]
+        assert "null=1" in second_stats["x"]
+
+    def test_non_dataframe_yield_is_noop(self, context):
+        # Tuple-yielding UDFs hit this path (output is e.g. a Tuple, dict, or
+        # None). The runtime schema hook must be a complete no-op for them
+        # so they continue to flow through `finalize(port.get_schema())`
+        # unchanged.
+        dp, _ = _make_dp_with_empty_port(context)
+        port_schema_before = context.output_manager.get_port().get_schema()
+
+        dp._maybe_apply_runtime_schema(None)
+        dp._maybe_apply_runtime_schema({"a": 1, "b": 2})
+        dp._maybe_apply_runtime_schema([1, 2, 3])
+
+        assert dp._schema_inferred is False
+        assert (
+            context.output_manager.get_port().get_schema() is port_schema_before
+        )
+
+    def test_duplicate_columns_route_stats_positionally(self, context):
+        # Mirror of the runtime-schema e2e duplicate-column case at the
+        # stats-publishing seam: `df[name]` returns a DataFrame for a
+        # duplicate label, and _compute_column_stats can't take a DataFrame
+        # — it would crash with "cannot convert the series to <class 'int'>"
+        # at `int(non_null.nunique())`. Iterating positionally + deduping
+        # the names keeps every column's stats line valid AND surfaced.
+        dp, _ = _make_dp_with_empty_port(context)
+        df = _pd.DataFrame(
+            data=_np.array([[1, 100], [2, 200], [3, 300]]),
+            columns=["x", "x"],
+        )
+        dp._maybe_apply_runtime_schema(df)
+
+        stats = context.statistics_manager._result_statistics
+        # Both columns must surface — under deduped names.
+        assert set(stats.keys()) == {"x", "x.1"}
+        # Both are int64 → both stats lines start with the numeric prefix.
+        assert stats["x"].startswith("(numeric):")
+        assert stats["x.1"].startswith("(numeric):")
+        # Values differ (1/2/3 vs 100/200/300), so the stats strings differ.
+        assert stats["x"] != stats["x.1"]
+
+    def test_pa_table_yield_is_handled_via_to_pandas(self, context):
+        # `_to_dataframe` accepts pa.Table; the inference path must still run
+        # for the Texera Table model (which proxies to_pandas). Use pyarrow
+        # directly here to exercise the second branch of _to_dataframe.
+        import pyarrow as pa
+
+        dp, _ = _make_dp_with_empty_port(context)
+        tbl = pa.table({"n": pa.array([1, 2, 3], type=pa.int64())})
+
+        dp._maybe_apply_runtime_schema(tbl)
+
+        port_schema = context.output_manager.get_port().get_schema()
+        assert port_schema.as_key_value_pairs() == [("n", AttributeType.LONG)]
+        assert dp._schema_inferred is True
+
+
+class TestTableAsTuplesDedup:
+    """
+    Regression test for the silent-data-loss case the prototype guards
+    against and current keeps: `dict(zip(columns, row))` with duplicate
+    column names drops every duplicate's value. `Table.as_tuples` must
+    dedup column labels (pandas convention: `col`, `col.1`, ...) before
+    building each Tuple.
+    """
+
+    def test_duplicate_columns_get_deduped_no_silent_drop(self):
+        # Build a DataFrame with two physical columns both labelled "x".
+        df = _pd.DataFrame(
+            data=_np.array([[1, 100], [2, 200], [3, 300]]),
+            columns=["x", "x"],
+        )
+        # Sanity check: both columns are really present.
+        assert list(df.columns) == ["x", "x"]
+        assert df.shape == (3, 2)
+
+        tuples = list(Table(df).as_tuples())
+        assert len(tuples) == 3
+        # Each Tuple must carry BOTH values, under distinct names —
+        # exactly what `dict(zip(["x", "x"], row))` would silently
+        # collapse to one entry without the dedup step.
+        first = tuples[0]
+        field_names = first.get_field_names()
+        assert len(field_names) == 2, f"silent drop: got {field_names!r}"
+        assert "x" in field_names
+        # pandas rename convention: second occurrence becomes "x.1".
+        assert "x.1" in field_names
+        # Values preserved in order.
+        assert first["x"] == 1
+        assert first["x.1"] == 100
+        assert tuples[1]["x"] == 2
+        assert tuples[1]["x.1"] == 200

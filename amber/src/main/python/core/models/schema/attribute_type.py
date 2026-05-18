@@ -118,3 +118,92 @@ FROM_PYOBJECT_MAPPING = {
     list: AttributeType.LIST,
     dict: AttributeType.STRUCT,
 }
+
+
+def coerce_value_to_type(value, target_type: "AttributeType"):
+    """
+    Coerce a Python (or numpy / pandas extension) value to the engine's
+    native type for `target_type`.
+
+    Two reasons this exists:
+      1. Schema inference can type a column as e.g. LONG, but rows arriving
+         out of pandas carry `numpy.int64` — not a subclass of Python `int`
+         in modern numpy, so the post-cast `validate_schema` check would
+         reject them. Calling `int(value)` normalizes them.
+      2. The dataflow agent's UDFs sometimes return string values that the
+         downstream operator expects as numeric (or vice-versa); the
+         coercions here let the engine bridge those small mismatches
+         instead of hard-failing the workflow.
+
+    Returns the original `value` unchanged when (a) it's None, (b) the
+    target type isn't in `TO_PYOBJECT_MAPPING`, or (c) it's already an
+    instance of the expected Python type. Raises on a coercion that
+    pandas-style `int("hello")` would raise — callers (notably
+    `Tuple.cast_to_schema`) catch and log such failures.
+    """
+    import json
+
+    if value is None:
+        return None
+
+    expected_py_type = TO_PYOBJECT_MAPPING.get(target_type)
+    if expected_py_type is None:
+        return value
+
+    # Fast path: a value already matching the expected type is left alone.
+    # `bool` is a subclass of `int` in Python, so for LONG/INT targets we
+    # explicitly fall through to the integer branch below (it disambiguates
+    # True/False to 1/0 rather than leaving them as bool).
+    if isinstance(value, expected_py_type) and not (
+        target_type in (AttributeType.INT, AttributeType.LONG)
+        and isinstance(value, bool)
+    ):
+        return value
+
+    if target_type == AttributeType.STRING:
+        if isinstance(value, (list, dict)):
+            return json.dumps(value)
+        return str(value)
+
+    if target_type == AttributeType.BOOL:
+        if isinstance(value, str):
+            lower = value.lower()
+            if lower in ("true", "1", "yes"):
+                return True
+            if lower in ("false", "0", "no", ""):
+                return False
+        return bool(value)
+
+    if target_type in (AttributeType.INT, AttributeType.LONG):
+        if isinstance(value, bool):
+            return 1 if value else 0
+        return int(value)
+
+    if target_type == AttributeType.DOUBLE:
+        return float(value)
+
+    if target_type == AttributeType.BINARY:
+        if isinstance(value, str):
+            return value.encode("utf-8")
+        return bytes(value)
+
+    if target_type == AttributeType.TIMESTAMP:
+        if isinstance(value, str):
+            return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if isinstance(value, (int, float)):
+            return datetime.datetime.fromtimestamp(value)
+        return value
+
+    if target_type == AttributeType.LIST:
+        if isinstance(value, str):
+            return json.loads(value)
+        return list(value)
+
+    if target_type == AttributeType.STRUCT:
+        if isinstance(value, str):
+            return json.loads(value)
+        if hasattr(value, "items"):
+            return dict(value.items())
+        return value
+
+    return value
