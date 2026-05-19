@@ -550,6 +550,15 @@ function renderInterleaved(
     let prevSnapshot: SnapshotData | undefined = initSnapshot;
     let renderedAny = false;
     for (const task of tasks) {
+      // `eventIndicesByOpId` is intentionally suppressed for Full/Delta inline
+      // snapshots. The map is built from the WHOLE path, so passing it into
+      // the per-event inline snapshot would over-report future modifications
+      // — e.g. an op created at event 2 would render "Created at Event 2,
+      // modified at Event 4" inside the inline snapshot for event 2, even
+      // though event 4 hasn't happened yet at that point in the timeline.
+      // The per-operator event-history line is therefore Latest-mode-only;
+      // the trailing snapshot there (built from the full path) is the one
+      // place where the index list is correct end-to-end.
       const body = serializeTaskBody(
         task,
         flavour,
@@ -562,7 +571,7 @@ function renderInterleaved(
         },
         includeCodeForKept,
         latestUserStepId,
-        eventIndicesByOpId,
+        /* eventIndicesByOpId */ undefined,
         currentSummaryByOpId
       );
       if (body) {

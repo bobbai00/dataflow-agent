@@ -1369,6 +1369,58 @@ describe("assembleContext — per-operator event-history line", () => {
     expect(c).toMatch(/### Operator `seeded` \(TestOp\)\nSummary:/);
   });
 
+  test("Full + Delta modes SUPPRESS the per-operator event line; Latest mode KEEPS it", () => {
+    // `eventIndicesByOpId` is built from the FULL path and would over-report
+    // future modifications if attached to a per-event inline snapshot
+    // (e.g. event-2's inline snapshot showing "modified at Event 4" before
+    // event 4 has happened). The line is therefore Latest-mode-only — the
+    // trailing snapshot there is the only place the index list is correct
+    // end-to-end. Full/Delta inline snapshots get no line at all.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "create then modify",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src", summary: "v1" } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "second edit",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "src", summary: "v2" } },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    storage.createSnapshot("a2", makeWorkflow(["src"]));
+
+    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const cDelta = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+
+    // Full / Delta: inline snapshots must NOT carry "Created at Event N" lines.
+    expect(cFull).not.toContain("Created at Event");
+    expect(cFull).not.toContain("modified at Event");
+    expect(cDelta).not.toContain("Created at Event");
+    expect(cDelta).not.toContain("modified at Event");
+
+    // Latest: the trailing # Current Dataflow snapshot DOES carry the line.
+    expect(cLatest).toContain("Created at Event 2, modified at Event 3");
+  });
+
   test("cap > 0: 'Created at Event N' indices match the # Recent Agent Events block above", () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
