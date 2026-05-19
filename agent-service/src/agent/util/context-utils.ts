@@ -125,7 +125,15 @@ export function assembleContext(
   // buildPath). `capActive` (finite cap) enables code restoration for the
   // kept events; `willTruncate` (cap < path length) drops the omitted
   // earlier events and prepends a truncation notice.
-  const cap = options.recentEventsCap ?? Infinity;
+  //
+  // The cap is ignored for Full and Delta modes — those modes inherently
+  // want to render every per-event inline snapshot, and capping events
+  // would defeat the purpose. cap=0 + Full/Delta is the worst case: the
+  // events loop would be skipped entirely, and Full/Delta don't have a
+  // trailing `# Current Dataflow` block, so the LLM would see no workflow
+  // state at all. Force-uncap here instead of failing at the call site.
+  const requestedCap = options.recentEventsCap ?? Infinity;
+  const cap = mode === ContextMode.LATEST ? requestedCap : Infinity;
   const capActive = Number.isFinite(cap);
   const willTruncate = capActive && cap < fullPath.length;
   const path = willTruncate ? fullPath.slice(fullPath.length - cap) : fullPath;

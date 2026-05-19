@@ -1369,6 +1369,73 @@ describe("assembleContext — per-operator event-history line", () => {
     expect(c).toMatch(/### Operator `seeded` \(TestOp\)\nSummary:/);
   });
 
+  test("Full + Delta modes IGNORE recentEventsCap and render every event", () => {
+    // cap is a Latest-mode concept — Full/Delta inherently want to surface
+    // every per-event inline snapshot, and capping them would defeat the
+    // purpose. cap=0 + Full/Delta in particular would produce a context
+    // with zero workflow state (no inline snapshots, no trailing
+    // # Current Dataflow). assembleContext force-uncaps non-Latest modes
+    // before applying any truncation logic.
+    //
+    // Build a 5-action scenario inline — buildLongScenario lives in a
+    // different describe block. Each agent step creates one op opK; the
+    // trailing snapshot has all 5 plus they're linked in a chain.
+    const stepDefs: any[] = [{ id: "u", stepId: 0, role: "user", messageId: "m1", content: "task" }];
+    for (let i = 1; i <= 5; i++) {
+      stepDefs.push({
+        id: `a${i}`,
+        stepId: i,
+        role: "agent",
+        parentId: i === 1 ? "u" : `a${i - 1}`,
+        messageId: "m1",
+        content: `step ${i}`,
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: `tc${i}`, input: { operatorId: `op${i}`, summary: `summary${i}` } },
+        ],
+        toolResults: [{ toolCallId: `tc${i}`, output: `Added op${i}`, isError: false }],
+        isEnd: i === 5,
+      });
+    }
+    const { steps, storage, workflowState } = buildScenario(stepDefs);
+    // Snapshot at each step accumulates one more op.
+    for (let i = 1; i <= 5; i++) {
+      const ids = Array.from({ length: i }, (_, j) => `op${j + 1}`);
+      storage.createSnapshot(`a${i}`, makeWorkflow(ids));
+    }
+
+    const optsWithCap0 = { ...opts, recentEventsCap: 0 };
+
+    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, optsWithCap0));
+    const cDelta = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, optsWithCap0));
+
+    // Every agent event survives in the recent-events section.
+    for (const mode of [cFull, cDelta]) {
+      expect(mode).toContain("## Agent Event 2");
+      expect(mode).toContain("## Agent Event 3");
+      expect(mode).toContain("## Agent Event 4");
+      expect(mode).toContain("## Agent Event 5");
+      expect(mode).toContain("## Agent Event 6");
+      // Cap=0 placeholder does NOT fire — the section header is the normal one.
+      expect(mode).not.toContain("details omitted for context compaction");
+      // Truncation notice doesn't fire either.
+      expect(mode).not.toContain("earlier events omitted");
+    }
+    // Full mode renders an inline snapshot after each event.
+    expect(cFull).toContain("Completed dataflow after event 2");
+    expect(cFull).toContain("Completed dataflow after event 6");
+    // Delta mode renders delta inline snapshots — each newly-created op
+    // shows up exactly once.
+    expect(cDelta).toContain("Dataflow changes after event 2");
+    expect(cDelta).toContain("Dataflow changes after event 6");
+
+    // For comparison: Latest mode WITH cap=0 still honors the cap and emits
+    // the placeholder paragraph (this is the case the cap is actually
+    // designed for).
+    const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, optsWithCap0));
+    expect(cLatest).toMatch(/# Recent Agent Events \(\d+ total — details omitted/);
+    expect(cLatest).not.toContain("## Agent Event");
+  });
+
   test("Full + Delta modes SUPPRESS the per-operator event line; Latest mode KEEPS it", () => {
     // `eventIndicesByOpId` is built from the FULL path and would over-report
     // future modifications if attached to a per-event inline snapshot
