@@ -120,29 +120,6 @@ export interface AgentSettings {
    * relatively low token cost.
    */
   statsEnabled: boolean;
-  /**
-   * Hard cap on how many of the most-recent (non-init) ReActStep events are
-   * rendered into the assembled context. Default is **2** — only the two
-   * most recent ReActStep events render inline under `# Recent Agent
-   * Events`; older ones are replaced with a `(... N earlier events
-   * omitted ...)` notice. Combined with `# User Task` (always present)
-   * and `# Current Dataflow` (always present), the agent retains the
-   * question + the workflow state + the two most recent moves regardless
-   * of how long the trace gets.
-   *
-   * To effectively disable the cap, set a very large number (e.g. 10_000).
-   * Set to 0 to drop every event entirely (only the user task and the
-   * current dataflow remain).
-   */
-  recentEventsCap: number;
-  /**
-   * When the cap is in effect, include the full `code` parameter of each
-   * kept `createOrModifyOperator` action in the rendered context. Outside
-   * the kept window, code is never rendered (events are dropped entirely).
-   * Default: true — with a small cap, the agent should be able to read the
-   * code of the most recent actions.
-   */
-  includeCodeInRecentEvents: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -177,8 +154,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   contextMode: ContextMode.LATEST,
   parallelToolCalls: true,
   statsEnabled: true,
-  recentEventsCap: 2,
-  includeCodeInRecentEvents: true,
 };
 
 export interface UserInfo {
@@ -209,8 +184,6 @@ export interface AgentSettingsApi {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
-  recentEventsCap?: number;
-  includeCodeInRecentEvents?: boolean;
 }
 
 export interface AgentInfo {
@@ -245,6 +218,4 @@ export interface UpdateAgentSettingsRequest {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
-  recentEventsCap?: number;
-  includeCodeInRecentEvents?: boolean;
 }

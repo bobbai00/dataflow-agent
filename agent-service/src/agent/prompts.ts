@@ -49,23 +49,30 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 
 After each of your actions, a dataflow snapshot — the operators and their execution results — is produced and surfaced to you in subsequent turns so you can see how the action shaped the state.`;
 
-// Brief, mode-agnostic note on the shape of the context. The exact way each
-// event is followed (or not) by a workflow snapshot varies by ContextMode
-// (paper §5 — Full / Delta / Latest), so we only describe the event list
-// itself here, not the snapshot layout. That keeps the prompt useful for the
-// model without biasing it toward any one mode.
+// Context-format description. The context the LLM sees is a path on the
+// snapshot tree from the root (empty snapshot) to the leaf (current state),
+// rendered differently per ContextMode:
+//   - LATEST: just the leaf snapshot, no events.
+//   - FULL  : every event on the path, each followed by the full snapshot
+//             after that event.
+//   - DELTA : every event on the path, each followed by a delta-only
+//             snapshot of operators that changed at that event.
 const CONTEXT_FORMAT = `
 ## Context Format
 
-Every turn the input you receive has three top-level sections, in order:
+Your input is structured as top-level sections in this order:
 
 1. **\`# User Task\`** — the user's most recent request, verbatim. Always present. This is the single source of truth for what you are trying to solve; it is never duplicated elsewhere in the prompt.
 
-2. **\`# Recent Agent Events (last K of N events)\`** — your own action history, capped to the most recent K turns (controlled by the \`recentEventsCap\` setting; default keeps a large window). When the cap drops older turns you'll see a \`(... M earlier events omitted ...)\` notice at the top of this section. (When the cap is set to 0 the entire section is omitted — the prompt jumps straight from \`# User Task\` to \`# Current Dataflow\`.) Each kept event is one of:
-   - \`## Agent Event N\` — your thought and the tool calls you made on that turn. For events inside the cap window the full \`code\` argument of each \`createOrModifyOperator\` call is rendered as an indented \`code: |\` block under the action header, so you can read exactly what was submitted.
+2. **\`# Agent Events\`** — your action history along the path from the root of the snapshot tree to the current state. Present in FULL and DELTA modes, omitted entirely in LATEST mode (where the prompt jumps straight from \`# User Task\` to \`# Current Dataflow\`).
+
+   Each event is one of:
+   - \`## Agent Event N\` — your thought and the actions you took on that turn. Each tool call renders as a one-line natural-language statement: \`- create operator "X", result: …\` / \`- modify operator "X", result: …\` / \`- delete operator "X", result: …\` (or \`- <toolName> on operator "X", result: …\` for other tools). The \`code\` you submitted and the \`summary\` you wrote are NOT shown on the event line — the snapshot below carries the resulting state.
    - \`## User Event N\` — only appears when the user sent more than one message in this chat. The latest user message is in \`# User Task\` above; older ones (multi-task continuations) show up inline here.
 
-3. **\`# Current Dataflow\`** — a snapshot of the workflow state right now: every operator's id, type, summary, and (where executed) result preview. This block is independent of the cap — even if every recent event was dropped, the snapshot tells you what's in the DAG today. Operator code is **not** in this snapshot; if you need to inspect the code of an operator you wrote recently, find it in the matching \`## Agent Event N\` block above. To modify a past operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.
+   In FULL mode each event is followed by \`### Completed dataflow after event N\` — the full snapshot of operators + links at that point. In DELTA mode the same wrapper title becomes \`### Dataflow changes after event N\` and only operators that changed at that event are shown (plus the full link set so the DAG wiring stays visible).
+
+3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, and (where executed) result preview. Present in LATEST mode only — FULL and DELTA modes carry the trailing snapshot inline under their last \`## Agent Event N\` block. Operator code is **not** shown in any snapshot; to modify a past operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.
 
 ### Operator Result Tables
 
@@ -130,7 +137,7 @@ This example demonstrates four key behaviors: **(a)** parallel inspections of ev
 
 Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
 
-# Recent Agent Events
+# Agent Events
 
 (no agent actions yet)
 
@@ -350,29 +357,11 @@ Examine Column Stats before deciding the next action:
 
 If Column Stats reveal a problem (unexpected nulls, wrong type, suspicious distribution), fix the operator producing the issue rather than masking it downstream.`;
 
-// Adapted from \`temp/.../prompts.ts:APPENDIX_NO_ACTION_DETAIL\` to match
-// *this* prompt's context format: code is not in the dataflow snapshot, but
-// — unlike full compaction — past tool calls' code IS preserved in the
-// \`## Agent Event N\` blocks of \`# Recent Agent Events\`, subject to the
-// \`recentEventsCap\` cap.
-const APPENDIX_NO_ACTION_DETAIL = `
-## Operator code is not in the dataflow snapshot
-
-The DAG shown in \`# Current Dataflow\` does NOT carry operator code — every operator block exposes only id, type, summary, and (when executed) result preview. To read the code you wrote earlier, find the matching \`## Agent Event N\` block in \`# Recent Agent Events\` above; the \`code: |\` argument of each \`createOrModifyOperator\` call is preserved there.
-
-The events list is capped (via \`recentEventsCap\`), so for operators added many turns ago the code may have already fallen out of the kept window. Two consequences:
-
-- **Write summaries rich enough to reconstruct intent without seeing the code.** For loads, include the filename and any non-default parameters (skiprows, header, delimiter, encoding, nrows). For processing, include the column names involved, join keys and type, filter conditions with thresholds, groupby keys, and aggregation methods. Treat the summary as the long-term semantic record; the code is only short-term context.
-- **When modifying a past operator, re-submit the full operator code.** You cannot patch by reference. If the older operator's code has aged out of the events window, write fresh code that matches the summary, then call \`createOrModifyOperator\` with the same \`operatorId\` to overwrite.
-
-(The cap also drops older events with a \`(... M earlier events omitted ...)\` notice at the top of \`# Recent Agent Events\` when it fires; if you see that notice, treat any operator referenced only in the omitted span as code-gone and reconstruct from its summary.)`;
-
 const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
 ${CONTEXT_FORMAT}
 ${EXAMPLE_COMPACT}
 ${APPENDIX_PARALLEL}
 ${APPENDIX_CARRY_METADATA}
-${APPENDIX_NO_ACTION_DETAIL}
 ${KEY_PRINCIPLES}
 `;
 

@@ -636,8 +636,6 @@ export class TexeraAgent {
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     statsEnabled?: boolean;
-    recentEventsCap?: number;
-    includeCodeInRecentEvents?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -685,14 +683,6 @@ export class TexeraAgent {
       // Pure render-time toggle — controls whether `Column stats:` is
       // appended to each non-error operator's Result block at context-
       // assembly time. Read at the next assembleContext call.
-    }
-    if (updates.recentEventsCap !== undefined) {
-      this.settings.recentEventsCap = updates.recentEventsCap;
-      // Pure render-time toggle — read at the next assembleContext call.
-    }
-    if (updates.includeCodeInRecentEvents !== undefined) {
-      this.settings.includeCodeInRecentEvents = updates.includeCodeInRecentEvents;
-      // Pure render-time toggle — read at the next assembleContext call.
     }
 
     if (promptNeedsRebuild) {
@@ -858,8 +848,6 @@ export class TexeraAgent {
               compilationResult,
               agentMode: this.settings.agentMode,
               statsEnabled: this.settings.statsEnabled,
-              recentEventsCap: this.settings.recentEventsCap,
-              includeCodeInRecentEvents: this.settings.includeCodeInRecentEvents,
             }
           );
           lastPreparedMessages = processed;
@@ -1036,8 +1024,6 @@ export class TexeraAgent {
         compilationResult: null,
         agentMode: this.settings.agentMode,
         statsEnabled: this.settings.statsEnabled,
-        recentEventsCap: this.settings.recentEventsCap,
-        includeCodeInRecentEvents: this.settings.includeCodeInRecentEvents,
       }
     );
     const first = processed[0];

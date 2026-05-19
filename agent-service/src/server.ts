@@ -90,8 +90,6 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     statsEnabled: agentSettings.statsEnabled,
-    recentEventsCap: agentSettings.recentEventsCap,
-    includeCodeInRecentEvents: agentSettings.includeCodeInRecentEvents,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -200,8 +198,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           statsEnabled: settings.statsEnabled,
-          recentEventsCap: settings.recentEventsCap,
-          includeCodeInRecentEvents: settings.includeCodeInRecentEvents,
         });
       }
 
@@ -228,8 +224,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             statsEnabled: t.Optional(t.Boolean()),
-            recentEventsCap: t.Optional(t.Number()),
-            includeCodeInRecentEvents: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -463,8 +457,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         statsEnabled: settings.statsEnabled,
-        recentEventsCap: settings.recentEventsCap,
-        includeCodeInRecentEvents: settings.includeCodeInRecentEvents,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -486,8 +478,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
         statsEnabled: agentSettings.statsEnabled,
-        recentEventsCap: agentSettings.recentEventsCap,
-        includeCodeInRecentEvents: agentSettings.includeCodeInRecentEvents,
       };
     },
     {
@@ -504,8 +494,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         statsEnabled: t.Optional(t.Boolean()),
-        recentEventsCap: t.Optional(t.Number()),
-        includeCodeInRecentEvents: t.Optional(t.Boolean()),
       }),
     }
   );
