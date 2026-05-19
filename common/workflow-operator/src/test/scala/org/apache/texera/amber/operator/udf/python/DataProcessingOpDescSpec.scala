@@ -101,4 +101,97 @@ class DataProcessingOpDescSpec extends AnyFunSuite {
     assert(info.inputPorts.isEmpty)
     assert(info.outputPorts.size == 1)
   }
+
+  // ────────────────────────────────────────────────────────────────
+  //  Wrapper-code generation must NOT eat the user's leading `|`
+  //  characters. Regression: stripMargin used to run over the whole
+  //  template (including the interpolated $code), so a chained pandas
+  //  mask like `  | (df[...].isna())` lost its `|` after substitution,
+  //  the wrapped operator ran `isna()(...)`, and the user saw
+  //  `'Series' object is not callable` at runtime. We now apply
+  //  stripMargin to the template only and concatenate `code` after.
+  // ────────────────────────────────────────────────────────────────
+
+  /** Invoke the private `generateFullCode` via reflection so the test can
+    * see the literal Python the engine writes to disk. */
+  private def invokeGenerateFullCode(desc: AnyRef): String = {
+    val m = desc.getClass.getDeclaredMethod("generateFullCode")
+    m.setAccessible(true)
+    m.invoke(desc).asInstanceOf[String]
+  }
+
+  test("DataProcessing wrapper preserves leading `|` in user code (chained mask)") {
+    val desc = new DataProcessingOpDesc
+    // Realistic agent-emitted code: a 5-clause bitwise-OR mask with each
+    // continuation line starting with whitespace + `|` (the pandas idiom
+    // and the LLM's preferred layout under PEP 8 W503/W504).
+    desc.code =
+      """def process(t) -> pd.DataFrame:
+        |    import pandas as pd
+        |    df = t.copy()
+        |    df['col'] = df['col'].astype('string')
+        |    mask_bad = (
+        |        df['col'].isna()
+        |        | (df['col'].str.strip() == '')
+        |        | (df['col'].str.contains('foo'))
+        |        | (df['col'].str.contains('bar'))
+        |    )
+        |    return df[~mask_bad]
+        |""".stripMargin
+
+    val out = invokeGenerateFullCode(desc)
+
+    // All four `|`-prefixed continuation lines must still start with their
+    // leading whitespace + `|` after wrapping. The exact match guards against
+    // accidental indent shifts as well.
+    assert(out.contains("        | (df['col'].str.strip() == '')"),
+      s"missing first | line; output was:\n$out")
+    assert(out.contains("        | (df['col'].str.contains('foo'))"),
+      s"missing second | line; output was:\n$out")
+    assert(out.contains("        | (df['col'].str.contains('bar'))"),
+      s"missing third | line; output was:\n$out")
+
+    // Negative check: the post-stripMargin failure mode produced lines like
+    // ` (df['col'].str.strip() == '')` (just a leading space + paren). If
+    // that string appears anywhere in the output, the bug is back.
+    assert(!out.contains("\n (df['col'].str.strip() == '')"),
+      s"leading `|` was stripped from continuation line:\n$out")
+  }
+
+  test("DataLoading wrapper preserves leading `|` in user code (chained mask)") {
+    val desc = new DataLoadingOpDesc
+    desc.code =
+      """def load() -> pd.DataFrame:
+        |    import pandas as pd
+        |    df = pd.read_csv('data.csv')
+        |    mask = (
+        |        df['name'].isna()
+        |        | (df['name'].str.strip() == '')
+        |    )
+        |    return df[~mask]
+        |""".stripMargin
+
+    val out = invokeGenerateFullCode(desc)
+    assert(out.contains("        | (df['name'].str.strip() == '')"),
+      s"missing | line in DataLoading wrapper; output was:\n$out")
+    assert(!out.contains("\n (df['name'].str.strip() == '')"),
+      s"leading `|` was stripped from continuation line:\n$out")
+  }
+
+  test("DataProcessing wrapper still produces syntactically reasonable Python boilerplate") {
+    // Tighter regression: the wrapper must still emit the class header,
+    // INPUT_PORTS line, and process_tables stub. Catches accidental damage
+    // to the template (e.g. losing a `|` margin on the *template* lines
+    // while fixing the user-code issue).
+    val desc = new DataProcessingOpDesc
+    desc.code = "def process(users) -> pd.DataFrame:\n    return users\n"
+    val out = invokeGenerateFullCode(desc)
+    assert(out.startsWith("from pytexera import *"), s"missing header:\n$out")
+    assert(out.contains("class ProcessTablesOperator(UDFMultiTableOperator):"))
+    assert(out.contains("    INPUT_PORTS = [\"users\"]"))
+    assert(out.contains("    def process_tables(self) -> Iterator[Optional[TableLike]]:"))
+    assert(out.contains("        yield process(self.users)"))
+    // User code is appended at column 0, after the wrapper class.
+    assert(out.contains("\ndef process(users) -> pd.DataFrame:\n"))
+  }
 }

@@ -66,20 +66,28 @@ class DataLoadingOpDesc extends SourceOperatorDescriptor {
 
   /**
     * Generates the full Python code with class wrapper.
+    *
+    * NOTE: the user's `code` is appended AFTER `stripMargin` runs over the
+    * wrapper template, never interpolated into a `s"""…"""` block whose
+    * margin char is `|`. Scala's `stripMargin` walks every line of the final
+    * string and strips `^\s*\|` — so a continuation line in the user's code
+    * that begins with whitespace + `|` (a chained-mask in pandas, e.g.
+    * `        | (df['col'].isna())`) would have its leading `|` silently
+    * eaten, producing invalid Python at runtime.
     */
   private def generateFullCode(): String = {
     val funcName = parseFunctionName()
 
-    s"""from pytexera import *
-       |import pandas as pd
-       |
-       |class GenerateOperator(UDFSourceOperator):
-       |    @overrides
-       |    def produce(self) -> Iterator[Union[TupleLike, TableLike, None]]:
-       |        yield $funcName()
-       |
-       |$code
-       |""".stripMargin
+    val wrapper = s"""from pytexera import *
+                     |import pandas as pd
+                     |
+                     |class GenerateOperator(UDFSourceOperator):
+                     |    @overrides
+                     |    def produce(self) -> Iterator[Union[TupleLike, TableLike, None]]:
+                     |        yield $funcName()
+                     |
+                     |""".stripMargin
+    wrapper + code + "\n"
   }
 
   override def getPhysicalOp(

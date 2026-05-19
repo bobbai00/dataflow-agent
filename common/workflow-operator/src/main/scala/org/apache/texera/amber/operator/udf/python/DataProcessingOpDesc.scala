@@ -93,23 +93,32 @@ class DataProcessingOpDesc extends LogicalOp {
 
   /**
     * Generates the full Python code with class wrapper.
+    *
+    * NOTE: the user's `code` is appended AFTER `stripMargin` runs over the
+    * wrapper template, never interpolated into a `s"""…"""` block whose
+    * margin char is `|`. Scala's `stripMargin` walks every line of the final
+    * string and strips `^\s*\|` — so a continuation line in the user's code
+    * that begins with whitespace + `|` (a chained-mask in pandas, e.g.
+    * `        | (df['col'].isna())`) would have its leading `|` silently
+    * eaten, producing invalid Python and a cryptic `'Series' object is not
+    * callable` error in the wrapped operator.
     */
   private def generateFullCode(): String = {
     val params = parseParameters()
     val inputPorts = params.map(p => s""""$p"""").mkString(", ")
     val selfParams = params.map(p => s"self.$p").mkString(", ")
 
-    s"""from pytexera import *
-       |import pandas as pd
-       |
-       |class ProcessTablesOperator(UDFMultiTableOperator):
-       |    INPUT_PORTS = [$inputPorts]
-       |
-       |    def process_tables(self) -> Iterator[Optional[TableLike]]:
-       |        yield process($selfParams)
-       |
-       |$code
-       |""".stripMargin
+    val wrapper = s"""from pytexera import *
+                     |import pandas as pd
+                     |
+                     |class ProcessTablesOperator(UDFMultiTableOperator):
+                     |    INPUT_PORTS = [$inputPorts]
+                     |
+                     |    def process_tables(self) -> Iterator[Optional[TableLike]]:
+                     |        yield process($selfParams)
+                     |
+                     |""".stripMargin
+    wrapper + code + "\n"
   }
 
   override def getPhysicalOp(
