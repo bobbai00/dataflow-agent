@@ -437,19 +437,43 @@ class DataProcessor(Runnable, Stoppable):
 
         Per-type field set:
           - bool      → null, true, false
-          - numeric   → null, mean, min, max         (mean rounded to 4 sig figs;
-                                                       integer-valued floats drop
-                                                       the trailing .0)
+          - numeric   → null, mean, min, max, [top_10={...}]
+                                                      (top_10 only when
+                                                       0 < distinct <= 10 —
+                                                       numeric columns with
+                                                       small finite domains
+                                                       look categorical even
+                                                       though pandas typed
+                                                       them as numbers; the
+                                                       per-value frequency
+                                                       map is then more
+                                                       informative than just
+                                                       mean/min/max)
           - datetime  → null, min, max               (ISO strings; trailing
                                                        " 00:00:00" stripped for
                                                        date-only columns)
-          - str/other → null, distinct[, top_10={...}]
-                                                      (top_10 omitted when
-                                                       distinct > 10 — the long
-                                                       tail would be misleading)
+          - str/other → null, distinct[, top_5={...}]
+                                                      (top_5 only when
+                                                       0 < distinct <= 5 — for
+                                                       low-cardinality string
+                                                       columns. High-cardinality
+                                                       columns get just
+                                                       null + distinct.)
+
+        Type-conditional top-N cap: numeric/bool get 10, str gets 5. Strings
+        tend to have longer raw values (multi-word categories, paths), so a
+        tighter cap controls token cost; numeric values are short, so a
+        wider cap is cheap and lets the agent see the full small-domain
+        histogram. Bool already gets `true/false` counts which subsume the
+        same information.
 
         Intentionally drops the older `count` / `std` / `p25` / `median` /
         `p75` fields — they were noisy and the agent rarely acted on them.
+
+        Downstream per-cell size cap (`SyncExecutionResource.truncateColumn
+        StatsValues` using the agent's `maxOperatorResultCellCharLimit`)
+        applies on top of the per-type cap, so a pathological column with
+        very long string keys still can't blow the context budget.
         """
         null = int(col.isna().sum())
         non_null = col.dropna()
@@ -475,6 +499,25 @@ class DataProcessor(Runnable, Stoppable):
                         parts.append(f"max={_format_number(cmax)}")
                 except Exception:
                     pass
+                # Append top_10 for low-cardinality numeric columns (e.g. a
+                # year column with 5 distinct values, or a coded category
+                # accidentally typed as int). Same distinct-count gate as
+                # strings — high-cardinality numeric columns get the
+                # long-tail dropped because the agent already has
+                # mean/min/max for the shape.
+                try:
+                    distinct = int(non_null.nunique())
+                    if 0 < distinct <= 10:
+                        top = non_null.value_counts().head(10)
+                        inner = ", ".join(
+                            f"{_format_number(_sanitize_float(k) or 0)}={int(v)}"
+                            if _sanitize_float(k) is not None
+                            else f"{k}={int(v)}"
+                            for k, v in top.items()
+                        )
+                        parts.append(f"top_10={{{inner}}}")
+                except Exception:
+                    pass
         elif pandas.api.types.is_datetime64_any_dtype(col):
             col_type = "datetime"
             if not non_null.empty:
@@ -487,21 +530,16 @@ class DataProcessor(Runnable, Stoppable):
             col_type = "str"
             distinct = int(non_null.nunique())
             parts.append(f"distinct={distinct}")
-            # Only surface top_10 for low-cardinality string columns. The
-            # cutoff (10) matches the head-size below; high-cardinality
-            # columns (e.g. customer_id) get just null + distinct, which is
-            # what the agent actually needs to know about them. Per-cell
-            # size is still bounded downstream by
-            # SyncExecutionResource.truncateColumnStatsValues using the
-            # agent's maxOperatorResultCellCharLimit, so an explosion in
-            # value width can't blow the context budget either.
-            if not non_null.empty and 0 < distinct <= 10:
+            # Only surface top_5 for low-cardinality string columns. The
+            # cutoff (5) matches the head-size below; high-cardinality
+            # columns (e.g. customer_id) get just null + distinct.
+            if not non_null.empty and 0 < distinct <= 5:
                 try:
-                    top = non_null.astype(str).value_counts().head(10)
+                    top = non_null.astype(str).value_counts().head(5)
                     inner = ", ".join(
                         f'"{k}"={int(v)}' for k, v in top.items()
                     )
-                    parts.append(f"top_10={{{inner}}}")
+                    parts.append(f"top_5={{{inner}}}")
                 except Exception:
                     pass
 

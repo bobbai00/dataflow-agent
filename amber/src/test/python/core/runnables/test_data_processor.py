@@ -1039,3 +1039,101 @@ class TestTableAsTuplesDedup:
         assert first["x.1"] == 100
         assert tuples[1]["x"] == 2
         assert tuples[1]["x.1"] == 200
+
+
+class TestComputeColumnStatsTopN:
+    """
+    Type-conditional top-N rendering in `_compute_column_stats`:
+
+      - numeric/bool low-cardinality columns get `top_10={…}` (numeric)
+        or the existing `true=N, false=N` (bool — already covers the
+        two-value top).
+      - string low-cardinality columns get `top_5={…}` (down from
+        `top_10` so longer raw values don't blow the per-cell budget).
+      - high-cardinality columns (above the type's cutoff) get no top
+        map at all — the long tail isn't informative.
+    """
+
+    @staticmethod
+    def _stats(col):
+        from core.runnables.data_processor import DataProcessor
+        return DataProcessor._compute_column_stats(col)
+
+    # ── numeric ──────────────────────────────────────────────────────
+
+    def test_numeric_low_cardinality_emits_top_10(self):
+        # Year-like column: 4 distinct values, repeated. Should render the
+        # full per-value frequency map alongside mean/min/max.
+        col = _pd.Series([2020, 2021, 2021, 2022, 2022, 2022, 2023], dtype="int64")
+        line = self._stats(col)
+        assert line.startswith("(numeric):")
+        assert "mean=" in line and "min=2020" in line and "max=2023" in line
+        assert "top_10={" in line
+        # All four distinct values present.
+        for v in ("2020=1", "2021=2", "2022=3", "2023=1"):
+            assert v in line, f"expected {v!r} in: {line}"
+
+    def test_numeric_distinct_exactly_10_still_emits_top_10(self):
+        # Boundary case: distinct count == 10 should fire.
+        col = _pd.Series(list(range(10)) + [0], dtype="int64")
+        line = self._stats(col)
+        assert "top_10={" in line
+
+    def test_numeric_distinct_above_10_drops_top_10(self):
+        # 11 distinct values — long-tail. Top map is dropped; only
+        # mean/min/max remain.
+        col = _pd.Series(list(range(11)), dtype="int64")
+        line = self._stats(col)
+        assert "top_10={" not in line
+        assert "mean=" in line and "min=0" in line and "max=10" in line
+
+    def test_numeric_int_values_render_without_decimal(self):
+        # Integer-valued floats drop the `.0`. With value_counts the keys
+        # are still pandas scalars; the formatter must coerce cleanly.
+        col = _pd.Series([1.0, 1.0, 2.0, 3.0], dtype="float64")
+        line = self._stats(col)
+        assert "top_10={" in line
+        # Keys should render as "1", "2", "3" (not "1.0").
+        assert "1=2" in line and "2=1" in line and "3=1" in line
+
+    # ── bool ─────────────────────────────────────────────────────────
+
+    def test_bool_renders_true_false_counts_no_top_map(self):
+        # Bool already has implicit "top 2" via `true=N, false=N`. Skip
+        # adding a top_10 — it would be pure redundancy.
+        col = _pd.Series([True, True, False, True], dtype="bool")
+        line = self._stats(col)
+        assert line.startswith("(bool):")
+        assert "true=3" in line and "false=1" in line
+        assert "top_10={" not in line
+        assert "top_5={" not in line
+
+    # ── string ───────────────────────────────────────────────────────
+
+    def test_string_low_cardinality_emits_top_5_not_top_10(self):
+        # ≤5 distinct values: render top_5 (not top_10).
+        col = _pd.Series(
+            ["gold", "gold", "silver", "silver", "silver", "bronze"],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(str):")
+        assert "distinct=3" in line
+        assert "top_5={" in line
+        assert "top_10={" not in line
+        # The map carries the 3 distinct entries.
+        for v in ('"gold"=2', '"silver"=3', '"bronze"=1'):
+            assert v in line
+
+    def test_string_distinct_exactly_5_still_emits_top_5(self):
+        col = _pd.Series(["a", "b", "c", "d", "e", "a"], dtype="object")
+        line = self._stats(col)
+        assert "top_5={" in line
+
+    def test_string_distinct_above_5_drops_top_map(self):
+        # 6 distinct values — exceeds the str cutoff (5). No top map.
+        col = _pd.Series(["a", "b", "c", "d", "e", "f"], dtype="object")
+        line = self._stats(col)
+        assert "distinct=6" in line
+        assert "top_5={" not in line
+        assert "top_10={" not in line
