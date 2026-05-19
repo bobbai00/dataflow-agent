@@ -566,14 +566,15 @@ describe("assembleContext — action line format", () => {
         isEnd: true,
       },
     ]);
+    // makeOp gives `src` the customDisplayName "TestOp src", which is the
+    // snapshot's `Summary:` text. The event's summary ("Load customers.csv
+    // via pd.read_csv") differs from it, so the new equality-based dedup
+    // does NOT fire — the historical line keeps the event's full summary in
+    // every mode. FULL/DELTA modes never dedupe regardless.
     storage.createSnapshot("a", makeWorkflow(["src"]));
-    // In Latest mode the historical action's `summary` is dropped when its
-    // operator is still alive in the trailing snapshot (the snapshot's
-    // `Summary:` line already carries the latest version). FULL and DELTA
-    // modes don't dedupe — they keep the summary on every historical line.
     const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
     expect(cLatest).toContain(
-      '- createOrModifyOperator(operatorId="src") (result: Added operator src, input ports: 0, output ports: 1)'
+      '- createOrModifyOperator(operatorId="src", summary="Load customers.csv via pd.read_csv") (result: Added operator src, input ports: 0, output ports: 1)'
     );
     // The trailing snapshot still carries the operator's Summary line.
     expect(cLatest).toContain("Summary: TestOp src");
@@ -597,6 +598,8 @@ describe("assembleContext — action line format", () => {
     // Scenario: agent added `tmp`, then deleted it. The trailing snapshot
     // contains only `keeper`, so `tmp` is gone — its historical action must
     // still carry the summary because the snapshot won't show it anywhere.
+    // `keeper`'s event summary ("The op that survives") also differs from
+    // the snapshot's `Summary: TestOp keeper`, so it's kept too.
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -636,10 +639,11 @@ describe("assembleContext — action line format", () => {
     storage.createSnapshot("add", makeWorkflow(["tmp"]));
     storage.createSnapshot("del", makeWorkflow(["keeper"])); // trailing snapshot lacks tmp
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    // `tmp` no longer in snapshot → its historical action must keep the summary.
+    // `tmp` no longer in snapshot → its historical action keeps the summary.
     expect(c).toContain('- createOrModifyOperator(operatorId="tmp", summary="Throwaway scratch loader")');
-    // `keeper` is in the snapshot → its summary is dropped on the action line.
-    expect(c).toContain('- createOrModifyOperator(operatorId="keeper") (result: Added operator keeper)');
+    // `keeper` is in snapshot but its event summary ≠ snapshot's Summary, so
+    // also keeps the full summary — the dedup is equality-based now.
+    expect(c).toContain('- createOrModifyOperator(operatorId="keeper", summary="The op that survives")');
   });
 
   test("multi-line tool output is broken onto an indented block", () => {
@@ -784,7 +788,7 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
     expect(c).toContain("Find the answer.");
   });
 
-  test("cap=0: # Recent Agent Events section omitted entirely, # User Task and # Current Dataflow survive", () => {
+  test("cap=0: # Recent Agent Events becomes a placeholder paragraph, per-operator Event refs survive", () => {
     const { steps, storage, workflowState } = buildLongScenario(4);
     storage.createSnapshot("a4", makeWorkflow(["op1", "op2", "op3", "op4"]));
     const c = content(
@@ -793,20 +797,31 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
         recentEventsCap: 0,
       })
     );
-    // No agent or user events visible inline.
+    // No agent or user events visible inline — per-event detail is omitted.
     expect(c).not.toContain("## Agent Event");
     expect(c).not.toContain("## User Event");
-    // Recent Agent Events is suppressed entirely — no degenerate
-    // "(last 0 of N events)" header, no truncation notice. The prompt jumps
-    // straight from # User Task to # Current Dataflow.
-    expect(c).not.toContain("# Recent Agent Events");
-    expect(c).not.toContain("earlier events omitted");
+    // The Recent Agent Events section is BACK as a placeholder so the
+    // operator-level "Created at Event N" refs below have something to point
+    // to. Header carries the total event count + the "details omitted for
+    // context compaction" tag.
+    expect(c).toMatch(/# Recent Agent Events \(\d+ total — details omitted for context compaction\)/);
+    expect(c).toContain("Per-event details (thought, tool calls, code) are omitted");
+    expect(c).toContain('"Created at Event 3", "modified at Event 7"'); // example in paragraph
+    // The legacy mid-section truncation notice (\"earlier events omitted to
+    // keep context focused on recent work\") only fires when cap > 0 and
+    // some events get dropped. Under cap=0 the placeholder paragraph above
+    // takes its place — assert the old notice is absent so the two
+    // mechanisms don't accidentally double-render.
+    expect(c).not.toContain("earlier events omitted to keep context focused on recent work");
     // # User Task is the single source of truth for the question.
     expect(c).toContain("# User Task");
     expect(c).toContain("Find the answer.");
-    // Snapshot still rendered.
+    // Snapshot still rendered, and every op carries its event-history line.
     expect(c).toContain("# Current Dataflow");
+    expect(c).toContain("### Operator `op1`");
     expect(c).toContain("### Operator `op4`");
+    expect(c).toMatch(/### Operator `op1`[\s\S]{0,200}Created at Event \d+/);
+    expect(c).toMatch(/### Operator `op4`[\s\S]{0,200}Created at Event \d+/);
     // No legacy echo lines.
     expect(c).not.toContain("User's request is:");
     expect(c).not.toContain("Above is user's request");
@@ -821,13 +836,13 @@ describe("assembleContext — recentEventsCap (event-count truncation)", () => {
         recentEventsCap: 0,
       })
     );
-    // # User Task is always present at the top, and with cap=0 the Recent
-    // Agent Events section is gone so # User Task is followed directly by
-    // # Current Dataflow.
+    // # User Task hoisted at top; the cap=0 placeholder Recent Agent Events
+    // section sits between User Task and Current Dataflow.
     expect(c).toContain("# User Task");
     expect(c).toContain("Find the answer.");
-    expect(c).not.toContain("# Recent Agent Events");
-    expect(c.indexOf("# User Task")).toBeLessThan(c.indexOf("# Current Dataflow"));
+    expect(c).toMatch(/# Recent Agent Events \(\d+ total — details omitted/);
+    expect(c.indexOf("# User Task")).toBeLessThan(c.indexOf("# Recent Agent Events"));
+    expect(c.indexOf("# Recent Agent Events")).toBeLessThan(c.indexOf("# Current Dataflow"));
   });
 
   test("cap >= path length: no truncation notice (cap is effectively off)", () => {
@@ -1238,5 +1253,335 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     // But both error messages should be present.
     expect(c).toContain("A failed");
     expect(c).toContain("B failed");
+  });
+});
+
+/* ============================================================================
+ *  Idea 1: per-operator event-history line in the snapshot
+ *  ("Created at Event X, modified at Event Y, …")
+ * ========================================================================= */
+
+describe("assembleContext — per-operator event-history line", () => {
+  test("operator touched once renders only 'Created at Event X'", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "create op",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc1",
+            input: { operatorId: "src", summary: "load source" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "Added operator src", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(c).toMatch(/### Operator `src`[\s\S]{0,200}Created at Event 2\nSummary:/);
+    // No "modified at" segment when the op was only created.
+    expect(c).not.toMatch(/Created at Event 2.*modified at/);
+  });
+
+  test("operator modified multiple times chains 'Created' + repeating 'modified'", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "create",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src", summary: "v1" } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "edit again",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "src", summary: "v2" } },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+      },
+      {
+        id: "a3",
+        stepId: 3,
+        role: "agent",
+        parentId: "a2",
+        messageId: "m1",
+        content: "final edit",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc3", input: { operatorId: "src", summary: "v3" } },
+        ],
+        toolResults: [{ toolCallId: "tc3", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a3", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // Three event indices: 2 (create), 3 (modify), 4 (modify). User step is Event 1.
+    expect(c).toContain("Created at Event 2, modified at Event 3, modified at Event 4");
+  });
+
+  test("operator inherited from initial workflow (no createOrModify event) has no Events line", () => {
+    // Scenario: workflow already has `seeded` before any agent step. The
+    // agent only adds `addedByAgent`. The snapshot contains both, but only
+    // `addedByAgent` has an event-history line; `seeded` doesn't.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "add new",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc1",
+            input: { operatorId: "addedByAgent", summary: "fresh load" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["seeded", "addedByAgent"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // addedByAgent → has the line.
+    expect(c).toMatch(/### Operator `addedByAgent`[\s\S]{0,200}Created at Event \d+/);
+    // seeded → no event line between header and Summary.
+    expect(c).toMatch(/### Operator `seeded` \(TestOp\)\nSummary:/);
+  });
+
+  test("cap > 0: 'Created at Event N' indices match the # Recent Agent Events block above", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "first",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src", summary: "v1" } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // Both surfaces should reference the same index ("Agent Event 2" up top,
+    // "Created at Event 2" in the snapshot below).
+    expect(c).toContain("## Agent Event 2");
+    expect(c).toContain("Created at Event 2");
+  });
+});
+
+/* ============================================================================
+ *  Idea 2: equality-based summary dedup in event lines
+ *  (abbreviateSummary when event.summary == snapshot.customDisplayName)
+ * ========================================================================= */
+
+describe("assembleContext — equality-based summary dedup in events", () => {
+  // Helper: build a single-step scenario where the agent creates `opId` with
+  // the given `summary`, and the trailing snapshot's `customDisplayName` for
+  // that op equals `snapshotSummary`. Makes it easy to assert dedup behavior
+  // across the (match × short-vs-long × superseded) matrix.
+  function buildOneCreateScenario(opId: string, summary: string, snapshotSummary: string) {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "create",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: opId, summary } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: `Added operator ${opId}`, isError: false }],
+        isEnd: true,
+      },
+    ]);
+    // Construct the snapshot with a custom display name so the equality
+    // check can fire (or fail to fire).
+    const workflow = makeWorkflow([opId]);
+    (workflow.operators[0] as { customDisplayName?: string }).customDisplayName = snapshotSummary;
+    storage.createSnapshot("a1", workflow);
+    return { steps, storage, workflowState };
+  }
+
+  test("LONG summary that matches snapshot Summary is abbreviated to '<head> … (same as current Summary)'", () => {
+    const long =
+      "Load 2024_CSN_Number_of_Reports_by_Type.csv via pd.read_csv with skiprows=2, header=0, UTF-8 encoding; promote first row to header and parse numeric fields.";
+    const { steps, storage, workflowState } = buildOneCreateScenario("src", long, long);
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // Abbreviated form: keep first sentence, then ellipsis + pointer.
+    expect(c).toContain("(same as current Summary)");
+    expect(c).toContain('summary="Load 2024_CSN_Number_of_Reports_by_Type'); // head fragment
+    // The full original text should NOT appear in the event line — only in
+    // the trailing snapshot's Summary line.
+    const eventLineMatch = c.match(/- createOrModifyOperator\(operatorId="src", summary="[^"]+"\)/);
+    expect(eventLineMatch).not.toBeNull();
+    expect(eventLineMatch![0]).not.toContain("promote first row to header");
+    // The snapshot still carries the full text.
+    expect(c).toContain(`Summary: ${long}`);
+  });
+
+  test("SHORT summary that matches snapshot Summary is kept full (no dedup overhead)", () => {
+    // The abbreviation phrase is ~33 chars; if the original summary is
+    // ≤80 chars, dropping it for the phrase wastes tokens. So short
+    // matches go through unchanged.
+    const short = "Load customers.csv";
+    const { steps, storage, workflowState } = buildOneCreateScenario("src", short, short);
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(c).toContain(`- createOrModifyOperator(operatorId="src", summary="${short}")`);
+    expect(c).not.toContain("(same as current Summary)");
+  });
+
+  test("summary differs from current snapshot (superseded by later edit) is kept full", () => {
+    // Two edits: first event's summary "v1" gets superseded by event 2's
+    // "v2 final". Snapshot's customDisplayName equals "v2 final". Event 1's
+    // summary differs from current → kept full. Event 2's matches → would
+    // be abbreviated but it's short (<80 chars) → kept full too.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "first",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src", summary: "v1 historical intent" } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "rewrite",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "src", summary: "v2 final" } },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    const workflow = makeWorkflow(["src"]);
+    (workflow.operators[0] as { customDisplayName?: string }).customDisplayName = "v2 final";
+    storage.createSnapshot("a2", workflow);
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // Event 1's old summary survives in full — that's the "supersession
+    // preserved" property of equality-based dedup.
+    expect(c).toContain('summary="v1 historical intent"');
+    // Event 2's summary matches the snapshot but is short → kept full too.
+    expect(c).toContain('summary="v2 final"');
+    expect(c).not.toContain("(same as current Summary)");
+  });
+
+  test("operator deleted before the trailing snapshot keeps its event summary in full", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "add tmp",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "tmp", summary: "Throwaway scratch loader for testing" } },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "swap to keeper",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "keeper", summary: "The op that survives" } },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a1", makeWorkflow(["tmp"]));
+    storage.createSnapshot("a2", makeWorkflow(["keeper"])); // trailing snapshot drops tmp
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // tmp's summary is preserved in full — it's not in the map, so dedup
+    // can't fire even if the text were long enough.
+    expect(c).toContain('summary="Throwaway scratch loader for testing"');
+    expect(c).not.toContain("(same as current Summary)");
+  });
+
+  test("non-createOrModifyOperator tool calls are never abbreviated", () => {
+    // The dedup pipeline only inspects createOrModifyOperator calls; other
+    // tools (e.g. a hypothetical analytics-only inspect) pass through.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "delete then add",
+        toolCalls: [
+          {
+            toolName: "deleteOperator",
+            toolCallId: "tc1",
+            input: { operatorId: "src", summary: "Should pass through verbatim, never abbreviated, because the tool is not createOrModifyOperator." },
+          },
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc2",
+            input: { operatorId: "src2", summary: "fresh" },
+          },
+        ],
+        toolResults: [
+          { toolCallId: "tc1", output: "Deleted", isError: false },
+          { toolCallId: "tc2", output: "Added operator src2", isError: false },
+        ],
+        isEnd: true,
+      },
+    ]);
+    const workflow = makeWorkflow(["src2"]);
+    // deliberately set the snapshot display name to the deleteOperator's
+    // summary string — even with that, the deleteOperator call should NOT
+    // get abbreviated because we only inspect createOrModifyOperator calls.
+    (workflow.operators[0] as { customDisplayName?: string }).customDisplayName =
+      "Should pass through verbatim, never abbreviated, because the tool is not createOrModifyOperator.";
+    storage.createSnapshot("a1", workflow);
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    // The full text is in the deleteOperator's line, NOT replaced with the
+    // (same as current Summary) marker.
+    expect(c).toContain('- deleteOperator(operatorId="src", summary="Should pass through verbatim, never abbreviated, because the tool is not createOrModifyOperator.")');
   });
 });

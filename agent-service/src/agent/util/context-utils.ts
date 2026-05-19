@@ -158,6 +158,21 @@ export function assembleContext(
   // the entire section in that case and let the prompt jump straight from
   // `# User Task` to `# Current Dataflow`.
   const skipRecentEventsSection = cap === 0;
+  // Full event count (cap-independent) used in the cap=0 explanatory paragraph
+  // and for the operator-level "Created at Event N" cross-references — the
+  // indices remain meaningful even when older events are truncated out.
+  const totalEventCount = fullPath.length;
+
+  // Build the snapshot ↔ event-list cross-reference maps once and thread
+  // them through every renderer. `eventIndicesByOpId` is sourced from the
+  // FULL path so operator entries can still cite events that have been
+  // dropped from the kept window. `currentSummaryByOpId` is sourced from
+  // the trailing snapshot — the one the LLM will read as the source of
+  // truth in `# Current Dataflow` — so the dedup target is consistent
+  // across all modes (full/delta/latest).
+  const eventIndicesByOpId = buildEventIndicesByOpId(fullPath);
+  const trailingSnapshotForSummaryMap = lastSnapshotOfPath(fullPath);
+  const currentSummaryByOpId = buildCurrentSummaryByOpId(trailingSnapshotForSummaryMap);
 
   let content: string;
   switch (mode) {
@@ -173,7 +188,10 @@ export function assembleContext(
         latestUserStepId,
         recentHeaderSuffix,
         truncationNotice,
-        skipRecentEventsSection
+        skipRecentEventsSection,
+        totalEventCount,
+        eventIndicesByOpId,
+        currentSummaryByOpId
       );
       break;
     case ContextMode.DELTA:
@@ -188,7 +206,10 @@ export function assembleContext(
         latestUserStepId,
         recentHeaderSuffix,
         truncationNotice,
-        skipRecentEventsSection
+        skipRecentEventsSection,
+        totalEventCount,
+        eventIndicesByOpId,
+        currentSummaryByOpId
       );
       break;
     case ContextMode.LATEST: {
@@ -207,7 +228,10 @@ export function assembleContext(
         recentHeaderSuffix,
         truncationNotice,
         fullPathCurrent,
-        skipRecentEventsSection
+        skipRecentEventsSection,
+        totalEventCount,
+        eventIndicesByOpId,
+        currentSummaryByOpId
       );
       break;
     }
@@ -339,6 +363,113 @@ function groupIntoTasks(path: PathNode[]): TaskGroup[] {
 }
 
 /* ============================================================================
+ *  Cross-reference maps: snapshot ↔ events
+ *
+ *  Two small maps that thread through every renderer:
+ *
+ *  - `eventIndicesByOpId`: built from the FULL path (cap-independent), maps
+ *    every `createOrModifyOperator` event index to the operator it touched.
+ *    Used by `serializeOperatorFull` to emit a `Created at Event N, modified
+ *    at Event M, …` line so the LLM can cross-reference the snapshot to the
+ *    event list. Built from the full path so operators get their full event
+ *    history even when older events have been truncated out of the kept
+ *    window (the indices themselves remain meaningful as references).
+ *
+ *  - `currentSummaryByOpId`: built from the trailing snapshot's operators
+ *    (the one shown in `# Current Dataflow`). Maps each live op's id to its
+ *    current `Summary:` text. Used by `formatActionParams` to abbreviate
+ *    historical event summaries that are byte-identical to the current
+ *    one — the snapshot already carries the same text below, so the
+ *    historical copy is pure duplication. Summaries that differ from the
+ *    current value (superseded by a later edit) are kept full so the LLM
+ *    can see the older intent. Calls touching a now-deleted op aren't in
+ *    the map at all, so their summary is also kept full.
+ * ========================================================================= */
+
+function buildEventIndicesByOpId(fullPath: PathNode[]): Map<string, number[]> {
+  const result = new Map<string, number[]>();
+  for (const node of fullPath) {
+    if (node.step.role !== "agent" || !node.step.toolCalls) continue;
+    for (const tc of node.step.toolCalls) {
+      if (tc.toolName !== "createOrModifyOperator") continue;
+      const inp = (tc.input ?? {}) as Record<string, unknown>;
+      const opId = typeof inp.operatorId === "string" ? inp.operatorId : undefined;
+      if (!opId) continue;
+      let arr = result.get(opId);
+      if (!arr) {
+        arr = [];
+        result.set(opId, arr);
+      }
+      arr.push(node.eventIndex);
+    }
+  }
+  return result;
+}
+
+function buildCurrentSummaryByOpId(snapshot: SnapshotData | undefined): Map<string, string> {
+  const result = new Map<string, string>();
+  if (!snapshot) return result;
+  for (const op of snapshot.workflow.operators) {
+    // Mirrors `serializeOperatorFull` exactly: the Summary line emitted there
+    // is `op.customDisplayName || op.operatorID`. Match it character-for-
+    // character so the event-side equality check fires on the same string the
+    // LLM will see in the snapshot.
+    result.set(op.operatorID, op.customDisplayName || op.operatorID);
+  }
+  return result;
+}
+
+/**
+ * Render a per-operator event-history line of the form:
+ *   "Created at Event 2"
+ *   "Created at Event 2, modified at Event 5"
+ *   "Created at Event 2, modified at Event 5, modified at Event 8"
+ *
+ * Returns `null` when the op has no recorded events (it didn't come from a
+ * `createOrModifyOperator` call inside this path — likely loaded from the
+ * initial workflow snapshot). The caller drops the line in that case.
+ */
+function formatEventsLine(indices: number[] | undefined): string | null {
+  if (!indices || indices.length === 0) return null;
+  const parts: string[] = [`Created at Event ${indices[0]}`];
+  for (let i = 1; i < indices.length; i++) {
+    parts.push(`modified at Event ${indices[i]}`);
+  }
+  return parts.join(", ");
+}
+
+// Tunables for `abbreviateSummary` below. SHORT_OK = summaries up to this
+// length are not worth the dedup overhead phrase (the phrase itself is
+// ~33 chars, so abbreviation only saves tokens when the full summary
+// exceeds ~80 chars). HARD_CUT = hard character cap when no natural
+// sentence boundary is found within the budget.
+const _ABBREV_SHORT_OK = 80;
+const _ABBREV_BOUNDARY_BUDGET = 80;
+const _ABBREV_HARD_CUT = 60;
+
+/**
+ * Compress a historical summary that's byte-identical to the operator's
+ * current Summary in the snapshot below.
+ *
+ * Format: `<first sentence or first ~60 chars> … (same as current Summary)`
+ *
+ * The first sentence (text up to the first `.`, `;`, or newline within
+ * the first 80 chars) is kept as-is so the LLM has a "what was this
+ * about" anchor when scanning a multi-call event without scrolling to
+ * the snapshot. Short summaries (≤ `_ABBREV_SHORT_OK` chars) are returned
+ * unchanged — the dedup phrase wouldn't save any tokens.
+ */
+function abbreviateSummary(full: string): string {
+  if (full.length <= _ABBREV_SHORT_OK) return full;
+  const boundary = full.search(/[.;\n]/);
+  const head =
+    boundary > 0 && boundary < _ABBREV_BOUNDARY_BUDGET
+      ? full.slice(0, boundary).trimEnd()
+      : full.slice(0, _ABBREV_HARD_CUT).trimEnd();
+  return `${head} … (same as current Summary)`;
+}
+
+/* ============================================================================
  *  Rendering: interleaved (FULL & DELTA) + trailing-snapshot (LATEST)
  * ========================================================================= */
 
@@ -383,7 +514,10 @@ function renderInterleaved(
   latestUserStepId: string | undefined = undefined,
   recentHeaderSuffix = "",
   truncationNotice: string | undefined = undefined,
-  skipRecentEventsSection = false
+  skipRecentEventsSection = false,
+  totalEventCount = 0,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined,
+  currentSummaryByOpId: Map<string, string> | undefined = undefined
 ): string {
   const lastSnapshotId = lastSnapshotIdOf(tasks);
   const sections: string[] = [];
@@ -396,8 +530,14 @@ function renderInterleaved(
     sections.push("");
   }
 
-  // 2. # Recent Agent Events (skipped entirely when cap=0)
-  if (!skipRecentEventsSection) {
+  // 2. # Recent Agent Events. Under cap > 0 we render the normal section
+  // (header + truncation notice + per-event blocks). Under cap = 0 the
+  // section still appears as a one-paragraph placeholder so the operator-
+  // level "Created at Event N" references in `# Current Dataflow` below
+  // point to something the LLM understands.
+  if (skipRecentEventsSection) {
+    appendCapZeroEventsPlaceholder(sections, totalEventCount);
+  } else {
     sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
     sections.push("");
     if (truncationNotice) {
@@ -421,7 +561,9 @@ function renderInterleaved(
           prevSnapshot = s;
         },
         includeCodeForKept,
-        latestUserStepId
+        latestUserStepId,
+        eventIndicesByOpId,
+        currentSummaryByOpId
       );
       if (body) {
         sections.push(body);
@@ -438,6 +580,27 @@ function renderInterleaved(
   return sections.join("\n").trimEnd();
 }
 
+/**
+ * Emit the cap=0 placeholder for the `# Recent Agent Events` section. One
+ * H1 header plus a single explanatory paragraph; no per-event blocks. The
+ * paragraph tells the LLM that per-event detail is omitted on purpose and
+ * directs attention to the operator-level event cross-references rendered
+ * inside `# Current Dataflow` below.
+ */
+function appendCapZeroEventsPlaceholder(sections: string[], totalEventCount: number): void {
+  sections.push(
+    `# Recent Agent Events (${totalEventCount} total — details omitted for context compaction)`
+  );
+  sections.push("");
+  sections.push(
+    `The current dataflow below was constructed over the past ${totalEventCount} agent events. ` +
+      `Per-event details (thought, tool calls, code) are omitted to keep the context focused on the workflow's current state. ` +
+      `Each operator entry in \`# Current Dataflow\` lists which events touched it ("Created at Event 3", "modified at Event 7") ` +
+      `so you can see the editing timeline.`
+  );
+  sections.push("");
+}
+
 function renderLatest(
   tasks: TaskGroup[],
   storage: WorkflowSnapshotStorage,
@@ -450,7 +613,10 @@ function renderLatest(
   recentHeaderSuffix = "",
   truncationNotice: string | undefined = undefined,
   fullPathCurrentOverride: SnapshotData | undefined = undefined,
-  skipRecentEventsSection = false
+  skipRecentEventsSection = false,
+  totalEventCount = 0,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined,
+  currentSummaryByOpId: Map<string, string> | undefined = undefined
 ): string {
   const sections: string[] = [];
 
@@ -462,26 +628,32 @@ function renderLatest(
     sections.push("");
   }
 
-  // 2. # Recent Agent Events (skipped entirely when cap=0)
-  if (!skipRecentEventsSection) {
+  // Trailing snapshot picked from the full path (cap-independent) so it
+  // survives even when truncation drops every visible task. Falls back to
+  // the in-window scan, the init snapshot, and finally the storage root.
+  const current = fullPathCurrentOverride ?? lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
+
+  // 2. # Recent Agent Events. cap > 0: header + truncation notice + per-event
+  // blocks (events-only — Latest mode has no inline snapshots). cap = 0:
+  // one-paragraph placeholder so the operator-level event references in
+  // `# Current Dataflow` below have a section to point to.
+  if (skipRecentEventsSection) {
+    appendCapZeroEventsPlaceholder(sections, totalEventCount);
+  } else {
     sections.push(`# Recent Agent Events${recentHeaderSuffix}`);
     sections.push("");
     if (truncationNotice) {
       sections.push(truncationNotice);
       sections.push("");
     }
-  }
-
-  // Trailing snapshot picked from the full path (cap-independent) so it
-  // survives even when truncation drops every visible task. Falls back to
-  // the in-window scan, the init snapshot, and finally the storage root.
-  const current = fullPathCurrentOverride ?? lastSnapshotOf(tasks) ?? initSnapshot ?? storage.getRootSnapshot();
-  const liveOperatorIds = new Set(current.workflow.operators.map(o => o.operatorID));
-
-  if (!skipRecentEventsSection) {
     let renderedAny = false;
     for (const task of tasks) {
-      const body = serializeTaskEventsOnly(task, liveOperatorIds, includeCodeForKept, latestUserStepId);
+      const body = serializeTaskEventsOnly(
+        task,
+        includeCodeForKept,
+        latestUserStepId,
+        currentSummaryByOpId
+      );
       if (body) {
         sections.push(body);
         sections.push("");
@@ -497,8 +669,16 @@ function renderLatest(
   // 3. # Current Dataflow — sectionLevel=2 keeps "## Operators" at H2 and
   //    "### Operator `x` (Type)" at H3, nested under the H1 wrapper. This
   //    block is independent of the cap, so it still renders when cap=0
-  //    even though `# Recent Agent Events` is suppressed above.
-  const dag = serializeSnapshotFull(current, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
+  //    even though `# Recent Agent Events` carries only the placeholder
+  //    paragraph above.
+  const dag = serializeSnapshotFull(
+    current,
+    workflowState,
+    options,
+    /*isCurrent=*/ true,
+    /*sectionLevel=*/ 2,
+    eventIndicesByOpId
+  );
   if (dag) {
     sections.push("# Current Dataflow");
     sections.push(dag);
@@ -523,7 +703,9 @@ function serializeTaskBody(
   getPrev: () => SnapshotData | undefined,
   setPrev: (s: SnapshotData) => void,
   includeCode = false,
-  latestUserStepId: string | undefined = undefined
+  latestUserStepId: string | undefined = undefined,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined,
+  currentSummaryByOpId: Map<string, string> | undefined = undefined
 ): string {
   const lines: string[] = [];
 
@@ -538,7 +720,7 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, undefined, includeCode));
+    lines.push(serializeTurn(node, currentSummaryByOpId, includeCode));
     lines.push("");
 
     if (node.snapshot) {
@@ -550,8 +732,8 @@ function serializeTaskBody(
       const snapshotSectionLevel = snapshotHeadingLevel + 1;
       const body =
         flavour === "full"
-          ? serializeSnapshotFull(node.snapshot, workflowState, options, isCurrent, snapshotSectionLevel)
-          : serializeSnapshotDelta(node.snapshot, getPrev(), workflowState, options, isCurrent, snapshotSectionLevel);
+          ? serializeSnapshotFull(node.snapshot, workflowState, options, isCurrent, snapshotSectionLevel, eventIndicesByOpId)
+          : serializeSnapshotDelta(node.snapshot, getPrev(), workflowState, options, isCurrent, snapshotSectionLevel, eventIndicesByOpId);
       if (body) {
         const snapshotHash = "#".repeat(snapshotHeadingLevel);
         const snapshotTitle =
@@ -572,12 +754,16 @@ function serializeTaskBody(
 /**
  * Latest-mode task body: events only, no inline snapshots.
  *
- * `omitSummaryForOpIds` (Latest-mode optimization): IDs whose operators still
- * exist in the trailing `# Current Dataflow` snapshot. Past tool calls that
- * touched those operators get rendered without their `summary="..."` param
- * because the snapshot's per-operator `Summary:` line already carries the
- * latest version — emitting it on the historical action line is duplicate
- * tokens. Pass `undefined` (or omit) to keep the summary on every call.
+ * `currentSummaryByOpId`: map of operator id → current `Summary:` text in the
+ * trailing `# Current Dataflow` snapshot. When a historical
+ * `createOrModifyOperator` event's `summary` is byte-identical to the
+ * current value, the renderer abbreviates it to
+ * `<first sentence> … (same as current Summary)` so the trail keeps a
+ * "what was this about" anchor without duplicating the snapshot's text.
+ * Summaries that differ from the current value (superseded by a later
+ * edit) are kept full so the LLM can see the older intent. Calls touching
+ * a now-deleted op aren't in the map at all, so their summary is also
+ * kept full.
  *
  * `latestUserStepId`: when set, any user-role node with this step id is
  * skipped (it's been hoisted to the top-level `# User Task` block). Older
@@ -586,9 +772,9 @@ function serializeTaskBody(
  */
 function serializeTaskEventsOnly(
   task: TaskGroup,
-  omitSummaryForOpIds?: Set<string>,
   includeCode = false,
-  latestUserStepId: string | undefined = undefined
+  latestUserStepId: string | undefined = undefined,
+  currentSummaryByOpId: Map<string, string> | undefined = undefined
 ): string {
   const lines: string[] = [];
 
@@ -600,7 +786,7 @@ function serializeTaskEventsOnly(
       continue;
     }
     if (node.step.role !== "agent") continue;
-    lines.push(serializeTurn(node, omitSummaryForOpIds, includeCode));
+    lines.push(serializeTurn(node, currentSummaryByOpId, includeCode));
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -624,7 +810,7 @@ function serializeUserEventInline(node: PathNode): string {
 
 function serializeTurn(
   node: PathNode,
-  omitSummaryForOpIds?: Set<string>,
+  currentSummaryByOpId?: Map<string, string>,
   includeCode = false
 ): string {
   const step = node.step;
@@ -641,7 +827,7 @@ function serializeTurn(
     for (let i = 0; i < step.toolCalls.length; i++) {
       const tc = step.toolCalls[i];
       const tr = step.toolResults?.[i];
-      const params = formatActionParams(tc.input, omitSummaryForOpIds);
+      const params = formatActionParams(tc.input, currentSummaryByOpId);
       const output = stringifyOutput(tr?.output).trim();
       const header = `- ${tc.toolName}${params}`;
       const codeBlock = includeCode ? extractActionCode(tc.input) : undefined;
@@ -703,14 +889,21 @@ function extractActionCode(input: unknown): string | undefined {
  * lets the LLM read its own breadcrumb trail without diving into the
  * downstream snapshot.
  *
- * Optimization (Latest mode): if `omitSummaryForOpIds` is provided AND this
- * call's `operatorId` is in it, drop `summary="..."` from the rendered line.
- * Used when the trailing `# Current Dataflow` snapshot already prints the
- * latest Summary for that operator, making the historical copy pure
- * duplication. Calls without an `operatorId` (or whose op was deleted) keep
- * the summary so the trail isn't lost.
+ * Summary-dedup optimization: when `currentSummaryByOpId` is provided AND
+ * this call's `summary` is byte-identical to that op's current Summary in
+ * the trailing snapshot, the rendered value is abbreviated to
+ * `<first sentence> … (same as current Summary)` (see `abbreviateSummary`).
+ * Three cases keep the summary in full:
+ *   - non-`createOrModifyOperator` tool calls (they have different summary
+ *     semantics and aren't tracked in the map);
+ *   - calls whose touched op has been deleted (no entry in the map);
+ *   - calls whose `summary` text was later superseded by a different
+ *     summary (the map entry differs from this call's value).
  */
-function formatActionParams(input: unknown, omitSummaryForOpIds?: Set<string>): string {
+function formatActionParams(
+  input: unknown,
+  currentSummaryByOpId?: Map<string, string>
+): string {
   if (!input || typeof input !== "object") return "";
   const inp = input as Record<string, unknown>;
   const params: string[] = [];
@@ -718,9 +911,15 @@ function formatActionParams(input: unknown, omitSummaryForOpIds?: Set<string>): 
   if (opId.length > 0) {
     params.push(`operatorId="${escapeQuotes(opId)}"`);
   }
-  const skipSummary = opId.length > 0 && omitSummaryForOpIds?.has(opId) === true;
-  if (!skipSummary && typeof inp.summary === "string" && inp.summary.length > 0) {
-    params.push(`summary="${escapeQuotes(inp.summary)}"`);
+  if (typeof inp.summary === "string" && inp.summary.length > 0) {
+    const fullSummary = inp.summary;
+    // Only dedup when (a) the call references an op, (b) that op is still
+    // in the current snapshot, and (c) this call's summary equals the
+    // snapshot's current Summary byte-for-byte.
+    const currentSummary = opId.length > 0 ? currentSummaryByOpId?.get(opId) : undefined;
+    const matchesCurrent = currentSummary !== undefined && currentSummary === fullSummary;
+    const rendered = matchesCurrent ? abbreviateSummary(fullSummary) : fullSummary;
+    params.push(`summary="${escapeQuotes(rendered)}"`);
   }
   if (params.length === 0) return "";
   return `(${params.join(", ")})`;
@@ -760,7 +959,8 @@ function serializeSnapshotFull(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   isCurrent: boolean,
-  sectionLevel: number
+  sectionLevel: number,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
@@ -773,7 +973,18 @@ function serializeSnapshotFull(
   lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
-    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
+    lines.push(
+      serializeOperatorFull(
+        op,
+        snapshot,
+        workflowState,
+        options,
+        isCurrent,
+        allLinks,
+        operatorLevel,
+        eventIndicesByOpId
+      )
+    );
     lines.push("");
   }
   appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
@@ -802,7 +1013,8 @@ function serializeSnapshotDelta(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   isCurrent: boolean,
-  sectionLevel: number
+  sectionLevel: number,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
@@ -818,7 +1030,18 @@ function serializeSnapshotDelta(
     lines.push(`${sectionHash} Operators`);
     lines.push("");
     for (const op of deltaOps) {
-      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
+      lines.push(
+        serializeOperatorFull(
+          op,
+          snapshot,
+          workflowState,
+          options,
+          isCurrent,
+          allLinks,
+          operatorLevel,
+          eventIndicesByOpId
+        )
+      );
       lines.push("");
     }
   }
@@ -879,7 +1102,8 @@ function serializeOperatorFull(
   options: AssembleContextOptions,
   isCurrent: boolean,
   allLinks: WorkflowContent["links"],
-  operatorLevel: number
+  operatorLevel: number,
+  eventIndicesByOpId: Map<string, number[]> | undefined = undefined
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   const execText = info
@@ -903,6 +1127,15 @@ function serializeOperatorFull(
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+  // Event cross-references — "Created at Event 2, modified at Event 5, …" —
+  // sit between the header and the Summary so the LLM can navigate to the
+  // matching `## Agent Event N` block in `# Recent Agent Events` (cap > 0)
+  // or recognize them as historical references (cap = 0, where the events
+  // section is the placeholder paragraph). Only emits a line when this op
+  // was actually touched by a `createOrModifyOperator` event in the path —
+  // operators inherited from the initial workflow snapshot don't get one.
+  const eventsLine = formatEventsLine(eventIndicesByOpId?.get(op.operatorID));
+  if (eventsLine) lines.push(eventsLine);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
 
   // Schemas only on the current (last) snapshot — compilation only runs
