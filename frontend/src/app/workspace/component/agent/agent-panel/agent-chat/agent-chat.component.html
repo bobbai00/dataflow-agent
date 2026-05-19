@@ -574,63 +574,6 @@
           </div>
 
           <div class="settings-param-item">
-            <label class="settings-param-label">Recent Events Cap</label>
-            <div class="settings-param-input">
-              <nz-input-number
-                [(ngModel)]="settingsRecentEventsCap"
-                [nzMin]="0"
-                [nzStep]="1"
-                nzSize="small"
-                style="width: 180px"></nz-input-number>
-              <button
-                nz-button
-                nzType="primary"
-                nzSize="small"
-                (click)="saveRecentEventsCap()">
-                Save
-              </button>
-            </div>
-            <div class="settings-param-hint-block">
-              Hard cap on how many of the most-recent ReActStep events get rendered under
-              <code># Recent Agent Events</code>. Counts both user messages and agent turns; init step excluded.
-              Default is <strong>2</strong> — only the two most recent events are kept; older ones are replaced with
-              a <code>(... N earlier events omitted ...)</code> notice. Use a large value (<strong>10000+</strong>) to
-              effectively disable the cap, or <strong>0</strong> to drop every event entirely.
-              <code># User Task</code> and <code># Current Dataflow</code> always render regardless.
-            </div>
-          </div>
-
-          <div class="settings-param-item">
-            <label class="settings-param-label">Include Code in Recent Events</label>
-            <div class="settings-param-input">
-              <nz-select
-                [(ngModel)]="settingsIncludeCodeInRecentEvents"
-                nzSize="small"
-                style="width: 180px">
-                <nz-option
-                  nzValue="enabled"
-                  nzLabel="Enabled"></nz-option>
-                <nz-option
-                  nzValue="disabled"
-                  nzLabel="Disabled"></nz-option>
-              </nz-select>
-              <button
-                nz-button
-                nzType="primary"
-                nzSize="small"
-                (click)="saveIncludeCodeInRecentEvents()">
-                Save
-              </button>
-            </div>
-            <div class="settings-param-hint-block">
-              When <strong>enabled</strong> (default), events kept inside the recent-events window render their full
-              <code>code</code> parameter as an indented <code>code: |</code> block under the action header — the
-              agent can read exactly what was submitted. When <strong>disabled</strong>, the code is omitted; the
-              agent only sees the operator id + summary on past actions.
-            </div>
-          </div>
-
-          <div class="settings-param-item">
             <label class="settings-param-label">Max Operator Result Character Limit</label>
             <div class="settings-param-input">
               <nz-input-number

@@ -76,16 +76,6 @@ export interface AgentSettingsApi {
    *  with `columnStats` is followed by a `Column stats:` block (one line per
    *  column) in the assembled context. */
   statsEnabled?: boolean;
-  /** Hard cap on how many of the most-recent (non-init) ReActStep events are
-   *  rendered into the assembled context. Default 10000 = effectively off;
-   *  small finite values (0..N) bound total context size regardless of step
-   *  count. When the cap drops events, a `(... N earlier events omitted ...)`
-   *  marker is emitted under `# Recent Agent Events`. */
-  recentEventsCap?: number;
-  /** When the cap is in effect, include the full `code` parameter of each
-   *  kept `createOrModifyOperator` action in the rendered context (as an
-   *  indented `code: |` block). Default true. */
-  includeCodeInRecentEvents?: boolean;
 }
 
 /**
