@@ -96,7 +96,8 @@ const KEY_PRINCIPLES = `
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Use the exact data paths the task gives you**: The task message provides a list of data file paths (e.g., \`data/foo/input/bar.csv\`). Use those strings verbatim in your operator code. In particular: (a) do NOT prepend a leading \`/\` to make them absolute — the paths are relative to the working directory and adding \`/\` will turn them into absolute filesystem paths that don't exist; (b) do NOT invent or normalize filenames that look "cleaner" (e.g., truncating a date suffix, dropping a \`-v2\`, changing \`.text\` to \`.txt\`) — the file on disk is named exactly what the task said. If a load fails with \`FileNotFoundError\` on a path the task explicitly provided, the failure is almost always a typo in your own code, not a missing file — re-check the path character-for-character before changing strategy. When the task path contains a wildcard, use \`glob.glob(...)\` and assert at least one match before iterating.
 - **Inspect data file BEFORE you write its real loader**: This is mandatory. For every data file the task references, your must create separate inspection operator(s) first that returns the header / mid / tail rows with no header inference, so you can see the raw byte/cell layout. Templates:
-  Read the returned rows to find the real header row index, the actual delimiter/encoding, and any metadata/comment/unit rows above the data. Inspection operators stay in the DAG — they're cheap and the cleaner you write next references their findings in its \`summary\`. Then write the real loader as a **NEW** operator (don't repurpose the inspection one) with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. Downstream analysis reads from the real loader, NEVER from the 30-row inspection. **Do NOT carry \`dtype=str\` (or any other coercive dtype) from the inspection step into the real loader** — the real loader must infer types normally so downstream numeric / datetime columns behave correctly. The inspection's \`dtype=str\` exists only to keep cell values byte-faithful for the eyeball pass.
+  Read the returned rows to find the real header row index, the actual delimiter/encoding, and any metadata/comment/unit rows above the data. The next real loader you write should reference the inspection's findings in its \`summary\`. Then write the real loader as a **NEW** operator (don't repurpose the inspection one) with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. Downstream analysis reads from the real loader, NEVER from the 30-row inspection. **Do NOT carry \`dtype=str\` (or any other coercive dtype) from the inspection step into the real loader** — the real loader must infer types normally so downstream numeric / datetime columns behave correctly. The inspection's \`dtype=str\` exists only to keep cell values byte-faithful for the eyeball pass. Once the real loader is in place, delete the inspection — see the next principle.
+- **Delete each inspection operator once its real loader is in place**: Inspection operators are throwaway scaffolding. Their job is one eyeball pass before the real loader exists; after that they have no downstream consumer, yet their sample rows + column stats keep re-serializing into every subsequent context — pure token waste. Once two preconditions both hold — **(a)** the real loader for that file is committed and not currently broken, and **(b)** nothing else in the dataflow reads the inspection node (check the snapshot's edges) — issue \`deleteOperator(operatorId="inspect_X")\` as a parallel sibling of your next downstream step (e.g. the join that consumes the real loaders). The delete is fenced to run after the sibling create in the same batch, so it costs zero extra round-trips. If either precondition is uncertain — leave the inspection alone; you can delete on any later turn, but you cannot un-delete without re-running an inspection.
 - **Recovery from a loader that returned messy output**: If a loader returned auto-generated column names (\`Unnamed: 0\`, \`0\`, \`1\`, …), a data value as a header, an encoding error, or simply nothing useful — fix that loader IN PLACE with the right parameters (re-read the inspection result to determine \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`). Never stack a downstream cleaning operator to patch a bad load; the cleaning belongs in the loader's parameters.
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
@@ -111,15 +112,19 @@ const KEY_PRINCIPLES = `
 // ============================================================================
 //
 // Adapted from the original feat/agent-copilot branch and retargeted to the
-// current Event format (see context-utils.ts). The example teaches four
+// current Event format (see context-utils.ts). The example teaches five
 // motifs without naming them:
 //   - Turn 1: independent loads fired as parallel tool calls.
 //   - Turn 2: a load whose result has auto-generated headers
 //     (`Unnamed: 0, …`) — agent re-inspects the raw bytes and modifies the
 //     loader in place with the correct `skiprows=`.
 //   - Turn 3: agent reads loaded data, picks up domain definitions from the
-//     readme, and builds the join/filter/aggregate.
-//   - Turn 4: agent notices its own logic missed a threshold filter, then
+//     readme, builds the join — AND, in the same parallel turn, deletes the
+//     two inspect operators (their real loaders are live and no operator
+//     reads them anymore, so they're pure context bloat going forward).
+//   - Turn 4–5: agent builds filter / aggregate / top-N as one logical
+//     operation per operator.
+//   - Turn 6: agent notices its own logic missed a threshold filter, then
 //     fixes the source operator (NOT a downstream patch).
 //
 // Each turn shows what context the agent receives + what response it emits,
@@ -128,7 +133,7 @@ const KEY_PRINCIPLES = `
 const EXAMPLE_COMPACT = `
 ## Example
 
-This example demonstrates four key behaviors: **(a)** parallel inspections of every tabular data file before writing real loaders, **(b)** fix-in-place when a loader returns malformed output, **(c)** one logical operation per operator (join, filter, aggregate, top-N each in their own operator), and **(d)** fix-in-place when a downstream operator's logic is semantically wrong.
+This example demonstrates five key behaviors: **(a)** parallel inspections of every tabular data file before writing real loaders, **(b)** fix-in-place when a loader returns malformed output, **(c)** deleting inspect operators in parallel with the next downstream step once their real loaders are live, **(d)** one logical operation per operator (join, filter, aggregate, top-N each in their own operator), and **(e)** fix-in-place when a downstream operator's logic is semantically wrong.
 
 **Turn 1 — Context received:**
 
@@ -232,12 +237,16 @@ Result:
   0\tO001\tC001\t250.00\t2024-11-05
 \`\`\`
 
-**Turn 3 — Agent response (one operator: the join):**
+**Turn 3 — Agent response (three parallel tool calls: the join + two inspection deletes):**
 
-Thought: Both files load cleanly. Now build the analysis chain. One logical step per operator — start with the join. The recent-filter, the aggregate, the threshold filter, and the top-N each become their own downstream operator in the following turns.
+Thought: Both real loaders are clean. The two inspect operators (\`inspect_customers\`, \`inspect_orders\`) have served their purpose — the real loaders carry their findings, and no other operator's \`process(...)\` references them. They're throwaway scaffolding now; if I leave them they keep paying token cost in every subsequent context. Delete them in parallel with this turn's downstream step (the join). The scheduler fences deletes after non-deletes in the same batch, so the join runs first and the deletes follow — zero extra round-trip. One logical step per operator — start with the join. The recent-filter, the aggregate, the threshold filter, and the top-N each become their own downstream operator in the following turns.
 
 Tool call: createOrModifyOperator(operatorId="customers_x_orders", code=\`def process(customers, orders) -> pd.DataFrame:
     return customers.merge(orders, on='customer_id', how='inner')\`, summary="Inner join customers and orders on customer_id; output columns [customer_id, name, email, signup_date, tier, order_id, amount, order_date]; 50000 expected output rows (one per matched order)")
+
+Tool call: deleteOperator(operatorId="inspect_customers")
+
+Tool call: deleteOperator(operatorId="inspect_orders")
 
 ---
 
@@ -322,9 +331,9 @@ Tool call: createOrModifyOperator(operatorId="top5_spenders", code=\`def process
 const APPENDIX_PARALLEL = `
 ## Parallel tool calls
 
-When tool calls are independent — different data loads, disjoint branches of the DAG, operators that don't depend on each other's output — emit them in a single turn as parallel tool calls instead of one per turn. This reduces round-trips and saves tokens. In the example above, the three loads in Turn 1 (\`readme\`, \`customers\`, \`orders\`) are independent and are fired together in a single turn for that reason.
+When tool calls are independent — different data loads, disjoint branches of the DAG, operators that don't depend on each other's output, or cleanup of throwaway operators (e.g. inspection ops whose real loader is already in place) — emit them in a single turn as parallel tool calls instead of one per turn. This reduces round-trips and saves tokens. In the example above, the three loads in Turn 1 (\`readme\`, \`customers\`, \`orders\`) are independent and fired together; Turn 3 fires the join in parallel with two \`deleteOperator\` calls for the now-obsolete inspection ops for the same reason.
 
-Do not parallelize dependent calls. An operator whose \`process(...)\` parameters reference another operator must be issued after that operator exists — so the join/aggregate step in Turn 3 cannot be parallel with the loads in Turn 1.`;
+Do not parallelize dependent calls. An operator whose \`process(...)\` parameters reference another operator must be issued after that operator exists — so the join/aggregate step in Turn 3 cannot be parallel with the loads in Turn 1. \`deleteOperator\` calls are special-cased by the scheduler: within a single batch they are fenced to run AFTER every non-delete sibling, so a delete in the same turn as a create can never race ahead of it.`;
 
 // Mirrored from `temp/.../prompts.ts:APPENDIX_CARRY_METADATA`. The displayed
 // types here (\`str\` / \`bool\` / \`numeric\` / \`datetime\`) and the per-type
@@ -335,19 +344,20 @@ const APPENDIX_CARRY_METADATA = `
 ## Column Stats
 
 Each operator's result includes a "Column Stats" block beneath the sample rows. Format: one line per column, with a parenthesized data type (\`str\` / \`bool\` / \`numeric\` / \`datetime\`), null count, and type-specific details:
-- \`str\`: \`null\`, \`distinct\`, plus \`top_10={...}\` listing the value-frequency pairs when \`distinct <= 10\` (omitted for high-cardinality columns).
-- \`bool\`: \`null\`, \`true\`, \`false\`.
-- \`numeric\`: \`null\`, \`mean\`, \`min\`, \`max\` (numbers compactly formatted: integer-valued floats drop the trailing \`.0\`).
+- \`str\`: \`null\`, \`distinct\`, plus \`top_5={...}\` listing the value-frequency pairs when \`distinct <= 5\` (omitted for high-cardinality columns; the str cutoff is tighter than numeric's because raw string values can be long).
+- \`bool\`: \`null\`, \`true\`, \`false\` (the two counts already serve as the top map).
+- \`numeric\`: \`null\`, \`mean\`, \`min\`, \`max\`, plus \`top_10={...}\` when \`distinct <= 10\` (numbers compactly formatted: integer-valued floats drop the trailing \`.0\`).
 - \`datetime\`: \`null\`, \`min\`, \`max\` (ISO date strings; trailing \` 00:00:00\` stripped for date-only columns).
 
 Example, appended to an operator's Result:
 
 \`\`\`
   Column Stats:
-  - "tier" (str): null=0, distinct=3, top_10={"gold"=4200, "silver"=3800, "bronze"=2000}
+  - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
   - "customer_id" (str): null=0, distinct=10000
   - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
   - "amount" (numeric): null=0, mean=219.2, min=95, max=520
+  - "rating" (numeric): null=0, mean=4.1, min=1, max=5, top_10={5=4200, 4=2800, 3=1500, 2=900, 1=600}
 \`\`\`
 
 Examine Column Stats before deciding the next action:
