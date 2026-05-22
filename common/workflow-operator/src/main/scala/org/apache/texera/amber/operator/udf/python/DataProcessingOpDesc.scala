@@ -134,13 +134,14 @@ class DataProcessingOpDesc extends LogicalOp {
 
     val fullCode = generateFullCode()
 
-    // Validate code for file I/O operations and print statements.
+    // Validate code for file I/O operations. print() is permitted — its
+    // output is dropped at runtime (only the returned DataFrame surfaces),
+    // and the agent already nudges users about that on submission.
     // Embed any error in the code as a comment so schema propagation continues
     // and the upper-level compiler surfaces the error to the user.
     val validatedCode =
       try {
         PythonCodeValidator.validateNoFileIO(fullCode)
-        PythonCodeValidator.validateNoPrint(fullCode)
         fullCode
       } catch {
         case ex: Throwable =>

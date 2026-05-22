@@ -94,17 +94,10 @@ class DataLoadingOpDesc extends SourceOperatorDescriptor {
       workflowId: WorkflowIdentity,
       executionId: ExecutionIdentity
   ): PhysicalOp = {
-    val fullCode = generateFullCode()
-
-    // Validate code for print statements; file I/O is allowed in source operators.
-    val validatedCode =
-      try {
-        PythonCodeValidator.validateNoPrint(fullCode)
-        fullCode
-      } catch {
-        case ex: Throwable =>
-          PythonCodeValidator.generatePythonCodeForRaisingException(ex)
-      }
+    // File I/O is allowed in source operators and print() is permitted in
+    // every code-block descriptor, so no compile-time validation runs here —
+    // the generated code goes straight to the worker.
+    val validatedCode = generateFullCode()
 
     PhysicalOp
       .sourcePhysicalOp(

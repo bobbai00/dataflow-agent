@@ -23,23 +23,6 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class PythonCodeValidatorSpec extends AnyFunSuite {
 
-  test("validateNoPrint passes for clean code") {
-    PythonCodeValidator.validateNoPrint("def f():\n    return 1")
-  }
-
-  test("validateNoPrint rejects print() calls") {
-    val ex = intercept[RuntimeException] {
-      PythonCodeValidator.validateNoPrint("def f():\n    print('hi')\n    return 1")
-    }
-    assert(ex.getMessage.contains("Print statements are not allowed"))
-    assert(ex.getMessage.contains("print() function"))
-  }
-
-  test("validateNoPrint ignores method calls named print on objects") {
-    // .print( shouldn't match — only standalone print(
-    PythonCodeValidator.validateNoPrint("def f(x):\n    return x.print()")
-  }
-
   test("validateNoFileIO passes for clean code") {
     PythonCodeValidator.validateNoFileIO("def f(x):\n    return x + 1")
   }
