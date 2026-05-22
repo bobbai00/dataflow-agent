@@ -108,29 +108,17 @@ export function validatePythonVariableName(name: string): string | null {
 }
 
 /**
- * Stricter validator used for operator IDs. Enforces camelCase: starts with a
- * lowercase letter, alphanumeric thereafter — no underscores, no hyphens. The
- * no-underscore rule mirrors upstream's `GlobalPortIdentitySerde` invariant
- * (the VFS URI parser reserves `_` as a delimiter, so any logicalOpId
- * containing `_` is rejected at schedule time).
+ * Validator for operator IDs. An operator id must be a Python identifier so
+ * the engine's `def process(<id>)` parameter binding works. The engine's
+ * VFS URI / serde layer accepts any non-comma character inside `logicalOpId`
+ * (see `GlobalPortIdentitySerde`), so the only real constraint here is the
+ * Python identifier shape plus the keyword reservation. Earlier versions
+ * enforced strict camelCase to mirror a then-existing `_`-as-delimiter
+ * guard in the serde; that guard has been removed, so the camelCase rule
+ * is gone too — `snake_case` ids are valid again.
  */
 export function validateOperatorId(name: string): string | null {
-  if (!name || name.length === 0) {
-    return "operatorId cannot be empty";
-  }
-  const camelCasePattern = /^[a-z][a-zA-Z0-9]*$/;
-  if (!camelCasePattern.test(name)) {
-    return (
-      `'${name}' is not a valid camelCase operatorId. ` +
-      `Must start with a lowercase letter and contain only letters and digits — ` +
-      `no underscores, hyphens, or other characters. ` +
-      `Example: 'lowHumidityFilter' (not 'low_humidity_filter', 'LowHumidityFilter', or 'low-humidity-filter').`
-    );
-  }
-  if (PYTHON_KEYWORDS.has(name)) {
-    return `'${name}' is a Python reserved keyword and cannot be used as an operatorId.`;
-  }
-  return null;
+  return validatePythonVariableName(name);
 }
 
 function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
@@ -620,13 +608,12 @@ export function createCreateOrModifyOperatorTool(
 - If operatorId exists: modifies the existing operator (must keep same type)
 
 RULES:
-1. operatorId MUST be a camelCase Python identifier — start with a lowercase letter,
-   contain only letters and digits, NO underscores and NO hyphens.
-   Example: "lowHumidityFilter" — NOT "low_humidity_filter", "LowHumidityFilter", or "low-humidity-filter".
-   (The Texera runtime rejects underscores in operator IDs because they collide with the VFS URI delimiter.)
+1. operatorId must be a valid Python identifier — letters, digits, and underscores;
+   the first character must be a letter or underscore. snake_case and camelCase are
+   both fine. Reserved Python keywords (e.g. "for", "class") are not allowed.
 2. Function name MUST be exactly "load" or "process"
 3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
-   Because every operator id is camelCase, the matching def-process parameter is also camelCase.
+   The parameter name is the upstream operatorId verbatim.
 
 ## def load() -> pd.DataFrame
 Load data from files. No input parameters. File I/O allowed.

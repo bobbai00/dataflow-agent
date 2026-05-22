@@ -195,22 +195,19 @@ class PortIdentitySerdeSpec extends AnyFlatSpec {
     assert(!formatChars.contains("_"), s"format characters must be underscore-free: $formatChars")
   }
 
-  it should "throw IllegalArgumentException when logicalOpId contains an underscore" in {
-    // Enforces the documented VFS-compatibility contract: the serialized
-    // form must be underscore-free. The serializer rejects underscored
-    // inputs at the boundary instead of silently emitting a string that
-    // would interfere with VFS URI parsing downstream.
-    intercept[IllegalArgumentException] {
-      globalPort(logical = "__DummyOperator").serializeAsString
-    }
+  it should "round-trip a logicalOpId containing underscores" in {
+    // Underscores are valid inside `logicalOpId` (and inside `layerName` too —
+    // covered in the next test). The deserialization regex uses `[^,]+`,
+    // so any non-comma character is allowed. The historical "no underscore"
+    // restriction was tied to an older VFS URI layout that used `_` as a
+    // delimiter; the current layout uses `/`, so the guard was removed.
+    val p = globalPort(logical = "__DummyOperator")
+    assert(GlobalPortIdentitySerde.deserializeFromString(p.serializeAsString) == p)
   }
 
-  it should "throw IllegalArgumentException when layerName contains an underscore" in {
-    // Both fields enforce the same invariant; cover them independently so
-    // a partial fix that only validates one surfaces as a test failure.
-    intercept[IllegalArgumentException] {
-      globalPort(layer = "main_source_0_op").serializeAsString
-    }
+  it should "round-trip a layerName containing underscores" in {
+    val p = globalPort(layer = "main_source_0_op")
+    assert(GlobalPortIdentitySerde.deserializeFromString(p.serializeAsString) == p)
   }
 
   // ---------------------------------------------------------------------------

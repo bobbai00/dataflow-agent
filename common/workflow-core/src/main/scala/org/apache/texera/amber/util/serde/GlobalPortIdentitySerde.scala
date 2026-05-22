@@ -22,21 +22,28 @@ import org.apache.texera.amber.core.virtualidentity.{OperatorIdentity, PhysicalO
 import org.apache.texera.amber.core.workflow.{GlobalPortIdentity, PortIdentity}
 
 /**
-  * Serialize and deserializes a GlobalPortIdentity object to a string using a custom, human-readable format
-  * to ensure it works with both URI and file path and does not include underscore "_" so that it does not
-  * interfere with our own VFS URI parsing. Underscores in `logicalOpId` / `layerName` and negative `portId`
-  * values are rejected with `IllegalArgumentException`.
+  * Serialize and deserializes a GlobalPortIdentity object to a string using a custom, human-readable
+  * format that works with both URI and file path. Fields are separated by commas and wrapped in
+  * parentheses; the deserialization regex uses `[^,]+` for each field body, so any non-comma
+  * character is allowed inside `logicalOpId` and `layerName` (underscores, dashes, dots, etc.).
+  *
+  * Historical note: an earlier VFS URI layout reserved underscore as a delimiter, and an older
+  * version of this serde rejected `_` in `logicalOpId` / `layerName`. The VFS URI parser
+  * (`VFSURIFactory.decodeURI`) now uses `/` as its only delimiter and the parenthesized payload
+  * is extracted as a single segment, so the underscore restriction is no longer needed; the
+  * guards were removed so agent-generated identifiers (which use camelCase or snake_case
+  * indistinguishably) can flow through the engine unchanged.
+  *
+  * Negative `portId` values are still rejected with `IllegalArgumentException`.
   */
 object GlobalPortIdentitySerde {
   implicit class SerdeOps(globalPortId: GlobalPortIdentity) {
 
     /**
       * Serializes a GlobalPortIdentity object into a string using our custom, human-readable format
-      * that works with both URI and file path and does not include underscore "_" so that it does not
-      * interfere with our own VFS URI parsing.
+      * that works with both URI and file path.
       *
-      * @throws java.lang.IllegalArgumentException if `logicalOpId` or `layerName` contains an underscore,
-      *                                            or if `portId.id` is negative.
+      * @throws java.lang.IllegalArgumentException if `portId.id` is negative.
       * @return A serialized string representation of globalPortId
       */
     def serializeAsString: String = {
@@ -45,14 +52,6 @@ object GlobalPortIdentitySerde {
       val portId = globalPortId.portId.id
       val isInternal = globalPortId.portId.internal
       val isInput = globalPortId.input
-      require(
-        !logicalOpId.contains('_'),
-        s"logicalOpId must not contain '_' (VFS URI parsing relies on this): $logicalOpId"
-      )
-      require(
-        !layerName.contains('_'),
-        s"layerName must not contain '_' (VFS URI parsing relies on this): $layerName"
-      )
       require(portId >= 0, s"portId must be non-negative: $portId")
       s"(logicalOpId=$logicalOpId,layerName=$layerName,portId=$portId,isInternal=$isInternal,isInput=$isInput)"
     }

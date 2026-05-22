@@ -29,7 +29,7 @@ const {
   formatNoOpWarning,
 } = __forTesting;
 
-describe("validateOperatorId — camelCase enforcement", () => {
+describe("validateOperatorId — Python identifier shape", () => {
   test("accepts simple lowercase word", () => {
     expect(validateOperatorId("customers")).toBeNull();
   });
@@ -40,7 +40,21 @@ describe("validateOperatorId — camelCase enforcement", () => {
     expect(validateOperatorId("avgFatalitiesByYear")).toBeNull();
   });
 
-  test("accepts camelCase with trailing digits", () => {
+  test("accepts snake_case (underscores allowed since engine guard was removed)", () => {
+    expect(validateOperatorId("low_humidity_filter")).toBeNull();
+    expect(validateOperatorId("filter_2012_violations")).toBeNull();
+  });
+
+  test("accepts PascalCase", () => {
+    expect(validateOperatorId("LowHumidityFilter")).toBeNull();
+  });
+
+  test("accepts trailing underscore and leading underscore", () => {
+    expect(validateOperatorId("customers_")).toBeNull();
+    expect(validateOperatorId("_priv")).toBeNull();
+  });
+
+  test("accepts trailing digits", () => {
     expect(validateOperatorId("top5")).toBeNull();
     expect(validateOperatorId("region2")).toBeNull();
   });
@@ -51,46 +65,22 @@ describe("validateOperatorId — camelCase enforcement", () => {
     expect(err).toContain("cannot be empty");
   });
 
-  test("rejects snake_case (underscores forbidden)", () => {
-    const err = validateOperatorId("low_humidity_filter");
-    expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
-  });
-
-  test("rejects a single trailing underscore", () => {
-    const err = validateOperatorId("customers_");
-    expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
-  });
-
-  test("rejects a leading underscore", () => {
-    const err = validateOperatorId("_priv");
-    expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
-  });
-
-  test("rejects PascalCase (must start lowercase)", () => {
-    const err = validateOperatorId("LowHumidityFilter");
-    expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
-  });
-
-  test("rejects kebab-case (hyphens forbidden)", () => {
+  test("rejects kebab-case (hyphens are not Python identifier chars)", () => {
     const err = validateOperatorId("low-humidity-filter");
     expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
+    expect(err).toContain("Python variable name");
   });
 
   test("rejects names starting with a digit", () => {
     const err = validateOperatorId("5top");
     expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
+    expect(err).toContain("Python variable name");
   });
 
   test("rejects names containing spaces", () => {
     const err = validateOperatorId("low humidity");
     expect(err).not.toBeNull();
-    expect(err).toContain("camelCase");
+    expect(err).toContain("Python variable name");
   });
 
   test("rejects names containing punctuation", () => {
