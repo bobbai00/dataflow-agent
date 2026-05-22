@@ -78,6 +78,12 @@ export interface AgentSettingsApi {
   statsEnabled?: boolean;
 }
 
+/** LLM driver picked at agent construction. `vercel-tool-use` is the
+ *  default (native tool-calling via the Vercel AI SDK); `local-react` is
+ *  the text-mode ReAct driver used for the in-house local LLM whose tool
+ *  catalog is baked into its training prompt. */
+export type AgentDriverKind = "vercel-tool-use" | "local-react";
+
 /**
  * Agent information for tracking created agents (API version).
  */
@@ -85,6 +91,7 @@ export interface AgentInfo {
   id: string;
   name: string;
   modelType: string;
+  driver?: AgentDriverKind;
   isBaselineMode: boolean;
   createdAt: Date;
   /** State is fetched from API */
@@ -132,6 +139,7 @@ interface ApiAgentInfo {
   id: string;
   name: string;
   modelType: string;
+  driver?: AgentDriverKind;
   state: string;
   createdAt: string;
   delegate?: {
@@ -754,6 +762,7 @@ export class AgentService {
             id: response.id,
             name: response.name,
             modelType: response.modelType,
+            driver: response.driver,
             isBaselineMode: false,
             createdAt: new Date(response.createdAt),
             state: this.mapStateToAgentState(response.state),
@@ -803,6 +812,7 @@ export class AgentService {
             id: response.id,
             name: response.name,
             modelType: response.modelType,
+            driver: response.driver,
             isBaselineMode: false,
             createdAt: new Date(response.createdAt),
             state: this.mapStateToAgentState(response.state),
@@ -834,6 +844,7 @@ export class AgentService {
           id: a.id,
           name: a.name,
           modelType: a.modelType,
+          driver: a.driver,
           isBaselineMode: false,
           createdAt: new Date(a.createdAt),
           state: this.mapStateToAgentState(a.state),

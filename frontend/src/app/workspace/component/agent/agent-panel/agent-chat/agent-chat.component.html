@@ -32,7 +32,10 @@
           [nzTooltipTitle]="getStateTooltip()"
           [style.color]="getStateIconColor()"
           style="font-size: 16px; margin-right: 6px; vertical-align: middle"></i>
-        <small style="color: #888"> Model: <strong>{{ agentInfo.modelType }}</strong> </small>
+        <small style="color: #888">
+          Model: <strong>{{ agentInfo.modelType }}</strong>
+          <span *ngIf="agentInfo.driver"> · Driver: <strong>{{ agentInfo.driver }}</strong></span>
+        </small>
         <button
           nz-button
           nzType="text"

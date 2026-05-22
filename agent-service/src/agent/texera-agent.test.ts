@@ -18,19 +18,27 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import type { LanguageModel } from "ai";
 import { TexeraAgent } from "./texera-agent";
 import { type ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { OperatorInfo } from "../types/execution";
+import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
 
 // We never invoke the LLM in these tests (only synchronous tree mechanics +
-// `handleDebugInput` plain-text path, which doesn't call generateText).
-const stubModel = {} as unknown as LanguageModel;
+// `handleDebugInput` plain-text path, which doesn't enter the driver loop).
+const stubDriver: LLMDriver = {
+  runTurn: async () => ({
+    text: "",
+    messages: [],
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  }),
+};
+const stubAssembler: ContextAssembler = () => [{ role: "user", content: "" }];
 
 function makeAgent(): TexeraAgent {
   return new TexeraAgent({
-    model: stubModel,
+    driver: stubDriver,
+    contextAssembler: stubAssembler,
     modelType: "test-model",
     agentId: "test-agent",
   });

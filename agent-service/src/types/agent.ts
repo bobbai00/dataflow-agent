@@ -156,6 +156,21 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   statsEnabled: true,
 };
 
+/**
+ * Selects how the agent talks to the LLM:
+ *  - "vercel-tool-use" — the Vercel AI SDK drives the loop with native
+ *    tool-calling frames (default; what every Anthropic / OpenAI-compatible
+ *    model uses today).
+ *  - "local-react" — text-mode ReAct. The model emits `Thought:` /
+ *    `Action:` / `Action Input:` blocks; tool descriptions live in the
+ *    model's training, not on the wire. Used for the in-house local LLM
+ *    served via the dknet gateway.
+ *
+ * Bound at agent construction (the driver and context-renderer pair travel
+ * together) and not mutable via UpdateAgentSettings.
+ */
+export type AgentDriverKind = "vercel-tool-use" | "local-react";
+
 export interface UserInfo {
   uid: number;
   name: string;
@@ -190,6 +205,7 @@ export interface AgentInfo {
   id: string;
   name: string;
   modelType: string;
+  driver: AgentDriverKind;
   state: AgentState;
   createdAt: Date;
   delegate?: AgentDelegateConfig;
@@ -203,6 +219,10 @@ export interface CreateAgentRequest {
   workflowId?: number;
   computingUnitId?: number;
   settings?: AgentSettingsApi;
+  /** Optional explicit driver. When omitted, the server derives the driver
+   *  from `modelType` (`local-llm` → `local-react`, everything else →
+   *  `vercel-tool-use`). */
+  driver?: AgentDriverKind;
 }
 
 export interface UpdateAgentSettingsRequest {

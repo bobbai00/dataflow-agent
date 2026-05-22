@@ -238,10 +238,10 @@ class LiteLLMProxyResource extends LazyLogging {
         .build()
     }
 
-    // uriInfo.getPath returns "chat/completions" for /api/chat/completions
-    // We want to forward as "/chat/completions" to LiteLLM
+    // uriInfo.getPath returns "chat/completions" for /api/chat/completions.
+    // LiteLLM (and the UCI gateway) require the /v1/ prefix on the OpenAI-compatible routes.
     val fullPath = uriInfo.getPath
-    val targetUrl = s"$litellmBaseUrl/$fullPath"
+    val targetUrl = s"$litellmBaseUrl/v1/$fullPath"
 
     logger.info(s"Proxying POST request to LiteLLM: $targetUrl")
 
@@ -304,7 +304,7 @@ class LiteLLMModelsResource extends LazyLogging {
         .build()
     }
 
-    val targetUrl = s"$litellmBaseUrl/models"
+    val targetUrl = s"$litellmBaseUrl/v1/models"
 
     logger.info(s"Fetching models from LiteLLM: $targetUrl")
 

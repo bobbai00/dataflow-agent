@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { generateText, type ModelMessage, type LanguageModel, stepCountIs } from "ai";
+import type { ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
@@ -48,11 +48,11 @@ import {
   TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
 } from "./tools/workflow-execution-tools";
-import { assembleContext } from "./util/context-utils";
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
+import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
 
 const PERSIST_DEBOUNCE_MS = 500;
 
@@ -74,11 +74,22 @@ function createEmptyWorkflowContent(): WorkflowContent {
 }
 
 export interface TexeraAgentConfig {
-  model: LanguageModel;
+  /** LLM strategy. Owns the `LanguageModel` and decides how to translate
+   *  the agent's bookkeeping callbacks into one or more model requests.
+   *  Pair this with `contextAssembler` — the two travel together. */
+  driver: LLMDriver;
+  /** Renderer that builds the user-message context array on every
+   *  prepareStep. Picked at agent construction to match the driver. */
+  contextAssembler: ContextAssembler;
   modelType: string;
   agentId: string;
   agentName?: string;
   systemPrompt?: string;
+  /** Optional override for `rebuildSystemPrompt`. When provided, the
+   *  agent uses this verbatim instead of the agent-mode-based builders —
+   *  used by the local-react driver to inject the LLM's training-time
+   *  system prompt unchanged. */
+  systemPromptBuilder?: () => string;
 }
 
 export interface AgentMessageResult {
@@ -149,7 +160,9 @@ export class TexeraAgent {
 
   private websockets: Set<any> = new Set();
 
-  private model: LanguageModel;
+  private readonly driver: LLMDriver;
+  private readonly contextAssembler: ContextAssembler;
+  private readonly systemPromptBuilder: (() => string) | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -183,7 +196,9 @@ export class TexeraAgent {
     this.agentName = config.agentName || `Agent-${config.agentId}`;
     this.modelType = config.modelType;
     this.createdAt = new Date();
-    this.model = config.model;
+    this.driver = config.driver;
+    this.contextAssembler = config.contextAssembler;
+    this.systemPromptBuilder = config.systemPromptBuilder;
     this.systemPrompt = config.systemPrompt || "";
     this.log = createLogger("TexeraAgent", { agentId: this.agentId });
 
@@ -362,7 +377,12 @@ export class TexeraAgent {
   }
 
   private rebuildSystemPrompt(): void {
-    if (this.settings.agentMode === AgentMode.GENERAL) {
+    if (this.systemPromptBuilder) {
+      // Driver-level override (local-react). Bypass the mode-based builders
+      // entirely so the wire prompt always matches the model's training
+      // distribution.
+      this.systemPrompt = this.systemPromptBuilder();
+    } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt();
@@ -820,14 +840,14 @@ export class TexeraAgent {
       // Pass only the current user turn; prepareStep rebuilds full context each step
       // (historical interactions + DAG + this message).
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
-      const result = await generateText({
-        model: this.model,
-        system: this.systemPrompt,
-        messages: currentUserMessage,
+      const result = await this.driver.runTurn({
+        initialMessages: currentUserMessage,
+        systemPrompt: this.systemPrompt,
         tools: this.tools,
-        temperature: 0.2,
-        stopWhen: stepCountIs(this.settings.maxSteps),
-        prepareStep: async ({ stepNumber, messages: currentMessages }) => {
+        maxSteps: this.settings.maxSteps,
+        parallelToolCalls: this.settings.parallelToolCalls,
+        abortSignal: this.abortController?.signal,
+        prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
           let compilationResult: WorkflowCompilationResponse | null = null;
           if (this.workflowState.getAllOperators().length > 0) {
             try {
@@ -839,30 +859,15 @@ export class TexeraAgent {
           }
 
           const visibleSteps = this.getVisibleReActSteps();
-          const processed = assembleContext(
+          const processed = this.contextAssembler({
             visibleSteps,
-            this.workflowState,
-            this.snapshotStorage,
-            this.settings.contextMode,
-            {
-              compilationResult,
-              agentMode: this.settings.agentMode,
-              statsEnabled: this.settings.statsEnabled,
-            }
-          );
+            workflowState: this.workflowState,
+            snapshotStorage: this.snapshotStorage,
+            settings: this.settings,
+            compilationResult,
+          });
           lastPreparedMessages = processed;
           return { messages: processed };
-        },
-        abortSignal: this.abortController?.signal,
-        // reasoning_effort is configured per-model in litellm-config.yaml via extra_body
-        // to bypass LiteLLM's param validation — do not pass it here.
-        providerOptions: {
-          // Provider-side parallel tool-call gating. The scheduler downstream
-          // serializes execution into a topological order, so it's safe to
-          // let the model emit multiple tool calls in one turn.
-          openai: { parallelToolCalls: this.settings.parallelToolCalls },
-          anthropic: { disableParallelToolUse: !this.settings.parallelToolCalls },
-          mistral: { parallelToolCalls: this.settings.parallelToolCalls },
         },
         onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
           stepIndex++;
@@ -873,18 +878,13 @@ export class TexeraAgent {
             input: tc.input,
           }));
 
-          const formattedToolResults = toolResults?.map(tr => {
-            // Workflow tools return plain strings; an `[ERROR] ...` prefix is the
-            // failure signal. Also keep the legacy structured-error check so a
-            // tool that returns `{ error: ... }` still flags as failed.
-            const outputStr = typeof tr.output === "string" ? tr.output : "";
-            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
-            return {
-              toolCallId: tr.toolCallId,
-              output: tr.output,
-              isError,
-            };
-          });
+          // Driver pre-computes isError using the `[ERROR] …` prefix + the
+          // structured `{ error: … }` shape — passthrough is enough here.
+          const formattedToolResults = toolResults?.map(tr => ({
+            toolCallId: tr.toolCallId,
+            output: tr.output,
+            isError: tr.isError,
+          }));
 
           const afterStepContent = this.workflowState.getWorkflowContent();
 
@@ -931,17 +931,10 @@ export class TexeraAgent {
         }
       }
 
-      const finalUsage = (result as any).totalUsage || result.usage;
-      const usage: TokenUsage = {
-        inputTokens: finalUsage?.inputTokens ?? finalUsage?.promptTokens ?? 0,
-        outputTokens: finalUsage?.outputTokens ?? finalUsage?.completionTokens ?? 0,
-        totalTokens: finalUsage?.totalTokens ?? 0,
-      };
-
       return {
         response: result.text,
-        messages: result.response.messages,
-        usage,
+        messages: result.messages,
+        usage: result.usage,
         stopped: false,
       };
     } catch (error: any) {
@@ -1015,17 +1008,13 @@ export class TexeraAgent {
    */
   getNextStepContext(): string {
     const visibleSteps = this.getVisibleReActSteps();
-    const processed = assembleContext(
+    const processed = this.contextAssembler({
       visibleSteps,
-      this.workflowState,
-      this.snapshotStorage,
-      this.settings.contextMode,
-      {
-        compilationResult: null,
-        agentMode: this.settings.agentMode,
-        statsEnabled: this.settings.statsEnabled,
-      }
-    );
+      workflowState: this.workflowState,
+      snapshotStorage: this.snapshotStorage,
+      settings: this.settings,
+      compilationResult: null,
+    });
     const first = processed[0];
     if (!first) return "";
     return typeof first.content === "string" ? first.content : JSON.stringify(first.content);

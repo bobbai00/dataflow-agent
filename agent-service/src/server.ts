@@ -26,12 +26,19 @@ import { extractUserFromToken, validateToken } from "./api/auth-api";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
+import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
+import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
+import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
+import { assembleContext } from "./agent/util/context-utils";
+import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
+import { buildLocalReactSystemPrompt } from "./agent/prompts";
 
 const log = createLogger("Server");
 const wsLog = createLogger("WS");
 import type {
   AgentInfo,
   AgentDelegateConfig,
+  AgentDriverKind,
   CreateAgentRequest,
   UpdateAgentSettingsRequest,
   AgentSettingsApi,
@@ -39,13 +46,43 @@ import type {
 } from "./types/agent";
 import { AgentMode, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
+/**
+ * Pick the driver from an optional explicit choice or fall back to
+ * `modelType`. The local LLM served via the dknet gateway uses the
+ * text-mode ReAct format with tool definitions baked into its training
+ * prompt; every other model speaks the OpenAI-compatible tool-use API.
+ */
+function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): AgentDriverKind {
+  if (explicit) return explicit;
+  return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
+}
+
+function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
+  if (kind === "local-react") {
+    return ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
+      assembleLocalReactContext(visibleSteps, workflowState, snapshotStorage, {
+        statsEnabled: settings.statsEnabled,
+      });
+  }
+  return ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
+    assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+      compilationResult,
+      agentMode: settings.agentMode,
+      statsEnabled: settings.statsEnabled,
+    });
+}
+
 const agentStore = new Map<string, TexeraAgent>();
+/** Tracks which driver each agent was constructed with so `getAgentInfo`
+ *  can echo it back to the UI. Populated by `createAgentInstance`. */
+const agentDrivers = new Map<string, AgentDriverKind>();
 let agentCounter = 0;
 
 async function createAgentInstance(
   modelType: string,
   customName?: string,
-  delegateConfig?: AgentDelegateConfig
+  delegateConfig?: AgentDelegateConfig,
+  explicitDriver?: AgentDriverKind
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
   const agentId = `agent-${++agentCounter}`;
   const config = getBackendConfig();
@@ -57,11 +94,21 @@ async function createAgentInstance(
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
   // with extra_body to inject reasoning_effort, bypassing LiteLLM's param validation.
+  const driverKind = resolveDriverKind(modelType, explicitDriver);
+  const model = openai.chat(modelType);
+  const driver: LLMDriver =
+    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+  const contextAssembler = buildContextAssembler(driverKind);
+
   const agent = new TexeraAgent({
-    model: openai.chat(modelType),
+    driver,
+    contextAssembler,
     modelType,
     agentId,
     agentName: customName || "Bob",
+    // local-react needs the training-time system prompt verbatim on every
+    // wire call; other drivers fall back to the mode-based builders.
+    systemPromptBuilder: driverKind === "local-react" ? buildLocalReactSystemPrompt : undefined,
   });
 
   // Single bootstrap: metadata + (in delegate mode) workflow load and a
@@ -70,7 +117,8 @@ async function createAgentInstance(
   await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
-  log.info({ agentId, delegate: !!delegateConfig }, "created agent");
+  agentDrivers.set(agentId, driverKind);
+  log.info({ agentId, modelType, driver: driverKind, delegate: !!delegateConfig }, "created agent");
 
   return { agentId, agent };
 }
@@ -98,6 +146,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     id: agentId,
     name: agent.agentName,
     modelType: agent.modelType,
+    driver: agentDrivers.get(agentId) ?? "vercel-tool-use",
     state: agent.getState(),
     createdAt: agent.createdAt,
     delegate: delegateConfig
@@ -151,7 +200,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   .post(
     "/",
     async ({ body }) => {
-      const { modelType, name, userToken, workflowId, computingUnitId, settings } = body as CreateAgentRequest;
+      const { modelType, name, userToken, workflowId, computingUnitId, settings, driver } = body as CreateAgentRequest;
 
       if (!modelType) {
         throw new Error("modelType is required");
@@ -172,7 +221,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         };
       }
 
-      const { agentId, agent } = await createAgentInstance(modelType, name, delegateConfig);
+      const { agentId, agent } = await createAgentInstance(modelType, name, delegateConfig, driver);
 
       if (settings) {
         log.info(
@@ -248,6 +297,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
     agent.destroy();
     agentStore.delete(id);
+    agentDrivers.delete(id);
     return { deleted: true };
   })
 
@@ -778,6 +828,7 @@ export function buildApp() {
 // Reset module-level state. Used by tests to start each case from a clean store.
 export function _resetAgentStoreForTests(): void {
   agentStore.clear();
+  agentDrivers.clear();
   agentCounter = 0;
 }
 

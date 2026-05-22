@@ -634,3 +634,30 @@ export function buildGeneralModeSystemPrompt(
 export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowedOperatorTypes: string[] = []): string {
   return buildGeneralModeSystemPrompt(metadataStore, allowedOperatorTypes);
 }
+
+// ---------------------------------------------------------------------------
+// Local-react (in-house local LLM) system prompt.
+//
+// The local LLM was fine-tuned with a specific system prompt baked into its
+// training distribution — reproducing that prompt verbatim is what unlocks
+// the model's tool-calling behavior. The source of truth is
+// `prompts/local-react.txt`, copied from the training-set sample at
+// `preview.md` lines 1–91. The leading `<｜begin▁of▁sentence｜>` token is
+// part of the verbatim selection — kept as-is per the user's "intact"
+// instruction. If the gateway's chat template later re-adds a BOS marker
+// causing double-BOS issues, strip it here.
+// ---------------------------------------------------------------------------
+import { readFileSync } from "node:fs";
+const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(
+  new URL("./prompts/local-react.txt", import.meta.url),
+  "utf8"
+);
+
+/**
+ * Returns the local-react driver's system prompt verbatim. The text is
+ * loaded once at module load; callers can invoke this on every agent
+ * construction without paying for repeated file I/O.
+ */
+export function buildLocalReactSystemPrompt(): string {
+  return LOCAL_REACT_SYSTEM_PROMPT;
+}
