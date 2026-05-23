@@ -17,91 +17,66 @@
  * under the License.
  */
 
-import type { ReActStep } from "../types";
-
 /**
- * One operator's runtime result extracted from an agent step's
- * `inputMessages` content. The agent service's context assembler
- * (`context-utils.ts` / `context-utils-local-react.ts`) already serializes
- * the post-execution snapshot into a markdown block of the shape:
+ * Parser that recovers per-operator results from a trace step's
+ * `inputMessages`. Used by `TexeraAgent.importReActSteps` to populate
+ * each rebuilt snapshot's `results` map so an imported trace exposes the
+ * same `Map<operatorId, OperatorInfo>` as a live agent run would.
+ *
+ * The agent service's context assemblers (`context-utils.ts` and
+ * `context-utils-local-react.ts`) already serialize every action-bearing
+ * snapshot into a markdown block of the shape
  *
  *     ### Operator `<id>` (<Type>)
  *     Summary: <customDisplayName>
  *     Result:
  *       Executed operator <id>
  *       Output table shape: (R, C)
- *       <TSV header row>
+ *       <TSV header>
  *       <TSV row 0>
  *       ...
  *       Column stats:
- *         <col>: <stat-string>
- *         - "<col>" <stat-string>     (newer formatter variant)
+ *         <col>: <stat>             (older Kramabench trace format)
+ *         - "<col>" <stat>          (current formatter — see `formatColumnStats`)
  *
- * Failed ops render as:
- *
- *     Result:
- *       [ERROR] <message>
- *
- * For imported traces — where the agent service can't re-execute against
- * the Texera backend — this is the *only* place those per-operator
- * results survive on the wire. Parsing them client-side lets the dashboard
- * show TSV previews, error chips, and column stats without any server-side
- * change.
+ * Failures render as `Result:\n  [ERROR] <message>`. The renderer's
+ * heading depth varies with context mode (`### Operator` in local-react,
+ * `##### Operator` deep inside FULL/DELTA contexts), so we accept any
+ * leading `#` count, or none at all.
  */
+
+import type { OperatorInfo } from "../../types/execution";
+
 export interface ParsedOperatorResult {
   state: "completed" | "failed";
-  /** The `customDisplayName` summary line, trimmed of the `Summary: ` prefix. */
+  /** The `Summary:` line, trimmed of the prefix. */
   summary?: string;
-  /** Raw indented body of the `Result:` block. Preserved verbatim so the
-   *  UI can render it as a fallback when the structured fields below
-   *  don't capture everything. */
+  /** Raw indented body of the `Result:` block, after stripping the
+   *  two-space prefix the renderer indents with. Useful for debugging. */
   resultBlock?: string;
-  /** `Executed operator …` + `Output table shape: (R, C)` + TSV rows.
-   *  Just the rows portion (after the metadata lines), one row per line.
-   *  Undefined if the result wasn't a table (e.g. errors, visualizations). */
+  /** The TSV portion of the result body — header row + data rows, no
+   *  metadata lines, no column-stats block. Undefined when the operator
+   *  errored or had no materialized table. */
   tsv?: string;
   outputShape?: { rows: number; columns: number };
-  /** Each column's stats string verbatim — formats vary across agent-service
-   *  versions (`<col>: <stat>` vs `- "<col>" <stat>`), so we keep the
-   *  string opaque and let the UI render it as-is in monospace. */
+  /** Each column's stats string verbatim. Format varies across
+   *  agent-service versions — we keep it opaque. */
   columnStats?: Record<string, string>;
   /** Set when the block starts with `[ERROR]`. */
   error?: string;
-  /** Warnings printed between the shape line and the TSV (rare). */
+  /** Warnings printed between the shape line and the TSV. Rare. */
   warnings?: string[];
 }
 
-/**
- * Index per-operator results by stepId. Built once when a trace loads and
- * passed down through the component tree.
- */
-export type ParsedResultsByStep = Map<string, Map<string, ParsedOperatorResult>>;
-
 const OPERATOR_HEADER = /(?:^|\n)#*\s*Operator\s+`([^`]+)`\s+\(([^)]+)\)/g;
 
-export function parseAllStepResults(steps: ReActStep[]): ParsedResultsByStep {
-  const out: ParsedResultsByStep = new Map();
-  for (const step of steps) {
-    if (!step.inputMessages || step.inputMessages.length === 0) continue;
-    const merged = new Map<string, ParsedOperatorResult>();
-    for (const msg of step.inputMessages) {
-      const content = typeof msg?.content === "string" ? msg.content : "";
-      if (!content) continue;
-      const parsed = parseContext(content);
-      for (const [opId, r] of parsed) merged.set(opId, r);
-    }
-    if (merged.size > 0) out.set(step.id, merged);
-  }
-  return out;
-}
-
 /**
- * Pull every `### Operator …` block out of one message string. Tolerates
- * any heading depth (`### Operator` in local-react context, `##### Operator`
- * deep inside the events list of full-context mode) and missing-heading
- * variants where the line is just `Operator \`x\` (Type)`.
+ * Pull every `Operator <id> (Type)` block out of one message content
+ * string. Tolerates any heading depth and merges multiple mentions of
+ * the same operator id with last-write-wins (later mentions reflect
+ * more recent state in interleaved contexts).
  */
-export function parseContext(content: string): Map<string, ParsedOperatorResult> {
+export function parseTraceContext(content: string): Map<string, ParsedOperatorResult> {
   const out = new Map<string, ParsedOperatorResult>();
   if (!content) return out;
   OPERATOR_HEADER.lastIndex = 0;
@@ -114,19 +89,11 @@ export function parseContext(content: string): Map<string, ParsedOperatorResult>
     const here = matches[i];
     const end = i + 1 < matches.length ? matches[i + 1].start : content.length;
     const body = content.slice(here.afterHeader, end);
-    // Last write wins — a later snapshot in the same message (rare) reflects
-    // the more recent state. Most messages only mention each operator once.
     out.set(here.opId, parseOperatorBlock(body));
   }
   return out;
 }
 
-/**
- * Body of a single operator block — everything between this operator's
- * heading and the next operator's heading (or end of content). Lines
- * inside the `Result:` section are 2-space indented by the formatter;
- * we strip that indent so consumers see the raw values.
- */
 function parseOperatorBlock(body: string): ParsedOperatorResult {
   const lines = body.split("\n");
   let summary = "";
@@ -134,8 +101,7 @@ function parseOperatorBlock(body: string): ParsedOperatorResult {
   let inSummary = false;
   let inResult = false;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (const line of lines) {
     if (/^Summary:\s*/.test(line)) {
       summary = line.replace(/^Summary:\s*/, "");
       inSummary = true;
@@ -147,21 +113,12 @@ function parseOperatorBlock(body: string): ParsedOperatorResult {
       inSummary = false;
       continue;
     }
-    // Any unindented label-like line (other than data) closes the previous
-    // section. Section terminators that appear inside trace context:
-    //   - `### Operator …`         next operator (already split outside)
-    //   - `## Links`               links sub-block
-    //   - `## Operators`           operators sub-block header
-    //   - `# Current Dataflow`     parent block opener
     if (/^#+\s/.test(line) || /^Links\s*:/.test(line)) {
       inSummary = false;
       inResult = false;
       continue;
     }
     if (inSummary) {
-      // Multi-line summary continuation — only if the line looks like a
-      // continuation (not a new top-level field). The formatter usually
-      // keeps Summary on one line, but be permissive.
       if (line.trim() === "" || /^[A-Z][A-Za-z]+:\s*$/.test(line)) {
         inSummary = false;
       } else {
@@ -170,8 +127,6 @@ function parseOperatorBlock(body: string): ParsedOperatorResult {
       continue;
     }
     if (inResult) {
-      // Result body is 2-space indented; strip only that exact prefix to
-      // preserve any inner indentation (e.g. column-stats nesting).
       resultLines.push(line.startsWith("  ") ? line.slice(2) : line);
     }
   }
@@ -194,15 +149,11 @@ function classifyResult(summary: string, resultBlock: string): ParsedOperatorRes
     };
   }
 
-  // Locate the structured anchors. `Output table shape` is emitted by
-  // `formatInputOutputMetadata` and is the canonical hint that the body
-  // is a successful table preview.
   const shapeMatch = resultBlock.match(/Output table shape:\s*\((\d+),\s*(\d+)\)/);
   const outputShape = shapeMatch
     ? { rows: parseInt(shapeMatch[1], 10), columns: parseInt(shapeMatch[2], 10) }
     : undefined;
 
-  // Slice out a column-stats block if present.
   let columnStats: Record<string, string> | undefined;
   let tsvSection = resultBlock;
   const statsIdx = resultBlock.search(/(^|\n)Column stats[^\n]*\n/);
@@ -212,9 +163,9 @@ function classifyResult(summary: string, resultBlock: string): ParsedOperatorRes
     columnStats = parseColumnStats(statsRaw);
   }
 
-  // Carve TSV: drop the initial "Executed operator" / shape / warning lines.
   let tsv: string | undefined;
   const tsvLines = tsvSection.split("\n");
+  // First TSV-ish row: tab-bearing or whitespace-prefixed numeric (index rows).
   const dataStart = tsvLines.findIndex(
     l => l.includes("\t") || (l.startsWith(" ") && /\d/.test(l))
   );
@@ -244,15 +195,6 @@ function classifyResult(summary: string, resultBlock: string): ParsedOperatorRes
   };
 }
 
-/**
- * Two known stats formats in the wild:
- *
- *   <col>: <stat-string>             (older Kramabench traces)
- *   - "<col>" <stat-string>          (current formatter — see `formatColumnStats`)
- *
- * We accept both. The stat string is opaque to us — the backend chooses
- * what to surface per column type, and the UI just renders it verbatim.
- */
 function parseColumnStats(block: string): Record<string, string> {
   const result: Record<string, string> = {};
   const lines = block.split("\n");
@@ -284,4 +226,82 @@ function parseColumnStats(block: string): Record<string, string> {
   }
   flush();
   return result;
+}
+
+/**
+ * Reverse the TSV that `jsonToTableFormat` produces back into the
+ * `Record<string, any>[]` shape `OperatorInfo.result` expects. The
+ * formatter:
+ *  - emits one header row with an empty leading cell for the row index,
+ *  - emits each data row as `<index>\t<value>\t<value>…`,
+ *  - inserts a `\t…\t…\t…` separator row when truncating the middle of a
+ *    long table. We discard that row.
+ *
+ * Values stay as strings — the formatter didn't preserve typing, and
+ * inferring it (numeric vs string vs date) is more pain than it's worth
+ * for a preview that the renderer shows as text anyway.
+ */
+function parseTsvToRecords(tsv: string): Record<string, string>[] {
+  const lines = tsv.split("\n").filter(l => l.length > 0);
+  if (lines.length < 2) return [];
+  const headerCells = lines[0].split("\t");
+  // Header has a leading empty cell iff each data row prepends its index.
+  const hasIndexCol = headerCells[0] === "" || headerCells[0].trim() === "";
+  const cols = hasIndexCol ? headerCells.slice(1) : headerCells;
+  const out: Record<string, string>[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    // Truncation marker: only dots, tabs, spaces.
+    if (/^[.\t\s]+$/.test(line)) continue;
+    const cells = line.split("\t");
+    const values = hasIndexCol ? cells.slice(1) : cells;
+    const row: Record<string, string> = {};
+    for (let j = 0; j < cols.length; j++) {
+      row[cols[j]] = values[j] ?? "";
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Translate a parsed trace result into the `OperatorInfo` shape the agent
+ * service stores in `WorkflowSnapshotStorage.results`. Returns `null` when
+ * the parsed block carried no usable data (no TSV, no error, no shape) —
+ * the import path uses that to skip writing a phantom entry that would
+ * shadow a real inherited result from an ancestor snapshot.
+ */
+export function parsedResultToOperatorInfo(parsed: ParsedOperatorResult): OperatorInfo | null {
+  if (parsed.state === "failed") {
+    return {
+      state: "Failed",
+      inputTuples: 0,
+      outputTuples: 0,
+      resultMode: "table",
+      error: parsed.error,
+      warnings: parsed.warnings,
+    };
+  }
+  const hasData = !!parsed.tsv || !!parsed.outputShape || !!parsed.columnStats;
+  if (!hasData) return null;
+
+  const records = parsed.tsv ? parseTsvToRecords(parsed.tsv) : [];
+  const rows = parsed.outputShape?.rows ?? records.length;
+  return {
+    state: "Completed",
+    // Input-side tuple counts aren't preserved in the rendered context;
+    // `0` is the same default a live execution returns for a sourceless op.
+    inputTuples: 0,
+    outputTuples: rows,
+    resultMode: "table",
+    result: records.length > 0 ? records : undefined,
+    totalRowCount: parsed.outputShape?.rows ?? records.length,
+    displayedRows: records.length || undefined,
+    truncated:
+      parsed.outputShape && records.length > 0
+        ? parsed.outputShape.rows > records.length
+        : undefined,
+    columnStats: parsed.columnStats,
+    warnings: parsed.warnings,
+  };
 }

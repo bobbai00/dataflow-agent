@@ -33,7 +33,6 @@ import { StepDetail } from "./StepDetail";
 import { OperatorDetail } from "./OperatorDetail";
 import { ReplayControls } from "./ReplayControls";
 import { TokenPanel } from "./TokenPanel";
-import { parseAllStepResults, type ParsedResultsByStep } from "../util/parse-operator-results";
 
 type Knob = "react-list" | "snapshot-tree" | "dag-only";
 
@@ -64,15 +63,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
   const [diffOn, setDiffOn] = useState(false);
 
   const seekableSteps = useMemo(() => steps.filter(s => s.role === "agent"), [steps]);
-
-  // Per-operator results parsed out of every step's `inputMessages`. The
-  // agent service's context assembler already serialized them — for
-  // imported traces this is the only source of post-execution data
-  // because the import path doesn't re-run operators against a backend.
-  const parsedResultsByStep: ParsedResultsByStep = useMemo(
-    () => parseAllStepResults(steps),
-    [steps]
-  );
 
   const refresh = useCallback(async () => {
     try {
@@ -186,8 +176,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
     [steps, selectedStepId]
   );
 
-  const parsedForStep = selectedStepId ? parsedResultsByStep.get(selectedStepId) : undefined;
-
   // Compute the diff vs the previous step. We compare ids and the
   // operatorProperties (specifically `code` for code-mode, full props
   // otherwise). The result is consumed by DagView as an outline overlay.
@@ -277,7 +265,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
             <DagView
               workflow={snapshot?.workflow ?? null}
               results={snapshot?.results ?? {}}
-              parsedResults={parsedForStep}
               selectedOperatorId={selectedOperatorId}
               onSelectOperator={setSelectedOperatorId}
               diff={diff}
@@ -315,7 +302,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
                 <DagView
                   workflow={snapshot?.workflow ?? null}
                   results={snapshot?.results ?? {}}
-                  parsedResults={parsedForStep}
                   selectedOperatorId={selectedOperatorId}
                   onSelectOperator={setSelectedOperatorId}
                   diff={diff}
@@ -325,7 +311,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
                 {selectedOperator ? (
                   <OperatorDetail
                     operator={selectedOperator}
-                    parsed={parsedForStep?.get(selectedOperator.operatorID)}
                     result={snapshot?.results?.[selectedOperator.operatorID]}
                     onClose={() => setSelectedOperatorId(null)}
                   />

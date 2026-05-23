@@ -20,7 +20,6 @@
 import { useMemo } from "react";
 import dagre from "dagre";
 import type { OperatorResultSummary, WorkflowContent } from "../types";
-import type { ParsedOperatorResult } from "../util/parse-operator-results";
 
 /** Per-operator diff marker computed by the trace view when the user toggles
  *  diff mode on. `added` = present at this step but not the previous one;
@@ -35,19 +34,16 @@ const ID_GAP = 14;
 export function DagView({
   workflow,
   results,
-  parsedResults,
   selectedOperatorId,
   onSelectOperator,
   diff,
 }: {
   workflow: WorkflowContent | null;
-  /** Live operator results from `/snapshots/:stepId.results` — populated
-   *  when the agent ran against a real backend. Empty for imports. */
+  /** Per-operator results from `/snapshots/:stepId.results`. Populated by
+   *  the agent service from `WorkflowSnapshotStorage.results` — same
+   *  field for live runs and imported traces (see the inputMessages
+   *  population pass in `texera-agent.ts importReActSteps`). */
   results: Record<string, OperatorResultSummary>;
-  /** Per-operator results parsed from the step's `inputMessages` — this
-   *  is the fallback that makes failed/succeeded states visible for
-   *  imported traces where `results` is empty. */
-  parsedResults?: Map<string, ParsedOperatorResult>;
   selectedOperatorId?: string | null;
   onSelectOperator?: (operatorId: string | null) => void;
   diff?: Map<string, DiffStatus>;
@@ -122,14 +118,13 @@ export function DagView({
           />
         ))}
         {layout.nodes.map(({ op, x, y }) => {
-          const parsed = parsedResults?.get(op.operatorID);
-          const liveResult = results[op.operatorID];
-          const failed = parsed?.state === "failed" || !!liveResult?.error;
-          const completed = parsed?.state === "completed" || liveResult?.state === "Completed";
+          const result = results[op.operatorID];
+          const failed = !!result?.error || result?.state === "Failed";
+          const completed = !failed && result?.state === "Completed";
           const stateCls = failed ? "failed" : completed ? "completed" : "";
           const diffCls = diff?.get(op.operatorID);
           const isSelected = selectedOperatorId === op.operatorID;
-          const summary = op.customDisplayName?.trim() || parsed?.summary || op.operatorType;
+          const summary = op.customDisplayName?.trim() || op.operatorType;
           return (
             <g
               key={op.operatorID}
@@ -171,10 +166,10 @@ export function DagView({
                     {summary}
                   </div>
                   <div className="dag-node-footer">
-                    {parsed?.outputShape
-                      ? `${parsed.outputShape.rows.toLocaleString()} rows · ${parsed.outputShape.columns} cols`
-                      : liveResult?.totalRowCount
-                      ? `${liveResult.totalRowCount.toLocaleString()} rows`
+                    {result?.totalRowCount !== undefined
+                      ? `${result.totalRowCount.toLocaleString()} rows${
+                          result.outputColumns !== undefined ? ` · ${result.outputColumns} cols` : ""
+                        }`
                       : ""}
                   </div>
                 </div>

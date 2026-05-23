@@ -53,6 +53,7 @@ import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
 import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
+import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
 
@@ -1205,6 +1206,67 @@ export class TexeraAgent {
       const childContent = ownsSnapshot ? myContent : parentContent;
       for (const childId of childrenOf.get(id) ?? []) {
         frames.push({ id: childId, parentContent: childContent });
+      }
+    }
+
+    // Populate per-operator results from each step's `inputMessages`.
+    //
+    // The live execution path fills `snapshot.results` via
+    // `runPostStepExecution` immediately after a step's actions run. That
+    // doesn't fire during import — without this pass the snapshot tree's
+    // workflow is faithful but every snapshot's `results` map stays empty,
+    // so callers (the dashboard, the agent's own context assembler if the
+    // import is followed by `sendMessage`) see no operator state.
+    //
+    // The agent service's context assemblers already serialized that state
+    // into each agent step's `inputMessages` content — the model literally
+    // saw it. We parse those `Operator <id> (Type) / Result: …` blocks
+    // and write the recovered `OperatorInfo` to the snapshot that the
+    // context was rendered FROM, which is `getAssociatedSnapshot(step.parentId)`:
+    //
+    //   step S+1's inputMessages   describes state AT
+    //                              ─────────────────────────────────────
+    //                              the associated snapshot of S+1.parentId
+    //                              (S+1's most recent action-bearing ancestor)
+    //
+    // Multiple later steps that share the same action-bearing ancestor
+    // will each write into that ancestor's snapshot; later writes
+    // overwrite earlier ones, which is exactly the freshness we want
+    // (deeper traces saw more recent context). Operators not in the
+    // target snapshot's workflow are skipped — the trace may mention an
+    // id from a previous branch that the current path doesn't contain.
+    for (const step of order) {
+      if (!step.inputMessages || step.inputMessages.length === 0) continue;
+      if (!step.parentId) continue;
+      const target = this.snapshotStorage.getAssociatedSnapshot(step.parentId);
+      const targetStepId = target.reactStepId;
+      if (!targetStepId) continue; // empty root — no snapshot owner to write to
+      const opsInTarget = new Set(target.workflow.operators.map(o => o.operatorID));
+      for (const msg of step.inputMessages) {
+        const content = typeof (msg as { content?: unknown })?.content === "string"
+          ? ((msg as { content: string }).content)
+          : "";
+        if (!content) continue;
+        let parsed: Map<string, ReturnType<typeof parseTraceContext> extends Map<infer _, infer V> ? V : never>;
+        try {
+          parsed = parseTraceContext(content);
+        } catch (err) {
+          this.log.warn({ err, stepId: step.id }, "import: failed to parse inputMessages, skipping");
+          continue;
+        }
+        for (const [opId, parsedResult] of parsed) {
+          if (!opsInTarget.has(opId)) continue;
+          const info = parsedResultToOperatorInfo(parsedResult);
+          if (!info) continue; // nothing usable — don't shadow an inherited entry
+          try {
+            this.snapshotStorage.setOperatorResult(targetStepId, opId, info);
+          } catch (err) {
+            this.log.warn(
+              { err, stepId: targetStepId, opId },
+              "import: failed to set operator result, skipping"
+            );
+          }
+        }
       }
     }
 

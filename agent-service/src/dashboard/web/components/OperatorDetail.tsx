@@ -19,22 +19,20 @@
 
 import { useState } from "react";
 import type { OperatorPredicate, OperatorResultSummary } from "../types";
-import type { ParsedOperatorResult } from "../util/parse-operator-results";
 
 /**
- * Right-pane detail card for one operator. Renders whatever data is
- * available — for imported traces the `parsed` block (from
- * `inputMessages`) is usually present; for live agents the live
- * `result` summary from `/snapshots/:stepId` is richer.
+ * Right-pane detail card for one operator. Reads everything from the
+ * server-built `OperatorResultSummary` — for imported traces, the
+ * agent service's `importReActSteps` parses each step's `inputMessages`
+ * and writes recovered results into `WorkflowSnapshotStorage`, so this
+ * component is symmetric across live and imported agents.
  */
 export function OperatorDetail({
   operator,
-  parsed,
   result,
   onClose,
 }: {
   operator: OperatorPredicate;
-  parsed?: ParsedOperatorResult;
   result?: OperatorResultSummary;
   onClose?: () => void;
 }) {
@@ -44,9 +42,9 @@ export function OperatorDetail({
   const code = typeof operator.operatorProperties?.code === "string"
     ? (operator.operatorProperties.code as string)
     : undefined;
-  const errorText = parsed?.error || result?.error;
-  const failed = !!errorText || parsed?.state === "failed";
-  const completed = !failed && (parsed?.state === "completed" || result?.state === "Completed");
+  const errorText = result?.error;
+  const failed = !!errorText || result?.state === "Failed";
+  const completed = !failed && result?.state === "Completed";
 
   return (
     <div className="op-detail">
@@ -65,10 +63,8 @@ export function OperatorDetail({
         )}
       </div>
 
-      {(operator.customDisplayName || parsed?.summary) && (
-        <div className="op-detail-summary">
-          {operator.customDisplayName || parsed?.summary}
-        </div>
+      {operator.customDisplayName && (
+        <div className="op-detail-summary">{operator.customDisplayName}</div>
       )}
 
       <div className="op-detail-meta">
@@ -78,19 +74,14 @@ export function OperatorDetail({
         <span>
           outputs <strong>{operator.outputPorts?.length ?? 0}</strong>
         </span>
-        {parsed?.outputShape && (
-          <>
-            <span>
-              rows <strong>{parsed.outputShape.rows.toLocaleString()}</strong>
-            </span>
-            <span>
-              cols <strong>{parsed.outputShape.columns}</strong>
-            </span>
-          </>
-        )}
-        {!parsed?.outputShape && result?.totalRowCount !== undefined && (
+        {result?.totalRowCount !== undefined && (
           <span>
             rows <strong>{result.totalRowCount.toLocaleString()}</strong>
+          </span>
+        )}
+        {result?.outputColumns !== undefined && (
+          <span>
+            cols <strong>{result.outputColumns}</strong>
           </span>
         )}
       </div>
@@ -102,10 +93,10 @@ export function OperatorDetail({
         </div>
       )}
 
-      {parsed?.warnings && parsed.warnings.length > 0 && (
+      {result?.warnings && result.warnings.length > 0 && (
         <div className="op-detail-warnings">
           <div className="label">Warnings</div>
-          {parsed.warnings.map((w, i) => (
+          {result.warnings.map((w, i) => (
             <div key={i} className="mono">
               {w}
             </div>
@@ -113,28 +104,26 @@ export function OperatorDetail({
         </div>
       )}
 
-      {parsed?.tsv && (
+      {result?.sampleRecords && result.sampleRecords.length > 0 && (
         <div className="op-detail-section">
-          <div className="label">Output preview ({parsed.outputShape ? `${parsed.outputShape.rows} × ${parsed.outputShape.columns}` : "TSV"})</div>
-          <TsvTable tsv={parsed.tsv} />
-        </div>
-      )}
-      {!parsed?.tsv && result?.sampleRecords && result.sampleRecords.length > 0 && (
-        <div className="op-detail-section">
-          <div className="label">Output preview</div>
+          <div className="label">
+            Output preview
+            {result.totalRowCount !== undefined && result.outputColumns !== undefined
+              ? ` (${result.totalRowCount.toLocaleString()} × ${result.outputColumns}; showing ${result.sampleRecords.length})`
+              : ""}
+          </div>
           <RecordsTable records={result.sampleRecords} />
         </div>
       )}
 
-      {(parsed?.columnStats || result?.columnStats) && (
+      {result?.columnStats && Object.keys(result.columnStats).length > 0 && (
         <div className="op-detail-section">
           <button className="ghost" onClick={() => setShowStats(s => !s)}>
-            {showStats ? "Hide" : "Show"} column stats (
-            {Object.keys(parsed?.columnStats || result?.columnStats || {}).length})
+            {showStats ? "Hide" : "Show"} column stats ({Object.keys(result.columnStats).length})
           </button>
           {showStats && (
             <div className="op-detail-stats">
-              {Object.entries(parsed?.columnStats || result?.columnStats || {})
+              {Object.entries(result.columnStats)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([col, stat]) => (
                   <div key={col} className="op-stat-row">
@@ -172,45 +161,6 @@ export function OperatorDetail({
           </pre>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Render a TSV blob (header row + data rows) as a real HTML table.
- * The formatter emits tabs as column separators, with a leading-tab
- * convention for the index column. We treat any whitespace block of
- * tabs as one separator and the first column-zero token as the index.
- */
-function TsvTable({ tsv }: { tsv: string }) {
-  const lines = tsv.split("\n").filter(l => l.length > 0);
-  if (lines.length === 0) return null;
-  const rows = lines.map(l => l.split("\t"));
-  // The first row is the header (with a leading empty cell for the index).
-  const header = rows[0];
-  const body = rows.slice(1);
-  return (
-    <div style={{ overflowX: "auto", maxHeight: 320 }}>
-      <table className="records">
-        <thead>
-          <tr>
-            {header.map((h, i) => (
-              <th key={i}>{h.trim() || "#"}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {body.map((r, i) => (
-            <tr key={i}>
-              {r.map((c, j) => (
-                <td key={j} title={c}>
-                  {c}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

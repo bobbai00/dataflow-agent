@@ -356,9 +356,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     }
     const workflowEntry = storage.getResolvedWorkflow(resolvedStepId);
     const visibleResults = storage.getAllVisibleResults(resolvedStepId);
-    const results: Record<string, unknown> = {};
+    const results: Record<string, OperatorResultSummaryWs> = {};
     for (const [opId, info] of visibleResults) {
-      results[opId] = info;
+      results[opId] = operatorInfoToSummary(info);
     }
     return {
       stepId: resolvedStepId,
@@ -603,28 +603,39 @@ interface WsOutgoingMessage {
   workflow?: any;
 }
 
+/**
+ * Render one `OperatorInfo` into the wire shape the dashboard + websocket
+ * clients expect. Kept separate from `getOperatorResultSummaries` so the
+ * snapshots-by-stepId endpoint can reuse it instead of dumping raw
+ * `OperatorInfo` (which inverts the field names — `result` vs
+ * `sampleRecords` — and skips the precomputed `outputColumns`).
+ */
+function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
+  return {
+    state: info.state,
+    inputTuples: info.inputTuples,
+    outputTuples: info.outputTuples,
+    inputPortShapes: info.inputPortShapes,
+    outputColumns:
+      info.result && info.result.length > 0
+        ? Object.keys(info.result[0]).filter(k => k !== "__row_index__").length
+        : undefined,
+    error: info.error,
+    warnings: info.warnings,
+    consoleLogCount: info.consoleLogs?.length,
+    totalRowCount: info.totalRowCount,
+    sampleRecords: info.result,
+    columnStats: info.columnStats,
+  };
+}
+
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
   const head = agent.getHead();
   if (!head) return {};
   const visible = agent.getSnapshotStorage().getAllVisibleResults(head);
   const results: Record<string, OperatorResultSummaryWs> = {};
   for (const [opId, info] of visible) {
-    results[opId] = {
-      state: info.state,
-      inputTuples: info.inputTuples,
-      outputTuples: info.outputTuples,
-      inputPortShapes: info.inputPortShapes,
-      outputColumns:
-        info.result && info.result.length > 0
-          ? Object.keys(info.result[0]).filter(k => k !== "__row_index__").length
-          : undefined,
-      error: info.error,
-      warnings: info.warnings,
-      consoleLogCount: info.consoleLogs?.length,
-      totalRowCount: info.totalRowCount,
-      sampleRecords: info.result,
-      columnStats: info.columnStats,
-    };
+    results[opId] = operatorInfoToSummary(info);
   }
   return results;
 }

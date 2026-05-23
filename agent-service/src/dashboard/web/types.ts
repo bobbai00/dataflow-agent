@@ -51,11 +51,17 @@ export interface SnapshotTreeResponse {
 }
 
 /** Server-built `OperatorResultSummaryWs` (see `server.ts`). Mirrors the
- *  one we get over the WS `operatorResults` field. */
+ *  one we get over the WS `operatorResults` field and the
+ *  `/snapshots/:stepId` response. Populated by the agent service from
+ *  `WorkflowSnapshotStorage.results` — for imported traces, the import
+ *  pass in `texera-agent.ts` parses each step's `inputMessages` and
+ *  writes the recovered `OperatorInfo` into the snapshot, so this is
+ *  the single source of truth regardless of how the agent got its data. */
 export interface OperatorResultSummary {
   state: string;
   inputTuples: number;
   outputTuples: number;
+  outputColumns?: number;
   error?: string;
   warnings?: string[];
   totalRowCount?: number;
