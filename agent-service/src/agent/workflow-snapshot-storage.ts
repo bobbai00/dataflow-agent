@@ -298,6 +298,39 @@ export class WorkflowSnapshotStorage {
     return this.snapshots.get(snapshotId);
   }
 
+  /**
+   * Tree shape of every snapshot — used by the dashboard's snapshot-tree
+   * view to render branches without pulling the full workflow / results
+   * payload for each node. Returns the empty root and every step-owned
+   * snapshot; callers can fetch the full body of a node lazily through
+   * `getResolvedWorkflow` / `getAllVisibleResults`.
+   */
+  getSnapshotTreeNodes(): Array<{
+    id: string;
+    parentId: string | undefined;
+    reactStepId: string | undefined;
+    operatorCount: number;
+    resultCount: number;
+  }> {
+    const out: Array<{
+      id: string;
+      parentId: string | undefined;
+      reactStepId: string | undefined;
+      operatorCount: number;
+      resultCount: number;
+    }> = [];
+    for (const snap of this.snapshots.values()) {
+      out.push({
+        id: snap.id,
+        parentId: snap.parentId,
+        reactStepId: snap.reactStepId,
+        operatorCount: snap.workflow.operators.length,
+        resultCount: snap.results.size,
+      });
+    }
+    return out;
+  }
+
   // ── housekeeping ─────────────────────────────────────────────────────
 
   /** Drop every step-owned snapshot and re-allocate the empty root. The

@@ -17,7 +17,9 @@
     "e2e:errors": "bun run benchmark/e2e/error-run.ts",
     "e2e:agent": "bun run benchmark/e2e/agent-run.ts",
     "trace-gen": "bun run benchmark/llm-training-data-generation/run.ts",
-    "trace-eval": "bun run benchmark/llm-training-data-generation/evaluate.ts"
+    "trace-eval": "bun run benchmark/llm-training-data-generation/evaluate.ts",
+    "dashboard:build": "bun run src/dashboard/build.ts",
+    "dashboard:dev": "bun run src/dashboard/build.ts --watch"
   },
   "dependencies": {
     "@ai-sdk/openai": "2.0.79",
@@ -27,12 +29,16 @@
     "dagre": "0.8.5",
     "elysia": "1.4.18",
     "pino": "10.3.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
     "rxjs": "7.8.2",
     "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/bun": "1.3.3",
     "@types/dagre": "0.7.54",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
     "pino-pretty": "13.1.3",
     "prettier": "3.4.2",
     "tsx": "4.21.0",

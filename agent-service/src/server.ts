@@ -32,6 +32,7 @@ import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { assembleContext } from "./agent/util/context-utils";
 import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
 import { buildLocalReactSystemPrompt } from "./agent/prompts";
+import { dashboardPlugin } from "./dashboard/static";
 
 const log = createLogger("Server");
 const wsLog = createLogger("WS");
@@ -309,6 +310,21 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
+  })
+
+  /**
+   * Snapshot tree shape — every node in the agent's
+   * `WorkflowSnapshotStorage`, parent links, owning ReAct step, and a few
+   * size hints. Powers the dashboard's "Snapshot tree" view. Full workflow
+   * + results bodies are still fetched lazily via `/snapshots/:stepId`.
+   */
+  .get("/:id/snapshot-tree", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    const storage = agent.getSnapshotStorage();
+    return {
+      rootId: storage.getRootSnapshotId(),
+      nodes: storage.getSnapshotTreeNodes(),
+    };
   })
 
   /**
@@ -646,6 +662,7 @@ function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
 export function buildApp() {
   return new Elysia()
     .use(cors())
+    .use(dashboardPlugin)
     .group(env.API_PREFIX, app =>
       app
         .get("/healthcheck", () => ({
@@ -817,8 +834,15 @@ export function buildApp() {
         }
       },
     })
-    .onError(({ error, set }) => {
+    .onError(({ code, error, set }) => {
       // Catch-all for non-router routes such as /api/healthcheck and the websocket route.
+      // Elysia tags unmatched paths with code === "NOT_FOUND" — those are
+      // routine client mistakes (favicon probes, etc.) and don't deserve an
+      // ERROR-level stack trace, just a quiet 404.
+      if (code === "NOT_FOUND") {
+        set.status = 404;
+        return { error: "not found" };
+      }
       log.error({ err: error }, "request error");
       set.status = 500;
       return { error: error instanceof Error ? error.message : String(error) };
@@ -838,6 +862,7 @@ function printStartupMessage(app: ReturnType<typeof buildApp>) {
   console.log("Texera Agent Service (Elysia.js + RxJS)");
   console.log(LINE);
   console.log(`Server running at http://localhost:${env.PORT}`);
+  console.log(`Trace dashboard:  http://localhost:${env.PORT}/dashboard`);
   console.log("");
 
   console.log("Registered Routes:");

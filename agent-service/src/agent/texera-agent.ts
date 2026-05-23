@@ -1155,6 +1155,15 @@ export class TexeraAgent {
     // then snapshot the result. Explicit `snapshots[id]` overrides replay.
     // Per-operator results aren't in the export, so each restored snapshot
     // starts with whatever results its parent snapshot has (typically empty).
+    //
+    // Seed minimal schemas for the two code-mode operator types before
+    // building the replay tools. Without this, `createOrModifyOperator`
+    // replay errors out on every step when the agent service can't reach
+    // its backend operator-metadata endpoint — and the imported workflow
+    // ends up empty even though the snapshot *tree* structure is fine.
+    // Backend-loaded metadata, if any, has already populated the store
+    // and is left alone; the seed only fills in gaps.
+    this.metadataStore.seedCodeModeDefaults();
     const replayTools = this.buildReplayTools();
     const explicitSnapshots = snapshots ?? {};
     type ReplayFrame = { id: string; parentContent: WorkflowContent };
