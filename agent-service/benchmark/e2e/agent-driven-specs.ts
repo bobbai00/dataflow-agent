@@ -46,8 +46,26 @@ import type {
   OperatorPredicate,
   WorkflowContent,
 } from "../../src/types/workflow";
-import type { OperatorInfo } from "../../src/types/execution";
 import type { AgentSnapshot, AgentTurnResult } from "../../src/api/agent-service-api";
+
+/**
+ * Wire shape of one operator's executed result as exposed by the agent
+ * service's `/agents/:id/snapshots/:stepId` endpoint. Mirrors the
+ * server-side `OperatorResultSummaryWs` in `agent-service/src/server.ts`
+ * — note that the row payload lives under `sampleRecords` here (not
+ * `result`, which is the internal `OperatorInfo` field name).
+ */
+interface OperatorResultSummary {
+  state: string;
+  inputTuples: number;
+  outputTuples: number;
+  outputColumns?: number;
+  error?: string;
+  warnings?: string[];
+  totalRowCount?: number;
+  sampleRecords?: Record<string, unknown>[];
+  columnStats?: Record<string, string>;
+}
 
 export class SpecAssertionError extends Error {
   constructor(message: string) {
@@ -95,13 +113,13 @@ function requireOperator(workflow: WorkflowContent, opId: string): OperatorPredi
   return op;
 }
 
-function requireResult(snapshot: AgentSnapshot, opId: string): OperatorInfo {
-  const info = (snapshot.results as Record<string, OperatorInfo>)[opId];
+function requireResult(snapshot: AgentSnapshot, opId: string): OperatorResultSummary {
+  const info = (snapshot.results as Record<string, OperatorResultSummary>)[opId];
   if (!info) throw new SpecAssertionError(`operator '${opId}' has no execution result in the head snapshot`);
   if (info.error) {
     throw new SpecAssertionError(`operator '${opId}' executed with error: ${info.error.split("\n")[0]}`);
   }
-  if (!info.result || info.result.length === 0) {
+  if (!info.sampleRecords || info.sampleRecords.length === 0) {
     throw new SpecAssertionError(
       `operator '${opId}' executed but emitted no rows (totalRowCount=${info.totalRowCount ?? 0})`
     );
@@ -109,13 +127,13 @@ function requireResult(snapshot: AgentSnapshot, opId: string): OperatorInfo {
   return info;
 }
 
-function rowsOf(info: OperatorInfo): Record<string, unknown>[] {
-  return (info.result ?? []) as Record<string, unknown>[];
+function rowsOf(info: OperatorResultSummary): Record<string, unknown>[] {
+  return info.sampleRecords ?? [];
 }
 
-function columnsOf(info: OperatorInfo): string[] {
-  if (!info.result || info.result.length === 0) return [];
-  return Object.keys(info.result[0]).filter(k => k !== "__row_index__");
+function columnsOf(info: OperatorResultSummary): string[] {
+  if (!info.sampleRecords || info.sampleRecords.length === 0) return [];
+  return Object.keys(info.sampleRecords[0]).filter(k => k !== "__row_index__");
 }
 
 function requireLink(
@@ -485,7 +503,7 @@ function validateT4(snapshot: AgentSnapshot, turn: AgentTurnResult): void {
   //     load-bearing: a bad-loader error AND a good-loader success in
   //     the SAME terminal snapshot can only happen when the partition
   //     module sent them as separate sync requests.
-  const badInfo = (snapshot.results as Record<string, OperatorInfo>)[T4_BAD_OP_ID];
+  const badInfo = (snapshot.results as Record<string, OperatorResultSummary>)[T4_BAD_OP_ID];
   if (!badInfo) {
     throw new SpecAssertionError(`T4: ${T4_BAD_OP_ID} has no execution result entry in the head snapshot`);
   }

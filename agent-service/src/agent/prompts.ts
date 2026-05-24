@@ -28,10 +28,19 @@
  *   in the allowed set.
  */
 
+import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
+
+// The CODE-mode system prompt is the merged/curated prompt kept verbatim in
+// `prompts/code-mode.md`. Treat that markdown file as the single source of
+// truth — edits to the prompt are made there, not in this TypeScript file.
+const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(
+  new URL("./prompts/code-mode.md", import.meta.url),
+  "utf8"
+);
 
 // ============================================================================
 // Shared sections
@@ -103,316 +112,6 @@ const KEY_PRINCIPLES = `
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
 - **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
 
-// ============================================================================
-// CODE mode template
-// ============================================================================
-
-// ============================================================================
-// Worked example (CODE mode)
-// ============================================================================
-//
-// Adapted from the original feat/agent-copilot branch and retargeted to the
-// current Event format (see context-utils.ts). The example teaches five
-// motifs without naming them:
-//   - Turn 1: independent loads fired as parallel tool calls.
-//   - Turn 2: a load whose result has auto-generated headers
-//     (`Unnamed: 0, …`) — agent re-inspects the raw bytes and modifies the
-//     loader in place with the correct `skiprows=`.
-//   - Turn 3: agent reads loaded data, picks up domain definitions from the
-//     readme, builds the join — AND, in the same parallel turn, deletes the
-//     two inspect operators (their real loaders are live and no operator
-//     reads them anymore, so they're pure context bloat going forward).
-//   - Turn 4–5: agent builds filter / aggregate / top-N as one logical
-//     operation per operator.
-//   - Turn 6: agent notices its own logic missed a threshold filter, then
-//     fixes the source operator (NOT a downstream patch).
-//
-// Each turn shows what context the agent receives + what response it emits,
-// so the model learns the exact `# Event N (...)`, `Thought:`, `Actions:`,
-// and `# Current Dataflow` shape it is supposed to read and react to.
-const EXAMPLE_COMPACT = `
-## Example
-
-This example demonstrates five key behaviors: **(a)** parallel inspections of every tabular data file before writing real loaders, **(b)** fix-in-place when a loader returns malformed output, **(c)** deleting inspect operators in parallel with the next downstream step once their real loaders are live, **(d)** one logical operation per operator (join, filter, aggregate, top-N each in their own operator), and **(e)** fix-in-place when a downstream operator's logic is semantically wrong.
-
-**Turn 1 — Context received:**
-
-\`\`\`
-# User Task
-
-Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
-
-# Agent Events
-
-(no agent actions yet)
-
-# Current Dataflow
-(empty)
-\`\`\`
-
-**Turn 1 — Agent response (three parallel tool calls: one direct text load + two raw inspections):**
-
-Thought: Two tabular files (customers.csv, orders.csv) and one non-tabular text file (readme.md). I MUST inspect customers and orders before writing the real loaders — these are independent inspections that fire in a single parallel batch. The readme is just text, so I load its content directly.
-
-Tool call: createOrModifyOperator(operatorId="readme", code=\`def load() -> pd.DataFrame:
-    with open('/data/readme.md') as f:
-        return pd.DataFrame([{'content': f.read()}])\`, summary="Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'")
-
-Tool call: createOrModifyOperator(operatorId="inspect_customers", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/customers.csv', header=None, dtype=str, nrows=30, sep=None, engine='python')\`, summary="One-shot inspection of customers.csv — first 30 rows, no header inference, all cells as strings, pandas sniffs the delimiter — to reveal the raw header row index, any metadata/comment rows, and the real column count")
-
-Tool call: createOrModifyOperator(operatorId="inspect_orders", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/orders.csv', header=None, dtype=str, nrows=30, sep=None, engine='python')\`, summary="One-shot inspection of orders.csv — first 30 rows, no header inference, all cells as strings, sniffed delimiter")
-
----
-
-**Turn 2 — Context received (snapshot shows the three executed ops; column stats omitted for brevity):**
-
-\`\`\`
-# User Task
-
-Find the top 5 premium customers with recent purchases from customers.csv and orders.csv. The definitions of "premium" and "recent" are in readme.md.
-
-# Current Dataflow
-## Operators
-
-### Operator \`readme\` (DataLoading)
-Summary: Load readme.md — full file contents in a 'content' column; source of definitions for 'premium' and 'recent'
-Result:
-  Output table shape: (1, 1)
-  \tcontent
-  0\tPremium customer: total spending >= $1000. Recent purchase: within last 30 days.
-
-### Operator \`inspect_customers\` (DataLoading)
-Summary: One-shot inspection of customers.csv ...
-Result:
-  Output table shape: (30, 5)
-  \t0\t1\t2\t3\t4
-  0\t# CSN customer extract\tNaN\tNaN\tNaN\tNaN
-  1\t# generated 2024-01-15\tNaN\tNaN\tNaN\tNaN
-  2\tcustomer_id\tname\temail\tsignup_date\ttier
-  3\tC001\tAlice\talice@example.com\t2023-01-15\tgold
-  4\tC002\tBob\tbob@example.com\t2023-02-14\tsilver
-
-### Operator \`inspect_orders\` (DataLoading)
-Summary: One-shot inspection of orders.csv ...
-Result:
-  Output table shape: (30, 4)
-  \t0\t1\t2\t3
-  0\torder_id\tcustomer_id\tamount\torder_date
-  1\tO001\tC001\t250.00\t2024-11-05
-  2\tO002\tC002\t1200.50\t2024-11-06
-\`\`\`
-
-**Turn 2 — Agent response (two parallel real loaders, informed by inspection results):**
-
-Thought: inspect_customers shows rows 0 and 1 are \`# CSN customer extract\` / \`# generated 2024-01-15\` comments; row 2 is the real header. Real loader needs \`skiprows=2\`. inspect_orders shows row 0 is the actual header — default \`pd.read_csv\` will work. Two independent loaders → one parallel turn. Critically: the real loaders DO NOT carry \`dtype=str\` over from the inspection — they let pandas infer types so downstream numeric/date columns behave correctly.
-
-Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/customers.csv', skiprows=2)\`, summary="Load customers.csv with skiprows=2 — inspection showed rows 0 and 1 are # comment metadata, real header on row 2; columns are [customer_id, name, email, signup_date, tier]; types inferred normally (no dtype=str)")
-
-Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.DataFrame:
-    return pd.read_csv('/data/orders.csv')\`, summary="Load orders.csv with default pd.read_csv parameters — inspection confirmed header on row 0; columns [order_id, customer_id, amount, order_date]; types inferred normally")
-
----
-
-**Turn 3 — Context received (clean loaders now executed):**
-
-\`\`\`
-# Current Dataflow
-## Operators
-
-### Operator \`customers\` (DataLoading)
-Summary: Load customers.csv with skiprows=2 ...
-Result:
-  Output table shape: (9998, 5)
-  \tcustomer_id\tname\temail\tsignup_date\ttier
-  0\tC001\tAlice\talice@example.com\t2023-01-15\tgold
-
-### Operator \`orders\` (DataLoading)
-Summary: Load orders.csv with default pd.read_csv parameters ...
-Result:
-  Output table shape: (50000, 4)
-  \torder_id\tcustomer_id\tamount\torder_date
-  0\tO001\tC001\t250.00\t2024-11-05
-\`\`\`
-
-**Turn 3 — Agent response (three parallel tool calls: the join + two inspection deletes):**
-
-Thought: Both real loaders are clean. The two inspect operators (\`inspect_customers\`, \`inspect_orders\`) have served their purpose — the real loaders carry their findings, and no other operator's \`process(...)\` references them. They're throwaway scaffolding now; if I leave them they keep paying token cost in every subsequent context. Delete them in parallel with this turn's downstream step (the join). The scheduler fences deletes after non-deletes in the same batch, so the join runs first and the deletes follow — zero extra round-trip. One logical step per operator — start with the join. The recent-filter, the aggregate, the threshold filter, and the top-N each become their own downstream operator in the following turns.
-
-Tool call: createOrModifyOperator(operatorId="customers_x_orders", code=\`def process(customers, orders) -> pd.DataFrame:
-    return customers.merge(orders, on='customer_id', how='inner')\`, summary="Inner join customers and orders on customer_id; output columns [customer_id, name, email, signup_date, tier, order_id, amount, order_date]; 50000 expected output rows (one per matched order)")
-
-Tool call: deleteOperator(operatorId="inspect_customers")
-
-Tool call: deleteOperator(operatorId="inspect_orders")
-
----
-
-**Turn 4 — Context received (join executed, snapshot of joined table available):**
-
-\`\`\`
-### Operator \`customers_x_orders\` (DataProcessing)
-Summary: Inner join customers and orders on customer_id ...
-Result:
-  Output table shape: (50000, 8)
-  \tcustomer_id\tname\t...\tamount\torder_date
-  0\tC001\tAlice\t...\t250.00\t2024-11-05
-\`\`\`
-
-**Turn 4 — Agent response (one operator: filter to recent orders):**
-
-Thought: Filter to order_date within the last 30 days per the readme definition of "recent".
-
-Tool call: createOrModifyOperator(operatorId="recent_orders", code=\`def process(customers_x_orders) -> pd.DataFrame:
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    return customers_x_orders[customers_x_orders['order_date'] >= cutoff]\`, summary="Filter customers_x_orders rows to order_date >= today-30d; recent purchases per readme's 'recent = last 30 days' definition")
-
----
-
-**Turn 5 — Context received (recent filter executed):**
-
-\`\`\`
-### Operator \`recent_orders\` (DataProcessing)
-Summary: Filter customers_x_orders rows to order_date >= today-30d ...
-Result:
-  Output table shape: (3500, 8)
-  ...
-\`\`\`
-
-**Turn 5 — Agent response (one operator: aggregate spending per customer + return top 5 — INITIAL VERSION, missing the premium threshold):**
-
-Thought: Aggregate spending per (customer_id, name), then return the top 5 by total_spending.
-
-Tool call: createOrModifyOperator(operatorId="top5_spenders", code=\`def process(recent_orders) -> pd.DataFrame:
-    spending = recent_orders.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
-    return spending.nlargest(5, 'total_spending')\`, summary="Groupby [customer_id, name] on recent_orders, sum amount as total_spending; return top 5 rows by total_spending")
-
----
-
-**Turn 6 — Context received (top5_spenders executed):**
-
-\`\`\`
-### Operator \`top5_spenders\` (DataProcessing)
-Summary: Groupby [customer_id, name] on recent_orders, sum amount as total_spending; return top 5 rows by total_spending
-Result:
-  Output table shape: (5, 3)
-  \tcustomer_id\tname\ttotal_spending
-  0\tC001\tAlice\t12450.00
-  1\tC047\tBob\t9820.00
-  2\tC112\tCarol\t8150.00
-  3\tC203\tDavid\t7340.00
-  4\tC340\tEve\t6290.00
-\`\`\`
-
-**Turn 6 — Agent response (notice missing premium threshold, fix top5_spenders IN PLACE):**
-
-Thought: All 5 rows happen to exceed $1000, but my code never applied the \`>= 1000\` premium threshold — the logic is wrong even though this result happens to look right. Fix the SAME operator (\`top5_spenders\`) by inserting the premium filter before \`nlargest\`. Do NOT create a new downstream operator to filter — that would leave a permanent corpse in the DAG and split the spending logic across two operators when it belongs in one.
-
-Tool call: createOrModifyOperator(operatorId="top5_spenders", code=\`def process(recent_orders) -> pd.DataFrame:
-    spending = recent_orders.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
-    premium = spending[spending['total_spending'] >= 1000]
-    return premium.nlargest(5, 'total_spending')\`, summary="Groupby [customer_id, name] on recent_orders, sum amount as total_spending; filter total_spending >= 1000 (premium per readme definition); return top 5 rows by total_spending")
-
-**Final answer (after the corrected top5_spenders executes):** The top 5 premium customers with recent purchases are Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), and Eve ($6,290).
-`;
-
-// ============================================================================
-// Feature appendices (always appended; parallel tool calls, column stats, and
-// context compaction are all permanently on in this build, so the appendix
-// text is part of the standard prompt rather than gated by flags).
-// ============================================================================
-
-// Mirrored from `temp/.../prompts.ts:APPENDIX_PARALLEL`. Keeps the rule —
-// independent calls fire in one turn; dependent calls wait — but anchors it
-// to *this* prompt's example (Turn 1 already shows three parallel loads).
-const APPENDIX_PARALLEL = `
-## Parallel tool calls
-
-When tool calls are independent — different data loads, disjoint branches of the DAG, operators that don't depend on each other's output, or cleanup of throwaway operators (e.g. inspection ops whose real loader is already in place) — emit them in a single turn as parallel tool calls instead of one per turn. This reduces round-trips and saves tokens. In the example above, the three loads in Turn 1 (\`readme\`, \`customers\`, \`orders\`) are independent and fired together; Turn 3 fires the join in parallel with two \`deleteOperator\` calls for the now-obsolete inspection ops for the same reason.
-
-Do not parallelize dependent calls. An operator whose \`process(...)\` parameters reference another operator must be issued after that operator exists — so the join/aggregate step in Turn 3 cannot be parallel with the loads in Turn 1. \`deleteOperator\` calls are special-cased by the scheduler: within a single batch they are fenced to run AFTER every non-delete sibling, so a delete in the same turn as a create can never race ahead of it.`;
-
-// Mirrored from `temp/.../prompts.ts:APPENDIX_CARRY_METADATA`. The displayed
-// types here (\`str\` / \`bool\` / \`numeric\` / \`datetime\`) and the per-type
-// fields match what \`_compute_column_stats\` in
-// \`amber/.../runnables/data_processor.py\` actually emits today — keep these
-// two in sync if the stats format ever changes engine-side.
-const APPENDIX_CARRY_METADATA = `
-## Column Stats
-
-Each operator's result includes a "Column Stats" block beneath the sample rows. Format: one line per column, with a parenthesized data type (\`str\` / \`bool\` / \`numeric\` / \`datetime\`), null count, and type-specific details:
-- \`str\`: \`null\`, \`distinct\`, plus \`top_5={...}\` listing the value-frequency pairs when \`distinct <= 5\` (omitted for high-cardinality columns; the str cutoff is tighter than numeric's because raw string values can be long).
-- \`bool\`: \`null\`, \`true\`, \`false\` (the two counts already serve as the top map).
-- \`numeric\`: \`null\`, \`mean\`, \`min\`, \`max\`, plus \`top_10={...}\` when \`distinct <= 10\` (numbers compactly formatted: integer-valued floats drop the trailing \`.0\`).
-- \`datetime\`: \`null\`, \`min\`, \`max\` (ISO date strings; trailing \` 00:00:00\` stripped for date-only columns).
-
-Example, appended to an operator's Result:
-
-\`\`\`
-  Column Stats:
-  - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
-  - "customer_id" (str): null=0, distinct=10000
-  - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
-  - "amount" (numeric): null=0, mean=219.2, min=95, max=520
-  - "rating" (numeric): null=0, mean=4.1, min=1, max=5, top_10={5=4200, 4=2800, 3=1500, 2=900, 1=600}
-\`\`\`
-
-Examine Column Stats before deciding the next action:
-- **Loads**: verify types and null counts match expectations.
-- **Join keys**: check that distinct counts on both sides are consistent with the join type you intend (e.g. a many-to-one join's right-side distinct count should be ~= its row count).
-- **Aggregates**: check that result ranges (min/max/mean) are plausible before reporting.
-
-If Column Stats reveal a problem (unexpected nulls, wrong type, suspicious distribution), fix the operator producing the issue rather than masking it downstream.`;
-
-const CODE_MODE_TEMPLATE = `${DATAFLOW_INTRO}
-${CONTEXT_FORMAT}
-${EXAMPLE_COMPACT}
-${APPENDIX_PARALLEL}
-${APPENDIX_CARRY_METADATA}
-${KEY_PRINCIPLES}
-`;
-
-// The worked example has been commented out — the prompt now contains just
-// the dataflow intro, the context format note, and the key principles. Keep
-// the text around in case we want to reinstate it later.
-//
-// const EXAMPLE_COMPACT = `
-// ## Example
-//
-// **User request:** Find top 5 premium customers with recent purchases from customers.csv and orders.csv.
-//
-// **Turn 1 — Agent response:**
-//
-// Thought: "premium" and "recent" are abstract terms — the readme may define them. Load the readme and both data files before interpreting the task.
-//
-// Tool call: createOrModifyOperator(operatorId="readme", code=\`def load() -> pd.DataFrame:
-//     with open('/data/readme.md') as f: return pd.DataFrame([{'content': f.read()}])\`, summary="Load readme.md — wrap full file contents into a single-row DataFrame with one 'content' column; source of definitions for 'premium' and 'recent'")
-//
-// Tool call: createOrModifyOperator(operatorId="customers", code=\`def load() -> pd.DataFrame:
-//     return pd.read_csv('/data/customers.csv')\`, summary="Load customers.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
-//
-// Tool call: createOrModifyOperator(operatorId="orders", code=\`def load() -> pd.DataFrame:
-//     return pd.read_csv('/data/orders.csv')\`, summary="Load orders.csv via pd.read_csv (default CSV: comma delimiter, first row as header, all rows loaded, UTF-8)")
-//
-// ---
-//
-// **Turn 2 — Agent response (after seeing the loaded data):**
-//
-// Thought: The readme defines premium as total spending >= $1000 and recent as the last 30 days. Join customers and orders on customer_id, filter to recent orders, aggregate spending per customer, and return the top 5.
-//
-// Tool call: createOrModifyOperator(operatorId="top5", code=\`def process(customers, orders) -> pd.DataFrame:
-//     from datetime import datetime, timedelta
-//     cutoff = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-//     merged = customers.merge(orders, on='customer_id', how='inner')
-//     recent = merged[merged['order_date'] >= cutoff]
-//     spending = recent.groupby(['customer_id', 'name'])['amount'].sum().reset_index(name='total_spending')
-//     premium = spending[spending['total_spending'] >= 1000]
-//     return premium.nlargest(5, 'total_spending')\`, summary="Inner join customers+orders on customer_id; filter order_date >= today-30d (recent); groupby [customer_id, name] sum amount as total_spending; filter total_spending >= 1000 (premium threshold); return top 5 rows by total_spending")
-//
-// **Final answer:** Top 5 premium customers with recent purchases: Alice ($12,450), Bob ($9,820), Carol ($8,150), David ($7,340), Eve ($6,290).`;
 
 // ============================================================================
 // GENERAL mode template + Python/R UDF guides
@@ -597,12 +296,13 @@ function buildAllowedOperatorSchemas(
 }
 
 /**
- * Build the CODE-mode system prompt: dataflow intro + context format + key
- * principles. The worked example was intentionally removed; if you need it
- * back, restore `EXAMPLE_COMPACT` above and inject it into the template.
+ * Build the CODE-mode system prompt. The prompt text lives verbatim in
+ * `prompts/code-mode.md` and is loaded once at module load — edit the
+ * markdown file (not this function) to change what the code-mode agent
+ * sees as its system prompt.
  */
 export function buildCodeModeSystemPrompt(): string {
-  return CODE_MODE_TEMPLATE;
+  return CODE_MODE_SYSTEM_PROMPT;
 }
 
 /**
@@ -647,7 +347,6 @@ export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowed
 // instruction. If the gateway's chat template later re-adds a BOS marker
 // causing double-BOS issues, strip it here.
 // ---------------------------------------------------------------------------
-import { readFileSync } from "node:fs";
 const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(
   new URL("./prompts/local-react.txt", import.meta.url),
   "utf8"
