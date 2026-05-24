@@ -57,6 +57,16 @@ _AMBER_TO_ICEBERG_TYPE_MAPPING = {
     AttributeType.TIMESTAMP: iceberg_types.TimestampType(),
     AttributeType.BINARY: iceberg_types.BinaryType(),
     AttributeType.LARGE_BINARY: iceberg_types.StringType(),
+    # LIST and STRUCT travel over the wire as JSON-encoded strings (see
+    # TO_ARROW_MAPPING in attribute_type.py — both already collapse to
+    # pa.string()). Use Iceberg's StringType so the on-disk type matches
+    # the transport. Without these entries, any schema-inferred LIST or
+    # STRUCT column (e.g. a UDF returning list-valued cells) crashes
+    # `amber_schema_to_iceberg_schema` with `KeyError:
+    # <AttributeType.LIST: 9>` when the engine creates the per-port
+    # storage writer — outside user code, with no recoverable trace.
+    AttributeType.LIST: iceberg_types.StringType(),
+    AttributeType.STRUCT: iceberg_types.StringType(),
 }
 
 
@@ -267,24 +277,77 @@ def amber_tuples_to_arrow_table(
 ) -> pa.Table:
     """
     Converts a list of amber tuples to a pyarrow table for serialization.
-    Handles LARGE_BINARY field name encoding and serialization.
+    Two cell-shape contracts the iceberg-projected Arrow schema imposes
+    that the upstream amber tuples don't natively satisfy:
+      - LARGE_BINARY cells (Python ``largebinary`` instances) must be
+        unwrapped to their ``.uri`` string. Legacy contract.
+      - Container cells (Python ``list`` / ``dict`` / ``tuple`` / ``set``
+        / ``numpy.ndarray``) must be JSON-encoded because iceberg stores
+        LIST / STRUCT under ``_AMBER_TO_ICEBERG_TYPE_MAPPING`` as
+        ``StringType`` (which projects to PyArrow ``large_string``).
+        Without this step ``pa.Table.from_pydict`` raises
+        ``ArrowTypeError: Expected bytes, got a 'list' object`` when it
+        tries to cast the raw list into the large_string column.
+
+    Decision is per-cell rather than per-column: iceberg's Arrow
+    projection collapses STRING / LIST / STRUCT / LARGE_BINARY to the
+    same ``large_string`` Arrow type, so column type alone can't
+    discriminate them. A string cell in a STRING column passes through;
+    a list cell anywhere gets JSON-encoded.
     """
+    import json
     from core.models.type.large_binary import largebinary
 
     tuple_list = list(tuple_list)  # Convert to list to allow multiple iterations
-    data_dict = {}
-    for encoded_name in iceberg_schema.as_arrow().names:
-        decoded_name = decode_large_binary_field_name(encoded_name)
-        data_dict[encoded_name] = [
-            (
-                t[decoded_name].uri
-                if isinstance(t[decoded_name], largebinary)
-                else t[decoded_name]
-            )
-            for t in tuple_list
-        ]
 
-    return pa.Table.from_pydict(data_dict, schema=iceberg_schema.as_arrow())
+    def _encode_cell(value):
+        if value is None:
+            return None
+        if isinstance(value, largebinary):
+            return value.uri
+        if isinstance(value, (list, tuple, set)):
+            try:
+                return json.dumps(
+                    list(value) if isinstance(value, (tuple, set)) else value,
+                    default=str,
+                )
+            except Exception:
+                return str(value)
+        if isinstance(value, dict):
+            try:
+                return json.dumps(value, default=str)
+            except Exception:
+                return str(value)
+        # numpy.ndarray and any other tolist()-bearing array-like.
+        # numpy scalars (np.int64 / np.float64 / np.bool_) also expose
+        # tolist() — but tolist() on a scalar returns a Python scalar
+        # (e.g. np.int64(7).tolist() → 7), and `isinstance(...,
+        # (str, bytes, bool, int, float))` is unreliable across numpy
+        # versions (e.g. np.int64 IS NOT a Python int subclass in
+        # numpy>=2). The safe pattern is: call tolist() unconditionally
+        # and inspect the result — JSON-encode iff it's a container,
+        # otherwise pass the native scalar through to pyarrow (which
+        # will cast it into the column's actual type, e.g. int64).
+        if hasattr(value, "tolist") and not isinstance(value, (str, bytes)):
+            try:
+                listed = value.tolist()
+            except Exception:
+                return str(value)
+            if isinstance(listed, (list, tuple, dict)):
+                try:
+                    return json.dumps(listed, default=str)
+                except Exception:
+                    return str(value)
+            return listed
+        return value
+
+    arrow_schema = iceberg_schema.as_arrow()
+    data_dict = {}
+    for encoded_name in arrow_schema.names:
+        decoded_name = decode_large_binary_field_name(encoded_name)
+        data_dict[encoded_name] = [_encode_cell(t[decoded_name]) for t in tuple_list]
+
+    return pa.Table.from_pydict(data_dict, schema=arrow_schema)
 
 
 def arrow_table_to_amber_tuples(
