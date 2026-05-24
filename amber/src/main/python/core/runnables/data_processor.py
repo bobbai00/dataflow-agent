@@ -128,6 +128,127 @@ def _format_datetime(value: Any) -> str:
     return s
 
 
+def _container_kind(value: Any) -> Optional[str]:
+    """
+    Classify a non-null cell as ``"list"`` (list / tuple / set / ndarray)
+    or ``"struct"`` (dict), or ``None`` if it isn't a container. Used by
+    `_compute_column_stats` to type LIST and STRUCT columns separately
+    from the generic str fallback. ndarrays are routed to ``"list"``
+    because that's how the engine's AttributeType.LIST marshaller
+    transports them (see `coerce_value_to_type`).
+    """
+    if isinstance(value, dict):
+        return "struct"
+    if isinstance(value, (list, tuple, set)):
+        return "list"
+    if hasattr(value, "tolist") and not isinstance(value, (str, bytes, bool, int, float)):
+        return "list"
+    return None
+
+
+def _is_container_column(non_null: pandas.Series) -> bool:
+    """
+    True iff a sample of the column's non-null cells are containers
+    (list / dict / tuple / set / ndarray). Sampled rather than scanned
+    because the cell-by-cell check on long columns is expensive — the
+    first few non-null values are enough to discriminate, since real
+    UDFs don't mix scalar and container cells in the same column.
+    """
+    sample = non_null.head(10)
+    if sample.empty:
+        return False
+    container_count = sum(1 for v in sample if _container_kind(v) is not None)
+    return container_count == len(sample)
+
+
+def _safe_len(value: Any) -> Optional[int]:
+    """
+    ``len(value)`` on a container, else ``None``. Used by the list/struct
+    branch of `_compute_column_stats` to compute items-per-cell shape
+    summaries. Falls through silently on cells with no ``__len__``.
+    """
+    try:
+        return len(value)
+    except Exception:
+        return None
+
+
+def _is_bytes_column(non_null: pandas.Series) -> bool:
+    """
+    True iff every sampled non-null cell is a ``bytes`` / ``bytearray``
+    payload. Used by the `(binary)` branch of `_compute_column_stats`
+    when a UDF returned raw bytes directly. Sampled rather than scanned
+    for symmetry with `_is_container_column` — real UDFs don't mix
+    scalar and bytes cells in the same column.
+    """
+    sample = non_null.head(10)
+    if sample.empty:
+        return False
+    return all(isinstance(v, (bytes, bytearray)) for v in sample)
+
+
+# Cell classes the stats branches above already handle: don't route them
+# into the (binary) class-name branch.
+_STATS_PRIMITIVE_TYPES = (
+    str,
+    int,
+    float,
+    bool,
+    type(None),
+    bytes,
+    bytearray,
+    list,
+    tuple,
+    set,
+    dict,
+)
+
+
+def _is_binary_class_column(non_null: pandas.Series) -> bool:
+    """
+    True iff every sampled non-null cell is an instance of a single
+    "non-primitive" Python class — i.e. an object that the
+    BINARY-pickle path would handle at cast_to_schema time. Used by
+    `(binary)` to surface the Python class name (shapely Polygon,
+    pandas Timestamp on object columns, etc.) BEFORE the cells are
+    actually converted to bytes. Without this we'd hit the generic
+    str fallback and emit a misleading `(str): distinct=N` line.
+
+    Pandas-known classes (``pandas.Timestamp``, ``numpy`` scalars) are
+    excluded because their stats already render correctly via the
+    numeric / datetime branches when the column has the appropriate
+    dtype. We only fire when the cells are genuinely third-party /
+    user-defined classes the pickled-object path would carry.
+    """
+    sample = non_null.head(10)
+    if sample.empty:
+        return False
+    first_type = type(sample.iloc[0])
+    if first_type in _STATS_PRIMITIVE_TYPES:
+        return False
+    # ndarrays are routed by _is_container_column; numpy scalars and
+    # pandas types render via the dtype-based branches.
+    mod = getattr(first_type, "__module__", "") or ""
+    if mod.startswith("numpy") or mod.startswith("pandas"):
+        return False
+    return all(type(v) is first_type for v in sample)
+
+
+def _embedded_class_name(value: Any) -> Optional[str]:
+    """
+    Cheap peek into a bytes payload for the embedded class name written
+    by `_encode_pickled_object` (see tuple.py). Returns ``None`` for
+    legacy ``pickle    `` payloads (no embedded name) and for raw-bytes
+    cells. Imported lazily to avoid a hard cycle between
+    `data_processor` and `models.tuple`.
+    """
+    try:
+        from core.models.tuple import pickled_object_class_name
+    except Exception:
+        return None
+    return pickled_object_class_name(value)
+
+
 class DataProcessor(Runnable, Stoppable):
     def __init__(self, context: Context):
         self._running = Event()
@@ -526,14 +647,106 @@ class DataProcessor(Runnable, Stoppable):
                     parts.append(f"max={_format_datetime(non_null.max())}")
                 except Exception:
                     pass
+        elif (
+            not non_null.empty
+            and _is_container_column(non_null)
+        ):
+            # Container-cell columns (list / tuple / set / dict / ndarray)
+            # type as their own kind. Cardinality and top_N frequency
+            # analysis don't make sense for these — `["red","blue"]` and
+            # `["blue","red"]` shouldn't be treated as a stable categorical
+            # label, and stringified containers blow the per-cell budget
+            # on any non-trivial dataset.
+            #
+            # For LIST-shaped cells (list / tuple / set / ndarray) we
+            # surface the per-cell element-count distribution
+            # (items_min / items_max / items_mean) — that's the one piece
+            # of shape information the agent typically needs to decide
+            # whether to explode the column or aggregate it.
+            #
+            # For STRUCT-shaped cells (dict) we emit ONLY `null=N`. Dict
+            # keys-per-cell is rarely a useful planning signal, and the
+            # stable key set across rows is what the agent actually wants
+            # — that lives downstream in the columns we surface via
+            # explode/normalize, not in a column-stats summary.
+            kind = _container_kind(non_null.iloc[0])
+            if kind == "list":
+                col_type = "list"
+                try:
+                    lengths = non_null.map(_safe_len).dropna()
+                    if not lengths.empty:
+                        parts.append(f"items_min={int(lengths.min())}")
+                        parts.append(f"items_max={int(lengths.max())}")
+                        mean = float(lengths.mean())
+                        parts.append(f"items_mean={_format_number(mean)}")
+                except Exception:
+                    pass
+            else:  # struct
+                col_type = "struct"
+        elif not non_null.empty and _is_bytes_column(non_null):
+            # Raw bytes columns (UDF returned bytes directly, or the
+            # cells already went through cast_to_schema and are pickled
+            # payloads). Two useful pieces of information: the SIZE
+            # distribution (size_min/max/mean) and the SOURCE TYPE if
+            # the cells carry the `pyobj@1\n` class-name header (cheap
+            # fixed-offset peek — no unpickling).
+            col_type = "binary"
+            try:
+                first_class = _embedded_class_name(non_null.iloc[0])
+                if first_class:
+                    parts.append(f"type={first_class}")
+            except Exception:
+                pass
+            try:
+                sizes = non_null.map(_safe_len).dropna()
+                if not sizes.empty:
+                    parts.append(f"size_min={int(sizes.min())}")
+                    parts.append(f"size_max={int(sizes.max())}")
+                    parts.append(f"size_mean={_format_number(float(sizes.mean()))}")
+            except Exception:
+                pass
+        elif not non_null.empty and _is_binary_class_column(non_null):
+            # Non-primitive Python objects (e.g. shapely Polygon cells
+            # arriving BEFORE cast_to_schema turns them into bytes).
+            # Stats fire on the pre-cast DataFrame, so the bytes path
+            # above wouldn't trigger here — but the agent still wants
+            # to see the Python type. Emit `(binary): null=N,
+            # type=<module>.<class>`. No size info: pickling every
+            # cell just for stats is too expensive on wide columns,
+            # and the per-cell rendering already carries it.
+            col_type = "binary"
+            try:
+                cls = type(non_null.iloc[0])
+                parts.append(f"type={cls.__module__}.{cls.__qualname__}")
+            except Exception:
+                pass
         else:
             col_type = "str"
-            distinct = int(non_null.nunique())
-            parts.append(f"distinct={distinct}")
+            # Cardinality via pandas' hash table — but the column may carry
+            # unhashable cells (numpy.ndarray, list, dict, set) when a UDF
+            # returns object-typed cells. `nunique()` then raises
+            # `TypeError: unhashable type: 'numpy.ndarray'` outside user
+            # code and torpedoes the entire stats-publishing chain. Cast
+            # to str first so every cell is hashable; the resulting string
+            # cardinality is what we already report for the str column
+            # type anyway (the top_5 branch below uses the same .astype(str)
+            # path). Fall back to a try/except symmetric with the numeric
+            # branch above in case stringification itself fails on an
+            # exotic cell type.
+            distinct: Optional[int] = None
+            try:
+                distinct = int(non_null.astype(str).nunique())
+                parts.append(f"distinct={distinct}")
+            except Exception:
+                pass
             # Only surface top_5 for low-cardinality string columns. The
             # cutoff (5) matches the head-size below; high-cardinality
             # columns (e.g. customer_id) get just null + distinct.
-            if not non_null.empty and 0 < distinct <= 5:
+            if (
+                distinct is not None
+                and not non_null.empty
+                and 0 < distinct <= 5
+            ):
                 try:
                     top = non_null.astype(str).value_counts().head(5)
                     inner = ", ".join(

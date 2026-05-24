@@ -1137,3 +1137,323 @@ class TestComputeColumnStatsTopN:
         assert "distinct=6" in line
         assert "top_5={" not in line
         assert "top_10={" not in line
+
+    # ── container-cell columns: type as (list) / (struct), shape stats ─
+
+    def test_ndarray_column_types_as_list_with_items_stats(self):
+        """
+        Regression: a real agent failure observed in production —
+        ``_compute_column_stats`` crashed with ``TypeError: unhashable
+        type: 'numpy.ndarray'`` because the original str-branch called
+        ``int(non_null.nunique())`` without try/except, and a UDF
+        returned an object-dtype column whose cells are numpy arrays.
+        Pin two behaviors at once: (a) no crash, (b) the column types as
+        ``(list)`` with items-per-cell shape stats — NOT ``(str)`` with
+        meaningless top_5 of stringified arrays. Top-N frequency on
+        container cells is misleading (``[a,b]`` and ``[b,a]`` would
+        register as different "categories") and the stringified keys
+        blow the per-cell budget on any non-trivial dataset.
+        """
+        col = _pd.Series(
+            [
+                _np.array(["Full Suppression", "Other"], dtype=object),
+                _np.array(["Full Suppression", "Other"], dtype=object),
+                _np.array(["Other"], dtype=object),
+            ],
+            dtype="object",
+        )
+        line = self._stats(col)  # must not raise
+        assert line.startswith("(list):"), line
+        # Element counts are 2, 2, 1 → min=1, max=2, mean=1.67.
+        assert "items_min=1" in line, line
+        assert "items_max=2" in line, line
+        assert "items_mean=" in line, line
+        # Crucially: no top_N frequency map and no `distinct=…` — the
+        # column is typed as list, not stringified-str.
+        assert "top_5={" not in line, line
+        assert "top_10={" not in line, line
+        assert "distinct=" not in line, line
+
+    def test_list_column_types_as_list(self):
+        """
+        Plain Python list cells get the same treatment as ndarrays:
+        ``(list)`` typing with items_min/max/mean — no top_N and no
+        distinct count.
+        """
+        col = _pd.Series(
+            [["a", "b"], ["a", "b"], ["c"]],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(list):"), line
+        assert "items_min=1" in line, line
+        assert "items_max=2" in line, line
+        assert "top_5={" not in line, line
+        assert "distinct=" not in line, line
+
+    def test_dict_column_types_as_struct_minimal_stats(self):
+        """
+        ``dict`` cells are STRUCT-shaped; type label is ``(struct)``.
+        Unlike LIST, STRUCT emits ONLY ``null=N`` — no items_min/max/mean,
+        no top_N, no distinct. Dict-keys-per-cell is rarely useful as a
+        planning signal; the stable key set lives downstream in the
+        columns surfaced via explode/normalize, not in a stats summary.
+        """
+        col = _pd.Series(
+            [{"k": 1, "v": 2}, {"k": 3}, {"k": 4, "v": 5, "w": 6}],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(struct):"), line
+        # Only null=N — nothing else.
+        assert "null=0" in line, line
+        # No item-shape stats — distinguishes STRUCT from LIST here.
+        assert "items_min=" not in line, line
+        assert "items_max=" not in line, line
+        assert "items_mean=" not in line, line
+        # No top_N or distinct either.
+        assert "top_5={" not in line, line
+        assert "top_10={" not in line, line
+        assert "distinct=" not in line, line
+        # The full line should be exactly the type label + null count.
+        assert line == "(struct): null=0", line
+
+    def test_struct_with_null_cells_reports_null_count(self):
+        """STRUCT branch must still surface null=N correctly."""
+        col = _pd.Series(
+            [{"k": 1}, None, {"k": 2}, None],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(struct):"), line
+        assert "null=2" in line, line
+
+    def test_struct_with_nested_dict_cells_does_not_recurse(self):
+        """
+        A dict whose values are themselves dicts (or lists) is still
+        typed as STRUCT — we don't try to summarize the inner shape.
+        Sample-based detection looks at the top-level cell type only.
+        """
+        col = _pd.Series(
+            [
+                {"outer": {"inner": 1}, "tags": ["a", "b"]},
+                {"outer": {"inner": 2}, "tags": ["c"]},
+            ],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line == "(struct): null=0", line
+
+    def test_struct_with_empty_dict_cells(self):
+        """Empty dicts count as STRUCT cells (not as null)."""
+        col = _pd.Series([{}, {}, {"k": 1}], dtype="object")
+        line = self._stats(col)
+        assert line == "(struct): null=0", line
+
+    def test_struct_column_all_nulls_falls_back_to_str(self):
+        """
+        An all-null object column has no non-null sample to inspect, so
+        ``_is_container_column`` can't classify it as a container. It
+        falls through to the str fallback (which is the right behavior:
+        we don't know what type a future cell will be).
+        """
+        col = _pd.Series([None, None, None], dtype="object")
+        line = self._stats(col)
+        assert line.startswith("(str):"), line
+        assert "null=3" in line, line
+
+    def test_tuple_column_types_as_list(self):
+        """Tuples count as list-shaped (no separate (tuple) label)."""
+        col = _pd.Series(
+            [("a", "b"), ("c",)],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(list):"), line
+        assert "items_min=1" in line, line
+        assert "items_max=2" in line, line
+
+    def test_mixed_container_column_does_not_route_to_list(self):
+        """
+        Defensive: a pathological column where some cells are scalar
+        (strings) and others are containers must NOT be misclassified as
+        (list). The sample check requires every sampled cell to be a
+        container; mixed columns fall through to the str fallback so
+        the engine still emits SOMETHING usable for the agent.
+        """
+        col = _pd.Series(
+            ["scalar", ["a", "b"], "other"],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(str):"), line
+
+    # ── (binary) branch: pickled-object columns surface the Python type ──
+
+    def test_binary_column_with_shapely_polygons_surfaces_type(self):
+        """
+        End-to-end: a column whose cells are pickled-object payloads
+        written by ``_encode_pickled_object`` (the BINARY-pickle write
+        path) must render as ``(binary): null=N, type=<Class>,
+        size_min/max/mean=…`` — the agent sees what kind of Python
+        object the column holds without the engine layer's `pickle`
+        terminology leaking through.
+        """
+        from shapely.geometry import Polygon
+
+        from core.models.tuple import _encode_pickled_object
+
+        encoded = [
+            _encode_pickled_object(Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])),
+            _encode_pickled_object(Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])),
+            _encode_pickled_object(Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])),
+        ]
+        col = _pd.Series(encoded, dtype="object")
+        line = self._stats(col)
+        assert line.startswith("(binary):"), line
+        assert "null=0" in line, line
+        assert "type=shapely.geometry.polygon.Polygon" in line, line
+        # Size shape must be present and self-consistent (size_mean is the
+        # numeric mean of size_min..size_max).
+        assert "size_min=" in line, line
+        assert "size_max=" in line, line
+        assert "size_mean=" in line, line
+        # No agent-facing leakage of "pickle" terminology.
+        assert "pickle" not in line.lower(), line
+        # No top_N / distinct decorations from the str branch.
+        assert "top_5=" not in line, line
+        assert "top_10=" not in line, line
+        assert "distinct=" not in line, line
+
+    def test_binary_column_with_raw_bytes_omits_type(self):
+        """
+        Raw bytes cells (no pickled-object marker) get the size stats
+        but no ``type=`` field — there is no Python class to surface.
+        """
+        col = _pd.Series(
+            [b"\x00\x01\x02", b"\x03\x04", b"\x05\x06\x07\x08"],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(binary):"), line
+        assert "null=0" in line, line
+        assert "type=" not in line, line
+        assert "size_min=2" in line, line
+        assert "size_max=4" in line, line
+        assert "size_mean=3" in line, line
+
+    def test_binary_column_with_legacy_pickle_marker_omits_type(self):
+        """
+        Legacy ``pickle    `` payloads carry no class-name header, so
+        ``type=`` must be silent (we don't unpickle just to discover
+        the type — too expensive on every cell).
+        """
+        import pickle
+
+        from shapely.geometry import Polygon
+
+        legacy_cells = [
+            b"pickle    " + pickle.dumps(Polygon([(0, 0), (1, 1), (2, 2)])),
+            b"pickle    " + pickle.dumps(Polygon([(3, 3), (4, 4), (5, 5)])),
+        ]
+        col = _pd.Series(legacy_cells, dtype="object")
+        line = self._stats(col)
+        assert line.startswith("(binary):"), line
+        assert "type=" not in line, line
+        assert "size_min=" in line, line
+        assert "size_max=" in line, line
+
+    def test_binary_column_with_null_cells_interleaved(self):
+        """`null=N` must be correct when binary cells are mixed with None."""
+        col = _pd.Series(
+            [b"\x00\x01", None, b"\x02\x03\x04", None],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(binary):"), line
+        assert "null=2" in line, line
+
+    def test_binary_column_all_null_falls_back_to_str(self):
+        """
+        Symmetric with the list/struct branch: an all-null object
+        column has no non-null sample to inspect, so we can't classify
+        it as binary. Falls through to (str) just like list/struct.
+        """
+        col = _pd.Series([None, None, None], dtype="object")
+        line = self._stats(col)
+        assert line.startswith("(str):"), line
+        assert "null=3" in line, line
+
+    def test_binary_class_branch_fires_on_pre_cast_shapely_polygons(self):
+        """
+        Critical: column-stats run on the DataFrame BEFORE
+        cast_to_schema converts Polygon cells to bytes. The bytes
+        branch can't fire here (cells are still Polygon objects), so
+        the `_is_binary_class_column` branch must catch them and emit
+        ``(binary): null=N, type=shapely.geometry.polygon.Polygon``.
+        Without this fix the column would type as `(str)` and the
+        agent would see a misleading top_5 of stringified polygons.
+        """
+        from shapely.geometry import Polygon
+
+        col = _pd.Series(
+            [
+                Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+                Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+                Polygon([(0, 0), (3, 0), (3, 3), (0, 3)]),
+            ],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(binary):"), line
+        assert "null=0" in line, line
+        assert "type=shapely.geometry.polygon.Polygon" in line, line
+        # No top_N, no distinct — and no "pickle" terminology.
+        assert "top_5=" not in line, line
+        assert "distinct=" not in line, line
+        assert "pickle" not in line.lower(), line
+
+    def test_binary_class_branch_does_not_fire_on_str_column(self):
+        """
+        The binary-class branch must NOT misclassify a plain string
+        column as `(binary)`. str cells are explicitly excluded from
+        ``_is_binary_class_column``'s primitive-type filter.
+        """
+        col = _pd.Series(["alpha", "beta", "gamma"], dtype="object")
+        line = self._stats(col)
+        assert line.startswith("(str):"), line
+
+    def test_binary_class_branch_skips_numpy_and_pandas_classes(self):
+        """
+        Numpy scalars and pandas classes have their own rendering paths
+        (numeric / datetime branches kick in once the column has the
+        right dtype). When they show up as object-dtype object cells,
+        we still don't want to route them through (binary) — that'd be
+        misleading. ``_is_binary_class_column`` excludes the numpy and
+        pandas namespaces explicitly.
+        """
+        # numpy scalar in an object column
+        col = _pd.Series([_np.int64(1), _np.int64(2), _np.int64(3)], dtype="object")
+        line = self._stats(col)
+        # Falls through to numeric/str — NOT (binary).
+        assert not line.startswith("(binary):"), line
+
+    def test_binary_class_branch_requires_homogeneous_type(self):
+        """
+        Mixed non-primitive classes (e.g. one Polygon and one Point)
+        in the same column must NOT collapse to a single `type=` —
+        ``_is_binary_class_column`` requires every sampled cell to be
+        the same class. Mixed columns fall through to the str branch.
+        """
+        from shapely.geometry import Polygon, Point
+
+        col = _pd.Series(
+            [
+                Polygon([(0, 0), (1, 0), (1, 1)]),
+                Point(0, 0),
+                Polygon([(0, 0), (2, 0), (2, 2)]),
+            ],
+            dtype="object",
+        )
+        line = self._stats(col)
+        assert line.startswith("(str):"), line
