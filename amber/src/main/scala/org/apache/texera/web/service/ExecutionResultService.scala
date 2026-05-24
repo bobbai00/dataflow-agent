@@ -69,12 +69,53 @@ object ExecutionResultService {
   private val binaryPreviewLeadingBits: Int = 10
   private val binaryPreviewTrailingBits: Int = 3
 
+  // Marker for the versioned pickled-Python-object payload format
+  // written by `tuple._encode_pickled_object`. Layout:
+  //   pyobj@1\n + <module.qualname>.encode("utf-8") + \n + pickle.dumps(value)
+  // Bumping `@1` requires an in-lockstep change on the Python side.
+  // We only need it for the class-name peek — the underlying pickle
+  // bytes themselves are never parsed here.
+  private val PyobjMarker: Array[Byte] = "pyobj@1\n".getBytes("UTF-8")
+  private val PyobjMaxClassNameBytes: Int = 256
+
   private def bytesToBinaryString(bytes: Array[Byte]): String =
     bytes
       .map(b =>
         String.format(s"%${BitsPerByte}s", Integer.toBinaryString(b & 0xff)).replace(' ', '0')
       )
       .mkString("")
+
+  /**
+    * Peek at the first ~264 bytes of a BINARY-column cell to recover the
+    * Python class name embedded by `tuple._encode_pickled_object`. Returns
+    * `Some(className)` only when the cell carries the `pyobj@1\n` marker
+    * AND the following bytes parse as `<class>\n` cleanly. Returns `None`
+    * for legacy `pickle    `-marked payloads (no class name was captured
+    * at write time) and for raw binary cells. Never throws — this is a
+    * presentation-layer convenience, so it must be silent on weird input.
+    */
+  private def pickledObjectClassName(bytes: Array[Byte]): Option[String] = {
+    if (bytes == null || bytes.length < PyobjMarker.length) return None
+    var i = 0
+    while (i < PyobjMarker.length) {
+      if (bytes(i) != PyobjMarker(i)) return None
+      i += 1
+    }
+    val start = PyobjMarker.length
+    val end = math.min(bytes.length, start + PyobjMaxClassNameBytes + 1)
+    var j = start
+    while (j < end) {
+      if (bytes(j) == '\n') {
+        return try {
+          Some(new String(bytes, start, j - start, "UTF-8"))
+        } catch {
+          case _: Throwable => None
+        }
+      }
+      j += 1
+    }
+    None
+  }
 
   /**
     * Converts a collection of Tuples to a list of JSON ObjectNodes.
@@ -109,23 +150,36 @@ object ExecutionResultService {
                       case byteArray: Array[Byte] =>
                         val totalSize = byteArray.length
                         val sizeFormatted = f"$totalSize%,d"
-                        val totalBits = totalSize * BitsPerByte
-                        val preview =
-                          if (totalBits <= binaryPreviewLeadingBits + binaryPreviewTrailingBits)
-                            bytesToBinaryString(byteArray)
-                          else {
-                            val leadingBytesNeeded =
-                              math.ceil(binaryPreviewLeadingBits.toDouble / BitsPerByte).toInt
-                            val trailingBytesNeeded =
-                              math.ceil(binaryPreviewTrailingBits.toDouble / BitsPerByte).toInt
-                            val leading = bytesToBinaryString(byteArray.take(leadingBytesNeeded))
-                              .take(binaryPreviewLeadingBits)
-                            val trailing = bytesToBinaryString(
-                              byteArray.takeRight(trailingBytesNeeded)
-                            ).takeRight(binaryPreviewTrailingBits)
-                            s"$leading...$trailing"
-                          }
-                        s"<binary $preview, size = $sizeFormatted bytes>"
+                        // When the cell was written by the BINARY-pickle
+                        // path with a class-name header (`pyobj@1\n`),
+                        // surface the Python class instead of the bit
+                        // preview — `<shapely.geometry.polygon.Polygon,
+                        // size = 16,071 bytes>` tells the agent the
+                        // column holds shapely geometries, not opaque
+                        // bytes. Legacy `pickle    `-marked payloads
+                        // and raw bytes fall back to the bit preview.
+                        pickledObjectClassName(byteArray) match {
+                          case Some(className) =>
+                            s"<$className, size = $sizeFormatted bytes>"
+                          case None =>
+                            val totalBits = totalSize * BitsPerByte
+                            val preview =
+                              if (totalBits <= binaryPreviewLeadingBits + binaryPreviewTrailingBits)
+                                bytesToBinaryString(byteArray)
+                              else {
+                                val leadingBytesNeeded =
+                                  math.ceil(binaryPreviewLeadingBits.toDouble / BitsPerByte).toInt
+                                val trailingBytesNeeded =
+                                  math.ceil(binaryPreviewTrailingBits.toDouble / BitsPerByte).toInt
+                                val leading = bytesToBinaryString(byteArray.take(leadingBytesNeeded))
+                                  .take(binaryPreviewLeadingBits)
+                                val trailing = bytesToBinaryString(
+                                  byteArray.takeRight(trailingBytesNeeded)
+                                ).takeRight(binaryPreviewTrailingBits)
+                                s"$leading...$trailing"
+                              }
+                            s"<binary $preview, size = $sizeFormatted bytes>"
+                        }
 
                       case _ =>
                         throw new RuntimeException(

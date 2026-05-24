@@ -97,6 +97,104 @@ class ExecutionResultServiceSpec extends AnyFlatSpec with Matchers {
     )
   }
 
+  it should "surface the Python class for pyobj@1-marked BINARY cells" in {
+    // Mirror of the on-disk format written by
+    // tuple._encode_pickled_object in the engine:
+    //   b"pyobj@1\n" + <module.qualname>.encode("utf-8") + b"\n" + pickle.bytes
+    // The renderer must show `<{className}, size = N bytes>` rather
+    // than the bit preview — no engine-level "pickle" terminology
+    // leaks through to the agent.
+    val className = "shapely.geometry.polygon.Polygon"
+    val marker = "pyobj@1\n".getBytes("UTF-8")
+    val classBytes = className.getBytes("UTF-8")
+    // Synthetic pickle payload (size only — content is opaque to the renderer)
+    val fakePickle = Array.tabulate[Byte](160)(_.toByte)
+    val cell: Array[Byte] = marker ++ classBytes ++ Array[Byte]('\n') ++ fakePickle
+
+    val schema = new Schema(List(new Attribute("geom", AttributeType.BINARY)))
+    val tuple = Tuple
+      .builder(schema)
+      .add("geom", AttributeType.BINARY, cell)
+      .build()
+
+    val rendered = ExecutionResultService
+      .convertTuplesToJson(List(tuple))
+      .head
+      .get("geom")
+      .asText()
+
+    rendered shouldBe s"<$className, size = ${cell.length} bytes>"
+    // Agent-facing string must not surface engine-internal terminology.
+    rendered.toLowerCase should not include "pickle"
+    rendered.toLowerCase should not include "pyobj"
+  }
+
+  it should "fall back to the bit preview for legacy `pickle    ` BINARY cells" in {
+    // The old 10-byte marker carries no class-name header — the renderer
+    // must NOT crash trying to parse one, and must NOT label the cell
+    // with a fake/garbage class. Behavior here: hit the standard bit
+    // preview, same as for an unmarked binary blob.
+    val legacy = "pickle    ".getBytes("UTF-8") ++ Array.tabulate[Byte](40)(_.toByte)
+    val schema = new Schema(List(new Attribute("geom", AttributeType.BINARY)))
+    val tuple = Tuple
+      .builder(schema)
+      .add("geom", AttributeType.BINARY, legacy)
+      .build()
+
+    val rendered = ExecutionResultService
+      .convertTuplesToJson(List(tuple))
+      .head
+      .get("geom")
+      .asText()
+
+    rendered should (
+      startWith("<binary") and
+        include("...") and
+        include(s"size = ${legacy.length} bytes")
+    )
+  }
+
+  it should "fall back to the bit preview for raw bytes with no marker" in {
+    // Bytes that just happen to start with "py" but are not pyobj@1.
+    val raw = "pyramid".getBytes("UTF-8") ++ Array.tabulate[Byte](20)(_.toByte)
+    val schema = new Schema(List(new Attribute("blob", AttributeType.BINARY)))
+    val tuple = Tuple
+      .builder(schema)
+      .add("blob", AttributeType.BINARY, raw)
+      .build()
+
+    val rendered = ExecutionResultService
+      .convertTuplesToJson(List(tuple))
+      .head
+      .get("blob")
+      .asText()
+
+    rendered should startWith("<binary ")
+    rendered should include(s"size = ${raw.length} bytes")
+  }
+
+  it should "tolerate pyobj@1 marker followed by a malformed (no-newline) header" in {
+    // Cell starts with the pyobj@1 marker but the embedded class name
+    // never terminates with a newline. The renderer must NOT crash and
+    // must NOT invent a class — fall through to the bit preview.
+    val malformed = "pyobj@1\n".getBytes("UTF-8") ++
+      Array.fill[Byte](300)('A')  // 300 'A's, no '\n'
+    val schema = new Schema(List(new Attribute("geom", AttributeType.BINARY)))
+    val tuple = Tuple
+      .builder(schema)
+      .add("geom", AttributeType.BINARY, malformed)
+      .build()
+
+    val rendered = ExecutionResultService
+      .convertTuplesToJson(List(tuple))
+      .head
+      .get("geom")
+      .asText()
+
+    rendered should startWith("<binary ")
+    rendered should include(s"size = ${malformed.length} bytes")
+  }
+
   it should "handle empty collections of tuples" in {
     val result = ExecutionResultService.convertTuplesToJson(List())
     result shouldBe empty
