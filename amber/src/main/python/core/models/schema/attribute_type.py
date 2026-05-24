@@ -192,11 +192,38 @@ def coerce_value_to_type(value, target_type: "AttributeType"):
             return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
         if isinstance(value, (int, float)):
             return datetime.datetime.fromtimestamp(value)
+        # datetime.date (and its non-datetime subclasses) lift to
+        # datetime.datetime at midnight. The engine's TIMESTAMP attribute
+        # is datetime.datetime, and datetime.datetime is a subclass of
+        # datetime.date — but not the other way round, so a raw
+        # `datetime.date` cell fails the post-cast `validate_schema`
+        # isinstance check. Promoting here is the canonical fix:
+        # `datetime.date(2024, 1, 15)` → `datetime.datetime(2024, 1, 15)`.
+        # Schema inference (data_processor._infer_type_from_object_column)
+        # already types a "date" object-column as TIMESTAMP, so without
+        # this branch the agent's UDF gets a hard `TypeError: Unmatched
+        # type for field ..., expected AttributeType.TIMESTAMP, got
+        # 2024-01-15 (<class 'datetime.date'>)` outside user code.
+        if isinstance(value, datetime.date) and not isinstance(
+            value, datetime.datetime
+        ):
+            return datetime.datetime(value.year, value.month, value.day)
         return value
 
     if target_type == AttributeType.LIST:
         if isinstance(value, str):
             return json.loads(value)
+        # NumPy arrays surface through pandas object-columns as ndarrays;
+        # `list(ndarray)` yields a list of `numpy.int64` / `numpy.float64`
+        # scalars which validate fine here but break downstream JSON
+        # encoding (TO_ARROW_MAPPING ships LIST as `pa.string()` of JSON).
+        # `.tolist()` recurses into the array and emits native Python
+        # ints/floats — JSON-safe AND validate-safe.
+        if hasattr(value, "tolist") and not isinstance(value, (list, tuple)):
+            try:
+                return list(value.tolist())
+            except Exception:
+                pass
         return list(value)
 
     if target_type == AttributeType.STRUCT:

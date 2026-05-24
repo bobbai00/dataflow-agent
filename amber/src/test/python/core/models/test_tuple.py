@@ -137,6 +137,125 @@ class TestTuple:
         assert isinstance(tuple_["scores"], bytes)
         assert tuple_["height"] is None
 
+    def test_finalize_promotes_datetime_date_to_datetime(self):
+        """
+        Regression: a TIMESTAMP-typed column receiving a raw
+        ``datetime.date`` cell used to crash in ``validate_schema`` with
+        ``TypeError: Unmatched type for field ..., expected
+        AttributeType.TIMESTAMP, got 2024-01-15 (<class 'datetime.date'>)``.
+        ``coerce_value_to_type``'s TIMESTAMP branch now promotes
+        ``datetime.date`` (a non-datetime subclass) to
+        ``datetime.datetime`` at midnight, which is what the marshaller
+        already supports natively.
+        """
+        tuple_ = Tuple(
+            {
+                "event_date": datetime.date(2024, 1, 15),
+                "label": "alpha",
+            }
+        )
+        schema = Schema(
+            raw_schema={"event_date": "TIMESTAMP", "label": "STRING"}
+        )
+        tuple_.finalize(schema)
+        assert isinstance(tuple_["event_date"], datetime.datetime)
+        assert tuple_["event_date"] == datetime.datetime(2024, 1, 15)
+        # datetime.datetime itself must still pass through unchanged —
+        # the new branch only kicks in for the non-datetime subclass.
+        already_dt = datetime.datetime(2024, 2, 1, 12, 30)
+        t2 = Tuple({"event_date": already_dt, "label": "beta"})
+        t2.finalize(
+            Schema(raw_schema={"event_date": "TIMESTAMP", "label": "STRING"})
+        )
+        assert t2["event_date"] is already_dt
+
+    def test_finalize_converts_ndarray_to_native_list(self):
+        """
+        Regression: a LIST-typed column receiving a ``numpy.ndarray``
+        cell used to validate fine but kept the ndarray's element dtype
+        (``numpy.int64`` / ``numpy.float64``), which broke the downstream
+        JSON-string Arrow encoding because numpy scalars are not
+        ``json.dumps``-serializable. ``coerce_value_to_type``'s LIST
+        branch now routes ndarrays through ``.tolist()`` so the resulting
+        list contains native Python scalars.
+        """
+        tuple_ = Tuple({"vec": np.array([1, 2, 3], dtype=np.int64)})
+        tuple_.finalize(Schema(raw_schema={"vec": "LIST"}))
+        result = tuple_["vec"]
+        assert isinstance(result, list)
+        assert result == [1, 2, 3]
+        # Elements are native ints, not numpy scalars — this is what
+        # makes the JSON encoding downstream actually work.
+        assert all(type(v) is int for v in result), [type(v) for v in result]
+
+    def test_finalize_accepts_pandas_timestamp_for_timestamp_column(self):
+        """
+        Regression: pandas.Timestamp is a subclass of datetime.datetime, so
+        the existing ``isinstance(value, datetime.datetime)`` check in
+        ``validate_schema`` already accepts it — but the marshaller-boundary
+        contract is important enough to pin down explicitly. Without this
+        guard a future "tighten the check to type(value) is datetime" would
+        silently break every pandas-derived TIMESTAMP column in the wild.
+        """
+        ts = pandas.Timestamp("2024-01-15 12:34:56")
+        tuple_ = Tuple({"event_date": ts, "label": "alpha"})
+        tuple_.finalize(
+            Schema(raw_schema={"event_date": "TIMESTAMP", "label": "STRING"})
+        )
+        # pd.Timestamp passes through unchanged (it IS a datetime.datetime,
+        # and the coerce fast-path returns it as-is for the TIMESTAMP target).
+        assert tuple_["event_date"] is ts
+        assert isinstance(tuple_["event_date"], datetime.datetime)
+
+    def test_finalize_accepts_plain_list_cell_in_list_column(self):
+        """
+        Regression: a plain Python ``list`` cell arriving at a LIST-typed
+        column must be passed through verbatim by ``coerce_value_to_type``'s
+        fast-path (``isinstance(value, list)`` matches the expected
+        TO_PYOBJECT_MAPPING entry). The BF analysis flagged a
+        ``KeyError: <AttributeType.LIST: 9>`` failure mode that lives
+        elsewhere in the stack; this test pins down the contract at the
+        marshaller boundary so a future regression there is surfaced
+        immediately rather than via a downstream Arrow-encode crash.
+        """
+        tuple_ = Tuple({"tags": ["red", "blue", "green"]})
+        tuple_.finalize(Schema(raw_schema={"tags": "LIST"}))
+        assert tuple_["tags"] == ["red", "blue", "green"]
+        assert type(tuple_["tags"]) is list
+
+    def test_finalize_accepts_dict_cell_in_struct_column(self):
+        """
+        Companion to the LIST regression above. A ``dict`` cell arriving at
+        a STRUCT-typed column must be passed through verbatim. STRUCT and
+        LIST share the same "JSON-encoded over Arrow as pa.string()"
+        transport, so the same kind of "missing handler" regression would
+        affect them symmetrically.
+        """
+        tuple_ = Tuple({"meta": {"count": 3, "kind": "alpha"}})
+        tuple_.finalize(Schema(raw_schema={"meta": "STRUCT"}))
+        assert tuple_["meta"] == {"count": 3, "kind": "alpha"}
+        assert type(tuple_["meta"]) is dict
+
+    def test_finalize_stringifies_ndarray_in_string_column(self):
+        """
+        Regression: a numpy.ndarray cell arriving at a STRING-typed column
+        must be coerced to a string via ``coerce_value_to_type``'s STRING
+        branch (which falls through ``isinstance(value, (list, dict))``
+        and lands on ``str(value)``). Without this the marshaller would
+        crash at ``validate_schema`` with ``TypeError: Unmatched type for
+        field ..., expected AttributeType.STRING, got <ndarray>``. The
+        STRING target is the agent's typical fallback when it stringifies
+        list/array cells to avoid the LIST-column path — pinning the
+        behavior here keeps that workaround viable.
+        """
+        tuple_ = Tuple({"vec": np.array([0.1, 0.2, 0.3])})
+        tuple_.finalize(Schema(raw_schema={"vec": "STRING"}))
+        assert type(tuple_["vec"]) is str
+        # Don't pin the exact format (numpy's repr changes between
+        # versions); only that the digits survive.
+        for needle in ("0.1", "0.2", "0.3"):
+            assert needle in tuple_["vec"], tuple_["vec"]
+
     def test_hash(self):
         schema = Schema(
             raw_schema={
