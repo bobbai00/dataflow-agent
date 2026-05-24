@@ -76,6 +76,10 @@ async function runSpec(
 ): Promise<SpecRunResult> {
   const wfName = `${spec.name} [agent-e2e ${ctx.runId}]`;
   log(`▶ ${spec.name}`);
+  if (spec.setup) {
+    log(`  running spec setup hook`);
+    await spec.setup();
+  }
   log(`  creating workflow "${wfName}"`);
   const wid = await createWorkflow(ctx.token, wfName, EMPTY_WORKFLOW, spec.description);
 
