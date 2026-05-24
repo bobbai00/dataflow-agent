@@ -39,6 +39,112 @@ from .schema.field import Field
 from .schema.schema import Schema
 
 
+# ----------------------------------------------------------------------
+# Pickled-Python-object payload format
+# ----------------------------------------------------------------------
+#
+# BINARY columns can carry pickled Python objects (e.g. shapely.Polygon
+# from a geopandas UDF). Two on-disk formats exist:
+#
+#  - LEGACY (`b"pickle    "` — 10-byte marker, no class name): the
+#    original format. Pickle bytes start at offset 10.
+#
+#  - VERSIONED (`b"pyobj@1\n"` — 8-byte marker, class name embedded):
+#    the new format introduced so the rendering layer can show the
+#    Python type without parsing pickle opcodes. Layout:
+#
+#        b"pyobj@1\n" + <module>.<qualname>.encode("utf-8") + b"\n"
+#                     + pickle.dumps(value)
+#
+#    `@1` is the format version — bump it for any future change to the
+#    embedded-prefix layout. Class names containing a newline or
+#    exceeding `_PYOBJ_MAX_CLASS_NAME_BYTES` fall back to LEGACY so the
+#    parse is robust.
+#
+# Read-side (`field_accessor`) recognizes both formats. Stats and
+# rendering layers can peek the embedded class name via
+# `pickled_object_class_name(...)` WITHOUT unpickling — safe to call
+# on every cell during column-stats publishing.
+_PYOBJ_MARKER = b"pyobj@1\n"
+_PYOBJ_MAX_CLASS_NAME_BYTES = 256
+_LEGACY_PICKLE_MARKER = b"pickle    "
+_LEGACY_PICKLE_PREFIX = b"pickle"
+
+
+def _encode_pickled_object(value: Any) -> bytes:
+    """
+    Pickle `value` with an embedded class-name header so downstream
+    renderers can identify the Python type without unpickling. Falls
+    back to the legacy 10-byte marker when the class name doesn't
+    cleanly fit (extremely long qualname or contains a newline).
+    """
+    try:
+        cls = type(value)
+        cls_name = f"{cls.__module__}.{cls.__qualname__}"
+        cls_bytes = cls_name.encode("utf-8")
+        if len(cls_bytes) > _PYOBJ_MAX_CLASS_NAME_BYTES or b"\n" in cls_bytes:
+            return _LEGACY_PICKLE_MARKER + pickle.dumps(value)
+        return _PYOBJ_MARKER + cls_bytes + b"\n" + pickle.dumps(value)
+    except Exception:
+        # Safety net: any introspection failure routes to the legacy
+        # format. The object still round-trips; we just can't surface
+        # its type to the agent layer.
+        return _LEGACY_PICKLE_MARKER + pickle.dumps(value)
+
+
+def _decode_pickled_object(value: bytes) -> Any:
+    """
+    Recover a pickled Python object from either on-disk format. Returns
+    the unpickled value. Caller must have already verified the marker
+    via `is_pickled_object_payload`.
+    """
+    if value[: len(_PYOBJ_MARKER)] == _PYOBJ_MARKER:
+        start = len(_PYOBJ_MARKER)
+        nl = value.find(b"\n", start, start + _PYOBJ_MAX_CLASS_NAME_BYTES + 1)
+        if nl < 0:
+            # Malformed header — try pickling from right after the marker.
+            return pickle.loads(value[start:])
+        return pickle.loads(value[nl + 1:])
+    return pickle.loads(value[len(_LEGACY_PICKLE_MARKER):])
+
+
+def is_pickled_object_payload(value: Any) -> bool:
+    """
+    True iff `value` is a bytes-like payload that begins with one of the
+    pickled-object markers. Cheap O(len(marker)) check — safe to call on
+    every cell.
+    """
+    if not isinstance(value, (bytes, bytearray, memoryview)):
+        return False
+    head = bytes(value)
+    return (
+        head[: len(_PYOBJ_MARKER)] == _PYOBJ_MARKER
+        or head[: len(_LEGACY_PICKLE_PREFIX)] == _LEGACY_PICKLE_PREFIX
+    )
+
+
+def pickled_object_class_name(value: Any) -> typing.Optional[str]:
+    """
+    Peek at the class name embedded in a versioned pickled-object
+    payload. Returns ``None`` for legacy-format payloads (no class
+    name was captured at write time) and for non-pickle bytes. Does
+    NOT unpickle — safe to call on every cell during stats publishing.
+    """
+    if not isinstance(value, (bytes, bytearray, memoryview)):
+        return None
+    head = bytes(value)
+    if head[: len(_PYOBJ_MARKER)] != _PYOBJ_MARKER:
+        return None
+    start = len(_PYOBJ_MARKER)
+    nl = head.find(b"\n", start, start + _PYOBJ_MAX_CLASS_NAME_BYTES + 1)
+    if nl < 0:
+        return None
+    try:
+        return head[start:nl].decode("utf-8")
+    except Exception:
+        return None
+
+
 @runtime_checkable
 class TupleLike(Protocol):
     def __getitem__(self, item: typing.Union[str, int]) -> Field: ...
@@ -93,13 +199,15 @@ class ArrowTableTupleProvider:
             field_type = self._table.schema.field(field_name).type
             field_metadata = self._table.schema.field(field_name).metadata
 
-            # for binary types, convert pickled objects back.
+            # for binary types, convert pickled objects back. Both the
+            # legacy `pickle    ` 10-byte marker and the newer `pyobj@1\n`
+            # versioned marker round-trip through `_decode_pickled_object`.
             if (
                 field_type == pyarrow.binary()
                 and value is not None
-                and value[:6] == b"pickle"
+                and is_pickled_object_payload(value)
             ):
-                value = pickle.loads(value[10:])
+                value = _decode_pickled_object(value)
 
             # Convert URI string to largebinary for LARGE_BINARY types
             # Metadata is set by Scala ArrowUtils or Python iceberg_utils
@@ -349,16 +457,18 @@ class Tuple:
 
                 field_type = schema.get_attr_type(field_name)
 
-                # BINARY's legacy contract: non-bytes values are pickled with
-                # a "pickle    " marker so downstream readers can recover the
-                # original Python object. Routing them through
-                # coerce_value_to_type would lossy-cast (e.g. a list of ints
-                # via `bytes(list)` becomes an opaque byte string with no way
-                # to reconstruct the list), so handle BINARY here before the
-                # generic coercion path. Bytes values pass through unchanged.
+                # BINARY's pickled-object contract: non-bytes values get
+                # pickled with an embedded class-name header so the
+                # rendering layer can show the Python type without
+                # parsing pickle opcodes. Routing through
+                # coerce_value_to_type would lossy-cast (e.g. a list of
+                # ints via `bytes(list)` becomes an opaque byte string
+                # with no way to reconstruct the list), so handle BINARY
+                # here before the generic coercion path. Bytes values
+                # pass through unchanged.
                 if field_type == AttributeType.BINARY:
                     if not isinstance(field_value, bytes):
-                        self[field_name] = b"pickle    " + pickle.dumps(field_value)
+                        self[field_name] = _encode_pickled_object(field_value)
                     continue
 
                 coerced = coerce_value_to_type(field_value, field_type)

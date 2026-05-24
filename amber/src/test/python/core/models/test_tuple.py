@@ -256,6 +256,93 @@ class TestTuple:
         for needle in ("0.1", "0.2", "0.3"):
             assert needle in tuple_["vec"], tuple_["vec"]
 
+    def test_finalize_binary_with_python_object_uses_versioned_marker(self):
+        """
+        Regression: cast_to_schema on a BINARY-typed column whose cell
+        is a real Python object (here a shapely Polygon) writes the
+        new ``pyobj@1\\n<class>\\n<pickle>`` format. The class name is
+        recoverable via the cheap header peek — no unpickling needed.
+        """
+        from shapely.geometry import Polygon
+
+        from core.models.tuple import (
+            is_pickled_object_payload,
+            pickled_object_class_name,
+        )
+
+        poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        t = Tuple({"state": "AL", "geometry": poly})
+        t.finalize(Schema(raw_schema={"state": "STRING", "geometry": "BINARY"}))
+        cell = t["geometry"]
+        assert isinstance(cell, bytes)
+        assert cell[:8] == b"pyobj@1\n"
+        assert is_pickled_object_payload(cell)
+        assert pickled_object_class_name(cell) == "shapely.geometry.polygon.Polygon"
+
+    def test_finalize_binary_with_plain_bytes_passes_through(self):
+        """Raw bytes cells in a BINARY column must NOT be re-pickled."""
+        raw = b"\x00\x01\x02\x03"
+        t = Tuple({"blob": raw})
+        t.finalize(Schema(raw_schema={"blob": "BINARY"}))
+        assert t["blob"] == raw
+
+    def test_arrow_round_trip_recovers_polygon_from_new_format(self):
+        """
+        Full round-trip: write a Polygon through `cast_to_schema`, build
+        the corresponding Arrow table, read it back via the Tuple lazy
+        accessor — must recover an EQUAL Polygon. Exercises the new
+        ``pyobj@1`` decode path on the read side.
+        """
+        from shapely.geometry import Polygon
+
+        poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        t = Tuple({"state": "AL", "geometry": poly})
+        t.finalize(Schema(raw_schema={"state": "STRING", "geometry": "BINARY"}))
+
+        arrow_schema = pyarrow.schema(
+            [
+                pyarrow.field("state", pyarrow.string()),
+                pyarrow.field("geometry", pyarrow.binary()),
+            ]
+        )
+        table = pyarrow.Table.from_pydict(
+            {"state": [t["state"]], "geometry": [t["geometry"]]},
+            schema=arrow_schema,
+        )
+
+        provider = ArrowTableTupleProvider(table)
+        accessors = list(provider)
+        assert len(accessors) == 1
+        accessor = accessors[0]
+        recovered = accessor("geometry")
+        assert type(recovered).__name__ == "Polygon"
+        assert recovered.equals(poly)
+
+    def test_arrow_round_trip_recovers_legacy_pickle_payload(self):
+        """
+        The legacy ``pickle    `` (10-byte marker) format is still in
+        any existing on-disk data and must decode correctly. We build a
+        synthetic legacy payload by hand so this guard fires even after
+        the write side has fully migrated to ``pyobj@1``.
+        """
+        import pickle
+
+        from shapely.geometry import Polygon
+
+        poly = Polygon([(2, 2), (3, 3), (4, 4), (5, 5)])
+        legacy_cell = b"pickle    " + pickle.dumps(poly)
+
+        arrow_schema = pyarrow.schema(
+            [pyarrow.field("geometry", pyarrow.binary())]
+        )
+        table = pyarrow.Table.from_pydict(
+            {"geometry": [legacy_cell]}, schema=arrow_schema
+        )
+        accessor = list(ArrowTableTupleProvider(table))[0]
+        recovered = accessor("geometry")
+        assert type(recovered).__name__ == "Polygon"
+        assert recovered.equals(poly)
+
     def test_hash(self):
         schema = Schema(
             raw_schema={
