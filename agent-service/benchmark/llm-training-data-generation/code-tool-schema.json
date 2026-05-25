@@ -1,0 +1,52 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "createOrModifyOperator",
+        "description": "Add or modify a Python function as an operator in the dataflow.\n- If operatorId does NOT exist: creates a new operator\n- If operatorId exists: modifies the existing operator (must keep same type)\n\nRULES:\n1. operatorId MUST be a camelCase Python identifier — start with a lowercase letter,\n   contain only letters and digits, NO underscores and NO hyphens.\n   Example: \"lowHumidityFilter\" — NOT \"low_humidity_filter\", \"LowHumidityFilter\", or \"low-humidity-filter\".\n   (The Texera runtime rejects underscores in operator IDs because they collide with the VFS URI delimiter.)\n2. Function name MUST be exactly \"load\" or \"process\"\n3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.\n   Because every operator id is camelCase, the matching def-process parameter is also camelCase.\n\n## def load() -> pd.DataFrame\nLoad data from files. No input parameters. File I/O allowed.\n\nExample: operatorId=\"customers\"\n  def load() -> pd.DataFrame:\n      return pd.read_csv('/data/customers.csv')\n\n## def process(opId1, opId2, ...) -> pd.DataFrame\nTransform input data. Each parameter references an existing operator id. Links between operators will be auto-created.\n\nExample: operatorId=\"filteredCustomers\" (requires \"customers\" to exist)\n  def process(customers) -> pd.DataFrame:\n      return customers[customers['age'] > 18]\n  # Creates link: customers-->filteredCustomers",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operatorId": {
+              "type": "string",
+              "description": "Unique operator name (valid Python variable). Other operators reference this as input parameter."
+            },
+            "code": {
+              "type": "string",
+              "description": "Python function: def load() or def process(...)"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded."
+            }
+          },
+          "required": [
+            "operatorId",
+            "code",
+            "summary"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "deleteOperator",
+        "description": "Delete an operator from the workflow. This also deletes all connected links.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "operatorId": {
+              "type": "string",
+              "description": "ID of the operator to delete"
+            }
+          },
+          "required": [
+            "operatorId"
+          ]
+        }
+      }
+    }
+  ]
+}

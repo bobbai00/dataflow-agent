@@ -24,6 +24,14 @@
 # 3. Start litellm by:
 #    litellm --config bin/litellm-config.yaml
 # By default, litellm is running on http://0.0.0.0:4000
+
+# Verbose logging: logs the full outgoing request body (incl. reasoning_effort
+# in extra_body) and the response usage (incl. completion_tokens_details.
+# reasoning_tokens). Used to verify that gpt-5-mini-medium's reasoning_effort
+# actually reaches the OpenAI API. Set back to false once diagnosis is done.
+litellm_settings:
+  set_verbose: true
+
 model_list:
   - model_name: claude-haiku-4.5
     litellm_params:
@@ -33,6 +41,12 @@ model_list:
     litellm_params:
       model: gpt-5-mini-2025-08-07
       api_key: "os.environ/OPENAI_API_KEY"
+  - model_name: gpt-5-mini-medium
+    litellm_params:
+      model: gpt-5-mini-2025-08-07
+      api_key: "os.environ/OPENAI_API_KEY"
+      extra_body:
+        reasoning_effort: medium
   - model_name: gpt-5.2
     litellm_params:
       model: gpt-5.2
