@@ -220,6 +220,11 @@ export class JointUIService {
   private static readonly DESC_TEXT_WIDTH =
     JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.ICON_SECTION_WIDTH - JointUIService.TEXT_SECTION_PADDING * 2;
   private static readonly DESC_TEXT_HEIGHT = JointUIService.DEFAULT_OPERATOR_HEIGHT - 16;
+  // Font sizes for the in-box labels. Kept here (not inline) so the rendered
+  // size and the size `breakText` measures with stay in sync — a mismatch
+  // makes wrapping/ellipsis disagree with what's actually drawn.
+  private static readonly DESC_FONT_SIZE = 16; // custom display name / description
+  private static readonly ID_FONT_SIZE = 16; // operator id label above the box
   public static readonly DEFAULT_GROUP_MARGIN = 50;
   public static readonly DEFAULT_GROUP_MARGIN_BOTTOM = 40;
   public static readonly DEFAULT_COMMENT_WIDTH = 32;
@@ -380,6 +385,10 @@ export class JointUIService {
 
         const labelText = count.toLocaleString();
         element.portProp(portId, "attrs/.port-label/text", labelText);
+        // Reveal the label now that it carries the tuple count. The port name
+        // stays hidden by default (see getCustomPortStyleAttrs); only the
+        // execution count is shown.
+        element.portProp(portId, "attrs/.port-label/visibility", "visible");
       }
     });
 
@@ -401,6 +410,8 @@ export class JointUIService {
         const labelText = count.toLocaleString();
 
         element.portProp(portId, "attrs/.port-label/text", labelText);
+        // Reveal the label now that it carries the tuple count (name stays hidden).
+        element.portProp(portId, "attrs/.port-label/visibility", "visible");
       }
     });
     this.changeOperatorState(jointPaper, operatorID, statistics.operatorState);
@@ -551,7 +562,7 @@ export class JointUIService {
       return joint.util.breakText(
         text,
         { width: JointUIService.DESC_TEXT_WIDTH, height: JointUIService.DESC_TEXT_HEIGHT },
-        { "font-size": "11px" },
+        { "font-size": `${JointUIService.DESC_FONT_SIZE}px` },
         { ellipsis: true }
       );
     } catch {
@@ -724,9 +735,9 @@ export class JointUIService {
         stroke: "none",
       },
       ".port-label": {
-        // Hide all port labels (e.g. "input-0", "output-1"). The labels are
-        // kept in the markup so port-label text can still be updated, but they
-        // are never displayed.
+        // Hide the port name by default (e.g. "input-0", "output-1"). The label
+        // is revealed only during execution, when changeOperatorStatistics
+        // rewrites its text to the tuple count and flips visibility to visible.
         visibility: "hidden",
         event: "input-label:evt",
         dblclick: "input-label:dbclick",
@@ -919,7 +930,7 @@ export class JointUIService {
       ".texera-operator-name": {
         text: JointUIService.wrapOperatorDisplayName(operatorDisplayName),
         fill: "#333333",
-        "font-size": "11px",
+        "font-size": `${JointUIService.DESC_FONT_SIZE}px`,
         ref: "rect.body",
         "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
         "ref-y": 0.5,
@@ -930,9 +941,13 @@ export class JointUIService {
       // Operator ID, shown in small grey text just above the box (replaces the
       // operator type that used to live here, keeping the same style).
       ".texera-operator-friendly-name": {
-        text: JointUIService.truncateToWidth(operator.operatorID, JointUIService.DEFAULT_OPERATOR_WIDTH, "10px"),
+        text: JointUIService.truncateToWidth(
+          operator.operatorID,
+          JointUIService.DEFAULT_OPERATOR_WIDTH,
+          `${JointUIService.ID_FONT_SIZE}px`
+        ),
         fill: "#888888",
-        "font-size": "10px",
+        "font-size": `${JointUIService.ID_FONT_SIZE}px`,
         "ref-x": 0.5,
         "ref-y": -12,
         ref: "rect.body",

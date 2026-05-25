@@ -134,67 +134,36 @@
           class="tree-canvas"
           [style.width.px]="treeCanvasWidth"
           [style.height.px]="treeHeight">
-          <div class="time-axis">
-            <div
-              class="time-axis-line"
-              [style.height.px]="treeHeight"></div>
-            <div
-              *ngFor="let tn of timeAxisNodes"
-              class="time-axis-node"
-              [style.top.px]="tn.y - 8">
-              <i
-                *ngIf="tn.actionType === 'user_request'; else agentIcon"
-                nz-icon
-                nzType="user"
-                nzTheme="outline"
-                class="time-axis-icon user-icon"
-                nz-tooltip
-                nzTooltipTitle="User"></i>
-              <ng-template #agentIcon>
-                <i
-                  nz-icon
-                  nzType="robot"
-                  nzTheme="outline"
-                  class="time-axis-icon agent-icon"
-                  nz-tooltip
-                  [nzTooltipTitle]="tn.agentName || 'Agent'"></i>
-              </ng-template>
-              <span class="time-axis-label">{{ tn.timeLabel }}</span>
-            </div>
-          </div>
           <svg
             class="tree-edges"
             [attr.width]="treeCanvasWidth"
             [attr.height]="treeHeight">
             <path
-              *ngFor="let edge of treeEdges"
+              *ngFor="let edge of snapshotEdges"
               [attr.d]="edge.path"
-              [class.on-path]="edge.isOnHeadPath"
-              [class.off-path]="!edge.isOnHeadPath"
+              [class.on-path]="edge.isOnActivePath"
+              [class.off-path]="!edge.isOnActivePath"
               class="tree-edge" />
           </svg>
+          <!-- Snapshot tree node: shows the snapshot id. All nodes share one
+               colour; the active snapshot (currently rendered on the canvas)
+               gets a distinct fill + dashed outline. Clicking navigates to the
+               ReAct steps that produced the snapshot. -->
           <div
-            *ngFor="let node of timelineNodes"
-            class="tree-node"
-            [class.is-head]="node.isHead"
-            [class.on-path]="node.isOnHeadPath"
-            [class.off-path]="!node.isOnHeadPath"
-            [class.user-request]="node.stepType === 'user' && node.messageSource !== 'feedback'"
-            [class.user-feedback]="node.stepType === 'user' && node.messageSource === 'feedback'"
-            [class.agent-response]="node.stepType === 'agent' && node.lines[0] === 'Task Done'"
-            [class.initial]="node.stepType === 'initial'"
+            *ngFor="let node of snapshotNodes"
+            class="snapshot-node"
+            [class.is-active]="node.isActive"
+            [class.on-path]="node.isOnActivePath"
+            [class.off-path]="!node.isOnActivePath"
+            [class.is-root]="node.isRoot"
             [style.left.px]="node.x - node.width / 2"
             [style.top.px]="node.y - node.height / 2"
             [style.width.px]="node.width"
             [style.height.px]="node.height"
-            (click)="onTimelineNodeClick(node)">
-            <div class="node-lines">
-              <div
-                *ngFor="let line of node.lines"
-                class="node-line">
-                {{ line }}
-              </div>
-            </div>
+            (click)="onSnapshotNodeClick(node)"
+            nz-tooltip
+            [nzTooltipTitle]="node.id">
+            <span class="snapshot-node-label">{{ node.id }}</span>
           </div>
         </div>
       </div>
@@ -211,56 +180,120 @@
       <div
         #messageContainer
         class="messages-container">
-        <div
-          *ngFor="let response of visibleSteps; let i = index"
-          class="message"
-          [class.user-message]="response.role === 'user'"
-          [class.ai-message]="response.role === 'agent'">
-          <!-- Show header for user messages or when isBegin is true for agent messages -->
+        <ng-container *ngFor="let item of chatItems">
+          <!-- ReAct action card: consecutive action-bearing steps rendered as
+               single-line list rows (status icon · thinking · action chips). -->
           <div
-            class="message-header"
-            *ngIf="response.role === 'user' || response.isBegin">
-            <i
-              nz-icon
-              [nzType]="response.role === 'user' ? 'user' : 'robot'"
-              nzTheme="outline"></i>
-            <span class="message-role">{{ response.role === 'user' ? 'You' : agentInfo.name }}</span>
-          </div>
-
-          <!-- Message content with hover button -->
-          <div
-            class="message-content"
-            (mouseenter)="setHoveredMessage(i)"
-            (mouseleave)="setHoveredMessage(null)"
-            style="position: relative">
-            <div
-              *ngIf="response.content"
-              class="message-content">
-              <markdown [data]="response.content"></markdown>
-            </div>
-            <div
-              *ngIf="response.toolCalls && response.toolCalls.length > 0"
-              style="color: #8c8c8c; font-style: italic">
-              Execute {{ response.toolCalls.length }} tool{{ response.toolCalls.length > 1 ? 's' : '' }}
-            </div>
-
-            <!-- Details button (shown on hover) - for any message with details -->
-            <button
-              *ngIf="hoveredMessageIndex === i && (response.toolCalls?.length || response.usage)"
-              nz-button
-              nzType="text"
-              nzSize="small"
-              (click)="showResponseDetails(response)"
-              style="position: absolute; top: 0; right: 0; opacity: 0.7"
-              nz-tooltip
-              nzTooltipTitle="View details">
+            *ngIf="asCard(item) as card"
+            class="message ai-message react-card-message">
+            <div class="message-header">
               <i
                 nz-icon
-                nzType="info-circle"
+                nzType="robot"
                 nzTheme="outline"></i>
-            </button>
+              <span class="message-role">{{ agentInfo.name }}</span>
+            </div>
+            <div class="react-card">
+              <div
+                *ngFor="let row of card.rows"
+                class="react-card-row"
+                [attr.data-step-id]="row.step.id"
+                (mouseenter)="setHoveredMessage(row.index)"
+                (mouseleave)="setHoveredMessage(null)">
+                <!-- Status: spinner for the latest running step, else a green check -->
+                <span class="react-card-status">
+                  <nz-spin
+                    *ngIf="isRowRunning(row); else doneIcon"
+                    nzSimple
+                    nzSize="small"></nz-spin>
+                  <ng-template #doneIcon>
+                    <i
+                      nz-icon
+                      nzType="check-circle"
+                      nzTheme="fill"
+                      class="react-card-check"></i>
+                  </ng-template>
+                </span>
+                <!-- Thinking text, truncated with an ellipsis that follows the
+                     panel width (CSS overflow). -->
+                <span
+                  class="react-card-thinking"
+                  [title]="row.thinking">
+                  {{ row.thinking || 'Working…' }}
+                </span>
+                <!-- Actions the agent called this step (one chip each). -->
+                <span class="react-card-actions">
+                  <span
+                    *ngFor="let action of row.actions"
+                    class="react-card-action"
+                    nz-tooltip
+                    [nzTooltipTitle]="action">
+                    {{ action }}
+                  </span>
+                </span>
+                <button
+                  *ngIf="hoveredMessageIndex === row.index"
+                  nz-button
+                  nzType="text"
+                  nzSize="small"
+                  class="react-card-details"
+                  (click)="showResponseDetails(row.step)"
+                  nz-tooltip
+                  nzTooltipTitle="View details">
+                  <i
+                    nz-icon
+                    nzType="info-circle"
+                    nzTheme="outline"></i>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <!-- Regular message: user messages and action-less agent replies. -->
+          <div
+            *ngIf="asMessage(item) as msg"
+            class="message"
+            [attr.data-step-id]="msg.step.id"
+            [class.user-message]="msg.step.role === 'user'"
+            [class.ai-message]="msg.step.role === 'agent'">
+            <div
+              class="message-header"
+              *ngIf="msg.step.role === 'user' || msg.step.isBegin">
+              <i
+                nz-icon
+                [nzType]="msg.step.role === 'user' ? 'user' : 'robot'"
+                nzTheme="outline"></i>
+              <span class="message-role">{{ msg.step.role === 'user' ? 'You' : agentInfo.name }}</span>
+            </div>
+
+            <div
+              class="message-content"
+              (mouseenter)="setHoveredMessage(msg.index)"
+              (mouseleave)="setHoveredMessage(null)"
+              style="position: relative">
+              <div
+                *ngIf="msg.step.content"
+                class="message-content">
+                <markdown [data]="msg.step.content"></markdown>
+              </div>
+
+              <button
+                *ngIf="hoveredMessageIndex === msg.index && msg.step.usage"
+                nz-button
+                nzType="text"
+                nzSize="small"
+                (click)="showResponseDetails(msg.step)"
+                style="position: absolute; top: 0; right: 0; opacity: 0.7"
+                nz-tooltip
+                nzTooltipTitle="View details">
+                <i
+                  nz-icon
+                  nzType="info-circle"
+                  nzTheme="outline"></i>
+              </button>
+            </div>
+          </div>
+        </ng-container>
 
         <!-- Loading indicator -->
         <div

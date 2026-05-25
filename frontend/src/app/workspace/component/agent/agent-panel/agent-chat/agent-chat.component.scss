@@ -384,53 +384,6 @@
   position: relative;
 }
 
-// Time axis - vertical line with dots and time labels
-.time-axis {
-  position: absolute;
-  left: 4px;
-  top: 0;
-  width: 68px;
-  height: 100%;
-  z-index: 0;
-}
-
-.time-axis-line {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  width: 1px;
-  background: #d9d9d9;
-}
-
-.time-axis-node {
-  position: absolute;
-  left: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.time-axis-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-
-  &.user-icon {
-    color: #1890ff;
-  }
-
-  &.agent-icon {
-    color: #52c41a;
-  }
-}
-
-.time-axis-label {
-  font-size: 9px;
-  font-family: monospace;
-  color: #8c8c8c;
-  white-space: nowrap;
-  line-height: 1;
-}
-
 // Resize handle
 .tree-resize-handle {
   width: 4px;
@@ -468,92 +421,162 @@
   }
 }
 
-// Tree nodes — single row, rounded rectangle, uniform width
-.tree-node {
+// Snapshot nodes — single row, rounded rectangle. Every node shares one
+// neutral colour; only the active snapshot (the one currently rendered on the
+// canvas) is tinted and outlined.
+.snapshot-node {
   position: absolute;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  padding: 0 4px;
-  background: #fff;
+  padding: 0 6px;
+  background: #ffffff;
   border: 1.5px solid #d9d9d9;
   border-radius: 6px;
   cursor: pointer;
   transition:
     opacity 0.2s ease,
-    background 0.2s ease;
+    background 0.2s ease,
+    border-color 0.2s ease;
   z-index: 1;
 
   &:hover {
     background: #f5f5f5;
   }
 
+  // Off the active path: dimmed (still the same base colour).
   &.off-path {
-    opacity: 0.4;
+    opacity: 0.5;
     &:hover {
-      opacity: 0.8;
+      opacity: 0.85;
     }
   }
 
-  // HEAD node: orange dashed outline
-  &.is-head {
+  // The active snapshot — distinct fill + a dashed outline highlight.
+  &.is-active {
+    background: #e6f7ff;
+    border-color: #1890ff;
     outline: 2px dashed #fa8c16;
     outline-offset: 1px;
-  }
 
-  // Tool-call nodes (Add/Modify/Edit/Delete/Execute) on the HEAD path: green tint
-  &.on-path:not(.user-request):not(.agent-response):not(.initial) {
-    border-color: #b7eb8f;
-    background: #f6ffed;
-  }
-
-  &.initial {
-    background: #f6ffed;
-    border-color: #b7eb8f;
-  }
-
-  // Task Done (terminal agent step): blue tint
-  &.agent-response {
-    background: #eeeeff;
-    border-color: #3333ff;
-    .node-lines,
-    .node-line {
-      color: #3333ff;
+    .snapshot-node-label {
+      color: #0958d9;
+      font-weight: 600;
     }
   }
 
-  &.user-request {
-    background: #ffffff;
-    border-color: #d9d9d9;
-  }
-
-  // Feedback (user step from feedback panel): light orange
-  &.user-feedback {
-    background: #fff7e6;
-    border-color: #ffd591;
-  }
-
-  .node-lines {
+  .snapshot-node-label {
     font-size: 12px;
     font-weight: 500;
     color: #595959;
-    width: 100%;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-  }
-
-  .node-line {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 18px;
     width: 100%;
+    text-align: center;
   }
+}
+
+// ============================================================================
+// ReAct action cards (chat side)
+// ============================================================================
+
+// The card wraps the agent header + the list of action-step rows. It sits in
+// the normal agent-message column slot, so widen it to use the panel.
+.react-card-message {
+  max-width: 100%;
+  width: 100%;
+}
+
+.react-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fbfbfb;
+  overflow: hidden;
+}
+
+// One action step = one single-line row.
+.react-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: #f5f5f5;
+  }
+}
+
+.react-card-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.react-card-check {
+  color: #52c41a;
+  font-size: 16px;
+}
+
+// Thinking text — single line, ellipsized and kept narrow. It sizes to its
+// content but is capped well short of the row (`flex-grow: 0` + `max-width`),
+// so it never dominates; the cap is a percentage so the ellipsis still tracks
+// the chat-panel width as the rail is resized. `min-width: 0` lets it shrink.
+.react-card-thinking {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #595959;
+}
+
+// Action chips — aggregated "Add N operators" / "Modify N operators" labels,
+// pushed to the right edge of the row. Capped width as a guard for steps that
+// mix several verbs.
+.react-card-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 50%;
+  overflow: hidden;
+}
+
+.react-card-action {
+  flex: 0 0 auto;
+  max-width: 140px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  color: #389e0d;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.react-card-details {
+  flex: 0 0 auto;
+  opacity: 0.7;
+  padding: 0 4px;
 }
 
 // ============================================================================

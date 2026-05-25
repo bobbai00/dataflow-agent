@@ -135,6 +135,26 @@ export interface OperatorResultSummary {
   resultStatistics?: Record<string, string>;
 }
 
+/**
+ * One node in the agent's workflow-snapshot tree. Mirrors the wire shape of
+ * `GET /api/agents/:id/snapshot-tree`, built server-side from
+ * `WorkflowSnapshotStorage.getSnapshotTreeNodes()`. `reactStepId` is the
+ * ReAct step whose actions produced the snapshot (undefined for the empty
+ * root). `parentId` links to the parent snapshot.
+ */
+export interface SnapshotTreeNode {
+  id: string;
+  parentId: string | undefined;
+  reactStepId: string | undefined;
+  operatorCount: number;
+  resultCount: number;
+}
+
+export interface SnapshotTreeResponse {
+  rootId: string;
+  nodes: SnapshotTreeNode[];
+}
+
 interface ApiAgentInfo {
   id: string;
   name: string;
@@ -1064,6 +1084,21 @@ export class AgentService {
       workflowSourceStepId: string | null;
       results: Record<string, any>;
     }>(`${this.AGENT_API_BASE}/agents/${agentId}/snapshots/${stepId}`, this.agentHeaders(agentId));
+  }
+
+  /**
+   * Fetch the agent's workflow-snapshot tree — every snapshot node, its
+   * parent link, and the ReAct step that produced it. Drives the snapshot
+   * tree shown on the left of the agent chat panel. Returns an empty tree on
+   * error so callers can render gracefully.
+   */
+  public getSnapshotTree(agentId: string): Observable<SnapshotTreeResponse> {
+    return this.http
+      .get<SnapshotTreeResponse>(
+        `${this.AGENT_API_BASE}/agents/${agentId}/snapshot-tree`,
+        this.agentHeaders(agentId)
+      )
+      .pipe(catchError(() => of({ rootId: "", nodes: [] } as SnapshotTreeResponse)));
   }
 
   /**

@@ -33,7 +33,7 @@ import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { Subject } from "rxjs";
 import { distinctUntilChanged, filter, pairwise, startWith, takeUntil } from "rxjs/operators";
 import { AgentState, ReActStep } from "../../../../service/agent/agent-types";
-import { AgentInfo, AgentService } from "../../../../service/agent/agent.service";
+import { AgentInfo, AgentService, SnapshotTreeResponse } from "../../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
 import { WorkflowPersistService } from "../../../../../common/service/workflow-persist/workflow-persist.service";
@@ -63,19 +63,20 @@ import { NzSwitchComponent } from "ng-zorro-antd/switch";
 import * as dagre from "dagre";
 
 /**
- * One step rendered as a clickable box in the version tree.
+ * One snapshot rendered as a clickable box in the snapshot tree (left rail).
+ * A snapshot is the workflow state produced by an action-bearing ReAct step;
+ * the empty root has no owning step.
  */
-export interface TimelineNode {
+export interface SnapshotNode {
+  /** Snapshot id (shown as the node label). */
   id: string;
-  stepId: string;
-  timestamp: Date;
-  isHead: boolean;
-  isOnHeadPath: boolean;
-  /** Multi-line label: one line per tool call, or message summary */
-  lines: string[];
-  /** Step type for styling */
-  stepType: "initial" | "user" | "agent";
-  messageSource?: string;
+  /** ReAct step whose actions produced this snapshot (undefined for root). */
+  reactStepId?: string;
+  isRoot: boolean;
+  /** True for the snapshot currently rendered on the canvas (HEAD's snapshot). */
+  isActive: boolean;
+  /** True for snapshots on the root→active path (drawn brighter). */
+  isOnActivePath: boolean;
   x: number;
   y: number;
   width: number;
@@ -83,29 +84,36 @@ export interface TimelineNode {
 }
 
 /**
- * One marker on the vertical time axis, horizontally aligned with a TimelineNode.
+ * One parent→child edge in the snapshot tree, expressed as an SVG path.
  */
-export interface TimeAxisNode {
-  y: number;
-  /** HH:MM:SS */
-  timeLabel: string;
-  /** "user_request" | "agent_response" | "initial" */
-  actionType?: string;
-  agentName?: string;
-}
-
-/**
- * One parent→child edge in the version tree, expressed as an SVG path.
- */
-export interface TreeEdge {
+export interface SnapshotEdge {
   sourceId: string;
   targetId: string;
   path: string;
-  isOnHeadPath: boolean;
+  isOnActivePath: boolean;
 }
 
-/** Sentinel id used for the synthetic "Ready" root before any real steps. */
-const TIMELINE_INITIAL_STEP_ID = "step-initial";
+/**
+ * One action-bearing ReAct step rendered as a single-line row inside a card.
+ */
+export interface ChatCardRow {
+  step: ReActStep;
+  /** Index of this step within `visibleSteps` (for hover → operator highlight). */
+  index: number;
+  /** Agent thinking text (truncated with ellipsis in the template). */
+  thinking: string;
+  /** Action labels for the step's tool calls (e.g. "Add operator-3"). */
+  actions: string[];
+}
+
+/**
+ * A rendered item in the chat stream. Consecutive action-bearing agent steps
+ * collapse into a single `card`; everything else (user messages, action-less
+ * agent replies) renders as a regular `message`.
+ */
+export type ChatItem =
+  | { kind: "message"; step: ReActStep; index: number }
+  | { kind: "card"; rows: ChatCardRow[] };
 
 @UntilDestroy()
 @Component({
@@ -191,10 +199,19 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   // Current HEAD step ID in the version tree
   public currentHeadId: string | null = null;
 
-  // Timeline tree state
-  public timelineNodes: TimelineNode[] = [];
-  public treeEdges: TreeEdge[] = [];
-  public timeAxisNodes: TimeAxisNode[] = [];
+  // Chat stream: action steps grouped into cards, everything else as messages.
+  public chatItems: ChatItem[] = [];
+  /** Id of the latest action-bearing step — its card row spins while generating. */
+  public latestActionStepId: string | null = null;
+
+  // Snapshot tree state (left rail)
+  public snapshotTree: SnapshotTreeResponse | null = null;
+  public snapshotNodes: SnapshotNode[] = [];
+  public snapshotEdges: SnapshotEdge[] = [];
+  /** Monotonic guard so a slow snapshot-tree fetch can't clobber a newer one. */
+  private snapshotTreeSeq = 0;
+  /** Step id to scroll/highlight once visibleSteps refreshes after a checkout. */
+  private pendingScrollStepId: string | null = null;
   public treeCanvasWidth: number = 200;
   public treeHeight: number = 100;
   public treePanelWidth: number = 260;
@@ -268,10 +285,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         const previousLength = this.visibleSteps.length;
         this.agentResponses = steps;
         this.updateVisibleSteps();
+        this.buildChatItems();
         this.shouldScrollToBottom = true;
-
-        // Rebuild timeline whenever responses change
-        this.buildTimelineNodes();
 
         // Automatically highlight the latest visible step
         if (this.visibleSteps.length > 0) {
@@ -289,6 +304,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
         // Trigger change detection
         this.cdr.detectChanges();
+        this.flushPendingScroll();
       });
 
     // Subscribe to HEAD changes
@@ -298,8 +314,23 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .subscribe(headId => {
         this.currentHeadId = headId;
         this.updateVisibleSteps();
-        this.buildTimelineNodes();
+        this.buildChatItems();
+        // HEAD moved (new step or checkout): the active snapshot and the tree
+        // shape may both have changed — refetch and rebuild.
+        this.refreshSnapshotTree();
         this.cdr.detectChanges();
+        this.flushPendingScroll();
+      });
+
+    // Refresh the snapshot tree when the workflow snapshot changes. The agent
+    // creates a snapshot AFTER emitting the action step (see
+    // `maybeCreateSnapshotForHead`), broadcasting a `snapshot` WS frame that
+    // lands here — so this is the reliable signal that a new snapshot exists.
+    this.agentService
+      .getWorkflowObservable(this.agentInfo.id)
+      .pipe(untilDestroyed(this))
+      .subscribe(() => {
+        this.refreshSnapshotTree();
       });
 
     // Subscribe to the next-step context preview (markdown). Backend pushes
@@ -816,213 +847,223 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   // ============================================================================
-  // Timeline tree (version tree with vertical time axis)
+  // Chat stream — group action steps into cards
   // ============================================================================
 
   /**
-   * Build the timeline tree nodes/edges/axis from `agentResponses`.
-   *
-   * Layout:
-   * - Horizontal positions come from dagre (one rank per parent→child branch).
-   * - Vertical positions come from chronological order (constant row spacing),
-   *   so the time axis on the left has evenly-spaced HH:MM:SS labels and each
-   *   node is row-aligned with its label.
-   * - Highlighting follows the HEAD ancestor path: nodes/edges on it are bold,
-   *   the rest are dimmed.
+   * Rebuild `chatItems` from `visibleSteps`. Consecutive action-bearing agent
+   * steps (those with tool calls) collapse into a single card of single-line
+   * rows; user messages and action-less agent replies stay regular messages.
+   * Also records `latestActionStepId` so the most recent action row can show a
+   * live spinner while the agent is still generating.
    */
-  public buildTimelineNodes(): void {
-    const steps = this.agentResponses;
+  private buildChatItems(): void {
+    const items: ChatItem[] = [];
+    let currentCard: ChatCardRow[] | null = null;
 
-    // Only show user steps and agent steps that performed work or ended a task.
-    const visibleSteps = steps.filter(step => {
-      if (step.role === "user") return true;
-      if (step.role === "agent" && step.toolCalls && step.toolCalls.length > 0) return true;
-      if (step.role === "agent" && step.isEnd) return true;
-      return false;
+    this.visibleSteps.forEach((step, index) => {
+      if (this.isActionStep(step)) {
+        const row: ChatCardRow = {
+          step,
+          index,
+          thinking: (step.content || "").trim(),
+          actions: this.getActionLabels(step),
+        };
+        if (currentCard) {
+          currentCard.push(row);
+        } else {
+          currentCard = [row];
+          items.push({ kind: "card", rows: currentCard });
+        }
+      } else {
+        currentCard = null;
+        items.push({ kind: "message", step, index });
+      }
     });
 
-    if (visibleSteps.length === 0 && this.currentHeadId !== TIMELINE_INITIAL_STEP_ID) {
-      this.timelineNodes = [];
-      this.treeEdges = [];
-      this.timeAxisNodes = [];
+    this.chatItems = items;
+
+    let latest: string | null = null;
+    for (const step of this.visibleSteps) {
+      if (this.isActionStep(step)) latest = step.id;
+    }
+    this.latestActionStepId = latest;
+  }
+
+  /** An agent step that performed at least one tool call (action). */
+  public isActionStep(step: ReActStep): boolean {
+    return step.role === "agent" && Array.isArray(step.toolCalls) && step.toolCalls.length > 0;
+  }
+
+  /**
+   * Whether a card row should show the live spinner: the latest action step
+   * while the agent is still generating. All other rows show a checkmark.
+   */
+  public isRowRunning(row: ChatCardRow): boolean {
+    return this.isGenerating() && row.step.id === this.latestActionStepId;
+  }
+
+  /** Template type-guard — returns the card variant of a ChatItem, else null. */
+  public asCard(item: ChatItem): { rows: ChatCardRow[] } | null {
+    return item.kind === "card" ? item : null;
+  }
+
+  /** Template type-guard — returns the message variant of a ChatItem, else null. */
+  public asMessage(item: ChatItem): { step: ReActStep; index: number } | null {
+    return item.kind === "message" ? item : null;
+  }
+
+  /**
+   * Aggregated action labels for a step's tool calls. Calls are grouped by
+   * verb and counted, so a step that adds three operators reads "Add 3
+   * operators" rather than three separate per-id chips — keeps the row compact
+   * regardless of how long individual operator ids are. Verbs keep their
+   * first-seen order.
+   */
+  private getActionLabels(step: ReActStep): string[] {
+    if (!step.toolCalls || step.toolCalls.length === 0) return [];
+    const counts = new Map<string, number>();
+    for (const tc of step.toolCalls as any[]) {
+      const verb = this.getToolLabel(tc.toolName);
+      counts.set(verb, (counts.get(verb) ?? 0) + 1);
+    }
+    return [...counts].map(([verb, count]) => `${verb} ${count} operator${count === 1 ? "" : "s"}`);
+  }
+
+  // ============================================================================
+  // Snapshot tree (left rail) — the workflow-snapshot version tree
+  // ============================================================================
+
+  /**
+   * Refetch the agent's snapshot tree and rebuild the rail. A monotonic
+   * sequence guard drops responses that are superseded by a newer fetch.
+   */
+  private refreshSnapshotTree(): void {
+    if (!this.agentInfo) return;
+    const seq = ++this.snapshotTreeSeq;
+    this.agentService
+      .getSnapshotTree(this.agentInfo.id)
+      .pipe(untilDestroyed(this))
+      .subscribe(tree => {
+        if (seq !== this.snapshotTreeSeq) return;
+        this.snapshotTree = tree;
+        this.buildSnapshotTree();
+        this.cdr.detectChanges();
+      });
+  }
+
+  /**
+   * Lay out the snapshot tree with dagre (top-to-bottom). Every node shows its
+   * snapshot id; all nodes share one colour except the active one (the
+   * snapshot currently rendered on the canvas — HEAD's snapshot), which gets a
+   * distinct fill plus a dashed outline. Snapshots on the root→active path are
+   * drawn brighter.
+   *
+   * The synthetic empty-root snapshot (the backend's "S0") is excluded by the
+   * agent service, so every node here is a real, step-owned snapshot; its
+   * children surface as the visible top-level nodes.
+   */
+  public buildSnapshotTree(): void {
+    const tree = this.snapshotTree;
+    const nodes = tree ? tree.nodes : [];
+    if (!tree || nodes.length === 0) {
+      this.snapshotNodes = [];
+      this.snapshotEdges = [];
       this.treeCanvasWidth = 200;
       this.treeHeight = 100;
       return;
     }
 
-    // Synthesize the "Ready" root node positioned just before the earliest step.
-    const earliestTime =
-      visibleSteps.length > 0
-        ? new Date(Math.min(...visibleSteps.map(s => new Date(s.timestamp).getTime())) - 1)
-        : new Date();
-    const initialStep: ReActStep = {
-      id: TIMELINE_INITIAL_STEP_ID,
-      messageId: "",
-      stepId: -1,
-      timestamp: earliestTime,
-      role: "agent",
-      content: "",
-      isBegin: false,
-      isEnd: false,
-    };
+    const activeId = this.computeActiveSnapshotId(nodes);
 
-    const allSteps = [initialStep, ...visibleSteps.filter(s => s.id !== TIMELINE_INITIAL_STEP_ID)];
-
-    // Walk parent links from HEAD up to the root to get the ancestor set.
-    // A step with no `parentId` attaches to the synthetic Ready node so the
-    // path still terminates at a single visible root.
-    const headPath = new Set<string>();
-    if (this.currentHeadId) {
-      const stepMap = new Map(allSteps.map(s => [s.id, s]));
-      let current: string | undefined = this.currentHeadId;
-      while (current) {
-        headPath.add(current);
-        const next: string | undefined = stepMap.get(current)?.parentId;
-        if (!next && current !== TIMELINE_INITIAL_STEP_ID) {
-          headPath.add(TIMELINE_INITIAL_STEP_ID);
-          break;
-        }
-        current = next;
-      }
+    // Snapshots on the path from root to the active node (brighter edges/nodes).
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const activePath = new Set<string>();
+    let cursor: string | undefined = activeId;
+    while (cursor) {
+      activePath.add(cursor);
+      cursor = byId.get(cursor)?.parentId;
     }
 
-    const sortedSteps = [...allSteps].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    const stepChronIndex = new Map<string, number>();
-    sortedSteps.forEach((step, idx) => stepChronIndex.set(step.id, idx));
-
-    // Per-node width is sized to its longest label line so a long tool-call
-    // label like "Edit clean_data_with_long_id" doesn't get truncated. Width is
-    // bounded so a runaway label can't blow out the rail layout.
-    const minNodeWidth = 80;
-    const maxNodeWidth = 220;
-    const charWidth = 7; // approx px per character for the 12px node font
+    const minNodeWidth = 70;
+    const maxNodeWidth = 200;
+    const charWidth = 7;
     const horizontalPadding = 16;
-    const constantRowSpacing = 40;
+    const nodeHeight = 28;
     const marginX = 16;
     const marginY = 16;
-    const timeAxisWidth = 72;
 
     const nodeWidths = new Map<string, number>();
-    for (const step of allSteps) {
-      const lines = this.getStepLines(step);
-      const longest = lines.reduce((acc, l) => Math.max(acc, l.length), 0);
-      const width = Math.max(minNodeWidth, Math.min(maxNodeWidth, longest * charWidth + horizontalPadding));
-      nodeWidths.set(step.id, width);
+    for (const n of nodes) {
+      const width = Math.max(minNodeWidth, Math.min(maxNodeWidth, n.id.length * charWidth + horizontalPadding));
+      nodeWidths.set(n.id, width);
     }
 
     const g = new dagre.graphlib.Graph();
-    g.setGraph({
-      rankdir: "TB",
-      nodesep: 24,
-      ranksep: constantRowSpacing,
-      marginx: marginX + timeAxisWidth,
-      marginy: marginY,
-    });
+    g.setGraph({ rankdir: "TB", nodesep: 16, ranksep: 36, marginx: marginX, marginy: marginY });
     g.setDefaultEdgeLabel(() => ({}));
-
-    for (const step of allSteps) {
-      const lines = this.getStepLines(step);
-      const nodeHeight = Math.max(24, lines.length * 18);
-      g.setNode(step.id, { width: nodeWidths.get(step.id)!, height: nodeHeight });
+    for (const n of nodes) {
+      g.setNode(n.id, { width: nodeWidths.get(n.id)!, height: nodeHeight });
     }
-
-    const stepIds = new Set(allSteps.map(s => s.id));
-    for (const step of allSteps) {
-      if (step.id === TIMELINE_INITIAL_STEP_ID) continue;
-      // Backend steps with no parent attach to the synthetic "Ready" node so
-      // the tree always has a single visible root in the timeline.
-      const parent = step.parentId && stepIds.has(step.parentId) ? step.parentId : TIMELINE_INITIAL_STEP_ID;
-      g.setEdge(parent, step.id);
+    const ids = new Set(nodes.map(n => n.id));
+    for (const n of nodes) {
+      if (n.parentId && ids.has(n.parentId)) g.setEdge(n.parentId, n.id);
     }
-
     dagre.layout(g);
 
-    // Override Y from dagre with constant chronological spacing — every step
-    // sits one row below its predecessor in time, regardless of dagre's rank.
-    const nodePositions = new Map<string, { x: number; y: number }>();
-    for (const step of allSteps) {
-      const dagreNode = g.node(step.id);
-      const chronIdx = stepChronIndex.get(step.id) ?? 0;
-      const y = marginY + chronIdx * constantRowSpacing + 12;
-      nodePositions.set(step.id, { x: dagreNode.x, y });
-    }
-
-    this.timelineNodes = allSteps.map(step => {
-      const pos = nodePositions.get(step.id)!;
-      const lines = this.getStepLines(step);
-      const nodeHeight = Math.max(24, lines.length * 18);
-      const stepType: "initial" | "user" | "agent" =
-        step.id === TIMELINE_INITIAL_STEP_ID ? "initial" : step.role === "user" ? "user" : "agent";
+    this.snapshotNodes = nodes.map(n => {
+      const dn = g.node(n.id);
       return {
-        id: step.id,
-        stepId: step.id,
-        timestamp: new Date(step.timestamp as any),
-        isHead: step.id === this.currentHeadId,
-        isOnHeadPath: headPath.has(step.id),
-        lines,
-        stepType,
-        messageSource: step.messageSource,
-        x: pos.x,
-        y: pos.y,
-        width: nodeWidths.get(step.id)!,
+        id: n.id,
+        reactStepId: n.reactStepId,
+        isRoot: !n.parentId,
+        isActive: n.id === activeId,
+        isOnActivePath: activePath.has(n.id),
+        x: dn.x,
+        y: dn.y,
+        width: nodeWidths.get(n.id)!,
         height: nodeHeight,
       };
     });
 
-    this.timeAxisNodes = sortedSteps.map((step, idx) => {
-      const y = marginY + idx * constantRowSpacing + 12;
-      const d = new Date(step.timestamp as any);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      const actionType =
-        step.id === TIMELINE_INITIAL_STEP_ID ? "initial" : step.role === "user" ? "user_request" : "agent_response";
-      return {
-        y,
-        timeLabel: `${hh}:${mm}:${ss}`,
-        actionType,
-        agentName: this.agentInfo?.name || "Agent",
-      };
-    });
-
-    const nodeMap = new Map(this.timelineNodes.map(n => [n.id, n]));
-    this.treeEdges = g.edges().map(e => {
+    const nodeMap = new Map(this.snapshotNodes.map(n => [n.id, n]));
+    this.snapshotEdges = g.edges().map(e => {
       const source = nodeMap.get(e.v)!;
       const target = nodeMap.get(e.w)!;
-      const isOnPath = headPath.has(e.v) && headPath.has(e.w);
+      const onPath = activePath.has(e.v) && activePath.has(e.w);
       const halfH = source.height / 2;
       const targetHalfH = target.height / 2;
       const path =
         source.x === target.x
           ? `M ${source.x} ${source.y + halfH} L ${target.x} ${target.y - targetHalfH}`
           : `M ${source.x} ${source.y + halfH} C ${source.x} ${(source.y + target.y) / 2}, ${target.x} ${(source.y + target.y) / 2}, ${target.x} ${target.y - targetHalfH}`;
-      return { sourceId: e.v, targetId: e.w, path, isOnHeadPath: isOnPath };
+      return { sourceId: e.v, targetId: e.w, path, isOnActivePath: onPath };
     });
 
-    const maxX = Math.max(...this.timelineNodes.map(n => n.x + n.width / 2), 200);
-    const maxY = this.timeAxisNodes.length > 0 ? this.timeAxisNodes[this.timeAxisNodes.length - 1].y + 24 : 100;
-    this.treeCanvasWidth = Math.max(200, maxX + marginX);
+    const maxX = Math.max(...this.snapshotNodes.map(n => n.x + n.width / 2), 180);
+    const maxY = Math.max(...this.snapshotNodes.map(n => n.y + n.height / 2), 80);
+    this.treeCanvasWidth = Math.max(180, maxX + marginX);
     this.treeHeight = maxY + marginY;
   }
 
   /**
-   * Multi-line label for a timeline node. Tool calls become one line each,
-   * showing a verb and the operator id when available.
+   * The snapshot currently rendered on the canvas: walk the ReAct ancestor
+   * chain from HEAD and return the first snapshot owned by one of those steps.
+   * Falls back to the empty root when no ancestor owns a snapshot.
    */
-  private getStepLines(step: ReActStep): string[] {
-    if (step.id === TIMELINE_INITIAL_STEP_ID) return ["Ready"];
-    if (step.role === "user") {
-      return [step.messageSource === "feedback" ? "Feedback" : "Input Task"];
+  private computeActiveSnapshotId(nodes: SnapshotTreeResponse["nodes"]): string {
+    const snapshotByOwner = new Map<string, string>();
+    for (const n of nodes) {
+      if (n.reactStepId) snapshotByOwner.set(n.reactStepId, n.id);
     }
-    if (step.toolCalls && step.toolCalls.length > 0) {
-      return step.toolCalls.map((tc: any) => {
-        const opId = tc.input?.operatorId || "";
-        const toolLabel = this.getToolLabel(tc.toolName);
-        return opId ? `${toolLabel} ${opId}` : toolLabel;
-      });
+    const stepMap = new Map(this.agentResponses.map(s => [s.id, s]));
+    let current: string | undefined = this.currentHeadId ?? undefined;
+    while (current) {
+      const sid = snapshotByOwner.get(current);
+      if (sid) return sid;
+      current = stepMap.get(current)?.parentId;
     }
-    if (step.isEnd) return ["Task Done"];
-    return ["Thinking..."];
+    return this.snapshotTree?.rootId ?? "";
   }
 
   /** Short verb for a tool call name. */
@@ -1046,16 +1087,80 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Click on a timeline node → checkout that step (move HEAD). The backend
-   * broadcasts a headChange WS message which restores the workflow content.
+   * Click on a snapshot node → navigate to the ReAct steps that produced it.
+   * A snapshot may correspond to multiple steps (the action-bearing step plus
+   * any trailing action-less replies that resolve to it); we checkout the
+   * deepest of those so all of them become visible on the HEAD path, which
+   * also moves the "currently rendered" highlight to this snapshot and
+   * restores its workflow on the canvas. The chat then scrolls to the first
+   * of the snapshot's steps.
    */
-  public onTimelineNodeClick(node: TimelineNode): void {
-    this.agentService.checkoutStep(this.agentInfo.id, node.stepId).subscribe({
+  public onSnapshotNodeClick(node: SnapshotNode): void {
+    const group = this.getSnapshotReactSteps(node);
+    // Normally checkout the deepest step in the snapshot's group so all of its
+    // ReAct steps land on the HEAD path and become visible. If the group is
+    // empty — e.g. the first snapshot whose only owning step is the hidden
+    // bootstrap step — fall back to the snapshot's owning step so the node
+    // still restores its workflow on the canvas.
+    const targetStepId = group.length > 0 ? group[group.length - 1].id : node.reactStepId;
+    if (!targetStepId) return;
+    this.pendingScrollStepId = group.length > 0 ? group[0].id : null;
+    this.agentService.checkoutStep(this.agentInfo.id, targetStepId).subscribe({
       next: () => {},
       error: () => {
-        this.notificationService.error(`Checkout to ${node.stepId} failed`);
+        this.pendingScrollStepId = null;
+        this.notificationService.error(`Checkout to snapshot ${node.id} failed`);
       },
     });
+  }
+
+  /**
+   * The ReAct steps that correspond to a snapshot: every step whose nearest
+   * action-bearing ancestor (inclusive) is the snapshot's owning step. For the
+   * empty root that's the steps with no action-bearing ancestor. Ordered
+   * chronologically (earliest first).
+   */
+  private getSnapshotReactSteps(node: SnapshotNode): ReActStep[] {
+    const owners = new Set<string>();
+    for (const n of this.snapshotTree?.nodes ?? []) {
+      if (n.reactStepId) owners.add(n.reactStepId);
+    }
+    const stepMap = new Map(this.agentResponses.map(s => [s.id, s]));
+    const associatedOwner = (stepId: string): string | undefined => {
+      let current: string | undefined = stepId;
+      while (current) {
+        if (owners.has(current)) return current;
+        current = stepMap.get(current)?.parentId;
+      }
+      return undefined;
+    };
+    const target = node.reactStepId;
+    return this.agentResponses
+      .filter(s => associatedOwner(s.id) === target)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  /**
+   * After a checkout-driven visibleSteps refresh, scroll the chat to (and
+   * highlight) the pending step. Runs from the steps/HEAD subscriptions once
+   * the new path is in place.
+   */
+  private flushPendingScroll(): void {
+    if (!this.pendingScrollStepId) return;
+    const stepId = this.pendingScrollStepId;
+    const index = this.visibleSteps.findIndex(s => s.id === stepId);
+    if (index < 0) return;
+    this.pendingScrollStepId = null;
+    this.setHoveredMessage(index);
+    setTimeout(() => this.scrollToStepId(stepId), 0);
+  }
+
+  /** Scroll a rendered step (card row or message) into view by its step id. */
+  private scrollToStepId(stepId: string): void {
+    const container = this.messageContainer?.nativeElement;
+    if (!container) return;
+    const el = container.querySelector(`[data-step-id="${stepId}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   /** Drag the splitter between the timeline rail and the chat column. */
@@ -1076,22 +1181,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }
-
-  /**
-   * Scroll chat messages to a specific step index.
-   */
-  private scrollToMessage(stepIndex: number): void {
-    if (!this.messageContainer) {
-      return;
-    }
-
-    const container = this.messageContainer.nativeElement;
-    const messages = container.querySelectorAll(".message");
-
-    if (stepIndex >= 0 && stepIndex < messages.length) {
-      messages[stepIndex].scrollIntoView({ behavior: "smooth", block: "center" });
-    }
   }
 
   /**
@@ -1328,13 +1417,13 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * Scroll to a specific step in the chat by messageId and stepId.
    */
   private scrollToStep(messageId: string, stepId: number): void {
-    // Find the step index in visibleSteps
+    // Find the step in visibleSteps
     const stepIndex = this.visibleSteps.findIndex(step => step.messageId === messageId && step.stepId === stepId);
 
     if (stepIndex >= 0) {
-      this.scrollToMessage(stepIndex);
-      // Highlight the message briefly
+      // Highlight the message briefly, then scroll its rendered row into view.
       this.setHoveredMessage(stepIndex);
+      this.scrollToStepId(this.visibleSteps[stepIndex].id);
     }
   }
 }
