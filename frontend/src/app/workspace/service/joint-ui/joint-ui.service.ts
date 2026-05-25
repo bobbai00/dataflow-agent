@@ -134,6 +134,7 @@ export const operatorAgentActionProgressClass = "texera-operator-agent-action-pr
 export const operatorIconClass = "texera-operator-icon";
 export const operatorNameClass = "texera-operator-name";
 export const operatorFriendlyNameClass = "texera-operator-friendly-name";
+export const operatorSectionDividerClass = "texera-operator-section-divider";
 export const operatorPortMetricsClass = "texera-operator-port-metrics";
 const operatorWorkerCountClass = "operator-worker-count";
 
@@ -149,6 +150,7 @@ class TexeraCustomJointElement extends joint.shapes.devs.Model {
     return `
     <g class="element-node">
       <rect class="body"></rect>
+      <rect class="${operatorSectionDividerClass}"></rect>
       <image class="${operatorIconClass}"></image>
       <text class="${operatorFriendlyNameClass}"></text>
       <text class="${operatorNameClass}"></text>
@@ -204,8 +206,20 @@ class TexeraCustomCommentElement extends joint.shapes.devs.Model {
   providedIn: "root",
 })
 export class JointUIService {
-  public static readonly DEFAULT_OPERATOR_WIDTH = 60;
-  public static readonly DEFAULT_OPERATOR_HEIGHT = 60;
+  // The operator box is a fixed-size rectangle split into two sections:
+  //   - a left icon section (ICON_SECTION_WIDTH wide) holding the operator icon
+  //   - a right text section holding the operator's description / custom name
+  // The box never grows with its text; overflowing text is ellipsized instead.
+  public static readonly DEFAULT_OPERATOR_WIDTH = 240;
+  public static readonly DEFAULT_OPERATOR_HEIGHT = 80;
+  // Width of the left icon section; the divider is drawn at this x offset.
+  public static readonly ICON_SECTION_WIDTH = 60;
+  // Padding between the divider and the description text on the right section.
+  private static readonly TEXT_SECTION_PADDING = 12;
+  // The wrapping box for the right-section description text.
+  private static readonly DESC_TEXT_WIDTH =
+    JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.ICON_SECTION_WIDTH - JointUIService.TEXT_SECTION_PADDING * 2;
+  private static readonly DESC_TEXT_HEIGHT = JointUIService.DEFAULT_OPERATOR_HEIGHT - 16;
   public static readonly DEFAULT_GROUP_MARGIN = 50;
   public static readonly DEFAULT_GROUP_MARGIN_BOTTOM = 40;
   public static readonly DEFAULT_COMMENT_WIDTH = 32;
@@ -243,6 +257,16 @@ export class JointUIService {
       throw new Error(`operator type ${operator.operatorType} doesn't exist`);
     }
 
+    // Text shown in the right section of the box. Prefer a meaningful custom
+    // display name; otherwise fall back to the operator's description, then to
+    // the user-friendly name. (customDisplayName defaults to the friendly name
+    // at creation time, so treat that case as "no custom name set".)
+    const friendlyName = operatorSchema.additionalMetadata.userFriendlyName;
+    const description = operatorSchema.additionalMetadata.operatorDescription;
+    const custom = operator.customDisplayName;
+    const rightSectionText =
+      custom && custom !== friendlyName ? custom : description && description.length > 0 ? description : friendlyName;
+
     // construct a custom Texera JointJS operator element
     //   and customize the styles of the operator box and ports
     const operatorElement = new TexeraCustomJointElement({
@@ -253,7 +277,7 @@ export class JointUIService {
       },
       attrs: JointUIService.getCustomOperatorStyleAttrs(
         operator,
-        operator.customDisplayName ?? operatorSchema.additionalMetadata.userFriendlyName,
+        rightSectionText,
         operatorSchema.operatorType,
         operatorSchema.additionalMetadata.userFriendlyName
       ),
@@ -509,37 +533,69 @@ export class JointUIService {
   }
 
   /**
-   * Wrap the operator's customDisplayName so the label below the box stays
-   * within ~2× the box width. JointJS renders the label as plain SVG text with
-   * no intrinsic wrapping, so without this a long summary like
-   * "Inner join customers+orders on customer_id; filter ..." would extend
-   * indefinitely and overlap neighboring operators. `joint.util.breakText`
-   * inserts hard newlines at the given pixel width.
+   * Wrap the operator's description / custom display name so it fits inside the
+   * fixed right-hand section of the operator box. JointJS renders the label as
+   * plain SVG text with no intrinsic wrapping, so without this a long summary
+   * like "Inner join customers+orders on customer_id; filter ..." would extend
+   * indefinitely and overlap neighboring operators.
+   *
+   * `joint.util.breakText` inserts hard newlines at the given pixel width and,
+   * when a `height` and `ellipsis: true` are supplied, truncates the text to
+   * the number of lines that fit and appends an ellipsis. Descriptions are
+   * typically 20–30 words; anything longer is ellipsized rather than resizing
+   * the box.
    */
   private static wrapOperatorDisplayName(text: string): string {
     if (!text) return text;
-    const maxWidth = JointUIService.DEFAULT_OPERATOR_WIDTH * 3; // 120px — 2× the box
     try {
-      return joint.util.breakText(text, { width: maxWidth }, { "font-size": "14px" });
+      return joint.util.breakText(
+        text,
+        { width: JointUIService.DESC_TEXT_WIDTH, height: JointUIService.DESC_TEXT_HEIGHT },
+        { "font-size": "11px" },
+        { ellipsis: true }
+      );
     } catch {
       // breakText needs DOM measurement; fall back to char-based truncation if
       // we're somewhere it can't run (e.g. unit tests without document).
-      const approxCharsPerLine = 16;
+      const approxCharsPerLine = 24;
       const maxLines = 4;
       const words = text.split(/\s+/);
       const lines: string[] = [];
       let line = "";
+      let truncated = false;
       for (const w of words) {
         if ((line + " " + w).trim().length > approxCharsPerLine) {
+          if (lines.length >= maxLines - 1) {
+            truncated = true;
+            break;
+          }
           lines.push(line.trim());
           line = w;
-          if (lines.length >= maxLines) break;
         } else {
           line = (line + " " + w).trim();
         }
       }
       if (line && lines.length < maxLines) lines.push(line);
+      if (truncated && lines.length > 0) lines[lines.length - 1] = lines[lines.length - 1] + "…";
       return lines.join("\n");
+    }
+  }
+
+  /**
+   * Truncate a single-line label (the operator ID shown at the top of the box)
+   * to the given pixel width, appending an ellipsis if it overflows. Operator
+   * IDs (e.g. "Filter-operator-<uuid>") are long, so this keeps the label from
+   * spilling far past the box edges while preserving the leading, identifying
+   * portion.
+   */
+  private static truncateToWidth(text: string, width: number, fontSize: string): string {
+    if (!text) return text;
+    try {
+      return joint.util.breakText(text, { width }, { "font-size": fontSize }, { maxLineCount: 1, ellipsis: true });
+    } catch {
+      // No DOM available (e.g. unit tests) — approximate by character count.
+      const approxChars = Math.max(1, Math.floor(width / 6));
+      return text.length > approxChars ? text.slice(0, approxChars - 1) + "…" : text;
     }
   }
 
@@ -668,7 +724,10 @@ export class JointUIService {
         stroke: "none",
       },
       ".port-label": {
-        visibility: "visible",
+        // Hide all port labels (e.g. "input-0", "output-1"). The labels are
+        // kept in the markup so port-label text can still be updated, but they
+        // are never displayed.
+        visibility: "hidden",
         event: "input-label:evt",
         dblclick: "input-label:dbclick",
         pointerdblclick: "input-label:pointerdblclick",
@@ -842,8 +901,8 @@ export class JointUIService {
         stroke: "rgba(0,0,0,0)",
         "stroke-width": "10",
         fill: "transparent",
-        "ref-x": 70,
-        "ref-y": -10,
+        "ref-x": this.DEFAULT_OPERATOR_WIDTH + 10,
+        "ref-y": 0,
       },
       "path.left-boundary": {
         ref: "rect.body",
@@ -852,23 +911,26 @@ export class JointUIService {
         "stroke-width": "10",
         fill: "transparent",
         "ref-x": -30,
-        "ref-y": -10,
+        "ref-y": 0,
       },
+      // Description / custom display name, rendered inside the right section of
+      // the box (to the right of the divider), left-aligned and vertically
+      // centred. Wrapping + ellipsis keep it within the fixed box.
       ".texera-operator-name": {
         text: JointUIService.wrapOperatorDisplayName(operatorDisplayName),
-        fill: "#595959",
-        "font-size": "14px",
-        "ref-x": 0.5,
-        // Anchor the label by its top edge so multi-line wrapped text grows
-        // downward only — `"middle"` would centre the wrapped block at ref-y
-        // and the upper lines would climb back into the operator box.
-        "ref-y": JointUIService.DEFAULT_OPERATOR_HEIGHT + 8,
+        fill: "#333333",
+        "font-size": "11px",
         ref: "rect.body",
-        "y-alignment": "top",
-        "x-alignment": "middle",
+        "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
+        "ref-y": 0.5,
+        "text-anchor": "start",
+        "y-alignment": "middle",
+        "x-alignment": "left",
       },
+      // Operator ID, shown in small grey text just above the box (replaces the
+      // operator type that used to live here, keeping the same style).
       ".texera-operator-friendly-name": {
-        text: operatorFriendlyName,
+        text: JointUIService.truncateToWidth(operator.operatorID, JointUIService.DEFAULT_OPERATOR_WIDTH, "10px"),
         fill: "#888888",
         "font-size": "10px",
         "ref-x": 0.5,
@@ -877,53 +939,63 @@ export class JointUIService {
         "y-alignment": "middle",
         "x-alignment": "middle",
       },
+      // Vertical divider separating the icon section from the text section.
+      [`.${operatorSectionDividerClass}`]: {
+        ref: "rect.body",
+        "ref-x": JointUIService.ICON_SECTION_WIDTH,
+        "ref-y": 12,
+        width: 1,
+        height: JointUIService.DEFAULT_OPERATOR_HEIGHT - 24,
+        fill: "#E8E8E8",
+        stroke: "none",
+      },
       [`.${operatorWorkerCountClass}`]: {
         "ref-x": -5,
         "ref-y": -35,
       },
       ".delete-button": {
-        x: 60,
-        y: -20,
+        x: this.DEFAULT_OPERATOR_WIDTH - 24,
+        y: -22,
         cursor: "pointer",
         fill: "#D8656A",
         event: "element:delete",
         visibility: "hidden",
       },
       ".chat-button": {
-        x: 85,
-        y: -20,
+        x: this.DEFAULT_OPERATOR_WIDTH - 52,
+        y: -22,
         cursor: "pointer",
         fill: "#1890ff",
         event: "element:chat",
         visibility: "hidden",
       },
       ".add-input-port-button": {
-        x: -25,
-        y: 65,
+        x: -26,
+        y: this.DEFAULT_OPERATOR_HEIGHT / 2 - 20,
         cursor: "pointer",
         fill: "#565656",
         event: "element:add-input-port",
         visibility: "hidden",
       },
       ".remove-input-port-button": {
-        x: -25,
-        y: 85,
+        x: -26,
+        y: this.DEFAULT_OPERATOR_HEIGHT / 2 + 2,
         cursor: "pointer",
         fill: "#565656",
         event: "element:remove-input-port",
         visibility: "hidden",
       },
       ".add-output-port-button": {
-        x: 65,
-        y: 65,
+        x: this.DEFAULT_OPERATOR_WIDTH + 8,
+        y: this.DEFAULT_OPERATOR_HEIGHT / 2 - 20,
         cursor: "pointer",
         fill: "#565656",
         event: "element:add-output-port",
         visibility: "hidden",
       },
       ".remove-output-port-button": {
-        x: 65,
-        y: 85,
+        x: this.DEFAULT_OPERATOR_WIDTH + 8,
+        y: this.DEFAULT_OPERATOR_HEIGHT / 2 + 2,
         cursor: "pointer",
         fill: "#565656",
         event: "element:remove-output-port",
@@ -931,9 +1003,10 @@ export class JointUIService {
       },
       ".texera-operator-icon": {
         "xlink:href": "assets/operator_images/" + operatorType + ".png",
-        width: 35,
-        height: 35,
-        "ref-x": 0.5,
+        width: 40,
+        height: 40,
+        // Centre the icon within the left section (0 .. ICON_SECTION_WIDTH).
+        "ref-x": JointUIService.ICON_SECTION_WIDTH / 2,
         "ref-y": 0.5,
         ref: "rect.body",
         "x-alignment": "middle",
@@ -942,20 +1015,20 @@ export class JointUIService {
       ".texera-operator-result-reuse-text": {
         text: JointUIService.getOperatorCacheDisplayText(operator) === "" ? "" : "cache",
         fill: "#595959",
-        "font-size": "14px",
+        "font-size": "12px",
         visible: true,
-        "ref-x": 80,
-        "ref-y": 60,
+        "ref-x": this.DEFAULT_OPERATOR_WIDTH + 20,
+        "ref-y": this.DEFAULT_OPERATOR_HEIGHT - 24,
         ref: "rect.body",
         "y-alignment": "middle",
         "x-alignment": "middle",
       },
       ".texera-operator-result-reuse-icon": {
         "xlink:href": JointUIService.getOperatorCacheIcon(operator),
-        width: 40,
-        height: 40,
-        "ref-x": 75,
-        "ref-y": 50,
+        width: 36,
+        height: 36,
+        "ref-x": this.DEFAULT_OPERATOR_WIDTH + 4,
+        "ref-y": this.DEFAULT_OPERATOR_HEIGHT - 36,
         ref: "rect.body",
         "x-alignment": "middle",
         "y-alignment": "middle",
@@ -964,8 +1037,8 @@ export class JointUIService {
         "xlink:href": JointUIService.getOperatorViewResultIcon(operator),
         width: 20,
         height: 20,
-        "ref-x": 49,
-        "ref-y": 9,
+        "ref-x": this.DEFAULT_OPERATOR_WIDTH - 14,
+        "ref-y": 12,
         ref: "rect.body",
         "x-alignment": "middle",
         "y-alignment": "middle",
