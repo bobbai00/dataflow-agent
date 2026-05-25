@@ -89,7 +89,13 @@ function layoutTree(tree: SnapshotTreeResponse): Row[] {
 
   const out: Row[] = [];
   const stack: Array<{ node: SnapshotTreeNode; depth: number }> = [];
-  const roots = byParent.get(undefined) ?? [];
+  // Roots are nodes with no parent, OR whose parent isn't in the node set —
+  // the latter covers the case where the server omits the synthetic empty root
+  // (its children then surface as the visible top-level snapshots).
+  const ids = new Set(tree.nodes.map(n => n.id));
+  const roots = tree.nodes
+    .filter(n => !n.parentId || !ids.has(n.parentId))
+    .sort((a, b) => a.id.localeCompare(b.id));
   for (let i = roots.length - 1; i >= 0; i--) stack.push({ node: roots[i], depth: 0 });
   while (stack.length > 0) {
     const { node, depth } = stack.pop()!;

@@ -304,7 +304,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
   .get("/:id/react-steps", ({ params: { id } }) => {
     const agent = getAgent(id);
-    return { steps: agent.getReActSteps(), state: agent.getState() };
+    return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
   .get("/:id/operator-results", ({ params: { id } }) => {
@@ -321,9 +321,14 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
   .get("/:id/snapshot-tree", ({ params: { id } }) => {
     const agent = getAgent(id);
     const storage = agent.getSnapshotStorage();
+    const rootId = storage.getRootSnapshotId();
+    // Exclude the synthetic empty-root snapshot ("S0"). It is a structural
+    // placeholder with no workflow of its own; its children (the first real
+    // snapshots) become the visible top-level nodes. `rootId` is still returned
+    // so clients can resolve the "no active snapshot" fallback.
     return {
-      rootId: storage.getRootSnapshotId(),
-      nodes: storage.getSnapshotTreeNodes(),
+      rootId,
+      nodes: storage.getSnapshotTreeNodes().filter(n => n.id !== rootId),
     };
   })
 
@@ -373,7 +378,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const { operatorIds } = body;
-      return { steps: agent.getReActStepsByOperatorIds(operatorIds || []) };
+      // Exclude the synthetic init step (it "touched" every operator on load).
+      return {
+        steps: agent.getReActStepsByOperatorIds(operatorIds || []).filter(s => !TexeraAgent.isInitializationStep(s)),
+      };
     },
     {
       body: t.Object({
@@ -416,7 +424,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
       const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
 
-      const allSteps = agent.getAllSteps();
+      const allSteps = agent.getRenderableReActSteps();
       const workflowContent = agent.getWorkflowState().getWorkflowContent();
       broadcastToAgent(id, {
         type: "headChange",
@@ -448,7 +456,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     const success = agent.checkout(stepId);
     if (!success) throw new Error(`Step ${stepId} not found or checkout failed`);
 
-    const allSteps = agent.getAllSteps();
+    const allSteps = agent.getRenderableReActSteps();
     const workflowContent = agent.getWorkflowState().getWorkflowContent();
 
     broadcastToAgent(id, {
@@ -699,7 +707,7 @@ export function buildApp() {
         const initMessage: WsOutgoingMessage = {
           type: "init",
           state: agent.getState(),
-          steps: agent.getAllSteps(),
+          steps: agent.getRenderableReActSteps(),
           headId: agent.getHead(),
           operatorResults: getOperatorResultSummaries(agent),
         };
@@ -746,6 +754,8 @@ export function buildApp() {
           wsLog.info({ agentId, preview: msg.content.substring(0, 50) }, "received message");
 
           agent.setStepCallback((step: ReActStep) => {
+            // Never stream the synthetic init step to clients.
+            if (TexeraAgent.isInitializationStep(step)) return;
             const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
             broadcastToAgent(agentId, {
               type: "step",
@@ -771,7 +781,7 @@ export function buildApp() {
 
             const allSteps = agent.getReActSteps();
             const lastStep = allSteps[allSteps.length - 1];
-            if (lastStep && lastStep.isEnd) {
+            if (lastStep && lastStep.isEnd && !TexeraAgent.isInitializationStep(lastStep)) {
               broadcastToAgent(agentId, { type: "step", step: lastStep });
             }
 
@@ -801,6 +811,8 @@ export function buildApp() {
           wsLog.info({ agentId, preview: msg.content.substring(0, 50) }, "received debug input");
 
           agent.setStepCallback((step: ReActStep) => {
+            // Never stream the synthetic init step to clients.
+            if (TexeraAgent.isInitializationStep(step)) return;
             const hasToolCalls = step.toolCalls && step.toolCalls.length > 0;
             broadcastToAgent(agentId, {
               type: "step",

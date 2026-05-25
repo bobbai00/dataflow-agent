@@ -367,7 +367,13 @@ export class WorkflowSnapshotStorage {
   }
 
   private generateSnapshotId(): string {
-    return `snap-${++this.snapshotCounter}-${Date.now()}`;
+    // Short, human-friendly, incremental ids. The empty root is allocated
+    // first and becomes "S0"; each subsequent step-owned snapshot is "S1",
+    // "S2", … in creation order. The counter is monotonic for the lifetime of
+    // the storage and is NOT reset by clear(), so a re-allocated root after a
+    // clear gets a fresh "S<n>" rather than reusing "S0" — preserving the
+    // "clear() yields a new root id" invariant.
+    return `S${this.snapshotCounter++}`;
   }
 }
 

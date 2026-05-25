@@ -555,6 +555,25 @@ export class TexeraAgent {
     return Array.from(this.stepsById.values());
   }
 
+  /**
+   * True for the synthetic bootstrap step that carries the `initialize` tool
+   * call. It seeds turn 1 and anchors the version tree / first snapshot
+   * internally, but is not meaningful to display, so it is excluded from the
+   * client-facing step lists.
+   */
+  static isInitializationStep(step: ReActStep): boolean {
+    return Array.isArray(step.toolCalls) && step.toolCalls.some((tc: any) => tc?.toolName === "initialize");
+  }
+
+  /**
+   * Steps a client should render — every step except the synthetic
+   * `initialize` bootstrap step. The init step is retained internally (it owns
+   * the first snapshot and roots the tree) but never sent for display.
+   */
+  getRenderableReActSteps(): ReActStep[] {
+    return this.getAllSteps().filter(step => !TexeraAgent.isInitializationStep(step));
+  }
+
   checkout(stepId: string): boolean {
     const step = this.stepsById.get(stepId);
     if (!step) return false;
