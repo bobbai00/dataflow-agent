@@ -148,6 +148,8 @@ export interface SnapshotTreeNode {
   reactStepId: string | undefined;
   operatorCount: number;
   resultCount: number;
+  /** Epoch ms of the owning ReAct step (null for the root / unknown). */
+  timestamp?: number | null;
 }
 
 export interface SnapshotTreeResponse {

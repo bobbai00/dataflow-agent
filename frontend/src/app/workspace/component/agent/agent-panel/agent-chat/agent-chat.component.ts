@@ -72,6 +72,8 @@ export interface SnapshotNode {
   id: string;
   /** ReAct step whose actions produced this snapshot (undefined for root). */
   reactStepId?: string;
+  /** Owning step's time as HH:MM:SS, shown next to the node ("" if unknown). */
+  timeLabel: string;
   isRoot: boolean;
   /** True for the snapshot currently rendered on the canvas (HEAD's snapshot). */
   isActive: boolean;
@@ -212,6 +214,17 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   private snapshotTreeSeq = 0;
   /** Step id to scroll/highlight once visibleSteps refreshes after a checkout. */
   private pendingScrollStepId: string | null = null;
+  /** True while stepping through snapshots root→HEAD via the play button. */
+  public isPlayingSnapshots = false;
+  private snapshotPlaybackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Delay between snapshot checkouts during playback. */
+  private readonly snapshotPlaybackIntervalMs = 900;
+  /**
+   * During playback, the set of snapshot ids revealed so far — the tree only
+   * renders these, so snapshots appear progressively as the replay advances.
+   * `null` when not playing, meaning the full tree is shown.
+   */
+  private playbackRevealedIds: Set<string> | null = null;
   public treeCanvasWidth: number = 200;
   public treeHeight: number = 100;
   public treePanelWidth: number = 260;
@@ -432,6 +445,16 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   ngOnDestroy(): void {
+    // Stop any in-progress snapshot playback timer. Done inline (rather than
+    // via stopSnapshotPlayback) so we don't run change detection on a view
+    // that's being torn down.
+    this.isPlayingSnapshots = false;
+    this.playbackRevealedIds = null;
+    if (this.snapshotPlaybackTimer !== null) {
+      clearTimeout(this.snapshotPlaybackTimer);
+      this.snapshotPlaybackTimer = null;
+    }
+
     // Stop workflow subscription
     this.stopWorkflowSubscription$.next();
     this.stopWorkflowSubscription$.complete();
@@ -608,6 +631,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   public sendMessage(): void {
+    // A new message advances HEAD; stop any snapshot playback first.
+    this.stopSnapshotPlayback();
     if (!this.currentMessage.trim() || !this.canSendMessage()) {
       return;
     }
@@ -896,11 +921,13 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Whether a card row should show the live spinner: the latest action step
-   * while the agent is still generating. All other rows show a checkmark.
+   * Whether a card row should show the live spinner: the latest action step,
+   * either while the agent is generating or while replaying snapshots (where
+   * the latest visible action step is the snapshot currently being played).
+   * All other rows show a checkmark.
    */
   public isRowRunning(row: ChatCardRow): boolean {
-    return this.isGenerating() && row.step.id === this.latestActionStepId;
+    return (this.isGenerating() || this.isPlayingSnapshots) && row.step.id === this.latestActionStepId;
   }
 
   /** Template type-guard — returns the card variant of a ChatItem, else null. */
@@ -965,7 +992,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public buildSnapshotTree(): void {
     const tree = this.snapshotTree;
-    const nodes = tree ? tree.nodes : [];
+    // During playback only the snapshots revealed so far are shown, so they
+    // appear progressively; otherwise the full tree is rendered.
+    const allNodes = tree ? tree.nodes : [];
+    const nodes = this.playbackRevealedIds
+      ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id))
+      : allNodes;
     if (!tree || nodes.length === 0) {
       this.snapshotNodes = [];
       this.snapshotEdges = [];
@@ -989,7 +1021,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const maxNodeWidth = 200;
     const charWidth = 7;
     const horizontalPadding = 16;
-    const nodeHeight = 28;
+    const nodeHeight = 40; // two lines: snapshot id + HH:MM:SS timestamp
     const marginX = 16;
     const marginY = 16;
 
@@ -1016,6 +1048,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       return {
         id: n.id,
         reactStepId: n.reactStepId,
+        timeLabel: AgentChatComponent.formatClockTime(n.timestamp),
         isRoot: !n.parentId,
         isActive: n.id === activeId,
         isOnActivePath: activePath.has(n.id),
@@ -1044,6 +1077,19 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const maxY = Math.max(...this.snapshotNodes.map(n => n.y + n.height / 2), 80);
     this.treeCanvasWidth = Math.max(180, maxX + marginX);
     this.treeHeight = maxY + marginY;
+  }
+
+  /** Format an epoch-ms timestamp as HH:MM:SS, or "" when unknown. */
+  private static formatClockTime(timestamp?: number | null): string {
+    if (timestamp === undefined || timestamp === null) {
+      return "";
+    }
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) {
+      return "";
+    }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
   /**
@@ -1096,31 +1142,41 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * of the snapshot's steps.
    */
   public onSnapshotNodeClick(node: SnapshotNode): void {
-    const group = this.getSnapshotReactSteps(node);
-    // Normally checkout the deepest step in the snapshot's group so all of its
-    // ReAct steps land on the HEAD path and become visible. If the group is
-    // empty — e.g. the first snapshot whose only owning step is the hidden
-    // bootstrap step — fall back to the snapshot's owning step so the node
-    // still restores its workflow on the canvas.
-    const targetStepId = group.length > 0 ? group[group.length - 1].id : node.reactStepId;
+    this.stopSnapshotPlayback();
+    this.checkoutSnapshot(node.reactStepId, node.id);
+  }
+
+  /**
+   * Checkout the snapshot owned by `reactStepId`. A snapshot may correspond to
+   * multiple steps (the action-bearing step plus any trailing action-less
+   * replies that resolve to it); we checkout the deepest of those so all of
+   * them land on the HEAD path and become visible, moving the "currently
+   * rendered" highlight to this snapshot and restoring its workflow on the
+   * canvas, then scroll to the first. If the group is empty — e.g. the first
+   * snapshot whose only owning step is the hidden bootstrap step — fall back to
+   * the owning step itself so the node still restores its workflow.
+   */
+  private checkoutSnapshot(reactStepId: string | undefined, label: string): void {
+    const group = this.getSnapshotReactSteps(reactStepId);
+    const targetStepId = group.length > 0 ? group[group.length - 1].id : reactStepId;
     if (!targetStepId) return;
     this.pendingScrollStepId = group.length > 0 ? group[0].id : null;
     this.agentService.checkoutStep(this.agentInfo.id, targetStepId).subscribe({
       next: () => {},
       error: () => {
         this.pendingScrollStepId = null;
-        this.notificationService.error(`Checkout to snapshot ${node.id} failed`);
+        this.notificationService.error(`Checkout to snapshot ${label} failed`);
       },
     });
   }
 
   /**
    * The ReAct steps that correspond to a snapshot: every step whose nearest
-   * action-bearing ancestor (inclusive) is the snapshot's owning step. For the
+   * action-bearing ancestor (inclusive) is the given owning step. For the
    * empty root that's the steps with no action-bearing ancestor. Ordered
    * chronologically (earliest first).
    */
-  private getSnapshotReactSteps(node: SnapshotNode): ReActStep[] {
+  private getSnapshotReactSteps(reactStepId: string | undefined): ReActStep[] {
     const owners = new Set<string>();
     for (const n of this.snapshotTree?.nodes ?? []) {
       if (n.reactStepId) owners.add(n.reactStepId);
@@ -1134,10 +1190,82 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       }
       return undefined;
     };
-    const target = node.reactStepId;
     return this.agentResponses
-      .filter(s => associatedOwner(s.id) === target)
+      .filter(s => associatedOwner(s.id) === reactStepId)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  /** Whether the play button is enabled: snapshots exist and the agent is idle. */
+  public canPlaySnapshots(): boolean {
+    return this.snapshotNodes.length > 0 && !this.isGenerating();
+  }
+
+  /**
+   * Play through the snapshots from the root down to the currently active
+   * (HEAD) snapshot, checking each out in turn so the canvas animates the
+   * dataflow building up, then stops at HEAD. Clicking again stops early.
+   */
+  public playSnapshots(): void {
+    if (this.isPlayingSnapshots) {
+      this.stopSnapshotPlayback();
+      return;
+    }
+    const nodes = this.snapshotTree?.nodes ?? [];
+    if (nodes.length === 0) {
+      return;
+    }
+    // Build the root→active path of snapshots via parentId. The empty root is
+    // already excluded from `nodes`, so the path starts at the first real
+    // snapshot and ends at the active (HEAD) one.
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const path: SnapshotTreeResponse["nodes"] = [];
+    let cursor: string | undefined = this.computeActiveSnapshotId(nodes);
+    while (cursor) {
+      const node = byId.get(cursor);
+      if (!node) break;
+      path.unshift(node);
+      cursor = node.parentId;
+    }
+    if (path.length === 0) {
+      return;
+    }
+
+    this.isPlayingSnapshots = true;
+    // Start with nothing revealed; each step reveals the next snapshot so the
+    // tree grows progressively rather than showing every node up front.
+    this.playbackRevealedIds = new Set<string>();
+    let i = 0;
+    const advance = () => {
+      if (!this.isPlayingSnapshots || i >= path.length) {
+        this.stopSnapshotPlayback();
+        return;
+      }
+      const node = path[i++];
+      this.playbackRevealedIds!.add(node.id);
+      this.buildSnapshotTree(); // reveal the newly-played snapshot in the tree
+      this.checkoutSnapshot(node.reactStepId, node.id); // animate canvas + move HEAD
+      this.cdr.detectChanges();
+      this.snapshotPlaybackTimer = setTimeout(advance, this.snapshotPlaybackIntervalMs);
+    };
+    advance();
+  }
+
+  /**
+   * Stop snapshot playback (also called on manual checkout, send, and
+   * teardown). Restores the full snapshot tree if playback had been hiding
+   * not-yet-revealed nodes.
+   */
+  public stopSnapshotPlayback(): void {
+    this.isPlayingSnapshots = false;
+    if (this.snapshotPlaybackTimer !== null) {
+      clearTimeout(this.snapshotPlaybackTimer);
+      this.snapshotPlaybackTimer = null;
+    }
+    if (this.playbackRevealedIds !== null) {
+      this.playbackRevealedIds = null;
+      this.buildSnapshotTree();
+      this.cdr.detectChanges();
+    }
   }
 
   /**

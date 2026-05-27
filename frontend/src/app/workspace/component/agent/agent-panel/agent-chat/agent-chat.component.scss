@@ -352,10 +352,21 @@
 
 .tree-panel-header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px;
-  padding: 4px;
+  padding: 4px 6px;
   flex-shrink: 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.tree-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #595959;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tree-collapse-btn {
@@ -427,6 +438,7 @@
 .snapshot-node {
   position: absolute;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 0 6px;
@@ -475,6 +487,15 @@
     text-overflow: ellipsis;
     width: 100%;
     text-align: center;
+    line-height: 1.2;
+  }
+
+  .snapshot-node-time {
+    font-size: 9px;
+    font-family: monospace;
+    color: #8c8c8c;
+    white-space: nowrap;
+    line-height: 1.2;
   }
 }
 

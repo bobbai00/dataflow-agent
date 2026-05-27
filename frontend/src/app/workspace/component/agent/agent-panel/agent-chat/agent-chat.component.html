@@ -51,6 +51,25 @@
         </button>
       </div>
 
+      <!-- Play snapshots button: steps through snapshots root → HEAD -->
+      <div class="toolbar-item">
+        <button
+          nz-button
+          nzType="text"
+          nzSize="small"
+          [disabled]="!isPlayingSnapshots && !canPlaySnapshots()"
+          (click)="playSnapshots()"
+          nz-tooltip
+          [nzTooltipTitle]="
+            isPlayingSnapshots ? 'Stop playback' : 'Play snapshots from the start to the current one'
+          ">
+          <i
+            nz-icon
+            [nzType]="isPlayingSnapshots ? 'pause-circle' : 'play-circle'"
+            nzTheme="outline"></i>
+        </button>
+      </div>
+
       <!-- Export ReAct steps button -->
       <div class="toolbar-item">
         <button
@@ -117,10 +136,15 @@
       [class.collapsed]="treePanelCollapsed"
       [style.width.px]="treePanelCollapsed ? 24 : treePanelWidth">
       <div class="tree-panel-header">
+        <span
+          *ngIf="!treePanelCollapsed"
+          class="tree-panel-title"
+          >Dataflow Snapshots</span
+        >
         <button
           class="tree-collapse-btn"
           (click)="treePanelCollapsed = !treePanelCollapsed"
-          [title]="treePanelCollapsed ? 'Expand action tree' : 'Collapse action tree'">
+          [title]="treePanelCollapsed ? 'Expand snapshot tree' : 'Collapse snapshot tree'">
           <i
             nz-icon
             [nzType]="treePanelCollapsed ? 'right' : 'left'"
@@ -164,6 +188,11 @@
             nz-tooltip
             [nzTooltipTitle]="node.id">
             <span class="snapshot-node-label">{{ node.id }}</span>
+            <span
+              *ngIf="node.timeLabel"
+              class="snapshot-node-time"
+              >{{ node.timeLabel }}</span
+            >
           </div>
         </div>
       </div>
