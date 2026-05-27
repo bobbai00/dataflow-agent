@@ -383,7 +383,8 @@ export class JointUIService {
           originalName = portId;
         }
 
-        const labelText = count.toLocaleString();
+        // A cache-reused result reports a `-1` sentinel; show 0 rather than -1.
+        const labelText = Math.max(0, count).toLocaleString();
         element.portProp(portId, "attrs/.port-label/text", labelText);
         // Reveal the label now that it carries the tuple count. The port name
         // stays hidden by default (see getCustomPortStyleAttrs); only the
@@ -407,7 +408,8 @@ export class JointUIService {
           originalName = portId;
         }
 
-        const labelText = count.toLocaleString();
+        // A cache-reused result reports a `-1` sentinel; show 0 rather than -1.
+        const labelText = Math.max(0, count).toLocaleString();
 
         element.portProp(portId, "attrs/.port-label/text", labelText);
         // Reveal the label now that it carries the tuple count (name stays hidden).
@@ -416,6 +418,86 @@ export class JointUIService {
     });
     this.changeOperatorState(jointPaper, operatorID, statistics.operatorState);
   }
+
+  /**
+   * Apply a stored snapshot result to an operator: colour it by its state
+   * (e.g. green border when Completed) and show input/output tuple counts on
+   * its ports. Used when the agent panel checks out a snapshot — there is no
+   * live execution stream, so the state + counts come from the snapshot's
+   * recorded operator results. Port names stay hidden; only the counts show.
+   * No-op if the operator isn't on the paper yet.
+   *
+   * When `fromCache` is true the result was reused from cache: the border is
+   * coloured blue (overriding the state colour) to signal "loaded from cache",
+   * and the cache sentinel (`-1`) tuple counts are shown as 0.
+   */
+  public setOperatorSnapshotResult(
+    jointPaper: joint.dia.Paper,
+    operatorID: string,
+    operatorState: OperatorState,
+    inputPortCounts: Record<string, number>,
+    outputPortCounts: Record<string, number>,
+    fromCache: boolean = false
+  ): void {
+    const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
+    if (!element) {
+      return;
+    }
+    this.changeOperatorState(jointPaper, operatorID, operatorState);
+    if (fromCache) {
+      // Result was reused from cache — mark with a blue border instead of the
+      // state colour to signal "result is loaded from cache".
+      element.attr("rect.body/stroke", "#1890ff");
+    }
+    this.setSnapshotPortCounts(element, "in", inputPortCounts);
+    this.setSnapshotPortCounts(element, "out", outputPortCounts);
+  }
+
+  /**
+   * Reset an operator that previously showed a snapshot result back to the
+   * uninitialized look (grey, like a not-yet-executed operator during a live
+   * run) and hide its port counts. Used when checking out a snapshot in which
+   * the operator has no recorded result. No-op if the operator is gone.
+   */
+  public clearOperatorSnapshotResult(jointPaper: joint.dia.Paper, operatorID: string): void {
+    const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
+    if (!element) {
+      return;
+    }
+    this.changeOperatorState(jointPaper, operatorID, OperatorState.Uninitialized);
+    element.getPorts().forEach(p => {
+      if (p.id != null) {
+        element.portProp(p.id, "attrs/.port-label/visibility", "hidden");
+      }
+    });
+  }
+
+  /** Write tuple counts onto the given port group, keyed by numeric port suffix. */
+  private setSnapshotPortCounts(
+    element: joint.shapes.devs.Model,
+    group: "in" | "out",
+    counts: Record<string, number>
+  ): void {
+    element
+      .getPorts()
+      .filter(p => p.group === group)
+      .forEach(p => {
+        const portId = p.id;
+        if (portId == null) {
+          return;
+        }
+        const suffix = portId.includes("-") ? portId.split("-")[1] : portId;
+        const count = counts[suffix];
+        if (count === undefined) {
+          return;
+        }
+        // A cache-reused result reports a `-1` sentinel; show 0 rather than -1.
+        const displayCount = Math.max(0, count);
+        element.portProp(portId, "attrs/.port-label/text", displayCount.toLocaleString());
+        element.portProp(portId, "attrs/.port-label/visibility", "visible");
+      });
+  }
+
   public foldOperatorDetails(jointPaper: joint.dia.Paper, operatorID: string): void {
     jointPaper.getModelById(operatorID).attr({
       [`.${operatorStateClass}`]: { visibility: "hidden" },

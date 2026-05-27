@@ -142,10 +142,102 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     this.agentService.operatorResultSummaries$.pipe(untilDestroyed(this)).subscribe(summaries => {
       this.operatorSummaries = summaries;
+      // Render the snapshot's per-operator state + port tuple counts on the
+      // canvas (the agent panel has no live execution stream to drive these).
+      this.applyAgentOperatorSummaries();
       if (this.chatPopoverOperator) {
         this.changeDetectorRef.detectChanges();
       }
     });
+  }
+
+  /** Operators currently showing an agent snapshot result (state + port counts). */
+  private appliedSnapshotOps = new Set<string>();
+
+  /**
+   * Paint every operator with the result recorded in the current snapshot:
+   * executed operators get their state colour (green border when Completed)
+   * and input/output tuple counts on their ports; operators that previously
+   * showed a result but no longer have one are reset to the uninitialized look.
+   *
+   * Driven by `operatorResultSummaries$`, which the agent service refreshes on
+   * init / checkout / completion. On checkout the workflow has already been
+   * reloaded synchronously by the time the summaries arrive, so the operators
+   * exist on the paper.
+   */
+  private applyAgentOperatorSummaries(): void {
+    if (!this.paper) {
+      return;
+    }
+    // When the snapshot carries any operator results we're in agent-snapshot
+    // mode: executed operators get their state + counts, and every other
+    // operator is reset to the uninitialized look. The reset clears any stale
+    // state a prior live run may have left (e.g. an operator stuck "Running")
+    // so nothing lingers yellow on a snapshot where it wasn't executed.
+    const haveResults = this.operatorSummaries.size > 0;
+    const applied = new Set<string>();
+    this.workflowActionService
+      .getTexeraGraph()
+      .getAllOperators()
+      .forEach(op => {
+        const summary = this.operatorSummaries.get(op.operatorID);
+        if (!summary) {
+          if (haveResults || this.appliedSnapshotOps.has(op.operatorID)) {
+            this.jointUIService.clearOperatorSnapshotResult(this.paper, op.operatorID);
+          }
+          return;
+        }
+        const inputPortCounts: Record<string, number> = {};
+        if (summary.inputPortShapes && summary.inputPortShapes.length > 0) {
+          for (const shape of summary.inputPortShapes) {
+            inputPortCounts[String(shape.portIndex)] = shape.rows;
+          }
+        } else if (summary.inputTuples) {
+          inputPortCounts["0"] = summary.inputTuples;
+        }
+        // Most operators have a single output port; the summary carries the
+        // total output tuple count rather than a per-port breakdown.
+        const outputPortCounts: Record<string, number> = { "0": summary.outputTuples ?? summary.totalRowCount ?? 0 };
+
+        // A result reused from cache reports a `-1` tuple sentinel; treat that
+        // as "loaded from cache" (blue border, counts shown as 0).
+        const fromCache =
+          (summary.inputTuples ?? 0) < 0 ||
+          (summary.outputTuples ?? 0) < 0 ||
+          (summary.inputPortShapes ?? []).some(shape => shape.rows < 0);
+
+        this.jointUIService.setOperatorSnapshotResult(
+          this.paper,
+          op.operatorID,
+          WorkflowEditorComponent.mapSummaryStateToOperatorState(summary.state, summary.error),
+          inputPortCounts,
+          outputPortCounts,
+          fromCache
+        );
+        applied.add(op.operatorID);
+      });
+
+    // Operators removed from the graph since the last apply need no reset (they
+    // are gone); current operators were handled in the loop above.
+    this.appliedSnapshotOps = applied;
+  }
+
+  /**
+   * Map an agent snapshot's operator-result state string (mixed case across
+   * sources: "Completed"/"completed", "Failed"/"Error", …) onto an
+   * `OperatorState`. An operator that carries an error is never shown as
+   * Completed, so only genuinely successful operators get the green border.
+   */
+  private static mapSummaryStateToOperatorState(state: string, error?: string): OperatorState {
+    if (error) {
+      return OperatorState.Uninitialized;
+    }
+    const s = (state || "").toLowerCase();
+    if (s.includes("complet")) return OperatorState.Completed;
+    if (s.includes("run")) return OperatorState.Running;
+    if (s.includes("paus")) return OperatorState.Paused;
+    if (s.includes("ready")) return OperatorState.Ready;
+    return OperatorState.Uninitialized;
   }
 
   /**
