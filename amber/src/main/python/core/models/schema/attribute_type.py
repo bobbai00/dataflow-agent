@@ -109,7 +109,10 @@ TO_PYOBJECT_MAPPING = {
 
 FROM_PYOBJECT_MAPPING = {
     str: AttributeType.STRING,
-    int: AttributeType.INT,
+    # Default integer inference to LONG to stay consistent with DataFrame
+    # inference (data_processor maps every int dtype to LONG) and the engine's
+    # scan sources, avoiding INT(int32)/LONG(int64) schema mismatches.
+    int: AttributeType.LONG,
     float: AttributeType.DOUBLE,
     bool: AttributeType.BOOL,
     bytes: AttributeType.BINARY,

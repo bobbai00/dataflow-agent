@@ -42,13 +42,13 @@ class AttributeTypeUtilsSpec extends AnyFunSuite {
 
   test("type should get inferred correctly individually") {
 
-    assert(inferField(" 1     \n\n") == INTEGER)
+    assert(inferField(" 1     \n\n") == LONG)
     assert(inferField(" 1.1\t") == DOUBLE)
     assert(inferField("1,111.1 ") == STRING)
     assert(inferField("k2068-10-29T18:43:15.000Z") == STRING)
     assert(inferField(" 12321321312321312312321321 ") == DOUBLE)
     assert(inferField(" 123,123,123,123,123,123,123.11") == STRING)
-    assert(inferField(" 00\t") == INTEGER)
+    assert(inferField(" 00\t") == LONG)
     assert(inferField("\t-.2 ") == DOUBLE)
     assert(inferField("\n False ") == BOOLEAN)
     assert(inferField("07/10/96 4:5 PM, PDT") == TIMESTAMP)
@@ -88,7 +88,7 @@ class AttributeTypeUtilsSpec extends AnyFunSuite {
     val rows: Iterator[Array[Any]] = Iterator(row)
     val attributeTypes = inferSchemaFromRows(rows)
     assert(attributeTypes(0) == STRING)
-    assert(attributeTypes(1) == INTEGER)
+    assert(attributeTypes(1) == LONG)
     assert(attributeTypes(2) == TIMESTAMP)
     assert(attributeTypes(3) == DOUBLE)
     assert(attributeTypes(4) == LONG)
@@ -108,7 +108,7 @@ class AttributeTypeUtilsSpec extends AnyFunSuite {
     )
     val attributeTypes = inferSchemaFromRows(rows)
     assert(attributeTypes(0) == STRING)
-    assert(attributeTypes(1) == INTEGER)
+    assert(attributeTypes(1) == LONG)
     assert(attributeTypes(2) == TIMESTAMP)
     assert(attributeTypes(3) == DOUBLE)
     assert(attributeTypes(4) == LONG)

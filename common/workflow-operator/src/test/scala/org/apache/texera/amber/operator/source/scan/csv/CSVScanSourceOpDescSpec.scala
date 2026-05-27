@@ -49,7 +49,7 @@ class CSVScanSourceOpDescSpec extends AnyFlatSpec with BeforeAndAfter {
     val inferredSchema: Schema = parallelCsvScanSourceOpDesc.sourceSchema()
 
     assert(inferredSchema.getAttributes.length == 14)
-    assert(inferredSchema.getAttribute("Order ID").getType == AttributeType.INTEGER)
+    assert(inferredSchema.getAttribute("Order ID").getType == AttributeType.LONG)
     assert(inferredSchema.getAttribute("Unit Price").getType == AttributeType.DOUBLE)
 
   }
@@ -67,7 +67,7 @@ class CSVScanSourceOpDescSpec extends AnyFlatSpec with BeforeAndAfter {
 
     assert(inferredSchema.getAttributes.length == 14)
     assert(inferredSchema.getAttribute("column-10").getType == AttributeType.DOUBLE)
-    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.INTEGER)
+    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.LONG)
   }
 
   it should "infer schema from multi-line-data csv" in {
@@ -80,7 +80,7 @@ class CSVScanSourceOpDescSpec extends AnyFlatSpec with BeforeAndAfter {
     val inferredSchema: Schema = csvScanSourceOpDesc.sourceSchema()
 
     assert(inferredSchema.getAttributes.length == 14)
-    assert(inferredSchema.getAttribute("Order ID").getType == AttributeType.INTEGER)
+    assert(inferredSchema.getAttribute("Order ID").getType == AttributeType.LONG)
     assert(inferredSchema.getAttribute("Unit Price").getType == AttributeType.DOUBLE)
   }
 
@@ -95,7 +95,7 @@ class CSVScanSourceOpDescSpec extends AnyFlatSpec with BeforeAndAfter {
 
     assert(inferredSchema.getAttributes.length == 14)
     assert(inferredSchema.getAttribute("column-10").getType == AttributeType.DOUBLE)
-    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.INTEGER)
+    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.LONG)
   }
 
   it should "infer schema from headerless multi-line-data csv with custom delimiter" in {
@@ -110,7 +110,7 @@ class CSVScanSourceOpDescSpec extends AnyFlatSpec with BeforeAndAfter {
 
     assert(inferredSchema.getAttributes.length == 14)
     assert(inferredSchema.getAttribute("column-10").getType == AttributeType.DOUBLE)
-    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.INTEGER)
+    assert(inferredSchema.getAttribute("column-7").getType == AttributeType.LONG)
   }
 
   it should "create one worker with multi-line-data csv" in {

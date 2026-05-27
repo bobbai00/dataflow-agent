@@ -309,7 +309,11 @@ object AttributeTypeUtils extends Serializable {
 
     for (fields <- fieldsIterator) {
       if (attributeTypes.isEmpty) {
-        attributeTypes = Array.fill[AttributeType](fields.length)(AttributeType.INTEGER)
+        // Default numeric inference to LONG (not INTEGER) so that scan sources
+        // (CSV/JSONL/...) agree with the Python side, which maps every integer
+        // dtype to LONG. Inferring INTEGER here produces int32 columns that
+        // mismatch the int64 columns a downstream Python UDF emits.
+        attributeTypes = Array.fill[AttributeType](fields.length)(AttributeType.LONG)
       }
       inferRow(attributeTypes, fields)
     }
@@ -322,7 +326,9 @@ object AttributeTypeUtils extends Serializable {
     * @return inferred AttributeType
     */
   def inferField(fieldValue: Any): AttributeType = {
-    tryParseInteger(fieldValue)
+    // Start the inference cascade at LONG rather than INTEGER so numeric values
+    // default to LONG, matching the Python side's integer handling.
+    tryParseLong(fieldValue)
   }
 
   private def tryParseInteger(fieldValue: Any): AttributeType = {
