@@ -676,6 +676,7 @@ export class TexeraAgent {
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     statsEnabled?: boolean;
+    includeOperatorProperties?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -723,6 +724,12 @@ export class TexeraAgent {
       // Pure render-time toggle — controls whether `Column stats:` is
       // appended to each non-error operator's Result block at context-
       // assembly time. Read at the next assembleContext call.
+    }
+    if (updates.includeOperatorProperties !== undefined) {
+      this.settings.includeOperatorProperties = updates.includeOperatorProperties;
+      // Pure render-time toggle — controls whether each operator's
+      // `Properties:` line is emitted in the assembled snapshot (code
+      // operators are always stripped regardless). Read at next assembly.
     }
 
     if (promptNeedsRebuild) {

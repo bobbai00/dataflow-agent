@@ -391,20 +391,81 @@ class DataProcessor(Runnable, Stoppable):
             declared = self._context.output_manager.get_port().get_schema()
             if inferred != declared:
                 if declared.get_attr_names():
-                    raise RuntimeError(
-                        f"Output schema mismatch: declared {declared}, "
-                        f"got {inferred}."
+                    # Static-schema operator (e.g. PythonUDFV2): the declared
+                    # schema is authoritative. Before rejecting, bridge benign
+                    # numeric discrepancies that Tuple.cast_to_schema fixes per
+                    # cell — chiefly a nullable integer column that round-trips
+                    # through pandas as float64 (pandas int64 cannot hold
+                    # nulls). For those, keep the declared schema and let
+                    # finalize() coerce DOUBLE→LONG (NaN→None). Only a genuine
+                    # mismatch (changed columns, fractional data declared as an
+                    # integer, or a non-numeric type change) still raises.
+                    if not self._numeric_mismatch_is_bridgeable(
+                        df, declared, inferred
+                    ):
+                        raise RuntimeError(
+                            f"Output schema mismatch: declared {declared}, "
+                            f"got {inferred}."
+                        )
+                    logger.info(
+                        "Bridged benign numeric schema discrepancy against "
+                        f"declared schema {declared} (inferred {inferred})."
                     )
-                self._context.output_manager.get_port().set_schema(inferred)
-                for port_id in self._context.output_manager.get_port_ids():
-                    self._context.output_manager.recreate_port_storage_writer(
-                        port_id, inferred
+                else:
+                    self._context.output_manager.get_port().set_schema(inferred)
+                    for port_id in self._context.output_manager.get_port_ids():
+                        self._context.output_manager.recreate_port_storage_writer(
+                            port_id, inferred
+                        )
+                    logger.info(
+                        f"Schema inferred from DataFrame dtypes: {inferred}"
                     )
-                logger.info(
-                    f"Schema inferred from DataFrame dtypes: {inferred}"
-                )
 
         self._publish_column_stats(df)
+
+    @staticmethod
+    def _numeric_mismatch_is_bridgeable(
+        df: pandas.DataFrame, declared: Schema, inferred: Schema
+    ) -> bool:
+        """
+        True when every column where `inferred` differs from `declared` is a
+        benign numeric discrepancy that `Tuple.cast_to_schema` bridges per
+        cell, so the declared schema can stand unchanged:
+
+          - declared INT/LONG vs inferred DOUBLE → bridgeable only when the
+            column's non-null values are all integral. This is the common
+            "nullable integer column arrives in pandas as float64" case
+            (pandas int64 cannot hold NaN); cast_to_schema maps NaN→None and
+            integer-valued floats→int.
+          - any other pair within {INT, LONG, DOUBLE} → bridgeable (lossless,
+            e.g. INT→LONG, or int values declared DOUBLE).
+
+        Anything else — a changed/missing/extra/reordered column, a
+        non-numeric type change (e.g. STRING↔LONG), or genuinely fractional
+        data declared as an integer — is NOT bridgeable and stays a hard
+        mismatch so real UDF contract violations still surface.
+        """
+        numeric = (AttributeType.INT, AttributeType.LONG, AttributeType.DOUBLE)
+        declared_names = declared.get_attr_names()
+        if declared_names != inferred.get_attr_names():
+            return False
+        for name in declared_names:
+            declared_type = declared.get_attr_type(name)
+            inferred_type = inferred.get_attr_type(name)
+            if declared_type == inferred_type:
+                continue
+            if declared_type not in numeric or inferred_type not in numeric:
+                return False
+            # Narrowing a float column to an integer type is only safe when
+            # the observed values carry no fractional part.
+            if (
+                declared_type in (AttributeType.INT, AttributeType.LONG)
+                and inferred_type == AttributeType.DOUBLE
+            ):
+                col = pandas.to_numeric(df[name], errors="coerce").dropna()
+                if len(col) and not (col == col.round()).all():
+                    return False
+        return True
 
     def _infer_schema_from_dataframe(self, df: pandas.DataFrame) -> Schema:
         """
@@ -943,6 +1004,17 @@ class DataProcessor(Runnable, Stoppable):
         def _clip(s: str, n: int) -> str:
             return s if len(s) <= n else s[: max(0, n - 1)] + "…"
 
+        # Only the generated single-function wrappers — DataProcessing
+        # (UDFMultiTableOperator) and DataLoading (UDFSourceOperator) — get
+        # user-code line locating + function slicing: we authored the wrapper,
+        # so the user wrote exactly one function and the traceback maps cleanly
+        # to their line. Hand-written operators (PythonUDFV2 / UDFOperatorV2)
+        # own the whole class, where a single "user line" is misleading — hand
+        # back the full multi-frame traceback (plus the operator's code).
+        if not self._operator_uses_line_locating():
+            self._report_full_traceback(exc_info, tb, exception_type, exception_msg, _clip)
+            return
+
         udf_frame, user_line = self._find_user_code_frame(tb)
         full_source: Optional[str] = None
         if udf_frame is not None:
@@ -1020,6 +1092,70 @@ class DataProcessor(Runnable, Stoppable):
                 )
                 parts.append(annotated)
 
+        message = "\n".join(parts)
+
+        self._context.console_message_manager.put_message(
+            ConsoleMessage(
+                worker_id=self._context.worker_id,
+                timestamp=current_time_in_local_timezone(),
+                msg_type=ConsoleMessageType.ERROR,
+                source=source,
+                title=title,
+                message=message,
+            )
+        )
+
+    def _operator_uses_line_locating(self) -> bool:
+        """
+        True when the running operator is a generated single-function wrapper:
+        DataProcessing (UDFMultiTableOperator) or DataLoading
+        (UDFSourceOperator). Those get user-code line locating; every other
+        operator (PythonUDFV2 / UDFOperatorV2, …) gets the full traceback.
+
+        Imported lazily to avoid a core→pytexera import cycle at module load;
+        any failure conservatively falls back to the full-traceback path.
+        """
+        try:
+            from pytexera.udf.udf_multi_table_operator import UDFMultiTableOperator
+            from pytexera.udf.udf_operator import UDFSourceOperator
+        except Exception:
+            return False
+        executor = getattr(
+            getattr(self._context, "executor_manager", None), "executor", None
+        )
+        return isinstance(executor, (UDFMultiTableOperator, UDFSourceOperator))
+
+    def _report_full_traceback(
+        self,
+        exc_info: ExceptionInfo,
+        tb,
+        exception_type: str,
+        exception_msg: str,
+        clip,
+    ) -> None:
+        """
+        Error reporting for hand-written operators (e.g. PythonUDFV2): emit the
+        complete multi-frame Python traceback as the message, followed by the
+        operator's source (unmarked). No user-relative line locating — the user
+        owns the whole operator class, so the raw stack is the faithful signal.
+        """
+        if tb:
+            filename, line_number, func_name, _ = tb[-1]
+            base_name = os.path.basename(filename)
+            module_name, _ = os.path.splitext(base_name)
+            source = f"{module_name}:{func_name}:{line_number}"
+        else:
+            source = ""
+        title = f"{exception_type}: {clip(exception_msg, 400)}"
+
+        parts: List[str] = ["".join(traceback.format_exception(*exc_info)).rstrip()]
+        full_source = self._read_running_operator_source()
+        if full_source is not None:
+            user_lines, _ = self._slice_user_code(full_source)
+            if user_lines:
+                parts.append("")
+                parts.append("Operator code:")
+                parts.append(self._format_code_with_marker(user_lines, error_line=-1))
         message = "\n".join(parts)
 
         self._context.console_message_manager.put_message(

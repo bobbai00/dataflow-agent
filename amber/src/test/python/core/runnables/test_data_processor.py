@@ -27,6 +27,8 @@ from core.models.internal_queue import InternalQueue
 from core.models.internal_marker import EndChannel, StartChannel
 from core.runnables.data_processor import DataProcessor
 from proto.org.apache.texera.amber.engine.architecture.rpc import ConsoleMessageType
+from pytexera.udf.udf_operator import UDFSourceOperator, UDFOperatorV2
+from pytexera.udf.udf_multi_table_operator import UDFMultiTableOperator  # noqa: F401
 
 
 @pytest.fixture
@@ -72,6 +74,22 @@ class _StubExecutor:
     def on_finish(self, port_id):
         self.calls.append(("on_finish", port_id))
         return iter([])
+
+
+class _SourceStub(UDFSourceOperator):
+    """Concrete UDFSourceOperator so `_operator_uses_line_locating` treats the
+    running operator as a generated DataLoading wrapper → line-locating path."""
+
+    def produce(self):
+        yield None
+
+
+class _RegularUDFStub(UDFOperatorV2):
+    """Concrete UDFOperatorV2 standing in for a hand-written PythonUDFV2
+    operator → full-traceback path (no user-line locating)."""
+
+    def process_tuple(self, tuple_, port):
+        yield None
 
 
 class TestProcessInternalMarker:
@@ -174,6 +192,12 @@ class TestExecutorSession:
 
 class TestReportException:
     """
+    Line-locating path — exercised when the running operator is a generated
+    single-function wrapper (DataProcessing/UDFMultiTableOperator or
+    DataLoading/UDFSourceOperator); these tests use a `_SourceStub` executor.
+    Hand-written operators (PythonUDFV2) take the full-traceback path instead
+    (see TestReportExceptionFullTraceback).
+
     `_report_exception` builds the ConsoleMessage that SyncExecutionResource
     surfaces to the agent as the operator's `[ERROR]` block. The two
     branches that matter for agent UX:
@@ -236,6 +260,8 @@ class TestReportException:
         # traceback contains no UDF frame.
         module_name = self._register_fake_udf_module(tmp_path, monkeypatch)
         context.executor_manager.operator_module_name = module_name
+        # DataLoading-style operator → line-locating path.
+        context.executor_manager.executor = _SourceStub()
 
         with data_processor._executor_session():
             raise TypeError(
@@ -304,6 +330,8 @@ class TestReportException:
             (tmp_path / "udf-v9999.py").write_text(src)
             mod = importlib.import_module("udf-v9999")
             context.executor_manager.operator_module_name = "udf-v9999"
+            # DataLoading-style operator → line-locating path.
+            context.executor_manager.executor = _SourceStub()
 
             with data_processor._executor_session():
                 mod.load()
@@ -336,6 +364,8 @@ class TestReportException:
     ):
         # No executor_manager.operator_module_name → source recovery
         # returns None and we emit just the exception summary.
+        # DataLoading-style operator → line-locating path.
+        context.executor_manager.executor = _SourceStub()
         with data_processor._executor_session():
             raise RuntimeError("plain-old-bug")
 
@@ -347,6 +377,60 @@ class TestReportException:
         # line. No "Operator code:" section, no neutral-header phrasing,
         # no multi-frame traceback.
         assert msg.message == "RuntimeError: plain-old-bug"
+
+
+class TestReportExceptionFullTraceback:
+    """
+    Full-traceback path — exercised for hand-written operators (PythonUDFV2 /
+    UDFOperatorV2), which are NOT generated single-function wrappers. Here
+    `_report_exception` skips user-line locating and hands back the complete
+    multi-frame Python traceback plus the operator's source (unmarked).
+    """
+
+    _UDF_SOURCE = (
+        "from pytexera import *\n"
+        "\n"
+        "class MyOperator(UDFOperatorV2):\n"
+        "    def process_tuple(self, tuple_, port):\n"
+        "        raise ValueError('boom-from-process')\n"
+    )
+
+    @pytest.mark.timeout(2)
+    def test_regular_operator_gets_full_traceback_and_code(
+        self, context, data_processor, tmp_path, monkeypatch
+    ):
+        module_name = "udf-vREGULAR"
+        file_path = tmp_path / f"{module_name}.py"
+        file_path.write_text(self._UDF_SOURCE)
+        fake_mod = types.ModuleType(module_name)
+        fake_mod.__file__ = str(file_path)
+        monkeypatch.setitem(sys.modules, module_name, fake_mod)
+        context.executor_manager.operator_module_name = module_name
+        # Hand-written PythonUDFV2 operator → full-traceback path.
+        context.executor_manager.executor = _RegularUDFStub()
+
+        with data_processor._executor_session():
+            raise ValueError("boom-from-process")
+
+        msgs = list(context.console_message_manager.get_messages(force_flush=True))
+        assert len(msgs) == 1
+        msg = msgs[0]
+        assert msg.msg_type == ConsoleMessageType.ERROR
+
+        # Title is the plain exception summary — no fabricated `(line N)`.
+        assert msg.title == "ValueError: boom-from-process"
+        assert "(line" not in msg.title
+
+        # The full multi-frame traceback IS included — the defining contrast
+        # with the line-locating path, which omits it.
+        assert "Traceback (most recent call last):" in msg.message
+        # ...and the operator's source is appended under "Operator code:".
+        assert "Operator code:" in msg.message
+        assert "class MyOperator(UDFOperatorV2):" in msg.message
+
+        # No user-relative `>` line marker — we don't pin a single user line.
+        for line in msg.message.splitlines():
+            assert not line.lstrip().startswith(">")
 
 
 class TestFormatCodeWithMarker:
@@ -903,6 +987,37 @@ class TestMaybeApplyRuntimeSchema:
         assert "Output schema mismatch" in msg
         assert "declared" in msg
         assert "got" in msg
+
+    def test_bridges_nullable_int_arriving_as_float(self, context):
+        # The reported failure mode: an integer column carrying nulls
+        # round-trips through pandas as float64 (DOUBLE), because pandas int64
+        # cannot hold NaN. Declared LONG must NOT raise — cast_to_schema
+        # bridges DOUBLE→LONG (NaN→None) downstream, so the declared schema
+        # stands unchanged.
+        declared = Schema()
+        declared.add("releaseYear", AttributeType.LONG)
+        dp, _ = _make_dp_with_declared_port(context, declared)
+        df = _pd.DataFrame(
+            {"releaseYear": _pd.Series([1995.0, _np.nan, 2001.0], dtype="float64")}
+        )
+
+        dp._maybe_apply_runtime_schema(df)  # must not raise
+
+        port_schema = context.output_manager.get_port().get_schema()
+        assert port_schema is declared  # authoritative; not rewritten
+        assert dp._schema_inferred is True
+
+    def test_does_not_bridge_fractional_float_declared_as_int(self, context):
+        # Genuinely fractional data declared as an integer is a real UDF
+        # contract violation — must still raise.
+        declared = Schema()
+        declared.add("score", AttributeType.LONG)
+        dp, _ = _make_dp_with_declared_port(context, declared)
+        df = _pd.DataFrame({"score": _pd.Series([1.5, 2.25], dtype="float64")})
+
+        with pytest.raises(RuntimeError) as excinfo:
+            dp._maybe_apply_runtime_schema(df)
+        assert "Output schema mismatch" in str(excinfo.value)
 
     def test_second_yield_does_not_reinfer_or_raise_on_drift(self, context):
         # Per the per-yield-but-sticky contract: once schema_inferred is set,

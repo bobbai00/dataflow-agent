@@ -70,6 +70,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       compilationResult,
       agentMode: settings.agentMode,
       statsEnabled: settings.statsEnabled,
+      includeOperatorProperties: settings.includeOperatorProperties,
     });
 }
 
@@ -139,6 +140,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     statsEnabled: agentSettings.statsEnabled,
+    includeOperatorProperties: agentSettings.includeOperatorProperties,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -248,6 +250,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           statsEnabled: settings.statsEnabled,
+          includeOperatorProperties: settings.includeOperatorProperties,
         });
       }
 
@@ -274,6 +277,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             statsEnabled: t.Optional(t.Boolean()),
+            includeOperatorProperties: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -322,13 +326,23 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     const agent = getAgent(id);
     const storage = agent.getSnapshotStorage();
     const rootId = storage.getRootSnapshotId();
+    // Each snapshot's timestamp is the time of its owning ReAct step. Use
+    // getAllSteps (includes the hidden init step) so the first snapshot also
+    // gets one.
+    const stepTimes = new Map(agent.getAllSteps().map(s => [s.id, s.timestamp]));
     // Exclude the synthetic empty-root snapshot ("S0"). It is a structural
     // placeholder with no workflow of its own; its children (the first real
     // snapshots) become the visible top-level nodes. `rootId` is still returned
     // so clients can resolve the "no active snapshot" fallback.
     return {
       rootId,
-      nodes: storage.getSnapshotTreeNodes().filter(n => n.id !== rootId),
+      nodes: storage
+        .getSnapshotTreeNodes()
+        .filter(n => n.id !== rootId)
+        .map(n => ({
+          ...n,
+          timestamp: n.reactStepId !== undefined ? (stepTimes.get(n.reactStepId) ?? null) : null,
+        })),
     };
   })
 
@@ -531,6 +545,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         statsEnabled: settings.statsEnabled,
+        includeOperatorProperties: settings.includeOperatorProperties,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -552,6 +567,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
         statsEnabled: agentSettings.statsEnabled,
+        includeOperatorProperties: agentSettings.includeOperatorProperties,
       };
     },
     {
@@ -568,6 +584,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         statsEnabled: t.Optional(t.Boolean()),
+        includeOperatorProperties: t.Optional(t.Boolean()),
       }),
     }
   );

@@ -120,6 +120,15 @@ export interface AgentSettings {
    * relatively low token cost.
    */
   statsEnabled: boolean;
+  /**
+   * When true, each operator's `operatorProperties` are rendered as a
+   * `Properties:` line in the assembled snapshot — EXCEPT the Python code
+   * operators (PythonUDFV2 / DataLoading / DataProcessing), whose `code`
+   * blob is large and already surfaced on error, so it is always stripped.
+   * When false, no operator properties are rendered at all (the legacy
+   * paper-§4.3 strip-everything behavior). Enabled by default.
+   */
+  includeOperatorProperties: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -152,8 +161,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ],
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
-  parallelToolCalls: true,
+  parallelToolCalls: false,
   statsEnabled: true,
+  includeOperatorProperties: true,
 };
 
 /**
@@ -199,6 +209,7 @@ export interface AgentSettingsApi {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
+  includeOperatorProperties?: boolean;
 }
 
 export interface AgentInfo {
@@ -238,4 +249,5 @@ export interface UpdateAgentSettingsRequest {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
+  includeOperatorProperties?: boolean;
 }

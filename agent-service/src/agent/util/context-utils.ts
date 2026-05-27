@@ -49,7 +49,22 @@ export interface AssembleContextOptions {
    *  `columnStats` is followed by a `Column stats:` section listing
    *  per-column stats (one column per line). Off by default. */
   statsEnabled?: boolean;
+  /** When true (the default), each operator's `operatorProperties` render as
+   *  a `Properties:` line in the snapshot, EXCEPT the Python code operators
+   *  in `CODE_OPERATOR_TYPES` (their `code` is large and already surfaced on
+   *  error, so it is always stripped). When false, no properties render at
+   *  all (legacy paper-§4.3 strip-everything behavior). Undefined ⇒ true. */
+  includeOperatorProperties?: boolean;
 }
+
+/**
+ * Python code operators whose `operatorProperties` (chiefly the `code` blob)
+ * are always stripped from the assembled context: their source is large and
+ * already surfaced inline on error, so echoing it in every snapshot is pure
+ * token cost. All other operator types render their properties when
+ * `includeOperatorProperties` is on.
+ */
+const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessing"]);
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -77,10 +92,13 @@ export interface AssembleContextOptions {
  * included on event lines — the snapshot below carries the relevant
  * state.
  *
- * Snapshot trimming (paper §4.3): the operator's computation function
- * (`code` / `Properties:`) is dropped for every mode, every snapshot.
- * The user's `OperatorInfo` result already carries the source code on
- * error, so dropping `Properties:` doesn't hide what's needed to debug.
+ * Snapshot trimming (paper §4.3): the Python code operators'
+ * (`CODE_OPERATOR_TYPES`) computation function (`code`) is always dropped —
+ * the user's `OperatorInfo` result already carries the source code on error,
+ * so dropping it doesn't hide what's needed to debug. All other operators
+ * render their `operatorProperties` as a `Properties:` line when
+ * `options.includeOperatorProperties` is on (the default); set it false to
+ * restore the legacy strip-everything behavior.
  */
 export function assembleContext(
   visibleSteps: ReActStep[],
@@ -786,6 +804,20 @@ function serializeOperatorFull(
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+
+  // Operator properties (config). Rendered for every operator except the
+  // Python code operators (whose `code` is stripped — see CODE_OPERATOR_TYPES)
+  // and only when the toggle is on (default) and there is at least one
+  // property to show. Empty-property operators render nothing.
+  const includeProps = options.includeOperatorProperties !== false;
+  if (
+    includeProps &&
+    !CODE_OPERATOR_TYPES.has(op.operatorType) &&
+    op.operatorProperties &&
+    Object.keys(op.operatorProperties).length > 0
+  ) {
+    lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
+  }
 
   // Schemas only on the current (last) snapshot — compilation only runs
   // against the live workflow.

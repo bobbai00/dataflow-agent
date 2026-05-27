@@ -505,14 +505,14 @@ describe("assembleContext — cross-mode invariants", () => {
     expect(cLatest).not.toContain('- create operator "src"');
   });
 
-  test("operator computation properties (code) are dropped in every mode (paper-§4.3 trim)", () => {
-    // Build a scenario with an op carrying a `code` property; assert no mode
-    // surfaces it in the assembled context.
+  // Shared single-step scenario builder for the property-rendering tests:
+  // one agent step whose snapshot holds `op` (built by the caller).
+  function propScenario(op: ReturnType<typeof makeOp>) {
     const { storage } = buildScenario([
       { id: "x", stepId: 0, role: "agent", toolCalls: [{ toolName: "init", toolCallId: "tc", input: {} }] },
     ]);
     const wf: WorkflowContent = {
-      operators: [makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" })],
+      operators: [op],
       operatorPositions: {},
       links: [],
       commentBoxes: [],
@@ -528,12 +528,47 @@ describe("assembleContext — cross-mode invariants", () => {
         toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
       }),
     ];
+    return { storage, stepsAll };
+  }
+
+  test("Python code operators' code is always stripped, even with includeOperatorProperties on", () => {
+    // DataLoading (a CODE_OPERATOR_TYPE) carries a `code` property; assert no
+    // mode surfaces it even though the include flag is explicitly on.
+    const { storage, stepsAll } = propScenario(
+      makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" })
+    );
     const ws = new WorkflowState();
     for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
-      const c = content(assembleContext(stepsAll, ws, storage, mode, opts));
+      const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: true }));
       expect(c).not.toContain("secret_payload");
       expect(c).not.toContain("Properties:");
     }
+  });
+
+  test("non-code operator properties render by default and hide when the flag is off", () => {
+    const { storage, stepsAll } = propScenario(makeOp("flt", "Filter", { predicate: "age > 18" }));
+    const ws = new WorkflowState();
+
+    // Default (flag undefined ⇒ on): properties render.
+    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+      const c = content(assembleContext(stepsAll, ws, storage, mode, opts));
+      expect(c).toContain("Properties:");
+      expect(c).toContain("age > 18");
+    }
+
+    // Flag off: legacy strip-everything behavior.
+    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+      const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: false }));
+      expect(c).not.toContain("Properties:");
+      expect(c).not.toContain("age > 18");
+    }
+  });
+
+  test("empty-property operators never render a Properties line", () => {
+    const { storage, stepsAll } = propScenario(makeOp("noprops", "Filter", {}));
+    const ws = new WorkflowState();
+    const c = content(assembleContext(stepsAll, ws, storage, ContextMode.LATEST, opts));
+    expect(c).not.toContain("Properties:");
   });
 });
 
