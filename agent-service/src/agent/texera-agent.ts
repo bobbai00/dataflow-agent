@@ -396,6 +396,7 @@ export class TexeraAgent {
         metricEvidenceGuidance: this.settings.metricEvidenceGuidance,
         tableStructureHints: this.settings.tableStructureHints,
         rawLoaderProvenance: this.settings.rawLoaderProvenance,
+        boundedExecutionGuidance: this.settings.boundedExecutionGuidance,
         resultRendering: this.settings.resultRendering,
         contextScope: this.settings.contextScope,
       });
@@ -702,6 +703,7 @@ export class TexeraAgent {
     schemaFirstCodeMode?: boolean;
     tableStructureHints?: boolean;
     rawLoaderProvenance?: boolean;
+    boundedExecutionGuidance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -794,6 +796,13 @@ export class TexeraAgent {
       updates.rawLoaderProvenance !== this.settings.rawLoaderProvenance
     ) {
       this.settings.rawLoaderProvenance = updates.rawLoaderProvenance;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.boundedExecutionGuidance !== undefined &&
+      updates.boundedExecutionGuidance !== this.settings.boundedExecutionGuidance
+    ) {
+      this.settings.boundedExecutionGuidance = updates.boundedExecutionGuidance;
       promptNeedsRebuild = true;
     }
 

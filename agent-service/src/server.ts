@@ -162,6 +162,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
     tableStructureHints: agentSettings.tableStructureHints,
     rawLoaderProvenance: agentSettings.rawLoaderProvenance,
+    boundedExecutionGuidance: agentSettings.boundedExecutionGuidance,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -280,6 +281,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           schemaFirstCodeMode: settings.schemaFirstCodeMode,
           tableStructureHints: settings.tableStructureHints,
           rawLoaderProvenance: settings.rawLoaderProvenance,
+          boundedExecutionGuidance: settings.boundedExecutionGuidance,
         });
       }
 
@@ -318,6 +320,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             schemaFirstCodeMode: t.Optional(t.Boolean()),
             tableStructureHints: t.Optional(t.Boolean()),
             rawLoaderProvenance: t.Optional(t.Boolean()),
+            boundedExecutionGuidance: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -560,6 +563,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
       tableStructureHints: agentSettings.tableStructureHints,
       rawLoaderProvenance: agentSettings.rawLoaderProvenance,
+      boundedExecutionGuidance: agentSettings.boundedExecutionGuidance,
     };
   })
 
@@ -603,6 +607,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaFirstCodeMode: settings.schemaFirstCodeMode,
         tableStructureHints: settings.tableStructureHints,
         rawLoaderProvenance: settings.rawLoaderProvenance,
+        boundedExecutionGuidance: settings.boundedExecutionGuidance,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -633,6 +638,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
         tableStructureHints: agentSettings.tableStructureHints,
         rawLoaderProvenance: agentSettings.rawLoaderProvenance,
+        boundedExecutionGuidance: agentSettings.boundedExecutionGuidance,
       };
     },
     {
@@ -658,6 +664,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaFirstCodeMode: t.Optional(t.Boolean()),
         tableStructureHints: t.Optional(t.Boolean()),
         rawLoaderProvenance: t.Optional(t.Boolean()),
+        boundedExecutionGuidance: t.Optional(t.Boolean()),
       }),
     }
   );

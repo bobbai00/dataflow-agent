@@ -44,6 +44,7 @@ export interface CodeModePromptOptions {
   metricEvidenceGuidance?: boolean;
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
+  boundedExecutionGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
 }
@@ -126,6 +127,27 @@ a branch that is not upstream of the latest frontier:
   has become relevant.
 - If an off-lineage branch is needed, make it the new frontier with a focused
   operator edit or inspection instead of reasoning from hidden rows.`;
+
+const BOUNDED_EXECUTION_GUIDANCE = `## Bounded Execution Probes
+
+Before scaling an expensive downstream operator to a full table, validate it on
+a bounded probe. This applies to row-wise external model calls, simulations,
+API/library calls, nested loops, all-pairs joins, broad wildcard reads, or any
+operator whose upstream shape suggests many repeated expensive calls.
+
+- Use upstream shape, column stats, and prior operator runtimes to identify
+  execution risk before writing the full operator.
+- First create a focused probe operator that consumes the same upstream data but
+  limits rows deterministically (for example, a small \`.head(n)\`, date slice,
+  or representative group sample), validates required columns/coverage, and
+  runs one or a few calls end-to-end.
+- Return probe evidence as a DataFrame: input row count, sampled row count,
+  coverage/null checks, caught error messages, and representative output values.
+- Scale to the full operator only after the probe proves row grain, joins,
+  model inputs, and units are correct. If the probe fails, fix the upstream or
+  probe logic rather than launching the full expensive execution.
+- Keep the probe as temporary scaffolding: once the full operator succeeds and
+  no downstream operator depends on the probe, delete it in a later safe batch.`;
 
 // ============================================================================
 // Shared sections
@@ -392,6 +414,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.metricEvidenceGuidance) sections.push(METRIC_EVIDENCE_GUIDANCE);
   if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
+  if (options.boundedExecutionGuidance) sections.push(BOUNDED_EXECUTION_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
   }

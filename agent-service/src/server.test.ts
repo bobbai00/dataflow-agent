@@ -212,6 +212,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: true,
       tableStructureHints: true,
       rawLoaderProvenance: true,
+      boundedExecutionGuidance: true,
       resultRendering: "adaptive",
       contextScope: "active-lineage",
     });
@@ -224,6 +225,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
+      boundedExecutionGuidance: boolean;
       resultRendering: string;
       contextScope: string;
     }>(res);
@@ -234,6 +236,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.schemaFirstCodeMode).toBe(true);
     expect(body.tableStructureHints).toBe(true);
     expect(body.rawLoaderProvenance).toBe(true);
+    expect(body.boundedExecutionGuidance).toBe(true);
     expect(body.resultRendering).toBe("adaptive");
     expect(body.contextScope).toBe("active-lineage");
 
@@ -247,6 +250,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
+      boundedExecutionGuidance: boolean;
       resultRendering: string;
       contextScope: string;
     }>(await getJson(`${API}/agents/${created.id}/settings`));
@@ -258,6 +262,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.schemaFirstCodeMode).toBe(true);
     expect(reread.tableStructureHints).toBe(true);
     expect(reread.rawLoaderProvenance).toBe(true);
+    expect(reread.boundedExecutionGuidance).toBe(true);
     expect(reread.resultRendering).toBe("adaptive");
     expect(reread.contextScope).toBe("active-lineage");
   });

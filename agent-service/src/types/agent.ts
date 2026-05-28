@@ -190,6 +190,13 @@ export interface AgentSettings {
    * reproducibility.
    */
   rawLoaderProvenance: boolean;
+  /**
+   * When true, append CODE-mode guidance that asks the agent to validate
+   * expensive row-wise, external-model, or broad-join operators on bounded
+   * probes before scaling to full-table execution. Off by default for baseline
+   * reproducibility.
+   */
+  boundedExecutionGuidance: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -233,6 +240,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   schemaFirstCodeMode: false,
   tableStructureHints: false,
   rawLoaderProvenance: false,
+  boundedExecutionGuidance: false,
 };
 
 /**
@@ -287,6 +295,7 @@ export interface AgentSettingsApi {
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
+  boundedExecutionGuidance?: boolean;
 }
 
 export interface AgentInfo {
@@ -335,4 +344,5 @@ export interface UpdateAgentSettingsRequest {
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
+  boundedExecutionGuidance?: boolean;
 }

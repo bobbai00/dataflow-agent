@@ -118,6 +118,17 @@ describe("TexeraAgent — initial state", () => {
     const agent = makeAgent();
     expect(agent.getVisibleReActSteps()).toEqual([]);
   });
+
+  test("bounded execution guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Bounded Execution Probes");
+
+    agent.updateSettings({ boundedExecutionGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Bounded Execution Probes");
+    expect(agent.getSystemInfo().systemPrompt).toContain("bounded probe");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {
@@ -721,8 +732,22 @@ describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => 
               // backend-side stub for an unmaterialized op and skips it. So
               // the mock has to mirror the real backend's shape for a
               // Completed operator.
-              op1: { state: "Completed", inputTuples: 0, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
-              op2: { state: "Completed", inputTuples: 5, outputTuples: 5, resultMode: "table", totalRowCount: 5, result: [] },
+              op1: {
+                state: "Completed",
+                inputTuples: 0,
+                outputTuples: 5,
+                resultMode: "table",
+                totalRowCount: 5,
+                result: [],
+              },
+              op2: {
+                state: "Completed",
+                inputTuples: 5,
+                outputTuples: 5,
+                resultMode: "table",
+                totalRowCount: 5,
+                result: [],
+              },
             },
           }),
       },
