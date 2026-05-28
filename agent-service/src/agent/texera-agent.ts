@@ -407,6 +407,7 @@ export class TexeraAgent {
         labelComponentProfileContract: this.settings.labelComponentProfileContract,
         observedComponentInventoryContract: this.settings.observedComponentInventoryContract,
         dataDiscoveredComponentInventoryContract: this.settings.dataDiscoveredComponentInventoryContract,
+        boundaryTokenInventoryContract: this.settings.boundaryTokenInventoryContract,
         candidateSelectionImpactContract: this.settings.candidateSelectionImpactContract,
         evidenceDependencyGate: this.settings.evidenceDependencyGate,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
@@ -754,6 +755,7 @@ export class TexeraAgent {
     labelComponentProfileContract?: boolean;
     observedComponentInventoryContract?: boolean;
     dataDiscoveredComponentInventoryContract?: boolean;
+    boundaryTokenInventoryContract?: boolean;
     candidateSelectionImpactContract?: boolean;
     evidenceDependencyGate?: boolean;
     executionSafeOperatorIds?: boolean;
@@ -921,6 +923,13 @@ export class TexeraAgent {
       updates.dataDiscoveredComponentInventoryContract !== this.settings.dataDiscoveredComponentInventoryContract
     ) {
       this.settings.dataDiscoveredComponentInventoryContract = updates.dataDiscoveredComponentInventoryContract;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.boundaryTokenInventoryContract !== undefined &&
+      updates.boundaryTokenInventoryContract !== this.settings.boundaryTokenInventoryContract
+    ) {
+      this.settings.boundaryTokenInventoryContract = updates.boundaryTokenInventoryContract;
       promptNeedsRebuild = true;
     }
     if (

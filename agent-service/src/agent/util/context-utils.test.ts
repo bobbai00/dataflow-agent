@@ -179,6 +179,92 @@ function content(messages: ReturnType<typeof assembleContext>): string {
 
 const opts = { compilationResult: null, agentMode: AgentMode.CODE };
 
+function observedInventoryRow(overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    source_column: "Site Label",
+    raw_distinct_count: 250,
+    observed_pattern_id: "token_1",
+    observed_pattern_kind: "symbolic separator",
+    observed_token_or_pattern: "::",
+    affected_label_count: 120,
+    affected_label_share: 0.48,
+    component_distinct_count: 180,
+    split_or_merge_count: 12,
+    example_raw_values: "North Cove :: Pier A",
+    example_component_values: "North Cove",
+    candidate_component_rules: "take prefix",
+    coverage_rank: 1,
+    rationale: "observed recurring boundary",
+    ...overrides,
+  };
+}
+
+function dataDiscoveredInventoryRow(overrides: Record<string, any> = {}): Record<string, any> {
+  return observedInventoryRow({
+    discovery_method: "scan all non-null labels for repeated literal tokens",
+    candidate_token: "::",
+    token_frequency: 120,
+    token_coverage_share: 0.48,
+    candidate_transform: "split on boundary",
+    impact_probe_required: true,
+    ...overrides,
+  });
+}
+
+function boundaryInventoryRow(overrides: Record<string, any> = {}): Record<string, any> {
+  return dataDiscoveredInventoryRow({
+    scan_scope: "all non-null Site Label values",
+    enumeration_complete: true,
+    candidate_token_class: "symbolic separator",
+    boundary_side: "between components",
+    candidate_transform_family: "split on boundary",
+    omitted_candidate_tokens: "",
+    ...overrides,
+  });
+}
+
+function keyEvidenceRow(overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    candidate_id: "raw",
+    source_columns: "Site Label",
+    transformation: "identity",
+    distinct_count: 250,
+    non_null_count: 5000,
+    blank_count: 0,
+    changed_label_count: 0,
+    split_or_merge_count: 0,
+    sample_raw_values: "North Cove :: Pier A",
+    sample_raw_to_key_groups: "North Cove :: Pier A -> North Cove :: Pier A",
+    preserves_task_grain: true,
+    selected_for_final: false,
+    rationale: "candidate row",
+    ...overrides,
+  };
+}
+
+function impactEvidenceRow(overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    candidate_id: "raw",
+    source_columns: "Site Label",
+    transformation: "identity",
+    selected_in_key_evidence: true,
+    upstream_row_count: 5000,
+    entity_count: 250,
+    rows_per_entity_min: 1,
+    rows_per_entity_max: 90,
+    predicate_or_measure_definition: "entities with no disqualifying rows",
+    qualifying_entity_count: 140,
+    disqualifying_entity_count: 40,
+    unknown_entity_count: 0,
+    final_metric_value: 140,
+    delta_vs_baseline: 0,
+    sample_entity_groups: "North Cove :: Pier A",
+    selected_for_final: false,
+    rationale: "impact row",
+    ...overrides,
+  };
+}
+
 /* ============================================================================
  *  Latest mode
  * ========================================================================= */
@@ -1544,6 +1630,264 @@ describe("assembleContext — Latest", () => {
       "Observed component inventory contract satisfied by operator `componentInventory`"
     );
     expect(discoveredContext).not.toContain("missing required data-discovery columns");
+  });
+
+  test("boundaryTokenInventoryContract requires complete boundary-token inventory", () => {
+    const buildInventoryScenario = (row: Record<string, any>) => {
+      const scenario = buildScenario([
+        { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+        {
+          id: "a",
+          stepId: 1,
+          role: "agent",
+          parentId: "u",
+          messageId: "m1",
+          toolCalls: [
+            { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentInventory" } },
+          ],
+          toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+        },
+      ]);
+      scenario.storage.createSnapshot("a", makeWorkflow(["labels", "componentInventory"]));
+      scenario.storage.setOperatorResult(
+        "a",
+        "labels",
+        makeInfo("labels", 5_000, undefined, {
+          result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+          columnStats: { "Site Label": "(str): null=0, distinct=250" },
+        })
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "componentInventory",
+        makeInfo("componentInventory", 1, undefined, { result: [row] })
+      );
+      return scenario;
+    };
+
+    const discoveredOnly = buildInventoryScenario(dataDiscoveredInventoryRow());
+    const discoveredContext = content(
+      assembleContext(discoveredOnly.steps, discoveredOnly.workflowState, discoveredOnly.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+      })
+    );
+    expect(discoveredContext).toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+
+    const missingBoundaryContext = content(
+      assembleContext(discoveredOnly.steps, discoveredOnly.workflowState, discoveredOnly.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+        boundaryTokenInventoryContract: true,
+      })
+    );
+    expect(missingBoundaryContext).toContain("Boundary-token inventory completeness:");
+    expect(missingBoundaryContext).toContain("missing required boundary-token inventory columns");
+    expect(missingBoundaryContext).toContain("scan_scope");
+
+    const incomplete = buildInventoryScenario(boundaryInventoryRow({ enumeration_complete: false }));
+    const incompleteContext = content(
+      assembleContext(incomplete.steps, incomplete.workflowState, incomplete.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+        boundaryTokenInventoryContract: true,
+      })
+    );
+    expect(incompleteContext).toContain("does not prove complete observed-boundary coverage");
+    expect(incompleteContext).toContain("enumeration_complete not true");
+
+    const omitted = buildInventoryScenario(boundaryInventoryRow({ omitted_candidate_tokens: "numeric suffixes" }));
+    const omittedContext = content(
+      assembleContext(omitted.steps, omitted.workflowState, omitted.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+        boundaryTokenInventoryContract: true,
+      })
+    );
+    expect(omittedContext).toContain("report omitted_candidate_tokens");
+
+    const complete = buildInventoryScenario(boundaryInventoryRow());
+    const completeContext = content(
+      assembleContext(complete.steps, complete.workflowState, complete.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+        boundaryTokenInventoryContract: true,
+      })
+    );
+    expect(completeContext).toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+    expect(completeContext).not.toContain("Observed component inventory contract unsatisfied");
+  });
+
+  test("boundaryTokenInventoryContract requires candidate-key coverage for required inventory transforms", () => {
+    const buildKeyScenario = (keyRows: Record<string, any>[]) => {
+      const scenario = buildScenario([
+        { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+        {
+          id: "a",
+          stepId: 1,
+          role: "agent",
+          parentId: "u",
+          messageId: "m1",
+          toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "keyEvidence" } }],
+          toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+        },
+      ]);
+      scenario.storage.createSnapshot(
+        "a",
+        makeWorkflow(["labels", "componentInventory", "keyEvidence"], [["componentInventory", "keyEvidence"]])
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "labels",
+        makeInfo("labels", 5_000, undefined, {
+          result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+          columnStats: { "Site Label": "(str): null=0, distinct=250" },
+        })
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "componentInventory",
+        makeInfo("componentInventory", 1, undefined, { result: [boundaryInventoryRow()] })
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "keyEvidence",
+        makeInfo("keyEvidence", keyRows.length, undefined, { result: keyRows })
+      );
+      return scenario;
+    };
+
+    const options = {
+      ...opts,
+      observedComponentInventoryContract: true,
+      dataDiscoveredComponentInventoryContract: true,
+      boundaryTokenInventoryContract: true,
+      keyGrainEvidenceContract: true,
+      evidenceDependencyGate: true,
+    };
+
+    const missing = buildKeyScenario([keyEvidenceRow()]);
+    const missingContext = content(
+      assembleContext(missing.steps, missing.workflowState, missing.storage, ContextMode.LATEST, options)
+    );
+    expect(missingContext).toContain("Key-grain evidence contract unsatisfied");
+    expect(missingContext).toContain("omits required inventory transforms");
+    expect(missingContext).toContain("split_on_boundary");
+
+    const covered = buildKeyScenario([
+      keyEvidenceRow(),
+      keyEvidenceRow({
+        candidate_id: "split",
+        transformation: "split on boundary",
+        distinct_count: 180,
+        changed_label_count: 120,
+        split_or_merge_count: 12,
+      }),
+    ]);
+    const coveredContext = content(
+      assembleContext(covered.steps, covered.workflowState, covered.storage, ContextMode.LATEST, options)
+    );
+    expect(coveredContext).toContain("Key-grain evidence contract satisfied by operator `keyEvidence`");
+    expect(coveredContext).not.toContain("omits required inventory transforms");
+  });
+
+  test("boundaryTokenInventoryContract requires candidate-impact coverage for visible candidate-key rows", () => {
+    const buildImpactScenario = (impactRows: Record<string, any>[]) => {
+      const scenario = buildScenario([
+        { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },
+        {
+          id: "a",
+          stepId: 1,
+          role: "agent",
+          parentId: "u",
+          messageId: "m1",
+          toolCalls: [
+            { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "impactEvidence" } },
+          ],
+          toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+        },
+      ]);
+      scenario.storage.createSnapshot(
+        "a",
+        makeWorkflow(
+          ["componentInventory", "keyEvidence", "impactEvidence"],
+          [
+            ["componentInventory", "keyEvidence"],
+            ["keyEvidence", "impactEvidence"],
+          ]
+        )
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "componentInventory",
+        makeInfo("componentInventory", 1, undefined, { result: [boundaryInventoryRow()] })
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "keyEvidence",
+        makeInfo("keyEvidence", 2, undefined, {
+          result: [
+            keyEvidenceRow(),
+            keyEvidenceRow({
+              candidate_id: "split",
+              transformation: "split on boundary",
+              distinct_count: 180,
+              changed_label_count: 120,
+              split_or_merge_count: 12,
+            }),
+          ],
+        })
+      );
+      scenario.storage.setOperatorResult(
+        "a",
+        "impactEvidence",
+        makeInfo("impactEvidence", impactRows.length, undefined, { result: impactRows })
+      );
+      return scenario;
+    };
+
+    const options = {
+      ...opts,
+      observedComponentInventoryContract: true,
+      dataDiscoveredComponentInventoryContract: true,
+      boundaryTokenInventoryContract: true,
+      keyGrainEvidenceContract: true,
+      candidateSelectionImpactContract: true,
+      evidenceDependencyGate: true,
+    };
+
+    const missing = buildImpactScenario([impactEvidenceRow()]);
+    const missingContext = content(
+      assembleContext(missing.steps, missing.workflowState, missing.storage, ContextMode.LATEST, options)
+    );
+    expect(missingContext).toContain("Candidate-selection impact contract unsatisfied");
+    expect(missingContext).toContain("does not compare all visible candidate-key rows");
+    expect(missingContext).toContain("split_on_boundary");
+
+    const covered = buildImpactScenario([
+      impactEvidenceRow(),
+      impactEvidenceRow({
+        candidate_id: "split",
+        transformation: "split on boundary",
+        selected_in_key_evidence: true,
+        entity_count: 180,
+        delta_vs_baseline: -40,
+      }),
+    ]);
+    const coveredContext = content(
+      assembleContext(covered.steps, covered.workflowState, covered.storage, ContextMode.LATEST, options)
+    );
+    expect(coveredContext).toContain("Candidate-selection impact contract satisfied by operator `impactEvidence`");
+    expect(coveredContext).not.toContain("does not compare all visible candidate-key rows");
   });
 
   test("candidateSelectionImpactContract renders unsatisfied and satisfied LATEST notices", () => {

@@ -267,6 +267,12 @@ export interface AgentSettings {
    */
   dataDiscoveredComponentInventoryContract: boolean;
   /**
+   * When true, observed component inventory evidence must also prove broad
+   * boundary-token enumeration and downstream impact coverage for every
+   * required candidate transform. Off by default for baseline reproducibility.
+   */
+  boundaryTokenInventoryContract: boolean;
+  /**
    * When true, LATEST context treats the selected entity key as provisional
    * until an executed impact table compares candidate keys against the
    * downstream entity-level predicate or final measure. This uses typed
@@ -350,6 +356,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   labelComponentProfileContract: false,
   observedComponentInventoryContract: false,
   dataDiscoveredComponentInventoryContract: false,
+  boundaryTokenInventoryContract: false,
   candidateSelectionImpactContract: false,
   evidenceDependencyGate: false,
   executionSafeOperatorIds: false,
@@ -418,6 +425,7 @@ export interface AgentSettingsApi {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
+  boundaryTokenInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -480,6 +488,7 @@ export interface UpdateAgentSettingsRequest {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
+  boundaryTokenInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;

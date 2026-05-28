@@ -53,6 +53,7 @@ export interface CodeModePromptOptions {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
+  boundaryTokenInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -331,6 +332,32 @@ transforms were discovered from the actual upstream values.
   deduplication, distinct count, predicate, or final measure.
 - Later candidate-key evidence should consume these rows through the DAG and
   compare only data-supported component candidates.`;
+
+const BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE = `## Boundary-Token Inventory Completeness Contract
+
+Strengthen data-discovered component inventory by proving the scan covered the
+recurring boundary tokens and transform families visible in the upstream label
+values.
+
+- When this contract is enabled, an inventory table is not sufficient unless it
+  also includes these columns exactly:
+  scan_scope, enumeration_complete, candidate_token_class, boundary_side,
+  candidate_transform_family, omitted_candidate_tokens.
+- scan_scope should describe the value population scanned, not preview rows;
+  enumeration_complete must be true only when the operator scanned all non-null
+  candidate label values for recurring boundary evidence.
+- Include rows for observed recurring non-alphanumeric separators,
+  bracketed/affixed boundaries, before/after boundary components, repeated
+  multi-character tokens, and numeric/coded suffixes when they occur above a
+  low materiality threshold. The rule is to enumerate what is observed, not to
+  preselect familiar examples.
+- omitted_candidate_tokens should be empty for a satisfying inventory. If the
+  scan intentionally omits a token or transform family, record it there and do
+  not select a final key until the omission is resolved or justified by impact
+  evidence.
+- Candidate-key evidence must include every inventory transform where
+  impact_probe_required=true, and candidate-impact evidence must compare those
+  candidates before any selected key can satisfy.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -707,6 +734,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.dataDiscoveredComponentInventoryContract) {
     sections.push(DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
   }
+  if (options.boundaryTokenInventoryContract) sections.push(BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);

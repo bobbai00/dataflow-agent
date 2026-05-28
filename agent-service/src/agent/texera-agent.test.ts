@@ -241,6 +241,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("actual upstream values");
   });
 
+  test("boundary-token inventory contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Boundary-Token Inventory Completeness Contract");
+
+    agent.updateSettings({ boundaryTokenInventoryContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Boundary-Token Inventory Completeness Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("scan_scope");
+    expect(agent.getSystemInfo().systemPrompt).toContain("enumeration_complete");
+    expect(agent.getSystemInfo().systemPrompt).toContain("impact_probe_required=true");
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

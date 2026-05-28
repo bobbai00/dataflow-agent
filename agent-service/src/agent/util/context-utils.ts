@@ -115,6 +115,9 @@ export interface AssembleContextOptions {
    *  when the table includes explicit data-discovered token/transform rows.
    *  Off by default. */
   dataDiscoveredComponentInventoryContract?: boolean;
+  /** Strengthen observed inventory so it must prove broad boundary-token
+   *  enumeration and downstream candidate-impact coverage. Off by default. */
+  boundaryTokenInventoryContract?: boolean;
   /** Render a LATEST-mode candidate-selection impact contract notice after
    *  candidate-key evidence exists but no executed impact table compares those
    *  candidates against the downstream entity predicate or final measure. Off
@@ -186,6 +189,11 @@ const OBSERVED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE = [
 const DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE = [
   "Data-discovered component inventory: observed-inventory evidence must report candidate tokens/transforms discovered from the data, with coverage and impact-probe fields.",
   "A schema-compatible inventory that only lists familiar pattern families is not enough for downstream key evidence.",
+].join(" ");
+
+const BOUNDARY_TOKEN_INVENTORY_CONTRACT_CONTEXT_NOTICE = [
+  "Boundary-token inventory completeness: data-discovered inventory must prove it broadly enumerated recurring observed boundary tokens and transform families.",
+  "Candidate-key and candidate-impact evidence must cover every inventory transform marked impact_probe_required=true before key selection can satisfy.",
 ].join(" ");
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE = [
@@ -260,6 +268,14 @@ const DATA_DISCOVERED_COMPONENT_INVENTORY_REQUIRED_COLUMNS = [
   "token_coverage_share",
   "candidate_transform",
   "impact_probe_required",
+];
+const BOUNDARY_TOKEN_INVENTORY_REQUIRED_COLUMNS = [
+  "scan_scope",
+  "enumeration_complete",
+  "candidate_token_class",
+  "boundary_side",
+  "candidate_transform_family",
+  "omitted_candidate_tokens",
 ];
 const CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS = [
   "candidate_id",
@@ -749,6 +765,7 @@ function appendContextNotices(
     ...(options.dataDiscoveredComponentInventoryContract
       ? [DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE]
       : []),
+    ...(options.boundaryTokenInventoryContract ? [BOUNDARY_TOKEN_INVENTORY_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.candidateSelectionImpactContract ? [CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.evidenceDependencyGate ? [EVIDENCE_DEPENDENCY_GATE_CONTEXT_NOTICE] : []),
     ...dynamicNotices,
@@ -1584,11 +1601,18 @@ interface CandidateSelectionImpactSource {
   operatorId: string;
 }
 
+interface EvidenceCoverageIssue {
+  operatorId: string;
+  upstreamOperatorId: string;
+  missingCandidates: string[];
+}
+
 type EvidenceContractOptions = Pick<
   AssembleContextOptions,
   | "evidenceDependencyGate"
   | "observedComponentInventoryContract"
   | "dataDiscoveredComponentInventoryContract"
+  | "boundaryTokenInventoryContract"
   | "labelComponentProfileContract"
   | "keyGrainEvidenceContract"
   | "candidateSelectionImpactContract"
@@ -1631,9 +1655,21 @@ function buildObservedComponentInventoryContractNotice(
 
   const schemaIssue = findObservedComponentInventorySchemaIssue(snapshot, options);
   if (schemaIssue) {
+    const missingColumnKind = options.boundaryTokenInventoryContract
+      ? "required boundary-token inventory columns"
+      : "required data-discovery columns";
     return [
-      `Observed component inventory contract unsatisfied: executed inventory operator \`${schemaIssue.operatorId}\` has base observed-inventory columns but is missing required data-discovery columns (${schemaIssue.missingColumns.join(", ")}).`,
-      "Modify the inventory artifact so each row records candidate tokens/transforms discovered from all label values, with coverage and impact-probe fields.",
+      `Observed component inventory contract unsatisfied: executed inventory operator \`${schemaIssue.operatorId}\` has base observed-inventory columns but is missing ${missingColumnKind} (${schemaIssue.missingColumns.join(", ")}).`,
+      "Modify the inventory artifact so each row records candidate tokens/transforms discovered from all label values, with coverage, broad boundary-enumeration, and impact-probe fields.",
+    ].join(" ");
+  }
+
+  const completenessIssue = findBoundaryTokenInventoryCompletenessIssue(snapshot, options);
+  if (completenessIssue) {
+    return [
+      `Observed component inventory contract unsatisfied: executed inventory operator \`${completenessIssue.operatorId}\` has boundary-enumeration columns but does not prove complete observed-boundary coverage.`,
+      completenessIssue.reason,
+      "Complete the all-value boundary-token scan or keep the inventory explicitly unsatisfied before downstream key selection.",
     ].join(" ");
   }
 
@@ -1657,9 +1693,11 @@ function buildObservedComponentInventoryContractNotice(
     "Before component profiling, candidate-key evidence, final entity-level aggregation, or answer, create and execute a compact inventory table over all non-null values in the candidate label columns.",
     `Required columns: ${getObservedComponentInventoryRequiredColumns(options).join(", ")}.`,
     "Include one row per observed structure family that could change entity grain; store the observed token or pattern as data, and derive later candidate component rules from these rows.",
-    options.dataDiscoveredComponentInventoryContract
-      ? "Do not limit the inventory to familiar patterns or visible preview rows; derive candidate_token and candidate_transform rows from observed value scans."
-      : "Do not limit the inventory to familiar patterns or visible preview rows.",
+    options.boundaryTokenInventoryContract
+      ? "Do not limit the inventory to familiar patterns or visible preview rows; enumerate all material recurring boundary tokens/transform families observed in the scanned label values, and leave omitted_candidate_tokens empty only when the scan is complete."
+      : options.dataDiscoveredComponentInventoryContract
+        ? "Do not limit the inventory to familiar patterns or visible preview rows; derive candidate_token and candidate_transform rows from observed value scans."
+        : "Do not limit the inventory to familiar patterns or visible preview rows.",
   ].join(" ");
 }
 
@@ -1701,12 +1739,12 @@ function findObservedComponentInventorySchemaIssue(
   snapshot: SnapshotData,
   options: EvidenceContractOptions = {}
 ): { operatorId: string; missingColumns: string[] } | undefined {
-  if (!options.dataDiscoveredComponentInventoryContract) return undefined;
+  if (!options.dataDiscoveredComponentInventoryContract && !options.boundaryTokenInventoryContract) return undefined;
   for (const [operatorId, entry] of snapshot.results) {
     const info = entry.info;
     if (!info || info.error || !isObservedComponentInventoryBaseEvidence(info)) continue;
     const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
-    const missingColumns = DATA_DISCOVERED_COMPONENT_INVENTORY_REQUIRED_COLUMNS.filter(
+    const missingColumns = getStrengthenedObservedComponentInventoryRequiredColumns(options).filter(
       columnName => !normalizedColumns.has(columnName)
     );
     if (missingColumns.length > 0) return { operatorId, missingColumns };
@@ -1716,9 +1754,17 @@ function findObservedComponentInventorySchemaIssue(
 
 function isObservedComponentInventoryEvidence(info: OperatorInfo, options: EvidenceContractOptions = {}): boolean {
   if (!isObservedComponentInventoryBaseEvidence(info)) return false;
-  if (!options.dataDiscoveredComponentInventoryContract) return true;
+  if (!options.dataDiscoveredComponentInventoryContract && !options.boundaryTokenInventoryContract) return true;
   const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
-  return DATA_DISCOVERED_COMPONENT_INVENTORY_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+  if (
+    !getStrengthenedObservedComponentInventoryRequiredColumns(options).every(columnName =>
+      normalizedColumns.has(columnName)
+    )
+  ) {
+    return false;
+  }
+  if (options.boundaryTokenInventoryContract) return !getBoundaryTokenInventoryCompletenessReason(info);
+  return true;
 }
 
 function isObservedComponentInventoryBaseEvidence(info: OperatorInfo): boolean {
@@ -1728,8 +1774,56 @@ function isObservedComponentInventoryBaseEvidence(info: OperatorInfo): boolean {
 }
 
 function getObservedComponentInventoryRequiredColumns(options: EvidenceContractOptions = {}): string[] {
-  if (!options.dataDiscoveredComponentInventoryContract) return OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS;
-  return [...OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS, ...DATA_DISCOVERED_COMPONENT_INVENTORY_REQUIRED_COLUMNS];
+  return [
+    ...OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS,
+    ...getStrengthenedObservedComponentInventoryRequiredColumns(options),
+  ];
+}
+
+function getStrengthenedObservedComponentInventoryRequiredColumns(options: EvidenceContractOptions = {}): string[] {
+  const columns: string[] = [];
+  if (options.dataDiscoveredComponentInventoryContract || options.boundaryTokenInventoryContract) {
+    columns.push(...DATA_DISCOVERED_COMPONENT_INVENTORY_REQUIRED_COLUMNS);
+  }
+  if (options.boundaryTokenInventoryContract) columns.push(...BOUNDARY_TOKEN_INVENTORY_REQUIRED_COLUMNS);
+  return columns;
+}
+
+function findBoundaryTokenInventoryCompletenessIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): { operatorId: string; reason: string } | undefined {
+  if (!options.boundaryTokenInventoryContract) return undefined;
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (!info || info.error || !isObservedComponentInventoryBaseEvidence(info)) continue;
+    const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
+    const hasRequiredColumns = getStrengthenedObservedComponentInventoryRequiredColumns(options).every(columnName =>
+      normalizedColumns.has(columnName)
+    );
+    if (!hasRequiredColumns) continue;
+    const reason = getBoundaryTokenInventoryCompletenessReason(info);
+    if (reason) return { operatorId, reason };
+  }
+  return undefined;
+}
+
+function getBoundaryTokenInventoryCompletenessReason(info: OperatorInfo): string | undefined {
+  const rows = info.result ?? [];
+  if (rows.length === 0) return "The inventory has no visible rows to audit for boundary-token coverage.";
+  const incompleteRows = rows.filter(row => !isTruthyEvidenceValue(getEvidenceField(row, "enumeration_complete")));
+  if (incompleteRows.length > 0) {
+    return `${incompleteRows.length} visible inventory row(s) have enumeration_complete not true.`;
+  }
+  const omittedRows = rows.filter(row => evidenceValueHasContent(getEvidenceField(row, "omitted_candidate_tokens")));
+  if (omittedRows.length > 0) {
+    return `${omittedRows.length} visible inventory row(s) report omitted_candidate_tokens.`;
+  }
+  const requiredTransforms = extractImpactRequiredInventoryTransforms(info);
+  if (requiredTransforms.length === 0) {
+    return "No visible inventory row has impact_probe_required=true with a candidate_transform.";
+  }
+  return undefined;
 }
 
 function buildCandidateSelectionImpactContractNotice(
@@ -1759,6 +1853,14 @@ function buildCandidateSelectionImpactContractNotice(
     return [
       `Candidate-selection impact contract unsatisfied: executed impact operator \`${dependencyIssue.operatorId}\` has required candidate-impact columns, but evidence dependency gate cannot trace it downstream of ${dependencyIssue.requiredArtifact} (${formatOperatorIdList(dependencyIssue.requiredOperatorIds)}) through workflow links.`,
       "Modify the impact operator links so it consumes the prerequisite typed evidence artifact before final aggregation or answer.",
+    ].join(" ");
+  }
+
+  const coverageIssue = findCandidateSelectionImpactCoverageIssue(snapshot, options);
+  if (coverageIssue) {
+    return [
+      `Candidate-selection impact contract unsatisfied: impact operator \`${coverageIssue.operatorId}\` does not compare all visible candidate-key rows from \`${coverageIssue.upstreamOperatorId}\` (missing: ${coverageIssue.missingCandidates.join(", ")}).`,
+      "Add impact rows for every candidate-key row before selecting a final key or final entity-level result.",
     ].join(" ");
   }
 
@@ -1799,13 +1901,23 @@ function findCandidateSelectionImpactEvidenceOperators(
   options: EvidenceContractOptions = {}
 ): EvidenceRef[] {
   const baseEvidence = findEvidenceOperators(snapshot, isCandidateSelectionImpactEvidence);
-  if (!options.evidenceDependencyGate) return baseEvidence;
+  let candidateEvidence = baseEvidence;
 
-  const keyEvidence = findKeyGrainContractEvidenceOperators(snapshot, options);
-  if (keyEvidence.length === 0) return [];
-  return baseEvidence.filter(evidence =>
-    keyEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
-  );
+  if (options.evidenceDependencyGate) {
+    const keyEvidence = findKeyGrainContractEvidenceOperators(snapshot, options);
+    if (keyEvidence.length === 0) return [];
+    candidateEvidence = candidateEvidence.filter(evidence =>
+      keyEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+    );
+  }
+
+  if (options.boundaryTokenInventoryContract) {
+    candidateEvidence = candidateEvidence.filter(
+      evidence => !getCandidateSelectionImpactCoverageIssueForEvidence(snapshot, evidence, options)
+    );
+  }
+
+  return candidateEvidence;
 }
 
 function findCandidateSelectionImpactDependencyIssue(
@@ -1834,6 +1946,49 @@ function isCandidateSelectionImpactEvidence(info: OperatorInfo): boolean {
   const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
   if (normalizedColumns.size === 0) return false;
   return CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+}
+
+function findCandidateSelectionImpactCoverageIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceCoverageIssue | undefined {
+  if (!options.boundaryTokenInventoryContract) return undefined;
+  for (const evidence of findEvidenceOperators(snapshot, isCandidateSelectionImpactEvidence)) {
+    const issue = getCandidateSelectionImpactCoverageIssueForEvidence(snapshot, evidence, options);
+    if (issue) return issue;
+  }
+  return undefined;
+}
+
+function getCandidateSelectionImpactCoverageIssueForEvidence(
+  snapshot: SnapshotData,
+  impactEvidence: EvidenceRef,
+  options: EvidenceContractOptions = {}
+): EvidenceCoverageIssue | undefined {
+  if (!options.boundaryTokenInventoryContract) return undefined;
+  const impactInfo = snapshot.results.get(impactEvidence.operatorId)?.info;
+  if (!impactInfo || impactInfo.error || !isCandidateSelectionImpactEvidence(impactInfo)) return undefined;
+
+  for (const keyEvidence of findKeyGrainContractEvidenceOperators(snapshot, {
+    ...options,
+    candidateSelectionImpactContract: false,
+  })) {
+    if (!hasUpstreamPath(snapshot.workflow, impactEvidence.operatorId, keyEvidence.operatorId)) continue;
+    const keyInfo = snapshot.results.get(keyEvidence.operatorId)?.info;
+    if (!keyInfo || keyInfo.error || !isKeyGrainContractEvidence(keyInfo)) continue;
+    const requiredCandidates = extractKeyEvidenceCandidates(keyInfo);
+    if (requiredCandidates.length === 0) continue;
+    const presentCandidates = extractImpactEvidenceCandidates(impactInfo);
+    const missingCandidates = missingEvidenceCandidates(requiredCandidates, presentCandidates);
+    if (missingCandidates.length > 0) {
+      return {
+        operatorId: impactEvidence.operatorId,
+        upstreamOperatorId: keyEvidence.operatorId,
+        missingCandidates,
+      };
+    }
+  }
+  return undefined;
 }
 
 function buildLabelComponentProfileContractNotice(
@@ -1984,6 +2139,14 @@ function buildKeyGrainEvidenceContractNotice(
     ].join(" ");
   }
 
+  const coverageIssue = findKeyGrainContractCoverageIssue(snapshot, options);
+  if (coverageIssue) {
+    return [
+      `Key-grain evidence contract unsatisfied: candidate-key operator \`${coverageIssue.operatorId}\` omits required inventory transforms from upstream observed inventory \`${coverageIssue.upstreamOperatorId}\` (missing: ${coverageIssue.missingCandidates.join(", ")}).`,
+      "Add rows for every impact_probe_required=true inventory transform before selecting a final key.",
+    ].join(" ");
+  }
+
   const sourceText = sources
     .slice(0, KEY_GRAIN_CONTRACT_MAX_SOURCES)
     .map(source => {
@@ -2035,29 +2198,35 @@ function findKeyGrainContractEvidenceOperators(
   options: EvidenceContractOptions = {}
 ): EvidenceRef[] {
   const baseEvidence = findEvidenceOperators(snapshot, isKeyGrainContractEvidence);
-  if (!options.evidenceDependencyGate) return baseEvidence;
+  let candidateEvidence = baseEvidence;
 
-  const requiredProfileEvidence = options.labelComponentProfileContract
-    ? findLabelComponentProfileEvidenceOperators(snapshot, options)
-    : [];
-  if (options.labelComponentProfileContract) {
-    if (requiredProfileEvidence.length === 0) return [];
-    return baseEvidence.filter(evidence =>
-      requiredProfileEvidence.some(required =>
-        hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId)
-      )
+  if (options.evidenceDependencyGate) {
+    const requiredProfileEvidence = options.labelComponentProfileContract
+      ? findLabelComponentProfileEvidenceOperators(snapshot, options)
+      : [];
+    if (options.labelComponentProfileContract) {
+      if (requiredProfileEvidence.length === 0) return [];
+      candidateEvidence = candidateEvidence.filter(evidence =>
+        requiredProfileEvidence.some(required =>
+          hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId)
+        )
+      );
+    } else if (options.observedComponentInventoryContract) {
+      const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot, options);
+      if (inventoryEvidence.length === 0) return [];
+      candidateEvidence = candidateEvidence.filter(evidence =>
+        inventoryEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+      );
+    }
+  }
+
+  if (options.boundaryTokenInventoryContract) {
+    candidateEvidence = candidateEvidence.filter(
+      evidence => !getKeyGrainContractCoverageIssueForEvidence(snapshot, evidence, options)
     );
   }
 
-  if (options.observedComponentInventoryContract) {
-    const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot, options);
-    if (inventoryEvidence.length === 0) return [];
-    return baseEvidence.filter(evidence =>
-      inventoryEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
-    );
-  }
-
-  return baseEvidence;
+  return candidateEvidence;
 }
 
 function findKeyGrainContractDependencyIssue(
@@ -2110,6 +2279,48 @@ function isKeyGrainContractEvidence(info: OperatorInfo): boolean {
   const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
   if (normalizedColumns.size === 0) return false;
   return KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+}
+
+function findKeyGrainContractCoverageIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceCoverageIssue | undefined {
+  if (!options.boundaryTokenInventoryContract) return undefined;
+  for (const evidence of findEvidenceOperators(snapshot, isKeyGrainContractEvidence)) {
+    const issue = getKeyGrainContractCoverageIssueForEvidence(snapshot, evidence, options);
+    if (issue) return issue;
+  }
+  return undefined;
+}
+
+function getKeyGrainContractCoverageIssueForEvidence(
+  snapshot: SnapshotData,
+  keyEvidence: EvidenceRef,
+  options: EvidenceContractOptions = {}
+): EvidenceCoverageIssue | undefined {
+  if (!options.boundaryTokenInventoryContract) return undefined;
+  const keyInfo = snapshot.results.get(keyEvidence.operatorId)?.info;
+  if (!keyInfo || keyInfo.error || !isKeyGrainContractEvidence(keyInfo)) return undefined;
+  const presentCandidates = extractKeyEvidenceCandidates(keyInfo);
+
+  for (const inventoryEvidence of findObservedComponentInventoryEvidenceOperators(snapshot, options)) {
+    if (!hasUpstreamPath(snapshot.workflow, keyEvidence.operatorId, inventoryEvidence.operatorId)) continue;
+    const inventoryInfo = snapshot.results.get(inventoryEvidence.operatorId)?.info;
+    if (!inventoryInfo || inventoryInfo.error || !isObservedComponentInventoryEvidence(inventoryInfo, options)) {
+      continue;
+    }
+    const requiredCandidates = extractImpactRequiredInventoryTransforms(inventoryInfo);
+    if (requiredCandidates.length === 0) continue;
+    const missingCandidates = missingEvidenceCandidates(requiredCandidates, presentCandidates);
+    if (missingCandidates.length > 0) {
+      return {
+        operatorId: keyEvidence.operatorId,
+        upstreamOperatorId: inventoryEvidence.operatorId,
+        missingCandidates,
+      };
+    }
+  }
+  return undefined;
 }
 
 function findEvidenceOperators(snapshot: SnapshotData, predicate: (info: OperatorInfo) => boolean): EvidenceRef[] {
@@ -2196,6 +2407,84 @@ function normalizeEvidenceColumnName(columnName: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function getEvidenceField(row: unknown, normalizedName: string): unknown {
+  if (!row || typeof row !== "object") return undefined;
+  const targetName = normalizeEvidenceColumnName(normalizedName);
+  for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+    if (normalizeEvidenceColumnName(key) === targetName) return value;
+  }
+  return undefined;
+}
+
+function evidenceValueToString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.map(evidenceValueToString).filter(Boolean).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value).trim();
+}
+
+function evidenceValueHasContent(value: unknown): boolean {
+  if (value === null || value === undefined || value === false) return false;
+  if (Array.isArray(value)) return value.some(evidenceValueHasContent);
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  const normalized = evidenceValueToString(value).toLowerCase();
+  return !["", "0", "false", "no", "n", "none", "null", "nan", "[]", "{}", "na", "n/a"].includes(normalized);
+}
+
+function isTruthyEvidenceValue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  const normalized = evidenceValueToString(value).toLowerCase();
+  return ["true", "t", "yes", "y", "1"].includes(normalized);
+}
+
+function normalizeEvidenceValueKey(value: unknown): string {
+  return evidenceValueToString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function extractImpactRequiredInventoryTransforms(info: OperatorInfo): string[] {
+  const candidates: string[] = [];
+  for (const row of info.result ?? []) {
+    if (!isTruthyEvidenceValue(getEvidenceField(row, "impact_probe_required"))) continue;
+    const candidate =
+      getEvidenceField(row, "candidate_transform") ??
+      getEvidenceField(row, "candidate_transform_family") ??
+      getEvidenceField(row, "candidate_token");
+    const normalized = normalizeEvidenceValueKey(candidate);
+    if (normalized.length > 0) candidates.push(normalized);
+  }
+  return Array.from(new Set(candidates));
+}
+
+function extractKeyEvidenceCandidates(info: OperatorInfo): string[] {
+  return extractEvidenceCandidateValues(info, ["candidate_id", "transformation"]);
+}
+
+function extractImpactEvidenceCandidates(info: OperatorInfo): string[] {
+  return extractEvidenceCandidateValues(info, ["candidate_id", "transformation"]);
+}
+
+function extractEvidenceCandidateValues(info: OperatorInfo, columnNames: string[]): string[] {
+  const candidates: string[] = [];
+  for (const row of info.result ?? []) {
+    for (const columnName of columnNames) {
+      const normalized = normalizeEvidenceValueKey(getEvidenceField(row, columnName));
+      if (normalized.length > 0) candidates.push(normalized);
+    }
+  }
+  return Array.from(new Set(candidates));
+}
+
+function missingEvidenceCandidates(requiredCandidates: string[], presentCandidates: string[]): string[] {
+  const present = new Set(presentCandidates.map(normalizeEvidenceValueKey));
+  return Array.from(new Set(requiredCandidates.map(normalizeEvidenceValueKey))).filter(
+    candidate => candidate.length > 0 && !present.has(candidate)
+  );
 }
 
 function sampleStringValues(info: OperatorInfo, columnName: string, limit: number): string[] {
