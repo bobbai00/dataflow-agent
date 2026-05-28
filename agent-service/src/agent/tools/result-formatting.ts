@@ -26,6 +26,8 @@ export interface FormatOperatorResultOptions {
    *  `Column stats:` block — one indented line per column. Errors are
    *  rendered the same way regardless. Defaults to false. */
   statsEnabled?: boolean;
+  /** When false, omit preview rows and render only shape/columns/stats. */
+  includeRows?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -75,17 +77,33 @@ export function formatOperatorResult(
       })
     : jsonArray;
 
-  const dataString = jsonToTableFormat(serializableArray);
+  const includeRows = options.includeRows !== false;
+  const dataString = includeRows ? jsonToTableFormat(serializableArray) : undefined;
+  const columnDigest = includeRows ? undefined : formatOutputColumns(headers);
 
   const metadataLines = [
     formatInputOutputMetadata(workflowState, operatorId, opInfo, columns),
-    columnsTruncated ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)` : "",
+    columnsTruncated
+      ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)`
+      : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
   const briefSummary = formatExecuteOperatorResult(operatorId);
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, ...metadataLines, columnDigest, dataString, statsBlock].filter(Boolean).join("\n");
+}
+
+function formatOutputColumns(headers: string[]): string | undefined {
+  if (headers.length === 0) return undefined;
+  const total = headers.length;
+  const maxColumns = MAX_DISPLAYED_COLUMNS;
+  const shown =
+    total > maxColumns
+      ? [...headers.slice(0, Math.ceil(maxColumns / 2)), "...", ...headers.slice(-Math.floor(maxColumns / 2))]
+      : headers;
+  const suffix = total > maxColumns ? ` (showing ${maxColumns} of ${total})` : "";
+  return `Output columns${suffix}: ${shown.join(", ")}`;
 }
 
 /**

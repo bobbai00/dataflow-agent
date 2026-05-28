@@ -212,6 +212,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: true,
       tableStructureHints: true,
       rawLoaderProvenance: true,
+      resultRendering: "adaptive",
     });
     expect(res.status).toBe(200);
     const body = await readJson<{
@@ -222,6 +223,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
+      resultRendering: string;
     }>(res);
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
@@ -230,6 +232,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.schemaFirstCodeMode).toBe(true);
     expect(body.tableStructureHints).toBe(true);
     expect(body.rawLoaderProvenance).toBe(true);
+    expect(body.resultRendering).toBe("adaptive");
 
     // A follow-up GET reflects the same values.
     const reread = await readJson<{
@@ -241,6 +244,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
+      resultRendering: string;
     }>(await getJson(`${API}/agents/${created.id}/settings`));
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
@@ -250,5 +254,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.schemaFirstCodeMode).toBe(true);
     expect(reread.tableStructureHints).toBe(true);
     expect(reread.rawLoaderProvenance).toBe(true);
+    expect(reread.resultRendering).toBe("adaptive");
   });
 });

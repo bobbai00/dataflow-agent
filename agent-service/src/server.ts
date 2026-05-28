@@ -45,7 +45,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentMode, ContextMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentMode, ContextMode, OperatorResultRendering, OperatorResultSerializationMode } from "./types/agent";
 
 /**
  * Pick the driver from an optional explicit choice or fall back to
@@ -70,6 +70,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       compilationResult,
       agentMode: settings.agentMode,
       statsEnabled: settings.statsEnabled,
+      resultRendering: settings.resultRendering,
       includeOperatorProperties: settings.includeOperatorProperties,
       contextNotices,
       metricEvidenceGuidance: settings.metricEvidenceGuidance,
@@ -136,6 +137,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
+    resultRendering: agentSettings.resultRendering,
     toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
     disabledTools: Array.from(agentSettings.disabledTools),
@@ -252,6 +254,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           operatorResultSerializationMode: settings.operatorResultSerializationMode
             ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
             : undefined,
+          resultRendering: settings.resultRendering ? (settings.resultRendering as OperatorResultRendering) : undefined,
           toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
           executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
           disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
@@ -288,6 +291,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             maxOperatorResultCharLimit: t.Optional(t.Number()),
             maxOperatorResultCellCharLimit: t.Optional(t.Number()),
             operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
+            resultRendering: t.Optional(t.Union([t.Literal("rows"), t.Literal("digest"), t.Literal("adaptive")])),
             toolTimeoutSeconds: t.Optional(t.Number()),
             executionTimeoutMinutes: t.Optional(t.Number()),
             disabledTools: t.Optional(t.Array(t.String())),
@@ -528,6 +532,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
       maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
       operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
+      resultRendering: agentSettings.resultRendering,
       toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
       executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
       disabledTools: Array.from(agentSettings.disabledTools),
@@ -568,6 +573,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         operatorResultSerializationMode: settings.operatorResultSerializationMode
           ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
           : undefined,
+        resultRendering: settings.resultRendering ? (settings.resultRendering as OperatorResultRendering) : undefined,
         toolTimeoutMs: settings.toolTimeoutSeconds !== undefined ? settings.toolTimeoutSeconds * 1000 : undefined,
         executionTimeoutMs:
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
@@ -597,6 +603,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
         maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
+        resultRendering: agentSettings.resultRendering,
         toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
         executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
         disabledTools: Array.from(agentSettings.disabledTools),
@@ -620,6 +627,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxOperatorResultCharLimit: t.Optional(t.Number()),
         maxOperatorResultCellCharLimit: t.Optional(t.Number()),
         operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
+        resultRendering: t.Optional(t.Union([t.Literal("rows"), t.Literal("digest"), t.Literal("adaptive")])),
         toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
         maxSteps: t.Optional(t.Number()),

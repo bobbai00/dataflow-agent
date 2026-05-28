@@ -395,6 +395,7 @@ export class TexeraAgent {
         metricEvidenceGuidance: this.settings.metricEvidenceGuidance,
         tableStructureHints: this.settings.tableStructureHints,
         rawLoaderProvenance: this.settings.rawLoaderProvenance,
+        resultRendering: this.settings.resultRendering,
       });
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -681,6 +682,7 @@ export class TexeraAgent {
     maxOperatorResultCharLimit?: number;
     maxOperatorResultCellCharLimit?: number;
     operatorResultSerializationMode?: OperatorResultSerializationMode;
+    resultRendering?: AgentSettings["resultRendering"];
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     disabledTools?: Set<string>;
@@ -708,6 +710,10 @@ export class TexeraAgent {
     }
     if (updates.operatorResultSerializationMode !== undefined) {
       this.settings.operatorResultSerializationMode = updates.operatorResultSerializationMode;
+    }
+    if (updates.resultRendering !== undefined) {
+      this.settings.resultRendering = updates.resultRendering;
+      promptNeedsRebuild = true;
     }
     if (updates.toolTimeoutMs !== undefined) {
       this.settings.toolTimeoutMs = updates.toolTimeoutMs;

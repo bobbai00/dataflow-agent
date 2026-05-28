@@ -21,7 +21,7 @@ import { describe, expect, test } from "bun:test";
 import { assembleContext, computeDelta } from "./context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
+import { AgentMode, ContextMode, OperatorResultRendering, type ReActStep } from "../../types/agent";
 import type { WorkflowContent } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
 
@@ -226,6 +226,102 @@ describe("assembleContext — Latest", () => {
     expect(c).toContain("- CONVERGENCE_GUARD: inspect upstream before editing `filt` again.");
     expect(c).toContain("# Current Dataflow");
     expect(c).not.toContain("# Agent Events");
+  });
+
+  test("adaptive result rendering digests stable operators but keeps latest frontier rows", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "build a two step flow" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src" } }],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "t2",
+        stepId: 2,
+        role: "agent",
+        parentId: "t1",
+        messageId: "m1",
+        isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "filt" } }],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+      },
+    ]);
+
+    const src = { ...makeOp("src"), outputPorts: [{ portID: "output-0" }] };
+    const filt = {
+      ...makeOp("filt"),
+      inputPorts: [{ portID: "input-0" }],
+      outputPorts: [{ portID: "output-0" }],
+    };
+
+    storage.createSnapshot("t1", {
+      operators: [src],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "t1",
+      "src",
+      makeInfo("src", 1, undefined, {
+        result: [{ __row_index__: 0, src_id: 1, src_value: "S0" }],
+        columnStats: {
+          src_id: "(numeric): null=0, mean=1, min=1, max=1",
+          src_value: "(str): null=0, distinct=1",
+        },
+      })
+    );
+
+    storage.createSnapshot("t2", {
+      operators: [src, filt],
+      operatorPositions: {},
+      links: [
+        {
+          linkID: "src-filt",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "filt", portID: "input-0" },
+        },
+      ],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "t2",
+      "filt",
+      makeInfo("filt", 1, undefined, {
+        inputPortShapes: [{ portIndex: 0, rows: 1, columns: 2 }],
+        result: [{ __row_index__: 0, filt_value: "F0" }],
+        columnStats: {
+          filt_value: "(str): null=0, distinct=1",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).toContain("S0");
+    expect(defaultContext).toContain("F0");
+    expect(defaultContext).not.toContain("Result Digest:");
+
+    const adaptiveContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        statsEnabled: true,
+        resultRendering: OperatorResultRendering.ADAPTIVE,
+      })
+    );
+    expect(adaptiveContext).toContain("Result Digest:");
+    expect(adaptiveContext).toContain("Output columns: src_id, src_value");
+    expect(adaptiveContext).toContain('- "src_value" (str): null=0, distinct=1');
+    expect(adaptiveContext).not.toContain("S0");
+    expect(adaptiveContext).toContain("Result:");
+    expect(adaptiveContext).toContain("F0");
   });
 
   test("CODE mode schemas stay hidden by default and render when schemaFirstCodeMode is on", () => {

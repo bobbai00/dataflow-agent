@@ -60,6 +60,12 @@ export enum OperatorResultSerializationMode {
   TSV = "tsv",
 }
 
+export enum OperatorResultRendering {
+  ROWS = "rows",
+  DIGEST = "digest",
+  ADAPTIVE = "adaptive",
+}
+
 /**
  * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
  * (Python `def load()` / `def process(...)`); GENERAL uses typed
@@ -94,6 +100,13 @@ export interface AgentSettings {
   maxOperatorResultCharLimit: number;
   maxOperatorResultCellCharLimit: number;
   operatorResultSerializationMode: OperatorResultSerializationMode;
+  /**
+   * Controls how successful operator results are rendered in assembled
+   * context. `rows` preserves the legacy table preview; `digest` renders
+   * shape/columns/stats without preview rows; `adaptive` keeps rows for the
+   * latest frontier and digests stable operators.
+   */
+  resultRendering: OperatorResultRendering;
   toolTimeoutMs: number;
   executionTimeoutMs: number;
   maxSteps: number;
@@ -172,6 +185,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
   operatorResultSerializationMode: OperatorResultSerializationMode.TSV,
+  resultRendering: OperatorResultRendering.ROWS,
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
@@ -242,6 +256,7 @@ export interface AgentSettingsApi {
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
+  resultRendering?: "rows" | "digest" | "adaptive";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
@@ -288,6 +303,7 @@ export interface UpdateAgentSettingsRequest {
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
+  resultRendering?: "rows" | "digest" | "adaptive";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];

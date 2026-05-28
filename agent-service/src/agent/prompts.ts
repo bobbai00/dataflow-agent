@@ -30,6 +30,7 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
+import { OperatorResultRendering } from "../types/agent";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
@@ -43,6 +44,7 @@ export interface CodeModePromptOptions {
   metricEvidenceGuidance?: boolean;
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
+  resultRendering?: OperatorResultRendering;
 }
 
 const METRIC_EVIDENCE_GUIDANCE = `## Metric Evidence and Provenance
@@ -100,6 +102,18 @@ source-shape evidence for loader parsing:
   downstream grouping, filtering, joins, or auditability.
 - Do not infer an answer from raw provenance alone; use it to repair or verify
   the loader, then compute from operator result tables.`;
+
+const RESULT_DIGEST_GUIDANCE = `## Result Digests
+
+When an operator shows \`Result Digest\` instead of a row preview, treat it as a
+compressed successful result for a stable part of the dataflow:
+
+- Use its table shape, output columns, schemas, and column stats for planning.
+- Do not assume hidden preview rows contradict the digest; if row-level
+  examples are necessary, add or modify a focused downstream inspection
+  operator.
+- Prefer editing the current frontier operator before reopening stable upstream
+  operators unless the digest/schema/provenance evidence points upstream.`;
 
 // ============================================================================
 // Shared sections
@@ -366,6 +380,9 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.metricEvidenceGuidance) sections.push(METRIC_EVIDENCE_GUIDANCE);
   if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
+  if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
+    sections.push(RESULT_DIGEST_GUIDANCE);
+  }
   if (sections.length === 0) return CODE_MODE_SYSTEM_PROMPT;
   return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${sections.join("\n\n")}\n`;
 }

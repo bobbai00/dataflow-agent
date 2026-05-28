@@ -27,7 +27,7 @@ import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
 import type { ReActStep } from "../../types/agent";
-import { AgentMode, ContextMode } from "../../types/agent";
+import { AgentMode, ContextMode, OperatorResultRendering } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
@@ -52,6 +52,8 @@ export interface AssembleContextOptions {
    *  `columnStats` is followed by a `Column stats:` section listing
    *  per-column stats (one column per line). Off by default. */
   statsEnabled?: boolean;
+  /** Successful result rendering policy. Defaults to row previews. */
+  resultRendering?: OperatorResultRendering;
   /** When true (the default), each operator's `operatorProperties` render as
    *  a `Properties:` line in the snapshot, EXCEPT the Python code operators
    *  in `CODE_OPERATOR_TYPES` (their `code` is large and already surfaced on
@@ -185,7 +187,7 @@ export function assembleContext(
       // — context is defined as a single point on the snapshot tree, not
       // as an interleaved walk along its edges.
       const leafSnapshot = lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
-      content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
+      content = renderLatest(workflowState, options, latestUserContent, leafSnapshot, path);
       break;
     }
   }
@@ -486,7 +488,8 @@ function renderLatest(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   latestUserContent: string | undefined,
-  leafSnapshot: SnapshotData
+  leafSnapshot: SnapshotData,
+  path: PathNode[]
 ): string {
   const sections: string[] = [];
 
@@ -502,7 +505,15 @@ function renderLatest(
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
   //    are rendered above this.
-  const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
+  const focusOperatorIds = computeLatestFocusOperatorIds(path, leafSnapshot);
+  const dag = serializeSnapshotFull(
+    leafSnapshot,
+    workflowState,
+    options,
+    /*isCurrent=*/ true,
+    /*sectionLevel=*/ 2,
+    focusOperatorIds
+  );
   if (dag) {
     sections.push("# Current Dataflow");
     sections.push(dag);
@@ -694,7 +705,8 @@ function serializeSnapshotFull(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   isCurrent: boolean,
-  sectionLevel: number
+  sectionLevel: number,
+  focusOperatorIds?: Set<string>
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
@@ -707,7 +719,9 @@ function serializeSnapshotFull(
   lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
-    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
+    lines.push(
+      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, focusOperatorIds)
+    );
     lines.push("");
   }
   appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
@@ -813,11 +827,16 @@ function serializeOperatorFull(
   options: AssembleContextOptions,
   isCurrent: boolean,
   allLinks: WorkflowContent["links"],
-  operatorLevel: number
+  operatorLevel: number,
+  focusOperatorIds?: Set<string>
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
+  const renderDigest = shouldRenderResultDigest(op.operatorID, info, options, isCurrent, focusOperatorIds);
   const execText = info
-    ? formatOperatorResult(op.operatorID, info, workflowState, { statsEnabled: options.statsEnabled })
+    ? formatOperatorResult(op.operatorID, info, workflowState, {
+        statsEnabled: options.statsEnabled,
+        includeRows: !renderDigest,
+      })
     : undefined;
 
   // No status label in the header. Execution state is conveyed by the Result
@@ -897,7 +916,7 @@ function serializeOperatorFull(
   }
 
   if (execText) {
-    lines.push("Result:");
+    lines.push(renderDigest ? "Result Digest:" : "Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
@@ -912,6 +931,39 @@ function serializeOperatorFull(
     }
   }
   return lines.join("\n");
+}
+
+function shouldRenderResultDigest(
+  operatorId: string,
+  info: OperatorInfo | undefined,
+  options: AssembleContextOptions,
+  isCurrent: boolean,
+  focusOperatorIds: Set<string> | undefined
+): boolean {
+  if (!info || info.error) return false;
+  const mode = options.resultRendering ?? OperatorResultRendering.ROWS;
+  if (mode === OperatorResultRendering.DIGEST) return true;
+  if (mode !== OperatorResultRendering.ADAPTIVE) return false;
+  if (!isCurrent || !focusOperatorIds || focusOperatorIds.size === 0) return false;
+  return !focusOperatorIds.has(operatorId);
+}
+
+function computeLatestFocusOperatorIds(path: PathNode[], leafSnapshot: SnapshotData): Set<string> | undefined {
+  if (!leafSnapshot.reactStepId) return undefined;
+
+  const focus = new Set<string>();
+  const ownerNode = path.find(node => node.step.id === leafSnapshot.reactStepId);
+  for (const tc of ownerNode?.step.toolCalls ?? []) {
+    const input = (tc.input ?? {}) as Record<string, unknown>;
+    const opId = typeof input.operatorId === "string" ? input.operatorId : "";
+    if (opId.length > 0) focus.add(opId);
+  }
+
+  for (const [opId, entry] of leafSnapshot.results) {
+    if (entry.sourceStepId === leafSnapshot.reactStepId) focus.add(opId);
+  }
+
+  return focus.size > 0 ? focus : undefined;
 }
 
 /**
