@@ -188,6 +188,17 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("Key-Grain Comparison Hint");
     expect(agent.getSystemInfo().systemPrompt).toContain("selected_for_final");
   });
+
+  test("execution-safe operator ID guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Execution-Safe Operator IDs");
+
+    agent.updateSettings({ executionSafeOperatorIds: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Execution-Safe Operator IDs");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Do not use underscores");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

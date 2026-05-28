@@ -401,6 +401,7 @@ export class TexeraAgent {
         entityKeyHygieneGuidance: this.settings.entityKeyHygieneGuidance,
         componentGrainGuidance: this.settings.componentGrainGuidance,
         keyGrainComparisonGuidance: this.settings.keyGrainComparisonGuidance,
+        executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
         fallbackContractGuidance: this.settings.fallbackContractGuidance,
         resultRendering: this.settings.resultRendering,
         contextScope: this.settings.contextScope,
@@ -439,6 +440,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         maxOperatorEdits: this.settings.maxOperatorEdits,
         lineageHintOnStall: this.settings.lineageHintOnStall,
+        executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
       },
       onBeforeCodeOperatorChange: args => this.handleBeforeCodeOperatorChange(args),
     };
@@ -497,6 +499,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         maxOperatorEdits: this.settings.maxOperatorEdits,
         lineageHintOnStall: this.settings.lineageHintOnStall,
+        executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
       },
     };
 
@@ -713,6 +716,7 @@ export class TexeraAgent {
     entityKeyHygieneGuidance?: boolean;
     componentGrainGuidance?: boolean;
     keyGrainComparisonGuidance?: boolean;
+    executionSafeOperatorIds?: boolean;
     fallbackContractGuidance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
@@ -841,6 +845,13 @@ export class TexeraAgent {
       updates.keyGrainComparisonGuidance !== this.settings.keyGrainComparisonGuidance
     ) {
       this.settings.keyGrainComparisonGuidance = updates.keyGrainComparisonGuidance;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.executionSafeOperatorIds !== undefined &&
+      updates.executionSafeOperatorIds !== this.settings.executionSafeOperatorIds
+    ) {
+      this.settings.executionSafeOperatorIds = updates.executionSafeOperatorIds;
       promptNeedsRebuild = true;
     }
     if (

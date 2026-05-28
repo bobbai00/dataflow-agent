@@ -37,6 +37,7 @@ export interface ToolContext {
     executionTimeoutMs?: number;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
+    executionSafeOperatorIds?: boolean;
   };
   onBeforeCodeOperatorChange?: (args: {
     operatorId: string;

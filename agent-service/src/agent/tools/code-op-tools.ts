@@ -108,17 +108,26 @@ export function validatePythonVariableName(name: string): string | null {
 }
 
 /**
- * Validator for operator IDs. An operator id must be a Python identifier so
- * the engine's `def process(<id>)` parameter binding works. The engine's
- * VFS URI / serde layer accepts any non-comma character inside `logicalOpId`
- * (see `GlobalPortIdentitySerde`), so the only real constraint here is the
- * Python identifier shape plus the keyword reservation. Earlier versions
- * enforced strict camelCase to mirror a then-existing `_`-as-delimiter
- * guard in the serde; that guard has been removed, so the camelCase rule
- * is gone too — `snake_case` ids are valid again.
+ * Validator for operator IDs. By default this preserves the legacy tool
+ * contract: an operator id must be a Python identifier so the engine's
+ * `def process(<id>)` parameter binding works. When `executionSafe` is on,
+ * the validator also enforces the current workflow execution persistence
+ * constraint that logical operator IDs cannot contain underscores.
  */
-export function validateOperatorId(name: string): string | null {
-  return validatePythonVariableName(name);
+export function validateOperatorId(name: string, options: { executionSafe?: boolean } = {}): string | null {
+  const pythonNameError = validatePythonVariableName(name);
+  if (pythonNameError) return pythonNameError;
+
+  if (options.executionSafe) {
+    if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(name)) {
+      return (
+        `'${name}' is not an execution-safe operatorId. ` +
+        `Use a letter followed only by letters or digits; underscores are rejected by workflow execution.`
+      );
+    }
+  }
+
+  return null;
 }
 
 function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
@@ -601,6 +610,20 @@ export function createCreateOrModifyOperatorTool(
   context?: ToolContext
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
+  const executionSafeOperatorIds = !!context?.settings?.executionSafeOperatorIds;
+  const operatorIdRule = executionSafeOperatorIds
+    ? `1. operatorId must be an execution-safe Python identifier: start with a letter and then use
+   only letters or digits. Use camelCase. Do NOT use underscores; workflow
+   execution rejects logical operator IDs containing "_".
+2. Function name MUST be exactly "load" or "process"
+3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
+   The parameter name is the upstream operatorId verbatim.`
+    : `1. operatorId must be a valid Python identifier — letters, digits, and underscores;
+   the first character must be a letter or underscore. snake_case and camelCase are
+   both fine. Reserved Python keywords (e.g. "for", "class") are not allowed.
+2. Function name MUST be exactly "load" or "process"
+3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
+   The parameter name is the upstream operatorId verbatim.`;
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -608,12 +631,7 @@ export function createCreateOrModifyOperatorTool(
 - If operatorId exists: modifies the existing operator (must keep same type)
 
 RULES:
-1. operatorId must be a valid Python identifier — letters, digits, and underscores;
-   the first character must be a letter or underscore. snake_case and camelCase are
-   both fine. Reserved Python keywords (e.g. "for", "class") are not allowed.
-2. Function name MUST be exactly "load" or "process"
-3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
-   The parameter name is the upstream operatorId verbatim.
+${operatorIdRule}
 
 ## def load() -> pd.DataFrame
 Load data from files. No input parameters. File I/O allowed.
@@ -644,7 +662,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       try {
         const { operatorId, code, summary } = args;
 
-        const nameValidationError = validateOperatorId(operatorId);
+        const nameValidationError = validateOperatorId(operatorId, { executionSafe: executionSafeOperatorIds });
         if (nameValidationError) {
           return createErrorResult(`Invalid operatorId: ${nameValidationError}`);
         }

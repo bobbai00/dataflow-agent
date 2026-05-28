@@ -49,6 +49,7 @@ export interface CodeModePromptOptions {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -226,6 +227,20 @@ grouping, join, deduplication, or distinct count.
 - Only the final operator should use the candidate marked selected_for_final =
   true. If no candidate preserves the requested grain, preserve the whole label
   or return a diagnostic table rather than silently choosing a key.`;
+
+const EXECUTION_SAFE_OPERATOR_ID_GUIDANCE = `## Execution-Safe Operator IDs
+
+Use operator IDs that are valid both as Python parameters and as execution
+logical IDs:
+
+- Use alphanumeric Python identifiers only: start with a letter, then use
+  letters or digits.
+- Prefer camelCase names such as \`waterTests\`, \`keyEvidence\`, or
+  \`countSafeBeaches\`.
+- Do not use underscores in new operator IDs. The execution persistence layer
+  rejects logical operator IDs containing \`_\`.
+- In \`def process(...)\`, parameter names must exactly match upstream
+  operator IDs, so keep all created IDs in the same execution-safe style.`;
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -519,6 +534,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.entityKeyHygieneGuidance) sections.push(ENTITY_KEY_HYGIENE_GUIDANCE);
   if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
+  if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);

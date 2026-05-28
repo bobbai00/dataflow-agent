@@ -40,7 +40,7 @@ describe("validateOperatorId — Python identifier shape", () => {
     expect(validateOperatorId("avgFatalitiesByYear")).toBeNull();
   });
 
-  test("accepts snake_case (underscores allowed since engine guard was removed)", () => {
+  test("accepts snake_case by default for legacy compatibility", () => {
     expect(validateOperatorId("low_humidity_filter")).toBeNull();
     expect(validateOperatorId("filter_2012_violations")).toBeNull();
   });
@@ -52,6 +52,21 @@ describe("validateOperatorId — Python identifier shape", () => {
   test("accepts trailing underscore and leading underscore", () => {
     expect(validateOperatorId("customers_")).toBeNull();
     expect(validateOperatorId("_priv")).toBeNull();
+  });
+
+  test("rejects underscores when execution-safe mode is requested", () => {
+    expect(validateOperatorId("keyEvidence", { executionSafe: true })).toBeNull();
+
+    const err = validateOperatorId("key_evidence", { executionSafe: true });
+    expect(err).not.toBeNull();
+    expect(err).toContain("execution-safe operatorId");
+    expect(err).toContain("underscores");
+  });
+
+  test("rejects leading underscore when execution-safe mode is requested", () => {
+    const err = validateOperatorId("_loader", { executionSafe: true });
+    expect(err).not.toBeNull();
+    expect(err).toContain("workflow execution");
   });
 
   test("accepts trailing digits", () => {
@@ -190,9 +205,15 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
   // future regression moves the mutation BEFORE the check, the empty schema map
   // would cause the call to fail with a different error — which would itself
   // surface in these tests.)
-  function buildTool() {
+  function buildTool(options?: { executionSafeOperatorIds?: boolean }) {
     const ws = new WorkflowState();
-    const tool = createCreateOrModifyOperatorTool(ws, new Map(), undefined);
+    const tool = createCreateOrModifyOperatorTool(
+      ws,
+      new Map(),
+      options?.executionSafeOperatorIds
+        ? { settings: { executionSafeOperatorIds: options.executionSafeOperatorIds } }
+        : undefined
+    );
     // The Vercel AI SDK types `execute` as optional and 2-arg; production code
     // also casts (see `TexeraAgent.executeTool` in texera-agent.ts). We just
     // want to invoke it from a test with the input the agent sends.
@@ -207,6 +228,22 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
   // wiring. The "DOES replace an existing operator's code when the new code
   // only triggers a print() warning" test below covers the same warning
   // behavior end-to-end on the MODIFY path.
+
+  test("execution-safe mode rejects underscored operator ids before mutation", async () => {
+    const { ws, execute } = buildTool({ executionSafeOperatorIds: true });
+
+    const result = await execute({
+      operatorId: "key_evidence",
+      code: `def load():
+    import pandas as pd
+    return pd.DataFrame({"x": [1]})`,
+      summary: "Load tiny table",
+    });
+
+    expect(result).toMatch(/^\[ERROR\] /);
+    expect(result).toContain("execution-safe operatorId");
+    expect(ws.getAllOperators().length).toBe(0);
+  });
 
   test("rejects code with no return statement and leaves the workflow untouched", async () => {
     const { ws, execute } = buildTool();
@@ -500,15 +537,10 @@ describe("createOrModifyOperator — modify result shape (post-cleanup)", () => 
   test("docstring-only edit counts as a no-op (the most common thrash leak)", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    seedOp(
-      ws,
-      opId,
-      'def load() -> pd.DataFrame:\n    """Load X."""\n    return pd.read_csv("x.csv", skiprows=2)'
-    );
+    seedOp(ws, opId, 'def load() -> pd.DataFrame:\n    """Load X."""\n    return pd.read_csv("x.csv", skiprows=2)');
     const result = await execute({
       operatorId: opId,
-      code:
-        'def load() -> pd.DataFrame:\n    """Reload X with extra notes about provenance."""\n    return pd.read_csv("x.csv", skiprows=2)',
+      code: 'def load() -> pd.DataFrame:\n    """Reload X with extra notes about provenance."""\n    return pd.read_csv("x.csv", skiprows=2)',
       summary: "rewrote docstring only",
     });
     expect(result).toContain("WARNING");
@@ -518,15 +550,10 @@ describe("createOrModifyOperator — modify result shape (post-cleanup)", () => 
   test("whitespace-only differences also count as a no-op", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    seedOp(
-      ws,
-      opId,
-      "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)"
-    );
+    seedOp(ws, opId, "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)");
     const result = await execute({
       operatorId: opId,
-      code:
-        "def load() -> pd.DataFrame:\n\n        return  pd.read_csv('/data/x.csv',    skiprows=2)\n",
+      code: "def load() -> pd.DataFrame:\n\n        return  pd.read_csv('/data/x.csv',    skiprows=2)\n",
       summary: "reformatted only",
     });
     expect(result).toContain("WARNING");
@@ -536,11 +563,7 @@ describe("createOrModifyOperator — modify result shape (post-cleanup)", () => 
   test("a real kwarg change does NOT trigger the no-op WARNING", async () => {
     const { ws, execute } = buildTool();
     const opId = "csvLoader";
-    seedOp(
-      ws,
-      opId,
-      "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)"
-    );
+    seedOp(ws, opId, "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=2)");
     const result = await execute({
       operatorId: opId,
       code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=3)",

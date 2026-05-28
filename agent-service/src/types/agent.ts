@@ -229,6 +229,14 @@ export interface AgentSettings {
    */
   keyGrainComparisonGuidance: boolean;
   /**
+   * When true, CODE mode treats operator IDs as execution-safe logical IDs,
+   * not only Python variable names. It asks for and enforces alphanumeric
+   * Python identifiers without underscores because the current execution
+   * persistence layer rejects logicalOpId values containing `_`. Off by
+   * default for baseline reproducibility.
+   */
+  executionSafeOperatorIds: boolean;
+  /**
    * When true, append CODE-mode guidance and context hints for dependency or
    * runtime-capability failures. The model must preserve the task's semantic
    * contract instead of answering from an unvalidated surrogate. Off by default
@@ -283,6 +291,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   entityKeyHygieneGuidance: false,
   componentGrainGuidance: false,
   keyGrainComparisonGuidance: false,
+  executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
 };
 
@@ -343,6 +352,7 @@ export interface AgentSettingsApi {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
 
@@ -397,5 +407,6 @@ export interface UpdateAgentSettingsRequest {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
