@@ -127,6 +127,12 @@ export interface AgentSettings {
    * `executeOperator` calls still use `executionTimeoutMs`.
    */
   postStepExecutionTimeoutMs: number;
+  /**
+   * When true, post-step auto-execution timeout notices fire only for
+   * client-side timeouts, and operators in a timed-out lineage are skipped by
+   * later automatic materialization until explicitly inspected.
+   */
+  postStepTimeoutBackoff: boolean;
   maxSteps: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
@@ -336,6 +342,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   postStepExecutionTimeoutMs: 0,
+  postStepTimeoutBackoff: false,
   maxSteps: 100,
   allowedOperatorTypes: [
     "CSVFileScan",
@@ -426,6 +433,7 @@ export interface AgentSettingsApi {
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   postStepExecutionTimeoutSeconds?: number;
+  postStepTimeoutBackoff?: boolean;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];
@@ -492,6 +500,7 @@ export interface UpdateAgentSettingsRequest {
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   postStepExecutionTimeoutSeconds?: number;
+  postStepTimeoutBackoff?: boolean;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];

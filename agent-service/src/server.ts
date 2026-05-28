@@ -163,6 +163,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
     postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
+    postStepTimeoutBackoff: agentSettings.postStepTimeoutBackoff,
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -302,6 +303,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             settings.postStepExecutionTimeoutSeconds !== undefined
               ? settings.postStepExecutionTimeoutSeconds * 1000
               : undefined,
+          postStepTimeoutBackoff: settings.postStepTimeoutBackoff,
           disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
           maxSteps: settings.maxSteps,
           allowedOperatorTypes: settings.allowedOperatorTypes,
@@ -358,6 +360,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             toolTimeoutSeconds: t.Optional(t.Number()),
             executionTimeoutMinutes: t.Optional(t.Number()),
             postStepExecutionTimeoutSeconds: t.Optional(t.Number()),
+            postStepTimeoutBackoff: t.Optional(t.Boolean()),
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
@@ -618,6 +621,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
       executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
       postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
+      postStepTimeoutBackoff: agentSettings.postStepTimeoutBackoff,
       disabledTools: Array.from(agentSettings.disabledTools),
       maxSteps: agentSettings.maxSteps,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -682,6 +686,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           settings.postStepExecutionTimeoutSeconds !== undefined
             ? settings.postStepExecutionTimeoutSeconds * 1000
             : undefined,
+        postStepTimeoutBackoff: settings.postStepTimeoutBackoff,
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         allowedOperatorTypes: settings.allowedOperatorTypes,
@@ -730,6 +735,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
         executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
         postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
+        postStepTimeoutBackoff: agentSettings.postStepTimeoutBackoff,
         disabledTools: Array.from(agentSettings.disabledTools),
         maxSteps: agentSettings.maxSteps,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -773,6 +779,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
         postStepExecutionTimeoutSeconds: t.Optional(t.Number()),
+        postStepTimeoutBackoff: t.Optional(t.Boolean()),
         maxSteps: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),

@@ -208,6 +208,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxSteps: 7,
       toolTimeoutSeconds: 30,
       postStepExecutionTimeoutSeconds: 60,
+      postStepTimeoutBackoff: true,
       maxOperatorEdits: 2,
       lineageHintOnStall: true,
       maxUnexecutedCodeEdits: 3,
@@ -238,6 +239,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxSteps: number;
       toolTimeoutSeconds: number;
       postStepExecutionTimeoutSeconds: number;
+      postStepTimeoutBackoff: boolean;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
       maxUnexecutedCodeEdits: number;
@@ -266,6 +268,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
     expect(body.postStepExecutionTimeoutSeconds).toBe(60);
+    expect(body.postStepTimeoutBackoff).toBe(true);
     expect(body.maxOperatorEdits).toBe(2);
     expect(body.lineageHintOnStall).toBe(true);
     expect(body.maxUnexecutedCodeEdits).toBe(3);
@@ -296,6 +299,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxSteps: number;
       toolTimeoutSeconds: number;
       postStepExecutionTimeoutSeconds: number;
+      postStepTimeoutBackoff: boolean;
       includeOperatorProperties: boolean;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
@@ -325,6 +329,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
     expect(reread.postStepExecutionTimeoutSeconds).toBe(60);
+    expect(reread.postStepTimeoutBackoff).toBe(true);
     expect(reread.includeOperatorProperties).toBe(true);
     expect(reread.maxOperatorEdits).toBe(2);
     expect(reread.lineageHintOnStall).toBe(true);

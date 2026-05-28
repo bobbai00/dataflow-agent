@@ -85,6 +85,17 @@ function workflowWith(operatorIds: string[]): WorkflowContent {
   };
 }
 
+function workflowWithLinks(operatorIds: string[], links: Array<[string, string]>): WorkflowContent {
+  return {
+    ...workflowWith(operatorIds),
+    links: links.map(([source, target], i) => ({
+      linkID: `link-${i}`,
+      source: { operatorID: source, portID: "output-0" },
+      target: { operatorID: target, portID: "input-0" },
+    })),
+  };
+}
+
 function makeOpInfo(opId: string, rows: number): OperatorInfo {
   return {
     operatorID: opId,
@@ -323,6 +334,37 @@ describe("TexeraAgent — initial state", () => {
     expect(postStepAbort.signal.aborted).toBe(true);
     expect(postStepAbort.didTimeout()).toBe(true);
     postStepAbort.cleanup();
+  });
+
+  test("post-step timeout backoff skips timed-out lineages but allows independent probes", () => {
+    const agent = makeAgent();
+    agent.updateSettings({ postStepTimeoutBackoff: true });
+    agent
+      .getWorkflowState()
+      .setWorkflowContent(workflowWithLinks(["loader", "downstream", "probe"], [["loader", "downstream"]]));
+
+    (agent as any).markPostStepTimedOutLineage(["loader"]);
+    const split = (agent as any).splitPostStepTargetsByTimeoutBackoff(["loader", "downstream", "probe"]);
+
+    expect(split.runnableTargets).toEqual(["probe"]);
+    expect(split.skippedTargets).toEqual(["loader", "downstream"]);
+    expect(split.blockingOperators).toContain("loader");
+  });
+
+  test("explicit executeOperator clears post-step timeout backoff for that target", () => {
+    const agent = makeAgent();
+    agent.updateSettings({ postStepTimeoutBackoff: true });
+    agent.getWorkflowState().setWorkflowContent(workflowWith(["loader"]));
+
+    (agent as any).markPostStepTimedOutLineage(["loader"]);
+    expect((agent as any).splitPostStepTargetsByTimeoutBackoff(["loader"]).skippedTargets).toEqual(["loader"]);
+
+    (agent as any).recordExecutionEvidence(
+      [{ toolName: "executeOperator", toolCallId: "exec-1", input: { operatorId: "loader" } }],
+      [{ toolCallId: "exec-1", output: "loader result", isError: false }]
+    );
+
+    expect((agent as any).splitPostStepTargetsByTimeoutBackoff(["loader"]).runnableTargets).toEqual(["loader"]);
   });
 
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {

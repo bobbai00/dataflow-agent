@@ -197,6 +197,7 @@ export class TexeraAgent {
   private codeEditsSinceExecution = 0;
   private lastCompilationResult: WorkflowCompilationResponse | null = null;
   private pendingContextNotices: string[] = [];
+  private postStepTimedOutOperatorIds: Set<string> = new Set();
 
   private log: Logger;
 
@@ -493,6 +494,68 @@ export class TexeraAgent {
       `Treat this as execution evidence for the next step: inspect the failed/loading-stage operator, create a bounded diagnostic/probe, ` +
       `or use explicit executeOperator when full execution is intentionally required.${errorText}`
     );
+  }
+
+  private buildPostStepTimeoutBackoffNotice(skippedTargets: string[], blockingOperators: string[]): string {
+    const targetSummary = skippedTargets.slice(0, 8).join(", ");
+    const targetSuffix = skippedTargets.length > 8 ? `, ... +${skippedTargets.length - 8} more` : "";
+    const blockingSummary = blockingOperators.slice(0, 8).join(", ");
+    const blockingSuffix = blockingOperators.length > 8 ? `, ... +${blockingOperators.length - 8} more` : "";
+    return (
+      `POST_STEP_TIMEOUT_BACKOFF: skipped automatic full materialization for ${skippedTargets.length} target(s) ` +
+      `because their lineage includes prior post-step timeout operator(s): ${blockingSummary}${blockingSuffix}. ` +
+      `Skipped targets: ${targetSummary}${targetSuffix}. ` +
+      "Create a bounded source/diagnostic probe that avoids the timed-out full lineage, or call executeOperator explicitly if the full run is required."
+    );
+  }
+
+  private collectPostStepTimeoutLineage(targets: string[]): string[] {
+    const ids = new Set<string>();
+    for (const target of targets) {
+      ids.add(target);
+      for (const upstream of this.collectUpstreamOperatorIds(target)) {
+        ids.add(upstream);
+      }
+    }
+    return [...ids];
+  }
+
+  private markPostStepTimedOutLineage(targets: string[]): void {
+    if (!this.settings.postStepTimeoutBackoff) return;
+    for (const opId of this.collectPostStepTimeoutLineage(targets)) {
+      this.postStepTimedOutOperatorIds.add(opId);
+    }
+  }
+
+  private getPostStepTimeoutBlockingOperators(target: string): string[] {
+    if (!this.settings.postStepTimeoutBackoff || this.postStepTimedOutOperatorIds.size === 0) return [];
+    return this.collectPostStepTimeoutLineage([target]).filter(opId => this.postStepTimedOutOperatorIds.has(opId));
+  }
+
+  private splitPostStepTargetsByTimeoutBackoff(targets: string[]): {
+    runnableTargets: string[];
+    skippedTargets: string[];
+    blockingOperators: string[];
+  } {
+    if (!this.settings.postStepTimeoutBackoff || this.postStepTimedOutOperatorIds.size === 0) {
+      return { runnableTargets: targets, skippedTargets: [], blockingOperators: [] };
+    }
+
+    const runnableTargets: string[] = [];
+    const skippedTargets: string[] = [];
+    const blockingOperators = new Set<string>();
+
+    for (const target of targets) {
+      const blockers = this.getPostStepTimeoutBlockingOperators(target);
+      if (blockers.length === 0) {
+        runnableTargets.push(target);
+      } else {
+        skippedTargets.push(target);
+        blockers.forEach(opId => blockingOperators.add(opId));
+      }
+    }
+
+    return { runnableTargets, skippedTargets, blockingOperators: [...blockingOperators] };
   }
 
   private getExecutionCadenceLimit(): number {
@@ -803,6 +866,7 @@ export class TexeraAgent {
     statsEnabled?: boolean;
     includeOperatorProperties?: boolean;
     postStepExecutionTimeoutMs?: number;
+    postStepTimeoutBackoff?: boolean;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
     maxUnexecutedCodeEdits?: number;
@@ -854,6 +918,12 @@ export class TexeraAgent {
     }
     if (updates.postStepExecutionTimeoutMs !== undefined) {
       this.settings.postStepExecutionTimeoutMs = Math.max(0, Math.floor(updates.postStepExecutionTimeoutMs));
+    }
+    if (updates.postStepTimeoutBackoff !== undefined) {
+      this.settings.postStepTimeoutBackoff = updates.postStepTimeoutBackoff;
+      if (!updates.postStepTimeoutBackoff) {
+        this.postStepTimedOutOperatorIds.clear();
+      }
     }
     if (updates.disabledTools !== undefined) {
       this.settings.disabledTools = updates.disabledTools;
@@ -1124,13 +1194,19 @@ export class TexeraAgent {
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
   ): void {
-    if (this.getExecutionCadenceLimit() <= 0 || !toolCalls || !toolResults) return;
+    if (!toolCalls || !toolResults) return;
     const resultsByCallId = new Map(toolResults.map(result => [result.toolCallId, result]));
     for (const tc of toolCalls) {
       if (tc.toolName !== TOOL_NAME_EXECUTE_OPERATOR) continue;
       const tr = resultsByCallId.get(tc.toolCallId);
       if (!tr) continue;
-      this.codeEditsSinceExecution = 0;
+      const operatorId = (tc.input as any)?.operatorId;
+      if (operatorId) {
+        this.postStepTimedOutOperatorIds.delete(operatorId);
+      }
+      if (this.getExecutionCadenceLimit() > 0) {
+        this.codeEditsSinceExecution = 0;
+      }
       return;
     }
   }
@@ -1951,6 +2027,13 @@ export class TexeraAgent {
       }
     }
     if (targets.size === 0) return;
+    const allTargets = [...targets];
+    const { runnableTargets, skippedTargets, blockingOperators } =
+      this.splitPostStepTargetsByTimeoutBackoff(allTargets);
+    if (skippedTargets.length > 0) {
+      this.pendingContextNotices.push(this.buildPostStepTimeoutBackoffNotice(skippedTargets, blockingOperators));
+    }
+    if (runnableTargets.length === 0) return;
 
     // One execution covers every edit in this step. `executeWorkflowAndPersist`
     // fires `onResult` for every operator that ran on the backend — including
@@ -1964,7 +2047,7 @@ export class TexeraAgent {
     try {
       const runResult = await executeWorkflowAndPersist(this.workflowState, postStepConfig, {
         abortSignal: postStepAbort.signal,
-        opsToViewResult: [...targets],
+        opsToViewResult: runnableTargets,
         onResult: (opId, operatorInfo) => {
           if (this.head !== undefined) {
             this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
@@ -1972,12 +2055,15 @@ export class TexeraAgent {
         },
       });
       if (!runResult.success) {
-        this.pendingContextNotices.push(
-          this.buildPostStepExecutionFailureNotice(runResult, [...targets], postStepTimeoutMs)
-        );
+        if (!this.settings.postStepTimeoutBackoff) {
+          this.pendingContextNotices.push(
+            this.buildPostStepExecutionFailureNotice(runResult, runnableTargets, postStepTimeoutMs)
+          );
+        }
       }
     } catch (e: any) {
       if (postStepAbort.didTimeout()) {
+        this.markPostStepTimedOutLineage(runnableTargets);
         this.pendingContextNotices.push(
           this.buildPostStepExecutionFailureNotice(
             {
@@ -1986,7 +2072,7 @@ export class TexeraAgent {
               errorCount: 0,
               errorText: `Post-step automatic materialization exceeded ${Math.ceil(postStepTimeoutMs / 1000)}s.`,
             },
-            [...targets],
+            runnableTargets,
             postStepTimeoutMs
           )
         );
