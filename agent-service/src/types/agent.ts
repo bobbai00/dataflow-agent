@@ -121,6 +121,12 @@ export interface AgentSettings {
   contextScope: OperatorContextScope;
   toolTimeoutMs: number;
   executionTimeoutMs: number;
+  /**
+   * Optional timeout for automatic post-step materialization after code edits.
+   * 0 preserves legacy behavior by reusing `executionTimeoutMs`. Explicit
+   * `executeOperator` calls still use `executionTimeoutMs`.
+   */
+  postStepExecutionTimeoutMs: number;
   maxSteps: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
@@ -329,6 +335,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   contextScope: OperatorContextScope.ALL,
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
+  postStepExecutionTimeoutMs: 0,
   maxSteps: 100,
   allowedOperatorTypes: [
     "CSVFileScan",
@@ -418,6 +425,7 @@ export interface AgentSettingsApi {
   contextScope?: "all" | "active-lineage";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
+  postStepExecutionTimeoutSeconds?: number;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];
@@ -483,6 +491,7 @@ export interface UpdateAgentSettingsRequest {
   contextScope?: "all" | "active-lineage";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
+  postStepExecutionTimeoutSeconds?: number;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];

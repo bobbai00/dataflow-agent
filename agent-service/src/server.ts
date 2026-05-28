@@ -162,6 +162,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     contextScope: agentSettings.contextScope,
     toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
+    postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -297,6 +298,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           contextScope: settings.contextScope ? (settings.contextScope as OperatorContextScope) : undefined,
           toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
           executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
+          postStepExecutionTimeoutMs:
+            settings.postStepExecutionTimeoutSeconds !== undefined
+              ? settings.postStepExecutionTimeoutSeconds * 1000
+              : undefined,
           disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
           maxSteps: settings.maxSteps,
           allowedOperatorTypes: settings.allowedOperatorTypes,
@@ -352,6 +357,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             contextScope: t.Optional(t.Union([t.Literal("all"), t.Literal("active-lineage")])),
             toolTimeoutSeconds: t.Optional(t.Number()),
             executionTimeoutMinutes: t.Optional(t.Number()),
+            postStepExecutionTimeoutSeconds: t.Optional(t.Number()),
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
@@ -611,6 +617,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       contextScope: agentSettings.contextScope,
       toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
       executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
+      postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
       disabledTools: Array.from(agentSettings.disabledTools),
       maxSteps: agentSettings.maxSteps,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -671,6 +678,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolTimeoutMs: settings.toolTimeoutSeconds !== undefined ? settings.toolTimeoutSeconds * 1000 : undefined,
         executionTimeoutMs:
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
+        postStepExecutionTimeoutMs:
+          settings.postStepExecutionTimeoutSeconds !== undefined
+            ? settings.postStepExecutionTimeoutSeconds * 1000
+            : undefined,
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         allowedOperatorTypes: settings.allowedOperatorTypes,
@@ -718,6 +729,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextScope: agentSettings.contextScope,
         toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
         executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
+        postStepExecutionTimeoutSeconds: Math.round(agentSettings.postStepExecutionTimeoutMs / 1000),
         disabledTools: Array.from(agentSettings.disabledTools),
         maxSteps: agentSettings.maxSteps,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
@@ -760,6 +772,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextScope: t.Optional(t.Union([t.Literal("all"), t.Literal("active-lineage")])),
         toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
+        postStepExecutionTimeoutSeconds: t.Optional(t.Number()),
         maxSteps: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),

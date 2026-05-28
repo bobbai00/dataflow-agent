@@ -434,6 +434,67 @@ export class TexeraAgent {
     };
   }
 
+  private buildPostStepExecutionConfig(config: ExecutionConfig): ExecutionConfig {
+    const timeoutMs = Math.max(0, Math.floor(this.settings.postStepExecutionTimeoutMs));
+    if (timeoutMs <= 0) return config;
+    return {
+      ...config,
+      executionTimeoutMs: timeoutMs,
+    };
+  }
+
+  private createPostStepAbort(timeoutMs: number): {
+    signal?: AbortSignal;
+    cleanup: () => void;
+    didTimeout: () => boolean;
+  } {
+    const parentSignal = this.abortController?.signal;
+    if (timeoutMs <= 0) {
+      return { signal: parentSignal, cleanup: () => {}, didTimeout: () => false };
+    }
+
+    const timeoutController = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      timeoutController.abort();
+    }, timeoutMs);
+
+    const abortFromParent = () => timeoutController.abort();
+    if (parentSignal?.aborted) {
+      timeoutController.abort();
+    } else {
+      parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+    }
+
+    return {
+      signal: timeoutController.signal,
+      cleanup: () => {
+        clearTimeout(timeout);
+        parentSignal?.removeEventListener("abort", abortFromParent);
+      },
+      didTimeout: () => timedOut,
+    };
+  }
+
+  private buildPostStepExecutionFailureNotice(
+    result: { state: string; opCount: number; errorCount: number; errorText?: string },
+    targets: string[],
+    timeoutMs: number
+  ): string {
+    const targetSummary = targets.slice(0, 8).join(", ");
+    const suffix = targets.length > 8 ? `, ... +${targets.length - 8} more` : "";
+    const timeoutText = timeoutMs > 0 ? `; checkpoint timeout=${Math.ceil(timeoutMs / 1000)}s` : "";
+    const errorText = result.errorText ? ` Error: ${this.truncateForHint(result.errorText, 360)}` : "";
+    return (
+      `POST_STEP_EXECUTION_CHECKPOINT: automatic materialization after the last code edit did not complete cleanly ` +
+      `(state=${result.state}, targets=${targets.length}, operatorsReported=${result.opCount}, errors=${result.errorCount}${timeoutText}). ` +
+      `Targets: ${targetSummary}${suffix}. ` +
+      `Treat this as execution evidence for the next step: inspect the failed/loading-stage operator, create a bounded diagnostic/probe, ` +
+      `or use explicit executeOperator when full execution is intentionally required.${errorText}`
+    );
+  }
+
   private getExecutionCadenceLimit(): number {
     if (!this.delegateConfig) return 0;
     return Math.max(0, Math.floor(this.settings.maxUnexecutedCodeEdits));
@@ -741,6 +802,7 @@ export class TexeraAgent {
     parallelToolCalls?: boolean;
     statsEnabled?: boolean;
     includeOperatorProperties?: boolean;
+    postStepExecutionTimeoutMs?: number;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
     maxUnexecutedCodeEdits?: number;
@@ -789,6 +851,9 @@ export class TexeraAgent {
     }
     if (updates.executionTimeoutMs !== undefined) {
       this.settings.executionTimeoutMs = updates.executionTimeoutMs;
+    }
+    if (updates.postStepExecutionTimeoutMs !== undefined) {
+      this.settings.postStepExecutionTimeoutMs = Math.max(0, Math.floor(updates.postStepExecutionTimeoutMs));
     }
     if (updates.disabledTools !== undefined) {
       this.settings.disabledTools = updates.disabledTools;
@@ -1891,9 +1956,14 @@ export class TexeraAgent {
     // fires `onResult` for every operator that ran on the backend — including
     // ones reporting errors — so the snapshot at HEAD ends up consistent with
     // what the backend actually produced.
+    const postStepConfig = this.buildPostStepExecutionConfig(execConfig);
+    const postStepTimeoutMs = postStepConfig.executionTimeoutMs ?? execConfig.executionTimeoutMs ?? 0;
+    const postStepAbort = this.createPostStepAbort(
+      this.settings.postStepExecutionTimeoutMs > 0 ? postStepTimeoutMs : 0
+    );
     try {
-      await executeWorkflowAndPersist(this.workflowState, execConfig, {
-        abortSignal: this.abortController?.signal,
+      const runResult = await executeWorkflowAndPersist(this.workflowState, postStepConfig, {
+        abortSignal: postStepAbort.signal,
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
           if (this.head !== undefined) {
@@ -1901,8 +1971,30 @@ export class TexeraAgent {
           }
         },
       });
+      if (!runResult.success) {
+        this.pendingContextNotices.push(
+          this.buildPostStepExecutionFailureNotice(runResult, [...targets], postStepTimeoutMs)
+        );
+      }
     } catch (e: any) {
+      if (postStepAbort.didTimeout()) {
+        this.pendingContextNotices.push(
+          this.buildPostStepExecutionFailureNotice(
+            {
+              state: "ClientTimeout",
+              opCount: 0,
+              errorCount: 0,
+              errorText: `Post-step automatic materialization exceeded ${Math.ceil(postStepTimeoutMs / 1000)}s.`,
+            },
+            [...targets],
+            postStepTimeoutMs
+          )
+        );
+        return;
+      }
       this.log.warn({ err: e?.message || e, targetCount: targets.size }, "post-step batched execution failed");
+    } finally {
+      postStepAbort.cleanup();
     }
   }
 

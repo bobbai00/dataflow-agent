@@ -278,6 +278,53 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("compact diagnostic table");
   });
 
+  test("post-step execution timeout only overrides auto-materialization config", () => {
+    const agent = makeAgent();
+    agent.setDelegateConfig({ userToken: "test-token", workflowId: 42 });
+    agent.updateSettings({ executionTimeoutMs: 240000, postStepExecutionTimeoutMs: 60000 });
+
+    const explicitConfig = (agent as any).buildExecutionConfig();
+    const postStepConfig = (agent as any).buildPostStepExecutionConfig(explicitConfig);
+
+    expect(explicitConfig.executionTimeoutMs).toBe(240000);
+    expect(postStepConfig.executionTimeoutMs).toBe(60000);
+
+    agent.updateSettings({ postStepExecutionTimeoutMs: 0 });
+    expect((agent as any).buildPostStepExecutionConfig(explicitConfig).executionTimeoutMs).toBe(240000);
+  });
+
+  test("post-step execution failure notice summarizes checkpoint symptoms", () => {
+    const agent = makeAgent();
+
+    const notice = (agent as any).buildPostStepExecutionFailureNotice(
+      {
+        state: "Killed",
+        opCount: 2,
+        errorCount: 1,
+        errorText: "Workflow execution was killed (timeout).",
+      },
+      ["loader", "diagnostic"],
+      60000
+    );
+
+    expect(notice).toContain("POST_STEP_EXECUTION_CHECKPOINT");
+    expect(notice).toContain("state=Killed");
+    expect(notice).toContain("checkpoint timeout=60s");
+    expect(notice).toContain("loader, diagnostic");
+    expect(notice).toContain("bounded diagnostic/probe");
+  });
+
+  test("post-step abort fires independently of the user-turn abort controller", async () => {
+    const agent = makeAgent();
+
+    const postStepAbort = (agent as any).createPostStepAbort(5);
+    await new Promise(resolve => setTimeout(resolve, 15));
+
+    expect(postStepAbort.signal.aborted).toBe(true);
+    expect(postStepAbort.didTimeout()).toBe(true);
+    postStepAbort.cleanup();
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

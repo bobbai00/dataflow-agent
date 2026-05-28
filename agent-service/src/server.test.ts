@@ -207,6 +207,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const res = await patchJson(`${API}/agents/${created.id}/settings`, {
       maxSteps: 7,
       toolTimeoutSeconds: 30,
+      postStepExecutionTimeoutSeconds: 60,
       maxOperatorEdits: 2,
       lineageHintOnStall: true,
       maxUnexecutedCodeEdits: 3,
@@ -236,6 +237,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const body = await readJson<{
       maxSteps: number;
       toolTimeoutSeconds: number;
+      postStepExecutionTimeoutSeconds: number;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
       maxUnexecutedCodeEdits: number;
@@ -263,6 +265,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     }>(res);
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
+    expect(body.postStepExecutionTimeoutSeconds).toBe(60);
     expect(body.maxOperatorEdits).toBe(2);
     expect(body.lineageHintOnStall).toBe(true);
     expect(body.maxUnexecutedCodeEdits).toBe(3);
@@ -292,6 +295,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const reread = await readJson<{
       maxSteps: number;
       toolTimeoutSeconds: number;
+      postStepExecutionTimeoutSeconds: number;
       includeOperatorProperties: boolean;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
@@ -320,6 +324,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     }>(await getJson(`${API}/agents/${created.id}/settings`));
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
+    expect(reread.postStepExecutionTimeoutSeconds).toBe(60);
     expect(reread.includeOperatorProperties).toBe(true);
     expect(reread.maxOperatorEdits).toBe(2);
     expect(reread.lineageHintOnStall).toBe(true);
