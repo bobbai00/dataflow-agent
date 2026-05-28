@@ -92,6 +92,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       labelComponentProfileContract: settings.labelComponentProfileContract,
       observedComponentInventoryContract: settings.observedComponentInventoryContract,
       candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
+      evidenceDependencyGate: settings.evidenceDependencyGate,
       fallbackContractGuidance: settings.fallbackContractGuidance,
     });
 }
@@ -181,6 +182,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     labelComponentProfileContract: agentSettings.labelComponentProfileContract,
     observedComponentInventoryContract: agentSettings.observedComponentInventoryContract,
     candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
+    evidenceDependencyGate: agentSettings.evidenceDependencyGate,
     executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
     fallbackContractGuidance: agentSettings.fallbackContractGuidance,
   };
@@ -311,6 +313,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           labelComponentProfileContract: settings.labelComponentProfileContract,
           observedComponentInventoryContract: settings.observedComponentInventoryContract,
           candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
+          evidenceDependencyGate: settings.evidenceDependencyGate,
           executionSafeOperatorIds: settings.executionSafeOperatorIds,
           fallbackContractGuidance: settings.fallbackContractGuidance,
         });
@@ -361,6 +364,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             labelComponentProfileContract: t.Optional(t.Boolean()),
             observedComponentInventoryContract: t.Optional(t.Boolean()),
             candidateSelectionImpactContract: t.Optional(t.Boolean()),
+            evidenceDependencyGate: t.Optional(t.Boolean()),
             executionSafeOperatorIds: t.Optional(t.Boolean()),
             fallbackContractGuidance: t.Optional(t.Boolean()),
           })
@@ -615,6 +619,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       labelComponentProfileContract: agentSettings.labelComponentProfileContract,
       observedComponentInventoryContract: agentSettings.observedComponentInventoryContract,
       candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
+      evidenceDependencyGate: agentSettings.evidenceDependencyGate,
       executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
       fallbackContractGuidance: agentSettings.fallbackContractGuidance,
     };
@@ -670,6 +675,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         labelComponentProfileContract: settings.labelComponentProfileContract,
         observedComponentInventoryContract: settings.observedComponentInventoryContract,
         candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
+        evidenceDependencyGate: settings.evidenceDependencyGate,
         executionSafeOperatorIds: settings.executionSafeOperatorIds,
         fallbackContractGuidance: settings.fallbackContractGuidance,
       });
@@ -712,6 +718,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         labelComponentProfileContract: agentSettings.labelComponentProfileContract,
         observedComponentInventoryContract: agentSettings.observedComponentInventoryContract,
         candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
+        evidenceDependencyGate: agentSettings.evidenceDependencyGate,
         executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
         fallbackContractGuidance: agentSettings.fallbackContractGuidance,
       };
@@ -749,6 +756,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         labelComponentProfileContract: t.Optional(t.Boolean()),
         observedComponentInventoryContract: t.Optional(t.Boolean()),
         candidateSelectionImpactContract: t.Optional(t.Boolean()),
+        evidenceDependencyGate: t.Optional(t.Boolean()),
         executionSafeOperatorIds: t.Optional(t.Boolean()),
         fallbackContractGuidance: t.Optional(t.Boolean()),
       }),

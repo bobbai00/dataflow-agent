@@ -222,6 +222,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       labelComponentProfileContract: true,
       observedComponentInventoryContract: true,
       candidateSelectionImpactContract: true,
+      evidenceDependencyGate: true,
       executionSafeOperatorIds: true,
       fallbackContractGuidance: true,
       resultRendering: "adaptive",
@@ -246,6 +247,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       labelComponentProfileContract: boolean;
       observedComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
+      evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
@@ -268,6 +270,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.labelComponentProfileContract).toBe(true);
     expect(body.observedComponentInventoryContract).toBe(true);
     expect(body.candidateSelectionImpactContract).toBe(true);
+    expect(body.evidenceDependencyGate).toBe(true);
     expect(body.executionSafeOperatorIds).toBe(true);
     expect(body.fallbackContractGuidance).toBe(true);
     expect(body.resultRendering).toBe("adaptive");
@@ -293,6 +296,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       labelComponentProfileContract: boolean;
       observedComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
+      evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
@@ -316,6 +320,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.labelComponentProfileContract).toBe(true);
     expect(reread.observedComponentInventoryContract).toBe(true);
     expect(reread.candidateSelectionImpactContract).toBe(true);
+    expect(reread.evidenceDependencyGate).toBe(true);
     expect(reread.executionSafeOperatorIds).toBe(true);
     expect(reread.fallbackContractGuidance).toBe(true);
     expect(reread.resultRendering).toBe("adaptive");

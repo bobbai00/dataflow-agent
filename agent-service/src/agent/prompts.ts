@@ -53,6 +53,7 @@ export interface CodeModePromptOptions {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
+  evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
   maxUnexecutedCodeEdits?: number;
   fallbackContractGuidance?: boolean;
@@ -336,6 +337,25 @@ task-specific delimiter rule.
   evidence supports that candidate for the requested entity grain and measure.
   Do not simply inherit the earlier selected key when impact evidence shows a
   different candidate changes the entity set or final metric materially.`;
+
+const EVIDENCE_DEPENDENCY_GATE_GUIDANCE = `## Evidence Dependency Gate
+
+Typed evidence artifacts only count when the dataflow graph proves downstream
+operators consume them.
+
+- If LATEST context says an evidence dependency is unsatisfied, do not answer
+  from a sibling or earlier evidence branch. Modify links or operators so the
+  downstream artifact consumes the prerequisite typed table.
+- The dependency chain is general: observed component inventory feeds
+  label-component profile, profile feeds candidate-key evidence, candidate-key
+  evidence feeds candidate-impact evidence, and final entity-level operators
+  consume the selected impact row.
+- A table with the right columns is not enough if it is disconnected from the
+  artifact it claims to use. Preserve the dependency as DAG links so the
+  compiler can audit it in LATEST mode without hidden trajectory.
+- Use transitive dataflow dependencies when needed: a small adapter operator is
+  fine if it consumes the prerequisite evidence and the final operator consumes
+  that adapter.`;
 
 const EXECUTION_SAFE_OPERATOR_ID_GUIDANCE = `## Execution-Safe Operator IDs
 
@@ -664,6 +684,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.labelComponentProfileContract) sections.push(LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE);
   if (options.observedComponentInventoryContract) sections.push(OBSERVED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
+  if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {
     sections.push(buildExecutionEvidenceCadenceGuidance(options.maxUnexecutedCodeEdits!));

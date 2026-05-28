@@ -407,6 +407,7 @@ export class TexeraAgent {
         labelComponentProfileContract: this.settings.labelComponentProfileContract,
         observedComponentInventoryContract: this.settings.observedComponentInventoryContract,
         candidateSelectionImpactContract: this.settings.candidateSelectionImpactContract,
+        evidenceDependencyGate: this.settings.evidenceDependencyGate,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
         maxUnexecutedCodeEdits: this.getExecutionCadenceLimit(),
         fallbackContractGuidance: this.settings.fallbackContractGuidance,
@@ -752,6 +753,7 @@ export class TexeraAgent {
     labelComponentProfileContract?: boolean;
     observedComponentInventoryContract?: boolean;
     candidateSelectionImpactContract?: boolean;
+    evidenceDependencyGate?: boolean;
     executionSafeOperatorIds?: boolean;
     fallbackContractGuidance?: boolean;
   }): void {
@@ -917,6 +919,13 @@ export class TexeraAgent {
       updates.candidateSelectionImpactContract !== this.settings.candidateSelectionImpactContract
     ) {
       this.settings.candidateSelectionImpactContract = updates.candidateSelectionImpactContract;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.evidenceDependencyGate !== undefined &&
+      updates.evidenceDependencyGate !== this.settings.evidenceDependencyGate
+    ) {
+      this.settings.evidenceDependencyGate = updates.evidenceDependencyGate;
       promptNeedsRebuild = true;
     }
     if (

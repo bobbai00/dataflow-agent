@@ -241,6 +241,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("final_metric_value");
   });
 
+  test("evidence dependency gate rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Evidence Dependency Gate");
+
+    agent.updateSettings({ evidenceDependencyGate: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Evidence Dependency Gate");
+    expect(agent.getSystemInfo().systemPrompt).toContain("DAG links");
+    expect(agent.getSystemInfo().systemPrompt).toContain("prerequisite typed table");
+  });
+
   test("execution-safe operator ID guidance rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

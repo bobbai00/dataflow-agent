@@ -1528,6 +1528,316 @@ describe("assembleContext — Latest", () => {
     expect(satisfiedContext).not.toContain("Candidate-selection impact contract unsatisfied");
   });
 
+  test("evidenceDependencyGate requires profile evidence to consume observed inventory through DAG links", () => {
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentProfile" } },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot("a", makeWorkflow(["labels", "componentInventory", "componentProfile"]));
+    scenario.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+        columnStats: { "Site Label": "(str): null=0, distinct=250" },
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "componentInventory",
+      makeInfo("componentInventory", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            observed_pattern_id: "token_1",
+            observed_pattern_kind: "symbolic separator",
+            observed_token_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            split_or_merge_count: 12,
+            example_raw_values: "North Cove :: Pier A",
+            example_component_values: "North Cove",
+            candidate_component_rules: "take prefix",
+            coverage_rank: 1,
+            rationale: "observed recurring boundary",
+          },
+        ],
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "componentProfile",
+      makeInfo("componentProfile", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            candidate_component_rule: "take prefix",
+            delimiter_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            residual_distinct_count: 70,
+            split_or_merge_count: 12,
+            sample_raw_values: "North Cove :: Pier A",
+            sample_raw_to_component_groups: "North Cove :: Pier A -> North Cove",
+            candidate_key_rows_to_compare: "prefix",
+            rationale: "profile row follows observed structure",
+          },
+        ],
+      })
+    );
+
+    const schemaOnlyContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        labelComponentProfileContract: true,
+      })
+    );
+    expect(schemaOnlyContext).toContain("Label-component profile contract satisfied by operator `componentProfile`");
+
+    const gatedContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        labelComponentProfileContract: true,
+        evidenceDependencyGate: true,
+      })
+    );
+    expect(gatedContext).toContain("Evidence dependency gate:");
+    expect(gatedContext).toContain("Label-component profile contract unsatisfied");
+    expect(gatedContext).toContain("componentProfile");
+    expect(gatedContext).toContain("observed component inventory (`componentInventory`)");
+    expect(gatedContext).toContain("through workflow links");
+  });
+
+  test("evidenceDependencyGate requires candidate-key evidence to consume component profile", () => {
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "keyEvidence" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot(
+      "a",
+      makeWorkflow(
+        ["labels", "componentInventory", "componentProfile", "keyEvidence"],
+        [["componentInventory", "componentProfile"]]
+      )
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+        columnStats: { "Site Label": "(str): null=0, distinct=250" },
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "componentInventory",
+      makeInfo("componentInventory", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            observed_pattern_id: "token_1",
+            observed_pattern_kind: "symbolic separator",
+            observed_token_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            split_or_merge_count: 12,
+            example_raw_values: "North Cove :: Pier A",
+            example_component_values: "North Cove",
+            candidate_component_rules: "take prefix",
+            coverage_rank: 1,
+            rationale: "observed recurring boundary",
+          },
+        ],
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "componentProfile",
+      makeInfo("componentProfile", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            candidate_component_rule: "take prefix",
+            delimiter_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            residual_distinct_count: 70,
+            split_or_merge_count: 12,
+            sample_raw_values: "North Cove :: Pier A",
+            sample_raw_to_component_groups: "North Cove :: Pier A -> North Cove",
+            candidate_key_rows_to_compare: "prefix",
+            rationale: "profile row follows observed structure",
+          },
+        ],
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "keyEvidence",
+      makeInfo("keyEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "component",
+            source_columns: "Site Label",
+            transformation: "take prefix",
+            distinct_count: 180,
+            non_null_count: 5000,
+            blank_count: 0,
+            changed_label_count: 120,
+            split_or_merge_count: 12,
+            sample_raw_values: "North Cove :: Pier A",
+            sample_raw_to_key_groups: "North Cove :: Pier A -> North Cove",
+            preserves_task_grain: true,
+            selected_for_final: true,
+            rationale: "component key preserves requested grain",
+          },
+        ],
+      })
+    );
+
+    const gatedContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        labelComponentProfileContract: true,
+        keyGrainEvidenceContract: true,
+        evidenceDependencyGate: true,
+      })
+    );
+    expect(gatedContext).toContain("Label-component profile contract satisfied by operator `componentProfile`");
+    expect(gatedContext).toContain("Key-grain evidence contract unsatisfied");
+    expect(gatedContext).toContain("keyEvidence");
+    expect(gatedContext).toContain("label-component profile (`componentProfile`)");
+    expect(gatedContext).toContain("through workflow links");
+  });
+
+  test("evidenceDependencyGate keeps impact contract unsatisfied when terminal operator bypasses impact evidence", () => {
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "finalCount" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot(
+      "a",
+      makeWorkflow(
+        ["keyEvidence", "impactEvidence", "finalCount"],
+        [
+          ["keyEvidence", "impactEvidence"],
+          ["keyEvidence", "finalCount"],
+        ]
+      )
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "keyEvidence",
+      makeInfo("keyEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "raw",
+            source_columns: "Site Label",
+            transformation: "identity",
+            distinct_count: 250,
+            non_null_count: 5000,
+            blank_count: 0,
+            changed_label_count: 0,
+            split_or_merge_count: 0,
+            sample_raw_values: "North Cove :: Pier A",
+            sample_raw_to_key_groups: "North Cove :: Pier A -> North Cove :: Pier A",
+            preserves_task_grain: true,
+            selected_for_final: true,
+            rationale: "raw label preserves requested grain",
+          },
+        ],
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "impactEvidence",
+      makeInfo("impactEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "raw",
+            source_columns: "Site Label",
+            transformation: "identity",
+            selected_in_key_evidence: true,
+            upstream_row_count: 5000,
+            entity_count: 250,
+            rows_per_entity_min: 1,
+            rows_per_entity_max: 90,
+            predicate_or_measure_definition: "qualifying entities",
+            qualifying_entity_count: 140,
+            disqualifying_entity_count: 40,
+            unknown_entity_count: 0,
+            final_metric_value: 140,
+            delta_vs_baseline: 0,
+            sample_entity_groups: "North Cove :: Pier A",
+            selected_for_final: true,
+            rationale: "impact supports raw candidate",
+          },
+        ],
+      })
+    );
+    scenario.storage.setOperatorResult(
+      "a",
+      "finalCount",
+      makeInfo("finalCount", 1, undefined, { result: [{ answer: 140 }] })
+    );
+
+    const schemaOnlyContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        candidateSelectionImpactContract: true,
+      })
+    );
+    expect(schemaOnlyContext).toContain("Candidate-selection impact contract satisfied by operator `impactEvidence`");
+
+    const gatedContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        candidateSelectionImpactContract: true,
+        evidenceDependencyGate: true,
+      })
+    );
+    expect(gatedContext).toContain("Candidate-selection impact contract unsatisfied");
+    expect(gatedContext).toContain("terminal operator `finalCount`");
+    expect(gatedContext).toContain("without consuming the impact artifact through workflow links");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

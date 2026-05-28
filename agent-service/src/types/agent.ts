@@ -268,6 +268,14 @@ export interface AgentSettings {
    */
   candidateSelectionImpactContract: boolean;
   /**
+   * When true, LATEST evidence-contract artifacts are valid only when the DAG
+   * links prove they consume their prerequisite typed artifacts. This turns
+   * schema-only evidence detection into a dataflow dependency check over
+   * observed inventory -> profile -> candidate key -> impact -> final
+   * operators. Off by default for baseline reproducibility.
+   */
+  evidenceDependencyGate: boolean;
+  /**
    * When true, CODE mode treats operator IDs as execution-safe logical IDs,
    * not only Python variable names. It asks for and enforces alphanumeric
    * Python identifiers without underscores because the current execution
@@ -335,6 +343,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   labelComponentProfileContract: false,
   observedComponentInventoryContract: false,
   candidateSelectionImpactContract: false,
+  evidenceDependencyGate: false,
   executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
 };
@@ -401,6 +410,7 @@ export interface AgentSettingsApi {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
+  evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
@@ -461,6 +471,7 @@ export interface UpdateAgentSettingsRequest {
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
+  evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }

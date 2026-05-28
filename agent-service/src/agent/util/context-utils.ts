@@ -116,6 +116,10 @@ export interface AssembleContextOptions {
    *  candidates against the downstream entity predicate or final measure. Off
    *  by default. */
   candidateSelectionImpactContract?: boolean;
+  /** When true, evidence-contract artifacts are valid only when the workflow
+   *  DAG links prove they consume their prerequisite typed artifacts. Off by
+   *  default. */
+  evidenceDependencyGate?: boolean;
 }
 
 /**
@@ -178,6 +182,11 @@ const OBSERVED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE = [
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE = [
   "Candidate-selection impact contract: a selected entity key remains provisional until candidate keys are compared against the downstream entity-level predicate or final measure.",
   "Use an executed impact table to show entity counts, qualifying/disqualifying counts, final metric values, and exactly one selected candidate before final aggregation.",
+].join(" ");
+
+const EVIDENCE_DEPENDENCY_GATE_CONTEXT_NOTICE = [
+  "Evidence dependency gate: contract evidence is not just a schema; the DAG must show it consumes the prerequisite typed artifact.",
+  "Connect downstream profile, candidate-key, impact, and final operators through links to the evidence tables they rely on, so LATEST context can audit the dataflow path.",
 ].join(" ");
 
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
@@ -666,19 +675,21 @@ function renderLatest(
     !observedInventoryBlockingProfile &&
     Boolean(options.observedComponentInventoryContract) &&
     Boolean(options.labelComponentProfileContract) &&
-    isLabelComponentProfileContractUnsatisfied(leafSnapshot);
+    isLabelComponentProfileContractUnsatisfied(leafSnapshot, options);
 
   const dynamicNotices = [
     options.observedComponentInventoryContract
       ? buildObservedComponentInventoryContractNotice(leafSnapshot)
       : undefined,
     options.labelComponentProfileContract && !observedInventoryBlockingProfile
-      ? buildLabelComponentProfileContractNotice(leafSnapshot)
+      ? buildLabelComponentProfileContractNotice(leafSnapshot, options)
       : undefined,
     options.keyGrainEvidenceContract && !observedInventoryBlockingProfile && !labelProfileBlockingKey
-      ? buildKeyGrainEvidenceContractNotice(leafSnapshot)
+      ? buildKeyGrainEvidenceContractNotice(leafSnapshot, options)
       : undefined,
-    options.candidateSelectionImpactContract ? buildCandidateSelectionImpactContractNotice(leafSnapshot) : undefined,
+    options.candidateSelectionImpactContract
+      ? buildCandidateSelectionImpactContractNotice(leafSnapshot, options)
+      : undefined,
   ].filter((notice): notice is string => typeof notice === "string" && notice.length > 0);
   appendContextNotices(sections, options, dynamicNotices);
 
@@ -719,6 +730,7 @@ function appendContextNotices(
     ...(options.labelComponentProfileContract ? [LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.observedComponentInventoryContract ? [OBSERVED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.candidateSelectionImpactContract ? [CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE] : []),
+    ...(options.evidenceDependencyGate ? [EVIDENCE_DEPENDENCY_GATE_CONTEXT_NOTICE] : []),
     ...dynamicNotices,
     ...(options.contextNotices ?? []),
   ]
@@ -1552,6 +1564,25 @@ interface CandidateSelectionImpactSource {
   operatorId: string;
 }
 
+type EvidenceContractOptions = Pick<
+  AssembleContextOptions,
+  | "evidenceDependencyGate"
+  | "observedComponentInventoryContract"
+  | "labelComponentProfileContract"
+  | "keyGrainEvidenceContract"
+  | "candidateSelectionImpactContract"
+>;
+
+interface EvidenceRef {
+  operatorId: string;
+}
+
+interface EvidenceDependencyIssue {
+  operatorId: string;
+  requiredArtifact: string;
+  requiredOperatorIds: string[];
+}
+
 function isObservedComponentInventoryContractUnsatisfied(snapshot: SnapshotData): boolean {
   return (
     findObservedComponentInventorySources(snapshot).length > 0 && !findObservedComponentInventoryEvidence(snapshot)
@@ -1614,12 +1645,12 @@ function findObservedComponentInventorySources(snapshot: SnapshotData): Observed
   return sources;
 }
 
-function findObservedComponentInventoryEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
-  for (const [operatorId, entry] of snapshot.results) {
-    const info = entry.info;
-    if (info && !info.error && isObservedComponentInventoryEvidence(info)) return { operatorId };
-  }
-  return undefined;
+function findObservedComponentInventoryEvidence(snapshot: SnapshotData): EvidenceRef | undefined {
+  return findObservedComponentInventoryEvidenceOperators(snapshot)[0];
+}
+
+function findObservedComponentInventoryEvidenceOperators(snapshot: SnapshotData): EvidenceRef[] {
+  return findEvidenceOperators(snapshot, isObservedComponentInventoryEvidence);
 }
 
 function isObservedComponentInventoryEvidence(info: OperatorInfo): boolean {
@@ -1628,15 +1659,33 @@ function isObservedComponentInventoryEvidence(info: OperatorInfo): boolean {
   return OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
 }
 
-function buildCandidateSelectionImpactContractNotice(snapshot: SnapshotData): string | undefined {
-  const sources = findCandidateSelectionImpactSources(snapshot);
+function buildCandidateSelectionImpactContractNotice(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): string | undefined {
+  const sources = findCandidateSelectionImpactSources(snapshot, options);
   if (sources.length === 0) return undefined;
 
-  const evidence = findCandidateSelectionImpactEvidence(snapshot);
+  const evidence = findCandidateSelectionImpactEvidence(snapshot, options);
   if (evidence) {
+    const terminalIssue = findCandidateImpactTerminalDependencyIssue(snapshot, evidence, options);
+    if (terminalIssue) {
+      return [
+        `Candidate-selection impact contract unsatisfied: candidate-impact evidence \`${evidence.operatorId}\` has required columns, but terminal operator \`${terminalIssue.operatorId}\` is downstream of candidate-key evidence without consuming the impact artifact through workflow links.`,
+        "Final entity-level operators should consume the selected_for_final=true row from the executed impact table, not bypass it through an earlier key-evidence branch.",
+      ].join(" ");
+    }
     return [
       `Candidate-selection impact contract satisfied by operator \`${evidence.operatorId}\` with required candidate-impact columns.`,
       "Final entity-level operators should use the row where selected_for_final=true from this impact table, not an unevaluated key default.",
+    ].join(" ");
+  }
+
+  const dependencyIssue = findCandidateSelectionImpactDependencyIssue(snapshot, options);
+  if (dependencyIssue) {
+    return [
+      `Candidate-selection impact contract unsatisfied: executed impact operator \`${dependencyIssue.operatorId}\` has required candidate-impact columns, but evidence dependency gate cannot trace it downstream of ${dependencyIssue.requiredArtifact} (${formatOperatorIdList(dependencyIssue.requiredOperatorIds)}) through workflow links.`,
+      "Modify the impact operator links so it consumes the prerequisite typed evidence artifact before final aggregation or answer.",
     ].join(" ");
   }
 
@@ -1654,20 +1703,56 @@ function buildCandidateSelectionImpactContractNotice(snapshot: SnapshotData): st
   ].join(" ");
 }
 
-function findCandidateSelectionImpactSources(snapshot: SnapshotData): CandidateSelectionImpactSource[] {
+function findCandidateSelectionImpactSources(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): CandidateSelectionImpactSource[] {
   const sources: CandidateSelectionImpactSource[] = [];
-  for (const [operatorId, entry] of snapshot.results) {
-    const info = entry.info;
-    if (!info || info.error) continue;
-    if (isKeyGrainContractEvidence(info)) sources.push({ operatorId });
+  for (const evidence of findKeyGrainContractEvidenceOperators(snapshot, options)) {
+    sources.push({ operatorId: evidence.operatorId });
   }
   return sources;
 }
 
-function findCandidateSelectionImpactEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
-  for (const [operatorId, entry] of snapshot.results) {
-    const info = entry.info;
-    if (info && !info.error && isCandidateSelectionImpactEvidence(info)) return { operatorId };
+function findCandidateSelectionImpactEvidence(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef | undefined {
+  return findCandidateSelectionImpactEvidenceOperators(snapshot, options)[0];
+}
+
+function findCandidateSelectionImpactEvidenceOperators(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef[] {
+  const baseEvidence = findEvidenceOperators(snapshot, isCandidateSelectionImpactEvidence);
+  if (!options.evidenceDependencyGate) return baseEvidence;
+
+  const keyEvidence = findKeyGrainContractEvidenceOperators(snapshot, options);
+  if (keyEvidence.length === 0) return [];
+  return baseEvidence.filter(evidence =>
+    keyEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+  );
+}
+
+function findCandidateSelectionImpactDependencyIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceDependencyIssue | undefined {
+  if (!options.evidenceDependencyGate) return undefined;
+  const baseEvidence = findEvidenceOperators(snapshot, isCandidateSelectionImpactEvidence);
+  if (baseEvidence.length === 0) return undefined;
+
+  const keyEvidence = findKeyGrainContractEvidenceOperators(snapshot, options);
+  if (keyEvidence.length === 0) return undefined;
+  for (const evidence of baseEvidence) {
+    if (!keyEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))) {
+      return {
+        operatorId: evidence.operatorId,
+        requiredArtifact: "candidate-key evidence",
+        requiredOperatorIds: keyEvidence.map(required => required.operatorId),
+      };
+    }
   }
   return undefined;
 }
@@ -1678,15 +1763,26 @@ function isCandidateSelectionImpactEvidence(info: OperatorInfo): boolean {
   return CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
 }
 
-function buildLabelComponentProfileContractNotice(snapshot: SnapshotData): string | undefined {
+function buildLabelComponentProfileContractNotice(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): string | undefined {
   const sources = findLabelComponentProfileSources(snapshot);
   if (sources.length === 0) return undefined;
 
-  const evidence = findLabelComponentProfileEvidence(snapshot);
+  const evidence = findLabelComponentProfileEvidence(snapshot, options);
   if (evidence) {
     return [
       `Label-component profile contract satisfied by operator \`${evidence.operatorId}\` with required component-profile columns.`,
       "Candidate-key evidence should use this profile to include observed component-derived rows before selecting the final entity key.",
+    ].join(" ");
+  }
+
+  const dependencyIssue = findLabelComponentProfileDependencyIssue(snapshot, options);
+  if (dependencyIssue) {
+    return [
+      `Label-component profile contract unsatisfied: executed profile operator \`${dependencyIssue.operatorId}\` has required component-profile columns, but evidence dependency gate cannot trace it downstream of ${dependencyIssue.requiredArtifact} (${formatOperatorIdList(dependencyIssue.requiredOperatorIds)}) through workflow links.`,
+      "Modify the profile operator links so it consumes the prerequisite typed evidence artifact before candidate-key evidence or finalization.",
     ].join(" ");
   }
 
@@ -1714,8 +1810,11 @@ function buildLabelComponentProfileContractNotice(snapshot: SnapshotData): strin
   ].join(" ");
 }
 
-function isLabelComponentProfileContractUnsatisfied(snapshot: SnapshotData): boolean {
-  return findLabelComponentProfileSources(snapshot).length > 0 && !findLabelComponentProfileEvidence(snapshot);
+function isLabelComponentProfileContractUnsatisfied(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): boolean {
+  return findLabelComponentProfileSources(snapshot).length > 0 && !findLabelComponentProfileEvidence(snapshot, options);
 }
 
 function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponentProfileSource[] {
@@ -1738,10 +1837,47 @@ function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponen
   return sources;
 }
 
-function findLabelComponentProfileEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
-  for (const [operatorId, entry] of snapshot.results) {
-    const info = entry.info;
-    if (info && !info.error && isLabelComponentProfileEvidence(info)) return { operatorId };
+function findLabelComponentProfileEvidence(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef | undefined {
+  return findLabelComponentProfileEvidenceOperators(snapshot, options)[0];
+}
+
+function findLabelComponentProfileEvidenceOperators(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef[] {
+  const baseEvidence = findEvidenceOperators(snapshot, isLabelComponentProfileEvidence);
+  if (!options.evidenceDependencyGate || !options.observedComponentInventoryContract) return baseEvidence;
+
+  const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot);
+  if (inventoryEvidence.length === 0) return [];
+  return baseEvidence.filter(evidence =>
+    inventoryEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+  );
+}
+
+function findLabelComponentProfileDependencyIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceDependencyIssue | undefined {
+  if (!options.evidenceDependencyGate || !options.observedComponentInventoryContract) return undefined;
+  const baseEvidence = findEvidenceOperators(snapshot, isLabelComponentProfileEvidence);
+  if (baseEvidence.length === 0) return undefined;
+
+  const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot);
+  if (inventoryEvidence.length === 0) return undefined;
+  for (const evidence of baseEvidence) {
+    if (
+      !inventoryEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+    ) {
+      return {
+        operatorId: evidence.operatorId,
+        requiredArtifact: "observed component inventory",
+        requiredOperatorIds: inventoryEvidence.map(required => required.operatorId),
+      };
+    }
   }
   return undefined;
 }
@@ -1752,15 +1888,26 @@ function isLabelComponentProfileEvidence(info: OperatorInfo): boolean {
   return LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
 }
 
-function buildKeyGrainEvidenceContractNotice(snapshot: SnapshotData): string | undefined {
+function buildKeyGrainEvidenceContractNotice(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): string | undefined {
   const sources = findKeyGrainContractSources(snapshot);
   if (sources.length === 0) return undefined;
 
-  const evidence = findKeyGrainContractEvidence(snapshot);
+  const evidence = findKeyGrainContractEvidence(snapshot, options);
   if (evidence) {
     return [
       `Key-grain evidence contract satisfied by operator \`${evidence.operatorId}\` with required candidate-key columns.`,
       "Final entity-level operators should use the row where selected_for_final=true and preserve the rationale/evidence trail in the final result.",
+    ].join(" ");
+  }
+
+  const dependencyIssue = findKeyGrainContractDependencyIssue(snapshot, options);
+  if (dependencyIssue) {
+    return [
+      `Key-grain evidence contract unsatisfied: executed candidate-key operator \`${dependencyIssue.operatorId}\` has required candidate-key columns, but evidence dependency gate cannot trace it downstream of ${dependencyIssue.requiredArtifact} (${formatOperatorIdList(dependencyIssue.requiredOperatorIds)}) through workflow links.`,
+      "Modify the candidate-key evidence links so it consumes the prerequisite typed evidence artifact before impact comparison, final aggregation, or answer.",
     ].join(" ");
   }
 
@@ -1803,11 +1950,86 @@ function findKeyGrainContractSources(snapshot: SnapshotData): KeyGrainContractSo
   return sources;
 }
 
-function findKeyGrainContractEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
-  for (const [operatorId, entry] of snapshot.results) {
-    const info = entry.info;
-    if (info && !info.error && isKeyGrainContractEvidence(info)) return { operatorId };
+function findKeyGrainContractEvidence(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef | undefined {
+  return findKeyGrainContractEvidenceOperators(snapshot, options)[0];
+}
+
+function findKeyGrainContractEvidenceOperators(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceRef[] {
+  const baseEvidence = findEvidenceOperators(snapshot, isKeyGrainContractEvidence);
+  if (!options.evidenceDependencyGate) return baseEvidence;
+
+  const requiredProfileEvidence = options.labelComponentProfileContract
+    ? findLabelComponentProfileEvidenceOperators(snapshot, options)
+    : [];
+  if (options.labelComponentProfileContract) {
+    if (requiredProfileEvidence.length === 0) return [];
+    return baseEvidence.filter(evidence =>
+      requiredProfileEvidence.some(required =>
+        hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId)
+      )
+    );
   }
+
+  if (options.observedComponentInventoryContract) {
+    const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot);
+    if (inventoryEvidence.length === 0) return [];
+    return baseEvidence.filter(evidence =>
+      inventoryEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+    );
+  }
+
+  return baseEvidence;
+}
+
+function findKeyGrainContractDependencyIssue(
+  snapshot: SnapshotData,
+  options: EvidenceContractOptions = {}
+): EvidenceDependencyIssue | undefined {
+  if (!options.evidenceDependencyGate) return undefined;
+  const baseEvidence = findEvidenceOperators(snapshot, isKeyGrainContractEvidence);
+  if (baseEvidence.length === 0) return undefined;
+
+  if (options.labelComponentProfileContract) {
+    const profileEvidence = findLabelComponentProfileEvidenceOperators(snapshot, options);
+    if (profileEvidence.length === 0) return undefined;
+    for (const evidence of baseEvidence) {
+      if (
+        !profileEvidence.some(required => hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId))
+      ) {
+        return {
+          operatorId: evidence.operatorId,
+          requiredArtifact: "label-component profile",
+          requiredOperatorIds: profileEvidence.map(required => required.operatorId),
+        };
+      }
+    }
+    return undefined;
+  }
+
+  if (options.observedComponentInventoryContract) {
+    const inventoryEvidence = findObservedComponentInventoryEvidenceOperators(snapshot);
+    if (inventoryEvidence.length === 0) return undefined;
+    for (const evidence of baseEvidence) {
+      if (
+        !inventoryEvidence.some(required =>
+          hasUpstreamPath(snapshot.workflow, evidence.operatorId, required.operatorId)
+        )
+      ) {
+        return {
+          operatorId: evidence.operatorId,
+          requiredArtifact: "observed component inventory",
+          requiredOperatorIds: inventoryEvidence.map(required => required.operatorId),
+        };
+      }
+    }
+  }
+
   return undefined;
 }
 
@@ -1815,6 +2037,85 @@ function isKeyGrainContractEvidence(info: OperatorInfo): boolean {
   const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
   if (normalizedColumns.size === 0) return false;
   return KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+}
+
+function findEvidenceOperators(snapshot: SnapshotData, predicate: (info: OperatorInfo) => boolean): EvidenceRef[] {
+  const evidence: EvidenceRef[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (info && !info.error && predicate(info)) evidence.push({ operatorId });
+  }
+  return evidence;
+}
+
+function hasUpstreamPath(workflow: WorkflowContent, operatorId: string, upstreamOperatorId: string): boolean {
+  if (operatorId === upstreamOperatorId) return true;
+  const reverseLinks = new Map<string, string[]>();
+  for (const link of workflow.links) {
+    const upstreamIds = reverseLinks.get(link.target.operatorID) ?? [];
+    upstreamIds.push(link.source.operatorID);
+    reverseLinks.set(link.target.operatorID, upstreamIds);
+  }
+
+  const visited = new Set<string>();
+  const stack = [...(reverseLinks.get(operatorId) ?? [])];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === upstreamOperatorId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    stack.push(...(reverseLinks.get(current) ?? []));
+  }
+  return false;
+}
+
+function formatOperatorIdList(operatorIds: string[]): string {
+  if (operatorIds.length === 0) return "none";
+  return operatorIds.map(operatorId => `\`${operatorId}\``).join(", ");
+}
+
+function findCandidateImpactTerminalDependencyIssue(
+  snapshot: SnapshotData,
+  impactEvidence: EvidenceRef,
+  options: EvidenceContractOptions = {}
+): EvidenceDependencyIssue | undefined {
+  if (!options.evidenceDependencyGate) return undefined;
+
+  const keyEvidence = findKeyGrainContractEvidenceOperators(snapshot, options);
+  if (keyEvidence.length === 0) return undefined;
+
+  for (const terminalId of findExecutedTerminalNonEvidenceOperators(snapshot)) {
+    if (hasUpstreamPath(snapshot.workflow, terminalId, impactEvidence.operatorId)) continue;
+    if (!keyEvidence.some(required => hasUpstreamPath(snapshot.workflow, terminalId, required.operatorId))) continue;
+    return {
+      operatorId: terminalId,
+      requiredArtifact: "candidate-selection impact",
+      requiredOperatorIds: [impactEvidence.operatorId],
+    };
+  }
+  return undefined;
+}
+
+function findExecutedTerminalNonEvidenceOperators(snapshot: SnapshotData): string[] {
+  const outgoing = new Set(snapshot.workflow.links.map(link => link.source.operatorID));
+  const terminalIds: string[] = [];
+  for (const operator of snapshot.workflow.operators) {
+    const operatorId = operator.operatorID;
+    if (outgoing.has(operatorId)) continue;
+    const info = snapshot.results.get(operatorId)?.info;
+    if (!info || info.error || isAnyEvidenceContractInfo(info)) continue;
+    terminalIds.push(operatorId);
+  }
+  return terminalIds;
+}
+
+function isAnyEvidenceContractInfo(info: OperatorInfo): boolean {
+  return (
+    isObservedComponentInventoryEvidence(info) ||
+    isLabelComponentProfileEvidence(info) ||
+    isKeyGrainContractEvidence(info) ||
+    isCandidateSelectionImpactEvidence(info)
+  );
 }
 
 function normalizeEvidenceColumnName(columnName: string): string {
