@@ -1279,6 +1279,136 @@ describe("assembleContext — Latest", () => {
     expect(satisfiedContext).not.toContain("Label-component profile contract unsatisfied");
   });
 
+  test("candidateSelectionImpactContract renders unsatisfied and satisfied LATEST notices", () => {
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "keyEvidence" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot("a", makeWorkflow(["rows", "keyEvidence"]));
+    scenario.storage.setOperatorResult(
+      "a",
+      "keyEvidence",
+      makeInfo("keyEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "raw",
+            source_columns: "Site Label",
+            transformation: "identity",
+            distinct_count: 250,
+            non_null_count: 5000,
+            blank_count: 0,
+            changed_label_count: 0,
+            split_or_merge_count: 0,
+            sample_raw_values: "North Cove - Pier A",
+            sample_raw_to_key_groups: "North Cove - Pier A -> North Cove - Pier A",
+            preserves_task_grain: true,
+            selected_for_final: true,
+            rationale: "raw label preserves requested entity grain",
+          },
+        ],
+      })
+    );
+
+    const defaultContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+    expect(defaultContext).not.toContain("Candidate-selection impact contract unsatisfied");
+
+    const unsatisfiedContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        candidateSelectionImpactContract: true,
+      })
+    );
+    expect(unsatisfiedContext).toContain("# Agent Guidance");
+    expect(unsatisfiedContext).toContain("Candidate-selection impact contract:");
+    expect(unsatisfiedContext).toContain("Candidate-selection impact contract unsatisfied");
+    expect(unsatisfiedContext).toContain("`keyEvidence`");
+    expect(unsatisfiedContext).toContain("predicate_or_measure_definition");
+    expect(unsatisfiedContext).toContain("final_metric_value");
+
+    const satisfied = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "impactEvidence" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    satisfied.storage.createSnapshot("a", makeWorkflow(["keyEvidence", "impactEvidence"]));
+    satisfied.storage.setOperatorResult(
+      "a",
+      "keyEvidence",
+      makeInfo("keyEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "raw",
+            source_columns: "Site Label",
+            transformation: "identity",
+            distinct_count: 250,
+            non_null_count: 5000,
+            blank_count: 0,
+            changed_label_count: 0,
+            split_or_merge_count: 0,
+            sample_raw_values: "North Cove - Pier A",
+            sample_raw_to_key_groups: "North Cove - Pier A -> North Cove - Pier A",
+            preserves_task_grain: true,
+            selected_for_final: true,
+            rationale: "raw label preserves requested entity grain",
+          },
+        ],
+      })
+    );
+    satisfied.storage.setOperatorResult(
+      "a",
+      "impactEvidence",
+      makeInfo("impactEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "component",
+            source_columns: "Site Label",
+            transformation: "prefix before spaced dash",
+            selected_in_key_evidence: false,
+            upstream_row_count: 5000,
+            entity_count: 180,
+            rows_per_entity_min: 1,
+            rows_per_entity_max: 90,
+            predicate_or_measure_definition: "entities with no disqualifying rows",
+            qualifying_entity_count: 140,
+            disqualifying_entity_count: 40,
+            unknown_entity_count: 0,
+            final_metric_value: 140,
+            delta_vs_baseline: -8,
+            sample_entity_groups: "North Cove - Pier A, North Cove - Pier B -> North Cove",
+            selected_for_final: true,
+            rationale: "component key matches requested entity grain",
+          },
+        ],
+      })
+    );
+
+    const satisfiedContext = content(
+      assembleContext(satisfied.steps, satisfied.workflowState, satisfied.storage, ContextMode.LATEST, {
+        ...opts,
+        candidateSelectionImpactContract: true,
+      })
+    );
+    expect(satisfiedContext).toContain("Candidate-selection impact contract satisfied by operator `impactEvidence`");
+    expect(satisfiedContext).not.toContain("Candidate-selection impact contract unsatisfied");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

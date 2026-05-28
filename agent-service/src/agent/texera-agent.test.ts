@@ -215,6 +215,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("visible preview rows");
   });
 
+  test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Candidate-Selection Impact Contract");
+
+    agent.updateSettings({ candidateSelectionImpactContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Candidate-Selection Impact Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Candidate-selection impact contract unsatisfied");
+    expect(agent.getSystemInfo().systemPrompt).toContain("predicate_or_measure_definition");
+    expect(agent.getSystemInfo().systemPrompt).toContain("final_metric_value");
+  });
+
   test("execution-safe operator ID guidance rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

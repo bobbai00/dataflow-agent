@@ -107,6 +107,11 @@ export interface AssembleContextOptions {
    *  ambiguous high-cardinality labels are visible and no executed component
    *  profile table with the required schema is visible. Off by default. */
   labelComponentProfileContract?: boolean;
+  /** Render a LATEST-mode candidate-selection impact contract notice after
+   *  candidate-key evidence exists but no executed impact table compares those
+   *  candidates against the downstream entity predicate or final measure. Off
+   *  by default. */
+  candidateSelectionImpactContract?: boolean;
 }
 
 /**
@@ -161,6 +166,11 @@ const LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE = [
   "Before selecting a final entity key, compute an all-value component profile over candidate label columns and use it to add observed component-derived key candidates.",
 ].join(" ");
 
+const CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE = [
+  "Candidate-selection impact contract: a selected entity key remains provisional until candidate keys are compared against the downstream entity-level predicate or final measure.",
+  "Use an executed impact table to show entity counts, qualifying/disqualifying counts, final metric values, and exactly one selected candidate before final aggregation.",
+].join(" ");
+
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
 const WIDE_COLUMN_COUNT_THRESHOLD = 100;
 const ENTITY_KEY_MIN_DISTINCT = 20;
@@ -198,6 +208,25 @@ const LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS = [
   "sample_raw_values",
   "sample_raw_to_component_groups",
   "candidate_key_rows_to_compare",
+  "rationale",
+];
+const CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS = [
+  "candidate_id",
+  "source_columns",
+  "transformation",
+  "selected_in_key_evidence",
+  "upstream_row_count",
+  "entity_count",
+  "rows_per_entity_min",
+  "rows_per_entity_max",
+  "predicate_or_measure_definition",
+  "qualifying_entity_count",
+  "disqualifying_entity_count",
+  "unknown_entity_count",
+  "final_metric_value",
+  "delta_vs_baseline",
+  "sample_entity_groups",
+  "selected_for_final",
   "rationale",
 ];
 
@@ -608,6 +637,7 @@ function renderLatest(
   const dynamicNotices = [
     options.labelComponentProfileContract ? buildLabelComponentProfileContractNotice(leafSnapshot) : undefined,
     options.keyGrainEvidenceContract ? buildKeyGrainEvidenceContractNotice(leafSnapshot) : undefined,
+    options.candidateSelectionImpactContract ? buildCandidateSelectionImpactContractNotice(leafSnapshot) : undefined,
   ].filter((notice): notice is string => typeof notice === "string" && notice.length > 0);
   appendContextNotices(sections, options, dynamicNotices);
 
@@ -646,6 +676,7 @@ function appendContextNotices(
     ...(options.keyGrainComparisonGuidance ? [KEY_GRAIN_COMPARISON_CONTEXT_NOTICE] : []),
     ...(options.keyGrainEvidenceContract ? [KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.labelComponentProfileContract ? [LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE] : []),
+    ...(options.candidateSelectionImpactContract ? [CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE] : []),
     ...dynamicNotices,
     ...(options.contextNotices ?? []),
   ]
@@ -1470,6 +1501,60 @@ interface LabelComponentProfileSource {
   candidates: ComponentGrainCandidate[];
 }
 
+interface CandidateSelectionImpactSource {
+  operatorId: string;
+}
+
+function buildCandidateSelectionImpactContractNotice(snapshot: SnapshotData): string | undefined {
+  const sources = findCandidateSelectionImpactSources(snapshot);
+  if (sources.length === 0) return undefined;
+
+  const evidence = findCandidateSelectionImpactEvidence(snapshot);
+  if (evidence) {
+    return [
+      `Candidate-selection impact contract satisfied by operator \`${evidence.operatorId}\` with required candidate-impact columns.`,
+      "Final entity-level operators should use the row where selected_for_final=true from this impact table, not an unevaluated key default.",
+    ].join(" ");
+  }
+
+  const sourceText = sources
+    .slice(0, KEY_GRAIN_CONTRACT_MAX_SOURCES)
+    .map(source => `\`${source.operatorId}\``)
+    .join(", ");
+
+  return [
+    `Candidate-selection impact contract unsatisfied: candidate-key evidence is visible (${sourceText}) but no executed impact table compares those key candidates against the downstream entity-level predicate or final measure.`,
+    "Before a final entity-level aggregation, count, join, deduplication, or answer, create and execute a compact candidate-impact table.",
+    `Required columns: ${CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS.join(", ")}.`,
+    "Include one row per candidate from candidate-key evidence; compute the same predicate, exclusion, metric, or final count requested by the user under each candidate key.",
+    "Mark exactly one selected_for_final=true only after the impact evidence supports that candidate for the requested entity grain and measure.",
+  ].join(" ");
+}
+
+function findCandidateSelectionImpactSources(snapshot: SnapshotData): CandidateSelectionImpactSource[] {
+  const sources: CandidateSelectionImpactSource[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (!info || info.error) continue;
+    if (isKeyGrainContractEvidence(info)) sources.push({ operatorId });
+  }
+  return sources;
+}
+
+function findCandidateSelectionImpactEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (info && !info.error && isCandidateSelectionImpactEvidence(info)) return { operatorId };
+  }
+  return undefined;
+}
+
+function isCandidateSelectionImpactEvidence(info: OperatorInfo): boolean {
+  const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
+  if (normalizedColumns.size === 0) return false;
+  return CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+}
+
 function buildLabelComponentProfileContractNotice(snapshot: SnapshotData): string | undefined {
   const sources = findLabelComponentProfileSources(snapshot);
   if (sources.length === 0) return undefined;
@@ -1510,7 +1595,15 @@ function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponen
   const sources: LabelComponentProfileSource[] = [];
   for (const [operatorId, entry] of snapshot.results) {
     const info = entry.info;
-    if (!info || info.error || isLabelComponentProfileEvidence(info) || isKeyGrainContractEvidence(info)) continue;
+    if (
+      !info ||
+      info.error ||
+      isLabelComponentProfileEvidence(info) ||
+      isKeyGrainContractEvidence(info) ||
+      isCandidateSelectionImpactEvidence(info)
+    ) {
+      continue;
+    }
     const candidates = findComponentGrainCandidates(info);
     if (candidates.length > 0) sources.push({ operatorId, candidates });
   }
@@ -1566,7 +1659,15 @@ function findKeyGrainContractSources(snapshot: SnapshotData): KeyGrainContractSo
   const sources: KeyGrainContractSource[] = [];
   for (const [operatorId, entry] of snapshot.results) {
     const info = entry.info;
-    if (!info || info.error || isKeyGrainContractEvidence(info)) continue;
+    if (
+      !info ||
+      info.error ||
+      isKeyGrainContractEvidence(info) ||
+      isLabelComponentProfileEvidence(info) ||
+      isCandidateSelectionImpactEvidence(info)
+    ) {
+      continue;
+    }
     const candidates = findComponentGrainCandidates(info);
     if (candidates.length > 0) sources.push({ operatorId, candidates });
   }

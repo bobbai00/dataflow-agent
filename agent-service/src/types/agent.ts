@@ -252,6 +252,14 @@ export interface AgentSettings {
    */
   labelComponentProfileContract: boolean;
   /**
+   * When true, LATEST context treats the selected entity key as provisional
+   * until an executed impact table compares candidate keys against the
+   * downstream entity-level predicate or final measure. This uses typed
+   * dataflow evidence instead of task-specific delimiter rules. Off by default
+   * for baseline reproducibility.
+   */
+  candidateSelectionImpactContract: boolean;
+  /**
    * When true, CODE mode treats operator IDs as execution-safe logical IDs,
    * not only Python variable names. It asks for and enforces alphanumeric
    * Python identifiers without underscores because the current execution
@@ -317,6 +325,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   keyGrainComparisonGuidance: false,
   keyGrainEvidenceContract: false,
   labelComponentProfileContract: false,
+  candidateSelectionImpactContract: false,
   executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
 };
@@ -381,6 +390,7 @@ export interface AgentSettingsApi {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
@@ -439,6 +449,7 @@ export interface UpdateAgentSettingsRequest {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }

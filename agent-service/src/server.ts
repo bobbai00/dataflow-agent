@@ -90,6 +90,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
       keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
       labelComponentProfileContract: settings.labelComponentProfileContract,
+      candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
       fallbackContractGuidance: settings.fallbackContractGuidance,
     });
 }
@@ -177,6 +178,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
     keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
     labelComponentProfileContract: agentSettings.labelComponentProfileContract,
+    candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
     executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
     fallbackContractGuidance: agentSettings.fallbackContractGuidance,
   };
@@ -305,6 +307,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
           keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
           labelComponentProfileContract: settings.labelComponentProfileContract,
+          candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
           executionSafeOperatorIds: settings.executionSafeOperatorIds,
           fallbackContractGuidance: settings.fallbackContractGuidance,
         });
@@ -353,6 +356,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             keyGrainComparisonGuidance: t.Optional(t.Boolean()),
             keyGrainEvidenceContract: t.Optional(t.Boolean()),
             labelComponentProfileContract: t.Optional(t.Boolean()),
+            candidateSelectionImpactContract: t.Optional(t.Boolean()),
             executionSafeOperatorIds: t.Optional(t.Boolean()),
             fallbackContractGuidance: t.Optional(t.Boolean()),
           })
@@ -605,6 +609,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
       keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
       labelComponentProfileContract: agentSettings.labelComponentProfileContract,
+      candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
       executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
       fallbackContractGuidance: agentSettings.fallbackContractGuidance,
     };
@@ -658,6 +663,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
         keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
         labelComponentProfileContract: settings.labelComponentProfileContract,
+        candidateSelectionImpactContract: settings.candidateSelectionImpactContract,
         executionSafeOperatorIds: settings.executionSafeOperatorIds,
         fallbackContractGuidance: settings.fallbackContractGuidance,
       });
@@ -698,6 +704,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
         keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
         labelComponentProfileContract: agentSettings.labelComponentProfileContract,
+        candidateSelectionImpactContract: agentSettings.candidateSelectionImpactContract,
         executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
         fallbackContractGuidance: agentSettings.fallbackContractGuidance,
       };
@@ -733,6 +740,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         keyGrainComparisonGuidance: t.Optional(t.Boolean()),
         keyGrainEvidenceContract: t.Optional(t.Boolean()),
         labelComponentProfileContract: t.Optional(t.Boolean()),
+        candidateSelectionImpactContract: t.Optional(t.Boolean()),
         executionSafeOperatorIds: t.Optional(t.Boolean()),
         fallbackContractGuidance: t.Optional(t.Boolean()),
       }),

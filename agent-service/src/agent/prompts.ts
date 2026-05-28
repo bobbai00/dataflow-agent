@@ -51,6 +51,7 @@ export interface CodeModePromptOptions {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   maxUnexecutedCodeEdits?: number;
   fallbackContractGuidance?: boolean;
@@ -279,6 +280,33 @@ task-specific delimiter rule.
 - Use the executed profile to decide which component-derived candidate rows
   belong in the candidate-key evidence table. Do not hard-code a delimiter or
   transformation without profile evidence.`;
+
+const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
+
+Use typed intermediate tables to test whether candidate entity keys change the
+downstream entity-level predicate or final measure before committing to a key.
+This is a general dataflow rule over candidate keys and measures, not a
+task-specific delimiter rule.
+
+- When the current context says \`Candidate-selection impact contract unsatisfied\`,
+  do not answer or create a final entity-level aggregation yet.
+- First create and execute a compact impact table that consumes the candidate
+  key evidence and the upstream rows needed for the user's requested measure.
+- The output DataFrame must include these columns exactly:
+  candidate_id, source_columns, transformation, selected_in_key_evidence,
+  upstream_row_count, entity_count, rows_per_entity_min, rows_per_entity_max,
+  predicate_or_measure_definition, qualifying_entity_count,
+  disqualifying_entity_count, unknown_entity_count, final_metric_value,
+  delta_vs_baseline, sample_entity_groups, selected_for_final, rationale.
+- Include one row per candidate from the executed candidate-key evidence table.
+  For each row, apply that candidate key to the relevant upstream data and
+  compute the same predicate, exclusion, metric, or final count the user asked
+  for. If the task has no qualifying/disqualifying predicate, keep those count
+  columns explicit as null or 0 and use \`final_metric_value\` for the measure.
+- Exactly one row should set selected_for_final=true only after the impact
+  evidence supports that candidate for the requested entity grain and measure.
+  Do not simply inherit the earlier selected key when impact evidence shows a
+  different candidate changes the entity set or final metric materially.`;
 
 const EXECUTION_SAFE_OPERATOR_ID_GUIDANCE = `## Execution-Safe Operator IDs
 
@@ -605,6 +633,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
   if (options.keyGrainEvidenceContract) sections.push(KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE);
   if (options.labelComponentProfileContract) sections.push(LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE);
+  if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {
     sections.push(buildExecutionEvidenceCadenceGuidance(options.maxUnexecutedCodeEdits!));
