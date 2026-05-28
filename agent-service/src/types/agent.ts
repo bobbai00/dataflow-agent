@@ -298,6 +298,13 @@ export interface AgentSettings {
    */
   flowProgressDigest: boolean;
   /**
+   * When true, LATEST context includes a compact stage-aware data diagnostic
+   * digest for active lineages: current stage, status, shape/schema evidence,
+   * parse/schema symptoms, and the next data fact needed. Off by default for
+   * baseline reproducibility.
+   */
+  dataStageDiagnostics: boolean;
+  /**
    * When true, LATEST context escalates unresolved failures or repeated
    * operator edits into a recovery contract: change strategy, repair failed
    * upstream/data-stage operators, or create typed diagnostic evidence before
@@ -394,6 +401,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataDiscoveredComponentInventoryContract: false,
   boundaryTokenInventoryContract: false,
   flowProgressDigest: false,
+  dataStageDiagnostics: false,
   flowStallRecoveryContract: false,
   candidateSelectionImpactContract: false,
   evidenceDependencyGate: false,
@@ -468,6 +476,7 @@ export interface AgentSettingsApi {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  dataStageDiagnostics?: boolean;
   flowStallRecoveryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
@@ -536,6 +545,7 @@ export interface UpdateAgentSettingsRequest {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  dataStageDiagnostics?: boolean;
   flowStallRecoveryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;

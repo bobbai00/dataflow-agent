@@ -55,6 +55,7 @@ export interface CodeModePromptOptions {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  dataStageDiagnostics?: boolean;
   flowStallRecoveryContract?: boolean;
   postStepTimeoutActionContract?: boolean;
   candidateSelectionImpactContract?: boolean;
@@ -375,6 +376,22 @@ of the dataflow work already attempted.
 - The digest is not code memory. Successful operator code is still hidden; use
   the operator summaries, current result tables, column stats, and visible
   symptoms to write fresh code.`;
+
+const DATA_STAGE_DIAGNOSTICS_GUIDANCE = `## Data-Stage Diagnostics
+
+When LATEST context includes Data-stage diagnostics, use it as typed
+stage-aware evidence for the active dataflow lineage.
+
+- Treat stage, status, shape, columns, column stats, parse/schema symptoms, and
+  blocked-upstream notes as the current debugging map.
+- For loading and parsing stages, prove header/body rows, delimiter or
+  fixed-width assumptions, semantic column names, row counts, and parse/null
+  failures before downstream aggregation.
+- For schema, join, aggregation, modeling, or finalization stages, create
+  compact diagnostic evidence for the exact unresolved data fact named by the
+  digest instead of repeating the same code edit.
+- Keep diagnostics as ordinary DataFrame outputs so LATEST context can carry
+  the evidence forward without FULL history or hidden code memory.`;
 
 const FLOW_STALL_RECOVERY_CONTRACT_GUIDANCE = `## Flow-Stall Recovery Contract
 
@@ -793,6 +810,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   }
   if (options.boundaryTokenInventoryContract) sections.push(BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE);
   if (options.flowProgressDigest) sections.push(FLOW_PROGRESS_DIGEST_GUIDANCE);
+  if (options.dataStageDiagnostics) sections.push(DATA_STAGE_DIAGNOSTICS_GUIDANCE);
   if (options.flowStallRecoveryContract) sections.push(FLOW_STALL_RECOVERY_CONTRACT_GUIDANCE);
   if (options.postStepTimeoutActionContract) sections.push(POST_STEP_TIMEOUT_ACTION_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);

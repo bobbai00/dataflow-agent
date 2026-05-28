@@ -121,6 +121,11 @@ export interface AssembleContextOptions {
   /** Render compact LATEST-mode progress memory from ReAct/tool events and
    *  current workflow symptoms. Off by default. */
   flowProgressDigest?: boolean;
+  /** Render compact LATEST-mode stage diagnostics for active data lineages:
+   *  loading/parsing/schema/cleaning/joining/aggregation/modeling/finalizing
+   *  status, schema/shape evidence, symptoms, and next needed data facts. Off
+   *  by default. */
+  dataStageDiagnostics?: boolean;
   /** Render a LATEST-mode recovery contract when progress memory exposes
    *  unresolved failures, recent tool errors, or repeated operator edits. Off
    *  by default. */
@@ -722,6 +727,7 @@ function renderLatest(
 
   const dynamicNotices = [
     options.flowProgressDigest ? buildFlowProgressDigest(path, leafSnapshot) : undefined,
+    options.dataStageDiagnostics ? buildDataStageDiagnostics(path, leafSnapshot) : undefined,
     options.flowStallRecoveryContract ? buildFlowStallRecoveryContract(path, leafSnapshot) : undefined,
     options.observedComponentInventoryContract
       ? buildObservedComponentInventoryContractNotice(leafSnapshot, options)
@@ -852,6 +858,201 @@ function buildFlowProgressDigest(path: PathNode[], leafSnapshot: SnapshotData): 
     "Flow progress digest: compact code-free memory of what has already happened in this dataflow.",
     ...lines,
   ].join("\n");
+}
+
+interface DataStageDiagnostic {
+  operatorId: string;
+  operatorType: string;
+  stage: string;
+  status: string;
+  evidence: string[];
+  symptoms: string[];
+  nextFact: string;
+}
+
+function buildDataStageDiagnostics(path: PathNode[], leafSnapshot: SnapshotData): string | undefined {
+  if (leafSnapshot.workflow.operators.length === 0) return undefined;
+
+  const focusOperatorIds = computeLatestFocusOperatorIds(path, leafSnapshot);
+  const activeOperatorIds = computeDataStageDiagnosticOperatorIds(leafSnapshot, focusOperatorIds);
+  if (activeOperatorIds.length === 0) return undefined;
+
+  const operatorsById = new Map(leafSnapshot.workflow.operators.map(op => [op.operatorID, op]));
+  const diagnostics = activeOperatorIds
+    .map(operatorId => {
+      const op = operatorsById.get(operatorId);
+      return op ? buildDataStageDiagnostic(op, leafSnapshot) : undefined;
+    })
+    .filter((diag): diag is DataStageDiagnostic => diag !== undefined);
+
+  if (diagnostics.length === 0) return undefined;
+
+  const lines = [
+    "Data-stage diagnostics: compact stage-aware evidence for the active dataflow lineage.",
+    ...diagnostics.map(formatDataStageDiagnostic),
+  ];
+  return lines.join("\n");
+}
+
+function computeDataStageDiagnosticOperatorIds(
+  snapshot: SnapshotData,
+  focusOperatorIds: Set<string> | undefined
+): string[] {
+  const workflow = snapshot.workflow;
+  const operatorIds = new Set(workflow.operators.map(op => op.operatorID));
+  const selected = new Set<string>();
+
+  const add = (operatorId: string | undefined) => {
+    if (operatorId && operatorIds.has(operatorId)) selected.add(operatorId);
+  };
+
+  for (const opId of focusOperatorIds ?? []) add(opId);
+  for (const failure of findCurrentFailureRefs(snapshot)) add(failure.operatorId);
+  for (const opId of findUnexecutedTerminalOperators(snapshot).slice(0, 3)) add(opId);
+
+  for (const opId of [...selected]) {
+    for (const upstream of collectUpstreamOperatorIds(workflow, opId).slice(0, 4)) add(upstream);
+  }
+
+  if (selected.size === 0) {
+    for (const op of workflow.operators.slice(-4)) add(op.operatorID);
+  }
+
+  return [...selected].slice(0, 8);
+}
+
+function collectUpstreamOperatorIds(workflow: WorkflowContent, operatorId: string): string[] {
+  const childToParents = new Map<string, string[]>();
+  for (const link of workflow.links) {
+    const parents = childToParents.get(link.target.operatorID) ?? [];
+    parents.push(link.source.operatorID);
+    childToParents.set(link.target.operatorID, parents);
+  }
+
+  const upstream: string[] = [];
+  const seen = new Set<string>();
+  const queue = [...(childToParents.get(operatorId) ?? [])];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    upstream.push(current);
+    for (const parent of childToParents.get(current) ?? []) queue.push(parent);
+  }
+  return upstream;
+}
+
+function buildDataStageDiagnostic(op: OperatorPredicate, snapshot: SnapshotData): DataStageDiagnostic {
+  const info = snapshot.results.get(op.operatorID)?.info;
+  const stage = inferDataStage(op, info);
+  const status = dataStageStatus(op.operatorID, snapshot);
+  const columns = info && !info.error ? inferRenderableColumns(info) : [];
+  const evidence: string[] = [];
+  const symptoms: string[] = [];
+
+  if (info?.error) symptoms.push(`error=${shortenCell(info.error)}`);
+  if (info && !info.error) {
+    const rowCount = info.totalRowCount ?? info.outputTuples ?? "unknown";
+    const colCount = columns.length > 0 ? columns.length : Object.keys(info.columnStats ?? {}).length || "unknown";
+    evidence.push(`shape=(${rowCount}, ${colCount})`);
+    if (columns.length > 0) evidence.push(`columns=${formatValueList(columns, 12)}`);
+    const statsSignals = summarizeColumnStatsSignals(info.columnStats);
+    if (statsSignals.length > 0) evidence.push(`stats=${statsSignals.join(", ")}`);
+    const structureSignals = summarizeDataStructureSignals(columns, info.result);
+    symptoms.push(...structureSignals);
+  } else {
+    const failedUpstreams = collectFailedUpstreamRoots(op.operatorID, snapshot, snapshot.workflow.links);
+    if (failedUpstreams.length > 0) symptoms.push(`blocked_upstream=${failedUpstreams.map(id => `\`${id}\``).join(", ")}`);
+  }
+
+  if (evidence.length === 0) evidence.push("shape/schema not yet visible");
+
+  return {
+    operatorId: op.operatorID,
+    operatorType: op.operatorType,
+    stage,
+    status,
+    evidence,
+    symptoms,
+    nextFact: inferNextDataFact(stage, status, symptoms, columns),
+  };
+}
+
+function dataStageStatus(operatorId: string, snapshot: SnapshotData): string {
+  const info = snapshot.results.get(operatorId)?.info;
+  if (!info) {
+    const failedUpstreams = collectFailedUpstreamRoots(operatorId, snapshot, snapshot.workflow.links);
+    return failedUpstreams.length > 0 ? "blocked" : "unexecuted";
+  }
+  return info.error ? "failed" : "completed";
+}
+
+function inferDataStage(op: OperatorPredicate, info: OperatorInfo | undefined): string {
+  const text = `${op.operatorID} ${op.customDisplayName ?? ""} ${info?.error ?? ""}`.toLowerCase();
+  if (op.operatorType === "DataLoading") {
+    return /parse|parser|delimiter|header|field|token|fixed|fwf|encoding/.test(text) ? "parsing" : "loading";
+  }
+  if (/parse|parser|delimiter|header|field|token|fixed|fwf|encoding|schema|column|keyerror/.test(text)) {
+    return "parsing/schema";
+  }
+  if (/load|read|raw|source|file|csv|json|excel|parquet|table/.test(text)) return "loading";
+  if (/clean|normalize|repair|filter|dedup|cast|type/.test(text)) return "cleaning";
+  if (/join|merge|match|link|align/.test(text)) return "joining";
+  if (/group|aggregate|count|sum|mean|median|max|min|rate|ratio|share|percent/.test(text)) return "aggregating";
+  if (/model|regress|fit|predict|rmse|mae|simulation|density/.test(text)) return "modeling";
+  if (/final|answer|select|top|rank/.test(text)) return "finalizing";
+  return "processing";
+}
+
+function summarizeColumnStatsSignals(stats: Record<string, string> | undefined): string[] {
+  if (!stats) return [];
+  const columns = Object.entries(stats).filter(([name, stat]) => isRenderableColumn(name) && stat.length > 0);
+  if (columns.length === 0) return [];
+  const signals: string[] = [`stats_columns=${columns.length}`];
+  const nullHeavy = columns
+    .filter(([, stat]) => {
+      const match = stat.match(/\bnull=(\d+)/i);
+      return match ? Number(match[1]) > 0 : false;
+    })
+    .slice(0, 5)
+    .map(([name]) => name);
+  if (nullHeavy.length > 0) signals.push(`nulls_in=${formatValueList(nullHeavy, 5)}`);
+  return signals.slice(0, 3);
+}
+
+function summarizeDataStructureSignals(columns: string[], rows: Record<string, any>[] | undefined): string[] {
+  const signals: string[] = [];
+  const generatedColumns = columns.filter(isGeneratedColumnName);
+  if (generatedColumns.length > 0) signals.push(`generated_columns=${formatValueList(generatedColumns, 6)}`);
+  if (rows && rows.length > 0 && columns.length > 0) {
+    const mostlyEmptyRows = rows.filter(row => emptyRatio(row, columns) >= 0.75).length;
+    if (mostlyEmptyRows > 0) signals.push(`mostly_empty_preview_rows=${mostlyEmptyRows}`);
+    const headerRow = findHeaderLikeRow(rows, columns);
+    if (headerRow) signals.push(`embedded_header_like_row=${headerRow.index}`);
+  }
+  return signals;
+}
+
+function inferNextDataFact(stage: string, status: string, symptoms: string[], columns: string[]): string {
+  if (status === "failed") return "capture root error, expected schema, and a bounded repair result";
+  if (status === "blocked") return "repair the named upstream failure before downstream work";
+  if (status === "unexecuted") return "execute or add a diagnostic so rows/schema/error become visible";
+  if (symptoms.some(symptom => symptom.includes("generated_columns") || symptom.includes("embedded_header_like_row"))) {
+    return "prove header/body rows and semantic column names before aggregation";
+  }
+  if (stage.includes("schema") || symptoms.some(symptom => /keyerror|column/i.test(symptom))) {
+    return "compare required columns against upstream output columns and dtypes";
+  }
+  if (stage === "joining") return "prove join keys, row counts before/after join, and unmatched/null counts";
+  if (stage === "aggregating" || stage === "finalizing") return "prove row grain, grouping keys, numerator/denominator or selected metric";
+  if (columns.length === 0) return "make output columns and dtypes visible";
+  return "verify row grain and data quality before the next stage";
+}
+
+function formatDataStageDiagnostic(diag: DataStageDiagnostic): string {
+  const evidence = diag.evidence.join("; ");
+  const symptomText = diag.symptoms.length > 0 ? ` symptoms=${diag.symptoms.join("; ")};` : "";
+  return `- \`${diag.operatorId}\` (${diag.operatorType}): stage=${diag.stage}; status=${diag.status}; ${evidence};${symptomText} next=${diag.nextFact}.`;
 }
 
 function collectFlowProgressSignals(path: PathNode[]): FlowProgressSignals {
