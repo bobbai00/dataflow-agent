@@ -207,17 +207,35 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const res = await patchJson(`${API}/agents/${created.id}/settings`, {
       maxSteps: 7,
       toolTimeoutSeconds: 30,
+      maxOperatorEdits: 2,
+      lineageHintOnStall: true,
     });
     expect(res.status).toBe(200);
-    const body = await readJson<{ maxSteps: number; toolTimeoutSeconds: number }>(res);
+    const body = await readJson<{
+      maxSteps: number;
+      toolTimeoutSeconds: number;
+      maxOperatorEdits: number;
+      lineageHintOnStall: boolean;
+    }>(res);
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
+    expect(body.maxOperatorEdits).toBe(2);
+    expect(body.lineageHintOnStall).toBe(true);
 
     // A follow-up GET reflects the same values.
-    const reread = await readJson<{ maxSteps: number; toolTimeoutSeconds: number }>(
+    const reread = await readJson<{
+      maxSteps: number;
+      toolTimeoutSeconds: number;
+      includeOperatorProperties: boolean;
+      maxOperatorEdits: number;
+      lineageHintOnStall: boolean;
+    }>(
       await getJson(`${API}/agents/${created.id}/settings`)
     );
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
+    expect(reread.includeOperatorProperties).toBe(true);
+    expect(reread.maxOperatorEdits).toBe(2);
+    expect(reread.lineageHintOnStall).toBe(true);
   });
 });

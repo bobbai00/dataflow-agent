@@ -701,6 +701,15 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
             return createErrorResult("Metadata store not available for operator creation");
           }
 
+          const guardMessage = context?.onBeforeCodeOperatorChange?.({
+            operatorId,
+            isModify: false,
+            submittedCode: code,
+          });
+          if (guardMessage) {
+            return createErrorResult(guardMessage);
+          }
+
           let operator = workflowUtil.getNewOperatorPredicate(operatorType, displayName);
           operator = {
             ...operator,
@@ -750,6 +759,15 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               `Type mismatch: ${operatorId} is ${expectedType}, but code is ${type}. ` +
                 `Use ${expectedType === "DataLoading" ? "load()" : "process(...)"}.`
             );
+          }
+
+          const guardMessage = context?.onBeforeCodeOperatorChange?.({
+            operatorId,
+            isModify: true,
+            submittedCode: code,
+          });
+          if (guardMessage) {
+            return createErrorResult(guardMessage);
           }
 
           workflowState.updateOperatorProperties(operatorId, { code });

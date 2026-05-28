@@ -65,12 +65,13 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
         statsEnabled: settings.statsEnabled,
       });
   }
-  return ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
+  return ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult, contextNotices }) =>
     assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
       compilationResult,
       agentMode: settings.agentMode,
       statsEnabled: settings.statsEnabled,
       includeOperatorProperties: settings.includeOperatorProperties,
+      contextNotices,
     });
 }
 
@@ -141,6 +142,8 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     parallelToolCalls: agentSettings.parallelToolCalls,
     statsEnabled: agentSettings.statsEnabled,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
+    maxOperatorEdits: agentSettings.maxOperatorEdits,
+    lineageHintOnStall: agentSettings.lineageHintOnStall,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -251,6 +254,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           parallelToolCalls: settings.parallelToolCalls,
           statsEnabled: settings.statsEnabled,
           includeOperatorProperties: settings.includeOperatorProperties,
+          maxOperatorEdits: settings.maxOperatorEdits,
+          lineageHintOnStall: settings.lineageHintOnStall,
         });
       }
 
@@ -281,6 +286,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             parallelToolCalls: t.Optional(t.Boolean()),
             statsEnabled: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
+            maxOperatorEdits: t.Optional(t.Number()),
+            lineageHintOnStall: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -514,6 +521,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
       statsEnabled: agentSettings.statsEnabled,
+      includeOperatorProperties: agentSettings.includeOperatorProperties,
+      maxOperatorEdits: agentSettings.maxOperatorEdits,
+      lineageHintOnStall: agentSettings.lineageHintOnStall,
     };
   })
 
@@ -549,6 +559,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         parallelToolCalls: settings.parallelToolCalls,
         statsEnabled: settings.statsEnabled,
         includeOperatorProperties: settings.includeOperatorProperties,
+        maxOperatorEdits: settings.maxOperatorEdits,
+        lineageHintOnStall: settings.lineageHintOnStall,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -571,6 +583,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         parallelToolCalls: agentSettings.parallelToolCalls,
         statsEnabled: agentSettings.statsEnabled,
         includeOperatorProperties: agentSettings.includeOperatorProperties,
+        maxOperatorEdits: agentSettings.maxOperatorEdits,
+        lineageHintOnStall: agentSettings.lineageHintOnStall,
       };
     },
     {
@@ -588,6 +602,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         parallelToolCalls: t.Optional(t.Boolean()),
         statsEnabled: t.Optional(t.Boolean()),
         includeOperatorProperties: t.Optional(t.Boolean()),
+        maxOperatorEdits: t.Optional(t.Number()),
+        lineageHintOnStall: t.Optional(t.Boolean()),
       }),
     }
   );

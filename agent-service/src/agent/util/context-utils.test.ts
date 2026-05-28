@@ -212,6 +212,21 @@ describe("assembleContext — Latest", () => {
     expect(c).not.toContain("Above is user's request");
   });
 
+  test("renders one-shot Agent Guidance in Latest without enabling events", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        contextNotices: ["CONVERGENCE_GUARD: inspect upstream before editing `filt` again."],
+      })
+    );
+
+    expect(c).toContain("# Agent Guidance");
+    expect(c).toContain("- CONVERGENCE_GUARD: inspect upstream before editing `filt` again.");
+    expect(c).toContain("# Current Dataflow");
+    expect(c).not.toContain("# Agent Events");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
@@ -1094,4 +1109,3 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
  *  Idea 2: equality-based summary dedup in event lines
  *  (abbreviateSummary when event.summary == snapshot.customDisplayName)
  * ========================================================================= */
-

@@ -129,6 +129,17 @@ export interface AgentSettings {
    * paper-§4.3 strip-everything behavior). Enabled by default.
    */
   includeOperatorProperties: boolean;
+  /**
+   * Maximum consecutive accepted modifications to the same existing code
+   * operator before the tool blocks another blind edit. 0 disables the guard.
+   */
+  maxOperatorEdits: number;
+  /**
+   * When the convergence guard blocks an edit, add a compact lineage/schema
+   * hint to the next assembled context so LATEST mode still sees the stall
+   * reason even though it omits event history.
+   */
+  lineageHintOnStall: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -164,6 +175,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   parallelToolCalls: false,
   statsEnabled: true,
   includeOperatorProperties: true,
+  maxOperatorEdits: 0,
+  lineageHintOnStall: false,
 };
 
 /**
@@ -210,6 +223,8 @@ export interface AgentSettingsApi {
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
+  maxOperatorEdits?: number;
+  lineageHintOnStall?: boolean;
 }
 
 export interface AgentInfo {
@@ -250,4 +265,6 @@ export interface UpdateAgentSettingsRequest {
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
+  maxOperatorEdits?: number;
+  lineageHintOnStall?: boolean;
 }

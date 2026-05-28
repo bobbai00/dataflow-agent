@@ -55,6 +55,9 @@ export interface AssembleContextOptions {
    *  error, so it is always stripped). When false, no properties render at
    *  all (legacy paper-§4.3 strip-everything behavior). Undefined ⇒ true. */
   includeOperatorProperties?: boolean;
+  /** One-shot harness guidance that should survive even in LATEST mode,
+   *  which intentionally omits the event/tool-result history. */
+  contextNotices?: string[];
 }
 
 /**
@@ -415,6 +418,7 @@ function renderInterleaved(
     sections.push(latestUserContent);
     sections.push("");
   }
+  appendContextNotices(sections, options);
 
   // 2. # Agent Events — every event in the path, each followed by its
   // destination snapshot (full or delta depending on `flavour`).
@@ -469,6 +473,7 @@ function renderLatest(
     sections.push(latestUserContent);
     sections.push("");
   }
+  appendContextNotices(sections, options);
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
@@ -485,6 +490,19 @@ function renderLatest(
     sections.push(dag);
   }
   return sections.join("\n").trimEnd();
+}
+
+function appendContextNotices(sections: string[], options: AssembleContextOptions): void {
+  const notices = (options.contextNotices ?? []).map(n => n.trim()).filter(n => n.length > 0);
+  if (notices.length === 0) return;
+  sections.push("# Agent Guidance");
+  sections.push("");
+  for (const notice of notices) {
+    const lines = notice.split("\n");
+    sections.push(`- ${lines[0]}`);
+    for (const line of lines.slice(1)) sections.push(`  ${line}`);
+  }
+  sections.push("");
 }
 
 /* ============================================================================

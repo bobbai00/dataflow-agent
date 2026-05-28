@@ -35,7 +35,14 @@ export interface ToolContext {
     maxOperatorResultCharLimit?: number;
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
+    maxOperatorEdits?: number;
+    lineageHintOnStall?: boolean;
   };
+  onBeforeCodeOperatorChange?: (args: {
+    operatorId: string;
+    isModify: boolean;
+    submittedCode: string;
+  }) => string | null | undefined;
 }
 
 export const TOOL_NAME_DELETE_OPERATOR = "deleteOperator";

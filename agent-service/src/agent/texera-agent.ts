@@ -21,9 +21,9 @@ import type { ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
-import type { WorkflowContent } from "../types/workflow";
+import type { PortSchema, WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
+import { WorkflowSnapshotStorage, type SnapshotData } from "./workflow-snapshot-storage";
 import type { AgentDelegateConfig, AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import {
@@ -189,6 +189,11 @@ export class TexeraAgent {
   private abortController: AbortController | null = null;
 
   private workflowChangeSubscription: Subscription | null = null;
+
+  private consecutiveCodeEditOperatorId: string | undefined = undefined;
+  private consecutiveCodeEditCount = 0;
+  private lastCompilationResult: WorkflowCompilationResponse | null = null;
+  private pendingContextNotices: string[] = [];
 
   private log: Logger;
 
@@ -419,7 +424,10 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        maxOperatorEdits: this.settings.maxOperatorEdits,
+        lineageHintOnStall: this.settings.lineageHintOnStall,
       },
+      onBeforeCodeOperatorChange: args => this.handleBeforeCodeOperatorChange(args),
     };
 
     const tools: Record<string, any> = {
@@ -474,6 +482,8 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        maxOperatorEdits: this.settings.maxOperatorEdits,
+        lineageHintOnStall: this.settings.lineageHintOnStall,
       },
     };
 
@@ -677,6 +687,8 @@ export class TexeraAgent {
     parallelToolCalls?: boolean;
     statsEnabled?: boolean;
     includeOperatorProperties?: boolean;
+    maxOperatorEdits?: number;
+    lineageHintOnStall?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -731,6 +743,13 @@ export class TexeraAgent {
       // `Properties:` line is emitted in the assembled snapshot (code
       // operators are always stripped regardless). Read at next assembly.
     }
+    if (updates.maxOperatorEdits !== undefined) {
+      this.settings.maxOperatorEdits = Math.max(0, Math.floor(updates.maxOperatorEdits));
+      this.resetConvergenceGuard();
+    }
+    if (updates.lineageHintOnStall !== undefined) {
+      this.settings.lineageHintOnStall = updates.lineageHintOnStall;
+    }
 
     if (promptNeedsRebuild) {
       this.rebuildSystemPrompt();
@@ -744,6 +763,190 @@ export class TexeraAgent {
       },
       "settings updated"
     );
+  }
+
+  private resetConvergenceGuard(): void {
+    this.consecutiveCodeEditOperatorId = undefined;
+    this.consecutiveCodeEditCount = 0;
+  }
+
+  private handleBeforeCodeOperatorChange(args: {
+    operatorId: string;
+    isModify: boolean;
+    submittedCode: string;
+  }): string | null {
+    if (this.settings.maxOperatorEdits <= 0) return null;
+
+    if (!args.isModify) {
+      this.resetConvergenceGuard();
+      return null;
+    }
+
+    if (this.consecutiveCodeEditOperatorId === args.operatorId) {
+      this.consecutiveCodeEditCount++;
+    } else {
+      this.consecutiveCodeEditOperatorId = args.operatorId;
+      this.consecutiveCodeEditCount = 1;
+    }
+
+    if (this.consecutiveCodeEditCount <= this.settings.maxOperatorEdits) {
+      return null;
+    }
+
+    const base =
+      `CONVERGENCE_GUARD: operator \`${args.operatorId}\` has been modified ` +
+      `${this.consecutiveCodeEditCount} consecutive times; limit is ${this.settings.maxOperatorEdits}. ` +
+      "Do not submit another blind edit to this same operator. Inspect or fix upstream data, add a diagnostic operator, or change strategy first.";
+    const hint = this.settings.lineageHintOnStall
+      ? this.buildLineageStallHint(args.operatorId, args.submittedCode)
+      : undefined;
+    const message = hint ? `${base}\n${hint}` : base;
+
+    this.pendingContextNotices.push(message);
+    return message;
+  }
+
+  private buildLineageStallHint(operatorId: string, submittedCode: string): string | undefined {
+    const snapshot = this.snapshotStorage.getAssociatedSnapshot(this.head);
+    const targetOp = this.workflowState.getOperator(operatorId);
+    const upstreamIds = this.collectUpstreamOperatorIds(operatorId);
+    const targetInfo = snapshot.results.get(operatorId)?.info;
+    const referencedColumns = this.extractReferencedColumns(`${targetInfo?.error ?? ""}\n${submittedCode}`);
+    const upstreamColumns = new Set<string>();
+    for (const upstreamId of upstreamIds) {
+      for (const col of this.getKnownOutputColumns(upstreamId, snapshot)) upstreamColumns.add(col);
+    }
+    const missingColumns = referencedColumns.filter(col => !upstreamColumns.has(col));
+
+    const lines: string[] = ["Lineage stall hint:"];
+    if (targetOp) {
+      lines.push(
+        `- Target \`${operatorId}\` (${targetOp.operatorType}): ${targetOp.customDisplayName || operatorId}`
+      );
+    }
+    if (targetInfo?.error) {
+      lines.push(`- Latest target error: ${this.truncateForHint(targetInfo.error, 280)}`);
+    }
+    if (referencedColumns.length > 0) {
+      lines.push(`- Columns referenced by the stalled edit/error: ${this.formatHintList(referencedColumns, 16)}`);
+    }
+    if (missingColumns.length > 0) {
+      lines.push(
+        `- Referenced columns not found in known upstream outputs: ${this.formatHintList(missingColumns, 16)}`
+      );
+    }
+    if (upstreamIds.length === 0) {
+      lines.push("- No upstream operators are linked to this operator. If it is a loader, change the loading/parsing strategy instead of making another small edit.");
+    } else {
+      lines.push("- Upstream lineage snapshot:");
+      for (const upstreamId of upstreamIds.slice(0, 8)) {
+        lines.push(this.formatUpstreamHintLine(upstreamId, snapshot));
+      }
+      if (upstreamIds.length > 8) {
+        lines.push(`  - ... ${upstreamIds.length - 8} more upstream operators omitted`);
+      }
+    }
+    lines.push("- Required pivot: fix the upstream loader/parser/schema mismatch or create a narrow diagnostic operator before editing the stalled operator again.");
+
+    return lines.join("\n");
+  }
+
+  private collectUpstreamOperatorIds(operatorId: string): string[] {
+    const links = this.workflowState.getAllLinks();
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    const visit = (id: string) => {
+      const incoming = links.filter(link => link.target.operatorID === id);
+      for (const link of incoming) {
+        const sourceId = link.source.operatorID;
+        if (seen.has(sourceId)) continue;
+        seen.add(sourceId);
+        visit(sourceId);
+        ordered.push(sourceId);
+      }
+    };
+    visit(operatorId);
+    return ordered;
+  }
+
+  private formatUpstreamHintLine(upstreamId: string, snapshot: SnapshotData): string {
+    const op = this.workflowState.getOperator(upstreamId);
+    const info = snapshot.results.get(upstreamId)?.info;
+    const schemaCols = this.getOutputSchemaDisplayColumns(upstreamId);
+    const resultCols = this.getResultColumns(info);
+    const statsCols = info?.columnStats ? Object.keys(info.columnStats).sort() : [];
+    const pieces: string[] = [];
+    if (op?.customDisplayName) pieces.push(`summary=${this.truncateForHint(op.customDisplayName, 120)}`);
+    if (schemaCols.length > 0) pieces.push(`schema=${this.formatHintList(schemaCols, 14)}`);
+    if (resultCols.length > 0) pieces.push(`result columns=${this.formatHintList(resultCols, 14)}`);
+    if (statsCols.length > 0) pieces.push(`stats columns=${this.formatHintList(statsCols, 14)}`);
+    if (info?.error) {
+      pieces.push(`error=${this.truncateForHint(info.error, 160)}`);
+    } else if (info) {
+      const rows = info.totalRowCount ?? info.outputTuples;
+      pieces.push(`shape=(${rows}, ${resultCols.length || schemaCols.length || statsCols.length || "unknown"})`);
+    } else {
+      pieces.push("no execution result visible");
+    }
+    return `  - \`${upstreamId}\`${op ? ` (${op.operatorType})` : ""}: ${pieces.join("; ")}`;
+  }
+
+  private getKnownOutputColumns(opId: string, snapshot: SnapshotData): string[] {
+    const cols = new Set<string>();
+    for (const col of this.getOutputSchemaColumns(opId)) cols.add(col);
+    const info = snapshot.results.get(opId)?.info;
+    for (const col of this.getResultColumns(info)) cols.add(col);
+    if (info?.columnStats) for (const col of Object.keys(info.columnStats)) cols.add(col);
+    return [...cols];
+  }
+
+  private getOutputSchemaColumns(opId: string): string[] {
+    const outputSchemaMap = this.lastCompilationResult?.operatorOutputSchemas?.[opId];
+    if (!outputSchemaMap) return [];
+    const schema = Object.values(outputSchemaMap).find(s => s !== undefined) as PortSchema | undefined;
+    return schema?.map(attr => attr.attributeName) ?? [];
+  }
+
+  private getOutputSchemaDisplayColumns(opId: string): string[] {
+    const outputSchemaMap = this.lastCompilationResult?.operatorOutputSchemas?.[opId];
+    if (!outputSchemaMap) return [];
+    const schema = Object.values(outputSchemaMap).find(s => s !== undefined) as PortSchema | undefined;
+    return schema?.map(attr => `${attr.attributeName}:${attr.attributeType}`) ?? [];
+  }
+
+  private getResultColumns(info: OperatorInfo | undefined): string[] {
+    if (!info?.result || info.result.length === 0) return [];
+    return Object.keys(info.result[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
+  }
+
+  private extractReferencedColumns(text: string): string[] {
+    const columns = new Set<string>();
+    const patterns = [
+      /KeyError:\s*['"]([^'"]+)['"]/g,
+      /Column not found:\s*['"]?([^'"\n]+?)['"]?(?:\n|$)/g,
+      /\[\s*['"]([^'"]+)['"]\s*\]/g,
+      /\.get\(\s*['"]([^'"]+)['"]/g,
+    ];
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        const col = match[1]?.trim();
+        if (col && col.length <= 120) columns.add(col);
+      }
+    }
+    return [...columns].slice(0, 24);
+  }
+
+  private formatHintList(values: string[], limit: number): string {
+    const unique = [...new Set(values)].sort();
+    const shown = unique.slice(0, limit).map(v => `\`${this.truncateForHint(v, 80)}\``);
+    const suffix = unique.length > limit ? `, ... ${unique.length - limit} more` : "";
+    return `[${shown.join(", ")}${suffix}]`;
+  }
+
+  private truncateForHint(value: string, maxChars: number): string {
+    const oneLine = String(value).replace(/\s+/g, " ").trim();
+    return oneLine.length > maxChars ? `${oneLine.slice(0, maxChars - 3)}...` : oneLine;
   }
 
   async refreshWorkflowFromBackend(): Promise<void> {
@@ -884,15 +1087,21 @@ export class TexeraAgent {
               this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
             }
           }
+          this.lastCompilationResult = compilationResult;
 
           const visibleSteps = this.getVisibleReActSteps();
+          const contextNotices = this.pendingContextNotices;
           const processed = this.contextAssembler({
             visibleSteps,
             workflowState: this.workflowState,
             snapshotStorage: this.snapshotStorage,
             settings: this.settings,
             compilationResult,
+            contextNotices,
           });
+          if (contextNotices.length > 0) {
+            this.pendingContextNotices = [];
+          }
           lastPreparedMessages = processed;
           return { messages: processed };
         },
@@ -1060,6 +1269,9 @@ export class TexeraAgent {
     this.currentMessageId = undefined;
     this.head = undefined;
     this.snapshotStorage.clear();
+    this.resetConvergenceGuard();
+    this.lastCompilationResult = null;
+    this.pendingContextNotices = [];
   }
 
   /**

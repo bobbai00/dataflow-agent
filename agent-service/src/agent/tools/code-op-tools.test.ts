@@ -549,6 +549,29 @@ describe("createOrModifyOperator — modify result shape (post-cleanup)", () => 
     expect(result).not.toContain("WARNING");
     expect(result).toContain("modified");
   });
+
+  test("convergence guard callback blocks an existing-operator modify before mutation", async () => {
+    const ws = new WorkflowState();
+    const opId = "csvLoader";
+    const originalCode = "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv')";
+    seedOp(ws, opId, originalCode);
+    const tool = createCreateOrModifyOperatorTool(ws, new Map(), {
+      onBeforeCodeOperatorChange: ({ operatorId, isModify }) =>
+        isModify && operatorId === opId ? "CONVERGENCE_GUARD: pivot before editing again." : null,
+    });
+    const execute = (args: { operatorId: string; code: string; summary?: string }): Promise<string> =>
+      (tool.execute as any)(args, {} as any);
+
+    const result = await execute({
+      operatorId: opId,
+      code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=3)",
+      summary: "skiprows=3",
+    });
+
+    expect(result).toMatch(/^\[ERROR\] /);
+    expect(result).toContain("CONVERGENCE_GUARD");
+    expect((ws.getOperator(opId)!.operatorProperties as any).code).toBe(originalCode);
+  });
 });
 
 describe("stripPythonCommentsAndStrings", () => {
