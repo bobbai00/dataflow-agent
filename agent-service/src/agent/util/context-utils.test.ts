@@ -883,6 +883,39 @@ describe("assembleContext — Latest", () => {
     expect(hintedContext).toContain("Do not answer from an approximation");
   });
 
+  test("cardinalityPressureGuidance renders large-result execution hints only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "compute downstream result" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "big" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["big"]));
+    storage.setOperatorResult("a", "big", makeInfo("big", 250_000));
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Cardinality Pressure Hint:");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        cardinalityPressureGuidance: true,
+      })
+    );
+    expect(hintedContext).toContain("# Agent Guidance");
+    expect(hintedContext).toContain("Cardinality pressure:");
+    expect(hintedContext).toContain("Cardinality Pressure Hint:");
+    expect(hintedContext).toContain("high row count=250000");
+    expect(hintedContext).toContain("task-required row grain");
+    expect(hintedContext).toContain("row-count evidence");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

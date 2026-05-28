@@ -198,6 +198,14 @@ export interface AgentSettings {
    */
   boundedExecutionGuidance: boolean;
   /**
+   * When true, render prompt/context hints when an operator's typed result
+   * shape shows high-cardinality or wide intermediate data. The hint asks the
+   * agent to reduce to the task-required row grain or add a bounded probe
+   * before expensive downstream work. Off by default for baseline
+   * reproducibility.
+   */
+  cardinalityPressureGuidance: boolean;
+  /**
    * When true, append CODE-mode guidance and context hints for dependency or
    * runtime-capability failures. The model must preserve the task's semantic
    * contract instead of answering from an unvalidated surrogate. Off by default
@@ -248,6 +256,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   tableStructureHints: false,
   rawLoaderProvenance: false,
   boundedExecutionGuidance: false,
+  cardinalityPressureGuidance: false,
   fallbackContractGuidance: false,
 };
 
@@ -304,6 +313,7 @@ export interface AgentSettingsApi {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  cardinalityPressureGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }
 
@@ -354,5 +364,6 @@ export interface UpdateAgentSettingsRequest {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  cardinalityPressureGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }

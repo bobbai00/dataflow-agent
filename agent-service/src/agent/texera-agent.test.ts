@@ -140,6 +140,17 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("## Fallback Contract");
     expect(agent.getSystemInfo().systemPrompt).toContain("semantic_contract_preserved");
   });
+
+  test("cardinality pressure guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Cardinality Pressure");
+
+    agent.updateSettings({ cardinalityPressureGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Cardinality Pressure");
+    expect(agent.getSystemInfo().systemPrompt).toContain("task-required row grain");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

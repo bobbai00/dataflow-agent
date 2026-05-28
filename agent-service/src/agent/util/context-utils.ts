@@ -84,6 +84,9 @@ export interface AssembleContextOptions {
   /** Render compact fallback-contract hints next to dependency/runtime
    *  capability failures. Off by default. */
   fallbackContractGuidance?: boolean;
+  /** Render compact cardinality-pressure hints next to large/wide successful
+   *  intermediate results. Off by default. */
+  cardinalityPressureGuidance?: boolean;
 }
 
 /**
@@ -107,6 +110,14 @@ const FALLBACK_CONTRACT_CONTEXT_NOTICE = [
   "Fallback contract: dependency, package, API, or runtime-capability failures do not permit a looser proxy final answer.",
   "Use an exact equivalent with validation evidence, or return a diagnostic DataFrame with semantic_contract_preserved=false.",
 ].join(" ");
+
+const CARDINALITY_PRESSURE_CONTEXT_NOTICE = [
+  "Cardinality pressure: large or wide intermediate tables are dataflow evidence for execution risk.",
+  "Before expensive row-wise calls, all-pairs joins, simulations, or full-table loops, reduce to the task-required row grain or add a bounded probe with row-count evidence.",
+].join(" ");
+
+const LARGE_ROW_COUNT_THRESHOLD = 100_000;
+const WIDE_COLUMN_COUNT_THRESHOLD = 100;
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -539,6 +550,7 @@ function appendContextNotices(sections: string[], options: AssembleContextOption
   const notices = [
     ...(options.metricEvidenceGuidance ? [METRIC_EVIDENCE_CONTEXT_NOTICE] : []),
     ...(options.fallbackContractGuidance ? [FALLBACK_CONTRACT_CONTEXT_NOTICE] : []),
+    ...(options.cardinalityPressureGuidance ? [CARDINALITY_PRESSURE_CONTEXT_NOTICE] : []),
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -943,6 +955,12 @@ function serializeOperatorFull(
     for (const l of rawLoaderProvenance.split("\n")) lines.push("  " + l);
   }
 
+  const cardinalityPressureHint = options.cardinalityPressureGuidance ? buildCardinalityPressureHint(info) : undefined;
+  if (cardinalityPressureHint) {
+    lines.push("Cardinality Pressure Hint:");
+    for (const l of cardinalityPressureHint.split("\n")) lines.push("  " + l);
+  }
+
   const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
   if (fallbackContractHint) {
     lines.push("Fallback Contract Hint:");
@@ -1079,6 +1097,11 @@ function serializeOperatorContextDigest(
   const columnCount = columns.length > 0 ? columns.length : "unknown";
   const columnText = columns.length > 0 ? `; columns=${formatValueList(columns, 12)}` : "";
   lines.push(`Result Digest: Completed; output shape=(${rowCount}, ${columnCount})${columnText}`);
+  const cardinalityPressureHint = options.cardinalityPressureGuidance ? buildCardinalityPressureHint(info) : undefined;
+  if (cardinalityPressureHint) {
+    lines.push("Cardinality Pressure Hint:");
+    for (const l of cardinalityPressureHint.split("\n")) lines.push("  " + l);
+  }
   return lines.join("\n");
 }
 
@@ -1134,6 +1157,32 @@ function detectRuntimeCapabilitySignals(error: string): string[] {
   }
 
   return Array.from(new Set(signals));
+}
+
+function buildCardinalityPressureHint(info: OperatorInfo | undefined): string | undefined {
+  if (!info || info.error) return undefined;
+
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const columns = inferRenderableColumns(info);
+  const columnCount = columns.length;
+  const signals: string[] = [];
+
+  if (Number.isFinite(rowCount) && rowCount >= LARGE_ROW_COUNT_THRESHOLD) {
+    signals.push(`high row count=${rowCount}`);
+  }
+  if (columnCount >= WIDE_COLUMN_COUNT_THRESHOLD) {
+    signals.push(`wide table columns=${columnCount}`);
+  }
+  if (signals.length === 0) return undefined;
+
+  const lines = [`Detected large intermediate result: ${signals.join(", ")}.`];
+  lines.push(
+    "Before adding downstream row-wise model/API/library calls, all-pairs joins, nested loops, simulations, or full-table transformations, narrow to the task-required row grain or create a bounded probe."
+  );
+  lines.push(
+    "Next action should keep row-count evidence visible: upstream rows, filtered/probed rows, key/date/group coverage, and the condition that makes full execution necessary."
+  );
+  return lines.join("\n");
 }
 
 /**

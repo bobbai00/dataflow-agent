@@ -45,6 +45,7 @@ export interface CodeModePromptOptions {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  cardinalityPressureGuidance?: boolean;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -149,6 +150,21 @@ operator whose upstream shape suggests many repeated expensive calls.
   probe logic rather than launching the full expensive execution.
 - Keep the probe as temporary scaffolding: once the full operator succeeds and
   no downstream operator depends on the probe, delete it in a later safe batch.`;
+
+const CARDINALITY_PRESSURE_GUIDANCE = `## Cardinality Pressure
+
+Use operator result shapes as execution-planning evidence.
+
+- When a current or upstream operator shows a \`Cardinality Pressure Hint\`, do
+  not blindly attach expensive downstream work to the full table.
+- First reduce to the task-required row grain when the task permits it:
+  projection to needed columns, deterministic filters, time/key/group
+  selection, aggregation, deduplication, or a representative bounded probe.
+- If full-table execution is genuinely required, make that visible in an
+  operator result with upstream row count, reduced/probed row count, coverage
+  checks, and the reason a smaller row grain would not preserve the request.
+- Prefer a dataflow operator that records row-count evidence over a prose-only
+  plan, because LATEST context only audits ordinary operator outputs.`;
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -438,6 +454,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
   if (options.boundedExecutionGuidance) sections.push(BOUNDED_EXECUTION_GUIDANCE);
+  if (options.cardinalityPressureGuidance) sections.push(CARDINALITY_PRESSURE_GUIDANCE);
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
