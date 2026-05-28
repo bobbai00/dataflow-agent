@@ -73,6 +73,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       includeOperatorProperties: settings.includeOperatorProperties,
       schemaInResult: settings.schemaInResult,
       loaderHint: settings.loaderHint,
+      attemptReflection: settings.attemptReflection,
     });
 }
 
@@ -147,6 +148,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     includeOperatorProperties: agentSettings.includeOperatorProperties,
     schemaInResult: agentSettings.schemaInResult,
     loaderHint: agentSettings.loaderHint,
+    attemptReflection: agentSettings.attemptReflection,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -261,6 +263,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           includeOperatorProperties: settings.includeOperatorProperties,
           schemaInResult: settings.schemaInResult,
           loaderHint: settings.loaderHint,
+          attemptReflection: settings.attemptReflection,
         });
       }
 
@@ -295,6 +298,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             includeOperatorProperties: t.Optional(t.Boolean()),
             schemaInResult: t.Optional(t.Boolean()),
             loaderHint: t.Optional(t.Boolean()),
+            attemptReflection: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -569,6 +573,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         includeOperatorProperties: settings.includeOperatorProperties,
         schemaInResult: settings.schemaInResult,
         loaderHint: settings.loaderHint,
+        attemptReflection: settings.attemptReflection,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -595,6 +600,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         includeOperatorProperties: agentSettings.includeOperatorProperties,
         schemaInResult: agentSettings.schemaInResult,
         loaderHint: agentSettings.loaderHint,
+        attemptReflection: agentSettings.attemptReflection,
       };
     },
     {
@@ -616,6 +622,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         includeOperatorProperties: t.Optional(t.Boolean()),
         schemaInResult: t.Optional(t.Boolean()),
         loaderHint: t.Optional(t.Boolean()),
+        attemptReflection: t.Optional(t.Boolean()),
       }),
     }
   );

@@ -63,6 +63,16 @@ export interface AssembleContextOptions {
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
    *  the exception class parsed from the error string. Off by default. */
   loaderHint?: boolean;
+  /** When true, an operator edited >= the reflection threshold times gets an
+   *  `Attempt reflection:` block on the current snapshot (edit count + latest
+   *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
+   *  directive). Targets same-operator thrashing. Off by default. */
+  attemptReflection?: boolean;
+  /** Internal (computed in assembleContext, NOT a setting): per-operatorId count
+   *  of `createOrModifyOperator` calls across the visible trajectory. Feeds the
+   *  attempt-reflection render — LATEST shows no history, so it's reconstructed
+   *  from `visibleSteps`. */
+  editCountsByOp?: Map<string, number>;
 }
 
 /**
@@ -73,6 +83,13 @@ export interface AssembleContextOptions {
  * `includeOperatorProperties` is on.
  */
 const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessing"]);
+
+/**
+ * plan3 — minimum cumulative edits to one operator before an `Attempt
+ * reflection:` block is injected. 3 aligns with the prompt rule "change strategy
+ * after 2 attempts" (reflect on the 3rd+). A general default, not eval-fit.
+ */
+const ATTEMPT_REFLECTION_THRESHOLD = 3;
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -133,6 +150,11 @@ export function assembleContext(
   // known (modify) or fresh (create). `deleteOperator` removes from the
   // known set so a later create-on-same-id reads as `create` again.
   const createFlagsByStep = buildCreateFlagsByStep(path);
+  // plan3: per-operator cumulative edit counts from the trajectory, for the
+  // attempt-reflection render. LATEST mode shows no history, so reconstruct
+  // from visibleSteps here. Stash on options so the per-operator serializer
+  // (which doesn't see the path) can read it.
+  options.editCountsByOp = buildEditCountsByOp(path);
 
   let content: string;
   switch (mode) {
@@ -331,6 +353,26 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
     if (eventFlags.size > 0) result.set(node.step.id, eventFlags);
   }
   return result;
+}
+
+/**
+ * Per-operatorId cumulative count of `createOrModifyOperator` calls across the
+ * visible trajectory (plan3). A high count signals same-operator thrashing —
+ * the agent re-deriving variants because CODE mode strips its prior code. Used
+ * by the attempt-reflection render. Counts every well-formed edit (create seeds
+ * the count at 1); not decremented on delete (total churn is what matters).
+ */
+function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const node of fullPath) {
+    if (node.step.role !== "agent" || !node.step.toolCalls) continue;
+    for (const tc of node.step.toolCalls) {
+      if (tc.toolName !== "createOrModifyOperator") continue;
+      const opId = (tc.input as Record<string, unknown> | undefined)?.operatorId;
+      if (typeof opId === "string" && opId) counts.set(opId, (counts.get(opId) ?? 0) + 1);
+    }
+  }
+  return counts;
 }
 
 /**
@@ -906,6 +948,38 @@ function serializeOperatorFull(
       lines.push(
         `Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`
       );
+    }
+  }
+
+  // plan3: attempt reflection. On the CURRENT snapshot, when this operator has
+  // been edited >= the threshold, surface its attempt history so the agent
+  // stops re-deriving blind variants (the 38-edit thrash pattern). The current
+  // code is otherwise stripped in CODE mode; an [ERROR] block already carries
+  // it, so only re-add code when there's no error (avoid duplication).
+  if (options.attemptReflection && isCurrent) {
+    const editCount = options.editCountsByOp?.get(op.operatorID) ?? 0;
+    if (editCount >= ATTEMPT_REFLECTION_THRESHOLD) {
+      lines.push(
+        `Attempt reflection: you have edited operator \`${op.operatorID}\` ${editCount} times; ` +
+          `${editCount - 1} prior variant(s) did not converge.`
+      );
+      if (info?.error) {
+        lines.push(`Latest result: [ERROR] ${info.error.split("\n")[0].slice(0, 200)}`);
+      } else if (info) {
+        lines.push("Latest result: produced output but the task is not yet solved.");
+      }
+      lines.push(
+        "Do NOT submit another near-variant. Change strategy: inspect this operator's UPSTREAM " +
+          "result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer " +
+          "from a different operator."
+      );
+      if (!info?.error) {
+        const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+        if (code) {
+          lines.push("Current code:");
+          for (const l of code.split("\n")) lines.push("  " + l);
+        }
+      }
     }
   }
   return lines.join("\n");

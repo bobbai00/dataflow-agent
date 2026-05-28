@@ -683,6 +683,7 @@ export class TexeraAgent {
     schemaInResult?: boolean;
     loaderHint?: boolean;
     maxLoadersPerSource?: number;
+    attemptReflection?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -756,6 +757,11 @@ export class TexeraAgent {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;
       // Read by createTools() below when (re)building the code-op tool; the
       // per-source loader budget is enforced inside that tool closure.
+    }
+    if (updates.attemptReflection !== undefined) {
+      this.settings.attemptReflection = updates.attemptReflection;
+      // Pure render-time toggle — injects an `Attempt reflection:` block on
+      // heavily-edited operators. Read at the next assembleContext.
     }
 
     if (promptNeedsRebuild) {
