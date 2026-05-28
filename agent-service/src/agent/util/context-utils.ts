@@ -58,6 +58,10 @@ export interface AssembleContextOptions {
   /** One-shot harness guidance that should survive even in LATEST mode,
    *  which intentionally omits the event/tool-result history. */
   contextNotices?: string[];
+  /** Repeat compact final-metric/provenance guidance in assembled context.
+   *  This keeps the rule visible in LATEST mode without relying only on the
+   *  system prompt. */
+  metricEvidenceGuidance?: boolean;
 }
 
 /**
@@ -68,6 +72,14 @@ export interface AssembleContextOptions {
  * `includeOperatorProperties` is on.
  */
 const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessing"]);
+
+const METRIC_EVIDENCE_CONTEXT_NOTICE = [
+  "Metric evidence: for rate/share/percentage/fraction/ratio/concentration or any superlative over a derived metric,",
+  "the final operator must return candidate/group, numerator, denominator, metric value, and provenance columns,",
+  "then sort/filter by the metric. A raw count alone is not a valid final selection for a derived metric.",
+  "If a loader reads a wildcard or multiple sources, add source_path/source_file provenance columns before concatenation",
+  "and prefer preserved provenance over reparsing display labels.",
+].join(" ");
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -493,7 +505,12 @@ function renderLatest(
 }
 
 function appendContextNotices(sections: string[], options: AssembleContextOptions): void {
-  const notices = (options.contextNotices ?? []).map(n => n.trim()).filter(n => n.length > 0);
+  const notices = [
+    ...(options.metricEvidenceGuidance ? [METRIC_EVIDENCE_CONTEXT_NOTICE] : []),
+    ...(options.contextNotices ?? []),
+  ]
+    .map(n => n.trim())
+    .filter(n => n.length > 0);
   if (notices.length === 0) return;
   sections.push("# Agent Guidance");
   sections.push("");

@@ -42,6 +42,35 @@ const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(
   "utf8"
 );
 
+export interface CodeModePromptOptions {
+  metricEvidenceGuidance?: boolean;
+}
+
+const METRIC_EVIDENCE_GUIDANCE = `## Metric Evidence and Provenance
+
+Use the dataflow graph to make final calculations auditable:
+
+- When an answer depends on a rate, share, percentage, fraction, ratio,
+  concentration, or any superlative over a derived metric, create a final
+  calculation operator that returns the candidate/group, numerator,
+  denominator, metric value, and provenance keys needed to verify the
+  selection.
+- A raw numerator alone is not a valid implementation of a derived metric:
+  define the denominator, compute the metric column, and select by that metric.
+- Preserve explicit provenance through the DAG as ordinary columns when it is
+  present in source metadata, file names, directories, upstream columns, join
+  keys, or operator summaries. Prefer explicit provenance columns over
+  reparsing display labels downstream.
+- If a loader reads a wildcard or multiple sources, add source-path/source-file
+  provenance columns before concatenating. Downstream grouping and denominators
+  should use those preserved provenance columns when they define candidate
+  groups.
+- Do not choose a final answer from a scalar, row index, or raw count when the
+  task asks for a derived metric. Sort or filter by the derived metric column
+  in the final operator.
+- Keep this evidence in operator result tables, not only in prose, so LATEST
+  context can show the current state without relying on hidden trajectory.`;
+
 // ============================================================================
 // Shared sections
 // ============================================================================
@@ -300,11 +329,12 @@ function buildAllowedOperatorSchemas(
 /**
  * Build the CODE-mode system prompt. The prompt text lives verbatim in
  * `prompts/code-mode.md` and is loaded once at module load — edit the
- * markdown file (not this function) to change what the code-mode agent
- * sees as its system prompt.
+ * markdown file to change the base code-mode prompt. Feature flags may append
+ * isolated, measurable guidance sections here.
  */
-export function buildCodeModeSystemPrompt(): string {
-  return CODE_MODE_SYSTEM_PROMPT;
+export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): string {
+  if (!options.metricEvidenceGuidance) return CODE_MODE_SYSTEM_PROMPT;
+  return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${METRIC_EVIDENCE_GUIDANCE}\n`;
 }
 
 /**

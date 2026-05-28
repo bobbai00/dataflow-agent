@@ -391,7 +391,9 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
-      this.systemPrompt = buildCodeModeSystemPrompt();
+      this.systemPrompt = buildCodeModeSystemPrompt({
+        metricEvidenceGuidance: this.settings.metricEvidenceGuidance,
+      });
     }
     this.settings.systemPrompt = this.systemPrompt;
   }
@@ -689,6 +691,7 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
+    metricEvidenceGuidance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -749,6 +752,13 @@ export class TexeraAgent {
     }
     if (updates.lineageHintOnStall !== undefined) {
       this.settings.lineageHintOnStall = updates.lineageHintOnStall;
+    }
+    if (
+      updates.metricEvidenceGuidance !== undefined &&
+      updates.metricEvidenceGuidance !== this.settings.metricEvidenceGuidance
+    ) {
+      this.settings.metricEvidenceGuidance = updates.metricEvidenceGuidance;
+      promptNeedsRebuild = true;
     }
 
     if (promptNeedsRebuild) {

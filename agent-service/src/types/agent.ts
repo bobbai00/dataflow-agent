@@ -140,6 +140,13 @@ export interface AgentSettings {
    * reason even though it omits event history.
    */
   lineageHintOnStall: boolean;
+  /**
+   * When true, append CODE-mode guidance that asks the agent to preserve
+   * provenance keys through the DAG and make derived final metrics auditable
+   * as ordinary output columns; the context assembler also repeats a compact
+   * notice in LATEST mode. Off by default for baseline reproducibility.
+   */
+  metricEvidenceGuidance: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -177,6 +184,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   includeOperatorProperties: true,
   maxOperatorEdits: 0,
   lineageHintOnStall: false,
+  metricEvidenceGuidance: false,
 };
 
 /**
@@ -225,6 +233,7 @@ export interface AgentSettingsApi {
   includeOperatorProperties?: boolean;
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
+  metricEvidenceGuidance?: boolean;
 }
 
 export interface AgentInfo {
@@ -267,4 +276,5 @@ export interface UpdateAgentSettingsRequest {
   includeOperatorProperties?: boolean;
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
+  metricEvidenceGuidance?: boolean;
 }
