@@ -403,6 +403,7 @@ export class TexeraAgent {
         entityKeyHygieneGuidance: this.settings.entityKeyHygieneGuidance,
         componentGrainGuidance: this.settings.componentGrainGuidance,
         keyGrainComparisonGuidance: this.settings.keyGrainComparisonGuidance,
+        keyGrainEvidenceContract: this.settings.keyGrainEvidenceContract,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
         maxUnexecutedCodeEdits: this.getExecutionCadenceLimit(),
         fallbackContractGuidance: this.settings.fallbackContractGuidance,
@@ -744,6 +745,7 @@ export class TexeraAgent {
     entityKeyHygieneGuidance?: boolean;
     componentGrainGuidance?: boolean;
     keyGrainComparisonGuidance?: boolean;
+    keyGrainEvidenceContract?: boolean;
     executionSafeOperatorIds?: boolean;
     fallbackContractGuidance?: boolean;
   }): void {
@@ -881,6 +883,13 @@ export class TexeraAgent {
       updates.keyGrainComparisonGuidance !== this.settings.keyGrainComparisonGuidance
     ) {
       this.settings.keyGrainComparisonGuidance = updates.keyGrainComparisonGuidance;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.keyGrainEvidenceContract !== undefined &&
+      updates.keyGrainEvidenceContract !== this.settings.keyGrainEvidenceContract
+    ) {
+      this.settings.keyGrainEvidenceContract = updates.keyGrainEvidenceContract;
       promptNeedsRebuild = true;
     }
     if (

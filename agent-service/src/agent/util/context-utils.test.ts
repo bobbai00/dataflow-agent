@@ -1064,6 +1064,112 @@ describe("assembleContext — Latest", () => {
     expect(hintedContext).not.toContain('"source_path" distinct=250');
   });
 
+  test("keyGrainEvidenceContract renders unsatisfied and satisfied LATEST notices", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "labels" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["labels"]));
+    storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove - Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove - Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Key-grain evidence contract unsatisfied");
+
+    const unsatisfiedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        keyGrainEvidenceContract: true,
+      })
+    );
+    expect(unsatisfiedContext).toContain("# Agent Guidance");
+    expect(unsatisfiedContext).toContain("Key-grain evidence contract:");
+    expect(unsatisfiedContext).toContain("Key-grain evidence contract unsatisfied");
+    expect(unsatisfiedContext).toContain('`labels`: "Site Label" distinct=250');
+    expect(unsatisfiedContext).toContain("candidate_id, source_columns, transformation");
+    expect(unsatisfiedContext).toContain("selected_for_final");
+
+    const satisfied = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "keyEvidence" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    satisfied.storage.createSnapshot("a", makeWorkflow(["labels", "keyEvidence"]));
+    satisfied.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove - Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove - Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+    satisfied.storage.setOperatorResult(
+      "a",
+      "keyEvidence",
+      makeInfo("keyEvidence", 3, undefined, {
+        result: [
+          {
+            candidate_id: "raw",
+            source_columns: "Site Label",
+            transformation: "identity",
+            distinct_count: 250,
+            non_null_count: 5000,
+            blank_count: 0,
+            changed_label_count: 0,
+            split_or_merge_count: 0,
+            sample_raw_values: "North Cove - Pier A",
+            sample_raw_to_key_groups: "North Cove - Pier A -> North Cove - Pier A",
+            preserves_task_grain: true,
+            selected_for_final: true,
+            rationale: "raw label preserves requested entity grain",
+          },
+        ],
+      })
+    );
+
+    const satisfiedContext = content(
+      assembleContext(satisfied.steps, satisfied.workflowState, satisfied.storage, ContextMode.LATEST, {
+        ...opts,
+        keyGrainEvidenceContract: true,
+      })
+    );
+    expect(satisfiedContext).toContain("Key-grain evidence contract satisfied by operator `keyEvidence`");
+    expect(satisfiedContext).not.toContain("Key-grain evidence contract unsatisfied");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

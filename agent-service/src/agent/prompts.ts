@@ -49,6 +49,7 @@ export interface CodeModePromptOptions {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  keyGrainEvidenceContract?: boolean;
   executionSafeOperatorIds?: boolean;
   maxUnexecutedCodeEdits?: number;
   fallbackContractGuidance?: boolean;
@@ -228,6 +229,32 @@ grouping, join, deduplication, or distinct count.
 - Only the final operator should use the candidate marked selected_for_final =
   true. If no candidate preserves the requested grain, preserve the whole label
   or return a diagnostic table rather than silently choosing a key.`;
+
+const KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE = `## Key-Grain Evidence Contract
+
+Use the dataflow's typed intermediate tables to make entity-key grain decisions
+auditable before final entity-level operations.
+
+- When the current context says \`Key-grain evidence contract unsatisfied\`,
+  do not answer or create another final entity-level grouping, join,
+  deduplication, or distinct-count operator yet.
+- First create and execute a compact candidate-key evidence operator. The
+  output DataFrame must include these columns exactly:
+  candidate_id, source_columns, transformation, distinct_count,
+  non_null_count, blank_count, changed_label_count, split_or_merge_count,
+  sample_raw_values, sample_raw_to_key_groups, preserves_task_grain,
+  selected_for_final, rationale.
+- Include one row per candidate key grain, including raw whole-label,
+  normalized whole-label, and any component-derived candidate supported by
+  observed data. Keep sample mappings small but concrete enough to audit split
+  and merge effects.
+- Exactly one row should set selected_for_final=true only when the visible
+  evidence shows that candidate preserves the requested entity grain. If none
+  does, preserve the whole label or return a diagnostic table rather than
+  silently choosing a key.
+- The final entity-level operator should use the selected candidate from this
+  executed evidence table, so LATEST context can audit the key decision without
+  hidden trajectory.`;
 
 const EXECUTION_SAFE_OPERATOR_ID_GUIDANCE = `## Execution-Safe Operator IDs
 
@@ -552,6 +579,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.entityKeyHygieneGuidance) sections.push(ENTITY_KEY_HYGIENE_GUIDANCE);
   if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
+  if (options.keyGrainEvidenceContract) sections.push(KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {
     sections.push(buildExecutionEvidenceCadenceGuidance(options.maxUnexecutedCodeEdits!));

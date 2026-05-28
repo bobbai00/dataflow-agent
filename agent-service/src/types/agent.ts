@@ -236,6 +236,14 @@ export interface AgentSettings {
    */
   keyGrainComparisonGuidance: boolean;
   /**
+   * When true, LATEST context treats candidate key-grain comparison as an
+   * explicit evidence contract. If ambiguous high-cardinality labels are
+   * visible but no executed comparison table with the required schema is
+   * visible, the compiler emits an unsatisfied contract notice. Off by
+   * default for baseline reproducibility.
+   */
+  keyGrainEvidenceContract: boolean;
+  /**
    * When true, CODE mode treats operator IDs as execution-safe logical IDs,
    * not only Python variable names. It asks for and enforces alphanumeric
    * Python identifiers without underscores because the current execution
@@ -299,6 +307,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   entityKeyHygieneGuidance: false,
   componentGrainGuidance: false,
   keyGrainComparisonGuidance: false,
+  keyGrainEvidenceContract: false,
   executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
 };
@@ -361,6 +370,7 @@ export interface AgentSettingsApi {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  keyGrainEvidenceContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
@@ -417,6 +427,7 @@ export interface UpdateAgentSettingsRequest {
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
+  keyGrainEvidenceContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }

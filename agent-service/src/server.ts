@@ -88,6 +88,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
       componentGrainGuidance: settings.componentGrainGuidance,
       keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
+      keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
       fallbackContractGuidance: settings.fallbackContractGuidance,
     });
 }
@@ -173,6 +174,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
     componentGrainGuidance: agentSettings.componentGrainGuidance,
     keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
+    keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
     executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
     fallbackContractGuidance: agentSettings.fallbackContractGuidance,
   };
@@ -299,6 +301,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
           componentGrainGuidance: settings.componentGrainGuidance,
           keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
+          keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
           executionSafeOperatorIds: settings.executionSafeOperatorIds,
           fallbackContractGuidance: settings.fallbackContractGuidance,
         });
@@ -345,6 +348,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             entityKeyHygieneGuidance: t.Optional(t.Boolean()),
             componentGrainGuidance: t.Optional(t.Boolean()),
             keyGrainComparisonGuidance: t.Optional(t.Boolean()),
+            keyGrainEvidenceContract: t.Optional(t.Boolean()),
             executionSafeOperatorIds: t.Optional(t.Boolean()),
             fallbackContractGuidance: t.Optional(t.Boolean()),
           })
@@ -595,6 +599,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
       componentGrainGuidance: agentSettings.componentGrainGuidance,
       keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
+      keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
       executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
       fallbackContractGuidance: agentSettings.fallbackContractGuidance,
     };
@@ -646,6 +651,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
         componentGrainGuidance: settings.componentGrainGuidance,
         keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
+        keyGrainEvidenceContract: settings.keyGrainEvidenceContract,
         executionSafeOperatorIds: settings.executionSafeOperatorIds,
         fallbackContractGuidance: settings.fallbackContractGuidance,
       });
@@ -684,6 +690,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
         componentGrainGuidance: agentSettings.componentGrainGuidance,
         keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
+        keyGrainEvidenceContract: agentSettings.keyGrainEvidenceContract,
         executionSafeOperatorIds: agentSettings.executionSafeOperatorIds,
         fallbackContractGuidance: agentSettings.fallbackContractGuidance,
       };
@@ -717,6 +724,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         entityKeyHygieneGuidance: t.Optional(t.Boolean()),
         componentGrainGuidance: t.Optional(t.Boolean()),
         keyGrainComparisonGuidance: t.Optional(t.Boolean()),
+        keyGrainEvidenceContract: t.Optional(t.Boolean()),
         executionSafeOperatorIds: t.Optional(t.Boolean()),
         fallbackContractGuidance: t.Optional(t.Boolean()),
       }),

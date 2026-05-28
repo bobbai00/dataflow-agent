@@ -189,6 +189,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("selected_for_final");
   });
 
+  test("key-grain evidence contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Key-Grain Evidence Contract");
+
+    agent.updateSettings({ keyGrainEvidenceContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Key-Grain Evidence Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Key-grain evidence contract unsatisfied");
+    expect(agent.getSystemInfo().systemPrompt).toContain("candidate_id");
+    expect(agent.getSystemInfo().systemPrompt).toContain("selected_for_final");
+  });
+
   test("execution-safe operator ID guidance rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

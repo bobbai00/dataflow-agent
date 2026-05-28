@@ -99,6 +99,10 @@ export interface AssembleContextOptions {
    *  high-cardinality string labels whose values expose multiple plausible
    *  entity grains. Off by default. */
   keyGrainComparisonGuidance?: boolean;
+  /** Render a LATEST-mode key-grain evidence contract notice when ambiguous
+   *  entity-label grains are visible and no executed comparison table with the
+   *  required schema is visible. Off by default. */
+  keyGrainEvidenceContract?: boolean;
 }
 
 /**
@@ -143,6 +147,11 @@ const KEY_GRAIN_COMPARISON_CONTEXT_NOTICE = [
   "Compare raw whole-label, normalized whole-label, and observed component-derived keys, then mark exactly which candidate preserves the requested grain.",
 ].join(" ");
 
+const KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE = [
+  "Key-grain evidence contract: ambiguous entity labels require an executed candidate-key evidence table before final entity grouping, joining, deduplication, or distinct counts.",
+  "The table must expose candidate rows, split/merge effects, task-grain preservation, and exactly one selected key before finalization.",
+].join(" ");
+
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
 const WIDE_COLUMN_COUNT_THRESHOLD = 100;
 const ENTITY_KEY_MIN_DISTINCT = 20;
@@ -150,6 +159,22 @@ const ENTITY_KEY_MAX_HINT_COLUMNS = 4;
 const COMPONENT_GRAIN_MIN_DISTINCT = 20;
 const COMPONENT_GRAIN_MAX_HINT_COLUMNS = 4;
 const COMPONENT_GRAIN_MAX_SAMPLES = 4;
+const KEY_GRAIN_CONTRACT_MAX_SOURCES = 3;
+const KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS = [
+  "candidate_id",
+  "source_columns",
+  "transformation",
+  "distinct_count",
+  "non_null_count",
+  "blank_count",
+  "changed_label_count",
+  "split_or_merge_count",
+  "sample_raw_values",
+  "sample_raw_to_key_groups",
+  "preserves_task_grain",
+  "selected_for_final",
+  "rationale",
+];
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -555,7 +580,10 @@ function renderLatest(
     sections.push(latestUserContent);
     sections.push("");
   }
-  appendContextNotices(sections, options);
+  const keyGrainContractNotice = options.keyGrainEvidenceContract
+    ? buildKeyGrainEvidenceContractNotice(leafSnapshot)
+    : undefined;
+  appendContextNotices(sections, options, keyGrainContractNotice ? [keyGrainContractNotice] : undefined);
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
@@ -578,7 +606,11 @@ function renderLatest(
   return sections.join("\n").trimEnd();
 }
 
-function appendContextNotices(sections: string[], options: AssembleContextOptions): void {
+function appendContextNotices(
+  sections: string[],
+  options: AssembleContextOptions,
+  dynamicNotices: string[] = []
+): void {
   const notices = [
     ...(options.metricEvidenceGuidance ? [METRIC_EVIDENCE_CONTEXT_NOTICE] : []),
     ...(options.fallbackContractGuidance ? [FALLBACK_CONTRACT_CONTEXT_NOTICE] : []),
@@ -586,6 +618,8 @@ function appendContextNotices(sections: string[], options: AssembleContextOption
     ...(options.entityKeyHygieneGuidance ? [ENTITY_KEY_HYGIENE_CONTEXT_NOTICE] : []),
     ...(options.componentGrainGuidance ? [COMPONENT_GRAIN_CONTEXT_NOTICE] : []),
     ...(options.keyGrainComparisonGuidance ? [KEY_GRAIN_COMPARISON_CONTEXT_NOTICE] : []),
+    ...(options.keyGrainEvidenceContract ? [KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE] : []),
+    ...dynamicNotices,
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -1397,6 +1431,74 @@ function buildKeyGrainComparisonHint(info: OperatorInfo | undefined): string | u
     "Use the final selected key only after exactly one candidate is marked selected_for_final=true with evidence that it preserves the requested entity grain."
   );
   return lines.join("\n");
+}
+
+interface KeyGrainContractSource {
+  operatorId: string;
+  candidates: ComponentGrainCandidate[];
+}
+
+function buildKeyGrainEvidenceContractNotice(snapshot: SnapshotData): string | undefined {
+  const sources = findKeyGrainContractSources(snapshot);
+  if (sources.length === 0) return undefined;
+
+  const evidence = findKeyGrainContractEvidence(snapshot);
+  if (evidence) {
+    return [
+      `Key-grain evidence contract satisfied by operator \`${evidence.operatorId}\` with required candidate-key columns.`,
+      "Final entity-level operators should use the row where selected_for_final=true and preserve the rationale/evidence trail in the final result.",
+    ].join(" ");
+  }
+
+  const sourceText = sources
+    .slice(0, KEY_GRAIN_CONTRACT_MAX_SOURCES)
+    .map(source => {
+      const candidateText = source.candidates
+        .slice(0, COMPONENT_GRAIN_MAX_HINT_COLUMNS)
+        .map(c => `${JSON.stringify(c.columnName)} distinct=${c.distinct}`)
+        .join(", ");
+      return `\`${source.operatorId}\`: ${candidateText}`;
+    })
+    .join(" | ");
+
+  return [
+    `Key-grain evidence contract unsatisfied: ambiguous high-cardinality entity-label grains are visible (${sourceText}).`,
+    "Before a final entity-level grouping, join, deduplication, distinct count, or answer, create and execute a compact candidate-key evidence table.",
+    `Required columns: ${KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS.join(", ")}.`,
+    "Include raw whole-label, normalized whole-label, and observed component-derived candidates; mark exactly one selected_for_final=true only when it preserves the requested task grain.",
+  ].join(" ");
+}
+
+function findKeyGrainContractSources(snapshot: SnapshotData): KeyGrainContractSource[] {
+  const sources: KeyGrainContractSource[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (!info || info.error || isKeyGrainContractEvidence(info)) continue;
+    const candidates = findComponentGrainCandidates(info);
+    if (candidates.length > 0) sources.push({ operatorId, candidates });
+  }
+  return sources;
+}
+
+function findKeyGrainContractEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (info && !info.error && isKeyGrainContractEvidence(info)) return { operatorId };
+  }
+  return undefined;
+}
+
+function isKeyGrainContractEvidence(info: OperatorInfo): boolean {
+  const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
+  if (normalizedColumns.size === 0) return false;
+  return KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
+}
+
+function normalizeEvidenceColumnName(columnName: string): string {
+  return columnName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function sampleStringValues(info: OperatorInfo, columnName: string, limit: number): string[] {
