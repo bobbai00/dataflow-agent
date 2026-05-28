@@ -273,6 +273,13 @@ export interface AgentSettings {
    */
   boundaryTokenInventoryContract: boolean;
   /**
+   * When true, LATEST context includes a compact code-free digest of recent
+   * dataflow progress: tried operators, repeated edits, current failures,
+   * recent tool errors, and unexecuted terminal operators. Off by default for
+   * baseline reproducibility.
+   */
+  flowProgressDigest: boolean;
+  /**
    * When true, LATEST context treats the selected entity key as provisional
    * until an executed impact table compares candidate keys against the
    * downstream entity-level predicate or final measure. This uses typed
@@ -357,6 +364,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   observedComponentInventoryContract: false,
   dataDiscoveredComponentInventoryContract: false,
   boundaryTokenInventoryContract: false,
+  flowProgressDigest: false,
   candidateSelectionImpactContract: false,
   evidenceDependencyGate: false,
   executionSafeOperatorIds: false,
@@ -426,6 +434,7 @@ export interface AgentSettingsApi {
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
+  flowProgressDigest?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -489,6 +498,7 @@ export interface UpdateAgentSettingsRequest {
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
+  flowProgressDigest?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;

@@ -54,6 +54,7 @@ export interface CodeModePromptOptions {
   observedComponentInventoryContract?: boolean;
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
+  flowProgressDigest?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -358,6 +359,20 @@ values.
 - Candidate-key evidence must include every inventory transform where
   impact_probe_required=true, and candidate-impact evidence must compare those
   candidates before any selected key can satisfy.`;
+
+const FLOW_PROGRESS_DIGEST_GUIDANCE = `## Flow Progress Digest
+
+When a LATEST context includes a Flow progress digest, use it as compact memory
+of the dataflow work already attempted.
+
+- Treat repeated operator edits, recent tool errors, failed operators, and
+  unexecuted terminal operators as symptoms to address before finalizing.
+- Do not repeat the same small edit when the digest shows that an operator has
+  already been modified multiple times. Inspect upstream data, add a narrow
+  diagnostic operator, or change strategy.
+- The digest is not code memory. Successful operator code is still hidden; use
+  the operator summaries, current result tables, column stats, and visible
+  symptoms to write fresh code.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -735,6 +750,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
     sections.push(DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
   }
   if (options.boundaryTokenInventoryContract) sections.push(BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE);
+  if (options.flowProgressDigest) sections.push(FLOW_PROGRESS_DIGEST_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);

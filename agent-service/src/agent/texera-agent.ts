@@ -408,6 +408,7 @@ export class TexeraAgent {
         observedComponentInventoryContract: this.settings.observedComponentInventoryContract,
         dataDiscoveredComponentInventoryContract: this.settings.dataDiscoveredComponentInventoryContract,
         boundaryTokenInventoryContract: this.settings.boundaryTokenInventoryContract,
+        flowProgressDigest: this.settings.flowProgressDigest,
         candidateSelectionImpactContract: this.settings.candidateSelectionImpactContract,
         evidenceDependencyGate: this.settings.evidenceDependencyGate,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
@@ -756,6 +757,7 @@ export class TexeraAgent {
     observedComponentInventoryContract?: boolean;
     dataDiscoveredComponentInventoryContract?: boolean;
     boundaryTokenInventoryContract?: boolean;
+    flowProgressDigest?: boolean;
     candidateSelectionImpactContract?: boolean;
     evidenceDependencyGate?: boolean;
     executionSafeOperatorIds?: boolean;
@@ -930,6 +932,10 @@ export class TexeraAgent {
       updates.boundaryTokenInventoryContract !== this.settings.boundaryTokenInventoryContract
     ) {
       this.settings.boundaryTokenInventoryContract = updates.boundaryTokenInventoryContract;
+      promptNeedsRebuild = true;
+    }
+    if (updates.flowProgressDigest !== undefined && updates.flowProgressDigest !== this.settings.flowProgressDigest) {
+      this.settings.flowProgressDigest = updates.flowProgressDigest;
       promptNeedsRebuild = true;
     }
     if (

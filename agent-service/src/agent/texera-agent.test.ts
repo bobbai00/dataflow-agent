@@ -254,6 +254,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("impact_probe_required=true");
   });
 
+  test("flow progress digest rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Flow Progress Digest");
+
+    agent.updateSettings({ flowProgressDigest: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Flow Progress Digest");
+    expect(agent.getSystemInfo().systemPrompt).toContain("compact memory");
+    expect(agent.getSystemInfo().systemPrompt).toContain("repeated operator edits");
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

@@ -118,6 +118,9 @@ export interface AssembleContextOptions {
   /** Strengthen observed inventory so it must prove broad boundary-token
    *  enumeration and downstream candidate-impact coverage. Off by default. */
   boundaryTokenInventoryContract?: boolean;
+  /** Render compact LATEST-mode progress memory from ReAct/tool events and
+   *  current workflow symptoms. Off by default. */
+  flowProgressDigest?: boolean;
   /** Render a LATEST-mode candidate-selection impact contract notice after
    *  candidate-key evidence exists but no executed impact table compares those
    *  candidates against the downstream entity predicate or final measure. Off
@@ -711,6 +714,7 @@ function renderLatest(
     isLabelComponentProfileContractUnsatisfied(leafSnapshot, options);
 
   const dynamicNotices = [
+    options.flowProgressDigest ? buildFlowProgressDigest(path, leafSnapshot) : undefined,
     options.observedComponentInventoryContract
       ? buildObservedComponentInventoryContractNotice(leafSnapshot, options)
       : undefined,
@@ -782,6 +786,115 @@ function appendContextNotices(
     for (const line of lines.slice(1)) sections.push(`  ${line}`);
   }
   sections.push("");
+}
+
+interface FlowProgressAction {
+  toolName: string;
+  operatorId: string;
+  action: string;
+  summary?: string;
+}
+
+function buildFlowProgressDigest(path: PathNode[], leafSnapshot: SnapshotData): string | undefined {
+  const actions: FlowProgressAction[] = [];
+  const editCounts = new Map<string, number>();
+  const recentErrors: string[] = [];
+
+  for (const node of path) {
+    if (node.step.role !== "agent") continue;
+    const calls = node.step.toolCalls ?? [];
+    const results = node.step.toolResults ?? [];
+
+    for (const call of calls) {
+      const input = (call.input ?? {}) as Record<string, unknown>;
+      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
+      const summary = typeof input.summary === "string" ? input.summary : undefined;
+      const action = flowProgressActionName(call.toolName);
+      actions.push({ toolName: call.toolName, operatorId, action, summary });
+      if (call.toolName === "createOrModifyOperator" && operatorId) {
+        editCounts.set(operatorId, (editCounts.get(operatorId) ?? 0) + 1);
+      }
+    }
+
+    for (const result of results) {
+      if (!result.isError) continue;
+      const call = calls.find(candidate => candidate.toolCallId === result.toolCallId);
+      const input = (call?.input ?? {}) as Record<string, unknown>;
+      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
+      const where = operatorId ? `${call?.toolName ?? "tool"} on \`${operatorId}\`` : (call?.toolName ?? "tool");
+      recentErrors.push(`${where}: ${shortenCell(String(result.output ?? ""))}`);
+    }
+  }
+
+  const lines: string[] = [];
+  const recentActions = actions
+    .filter(action => action.operatorId.length > 0 || action.toolName.length > 0)
+    .slice(-6)
+    .map(action => formatFlowProgressAction(action));
+  if (recentActions.length > 0) lines.push(`Recent actions: ${recentActions.join("; ")}.`);
+
+  const repeatedEdits = Array.from(editCounts.entries())
+    .filter(([, count]) => count > 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([operatorId, count]) => `\`${operatorId}\` edited ${count}x`);
+  if (repeatedEdits.length > 0) {
+    lines.push(`Repeated edits: ${repeatedEdits.join("; ")}. Change strategy before another small edit.`);
+  }
+
+  const currentFailures = findCurrentFailureSymptoms(leafSnapshot);
+  if (currentFailures.length > 0) lines.push(`Current failure symptoms: ${currentFailures.join("; ")}.`);
+
+  const unexecutedTerminalOperators = findUnexecutedTerminalOperators(leafSnapshot).slice(0, 5);
+  if (unexecutedTerminalOperators.length > 0) {
+    lines.push(`Unexecuted terminal operators: ${unexecutedTerminalOperators.map(id => `\`${id}\``).join(", ")}.`);
+  }
+
+  if (recentErrors.length > 0) {
+    lines.push(`Recent tool errors: ${recentErrors.slice(-3).join("; ")}.`);
+  }
+
+  if (lines.length === 0) return undefined;
+  return [
+    "Flow progress digest: compact code-free memory of what has already happened in this dataflow.",
+    ...lines,
+  ].join("\n");
+}
+
+function flowProgressActionName(toolName: string): string {
+  if (toolName === "createOrModifyOperator") return "create/modify";
+  if (toolName === "deleteOperator") return "delete";
+  if (toolName === "executeOperator") return "execute";
+  return toolName;
+}
+
+function formatFlowProgressAction(action: FlowProgressAction): string {
+  const target = action.operatorId ? ` \`${action.operatorId}\`` : "";
+  const summary = action.summary ? ` (${shortenCell(action.summary)})` : "";
+  return `${action.action}${target}${summary}`;
+}
+
+function findCurrentFailureSymptoms(snapshot: SnapshotData): string[] {
+  const symptoms: string[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (!info?.error) continue;
+    symptoms.push(`\`${operatorId}\` failed: ${shortenCell(info.error)}`);
+    if (symptoms.length >= 4) break;
+  }
+  return symptoms;
+}
+
+function findUnexecutedTerminalOperators(snapshot: SnapshotData): string[] {
+  const outgoing = new Set(snapshot.workflow.links.map(link => link.source.operatorID));
+  const unexecuted: string[] = [];
+  for (const operator of snapshot.workflow.operators) {
+    const operatorId = operator.operatorID;
+    if (outgoing.has(operatorId)) continue;
+    if (snapshot.results.has(operatorId)) continue;
+    unexecuted.push(operatorId);
+  }
+  return unexecuted;
 }
 
 /* ============================================================================

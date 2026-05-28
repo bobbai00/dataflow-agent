@@ -320,6 +320,68 @@ describe("assembleContext — Latest", () => {
     expect(c).not.toContain("# Agent Events");
   });
 
+  test("flowProgressDigest renders compact code-free progress memory only when enabled", () => {
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "clean and aggregate messy data" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc1",
+            input: { operatorId: "loader", summary: "load messy source", code: "print('hidden loader code')" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc2",
+            input: { operatorId: "loader", summary: "retry source with delimiter", code: "print('hidden retry code')" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc2", output: "parser failed on row 12", isError: true }],
+      },
+    ]);
+    scenario.storage.createSnapshot("a1", makeWorkflow(["loader", "final"], [["loader", "final"]]));
+    scenario.storage.createSnapshot("a2", makeWorkflow(["loader", "final"], [["loader", "final"]]));
+    scenario.storage.setOperatorResult("a2", "loader", makeInfo("loader", 0, "ParserError: expected 8 fields, saw 11"));
+
+    const defaultContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
+    );
+    expect(defaultContext).not.toContain("Flow progress digest");
+
+    const digestContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        flowProgressDigest: true,
+      })
+    );
+    expect(digestContext).toContain("# Agent Guidance");
+    expect(digestContext).toContain("Flow progress digest: compact code-free memory");
+    expect(digestContext).toContain("Recent actions:");
+    expect(digestContext).toContain("create/modify `loader`");
+    expect(digestContext).toContain("Repeated edits: `loader` edited 2x");
+    expect(digestContext).toContain("Current failure symptoms: `loader` failed");
+    expect(digestContext).toContain("Recent tool errors: createOrModifyOperator on `loader`");
+    expect(digestContext).toContain("Unexecuted terminal operators: `final`");
+    expect(digestContext).not.toContain("hidden loader code");
+    expect(digestContext).not.toContain("hidden retry code");
+    expect(digestContext).not.toContain("# Agent Events");
+  });
+
   test("adaptive result rendering digests stable operators but keeps latest frontier rows", () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "build a two step flow" },
