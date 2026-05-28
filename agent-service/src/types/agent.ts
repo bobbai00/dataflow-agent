@@ -147,6 +147,12 @@ export interface AgentSettings {
    * notice in LATEST mode. Off by default for baseline reproducibility.
    */
   metricEvidenceGuidance: boolean;
+  /**
+   * When true, render the compiler's current-snapshot input/output schema
+   * lines in CODE mode too. GENERAL mode already renders schemas. Off by
+   * default for baseline reproducibility.
+   */
+  schemaFirstCodeMode: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -185,6 +191,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxOperatorEdits: 0,
   lineageHintOnStall: false,
   metricEvidenceGuidance: false,
+  schemaFirstCodeMode: false,
 };
 
 /**
@@ -234,6 +241,7 @@ export interface AgentSettingsApi {
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
   metricEvidenceGuidance?: boolean;
+  schemaFirstCodeMode?: boolean;
 }
 
 export interface AgentInfo {
@@ -277,4 +285,5 @@ export interface UpdateAgentSettingsRequest {
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
   metricEvidenceGuidance?: boolean;
+  schemaFirstCodeMode?: boolean;
 }

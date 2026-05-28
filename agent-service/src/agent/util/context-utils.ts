@@ -28,6 +28,7 @@ import type { ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
+import type { OperatorInfo } from "../../types/execution";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
@@ -62,6 +63,9 @@ export interface AssembleContextOptions {
    *  This keeps the rule visible in LATEST mode without relying only on the
    *  system prompt. */
   metricEvidenceGuidance?: boolean;
+  /** Render current-snapshot compiler schemas in CODE mode as well as
+   *  GENERAL mode. */
+  schemaFirstCodeMode?: boolean;
 }
 
 /**
@@ -171,8 +175,7 @@ export function assembleContext(
       // Latest = user task + the leaf snapshot. No events rendered at all
       // — context is defined as a single point on the snapshot tree, not
       // as an interleaved walk along its edges.
-      const leafSnapshot =
-        lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
+      const leafSnapshot = lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
       content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
       break;
     }
@@ -490,13 +493,7 @@ function renderLatest(
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
   //    are rendered above this.
-  const dag = serializeSnapshotFull(
-    leafSnapshot,
-    workflowState,
-    options,
-    /*isCurrent=*/ true,
-    /*sectionLevel=*/ 2
-  );
+  const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
   if (dag) {
     sections.push("# Current Dataflow");
     sections.push(dag);
@@ -616,10 +613,7 @@ function serializeUserEventInline(node: PathNode): string {
  * `buildCreateFlagsByStep`); `undefined` is treated as "everything is a
  * create" — a safe fallback when the step has no recorded calls.
  */
-function serializeTurn(
-  node: PathNode,
-  createFlags: Map<string, boolean> | undefined
-): string {
+function serializeTurn(node: PathNode, createFlags: Map<string, boolean> | undefined): string {
   const step = node.step;
   const lines: string[] = [];
   lines.push(`## Agent Event ${node.eventIndex}`);
@@ -704,9 +698,7 @@ function serializeSnapshotFull(
   lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
-    lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel)
-    );
+    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
     lines.push("");
   }
   appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
@@ -751,9 +743,7 @@ function serializeSnapshotDelta(
     lines.push(`${sectionHash} Operators`);
     lines.push("");
     for (const op of deltaOps) {
-      lines.push(
-        serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel)
-      );
+      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
       lines.push("");
     }
   }
@@ -854,24 +844,32 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
-  // Schemas only on the current (last) snapshot — compilation only runs
-  // against the live workflow.
-  const showSchemas = isCurrent && options.agentMode === AgentMode.GENERAL && options.compilationResult;
+  // Schemas only on the current (last) snapshot. GENERAL mode preserves its
+  // legacy dependency on compiler output, while CODE mode's explicit
+  // schema-first flag can still fall back to executed result metadata when
+  // the compiler reports empty schemas for Python operators.
+  const showSchemas =
+    isCurrent &&
+    ((options.agentMode === AgentMode.GENERAL && options.compilationResult) ||
+      (options.agentMode === AgentMode.CODE && options.schemaFirstCodeMode === true));
   if (showSchemas) {
-    const outputSchemas = options.compilationResult!.operatorOutputSchemas ?? {};
+    const outputSchemas = options.compilationResult?.operatorOutputSchemas ?? {};
     const allLinks = snapshot.workflow.links;
-    const inputSchemaMap = extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks);
+    const compiledInputSchemaMap = extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks);
+    const resultInputSchemaMap = deriveInputSchemaMapFromResults(op, snapshot, allLinks);
+    const inputSchemaMap = mergeSchemaMaps(compiledInputSchemaMap, resultInputSchemaMap);
     if (inputSchemaMap) {
       for (const [portId, schema] of Object.entries(inputSchemaMap)) {
-        if (schema) lines.push(`Input Schema (port ${parsePortIndex(portId)}): ${formatSchema(schema)}`);
+        if (isNonEmptySchema(schema)) {
+          lines.push(`Input Schema (port ${parsePortIndex(portId)}): ${formatSchema(schema)}`);
+        }
       }
     }
     const outputSchemaMap = outputSchemas[op.operatorID];
-    if (outputSchemaMap) {
-      const firstSchema = Object.values(outputSchemaMap).find(s => s !== undefined) as PortSchema | undefined;
-      if (firstSchema) lines.push(`Output Schema: ${formatSchema(firstSchema)}`);
-    }
-    const compilationError = options.compilationResult!.operatorErrors?.[op.operatorID] as
+    const outputSchema = firstNonEmptySchema(outputSchemaMap) ?? schemaFromOperatorInfo(info);
+    if (isNonEmptySchema(outputSchema)) lines.push(`Output Schema: ${formatSchema(outputSchema)}`);
+
+    const compilationError = options.compilationResult?.operatorErrors?.[op.operatorID] as
       | WorkflowFatalError
       | undefined;
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
@@ -889,9 +887,7 @@ function serializeOperatorFull(
     if (failedUpstreams.length > 0) {
       const noun = failedUpstreams.length === 1 ? "operator" : "operators";
       const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
-      lines.push(
-        `Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`
-      );
+      lines.push(`Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`);
     }
   }
   return lines.join("\n");
@@ -1029,6 +1025,135 @@ function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
 
 function lastSnapshotIdOf(tasks: TaskGroup[]): string | undefined {
   return lastSnapshotOf(tasks)?.id;
+}
+
+function isNonEmptySchema(schema: PortSchema | undefined): schema is PortSchema {
+  return Array.isArray(schema) && schema.length > 0;
+}
+
+function firstNonEmptySchema(schemaMap: OperatorPortSchemaMap | undefined): PortSchema | undefined {
+  if (!schemaMap) return undefined;
+  return Object.values(schemaMap).find(isNonEmptySchema);
+}
+
+function mergeSchemaMaps(
+  primary: OperatorPortSchemaMap | undefined,
+  fallback: OperatorPortSchemaMap | undefined
+): OperatorPortSchemaMap | undefined {
+  if (!primary && !fallback) return undefined;
+  const merged: Record<string, PortSchema | undefined> = {};
+  const portIds = new Set<string>([...Object.keys(primary ?? {}), ...Object.keys(fallback ?? {})]);
+  for (const portId of portIds) {
+    const schema = isNonEmptySchema(primary?.[portId]) ? primary?.[portId] : fallback?.[portId];
+    if (isNonEmptySchema(schema)) merged[portId] = schema;
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function deriveInputSchemaMapFromResults(
+  op: OperatorPredicate,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"]
+): OperatorPortSchemaMap | undefined {
+  if (op.inputPorts.length === 0) return undefined;
+  const inputLinks = allLinks.filter(link => link.target.operatorID === op.operatorID);
+  if (inputLinks.length === 0) return undefined;
+
+  const inputSchemaMap: Record<string, PortSchema | undefined> = {};
+  op.inputPorts.forEach((_, portIndex) => {
+    const portId = `${portIndex}_false`;
+    const linksToThisPort = inputLinks.filter(
+      link => parseWorkflowPortIndex(link.target.portID, "input") === portIndex
+    );
+    for (const link of linksToThisPort) {
+      const outputPort = parseWorkflowPortIndex(link.source.portID, "output");
+      if (outputPort !== undefined && outputPort !== 0) continue;
+      const schema = schemaFromOperatorInfo(snapshot.results.get(link.source.operatorID)?.info);
+      if (isNonEmptySchema(schema)) {
+        inputSchemaMap[portId] = schema;
+        break;
+      }
+    }
+  });
+
+  return Object.values(inputSchemaMap).some(isNonEmptySchema) ? inputSchemaMap : undefined;
+}
+
+function schemaFromOperatorInfo(info: OperatorInfo | undefined): PortSchema | undefined {
+  if (!info || info.error) return undefined;
+  const statsSchema = schemaFromColumnStats(info.columnStats);
+  if (isNonEmptySchema(statsSchema)) return statsSchema;
+  return schemaFromRows(info.result);
+}
+
+function schemaFromColumnStats(stats: Record<string, string> | undefined): PortSchema | undefined {
+  if (!stats) return undefined;
+  const schema = Object.entries(stats)
+    .filter(([columnName, stat]) => isRenderableColumn(columnName) && typeof stat === "string" && stat.length > 0)
+    .map(([columnName, stat]) => ({
+      attributeName: columnName,
+      attributeType: attributeTypeFromStats(stat),
+    }));
+  return schema.length > 0 ? schema : undefined;
+}
+
+function schemaFromRows(rows: Record<string, any>[] | undefined): PortSchema | undefined {
+  if (!rows || rows.length === 0) return undefined;
+  const columnOrder: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    for (const columnName of Object.keys(row)) {
+      if (!isRenderableColumn(columnName) || seen.has(columnName)) continue;
+      seen.add(columnName);
+      columnOrder.push(columnName);
+    }
+  }
+  if (columnOrder.length === 0) return undefined;
+
+  return columnOrder.map(columnName => ({
+    attributeName: columnName,
+    attributeType: attributeTypeFromRows(rows.map(row => row?.[columnName])),
+  }));
+}
+
+function isRenderableColumn(columnName: string): boolean {
+  return columnName.length > 0 && columnName !== "__row_index__" && columnName !== "__is_visualization__";
+}
+
+function attributeTypeFromStats(stat: string): PortSchema[number]["attributeType"] {
+  const rawType =
+    stat
+      .match(/^\(([^)]+)\):/)?.[1]
+      ?.trim()
+      .toLowerCase() ?? "";
+  if (rawType.includes("bool")) return "boolean";
+  if (rawType.includes("datetime") || rawType.includes("timestamp") || rawType === "date") return "timestamp";
+  if (rawType.includes("int")) return "long";
+  if (
+    rawType.includes("numeric") ||
+    rawType.includes("float") ||
+    rawType.includes("double") ||
+    rawType.includes("decimal")
+  ) {
+    return "double";
+  }
+  if (rawType.includes("binary")) return "binary";
+  return "string";
+}
+
+function attributeTypeFromRows(values: any[]): PortSchema[number]["attributeType"] {
+  const value = values.find(v => v !== null && v !== undefined);
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "bigint") return "long";
+  if (typeof value === "number") return Number.isInteger(value) ? "long" : "double";
+  return "string";
+}
+
+function parseWorkflowPortIndex(portId: string, expectedType: "input" | "output"): number | undefined {
+  const match = portId.match(/^(input|output)-(\d+)$/);
+  if (!match || match[1] !== expectedType) return undefined;
+  return Number.parseInt(match[2], 10);
 }
 
 function formatSchema(schema: PortSchema): string {

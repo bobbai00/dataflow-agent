@@ -692,6 +692,7 @@ export class TexeraAgent {
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
     metricEvidenceGuidance?: boolean;
+    schemaFirstCodeMode?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -759,6 +760,10 @@ export class TexeraAgent {
     ) {
       this.settings.metricEvidenceGuidance = updates.metricEvidenceGuidance;
       promptNeedsRebuild = true;
+    }
+    if (updates.schemaFirstCodeMode !== undefined) {
+      this.settings.schemaFirstCodeMode = updates.schemaFirstCodeMode;
+      // Pure render-time toggle. Read at next assembleContext call.
     }
 
     if (promptNeedsRebuild) {
@@ -830,9 +835,7 @@ export class TexeraAgent {
 
     const lines: string[] = ["Lineage stall hint:"];
     if (targetOp) {
-      lines.push(
-        `- Target \`${operatorId}\` (${targetOp.operatorType}): ${targetOp.customDisplayName || operatorId}`
-      );
+      lines.push(`- Target \`${operatorId}\` (${targetOp.operatorType}): ${targetOp.customDisplayName || operatorId}`);
     }
     if (targetInfo?.error) {
       lines.push(`- Latest target error: ${this.truncateForHint(targetInfo.error, 280)}`);
@@ -846,7 +849,9 @@ export class TexeraAgent {
       );
     }
     if (upstreamIds.length === 0) {
-      lines.push("- No upstream operators are linked to this operator. If it is a loader, change the loading/parsing strategy instead of making another small edit.");
+      lines.push(
+        "- No upstream operators are linked to this operator. If it is a loader, change the loading/parsing strategy instead of making another small edit."
+      );
     } else {
       lines.push("- Upstream lineage snapshot:");
       for (const upstreamId of upstreamIds.slice(0, 8)) {
@@ -856,7 +861,9 @@ export class TexeraAgent {
         lines.push(`  - ... ${upstreamIds.length - 8} more upstream operators omitted`);
       }
     }
-    lines.push("- Required pivot: fix the upstream loader/parser/schema mismatch or create a narrow diagnostic operator before editing the stalled operator again.");
+    lines.push(
+      "- Required pivot: fix the upstream loader/parser/schema mismatch or create a narrow diagnostic operator before editing the stalled operator again."
+    );
 
     return lines.join("\n");
   }

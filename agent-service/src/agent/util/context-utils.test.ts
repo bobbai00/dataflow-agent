@@ -69,7 +69,7 @@ function makeStep(overrides: Partial<ReActStep> & Pick<ReActStep, "id" | "stepId
   };
 }
 
-function makeInfo(opId: string, rows: number, error?: string): OperatorInfo {
+function makeInfo(opId: string, rows: number, error?: string, overrides: Partial<OperatorInfo> = {}): OperatorInfo {
   return {
     operatorID: opId,
     state: error ? "Failed" : "Completed",
@@ -79,6 +79,7 @@ function makeInfo(opId: string, rows: number, error?: string): OperatorInfo {
     totalRowCount: rows,
     result: error ? undefined : Array.from({ length: Math.min(rows, 3) }, (_, i) => ({ id: i + 1, value: `v${i}` })),
     error,
+    ...overrides,
   } as unknown as OperatorInfo;
 }
 
@@ -225,6 +226,161 @@ describe("assembleContext — Latest", () => {
     expect(c).toContain("- CONVERGENCE_GUARD: inspect upstream before editing `filt` again.");
     expect(c).toContain("# Current Dataflow");
     expect(c).not.toContain("# Agent Events");
+  });
+
+  test("CODE mode schemas stay hidden by default and render when schemaFirstCodeMode is on", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "use real columns" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "proc" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+
+    const src = {
+      ...makeOp("src", "DataLoading"),
+      outputPorts: [{ portID: "output-0" }],
+    };
+    const proc = {
+      ...makeOp("proc", "DataProcessing"),
+      inputPorts: [{ portID: "input-0" }],
+      outputPorts: [{ portID: "output-0" }],
+    };
+    storage.createSnapshot("a", {
+      operators: [src, proc],
+      operatorPositions: {},
+      links: [
+        {
+          linkID: "src-proc",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "proc", portID: "input-0" },
+        },
+      ],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+
+    const compilationResult = {
+      operatorOutputSchemas: {
+        src: { "0_false": [{ attributeName: "city", attributeType: "string" }] },
+        proc: { "0_false": [{ attributeName: "row_count", attributeType: "long" }] },
+      },
+      operatorErrors: {},
+    } as any;
+
+    const codeDefault = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        compilationResult,
+      })
+    );
+    expect(codeDefault).not.toContain("Input Schema");
+    expect(codeDefault).not.toContain("Output Schema");
+
+    const codeSchemaFirst = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        compilationResult,
+        schemaFirstCodeMode: true,
+      })
+    );
+    expect(codeSchemaFirst).toContain("Input Schema (port 0): [city: string]");
+    expect(codeSchemaFirst).toContain("Output Schema: [row_count: long]");
+
+    const generalMode = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        agentMode: AgentMode.GENERAL,
+        compilationResult,
+      })
+    );
+    expect(generalMode).toContain("Input Schema (port 0): [city: string]");
+    expect(generalMode).toContain("Output Schema: [row_count: long]");
+  });
+
+  test("schemaFirstCodeMode derives schemas from result metadata when compiler schemas are empty", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "use typed intermediate tables" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "proc" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+
+    const src = {
+      ...makeOp("src", "DataLoading"),
+      outputPorts: [{ portID: "output-0" }],
+    };
+    const proc = {
+      ...makeOp("proc", "DataProcessing"),
+      inputPorts: [{ portID: "input-0" }],
+      outputPorts: [{ portID: "output-0" }],
+    };
+    storage.createSnapshot("a", {
+      operators: [src, proc],
+      operatorPositions: {},
+      links: [
+        {
+          linkID: "src-proc",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "proc", portID: "input-0" },
+        },
+      ],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "a",
+      "src",
+      makeInfo("src", 1, undefined, {
+        result: [{ __row_index__: 0, city: "Seattle", reports: 12, active: true }],
+        columnStats: {
+          city: "(str): null=0, distinct=1",
+          reports: "(numeric): null=0, mean=12, min=12, max=12",
+          active: "(bool): null=0, true=1, false=0",
+        },
+      })
+    );
+    storage.setOperatorResult(
+      "a",
+      "proc",
+      makeInfo("proc", 1, undefined, {
+        result: [{ __row_index__: 0, row_count: 1 }],
+        columnStats: {
+          row_count: "(numeric): null=0, mean=1, min=1, max=1",
+        },
+      })
+    );
+
+    const compilationResult = {
+      operatorOutputSchemas: {
+        src: { "0_false": [] },
+        proc: { "0_false": [] },
+      },
+      operatorErrors: {},
+    } as any;
+
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        compilationResult,
+        schemaFirstCodeMode: true,
+      })
+    );
+    expect(c).not.toContain("Output Schema: []");
+    expect(c).toContain("Output Schema: [city: string, reports: double, active: boolean]");
+    expect(c).toContain("Input Schema (port 0): [city: string, reports: double, active: boolean]");
+    expect(c).toContain("Output Schema: [row_count: double]");
   });
 
   test("empty path → empty content", () => {
@@ -592,7 +748,7 @@ describe("assembleContext — cross-mode invariants", () => {
  * ========================================================================= */
 
 describe("assembleContext — action line format", () => {
-  test("first createOrModifyOperator call on an op renders as `create operator \"X\"`", () => {
+  test('first createOrModifyOperator call on an op renders as `create operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -635,7 +791,7 @@ describe("assembleContext — action line format", () => {
     expect(cFull).not.toContain("(failed)");
   });
 
-  test("subsequent createOrModifyOperator call on the same op renders as `modify operator \"X\"`", () => {
+  test('subsequent createOrModifyOperator call on the same op renders as `modify operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -667,7 +823,7 @@ describe("assembleContext — action line format", () => {
     expect(c).toContain('- modify operator "src", result: Updated operator src');
   });
 
-  test("deleteOperator renders as `delete operator \"X\"`", () => {
+  test('deleteOperator renders as `delete operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -740,7 +896,7 @@ describe("assembleContext — action line format", () => {
     expect(c).toContain('- delete operator "op"');
   });
 
-  test("non-special tool name falls back to `<toolName> on operator \"X\"`", () => {
+  test('non-special tool name falls back to `<toolName> on operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -927,9 +1083,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     expect(c).toContain("Unmatched type for field 'Unnamed: 2'");
 
     // Downstream gets the skipped marker pointing at the errored upstream.
-    expect(c).toContain(
-      "Result: (skipped — upstream operator `climateMeasurements` errored; see [ERROR] above)"
-    );
+    expect(c).toContain("Result: (skipped — upstream operator `climateMeasurements` errored; see [ERROR] above)");
   });
 
   test("skipped marker walks transitively through ops with no info", () => {
@@ -961,7 +1115,13 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     ]);
     scenario.storage.createSnapshot(
       "t1",
-      makeWorkflow(["A", "B", "C"], [["A", "B"], ["B", "C"]])
+      makeWorkflow(
+        ["A", "B", "C"],
+        [
+          ["A", "B"],
+          ["B", "C"],
+        ]
+      )
     );
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "RuntimeError: bad"));
     // B and C: no info → transitively blocked by A
@@ -1003,7 +1163,13 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     ]);
     scenario.storage.createSnapshot(
       "t1",
-      makeWorkflow(["A", "B", "C"], [["A", "C"], ["B", "C"]])
+      makeWorkflow(
+        ["A", "B", "C"],
+        [
+          ["A", "C"],
+          ["B", "C"],
+        ]
+      )
     );
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
@@ -1015,9 +1181,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
 
     // Both upstreams referenced together (plural "operators"); order
     // tracks the link discovery order.
-    expect(c).toMatch(
-      /Result: \(skipped — upstream operators `A`, `B` errored; see \[ERROR\] above\)/
-    );
+    expect(c).toMatch(/Result: \(skipped — upstream operators `A`, `B` errored; see \[ERROR\] above\)/);
   });
 
   test("no placeholder when upstream ran successfully", () => {
