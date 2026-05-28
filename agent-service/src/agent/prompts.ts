@@ -51,6 +51,7 @@ export interface CodeModePromptOptions {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   maxUnexecutedCodeEdits?: number;
@@ -280,6 +281,34 @@ task-specific delimiter rule.
 - Use the executed profile to decide which component-derived candidate rows
   belong in the candidate-key evidence table. Do not hard-code a delimiter or
   transformation without profile evidence.`;
+
+const OBSERVED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE = `## Observed Component Inventory Contract
+
+Use typed intermediate tables to enumerate observed component structure before
+choosing component-profile or candidate-key rows. This is a data-driven rule
+over label values, not a fixed separator list or task-specific delimiter rule.
+
+- When the current context says \`Observed component inventory contract unsatisfied\`,
+  do not create a component profile, candidate-key evidence table, final
+  entity-level aggregation, or answer yet.
+- First create and execute a compact inventory table over all non-null values
+  in the candidate label column(s). Do not rely only on visible preview rows,
+  and do not limit the scan to familiar separators or hand-picked patterns.
+- The output DataFrame must include these columns exactly:
+  source_column, raw_distinct_count, observed_pattern_id,
+  observed_pattern_kind, observed_token_or_pattern, affected_label_count,
+  affected_label_share, component_distinct_count, split_or_merge_count,
+  example_raw_values, example_component_values, candidate_component_rules,
+  coverage_rank, rationale.
+- Include one row per observed structure family that could change entity
+  grain: repeated literal tokens, symbolic separators, bracketed or affixed
+  components, before/after components, numeric or coded suffixes, and other
+  recurring parse boundaries discovered from the data. The token or pattern
+  value belongs in the table as observed evidence; it should not be assumed in
+  advance.
+- Use this inventory as the source of truth for the later component profile
+  and candidate-key evidence rows. If a candidate key is not supported by an
+  inventory row, do not include it merely because it is a common heuristic.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -633,6 +662,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
   if (options.keyGrainEvidenceContract) sections.push(KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE);
   if (options.labelComponentProfileContract) sections.push(LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE);
+  if (options.observedComponentInventoryContract) sections.push(OBSERVED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {

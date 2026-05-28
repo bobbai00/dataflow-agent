@@ -107,6 +107,10 @@ export interface AssembleContextOptions {
    *  ambiguous high-cardinality labels are visible and no executed component
    *  profile table with the required schema is visible. Off by default. */
   labelComponentProfileContract?: boolean;
+  /** Render a LATEST-mode observed component inventory contract notice when
+   *  ambiguous high-cardinality labels are visible and no executed inventory
+   *  table enumerates observed component/separator structure. Off by default. */
+  observedComponentInventoryContract?: boolean;
   /** Render a LATEST-mode candidate-selection impact contract notice after
    *  candidate-key evidence exists but no executed impact table compares those
    *  candidates against the downstream entity predicate or final measure. Off
@@ -166,6 +170,11 @@ const LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE = [
   "Before selecting a final entity key, compute an all-value component profile over candidate label columns and use it to add observed component-derived key candidates.",
 ].join(" ");
 
+const OBSERVED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE = [
+  "Observed component inventory contract: component-derived key candidates should come from observed label structure, not a fixed guessed pattern list.",
+  "Before component profiling or key selection, enumerate observed component/separator patterns over all non-null candidate label values in an executed inventory table.",
+].join(" ");
+
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE = [
   "Candidate-selection impact contract: a selected entity key remains provisional until candidate keys are compared against the downstream entity-level predicate or final measure.",
   "Use an executed impact table to show entity counts, qualifying/disqualifying counts, final metric values, and exactly one selected candidate before final aggregation.",
@@ -208,6 +217,22 @@ const LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS = [
   "sample_raw_values",
   "sample_raw_to_component_groups",
   "candidate_key_rows_to_compare",
+  "rationale",
+];
+const OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS = [
+  "source_column",
+  "raw_distinct_count",
+  "observed_pattern_id",
+  "observed_pattern_kind",
+  "observed_token_or_pattern",
+  "affected_label_count",
+  "affected_label_share",
+  "component_distinct_count",
+  "split_or_merge_count",
+  "example_raw_values",
+  "example_component_values",
+  "candidate_component_rules",
+  "coverage_rank",
   "rationale",
 ];
 const CANDIDATE_SELECTION_IMPACT_REQUIRED_COLUMNS = [
@@ -634,9 +659,25 @@ function renderLatest(
     sections.push(latestUserContent);
     sections.push("");
   }
+  const observedInventoryBlockingProfile =
+    Boolean(options.observedComponentInventoryContract) &&
+    isObservedComponentInventoryContractUnsatisfied(leafSnapshot);
+  const labelProfileBlockingKey =
+    !observedInventoryBlockingProfile &&
+    Boolean(options.observedComponentInventoryContract) &&
+    Boolean(options.labelComponentProfileContract) &&
+    isLabelComponentProfileContractUnsatisfied(leafSnapshot);
+
   const dynamicNotices = [
-    options.labelComponentProfileContract ? buildLabelComponentProfileContractNotice(leafSnapshot) : undefined,
-    options.keyGrainEvidenceContract ? buildKeyGrainEvidenceContractNotice(leafSnapshot) : undefined,
+    options.observedComponentInventoryContract
+      ? buildObservedComponentInventoryContractNotice(leafSnapshot)
+      : undefined,
+    options.labelComponentProfileContract && !observedInventoryBlockingProfile
+      ? buildLabelComponentProfileContractNotice(leafSnapshot)
+      : undefined,
+    options.keyGrainEvidenceContract && !observedInventoryBlockingProfile && !labelProfileBlockingKey
+      ? buildKeyGrainEvidenceContractNotice(leafSnapshot)
+      : undefined,
     options.candidateSelectionImpactContract ? buildCandidateSelectionImpactContractNotice(leafSnapshot) : undefined,
   ].filter((notice): notice is string => typeof notice === "string" && notice.length > 0);
   appendContextNotices(sections, options, dynamicNotices);
@@ -676,6 +717,7 @@ function appendContextNotices(
     ...(options.keyGrainComparisonGuidance ? [KEY_GRAIN_COMPARISON_CONTEXT_NOTICE] : []),
     ...(options.keyGrainEvidenceContract ? [KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.labelComponentProfileContract ? [LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE] : []),
+    ...(options.observedComponentInventoryContract ? [OBSERVED_COMPONENT_INVENTORY_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.candidateSelectionImpactContract ? [CANDIDATE_SELECTION_IMPACT_CONTRACT_CONTEXT_NOTICE] : []),
     ...dynamicNotices,
     ...(options.contextNotices ?? []),
@@ -1501,8 +1543,89 @@ interface LabelComponentProfileSource {
   candidates: ComponentGrainCandidate[];
 }
 
+interface ObservedComponentInventorySource {
+  operatorId: string;
+  candidates: ComponentGrainCandidate[];
+}
+
 interface CandidateSelectionImpactSource {
   operatorId: string;
+}
+
+function isObservedComponentInventoryContractUnsatisfied(snapshot: SnapshotData): boolean {
+  return (
+    findObservedComponentInventorySources(snapshot).length > 0 && !findObservedComponentInventoryEvidence(snapshot)
+  );
+}
+
+function buildObservedComponentInventoryContractNotice(snapshot: SnapshotData): string | undefined {
+  const sources = findObservedComponentInventorySources(snapshot);
+  if (sources.length === 0) return undefined;
+
+  const evidence = findObservedComponentInventoryEvidence(snapshot);
+  if (evidence) {
+    return [
+      `Observed component inventory contract satisfied by operator \`${evidence.operatorId}\` with required observed-inventory columns.`,
+      "Component profiles and candidate-key evidence should use inventory rows as the source of observed component-derived candidates.",
+    ].join(" ");
+  }
+
+  const sourceText = sources
+    .slice(0, LABEL_COMPONENT_PROFILE_MAX_SOURCES)
+    .map(source => {
+      const candidateText = source.candidates
+        .slice(0, COMPONENT_GRAIN_MAX_HINT_COLUMNS)
+        .map(c => {
+          const pieces = [`${JSON.stringify(c.columnName)} distinct=${c.distinct}`];
+          if (c.signals.length > 0) pieces.push(`signals=${formatValueList(c.signals, 3)}`);
+          return pieces.join("; ");
+        })
+        .join(", ");
+      return `\`${source.operatorId}\`: ${candidateText}`;
+    })
+    .join(" | ");
+
+  return [
+    `Observed component inventory contract unsatisfied: ambiguous high-cardinality entity-label grains are visible (${sourceText}) but no executed inventory table enumerates observed component/separator structure.`,
+    "Before component profiling, candidate-key evidence, final entity-level aggregation, or answer, create and execute a compact inventory table over all non-null values in the candidate label columns.",
+    `Required columns: ${OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS.join(", ")}.`,
+    "Include one row per observed structure family that could change entity grain; store the observed token or pattern as data, and derive later candidate component rules from these rows.",
+    "Do not limit the inventory to familiar patterns or visible preview rows.",
+  ].join(" ");
+}
+
+function findObservedComponentInventorySources(snapshot: SnapshotData): ObservedComponentInventorySource[] {
+  const sources: ObservedComponentInventorySource[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (
+      !info ||
+      info.error ||
+      isObservedComponentInventoryEvidence(info) ||
+      isLabelComponentProfileEvidence(info) ||
+      isKeyGrainContractEvidence(info) ||
+      isCandidateSelectionImpactEvidence(info)
+    ) {
+      continue;
+    }
+    const candidates = findComponentGrainCandidates(info);
+    if (candidates.length > 0) sources.push({ operatorId, candidates });
+  }
+  return sources;
+}
+
+function findObservedComponentInventoryEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (info && !info.error && isObservedComponentInventoryEvidence(info)) return { operatorId };
+  }
+  return undefined;
+}
+
+function isObservedComponentInventoryEvidence(info: OperatorInfo): boolean {
+  const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
+  if (normalizedColumns.size === 0) return false;
+  return OBSERVED_COMPONENT_INVENTORY_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
 }
 
 function buildCandidateSelectionImpactContractNotice(snapshot: SnapshotData): string | undefined {
@@ -1591,6 +1714,10 @@ function buildLabelComponentProfileContractNotice(snapshot: SnapshotData): strin
   ].join(" ");
 }
 
+function isLabelComponentProfileContractUnsatisfied(snapshot: SnapshotData): boolean {
+  return findLabelComponentProfileSources(snapshot).length > 0 && !findLabelComponentProfileEvidence(snapshot);
+}
+
 function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponentProfileSource[] {
   const sources: LabelComponentProfileSource[] = [];
   for (const [operatorId, entry] of snapshot.results) {
@@ -1598,6 +1725,7 @@ function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponen
     if (
       !info ||
       info.error ||
+      isObservedComponentInventoryEvidence(info) ||
       isLabelComponentProfileEvidence(info) ||
       isKeyGrainContractEvidence(info) ||
       isCandidateSelectionImpactEvidence(info)
@@ -1662,6 +1790,7 @@ function findKeyGrainContractSources(snapshot: SnapshotData): KeyGrainContractSo
     if (
       !info ||
       info.error ||
+      isObservedComponentInventoryEvidence(info) ||
       isKeyGrainContractEvidence(info) ||
       isLabelComponentProfileEvidence(info) ||
       isCandidateSelectionImpactEvidence(info)

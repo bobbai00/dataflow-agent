@@ -215,6 +215,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("visible preview rows");
   });
 
+  test("observed component inventory contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Observed Component Inventory Contract");
+
+    agent.updateSettings({ observedComponentInventoryContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Observed Component Inventory Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Observed component inventory contract unsatisfied");
+    expect(agent.getSystemInfo().systemPrompt).toContain("observed_pattern_id");
+    expect(agent.getSystemInfo().systemPrompt).toContain("observed_token_or_pattern");
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

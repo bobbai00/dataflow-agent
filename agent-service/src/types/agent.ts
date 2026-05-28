@@ -252,6 +252,14 @@ export interface AgentSettings {
    */
   labelComponentProfileContract: boolean;
   /**
+   * When true, LATEST context requires a data-driven inventory of observed
+   * component/separator structure before component-profile or candidate-key
+   * evidence is finalized. This asks the agent to enumerate observed label
+   * patterns from typed data instead of guessing a fixed candidate list. Off by
+   * default for baseline reproducibility.
+   */
+  observedComponentInventoryContract: boolean;
+  /**
    * When true, LATEST context treats the selected entity key as provisional
    * until an executed impact table compares candidate keys against the
    * downstream entity-level predicate or final measure. This uses typed
@@ -325,6 +333,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   keyGrainComparisonGuidance: false,
   keyGrainEvidenceContract: false,
   labelComponentProfileContract: false,
+  observedComponentInventoryContract: false,
   candidateSelectionImpactContract: false,
   executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
@@ -390,6 +399,7 @@ export interface AgentSettingsApi {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
@@ -449,6 +459,7 @@ export interface UpdateAgentSettingsRequest {
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
+  observedComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;

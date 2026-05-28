@@ -220,6 +220,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainComparisonGuidance: true,
       keyGrainEvidenceContract: true,
       labelComponentProfileContract: true,
+      observedComponentInventoryContract: true,
       candidateSelectionImpactContract: true,
       executionSafeOperatorIds: true,
       fallbackContractGuidance: true,
@@ -243,6 +244,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainComparisonGuidance: boolean;
       keyGrainEvidenceContract: boolean;
       labelComponentProfileContract: boolean;
+      observedComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
       executionSafeOperatorIds: boolean;
       fallbackContractGuidance: boolean;
@@ -264,6 +266,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.keyGrainComparisonGuidance).toBe(true);
     expect(body.keyGrainEvidenceContract).toBe(true);
     expect(body.labelComponentProfileContract).toBe(true);
+    expect(body.observedComponentInventoryContract).toBe(true);
     expect(body.candidateSelectionImpactContract).toBe(true);
     expect(body.executionSafeOperatorIds).toBe(true);
     expect(body.fallbackContractGuidance).toBe(true);
@@ -288,6 +291,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainComparisonGuidance: boolean;
       keyGrainEvidenceContract: boolean;
       labelComponentProfileContract: boolean;
+      observedComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
       executionSafeOperatorIds: boolean;
       fallbackContractGuidance: boolean;
@@ -310,6 +314,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.keyGrainComparisonGuidance).toBe(true);
     expect(reread.keyGrainEvidenceContract).toBe(true);
     expect(reread.labelComponentProfileContract).toBe(true);
+    expect(reread.observedComponentInventoryContract).toBe(true);
     expect(reread.candidateSelectionImpactContract).toBe(true);
     expect(reread.executionSafeOperatorIds).toBe(true);
     expect(reread.fallbackContractGuidance).toBe(true);

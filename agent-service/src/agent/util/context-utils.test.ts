@@ -1279,6 +1279,125 @@ describe("assembleContext — Latest", () => {
     expect(satisfiedContext).not.toContain("Label-component profile contract unsatisfied");
   });
 
+  test("observedComponentInventoryContract renders staged LATEST notices before profile/key contracts", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "labels" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["labels"]));
+    storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove :: Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove :: Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Observed component inventory contract unsatisfied");
+
+    const unsatisfiedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        labelComponentProfileContract: true,
+        keyGrainEvidenceContract: true,
+      })
+    );
+    expect(unsatisfiedContext).toContain("# Agent Guidance");
+    expect(unsatisfiedContext).toContain("Observed component inventory contract:");
+    expect(unsatisfiedContext).toContain("Observed component inventory contract unsatisfied");
+    expect(unsatisfiedContext).toContain('`labels`: "Site Label" distinct=250');
+    expect(unsatisfiedContext).toContain("observed_pattern_id");
+    expect(unsatisfiedContext).toContain("observed_token_or_pattern");
+    expect(unsatisfiedContext).not.toContain("Label-component profile contract unsatisfied");
+    expect(unsatisfiedContext).not.toContain("Key-grain evidence contract unsatisfied");
+
+    const satisfied = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentInventory" } },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    satisfied.storage.createSnapshot("a", makeWorkflow(["labels", "componentInventory"]));
+    satisfied.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove :: Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove :: Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+    satisfied.storage.setOperatorResult(
+      "a",
+      "componentInventory",
+      makeInfo("componentInventory", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            observed_pattern_id: "literal_token_1",
+            observed_pattern_kind: "repeated literal token",
+            observed_token_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            split_or_merge_count: 12,
+            example_raw_values: "North Cove :: Pier A",
+            example_component_values: "North Cove",
+            candidate_component_rules: "take text before observed token",
+            coverage_rank: 1,
+            rationale: "recurring observed boundary changes candidate entity grain",
+          },
+        ],
+      })
+    );
+
+    const satisfiedContext = content(
+      assembleContext(satisfied.steps, satisfied.workflowState, satisfied.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        labelComponentProfileContract: true,
+        keyGrainEvidenceContract: true,
+      })
+    );
+    expect(satisfiedContext).toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+    expect(satisfiedContext).toContain("Label-component profile contract unsatisfied");
+    expect(satisfiedContext).not.toContain("Observed component inventory contract unsatisfied");
+    expect(satisfiedContext).not.toContain("Key-grain evidence contract unsatisfied");
+  });
+
   test("candidateSelectionImpactContract renders unsatisfied and satisfied LATEST notices", () => {
     const scenario = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },
