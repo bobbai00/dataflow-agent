@@ -916,6 +916,52 @@ describe("assembleContext — Latest", () => {
     expect(hintedContext).toContain("row-count evidence");
   });
 
+  test("entityKeyHygieneGuidance renders high-cardinality string-key hints only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "entities" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["entities"]));
+    storage.setOperatorResult(
+      "a",
+      "entities",
+      makeInfo("entities", 5_000, undefined, {
+        columnStats: {
+          entity_label: "(str): null=0, distinct=250",
+          low_cardinality_group: "(str): null=0, distinct=3, top_10={A=3000, B=2000}",
+          amount: "(numeric): null=0, distinct=200",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Entity Key Hygiene Hint:");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        entityKeyHygieneGuidance: true,
+      })
+    );
+    expect(hintedContext).toContain("# Agent Guidance");
+    expect(hintedContext).toContain("Entity-key hygiene:");
+    expect(hintedContext).toContain("Entity Key Hygiene Hint:");
+    expect(hintedContext).toContain('"entity_label" distinct=250');
+    expect(hintedContext).not.toContain("low_cardinality_group");
+    expect(hintedContext).not.toContain("amount");
+    expect(hintedContext).toContain("raw distinct count");
+    expect(hintedContext).toContain("normalized distinct count");
+    expect(hintedContext).toContain("sample collision groups");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

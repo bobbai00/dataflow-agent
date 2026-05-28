@@ -151,6 +151,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("## Cardinality Pressure");
     expect(agent.getSystemInfo().systemPrompt).toContain("task-required row grain");
   });
+
+  test("entity key hygiene guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Entity Key Hygiene");
+
+    agent.updateSettings({ entityKeyHygieneGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Entity Key Hygiene");
+    expect(agent.getSystemInfo().systemPrompt).toContain("raw distinct count");
+    expect(agent.getSystemInfo().systemPrompt).toContain("sample collision groups");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

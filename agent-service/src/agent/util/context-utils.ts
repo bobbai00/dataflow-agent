@@ -87,6 +87,10 @@ export interface AssembleContextOptions {
   /** Render compact cardinality-pressure hints next to large/wide successful
    *  intermediate results. Off by default. */
   cardinalityPressureGuidance?: boolean;
+  /** Render compact key-hygiene hints next to high-cardinality string columns
+   *  that may become grouping/joining/deduplication/distinct-count keys. Off
+   *  by default. */
+  entityKeyHygieneGuidance?: boolean;
 }
 
 /**
@@ -116,8 +120,15 @@ const CARDINALITY_PRESSURE_CONTEXT_NOTICE = [
   "Before expensive row-wise calls, all-pairs joins, simulations, or full-table loops, reduce to the task-required row grain or add a bounded probe with row-count evidence.",
 ].join(" ");
 
+const ENTITY_KEY_HYGIENE_CONTEXT_NOTICE = [
+  "Entity-key hygiene: high-cardinality string columns may carry label variants.",
+  "Before grouping, joining, deduplicating, or counting distinct entities on raw labels, add compact evidence for raw vs normalized keys and variant/collision checks.",
+].join(" ");
+
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
 const WIDE_COLUMN_COUNT_THRESHOLD = 100;
+const ENTITY_KEY_MIN_DISTINCT = 20;
+const ENTITY_KEY_MAX_HINT_COLUMNS = 4;
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -551,6 +562,7 @@ function appendContextNotices(sections: string[], options: AssembleContextOption
     ...(options.metricEvidenceGuidance ? [METRIC_EVIDENCE_CONTEXT_NOTICE] : []),
     ...(options.fallbackContractGuidance ? [FALLBACK_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.cardinalityPressureGuidance ? [CARDINALITY_PRESSURE_CONTEXT_NOTICE] : []),
+    ...(options.entityKeyHygieneGuidance ? [ENTITY_KEY_HYGIENE_CONTEXT_NOTICE] : []),
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -961,6 +973,12 @@ function serializeOperatorFull(
     for (const l of cardinalityPressureHint.split("\n")) lines.push("  " + l);
   }
 
+  const entityKeyHygieneHint = options.entityKeyHygieneGuidance ? buildEntityKeyHygieneHint(info) : undefined;
+  if (entityKeyHygieneHint) {
+    lines.push("Entity Key Hygiene Hint:");
+    for (const l of entityKeyHygieneHint.split("\n")) lines.push("  " + l);
+  }
+
   const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
   if (fallbackContractHint) {
     lines.push("Fallback Contract Hint:");
@@ -1102,6 +1120,11 @@ function serializeOperatorContextDigest(
     lines.push("Cardinality Pressure Hint:");
     for (const l of cardinalityPressureHint.split("\n")) lines.push("  " + l);
   }
+  const entityKeyHygieneHint = options.entityKeyHygieneGuidance ? buildEntityKeyHygieneHint(info) : undefined;
+  if (entityKeyHygieneHint) {
+    lines.push("Entity Key Hygiene Hint:");
+    for (const l of entityKeyHygieneHint.split("\n")) lines.push("  " + l);
+  }
   return lines.join("\n");
 }
 
@@ -1183,6 +1206,68 @@ function buildCardinalityPressureHint(info: OperatorInfo | undefined): string | 
     "Next action should keep row-count evidence visible: upstream rows, filtered/probed rows, key/date/group coverage, and the condition that makes full execution necessary."
   );
   return lines.join("\n");
+}
+
+interface EntityKeyCandidate {
+  columnName: string;
+  distinct: number;
+}
+
+function buildEntityKeyHygieneHint(info: OperatorInfo | undefined): string | undefined {
+  if (!info || info.error) return undefined;
+
+  const candidates = findEntityKeyCandidates(info);
+  if (candidates.length === 0) return undefined;
+
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const rowText = Number.isFinite(rowCount) ? ` over ${rowCount} rows` : "";
+  const candidateText = candidates
+    .slice(0, ENTITY_KEY_MAX_HINT_COLUMNS)
+    .map(c => `${JSON.stringify(c.columnName)} distinct=${c.distinct}`)
+    .join(", ");
+
+  const lines = [`Detected high-cardinality string key candidates${rowText}: ${candidateText}.`];
+  lines.push(
+    "Before grouping, joining, deduplicating, or counting distinct entities on raw string labels, create compact key-hygiene evidence."
+  );
+  lines.push(
+    "Evidence should include raw distinct count, normalized distinct count, null/blank counts, variant signals (case/whitespace/punctuation/delimiters), and sample collision groups if normalization merges labels."
+  );
+  lines.push(
+    "Only apply normalization when the evidence shows raw labels are variants of the same entity; otherwise preserve raw keys and record why."
+  );
+  return lines.join("\n");
+}
+
+function findEntityKeyCandidates(info: OperatorInfo): EntityKeyCandidate[] {
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const candidates: EntityKeyCandidate[] = [];
+
+  for (const [columnName, stat] of Object.entries(info.columnStats ?? {})) {
+    if (!isRenderableColumn(columnName) || !isStringColumnStat(stat)) continue;
+    const distinct = parseColumnStatNumber(stat, "distinct");
+    if (!Number.isFinite(distinct) || distinct < ENTITY_KEY_MIN_DISTINCT) continue;
+    if (Number.isFinite(rowCount) && distinct > rowCount) continue;
+    candidates.push({ columnName, distinct });
+  }
+
+  candidates.sort((a, b) => b.distinct - a.distinct || a.columnName.localeCompare(b.columnName));
+  return candidates;
+}
+
+function isStringColumnStat(stat: string | undefined): boolean {
+  if (!stat) return false;
+  const rawType = stat
+    .match(/^\(([^)]+)\):/)?.[1]
+    ?.trim()
+    .toLowerCase();
+  if (!rawType) return false;
+  return rawType.includes("str") || rawType.includes("string") || rawType.includes("object");
+}
+
+function parseColumnStatNumber(stat: string, key: string): number {
+  const match = stat.match(new RegExp(`(?:^|[\\s,{])"?${key}"?\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)`, "i"));
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 /**

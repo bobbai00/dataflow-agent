@@ -206,6 +206,14 @@ export interface AgentSettings {
    */
   cardinalityPressureGuidance: boolean;
   /**
+   * When true, render prompt/context hints for high-cardinality string columns
+   * that may be used as entity keys in grouping, joining, deduplication, or
+   * distinct counts. The hint asks the agent to create compact key-hygiene
+   * evidence before finalizing on raw labels. Off by default for baseline
+   * reproducibility.
+   */
+  entityKeyHygieneGuidance: boolean;
+  /**
    * When true, append CODE-mode guidance and context hints for dependency or
    * runtime-capability failures. The model must preserve the task's semantic
    * contract instead of answering from an unvalidated surrogate. Off by default
@@ -257,6 +265,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   rawLoaderProvenance: false,
   boundedExecutionGuidance: false,
   cardinalityPressureGuidance: false,
+  entityKeyHygieneGuidance: false,
   fallbackContractGuidance: false,
 };
 
@@ -314,6 +323,7 @@ export interface AgentSettingsApi {
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
+  entityKeyHygieneGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }
 
@@ -365,5 +375,6 @@ export interface UpdateAgentSettingsRequest {
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
+  entityKeyHygieneGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }

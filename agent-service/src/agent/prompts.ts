@@ -46,6 +46,7 @@ export interface CodeModePromptOptions {
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
+  entityKeyHygieneGuidance?: boolean;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -165,6 +166,23 @@ Use operator result shapes as execution-planning evidence.
   checks, and the reason a smaller row grain would not preserve the request.
 - Prefer a dataflow operator that records row-count evidence over a prose-only
   plan, because LATEST context only audits ordinary operator outputs.`;
+
+const ENTITY_KEY_HYGIENE_GUIDANCE = `## Entity Key Hygiene
+
+Use high-cardinality string columns as data-quality evidence before grouping,
+joining, deduplicating, or counting distinct entities.
+
+- When a current or upstream operator shows an \`Entity Key Hygiene Hint\`, do
+  not finalize entity-level results from raw string labels alone.
+- First create compact evidence for any candidate entity key you plan to use:
+  raw distinct count, normalized distinct count, null/blank counts, and variant
+  signals such as case, whitespace, punctuation, delimiter suffixes, prefixes,
+  or other structured labels discovered from the data.
+- Include sample collision groups when normalization merges raw labels, and
+  keep enough columns to audit whether merged labels are variants of one entity
+  or genuinely different entities.
+- Only apply a normalization when DataFrame evidence supports it. If raw labels
+  must be preserved, record that decision as output evidence before finalizing.`;
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -455,6 +473,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
   if (options.boundedExecutionGuidance) sections.push(BOUNDED_EXECUTION_GUIDANCE);
   if (options.cardinalityPressureGuidance) sections.push(CARDINALITY_PRESSURE_GUIDANCE);
+  if (options.entityKeyHygieneGuidance) sections.push(ENTITY_KEY_HYGIENE_GUIDANCE);
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
