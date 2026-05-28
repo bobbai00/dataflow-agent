@@ -260,6 +260,13 @@ export interface AgentSettings {
    */
   observedComponentInventoryContract: boolean;
   /**
+   * When true, observed component inventory evidence must include explicit
+   * data-discovery columns for candidate tokens/transforms, not just a
+   * schema-compatible list of familiar patterns. Off by default for baseline
+   * reproducibility.
+   */
+  dataDiscoveredComponentInventoryContract: boolean;
+  /**
    * When true, LATEST context treats the selected entity key as provisional
    * until an executed impact table compares candidate keys against the
    * downstream entity-level predicate or final measure. This uses typed
@@ -342,6 +349,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   keyGrainEvidenceContract: false,
   labelComponentProfileContract: false,
   observedComponentInventoryContract: false,
+  dataDiscoveredComponentInventoryContract: false,
   candidateSelectionImpactContract: false,
   evidenceDependencyGate: false,
   executionSafeOperatorIds: false,
@@ -409,6 +417,7 @@ export interface AgentSettingsApi {
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
+  dataDiscoveredComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -470,6 +479,7 @@ export interface UpdateAgentSettingsRequest {
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
+  dataDiscoveredComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;

@@ -411,13 +411,14 @@ function noReturnErrorMessage(fnName: string): string {
 }
 
 /**
- * Validate operator code against the "every function returns a DataFrame,
+ * Validate operator code against the "operator entrypoint returns a DataFrame,
  * prefer to avoid bare print()" contract. Two checks:
  *
- *   1. (hard) At least one of the function definitions inside the snippet
- *      must contain a `return <expr>` (not a bare `return`). A function that
- *      falls through returns None, which the runtime serializes as
- *      "no result data" — rejecting here prevents that dead operator.
+ *   1. (hard) The parsed operator entrypoint (`load` or `process`) must contain
+ *      a `return <expr>` (not a bare `return`). A function that falls through
+ *      returns None, which the runtime serializes as "no result data" —
+ *      rejecting here prevents that dead operator. Helper functions inside the
+ *      entrypoint may mutate local state and need not return a DataFrame.
  *   2. (soft) A `print(` token anywhere in real code (string/comment
  *      occurrences are stripped first) downgrades to a warning. The operator
  *      is still added/executed, but the result string is prefixed with
@@ -436,10 +437,10 @@ function noReturnErrorMessage(fnName: string): string {
  * `createCreateOrModifyOperatorTool`, so a hard-error operator never lands
  * in the workflow.
  */
-async function validateOperatorContract(code: string): Promise<ContractResult> {
-  const pyResult = await runPythonContractCheck(code);
+async function validateOperatorContract(code: string, entrypointName?: string): Promise<ContractResult> {
+  const pyResult = await runPythonContractCheck(code, entrypointName);
   if (pyResult !== "PYTHON_UNAVAILABLE") return pyResult;
-  return regexContractCheck(code);
+  return regexContractCheck(code, entrypointName);
 }
 
 /** Exposed for unit tests — exercises the no-Python regex fallback path. */
@@ -451,29 +452,49 @@ export const __forTesting = {
   formatNoOpWarning,
 };
 
-async function runPythonContractCheck(code: string): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
+async function runPythonContractCheck(
+  code: string,
+  entrypointName?: string
+): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
   const { spawn } = await import("child_process");
+  const entrypointLiteral = JSON.stringify(entrypointName ?? "");
   return new Promise(resolve => {
     const pythonCode = `
 import ast, sys
 src = '''${code.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'''
+entrypoint_name = ${entrypointLiteral}
 try:
     tree = ast.parse(src)
 except SyntaxError:
     sys.exit(0)
-# Hard check first: any function missing a value-returning return is a
-# blocker. The print check is moot if the operator is broken anyway.
-funcs = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+# Hard check first: the top-level operator entrypoint must return a value.
+# Nested helper functions are implementation details and need not return.
+funcs = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+target = None
 for fn in funcs:
-    has_value_return = False
-    for sub in ast.walk(fn):
-        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub is not fn:
-            continue
-        if isinstance(sub, ast.Return) and sub.value is not None:
-            has_value_return = True
+    if entrypoint_name:
+        if fn.name == entrypoint_name:
+            target = fn
             break
-    if not has_value_return:
-        sys.stdout.write('NO_RETURN:' + fn.name)
+    else:
+        target = fn
+        break
+if target is not None:
+    class ReturnVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.has_value_return = False
+        def visit_FunctionDef(self, node):
+            return
+        def visit_AsyncFunctionDef(self, node):
+            return
+        def visit_Return(self, node):
+            if node.value is not None:
+                self.has_value_return = True
+    visitor = ReturnVisitor()
+    for stmt in target.body:
+        visitor.visit(stmt)
+    if not visitor.has_value_return:
+        sys.stdout.write('NO_RETURN:' + target.name)
         sys.exit(3)
 # Soft check: any print() call → warning.
 for n in ast.walk(tree):
@@ -512,11 +533,11 @@ sys.exit(0)
   });
 }
 
-function regexContractCheck(code: string): ContractResult {
+function regexContractCheck(code: string, entrypointName?: string): ContractResult {
   const stripped = stripPythonCommentsAndStrings(code);
-  // Hard check first: any function without a value-returning return is a
-  // blocker. We walk function headers line-by-line with indentation tracking;
-  // this approximation works for the well-formed snippets the agent emits.
+  // Hard check first: the operator entrypoint must return a value. We walk
+  // function headers line-by-line with indentation tracking; this approximation
+  // works for the well-formed snippets the agent emits.
   const lines = stripped.split("\n");
   const funcHeader = /^(\s*)def\s+(\w+)\s*\(/;
   for (let i = 0; i < lines.length; i++) {
@@ -524,12 +545,30 @@ function regexContractCheck(code: string): ContractResult {
     if (!m) continue;
     const indent = m[1].length;
     const fnName = m[2];
+    if (entrypointName && fnName !== entrypointName) continue;
     let hasValueReturn = false;
     for (let j = i + 1; j < lines.length; j++) {
       const l = lines[j];
       if (l.trim() === "") continue;
       const leadSpaces = l.match(/^\s*/)![0].length;
       if (leadSpaces <= indent) break; // function body ended
+      const nestedFn = funcHeader.exec(l);
+      if (nestedFn && leadSpaces > indent) {
+        const nestedIndent = leadSpaces;
+        j++;
+        while (j < lines.length) {
+          const nestedLine = lines[j];
+          if (nestedLine.trim() !== "") {
+            const nestedLeadSpaces = nestedLine.match(/^\s*/)![0].length;
+            if (nestedLeadSpaces <= nestedIndent) {
+              j--;
+              break;
+            }
+          }
+          j++;
+        }
+        continue;
+      }
       const returnMatch = /^\s*return(\b)(.*)$/.exec(l);
       if (returnMatch && returnMatch[2].trim().length > 0) {
         hasValueReturn = true;
@@ -539,6 +578,7 @@ function regexContractCheck(code: string): ContractResult {
     if (!hasValueReturn) {
       return { kind: "error", message: noReturnErrorMessage(fnName) };
     }
+    break;
   }
   // Soft check: print(...) → warning.
   if (/\bprint\s*\(/.test(stripped)) {
@@ -694,7 +734,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         // bare prints" contract BEFORE any state mutation. A hard error never
         // touches the workflow; a warning lets the operator land but is
         // prepended to the success message so the agent learns to remove it.
-        const contract = await validateOperatorContract(code);
+        const contract = await validateOperatorContract(code, parseResult.functionName);
         if (contract?.kind === "error") {
           return createErrorResult(contract.message);
         }

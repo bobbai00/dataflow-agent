@@ -52,6 +52,7 @@ export interface CodeModePromptOptions {
   keyGrainEvidenceContract?: boolean;
   labelComponentProfileContract?: boolean;
   observedComponentInventoryContract?: boolean;
+  dataDiscoveredComponentInventoryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -310,6 +311,26 @@ over label values, not a fixed separator list or task-specific delimiter rule.
 - Use this inventory as the source of truth for the later component profile
   and candidate-key evidence rows. If a candidate key is not supported by an
   inventory row, do not include it merely because it is a common heuristic.`;
+
+const DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE = `## Data-Discovered Component Inventory Contract
+
+Strengthen observed component inventory by proving candidate tokens and
+transforms were discovered from the actual upstream values.
+
+- When this contract is enabled, a base inventory table is not sufficient unless
+  it also includes these columns exactly:
+  discovery_method, candidate_token, token_frequency, token_coverage_share,
+  candidate_transform, impact_probe_required.
+- Populate candidate_token from observed value scans: recurring punctuation,
+  repeated multi-character tokens, bracketed/affixed boundaries, numeric/coded
+  suffixes, or other tokens/patterns found in the data. Do not preselect a
+  fixed pattern list and stop there.
+- candidate_transform must describe the candidate key derivation created from
+  that observed row, and impact_probe_required should be true when the row could
+  merge or split entity labels used by a downstream grouping, join,
+  deduplication, distinct count, predicate, or final measure.
+- Later candidate-key evidence should consume these rows through the DAG and
+  compare only data-supported component candidates.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -683,6 +704,9 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.keyGrainEvidenceContract) sections.push(KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE);
   if (options.labelComponentProfileContract) sections.push(LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE);
   if (options.observedComponentInventoryContract) sections.push(OBSERVED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
+  if (options.dataDiscoveredComponentInventoryContract) {
+    sections.push(DATA_DISCOVERED_COMPONENT_INVENTORY_CONTRACT_GUIDANCE);
+  }
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);

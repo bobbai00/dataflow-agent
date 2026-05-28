@@ -192,6 +192,33 @@ describe("regexContractCheck — requires a value-returning return", () => {
     )`);
     expect(res).toBeNull();
   });
+
+  test("accepts nested helpers without DataFrame returns when the entrypoint returns", () => {
+    const res = regexContractCheck(
+      `def process(df):
+    rows = []
+    def add_row(value):
+        rows.append({"value": value})
+    for value in df["x"]:
+        add_row(value)
+    return pd.DataFrame(rows)`,
+      "process"
+    );
+    expect(res).toBeNull();
+  });
+
+  test("does not let a nested helper return satisfy a missing entrypoint return", () => {
+    const res = regexContractCheck(
+      `def process(df):
+    def helper():
+        return df.head(1)
+    helper()`,
+      "process"
+    );
+    expect(res).not.toBeNull();
+    expect(res!.kind).toBe("error");
+    expect(res!.message).toContain("`process`");
+  });
 });
 
 /* ============================================================================

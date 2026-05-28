@@ -221,6 +221,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainEvidenceContract: true,
       labelComponentProfileContract: true,
       observedComponentInventoryContract: true,
+      dataDiscoveredComponentInventoryContract: true,
       candidateSelectionImpactContract: true,
       evidenceDependencyGate: true,
       executionSafeOperatorIds: true,
@@ -246,6 +247,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainEvidenceContract: boolean;
       labelComponentProfileContract: boolean;
       observedComponentInventoryContract: boolean;
+      dataDiscoveredComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
       evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
@@ -269,6 +271,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.keyGrainEvidenceContract).toBe(true);
     expect(body.labelComponentProfileContract).toBe(true);
     expect(body.observedComponentInventoryContract).toBe(true);
+    expect(body.dataDiscoveredComponentInventoryContract).toBe(true);
     expect(body.candidateSelectionImpactContract).toBe(true);
     expect(body.evidenceDependencyGate).toBe(true);
     expect(body.executionSafeOperatorIds).toBe(true);
@@ -295,6 +298,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       keyGrainEvidenceContract: boolean;
       labelComponentProfileContract: boolean;
       observedComponentInventoryContract: boolean;
+      dataDiscoveredComponentInventoryContract: boolean;
       candidateSelectionImpactContract: boolean;
       evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
@@ -319,6 +323,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.keyGrainEvidenceContract).toBe(true);
     expect(reread.labelComponentProfileContract).toBe(true);
     expect(reread.observedComponentInventoryContract).toBe(true);
+    expect(reread.dataDiscoveredComponentInventoryContract).toBe(true);
     expect(reread.candidateSelectionImpactContract).toBe(true);
     expect(reread.evidenceDependencyGate).toBe(true);
     expect(reread.executionSafeOperatorIds).toBe(true);

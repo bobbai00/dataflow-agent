@@ -1398,6 +1398,154 @@ describe("assembleContext — Latest", () => {
     expect(satisfiedContext).not.toContain("Key-grain evidence contract unsatisfied");
   });
 
+  test("dataDiscoveredComponentInventoryContract requires discovered-token columns", () => {
+    const baseInventory = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentInventory" } },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    baseInventory.storage.createSnapshot("a", makeWorkflow(["labels", "componentInventory"]));
+    baseInventory.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+        columnStats: { "Site Label": "(str): null=0, distinct=250" },
+      })
+    );
+    baseInventory.storage.setOperatorResult(
+      "a",
+      "componentInventory",
+      makeInfo("componentInventory", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            observed_pattern_id: "token_1",
+            observed_pattern_kind: "symbolic separator",
+            observed_token_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            split_or_merge_count: 12,
+            example_raw_values: "North Cove :: Pier A",
+            example_component_values: "North Cove",
+            candidate_component_rules: "take prefix",
+            coverage_rank: 1,
+            rationale: "observed recurring boundary",
+          },
+        ],
+      })
+    );
+
+    const baseAcceptedContext = content(
+      assembleContext(baseInventory.steps, baseInventory.workflowState, baseInventory.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+      })
+    );
+    expect(baseAcceptedContext).toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+
+    const strengthenedContext = content(
+      assembleContext(baseInventory.steps, baseInventory.workflowState, baseInventory.storage, ContextMode.LATEST, {
+        ...opts,
+        observedComponentInventoryContract: true,
+        dataDiscoveredComponentInventoryContract: true,
+      })
+    );
+    expect(strengthenedContext).toContain("Data-discovered component inventory:");
+    expect(strengthenedContext).toContain("Observed component inventory contract unsatisfied");
+    expect(strengthenedContext).toContain("missing required data-discovery columns");
+    expect(strengthenedContext).toContain("discovery_method");
+    expect(strengthenedContext).toContain("candidate_token");
+    expect(strengthenedContext).not.toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+
+    const discoveredInventory = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentInventory" } },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    discoveredInventory.storage.createSnapshot("a", makeWorkflow(["labels", "componentInventory"]));
+    discoveredInventory.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [{ "Site Label": "North Cove :: Pier A" }, { "Site Label": "North Cove :: Pier B" }],
+        columnStats: { "Site Label": "(str): null=0, distinct=250" },
+      })
+    );
+    discoveredInventory.storage.setOperatorResult(
+      "a",
+      "componentInventory",
+      makeInfo("componentInventory", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            observed_pattern_id: "token_1",
+            observed_pattern_kind: "symbolic separator",
+            observed_token_or_pattern: "::",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            split_or_merge_count: 12,
+            example_raw_values: "North Cove :: Pier A",
+            example_component_values: "North Cove",
+            candidate_component_rules: "take prefix",
+            coverage_rank: 1,
+            discovery_method: "scan all non-null labels for repeated literal tokens",
+            candidate_token: "::",
+            token_frequency: 120,
+            token_coverage_share: 0.48,
+            candidate_transform: "split on discovered token and take prefix",
+            impact_probe_required: true,
+            rationale: "observed recurring boundary",
+          },
+        ],
+      })
+    );
+
+    const discoveredContext = content(
+      assembleContext(
+        discoveredInventory.steps,
+        discoveredInventory.workflowState,
+        discoveredInventory.storage,
+        ContextMode.LATEST,
+        {
+          ...opts,
+          observedComponentInventoryContract: true,
+          dataDiscoveredComponentInventoryContract: true,
+        }
+      )
+    );
+    expect(discoveredContext).toContain(
+      "Observed component inventory contract satisfied by operator `componentInventory`"
+    );
+    expect(discoveredContext).not.toContain("missing required data-discovery columns");
+  });
+
   test("candidateSelectionImpactContract renders unsatisfied and satisfied LATEST notices", () => {
     const scenario = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count qualifying entities" },

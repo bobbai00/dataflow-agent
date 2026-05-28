@@ -228,6 +228,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("observed_token_or_pattern");
   });
 
+  test("data-discovered component inventory contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Data-Discovered Component Inventory Contract");
+
+    agent.updateSettings({ dataDiscoveredComponentInventoryContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Data-Discovered Component Inventory Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("discovery_method");
+    expect(agent.getSystemInfo().systemPrompt).toContain("candidate_token");
+    expect(agent.getSystemInfo().systemPrompt).toContain("actual upstream values");
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 
