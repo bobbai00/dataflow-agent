@@ -962,6 +962,58 @@ describe("assembleContext — Latest", () => {
     expect(hintedContext).toContain("sample collision groups");
   });
 
+  test("componentGrainGuidance renders component-key hints from generic label signals only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct sites" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "labels" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["labels"]));
+    storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Beach Name": "North Cove @ Pier A", "Sample Date": "2023-01-01", __source_file: "source/a.csv" },
+          { "Beach Name": "North Cove @ Pier B", "Sample Date": "2023-01-02", __source_file: "source/b.csv" },
+        ],
+        columnStats: {
+          "Beach Name": "(str): null=0, distinct=250",
+          "Sample Date": "(str): null=0, distinct=250",
+          __source_file: "(str): null=0, distinct=250",
+          amount: "(numeric): null=0, distinct=250",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Component Grain Hint:");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        componentGrainGuidance: true,
+      })
+    );
+    expect(hintedContext).toContain("# Agent Guidance");
+    expect(hintedContext).toContain("Component grain:");
+    expect(hintedContext).toContain("Component Grain Hint:");
+    expect(hintedContext).toContain('"Beach Name" distinct=250');
+    expect(hintedContext).toContain("symbol delimiter");
+    expect(hintedContext).toContain("North Cove @ Pier A");
+    expect(hintedContext).not.toContain('"Sample Date" distinct=250');
+    expect(hintedContext).not.toContain('"__source_file" distinct=250');
+    expect(hintedContext).not.toContain('"amount" distinct=250');
+    expect(hintedContext).toContain("component-derived candidate keys");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

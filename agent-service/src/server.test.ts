@@ -215,6 +215,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       boundedExecutionGuidance: true,
       cardinalityPressureGuidance: true,
       entityKeyHygieneGuidance: true,
+      componentGrainGuidance: true,
       fallbackContractGuidance: true,
       resultRendering: "adaptive",
       contextScope: "active-lineage",
@@ -231,6 +232,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       boundedExecutionGuidance: boolean;
       cardinalityPressureGuidance: boolean;
       entityKeyHygieneGuidance: boolean;
+      componentGrainGuidance: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
       contextScope: string;
@@ -245,6 +247,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.boundedExecutionGuidance).toBe(true);
     expect(body.cardinalityPressureGuidance).toBe(true);
     expect(body.entityKeyHygieneGuidance).toBe(true);
+    expect(body.componentGrainGuidance).toBe(true);
     expect(body.fallbackContractGuidance).toBe(true);
     expect(body.resultRendering).toBe("adaptive");
     expect(body.contextScope).toBe("active-lineage");
@@ -262,6 +265,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       boundedExecutionGuidance: boolean;
       cardinalityPressureGuidance: boolean;
       entityKeyHygieneGuidance: boolean;
+      componentGrainGuidance: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
       contextScope: string;
@@ -277,6 +281,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.boundedExecutionGuidance).toBe(true);
     expect(reread.cardinalityPressureGuidance).toBe(true);
     expect(reread.entityKeyHygieneGuidance).toBe(true);
+    expect(reread.componentGrainGuidance).toBe(true);
     expect(reread.fallbackContractGuidance).toBe(true);
     expect(reread.resultRendering).toBe("adaptive");
     expect(reread.contextScope).toBe("active-lineage");

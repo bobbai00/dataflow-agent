@@ -91,6 +91,10 @@ export interface AssembleContextOptions {
    *  that may become grouping/joining/deduplication/distinct-count keys. Off
    *  by default. */
   entityKeyHygieneGuidance?: boolean;
+  /** Render compact component-grain hints next to high-cardinality string
+   *  labels whose values may encode sub-entity or sampling-location
+   *  components. Off by default. */
+  componentGrainGuidance?: boolean;
 }
 
 /**
@@ -125,10 +129,18 @@ const ENTITY_KEY_HYGIENE_CONTEXT_NOTICE = [
   "Before grouping, joining, deduplicating, or counting distinct entities on raw labels, add compact evidence for raw vs normalized keys and variant/collision checks.",
 ].join(" ");
 
+const COMPONENT_GRAIN_CONTEXT_NOTICE = [
+  "Component grain: high-cardinality string labels may combine base entities with sub-entities, sampling locations, suffixes, prefixes, or other components.",
+  "Before entity-level grouping or distinct counts, compare whole-label keys with component-derived candidate keys using compact DataFrame evidence.",
+].join(" ");
+
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
 const WIDE_COLUMN_COUNT_THRESHOLD = 100;
 const ENTITY_KEY_MIN_DISTINCT = 20;
 const ENTITY_KEY_MAX_HINT_COLUMNS = 4;
+const COMPONENT_GRAIN_MIN_DISTINCT = 20;
+const COMPONENT_GRAIN_MAX_HINT_COLUMNS = 4;
+const COMPONENT_GRAIN_MAX_SAMPLES = 4;
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -563,6 +575,7 @@ function appendContextNotices(sections: string[], options: AssembleContextOption
     ...(options.fallbackContractGuidance ? [FALLBACK_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.cardinalityPressureGuidance ? [CARDINALITY_PRESSURE_CONTEXT_NOTICE] : []),
     ...(options.entityKeyHygieneGuidance ? [ENTITY_KEY_HYGIENE_CONTEXT_NOTICE] : []),
+    ...(options.componentGrainGuidance ? [COMPONENT_GRAIN_CONTEXT_NOTICE] : []),
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -979,6 +992,12 @@ function serializeOperatorFull(
     for (const l of entityKeyHygieneHint.split("\n")) lines.push("  " + l);
   }
 
+  const componentGrainHint = options.componentGrainGuidance ? buildComponentGrainHint(info) : undefined;
+  if (componentGrainHint) {
+    lines.push("Component Grain Hint:");
+    for (const l of componentGrainHint.split("\n")) lines.push("  " + l);
+  }
+
   const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
   if (fallbackContractHint) {
     lines.push("Fallback Contract Hint:");
@@ -1125,6 +1144,11 @@ function serializeOperatorContextDigest(
     lines.push("Entity Key Hygiene Hint:");
     for (const l of entityKeyHygieneHint.split("\n")) lines.push("  " + l);
   }
+  const componentGrainHint = options.componentGrainGuidance ? buildComponentGrainHint(info) : undefined;
+  if (componentGrainHint) {
+    lines.push("Component Grain Hint:");
+    for (const l of componentGrainHint.split("\n")) lines.push("  " + l);
+  }
   return lines.join("\n");
 }
 
@@ -1213,6 +1237,13 @@ interface EntityKeyCandidate {
   distinct: number;
 }
 
+interface ComponentGrainCandidate {
+  columnName: string;
+  distinct: number;
+  samples: string[];
+  signals: string[];
+}
+
 function buildEntityKeyHygieneHint(info: OperatorInfo | undefined): string | undefined {
   if (!info || info.error) return undefined;
 
@@ -1253,6 +1284,116 @@ function findEntityKeyCandidates(info: OperatorInfo): EntityKeyCandidate[] {
 
   candidates.sort((a, b) => b.distinct - a.distinct || a.columnName.localeCompare(b.columnName));
   return candidates;
+}
+
+function buildComponentGrainHint(info: OperatorInfo | undefined): string | undefined {
+  if (!info || info.error) return undefined;
+
+  const candidates = findComponentGrainCandidates(info);
+  if (candidates.length === 0) return undefined;
+
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const rowText = Number.isFinite(rowCount) ? ` over ${rowCount} rows` : "";
+  const candidateText = candidates
+    .slice(0, COMPONENT_GRAIN_MAX_HINT_COLUMNS)
+    .map(c => {
+      const pieces = [`${JSON.stringify(c.columnName)} distinct=${c.distinct}`];
+      if (c.signals.length > 0) pieces.push(`signals=${formatValueList(c.signals, 4)}`);
+      if (c.samples.length > 0) pieces.push(`samples=${formatValueList(c.samples, COMPONENT_GRAIN_MAX_SAMPLES)}`);
+      return pieces.join("; ");
+    })
+    .join(" | ");
+
+  const lines = [
+    `Detected high-cardinality label columns with possible component-grain risk${rowText}: ${candidateText}.`,
+  ];
+  lines.push(
+    "Before entity-level grouping, joining, deduplication, or distinct counts, compare raw whole-label keys, normalized whole-label keys, and component-derived candidate keys."
+  );
+  lines.push(
+    "Evidence should include distinct counts for each candidate grain, coverage/null/blank counts, number of labels changed or split, and sample groups where multiple raw labels map to one component key."
+  );
+  lines.push(
+    "Use a coarser or finer component key only when the task grain and DataFrame evidence justify it; otherwise preserve whole labels and record why."
+  );
+  return lines.join("\n");
+}
+
+function findComponentGrainCandidates(info: OperatorInfo): ComponentGrainCandidate[] {
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const candidates: ComponentGrainCandidate[] = [];
+
+  for (const [columnName, stat] of Object.entries(info.columnStats ?? {})) {
+    if (!isRenderableColumn(columnName) || !isStringColumnStat(stat)) continue;
+    if (looksTemporalOrProvenanceColumn(columnName)) continue;
+    const distinct = parseColumnStatNumber(stat, "distinct");
+    if (!Number.isFinite(distinct) || distinct < COMPONENT_GRAIN_MIN_DISTINCT) continue;
+    if (Number.isFinite(rowCount) && distinct > rowCount) continue;
+
+    const samples = sampleStringValues(info, columnName, COMPONENT_GRAIN_MAX_SAMPLES);
+    const signals = detectComponentGrainSignals(columnName, samples);
+    if (signals.length === 0) continue;
+    candidates.push({ columnName, distinct, samples, signals });
+  }
+
+  candidates.sort((a, b) => {
+    const signalDelta = b.signals.length - a.signals.length;
+    if (signalDelta !== 0) return signalDelta;
+    return b.distinct - a.distinct || a.columnName.localeCompare(b.columnName);
+  });
+  return candidates;
+}
+
+function sampleStringValues(info: OperatorInfo, columnName: string, limit: number): string[] {
+  const samples: string[] = [];
+  const seen = new Set<string>();
+  for (const row of info.result ?? []) {
+    const value = row?.[columnName];
+    if (typeof value !== "string") continue;
+    const normalized = normalizeCell(value);
+    if (normalized.length === 0 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    samples.push(normalized);
+    if (samples.length >= limit) break;
+  }
+  return samples;
+}
+
+function detectComponentGrainSignals(columnName: string, samples: string[]): string[] {
+  const signals: string[] = [];
+  if (looksEntityLabelColumn(columnName)) signals.push("entity-label column name");
+  if (samples.some(value => /[@|;]/.test(value))) signals.push("symbol delimiter");
+  if (samples.some(value => /\([^)]{1,80}\)/.test(value))) signals.push("parenthetical qualifier");
+  if (samples.some(value => /\s[-–—]\s/.test(value))) signals.push("spaced dash delimiter");
+  if (samples.some(value => /[\\/]/.test(value))) signals.push("slash/path delimiter");
+  if (samples.some(value => /::|: /.test(value))) signals.push("colon delimiter");
+  return Array.from(new Set(signals));
+}
+
+function looksEntityLabelColumn(columnName: string): boolean {
+  const tokens = columnNameTokens(columnName);
+  return tokens.some(token =>
+    ["name", "label", "title", "entity", "identifier", "location", "place", "site", "station", "key", "id"].includes(
+      token
+    )
+  );
+}
+
+function looksTemporalOrProvenanceColumn(columnName: string): boolean {
+  const tokens = columnNameTokens(columnName);
+  return tokens.some(token =>
+    ["date", "time", "timestamp", "year", "month", "day", "source", "file", "filename", "path", "url", "uri"].includes(
+      token
+    )
+  );
+}
+
+function columnNameTokens(columnName: string): string[] {
+  return columnName
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map(token => token.trim())
+    .filter(token => token.length > 0);
 }
 
 function isStringColumnStat(stat: string | undefined): boolean {

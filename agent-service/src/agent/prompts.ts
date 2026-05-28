@@ -47,6 +47,7 @@ export interface CodeModePromptOptions {
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
+  componentGrainGuidance?: boolean;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -183,6 +184,27 @@ joining, deduplicating, or counting distinct entities.
   or genuinely different entities.
 - Only apply a normalization when DataFrame evidence supports it. If raw labels
   must be preserved, record that decision as output evidence before finalizing.`;
+
+const COMPONENT_GRAIN_GUIDANCE = `## Component Grain Evidence
+
+High-cardinality string labels can encode a finer or coarser entity grain than
+the raw value. A raw label may combine a base entity with a sampling location,
+sub-entity, suffix, prefix, parenthetical qualifier, path segment, or other
+component.
+
+- When a current or upstream operator shows a \`Component Grain Hint\`, do not
+  finalize entity-level grouping, joining, deduplication, or distinct counts
+  until the grouping key's grain is evidenced.
+- Create compact DataFrame evidence that compares raw whole-label distinct
+  counts, normalized whole-label distinct counts, and candidate component-key
+  distinct counts derived from delimiters or structured label patterns observed
+  in the data.
+- Include coverage counts, null/blank counts, labels changed or split, and
+  sample groups where multiple raw labels map to one component key or one raw
+  label splits into multiple candidate components.
+- Choose a coarser or finer component grain only when the user request and the
+  evidence show that component is the requested entity. Otherwise preserve the
+  whole label and record why.`;
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -474,6 +496,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.boundedExecutionGuidance) sections.push(BOUNDED_EXECUTION_GUIDANCE);
   if (options.cardinalityPressureGuidance) sections.push(CARDINALITY_PRESSURE_GUIDANCE);
   if (options.entityKeyHygieneGuidance) sections.push(ENTITY_KEY_HYGIENE_GUIDANCE);
+  if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);

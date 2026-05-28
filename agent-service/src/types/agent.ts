@@ -214,6 +214,14 @@ export interface AgentSettings {
    */
   entityKeyHygieneGuidance: boolean;
   /**
+   * When true, render prompt/context hints for high-cardinality string labels
+   * whose raw values may encode sub-entity components, measurement locations,
+   * suffixes, prefixes, or other component grains. The hint asks the agent to
+   * compare whole-label and component-derived keys before entity-level counts.
+   * Off by default for baseline reproducibility.
+   */
+  componentGrainGuidance: boolean;
+  /**
    * When true, append CODE-mode guidance and context hints for dependency or
    * runtime-capability failures. The model must preserve the task's semantic
    * contract instead of answering from an unvalidated surrogate. Off by default
@@ -266,6 +274,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   boundedExecutionGuidance: false,
   cardinalityPressureGuidance: false,
   entityKeyHygieneGuidance: false,
+  componentGrainGuidance: false,
   fallbackContractGuidance: false,
 };
 
@@ -324,6 +333,7 @@ export interface AgentSettingsApi {
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
+  componentGrainGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }
 
@@ -376,5 +386,6 @@ export interface UpdateAgentSettingsRequest {
   boundedExecutionGuidance?: boolean;
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
+  componentGrainGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }

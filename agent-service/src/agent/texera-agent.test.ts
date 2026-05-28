@@ -163,6 +163,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("raw distinct count");
     expect(agent.getSystemInfo().systemPrompt).toContain("sample collision groups");
   });
+
+  test("component grain guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Component Grain Evidence");
+
+    agent.updateSettings({ componentGrainGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Component Grain Evidence");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Component Grain Hint");
+    expect(agent.getSystemInfo().systemPrompt).toContain("component-key");
+    expect(agent.getSystemInfo().systemPrompt).toContain("distinct counts");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {
