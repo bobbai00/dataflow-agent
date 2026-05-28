@@ -394,6 +394,7 @@ export class TexeraAgent {
       this.systemPrompt = buildCodeModeSystemPrompt({
         metricEvidenceGuidance: this.settings.metricEvidenceGuidance,
         tableStructureHints: this.settings.tableStructureHints,
+        rawLoaderProvenance: this.settings.rawLoaderProvenance,
       });
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -695,6 +696,7 @@ export class TexeraAgent {
     metricEvidenceGuidance?: boolean;
     schemaFirstCodeMode?: boolean;
     tableStructureHints?: boolean;
+    rawLoaderProvenance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -772,6 +774,13 @@ export class TexeraAgent {
       updates.tableStructureHints !== this.settings.tableStructureHints
     ) {
       this.settings.tableStructureHints = updates.tableStructureHints;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.rawLoaderProvenance !== undefined &&
+      updates.rawLoaderProvenance !== this.settings.rawLoaderProvenance
+    ) {
+      this.settings.rawLoaderProvenance = updates.rawLoaderProvenance;
       promptNeedsRebuild = true;
     }
 

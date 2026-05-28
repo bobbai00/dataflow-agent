@@ -42,6 +42,7 @@ const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/code-mod
 export interface CodeModePromptOptions {
   metricEvidenceGuidance?: boolean;
   tableStructureHints?: boolean;
+  rawLoaderProvenance?: boolean;
 }
 
 const METRIC_EVIDENCE_GUIDANCE = `## Metric Evidence and Provenance
@@ -83,6 +84,22 @@ loader-quality issue before trusting downstream calculations:
 - Do not answer from a downstream aggregate built on a hinted loader until the
   loader has been normalized or a diagnostic operator proves the hint is a
   harmless false positive.`;
+
+const RAW_LOADER_PROVENANCE_GUIDANCE = `## Raw Loader Provenance
+
+When a DataLoading operator includes \`Raw Loader Provenance\`, use it as
+source-shape evidence for loader parsing:
+
+- Compare raw line numbers, blank-line block starts, candidate header lines,
+  first data-like lines, and trailing note/source lines against the DataLoading
+  result before trusting downstream operators.
+- If the raw evidence shows titles, metadata, repeated headers, blank blocks,
+  footers, or source notes, fix the DataLoading operator so the returned
+  DataFrame preserves the intended body rows and semantic columns.
+- Keep raw-line or source-path provenance as ordinary columns when it will help
+  downstream grouping, filtering, joins, or auditability.
+- Do not infer an answer from raw provenance alone; use it to repair or verify
+  the loader, then compute from operator result tables.`;
 
 // ============================================================================
 // Shared sections
@@ -348,6 +365,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   const sections: string[] = [];
   if (options.metricEvidenceGuidance) sections.push(METRIC_EVIDENCE_GUIDANCE);
   if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
+  if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
   if (sections.length === 0) return CODE_MODE_SYSTEM_PROMPT;
   return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${sections.join("\n\n")}\n`;
 }

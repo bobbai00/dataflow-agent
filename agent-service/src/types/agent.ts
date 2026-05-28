@@ -159,6 +159,12 @@ export interface AgentSettings {
    * Off by default for baseline reproducibility.
    */
   tableStructureHints: boolean;
+  /**
+   * When true, append compact raw-source provenance for DataLoading operators
+   * whose code reads literal relative file paths. Off by default for baseline
+   * reproducibility.
+   */
+  rawLoaderProvenance: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -199,6 +205,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   metricEvidenceGuidance: false,
   schemaFirstCodeMode: false,
   tableStructureHints: false,
+  rawLoaderProvenance: false,
 };
 
 /**
@@ -250,6 +257,7 @@ export interface AgentSettingsApi {
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;
+  rawLoaderProvenance?: boolean;
 }
 
 export interface AgentInfo {
@@ -295,4 +303,5 @@ export interface UpdateAgentSettingsRequest {
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;
+  rawLoaderProvenance?: boolean;
 }

@@ -22,6 +22,8 @@
 // of calling tools via the native protocol.
 
 import type { ModelMessage } from "ai";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
 import type { ReActStep } from "../../types/agent";
@@ -70,6 +72,9 @@ export interface AssembleContextOptions {
    *  looks like a semi-structured file rather than one clean rectangular
    *  table. Off by default. */
   tableStructureHints?: boolean;
+  /** Render compact raw-source provenance for DataLoading operators that read
+   *  literal relative file paths. Off by default. */
+  rawLoaderProvenance?: boolean;
 }
 
 /**
@@ -885,6 +890,12 @@ function serializeOperatorFull(
     for (const l of tableStructureHint.split("\n")) lines.push("  " + l);
   }
 
+  const rawLoaderProvenance = options.rawLoaderProvenance ? buildRawLoaderProvenance(op, info) : undefined;
+  if (rawLoaderProvenance) {
+    lines.push("Raw Loader Provenance:");
+    for (const l of rawLoaderProvenance.split("\n")) lines.push("  " + l);
+  }
+
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
@@ -1310,6 +1321,283 @@ function shortenCell(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= 80) return normalized;
   return normalized.slice(0, 77) + "...";
+}
+
+const RAW_PROVENANCE_MAX_PATHS = 2;
+const RAW_PROVENANCE_HEAD_BYTES = 64 * 1024;
+const RAW_PROVENANCE_FIRST_LINES = 8;
+const RAW_PROVENANCE_MAX_BLOCKS = 5;
+
+interface ResolvedSourcePath {
+  literal: string;
+  absolute: string;
+}
+
+interface RawLine {
+  lineNumber: number;
+  text: string;
+}
+
+function buildRawLoaderProvenance(op: OperatorPredicate, info: OperatorInfo | undefined): string | undefined {
+  if (op.operatorType !== "DataLoading" || !info || info.error) return undefined;
+
+  const code = typeof op.operatorProperties?.code === "string" ? op.operatorProperties.code : "";
+  const paths = extractLiteralSourcePaths(code)
+    .map(resolveReadableRelativePath)
+    .filter((path): path is ResolvedSourcePath => path !== undefined)
+    .slice(0, RAW_PROVENANCE_MAX_PATHS);
+
+  if (paths.length === 0) return undefined;
+
+  const sections = paths
+    .map(path => buildRawFileProvenance(path))
+    .filter((section): section is string => section !== undefined);
+  return sections.length > 0 ? sections.join("\n") : undefined;
+}
+
+function extractLiteralSourcePaths(code: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const callPattern =
+    /\b(?:pd\.)?(?:read_csv|read_table|read_excel|read_json|read_parquet|read_fwf|open)\s*\(\s*(['"])([^'"]+)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = callPattern.exec(code)) !== null) {
+    const literal = match[2]?.trim();
+    if (!literal || seen.has(literal)) continue;
+    seen.add(literal);
+    paths.push(literal);
+  }
+  return paths;
+}
+
+function resolveReadableRelativePath(literal: string): ResolvedSourcePath | undefined {
+  if (!isSafeRelativeSourcePath(literal)) return undefined;
+
+  const normalized = normalize(literal);
+  const roots = uniqueRoots([process.cwd(), resolve(process.cwd(), ".."), resolve(process.cwd(), "../..")]);
+  for (const root of roots) {
+    const absolute = resolve(root, normalized);
+    if (!isPathWithin(root, absolute)) continue;
+    try {
+      if (existsSync(absolute) && statSync(absolute).isFile()) {
+        return { literal, absolute };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function isSafeRelativeSourcePath(literal: string): boolean {
+  if (literal.length === 0 || literal.includes("\0")) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(literal)) return false;
+  if (isAbsolute(literal)) return false;
+  if (/[*?\[\]{}]/.test(literal)) return false;
+  const normalized = normalize(literal);
+  return normalized !== ".." && !normalized.startsWith(`..${sep}`) && normalized !== ".";
+}
+
+function uniqueRoots(roots: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const root of roots.map(r => resolve(r))) {
+    if (seen.has(root)) continue;
+    seen.add(root);
+    out.push(root);
+  }
+  return out;
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function buildRawFileProvenance(path: ResolvedSourcePath): string | undefined {
+  const lines = sampleTextLines(path.absolute);
+  if (!lines || lines.length === 0) return undefined;
+
+  const output: string[] = [`- Source path: ${path.literal}`];
+  output.push("- First raw lines:");
+  for (const line of lines.slice(0, RAW_PROVENANCE_FIRST_LINES)) {
+    output.push(`  - ${formatRawLine(line)}`);
+  }
+
+  const blocks = findBlankSeparatedBlocks(lines);
+  if (blocks.length > 0) {
+    output.push(`- Blank-separated block starts: ${blocks.map(formatRawLine).join("; ")}`);
+  }
+
+  const header = findRawHeaderLikeLine(lines);
+  if (header) {
+    output.push(`- Candidate header line: ${formatRawLine(header.line)}`);
+    const firstBody = findFirstBodyLineAfterHeader(lines, header);
+    if (firstBody) output.push(`- First data-like line after candidate header: ${formatRawLine(firstBody)}`);
+  }
+
+  const footer = findRawFooterLikeLine(lines);
+  if (footer) output.push(`- Trailing note/source-like line: ${formatRawLine(footer)}`);
+
+  return output.join("\n");
+}
+
+function sampleTextLines(filePath: string): RawLine[] | undefined {
+  let fd: number | undefined;
+  try {
+    const stat = statSync(filePath);
+    if (!stat.isFile() || stat.size === 0) return undefined;
+
+    const bytesToRead = Math.min(stat.size, RAW_PROVENANCE_HEAD_BYTES);
+    const buffer = Buffer.alloc(bytesToRead);
+    fd = openSync(filePath, "r");
+    const bytesRead = readSync(fd, buffer, 0, bytesToRead, 0);
+    const slice = buffer.subarray(0, bytesRead);
+    if (slice.includes(0)) return undefined;
+
+    const text = slice.toString("utf8").replace(/^\uFEFF/, "");
+    return text.split(/\r\n|\n|\r/).map((line, i) => ({ lineNumber: i + 1, text: line }));
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // Ignore close errors while rendering optional context evidence.
+      }
+    }
+  }
+}
+
+function findBlankSeparatedBlocks(lines: RawLine[]): RawLine[] {
+  const blocks: RawLine[] = [];
+  let inBlock = false;
+  for (const line of lines) {
+    if (isRawBlankLine(line.text)) {
+      inBlock = false;
+      continue;
+    }
+    if (!inBlock) {
+      blocks.push(line);
+      if (blocks.length >= RAW_PROVENANCE_MAX_BLOCKS) return blocks;
+    }
+    inBlock = true;
+  }
+  return blocks;
+}
+
+function findRawHeaderLikeLine(lines: RawLine[]): { line: RawLine; fields: string[] } | undefined {
+  for (const line of lines.slice(0, 25)) {
+    if (isRawBlankLine(line.text)) continue;
+    const fields = parseDelimitedLine(line.text).filter(f => f.length > 0);
+    if (fields.length < 2) continue;
+    const labelCount = fields.filter(looksLikeHeaderLabel).length;
+    if (labelCount >= 2 && labelCount / fields.length >= 0.6) {
+      return { line, fields };
+    }
+  }
+  return undefined;
+}
+
+function findFirstBodyLineAfterHeader(
+  lines: RawLine[],
+  header: { line: RawLine; fields: string[] }
+): RawLine | undefined {
+  const start = lines.findIndex(line => line.lineNumber === header.line.lineNumber);
+  if (start < 0) return undefined;
+  for (const line of lines.slice(start + 1, start + 12)) {
+    if (isRawBlankLine(line.text)) continue;
+    const fields = parseDelimitedLine(line.text).filter(f => f.length > 0);
+    if (fields.length >= Math.min(2, header.fields.length)) return line;
+  }
+  return undefined;
+}
+
+function findRawFooterLikeLine(lines: RawLine[]): RawLine | undefined {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const fields = parseDelimitedLine(lines[i].text);
+    if (fields.some(looksLikeFooterNote)) return lines[i];
+  }
+  return undefined;
+}
+
+function looksLikeFooterNote(value: string): boolean {
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "");
+  return /^(source|sources|note|notes|footnote|references?|copyright)\b[:\s-]*/i.test(normalized);
+}
+
+function isRawBlankLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return true;
+  const fields = parseDelimitedLine(line);
+  return fields.length > 0 && fields.every(f => f.length === 0);
+}
+
+function parseDelimitedLine(line: string): string[] {
+  const delimiter = chooseDelimiter(line);
+  const fields: string[] = [];
+  let current = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuote = !inQuote;
+      }
+      continue;
+    }
+    if (ch === delimiter && !inQuote) {
+      fields.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
+function chooseDelimiter(line: string): string {
+  const candidates = [",", "\t", ";", "|"];
+  let best = ",";
+  let bestCount = -1;
+  for (const delimiter of candidates) {
+    const count = countUnquotedDelimiter(line, delimiter);
+    if (count > bestCount) {
+      best = delimiter;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function countUnquotedDelimiter(line: string, delimiter: string): number {
+  let count = 0;
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') i++;
+      else inQuote = !inQuote;
+    } else if (ch === delimiter && !inQuote) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function formatRawLine(line: RawLine): string {
+  const trimmed = line.text.trim();
+  if (isRawBlankLine(line.text)) {
+    return trimmed.length === 0
+      ? `L${line.lineNumber}: <blank>`
+      : `L${line.lineNumber}: <blank-like ${shortenCell(trimmed)}>`;
+  }
+  return `L${line.lineNumber}: ${shortenCell(trimmed)}`;
 }
 
 function formatSchema(schema: PortSchema): string {

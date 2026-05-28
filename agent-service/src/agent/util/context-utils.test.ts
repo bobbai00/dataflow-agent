@@ -519,6 +519,103 @@ describe("assembleContext — Latest", () => {
     expect(c).not.toContain("Table Structure Hint");
   });
 
+  test("rawLoaderProvenance renders compact raw line evidence only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "load a raw file" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "loader" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", {
+      operators: [
+        {
+          ...makeOp("loader", "DataLoading", {
+            code: "def load():\n    import pandas as pd\n    return pd.read_csv('src/agent/util/fixtures/raw-loader-provenance.csv')",
+          }),
+          outputPorts: [{ portID: "output-0" }],
+        },
+      ],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "a",
+      "loader",
+      makeInfo("loader", 2, undefined, {
+        result: [
+          { __row_index__: 0, "Report Title": "State", "Unnamed: 1": "Category" },
+          { __row_index__: 1, "Report Title": "Alpha", "Unnamed: 1": "Foo" },
+        ],
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Raw Loader Provenance");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        rawLoaderProvenance: true,
+      })
+    );
+    expect(hintedContext).toContain("Raw Loader Provenance:");
+    expect(hintedContext).toContain("Source path: src/agent/util/fixtures/raw-loader-provenance.csv");
+    expect(hintedContext).toContain("L1: Report Title,,,");
+    expect(hintedContext).toContain("L2: <blank-like ,,,>");
+    expect(hintedContext).toContain(
+      "Blank-separated block starts: L1: Report Title,,,; L3: State,Category,# of Reports,Percentage"
+    );
+    expect(hintedContext).toContain("Candidate header line: L3: State,Category,# of Reports,Percentage");
+    expect(hintedContext).toContain('First data-like line after candidate header: L4: Alpha,Foo,"1,234",10%');
+    expect(hintedContext).toContain('Trailing note/source-like line: L7: "Source: Example Data",,,');
+  });
+
+  test("rawLoaderProvenance skips unsafe or unreadable paths", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "load unsafe path" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "loader" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", {
+      operators: [
+        {
+          ...makeOp("loader", "DataLoading", {
+            code: "def load():\n    import pandas as pd\n    return pd.read_csv('../secret.csv')",
+          }),
+          outputPorts: [{ portID: "output-0" }],
+        },
+      ],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult("a", "loader", makeInfo("loader", 1));
+
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        rawLoaderProvenance: true,
+      })
+    );
+    expect(c).not.toContain("Raw Loader Provenance");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
