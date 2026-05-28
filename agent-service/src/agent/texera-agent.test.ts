@@ -266,6 +266,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("repeated operator edits");
   });
 
+  test("flow-stall recovery contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Flow-Stall Recovery Contract");
+
+    agent.updateSettings({ flowStallRecoveryContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Flow-Stall Recovery Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("required dataflow recovery step");
+    expect(agent.getSystemInfo().systemPrompt).toContain("compact diagnostic table");
+  });
+
   test("candidate-selection impact contract rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 

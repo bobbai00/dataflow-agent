@@ -224,6 +224,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       dataDiscoveredComponentInventoryContract: true,
       boundaryTokenInventoryContract: true,
       flowProgressDigest: true,
+      flowStallRecoveryContract: true,
       candidateSelectionImpactContract: true,
       evidenceDependencyGate: true,
       executionSafeOperatorIds: true,
@@ -252,6 +253,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       dataDiscoveredComponentInventoryContract: boolean;
       boundaryTokenInventoryContract: boolean;
       flowProgressDigest: boolean;
+      flowStallRecoveryContract: boolean;
       candidateSelectionImpactContract: boolean;
       evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
@@ -278,6 +280,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.dataDiscoveredComponentInventoryContract).toBe(true);
     expect(body.boundaryTokenInventoryContract).toBe(true);
     expect(body.flowProgressDigest).toBe(true);
+    expect(body.flowStallRecoveryContract).toBe(true);
     expect(body.candidateSelectionImpactContract).toBe(true);
     expect(body.evidenceDependencyGate).toBe(true);
     expect(body.executionSafeOperatorIds).toBe(true);
@@ -307,6 +310,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       dataDiscoveredComponentInventoryContract: boolean;
       boundaryTokenInventoryContract: boolean;
       flowProgressDigest: boolean;
+      flowStallRecoveryContract: boolean;
       candidateSelectionImpactContract: boolean;
       evidenceDependencyGate: boolean;
       executionSafeOperatorIds: boolean;
@@ -334,6 +338,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.dataDiscoveredComponentInventoryContract).toBe(true);
     expect(reread.boundaryTokenInventoryContract).toBe(true);
     expect(reread.flowProgressDigest).toBe(true);
+    expect(reread.flowStallRecoveryContract).toBe(true);
     expect(reread.candidateSelectionImpactContract).toBe(true);
     expect(reread.evidenceDependencyGate).toBe(true);
     expect(reread.executionSafeOperatorIds).toBe(true);

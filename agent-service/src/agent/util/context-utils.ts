@@ -121,6 +121,10 @@ export interface AssembleContextOptions {
   /** Render compact LATEST-mode progress memory from ReAct/tool events and
    *  current workflow symptoms. Off by default. */
   flowProgressDigest?: boolean;
+  /** Render a LATEST-mode recovery contract when progress memory exposes
+   *  unresolved failures, recent tool errors, or repeated operator edits. Off
+   *  by default. */
+  flowStallRecoveryContract?: boolean;
   /** Render a LATEST-mode candidate-selection impact contract notice after
    *  candidate-key evidence exists but no executed impact table compares those
    *  candidates against the downstream entity predicate or final measure. Off
@@ -715,6 +719,7 @@ function renderLatest(
 
   const dynamicNotices = [
     options.flowProgressDigest ? buildFlowProgressDigest(path, leafSnapshot) : undefined,
+    options.flowStallRecoveryContract ? buildFlowStallRecoveryContract(path, leafSnapshot) : undefined,
     options.observedComponentInventoryContract
       ? buildObservedComponentInventoryContractNotice(leafSnapshot, options)
       : undefined,
@@ -795,36 +800,21 @@ interface FlowProgressAction {
   summary?: string;
 }
 
+interface FlowProgressSignals {
+  actions: FlowProgressAction[];
+  editCounts: Map<string, number>;
+  recentErrors: string[];
+}
+
+interface FlowFailureSymptom {
+  operatorId: string;
+  error: string;
+}
+
+const FLOW_STALL_REPEATED_EDIT_THRESHOLD = 3;
+
 function buildFlowProgressDigest(path: PathNode[], leafSnapshot: SnapshotData): string | undefined {
-  const actions: FlowProgressAction[] = [];
-  const editCounts = new Map<string, number>();
-  const recentErrors: string[] = [];
-
-  for (const node of path) {
-    if (node.step.role !== "agent") continue;
-    const calls = node.step.toolCalls ?? [];
-    const results = node.step.toolResults ?? [];
-
-    for (const call of calls) {
-      const input = (call.input ?? {}) as Record<string, unknown>;
-      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
-      const summary = typeof input.summary === "string" ? input.summary : undefined;
-      const action = flowProgressActionName(call.toolName);
-      actions.push({ toolName: call.toolName, operatorId, action, summary });
-      if (call.toolName === "createOrModifyOperator" && operatorId) {
-        editCounts.set(operatorId, (editCounts.get(operatorId) ?? 0) + 1);
-      }
-    }
-
-    for (const result of results) {
-      if (!result.isError) continue;
-      const call = calls.find(candidate => candidate.toolCallId === result.toolCallId);
-      const input = (call?.input ?? {}) as Record<string, unknown>;
-      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
-      const where = operatorId ? `${call?.toolName ?? "tool"} on \`${operatorId}\`` : (call?.toolName ?? "tool");
-      recentErrors.push(`${where}: ${shortenCell(String(result.output ?? ""))}`);
-    }
-  }
+  const { actions, editCounts, recentErrors } = collectFlowProgressSignals(path);
 
   const lines: string[] = [];
   const recentActions = actions
@@ -861,6 +851,70 @@ function buildFlowProgressDigest(path: PathNode[], leafSnapshot: SnapshotData): 
   ].join("\n");
 }
 
+function collectFlowProgressSignals(path: PathNode[]): FlowProgressSignals {
+  const actions: FlowProgressAction[] = [];
+  const editCounts = new Map<string, number>();
+  const recentErrors: string[] = [];
+
+  for (const node of path) {
+    if (node.step.role !== "agent") continue;
+    const calls = node.step.toolCalls ?? [];
+    const results = node.step.toolResults ?? [];
+
+    for (const call of calls) {
+      const input = (call.input ?? {}) as Record<string, unknown>;
+      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
+      const summary = typeof input.summary === "string" ? input.summary : undefined;
+      const action = flowProgressActionName(call.toolName);
+      actions.push({ toolName: call.toolName, operatorId, action, summary });
+      if (call.toolName === "createOrModifyOperator" && operatorId) {
+        editCounts.set(operatorId, (editCounts.get(operatorId) ?? 0) + 1);
+      }
+    }
+
+    for (const result of results) {
+      if (!result.isError) continue;
+      const call = calls.find(candidate => candidate.toolCallId === result.toolCallId);
+      const input = (call?.input ?? {}) as Record<string, unknown>;
+      const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
+      const where = operatorId ? `${call?.toolName ?? "tool"} on \`${operatorId}\`` : (call?.toolName ?? "tool");
+      recentErrors.push(`${where}: ${shortenCell(String(result.output ?? ""))}`);
+    }
+  }
+
+  return { actions, editCounts, recentErrors };
+}
+
+function buildFlowStallRecoveryContract(path: PathNode[], leafSnapshot: SnapshotData): string | undefined {
+  const { editCounts, recentErrors } = collectFlowProgressSignals(path);
+  const repeatedEdits = Array.from(editCounts.entries())
+    .filter(([, count]) => count >= FLOW_STALL_REPEATED_EDIT_THRESHOLD)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+  const failures = findCurrentFailureRefs(leafSnapshot).slice(0, 4);
+  const recurringErrors = recentErrors.length >= 2 ? recentErrors.slice(-3) : [];
+
+  if (repeatedEdits.length === 0 && failures.length === 0 && recurringErrors.length === 0) return undefined;
+
+  const blockedStages = formatFlowStallBlockedStages(leafSnapshot, repeatedEdits, failures);
+  const lines: string[] = [
+    "Flow-stall recovery contract active: unresolved failures, repeated edits, or recent tool errors mean the next step must create new dataflow evidence rather than repeat the same code pattern.",
+  ];
+  if (blockedStages.length > 0) lines.push(`Blocked dataflow stages: ${blockedStages.join("; ")}.`);
+  if (recurringErrors.length > 0) lines.push(`Recent tool errors to resolve: ${recurringErrors.join("; ")}.`);
+  lines.push("Required next move before another same-operator edit or final answer:");
+  lines.push(
+    "- Repair an unresolved failed upstream/source operator first, or explicitly replace it and relink downstream consumers to the replacement."
+  );
+  lines.push(
+    "- For data loading, parsing, schema, key, or time-alignment uncertainty, create and execute a compact diagnostic table with stage, source/operator, row_count, columns/schema, candidate keys or time fields, parse/null/error counts, and sample evidence."
+  );
+  lines.push(
+    "- After the diagnostic or repair, execute the affected operator and continue from visible rows, schema, stats, or error text."
+  );
+  return lines.join("\n");
+}
+
 function flowProgressActionName(toolName: string): string {
   if (toolName === "createOrModifyOperator") return "create/modify";
   if (toolName === "deleteOperator") return "delete";
@@ -875,14 +929,48 @@ function formatFlowProgressAction(action: FlowProgressAction): string {
 }
 
 function findCurrentFailureSymptoms(snapshot: SnapshotData): string[] {
-  const symptoms: string[] = [];
+  return findCurrentFailureRefs(snapshot).map(
+    symptom => `\`${symptom.operatorId}\` failed: ${shortenCell(symptom.error)}`
+  );
+}
+
+function findCurrentFailureRefs(snapshot: SnapshotData): FlowFailureSymptom[] {
+  const refs: FlowFailureSymptom[] = [];
   for (const [operatorId, entry] of snapshot.results) {
     const info = entry.info;
     if (!info?.error) continue;
-    symptoms.push(`\`${operatorId}\` failed: ${shortenCell(info.error)}`);
-    if (symptoms.length >= 4) break;
+    refs.push({ operatorId, error: String(info.error) });
+    if (refs.length >= 4) break;
   }
-  return symptoms;
+  return refs;
+}
+
+function formatFlowStallBlockedStages(
+  snapshot: SnapshotData,
+  repeatedEdits: Array<[string, number]>,
+  failures: FlowFailureSymptom[]
+): string[] {
+  const byOperator = new Map<string, string[]>();
+  for (const [operatorId, count] of repeatedEdits) {
+    byOperator.set(operatorId, [...(byOperator.get(operatorId) ?? []), `edited ${count}x`]);
+  }
+  for (const failure of failures) {
+    byOperator.set(failure.operatorId, [
+      ...(byOperator.get(failure.operatorId) ?? []),
+      `failed: ${shortenCell(failure.error)}`,
+    ]);
+  }
+  return Array.from(byOperator.entries())
+    .slice(0, 5)
+    .map(([operatorId, reasons]) => {
+      const operatorType = findSnapshotOperatorType(snapshot, operatorId);
+      const typeSuffix = operatorType ? ` (${operatorType})` : "";
+      return `\`${operatorId}\`${typeSuffix}: ${reasons.join(", ")}`;
+    });
+}
+
+function findSnapshotOperatorType(snapshot: SnapshotData, operatorId: string): string | undefined {
+  return snapshot.workflow.operators.find(operator => operator.operatorID === operatorId)?.operatorType;
 }
 
 function findUnexecutedTerminalOperators(snapshot: SnapshotData): string[] {

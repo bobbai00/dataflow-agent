@@ -280,6 +280,14 @@ export interface AgentSettings {
    */
   flowProgressDigest: boolean;
   /**
+   * When true, LATEST context escalates unresolved failures or repeated
+   * operator edits into a recovery contract: change strategy, repair failed
+   * upstream/data-stage operators, or create typed diagnostic evidence before
+   * another same-pattern edit or final answer. Off by default for baseline
+   * reproducibility.
+   */
+  flowStallRecoveryContract: boolean;
+  /**
    * When true, LATEST context treats the selected entity key as provisional
    * until an executed impact table compares candidate keys against the
    * downstream entity-level predicate or final measure. This uses typed
@@ -365,6 +373,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataDiscoveredComponentInventoryContract: false,
   boundaryTokenInventoryContract: false,
   flowProgressDigest: false,
+  flowStallRecoveryContract: false,
   candidateSelectionImpactContract: false,
   evidenceDependencyGate: false,
   executionSafeOperatorIds: false,
@@ -435,6 +444,7 @@ export interface AgentSettingsApi {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  flowStallRecoveryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -499,6 +509,7 @@ export interface UpdateAgentSettingsRequest {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  flowStallRecoveryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;

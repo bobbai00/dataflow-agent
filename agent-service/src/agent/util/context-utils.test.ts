@@ -380,6 +380,20 @@ describe("assembleContext — Latest", () => {
     expect(digestContext).not.toContain("hidden loader code");
     expect(digestContext).not.toContain("hidden retry code");
     expect(digestContext).not.toContain("# Agent Events");
+
+    const recoveryContext = content(
+      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, {
+        ...opts,
+        flowStallRecoveryContract: true,
+      })
+    );
+    expect(recoveryContext).toContain("Flow-stall recovery contract active");
+    expect(recoveryContext).toContain("Blocked dataflow stages: `loader`");
+    expect(recoveryContext).toContain("Required next move before another same-operator edit or final answer");
+    expect(recoveryContext).toContain("compact diagnostic table");
+    expect(recoveryContext).not.toContain("hidden loader code");
+    expect(recoveryContext).not.toContain("hidden retry code");
+    expect(recoveryContext).not.toContain("# Agent Events");
   });
 
   test("adaptive result rendering digests stable operators but keeps latest frontier rows", () => {

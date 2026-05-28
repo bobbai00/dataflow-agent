@@ -55,6 +55,7 @@ export interface CodeModePromptOptions {
   dataDiscoveredComponentInventoryContract?: boolean;
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
+  flowStallRecoveryContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -373,6 +374,23 @@ of the dataflow work already attempted.
 - The digest is not code memory. Successful operator code is still hidden; use
   the operator summaries, current result tables, column stats, and visible
   symptoms to write fresh code.`;
+
+const FLOW_STALL_RECOVERY_CONTRACT_GUIDANCE = `## Flow-Stall Recovery Contract
+
+When LATEST context says the flow-stall recovery contract is active, treat that
+as a required dataflow recovery step, not optional advice.
+
+- Do not continue the same edit pattern or finalize while the contract names
+  unresolved failures, repeated edits, or recent tool errors.
+- Repair the failed upstream/source operator first, or explicitly replace it
+  and relink downstream consumers to the replacement.
+- For data loading, parsing, schema, key, or time-alignment uncertainty, create
+  and execute a compact diagnostic table before another substantive fix. The
+  diagnostic should expose stage, source/operator, row counts, columns/schema,
+  candidate keys or time fields when relevant, parse/null/error counts, and
+  sample evidence.
+- After the diagnostic or repair, execute the affected operator and base the
+  next step on visible result rows, schema, stats, or error text.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -751,6 +769,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   }
   if (options.boundaryTokenInventoryContract) sections.push(BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE);
   if (options.flowProgressDigest) sections.push(FLOW_PROGRESS_DIGEST_GUIDANCE);
+  if (options.flowStallRecoveryContract) sections.push(FLOW_STALL_RECOVERY_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
