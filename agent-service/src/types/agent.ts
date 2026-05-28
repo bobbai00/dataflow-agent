@@ -244,6 +244,14 @@ export interface AgentSettings {
    */
   keyGrainEvidenceContract: boolean;
   /**
+   * When true, LATEST context treats high-cardinality entity labels as
+   * requiring an all-value component-profile evidence table before final key
+   * selection. The profile is general over observed label structure
+   * (delimiters, parentheticals, prefixes/suffixes), not tied to any task or
+   * domain. Off by default for baseline reproducibility.
+   */
+  labelComponentProfileContract: boolean;
+  /**
    * When true, CODE mode treats operator IDs as execution-safe logical IDs,
    * not only Python variable names. It asks for and enforces alphanumeric
    * Python identifiers without underscores because the current execution
@@ -308,6 +316,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   componentGrainGuidance: false,
   keyGrainComparisonGuidance: false,
   keyGrainEvidenceContract: false,
+  labelComponentProfileContract: false,
   executionSafeOperatorIds: false,
   fallbackContractGuidance: false,
 };
@@ -371,6 +380,7 @@ export interface AgentSettingsApi {
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
+  labelComponentProfileContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }
@@ -428,6 +438,7 @@ export interface UpdateAgentSettingsRequest {
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
+  labelComponentProfileContract?: boolean;
   executionSafeOperatorIds?: boolean;
   fallbackContractGuidance?: boolean;
 }

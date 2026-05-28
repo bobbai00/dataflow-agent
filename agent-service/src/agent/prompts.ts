@@ -50,6 +50,7 @@ export interface CodeModePromptOptions {
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
   keyGrainEvidenceContract?: boolean;
+  labelComponentProfileContract?: boolean;
   executionSafeOperatorIds?: boolean;
   maxUnexecutedCodeEdits?: number;
   fallbackContractGuidance?: boolean;
@@ -255,6 +256,29 @@ auditable before final entity-level operations.
 - The final entity-level operator should use the selected candidate from this
   executed evidence table, so LATEST context can audit the key decision without
   hidden trajectory.`;
+
+const LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE = `## Label-Component Profile Contract
+
+Use typed intermediate tables to profile label structure before selecting an
+entity key. This is a general dataflow rule for high-cardinality labels, not a
+task-specific delimiter rule.
+
+- When the current context says \`Label-component profile contract unsatisfied\`,
+  do not answer or mark a final candidate key yet.
+- First create and execute a compact profile operator over all non-null values
+  in the candidate label column(s). Do not rely only on visible preview rows.
+- The output DataFrame must include these columns exactly:
+  source_column, raw_distinct_count, candidate_component_rule,
+  delimiter_or_pattern, affected_label_count, affected_label_share,
+  component_distinct_count, residual_distinct_count, split_or_merge_count,
+  sample_raw_values, sample_raw_to_component_groups,
+  candidate_key_rows_to_compare, rationale.
+- Profile general structure families such as symbolic separators, spaced
+  dashes, parentheticals, prefixes/suffixes, numeric suffixes, and before/after
+  components. Include rows only for patterns observed in the data.
+- Use the executed profile to decide which component-derived candidate rows
+  belong in the candidate-key evidence table. Do not hard-code a delimiter or
+  transformation without profile evidence.`;
 
 const EXECUTION_SAFE_OPERATOR_ID_GUIDANCE = `## Execution-Safe Operator IDs
 
@@ -580,6 +604,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
   if (options.keyGrainEvidenceContract) sections.push(KEY_GRAIN_EVIDENCE_CONTRACT_GUIDANCE);
+  if (options.labelComponentProfileContract) sections.push(LABEL_COMPONENT_PROFILE_CONTRACT_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
   if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {
     sections.push(buildExecutionEvidenceCadenceGuidance(options.maxUnexecutedCodeEdits!));

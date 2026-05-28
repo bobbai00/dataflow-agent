@@ -103,6 +103,10 @@ export interface AssembleContextOptions {
    *  entity-label grains are visible and no executed comparison table with the
    *  required schema is visible. Off by default. */
   keyGrainEvidenceContract?: boolean;
+  /** Render a LATEST-mode label-component profile contract notice when
+   *  ambiguous high-cardinality labels are visible and no executed component
+   *  profile table with the required schema is visible. Off by default. */
+  labelComponentProfileContract?: boolean;
 }
 
 /**
@@ -152,6 +156,11 @@ const KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE = [
   "The table must expose candidate rows, split/merge effects, task-grain preservation, and exactly one selected key before finalization.",
 ].join(" ");
 
+const LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE = [
+  "Label-component profile contract: high-cardinality entity labels may encode multiple component grains that previews can miss.",
+  "Before selecting a final entity key, compute an all-value component profile over candidate label columns and use it to add observed component-derived key candidates.",
+].join(" ");
+
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
 const WIDE_COLUMN_COUNT_THRESHOLD = 100;
 const ENTITY_KEY_MIN_DISTINCT = 20;
@@ -173,6 +182,22 @@ const KEY_GRAIN_CONTRACT_REQUIRED_COLUMNS = [
   "sample_raw_to_key_groups",
   "preserves_task_grain",
   "selected_for_final",
+  "rationale",
+];
+const LABEL_COMPONENT_PROFILE_MAX_SOURCES = 3;
+const LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS = [
+  "source_column",
+  "raw_distinct_count",
+  "candidate_component_rule",
+  "delimiter_or_pattern",
+  "affected_label_count",
+  "affected_label_share",
+  "component_distinct_count",
+  "residual_distinct_count",
+  "split_or_merge_count",
+  "sample_raw_values",
+  "sample_raw_to_component_groups",
+  "candidate_key_rows_to_compare",
   "rationale",
 ];
 
@@ -580,10 +605,11 @@ function renderLatest(
     sections.push(latestUserContent);
     sections.push("");
   }
-  const keyGrainContractNotice = options.keyGrainEvidenceContract
-    ? buildKeyGrainEvidenceContractNotice(leafSnapshot)
-    : undefined;
-  appendContextNotices(sections, options, keyGrainContractNotice ? [keyGrainContractNotice] : undefined);
+  const dynamicNotices = [
+    options.labelComponentProfileContract ? buildLabelComponentProfileContractNotice(leafSnapshot) : undefined,
+    options.keyGrainEvidenceContract ? buildKeyGrainEvidenceContractNotice(leafSnapshot) : undefined,
+  ].filter((notice): notice is string => typeof notice === "string" && notice.length > 0);
+  appendContextNotices(sections, options, dynamicNotices);
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
@@ -619,6 +645,7 @@ function appendContextNotices(
     ...(options.componentGrainGuidance ? [COMPONENT_GRAIN_CONTEXT_NOTICE] : []),
     ...(options.keyGrainComparisonGuidance ? [KEY_GRAIN_COMPARISON_CONTEXT_NOTICE] : []),
     ...(options.keyGrainEvidenceContract ? [KEY_GRAIN_EVIDENCE_CONTRACT_CONTEXT_NOTICE] : []),
+    ...(options.labelComponentProfileContract ? [LABEL_COMPONENT_PROFILE_CONTRACT_CONTEXT_NOTICE] : []),
     ...dynamicNotices,
     ...(options.contextNotices ?? []),
   ]
@@ -1436,6 +1463,72 @@ function buildKeyGrainComparisonHint(info: OperatorInfo | undefined): string | u
 interface KeyGrainContractSource {
   operatorId: string;
   candidates: ComponentGrainCandidate[];
+}
+
+interface LabelComponentProfileSource {
+  operatorId: string;
+  candidates: ComponentGrainCandidate[];
+}
+
+function buildLabelComponentProfileContractNotice(snapshot: SnapshotData): string | undefined {
+  const sources = findLabelComponentProfileSources(snapshot);
+  if (sources.length === 0) return undefined;
+
+  const evidence = findLabelComponentProfileEvidence(snapshot);
+  if (evidence) {
+    return [
+      `Label-component profile contract satisfied by operator \`${evidence.operatorId}\` with required component-profile columns.`,
+      "Candidate-key evidence should use this profile to include observed component-derived rows before selecting the final entity key.",
+    ].join(" ");
+  }
+
+  const sourceText = sources
+    .slice(0, LABEL_COMPONENT_PROFILE_MAX_SOURCES)
+    .map(source => {
+      const candidateText = source.candidates
+        .slice(0, COMPONENT_GRAIN_MAX_HINT_COLUMNS)
+        .map(c => {
+          const pieces = [`${JSON.stringify(c.columnName)} distinct=${c.distinct}`];
+          if (c.signals.length > 0) pieces.push(`signals=${formatValueList(c.signals, 3)}`);
+          return pieces.join("; ");
+        })
+        .join(", ");
+      return `\`${source.operatorId}\`: ${candidateText}`;
+    })
+    .join(" | ");
+
+  return [
+    `Label-component profile contract unsatisfied: ambiguous high-cardinality entity-label grains are visible (${sourceText}).`,
+    "Before selecting or finalizing an entity key, create and execute a compact profile table over all non-null values in the candidate label columns; visible preview rows are not enough.",
+    `Required columns: ${LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS.join(", ")}.`,
+    "Profile general label structure only: delimiter/pattern families such as symbolic separators, spaced dashes, parentheticals, prefixes/suffixes, numeric suffixes, and before/after component counts.",
+    "Use the profile to decide which component-derived candidate rows must be compared in the candidate-key evidence table.",
+  ].join(" ");
+}
+
+function findLabelComponentProfileSources(snapshot: SnapshotData): LabelComponentProfileSource[] {
+  const sources: LabelComponentProfileSource[] = [];
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (!info || info.error || isLabelComponentProfileEvidence(info) || isKeyGrainContractEvidence(info)) continue;
+    const candidates = findComponentGrainCandidates(info);
+    if (candidates.length > 0) sources.push({ operatorId, candidates });
+  }
+  return sources;
+}
+
+function findLabelComponentProfileEvidence(snapshot: SnapshotData): { operatorId: string } | undefined {
+  for (const [operatorId, entry] of snapshot.results) {
+    const info = entry.info;
+    if (info && !info.error && isLabelComponentProfileEvidence(info)) return { operatorId };
+  }
+  return undefined;
+}
+
+function isLabelComponentProfileEvidence(info: OperatorInfo): boolean {
+  const normalizedColumns = new Set(inferRenderableColumns(info).map(normalizeEvidenceColumnName));
+  if (normalizedColumns.size === 0) return false;
+  return LABEL_COMPONENT_PROFILE_REQUIRED_COLUMNS.every(columnName => normalizedColumns.has(columnName));
 }
 
 function buildKeyGrainEvidenceContractNotice(snapshot: SnapshotData): string | undefined {

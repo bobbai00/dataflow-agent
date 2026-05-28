@@ -1170,6 +1170,115 @@ describe("assembleContext — Latest", () => {
     expect(satisfiedContext).not.toContain("Key-grain evidence contract unsatisfied");
   });
 
+  test("labelComponentProfileContract renders unsatisfied and satisfied LATEST notices", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "labels" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["labels"]));
+    storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove - Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove - Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Label-component profile contract unsatisfied");
+
+    const unsatisfiedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        labelComponentProfileContract: true,
+      })
+    );
+    expect(unsatisfiedContext).toContain("# Agent Guidance");
+    expect(unsatisfiedContext).toContain("Label-component profile contract:");
+    expect(unsatisfiedContext).toContain("Label-component profile contract unsatisfied");
+    expect(unsatisfiedContext).toContain('`labels`: "Site Label" distinct=250');
+    expect(unsatisfiedContext).toContain("source_column, raw_distinct_count, candidate_component_rule");
+    expect(unsatisfiedContext).toContain("visible preview rows are not enough");
+    expect(unsatisfiedContext).not.toContain('"source_path" distinct=250');
+
+    const satisfied = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "count distinct entities" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "componentProfile" } },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    satisfied.storage.createSnapshot("a", makeWorkflow(["labels", "componentProfile"]));
+    satisfied.storage.setOperatorResult(
+      "a",
+      "labels",
+      makeInfo("labels", 5_000, undefined, {
+        result: [
+          { "Site Label": "North Cove - Pier A", source_path: "source/a.csv" },
+          { "Site Label": "North Cove - Pier B", source_path: "source/b.csv" },
+        ],
+        columnStats: {
+          "Site Label": "(str): null=0, distinct=250",
+          source_path: "(str): null=0, distinct=250",
+        },
+      })
+    );
+    satisfied.storage.setOperatorResult(
+      "a",
+      "componentProfile",
+      makeInfo("componentProfile", 2, undefined, {
+        result: [
+          {
+            source_column: "Site Label",
+            raw_distinct_count: 250,
+            candidate_component_rule: "split spaced dash, take prefix",
+            delimiter_or_pattern: " - ",
+            affected_label_count: 120,
+            affected_label_share: 0.48,
+            component_distinct_count: 180,
+            residual_distinct_count: 70,
+            split_or_merge_count: 12,
+            sample_raw_values: "North Cove - Pier A",
+            sample_raw_to_component_groups: "North Cove - Pier A -> North Cove",
+            candidate_key_rows_to_compare: "prefix_before_dash",
+            rationale: "spaced dash is observed in a substantial subset",
+          },
+        ],
+      })
+    );
+
+    const satisfiedContext = content(
+      assembleContext(satisfied.steps, satisfied.workflowState, satisfied.storage, ContextMode.LATEST, {
+        ...opts,
+        labelComponentProfileContract: true,
+      })
+    );
+    expect(satisfiedContext).toContain("Label-component profile contract satisfied by operator `componentProfile`");
+    expect(satisfiedContext).not.toContain("Label-component profile contract unsatisfied");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

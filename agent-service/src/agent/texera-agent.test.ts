@@ -202,6 +202,19 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("selected_for_final");
   });
 
+  test("label-component profile contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Label-Component Profile Contract");
+
+    agent.updateSettings({ labelComponentProfileContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Label-Component Profile Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Label-component profile contract unsatisfied");
+    expect(agent.getSystemInfo().systemPrompt).toContain("source_column");
+    expect(agent.getSystemInfo().systemPrompt).toContain("visible preview rows");
+  });
+
   test("execution-safe operator ID guidance rebuilds the CODE-mode prompt", () => {
     const agent = makeAgent();
 
