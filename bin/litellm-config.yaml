@@ -31,6 +31,10 @@
 # actually reaches the OpenAI API. Set back to false once diagnosis is done.
 litellm_settings:
   set_verbose: true
+  # Drop provider-unsupported params (e.g. `stop` for gpt-5.2 reasoning models)
+  # instead of 400-erroring. Needed so the smolagents CodeAgent baseline can run
+  # against gpt-5.2; harmless for the dataflow agent (which doesn't send them).
+  drop_params: true
 
 model_list:
   - model_name: claude-haiku-4.5
