@@ -352,6 +352,48 @@ export class WorkflowSnapshotStorage {
     }
   }
 
+  /**
+   * Re-establish the full-state inheritance invariant across the whole tree.
+   *
+   * Live execution keeps it automatically: each snapshot inherits its
+   * parent's results at `createSnapshot` time, before any descendant exists.
+   * The import path can't — it creates every snapshot first (when the
+   * parents' result maps are still empty) and only afterwards attributes the
+   * recovered per-operator results to each owning snapshot. As a result,
+   * descendants never receive their ancestors' results, and the deepest
+   * snapshot (whose owning step is described by no later step's context) can
+   * end up with no results at all — so a checkout to HEAD shows no operator
+   * state even though every intermediate snapshot has it.
+   *
+   * This walks the tree parent-before-child and fills each child with any of
+   * its parent's result entries that the child doesn't already define and
+   * that aren't stale under `computeStaleResultOps(parent.workflow,
+   * child.workflow)` — exactly the rule `createSnapshot` applies live, but
+   * after the fact. A child's own (directly-attributed) entries always win.
+   * Idempotent; intended to be called once after an import.
+   */
+  propagateInheritedResults(): void {
+    const childrenByParent = new Map<string, SnapshotData[]>();
+    for (const snap of this.snapshots.values()) {
+      if (snap.parentId === undefined) continue;
+      const list = childrenByParent.get(snap.parentId) ?? [];
+      list.push(snap);
+      childrenByParent.set(snap.parentId, list);
+    }
+    const queue: string[] = [this.rootSnapshotId];
+    while (queue.length > 0) {
+      const parent = this.snapshots.get(queue.shift()!)!;
+      for (const child of childrenByParent.get(parent.id) ?? []) {
+        const stale = computeStaleResultOps(parent.workflow, child.workflow);
+        for (const [opId, entry] of parent.results) {
+          if (stale.has(opId)) continue;
+          if (!child.results.has(opId)) child.results.set(opId, entry);
+        }
+        queue.push(child.id);
+      }
+    }
+  }
+
   // ── internal ─────────────────────────────────────────────────────────
 
   /** Walk ReAct ancestors of `reactStepId` (excluding the step itself) and

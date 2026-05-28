@@ -263,6 +263,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         userToken: t.Optional(t.String()),
         workflowId: t.Optional(t.Number()),
         computingUnitId: t.Optional(t.Number()),
+        // Explicit driver override. Must be in the schema or Elysia's
+        // normalize pass strips it from the body before the handler reads it.
+        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
         settings: t.Optional(
           t.Object({
             maxOperatorResultCharLimit: t.Optional(t.Number()),

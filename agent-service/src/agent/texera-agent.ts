@@ -1269,9 +1269,8 @@ export class TexeraAgent {
       if (!targetStepId) continue; // empty root — no snapshot owner to write to
       const opsInTarget = new Set(target.workflow.operators.map(o => o.operatorID));
       for (const msg of step.inputMessages) {
-        const content = typeof (msg as { content?: unknown })?.content === "string"
-          ? ((msg as { content: string }).content)
-          : "";
+        const content =
+          typeof (msg as { content?: unknown })?.content === "string" ? (msg as { content: string }).content : "";
         if (!content) continue;
         let parsed: Map<string, ReturnType<typeof parseTraceContext> extends Map<infer _, infer V> ? V : never>;
         try {
@@ -1287,14 +1286,17 @@ export class TexeraAgent {
           try {
             this.snapshotStorage.setOperatorResult(targetStepId, opId, info);
           } catch (err) {
-            this.log.warn(
-              { err, stepId: targetStepId, opId },
-              "import: failed to set operator result, skipping"
-            );
+            this.log.warn({ err, stepId: targetStepId, opId }, "import: failed to set operator result, skipping");
           }
         }
       }
     }
+
+    // Results above were attributed to each owning snapshot only. Cascade them
+    // down the tree so descendant snapshots — including HEAD, whose owning
+    // step is described by no later context — inherit ancestor results and
+    // every checkout shows the operator state the model actually saw.
+    this.snapshotStorage.propagateInheritedResults();
 
     // Pick HEAD: leaf with the latest timestamp on its branch.
     const leaves = order.filter(s => (childrenOf.get(s.id) ?? []).length === 0);
