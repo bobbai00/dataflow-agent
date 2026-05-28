@@ -26,6 +26,11 @@ export interface FormatOperatorResultOptions {
    *  `Column stats:` block — one indented line per column. Errors are
    *  rendered the same way regardless. Defaults to false. */
   statsEnabled?: boolean;
+  /** When true, prepend a compact `Schema:` line listing every output column
+   *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
+   *  the result-row headers (names only). A cheaper, complete substitute for
+   *  the verbose `Column stats:` block (lever E). Defaults to false. */
+  schemaInResult?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -84,8 +89,42 @@ export function formatOperatorResult(
   ].filter(Boolean);
 
   const briefSummary = formatExecuteOperatorResult(operatorId);
+  const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+}
+
+/**
+ * Build a compact, COMPLETE `Schema:` line — `name (type), name (type), …` for
+ * every output column (lever E). Column names + types come from
+ * `opInfo.columnStats` (whose display strings begin with a `(<type>)` tag and
+ * which the engine computes for *every* column, so the list is complete even
+ * for wide tables that the TSV/stats previews truncate). Falls back to the
+ * result-row headers (names only) when `columnStats` is absent. Returns
+ * `undefined` when no columns are known. Unlike the verbose `Column stats:`
+ * block this is one short line and is intentionally NOT column-truncated — its
+ * whole value is giving the model the full column inventory to write against.
+ */
+export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
+  const stats = opInfo.columnStats ?? {};
+  const statCols = Object.keys(stats);
+  let cols: string[];
+  if (statCols.length > 0) {
+    cols = statCols;
+  } else {
+    const result = Array.isArray(opInfo.result) ? (opInfo.result as Record<string, any>[]) : [];
+    cols =
+      result.length > 0
+        ? Object.keys(result[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__")
+        : [];
+  }
+  if (cols.length === 0) return undefined;
+  const parts = cols.map(col => {
+    const s = stats[col];
+    const m = typeof s === "string" ? /^\(([^)]+)\)/.exec(s.trim()) : null;
+    return m ? `${col} (${m[1]})` : col;
+  });
+  return `Schema (${cols.length} cols): ${parts.join(", ")}`;
 }
 
 /**

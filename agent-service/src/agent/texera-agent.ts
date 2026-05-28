@@ -430,7 +430,9 @@ export class TexeraAgent {
       tools[TOOL_NAME_CREATE_OR_MODIFY_OPERATOR] = createCreateOrModifyOperatorTool(
         this.workflowState,
         operatorSchemas,
-        context
+        context,
+        this.settings.maxOperatorEdits,
+        this.settings.maxLoadersPerSource
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -671,12 +673,16 @@ export class TexeraAgent {
     executionTimeoutMs?: number;
     disabledTools?: Set<string>;
     maxSteps?: number;
+    maxOperatorEdits?: number;
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     statsEnabled?: boolean;
     includeOperatorProperties?: boolean;
+    schemaInResult?: boolean;
+    loaderHint?: boolean;
+    maxLoadersPerSource?: number;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -700,6 +706,11 @@ export class TexeraAgent {
     }
     if (updates.maxSteps !== undefined) {
       this.settings.maxSteps = updates.maxSteps;
+    }
+    if (updates.maxOperatorEdits !== undefined) {
+      this.settings.maxOperatorEdits = updates.maxOperatorEdits;
+      // Read by createTools() below when (re)building the code-op tool; the
+      // guard's consecutive-edit counter resets with the rebuilt closure.
     }
     if (updates.allowedOperatorTypes !== undefined) {
       this.settings.allowedOperatorTypes = updates.allowedOperatorTypes;
@@ -730,6 +741,21 @@ export class TexeraAgent {
       // Pure render-time toggle — controls whether each operator's
       // `Properties:` line is emitted in the assembled snapshot (code
       // operators are always stripped regardless). Read at next assembly.
+    }
+    if (updates.schemaInResult !== undefined) {
+      this.settings.schemaInResult = updates.schemaInResult;
+      // Pure render-time toggle — controls whether a compact `Schema:` line
+      // (col + type) precedes each operator's result. Read at next assembly.
+    }
+    if (updates.loaderHint !== undefined) {
+      this.settings.loaderHint = updates.loaderHint;
+      // Pure render-time toggle — appends a `Loader hint:` remediation line to
+      // a failed load-stage operator's Result. Read at next assembleContext.
+    }
+    if (updates.maxLoadersPerSource !== undefined) {
+      this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;
+      // Read by createTools() below when (re)building the code-op tool; the
+      // per-source loader budget is enforced inside that tool closure.
     }
 
     if (promptNeedsRebuild) {

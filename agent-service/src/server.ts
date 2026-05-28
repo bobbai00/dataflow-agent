@@ -71,6 +71,8 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       agentMode: settings.agentMode,
       statsEnabled: settings.statsEnabled,
       includeOperatorProperties: settings.includeOperatorProperties,
+      schemaInResult: settings.schemaInResult,
+      loaderHint: settings.loaderHint,
     });
 }
 
@@ -135,12 +137,16 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
+    maxOperatorEdits: agentSettings.maxOperatorEdits,
+    maxLoadersPerSource: agentSettings.maxLoadersPerSource,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     statsEnabled: agentSettings.statsEnabled,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
+    schemaInResult: agentSettings.schemaInResult,
+    loaderHint: agentSettings.loaderHint,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -245,12 +251,16 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
           disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
           maxSteps: settings.maxSteps,
+          maxOperatorEdits: settings.maxOperatorEdits,
+          maxLoadersPerSource: settings.maxLoadersPerSource,
           allowedOperatorTypes: settings.allowedOperatorTypes,
           agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           statsEnabled: settings.statsEnabled,
           includeOperatorProperties: settings.includeOperatorProperties,
+          schemaInResult: settings.schemaInResult,
+          loaderHint: settings.loaderHint,
         });
       }
 
@@ -275,12 +285,16 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             executionTimeoutMinutes: t.Optional(t.Number()),
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
+            maxOperatorEdits: t.Optional(t.Number()),
+            maxLoadersPerSource: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
             contextMode: t.Optional(t.Union([t.Literal("full"), t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             statsEnabled: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
+            schemaInResult: t.Optional(t.Boolean()),
+            loaderHint: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -509,6 +523,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
       disabledTools: Array.from(agentSettings.disabledTools),
       maxSteps: agentSettings.maxSteps,
+      maxOperatorEdits: agentSettings.maxOperatorEdits,
+      maxLoadersPerSource: agentSettings.maxLoadersPerSource,
       allowedOperatorTypes: agentSettings.allowedOperatorTypes,
       agentMode: agentSettings.agentMode,
       contextMode: agentSettings.contextMode,
@@ -543,12 +559,16 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
+        maxOperatorEdits: settings.maxOperatorEdits,
+        maxLoadersPerSource: settings.maxLoadersPerSource,
         allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         statsEnabled: settings.statsEnabled,
         includeOperatorProperties: settings.includeOperatorProperties,
+        schemaInResult: settings.schemaInResult,
+        loaderHint: settings.loaderHint,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -565,12 +585,16 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
         disabledTools: Array.from(agentSettings.disabledTools),
         maxSteps: agentSettings.maxSteps,
+        maxOperatorEdits: agentSettings.maxOperatorEdits,
+        maxLoadersPerSource: agentSettings.maxLoadersPerSource,
         allowedOperatorTypes: agentSettings.allowedOperatorTypes,
         agentMode: agentSettings.agentMode,
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
         statsEnabled: agentSettings.statsEnabled,
         includeOperatorProperties: agentSettings.includeOperatorProperties,
+        schemaInResult: agentSettings.schemaInResult,
+        loaderHint: agentSettings.loaderHint,
       };
     },
     {
@@ -581,6 +605,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
         maxSteps: t.Optional(t.Number()),
+        maxOperatorEdits: t.Optional(t.Number()),
+        maxLoadersPerSource: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
@@ -588,6 +614,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         parallelToolCalls: t.Optional(t.Boolean()),
         statsEnabled: t.Optional(t.Boolean()),
         includeOperatorProperties: t.Optional(t.Boolean()),
+        schemaInResult: t.Optional(t.Boolean()),
+        loaderHint: t.Optional(t.Boolean()),
       }),
     }
   );

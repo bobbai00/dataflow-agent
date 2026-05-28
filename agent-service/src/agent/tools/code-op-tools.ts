@@ -274,6 +274,67 @@ function formatNoOpWarning(): string {
 }
 
 /**
+ * Build the convergence-guard rejection message (goal.md lever C, limitation
+ * L1). Emitted when the agent has edited the same operator `cap` times in a row
+ * and submits yet another modification to it. The message names the operator,
+ * the cap, and the operator's immediate upstream operator ids so the model is
+ * pointed at the usual root cause (a wrong column name/type assumed from
+ * upstream) instead of being told only "stop". Listing upstream *ids* is not
+ * lever D — it surfaces no schemas/columns, just the lineage neighbors the
+ * model already sees in the DAG.
+ */
+function buildConvergenceGuardMessage(operatorId: string, cap: number, upstreamIds: string[]): string {
+  const upstreamHint =
+    upstreamIds.length > 0
+      ? `Inspect the Result/error of its input operator(s) [${upstreamIds.join(", ")}] first — ` +
+        `a column name or type wrongly assumed from upstream is the usual root cause.`
+      : `It has no upstream operators — re-read its own error and the task requirements, not its code.`;
+  return (
+    `Convergence guard: operator \`${operatorId}\` has already been edited ${cap} times (its edit budget), ` +
+    `so this further modification was REJECTED. Repeated edits to the same operator are parametric thrashing and ` +
+    `do not converge. Do NOT keep editing \`${operatorId}\`. Instead: (1) ${upstreamHint} ` +
+    `(2) build the answer from a DIFFERENT operator, or (3) reconsider the overall approach (a different ` +
+    `decomposition, loader, or column-selection strategy).`
+  );
+}
+
+/**
+ * Extract a stable source-path key from a `load()` operator's code, for the
+ * loader-proliferation budget (plan5). Finds the first file-reader / open call
+ * and keys on its PATH-like string literals only (those containing a path
+ * separator or a data-file extension), so kwargs like encoding="cp1252" or
+ * sep=";" don't perturb the key and two loaders of the same file collapse to
+ * one key regardless of read options. `os.path.join("dir","x.csv")` yields
+ * "dir|x.csv". Returns `undefined` when no path literal is present (dynamic
+ * path) — the budget then does not apply (conservative: only gate loaders
+ * whose source we can identify). Keyed on code structure, never a task literal.
+ */
+export function extractLoaderSourcePath(code: string): string | undefined {
+  const call =
+    /(?:read_csv|read_excel|read_parquet|read_json|read_table|read_fwf|read_html|read_sql_query|read_sql|read_pickle|read_stata|read_orc|open|load_workbook|loadtxt|genfromtxt)\s*\(([^)]*)\)/s.exec(
+      code
+    );
+  if (!call) return undefined;
+  const literals = [...call[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].trim());
+  const pathLike = literals.filter(
+    s => /[\/\\]/.test(s) || /\.(csv|tsv|txt|xlsx?|json|parquet|dat|gz|zip|orc|pkl|dta|fwf)$/i.test(s)
+  );
+  if (pathLike.length === 0) return undefined;
+  return [...new Set(pathLike)].sort().join("|");
+}
+
+function buildLoaderProliferationMessage(operatorId: string, sourcePath: string, existingLoaderIds: string[]): string {
+  const list = existingLoaderIds.map(id => `\`${id}\``).join(", ");
+  return (
+    `Loader budget: the new loader \`${operatorId}\` reads a source [${sourcePath}] already loaded by existing ` +
+    `operator(s) [${list}], so creating ANOTHER loader for it was REJECTED. Re-loading the same file under a new ` +
+    `id is wasted work and fragments the dataflow (a top cost driver). Instead: REUSE an existing loader as the ` +
+    `upstream input to your process() operator (pass its id as a parameter), or MODIFY that loader if its load ` +
+    `logic needs fixing. Do not create a duplicate loader for a file you already load.`
+  );
+}
+
+/**
  * Validate Python syntax via the system Python interpreter. Returns null on
  * success, or the stderr output on syntax error. Silently skips when Python is
  * not installed (validation is best-effort).
@@ -440,6 +501,7 @@ export const __forTesting = {
   stripDocstringsAndComments,
   normalizeCodeForCompare,
   formatNoOpWarning,
+  buildConvergenceGuardMessage,
 };
 
 async function runPythonContractCheck(code: string): Promise<ContractResult | "PYTHON_UNAVAILABLE"> {
@@ -598,9 +660,24 @@ function createInputLinks(
 export function createCreateOrModifyOperatorTool(
   workflowState: WorkflowState,
   operatorSchemas: Map<string, any>,
-  context?: ToolContext
+  context?: ToolContext,
+  maxOperatorEdits = 0,
+  maxLoadersPerSource = 0
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
+
+  // Convergence-guard state (goal.md lever C). Per-operator CUMULATIVE edit
+  // counter: operatorId → number of `createOrModifyOperator` calls that have
+  // targeted it during this agent's life. Total (not just consecutive) because
+  // baseline thrashing is largely interleaved — one operator gets edited many
+  // times with edits of other operators in between (e.g. 30 total edits, only
+  // 14 consecutive), which a consecutive-only cap would not catch (the model
+  // could ping-pong between two operators to evade it). Each operator has its
+  // own independent budget. State lives in this closure, which is stable for
+  // the life of one agent (the tool is only rebuilt on createTools(), which
+  // never runs mid-`sendMessage`); each KramaBench task uses a fresh agent, so
+  // the counters reset per task.
+  const guardEditCounts = new Map<string, number>();
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -683,6 +760,47 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
 
         const existingOperator = findOperatorByName(workflowState, operatorId);
         const displayName = summary || operatorId;
+
+        // Convergence guard (lever C / L1). Count cumulative edits per
+        // operator; once an existing operator has already been edited
+        // `maxOperatorEdits` times, reject the next MODIFY to it before
+        // mutating anything. The counter advances on every well-formed call
+        // (create or modify), so a `create` seeds the count at 1. Rejection
+        // returns an `[ERROR]` result and touches no state, so the loop's
+        // post-step execution skips it (no run, no new result table, no context
+        // growth) — truncating the thrashing tail.
+        if (maxOperatorEdits > 0) {
+          const edits = (guardEditCounts.get(operatorId) ?? 0) + 1;
+          guardEditCounts.set(operatorId, edits);
+          if (existingOperator && edits > maxOperatorEdits) {
+            const upstreamIds = workflowState
+              .getLinksConnectedToOperator(operatorId)
+              .filter(link => link.target.operatorID === operatorId)
+              .map(link => link.source.operatorID);
+            return createErrorResult(buildConvergenceGuardMessage(operatorId, maxOperatorEdits, upstreamIds));
+          }
+        }
+
+        // Loader-proliferation budget (plan5 / lever F). On a CREATE of a
+        // DataLoading op, reject if the same source path already has
+        // `maxLoadersPerSource` distinct loader ids — the agent should reuse
+        // the existing loader rather than re-load the file under a fresh id
+        // (the dominant proliferation cost driver a per-op cap can't see).
+        // Rejection mutates nothing, so the post-step exec skips it (no cost).
+        // 0 disables (no-op default; baseline reproduces).
+        if (maxLoadersPerSource > 0 && !existingOperator && type === "DataLoading") {
+          const newPath = extractLoaderSourcePath(code);
+          if (newPath) {
+            const sameSourceLoaders = workflowState
+              .getAllOperators()
+              .filter(o => o.operatorType === DATA_LOADING_OPERATOR_TYPE)
+              .filter(o => extractLoaderSourcePath(String((o.operatorProperties as any)?.code ?? "")) === newPath)
+              .map(o => o.operatorID);
+            if (sameSourceLoaders.length >= maxLoadersPerSource) {
+              return createErrorResult(buildLoaderProliferationMessage(operatorId, newPath, sameSourceLoaders));
+            }
+          }
+        }
 
         let resultMsg: string;
         let createdLinkPairs: { source: string; target: string }[] = [];

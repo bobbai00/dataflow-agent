@@ -97,6 +97,17 @@ export interface AgentSettings {
   toolTimeoutMs: number;
   executionTimeoutMs: number;
   maxSteps: number;
+  /**
+   * Convergence guard (paper §C / goal.md lever C). The maximum number of
+   * *consecutive* `createOrModifyOperator` calls that may target the SAME
+   * operator before the next same-operator MODIFY is rejected. A call to a
+   * different operator resets the run. `0` disables the guard entirely
+   * (default — byte-identical to pre-guard behavior). When `> 0`, a rejected
+   * edit returns an `[ERROR]` result and mutates nothing, so it triggers no
+   * execution and does not grow the per-step context — this is what truncates
+   * the L1 (semantic thrashing) × L2 (super-linear context) cost blow-up.
+   */
+  maxOperatorEdits: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
   contextMode: ContextMode;
@@ -129,6 +140,54 @@ export interface AgentSettings {
    * paper-§4.3 strip-everything behavior). Enabled by default.
    */
   includeOperatorProperties: boolean;
+  /**
+   * When true, each non-error operator result is preceded by a compact
+   * `Schema:` line — `col (type), col (type), …` for every output column,
+   * derived from the engine's `columnStats` (type tag) or, failing that, the
+   * result-row headers (names only). Unlike the verbose `Column stats:` block
+   * it lists ALL columns (it's compact enough not to truncate) and carries only
+   * name+type, not value distributions. Intended as a cheaper substitute for
+   * full stats in CODE mode (schema-first, lever E): explicit column+type
+   * inventory so a downstream `def process(upstream)` writes against real
+   * columns. Disabled by default (no-op).
+   */
+  schemaInResult: boolean;
+  /**
+   * When true, an operator that has been edited repeatedly (≥ the reflection
+   * threshold) gets an `Attempt reflection:` block in the current snapshot:
+   * its edit count, its current code (otherwise stripped from context), and a
+   * directive to change strategy instead of resubmitting near-variants. Targets
+   * operator-level thrashing (lever C/D + the Lineage & Flow direction) by
+   * giving the model the attempt history + code it cannot otherwise see.
+   * Disabled by default (no-op).
+   */
+  attemptReflection: boolean;
+  /**
+   * Stage-aware loader-remediation hint (goal.md lever D / Direction-1). When
+   * true, a load-stage operator (`DataLoading`, i.e. zero incoming links) that
+   * has an `info.error` gets an indented `Loader hint:` line appended to its
+   * Result block — a compact, GENERAL remediation directive keyed only on the
+   * exception class parsed from the error string (UnicodeDecodeError → try a
+   * non-UTF-8 encoding such as cp1252/latin-1; ParserError → sniff the
+   * delimiter / skip preamble rows / on_bad_lines='skip'; FileNotFoundError →
+   * use the exact provided path). The model already SEES the error + its code
+   * but loops without acting; this injects the remediation knowledge it lacks.
+   * No task/column/domain literals. Disabled by default (no-op).
+   */
+  loaderHint: boolean;
+  /**
+   * Global loader-proliferation budget (goal.md lever F / generalizes C). The
+   * maximum number of distinct `DataLoading` operator ids that may read the
+   * SAME source path before a NEW loader for that path is rejected (the agent
+   * is told to reuse the existing loader). Targets the dominant cost driver
+   * plan1's per-op cap missed: re-loading one file under many fresh ids
+   * (baseline: 22 redundant loaders on one task), which a per-operator cap
+   * cannot see. Source path is parsed from the load() `code`. `0` disables the
+   * budget entirely (default — baseline reproduces). The rejected create
+   * returns an `[ERROR]` and mutates nothing, so it adds no execution/context
+   * cost. Robust to the new-id evasion.
+   */
+  maxLoadersPerSource: number;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -139,6 +198,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
+  maxOperatorEdits: 0,
   allowedOperatorTypes: [
     "CSVFileScan",
     "Filter",
@@ -164,6 +224,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   parallelToolCalls: false,
   statsEnabled: true,
   includeOperatorProperties: true,
+  schemaInResult: false,
+  attemptReflection: false,
+  loaderHint: false,
+  maxLoadersPerSource: 0,
 };
 
 /**
@@ -204,12 +268,17 @@ export interface AgentSettingsApi {
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
+  maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
+  schemaInResult?: boolean;
+  attemptReflection?: boolean;
+  loaderHint?: boolean;
+  maxLoadersPerSource?: number;
 }
 
 export interface AgentInfo {
@@ -244,10 +313,15 @@ export interface UpdateAgentSettingsRequest {
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
+  maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
+  schemaInResult?: boolean;
+  attemptReflection?: boolean;
+  loaderHint?: boolean;
+  maxLoadersPerSource?: number;
 }

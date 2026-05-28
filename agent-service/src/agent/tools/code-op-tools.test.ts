@@ -573,3 +573,113 @@ return x`);
     expect(stripped).toContain("return x");
   });
 });
+
+describe("buildConvergenceGuardMessage", () => {
+  const { buildConvergenceGuardMessage } = __forTesting;
+
+  test("names the operator, cap, REJECTED, and upstream ids when present", () => {
+    const msg = buildConvergenceGuardMessage("maxRainSummerMonth", 5, ["precipLongClean", "monthIndex"]);
+    expect(msg).toContain("`maxRainSummerMonth`");
+    expect(msg).toContain("edited 5 times");
+    expect(msg).toContain("REJECTED");
+    expect(msg).toContain("precipLongClean, monthIndex");
+  });
+
+  test("falls back to a 'no upstream operators' hint when the op is a source", () => {
+    const msg = buildConvergenceGuardMessage("loadCsv", 3, []);
+    expect(msg).toContain("no upstream operators");
+    expect(msg).not.toContain("[]");
+  });
+});
+
+describe("createOrModifyOperator — convergence guard (lever C / L1)", () => {
+  // Distinct-but-valid loader code per attempt, so each edit is a *semantic*
+  // change (the byte-level no-op detector never fires) — we're testing the
+  // guard, not the no-op path.
+  const loadCode = (n: number) => `def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv', skiprows=${n})`;
+
+  function buildTool(maxOperatorEdits: number) {
+    const ws = new WorkflowState();
+    const tool = createCreateOrModifyOperatorTool(ws, new Map(), undefined, maxOperatorEdits);
+    const execute = (args: { operatorId: string; code: string; summary?: string }): Promise<string> =>
+      (tool.execute as any)(args, {} as any);
+    return { ws, execute };
+  }
+
+  function seedOp(ws: WorkflowState, opId: string, code: string) {
+    ws.addOperator({
+      operatorID: opId,
+      operatorType: "DataLoading",
+      operatorVersion: "v1",
+      operatorProperties: { code },
+      inputPorts: [],
+      outputPorts: [{ portID: "output-0", displayName: "" }],
+      showAdvanced: false,
+      isDisabled: false,
+      customDisplayName: opId,
+      dynamicInputPorts: false,
+      dynamicOutputPorts: false,
+    } as any);
+  }
+
+  test("cap=0 disables the guard — many consecutive same-op modifies all succeed", async () => {
+    const { ws, execute } = buildTool(0);
+    const opId = "csvLoader";
+    seedOp(ws, opId, loadCode(0));
+    for (let i = 1; i <= 12; i++) {
+      const result = await execute({ operatorId: opId, code: loadCode(i), summary: `skiprows=${i}` });
+      expect(result).not.toMatch(/^\[ERROR\]/);
+      expect(result).toContain("modified");
+    }
+    // The 12th edit landed — guard never intervened.
+    expect((ws.getOperator(opId)!.operatorProperties as any).code).toBe(loadCode(12));
+  });
+
+  test("cap=N rejects the (N+1)th modify of an op and leaves the last accepted code intact", async () => {
+    const cap = 3;
+    const { ws, execute } = buildTool(cap);
+    const opId = "csvLoader";
+    seedOp(ws, opId, loadCode(0));
+
+    // First `cap` modifies are accepted.
+    for (let i = 1; i <= cap; i++) {
+      const ok = await execute({ operatorId: opId, code: loadCode(i), summary: `skiprows=${i}` });
+      expect(ok).not.toMatch(/^\[ERROR\]/);
+      expect(ok).toContain("modified");
+    }
+
+    // The (cap+1)th modify is rejected before any mutation.
+    const rejected = await execute({ operatorId: opId, code: loadCode(cap + 1), summary: "one too many" });
+    expect(rejected).toMatch(/^\[ERROR\]/);
+    expect(rejected).toContain("Convergence guard");
+    expect(rejected).toContain(`\`${opId}\``);
+    // Workflow code is still the last *accepted* version — the reject didn't land.
+    expect((ws.getOperator(opId)!.operatorProperties as any).code).toBe(loadCode(cap));
+  });
+
+  test("each operator has an INDEPENDENT budget — editing B does not unblock A (no ping-pong evasion)", async () => {
+    const cap = 3;
+    const { ws, execute } = buildTool(cap);
+    const a = "loaderA";
+    const b = "loaderB";
+    seedOp(ws, a, loadCode(0));
+    seedOp(ws, b, loadCode(100));
+
+    // Exhaust A's budget, then one more → rejected.
+    for (let i = 1; i <= cap; i++) {
+      expect(await execute({ operatorId: a, code: loadCode(i), summary: `a${i}` })).toContain("modified");
+    }
+    expect(await execute({ operatorId: a, code: loadCode(cap + 1), summary: "a-blocked" })).toMatch(/^\[ERROR\]/);
+
+    // B has its OWN budget — still editable.
+    expect(await execute({ operatorId: b, code: loadCode(101), summary: "b1" })).toContain("modified");
+
+    // Coming back to A after touching B does NOT reset A — it stays blocked
+    // (this is the interleaving/ping-pong case a consecutive cap would miss).
+    const aAgain = await execute({ operatorId: a, code: loadCode(cap + 2), summary: "a-still-blocked" });
+    expect(aAgain).toMatch(/^\[ERROR\]/);
+    expect(aAgain).toContain("Convergence guard");
+    // A's code is still the last accepted version (loadCode(cap)).
+    expect((ws.getOperator(a)!.operatorProperties as any).code).toBe(loadCode(cap));
+  });
+});

@@ -55,6 +55,14 @@ export interface AssembleContextOptions {
    *  error, so it is always stripped). When false, no properties render at
    *  all (legacy paper-§4.3 strip-everything behavior). Undefined ⇒ true. */
   includeOperatorProperties?: boolean;
+  /** When true, a compact `Schema:` line (col + type, all columns) precedes
+   *  each non-error operator result, derived from `columnStats`/headers.
+   *  Off by default. Intended as a cheaper substitute for `statsEnabled`. */
+  schemaInResult?: boolean;
+  /** When true, a load-stage operator (`DataLoading`) that errored gets a
+   *  compact `Loader hint:` remediation line appended to its Result, keyed on
+   *  the exception class parsed from the error string. Off by default. */
+  loaderHint?: boolean;
 }
 
 /**
@@ -772,6 +780,36 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
  *  Per-operator serialization
  * ========================================================================= */
 
+/**
+ * Stage-aware loader-remediation hint (plan4, goal.md lever D / Direction-1).
+ * Maps the exception CLASS parsed from a load-stage operator's error string to
+ * a compact, GENERAL pandas remediation directive. Keyed only on the exception
+ * class — never a task/column/domain/answer literal — so it generalizes from
+ * the (stage=DataLoading, error-class) structure alone. Returns `undefined`
+ * for classes that aren't a known load-failure mode (then no hint renders).
+ *
+ * Motivation (baseline traces): the agent already SEES the `[ERROR]` block with
+ * its own code, yet loops without fixing it (e.g. legal-hard-18 retried 8 steps
+ * on a `0x93` byte that is plainly Windows-1252). The missing ingredient is
+ * remediation knowledge, not visibility — so we inject the fix pattern once,
+ * localized to the failing loader operator.
+ */
+export function formatLoaderHint(errorText: string): string | undefined {
+  if (/UnicodeDecodeError|codec can't decode|'utf-8' codec/.test(errorText)) {
+    return 'Loader hint: the file is not UTF-8. Re-read with an explicit encoding — try encoding="cp1252" (Windows-1252) first, then encoding="latin-1" (which never fails). Do not retry the default UTF-8.';
+  }
+  if (/ParserError|Error tokenizing|tokenizing data|Expected \d+ fields/.test(errorText)) {
+    return 'Loader hint: CSV parsing failed — likely the wrong delimiter, ragged rows, or metadata/comment lines before the header. Pass an explicit sep=, set engine="python" with on_bad_lines="skip", and/or skiprows= to skip preamble; inspect the first raw lines to find the true header row.';
+  }
+  if (/FileNotFoundError|No such file|cannot find the (?:file|path)|does not exist/.test(errorText)) {
+    return "Loader hint: the path does not exist as written. Use the EXACT file path(s) from the task description verbatim (do not invent directories or rename files); paths may be relative. If a directory or glob is intended, enumerate it and read the matching file(s).";
+  }
+  if (/ValueError/.test(errorText) && /could not convert|invalid literal|Unable to parse|does not match format/.test(errorText)) {
+    return 'Loader hint: a value failed type conversion while loading. Read the affected column(s) as strings first (dtype=str), then clean (strip $, commas, %, whitespace) and convert with pd.to_numeric(..., errors="coerce") or pd.to_datetime(...); or pass the right parse options to the reader.';
+  }
+  return undefined;
+}
+
 function serializeOperatorFull(
   op: OperatorPredicate,
   snapshot: SnapshotData,
@@ -783,7 +821,10 @@ function serializeOperatorFull(
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   const execText = info
-    ? formatOperatorResult(op.operatorID, info, workflowState, { statsEnabled: options.statsEnabled })
+    ? formatOperatorResult(op.operatorID, info, workflowState, {
+        statsEnabled: options.statsEnabled,
+        schemaInResult: options.schemaInResult,
+      })
     : undefined;
 
   // No status label in the header. Execution state is conveyed by the Result
@@ -845,6 +886,14 @@ function serializeOperatorFull(
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
+    // plan4: stage-aware loader-remediation hint. Only on the CURRENT snapshot
+    // (inject-once, per lever D — avoids repeating it across FULL-mode history),
+    // for load-stage operators (DataLoading) that errored; keyed solely on the
+    // exception class in the error string. Off by default (no-op).
+    if (options.loaderHint && isCurrent && op.operatorType === "DataLoading" && info?.error) {
+      const hint = formatLoaderHint(info.error);
+      if (hint) for (const l of hint.split("\n")) lines.push("  " + l);
+    }
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
     // "blocked by upstream error" from "not yet executed" by walking

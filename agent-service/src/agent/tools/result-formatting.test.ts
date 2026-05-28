@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatOperatorResult } from "./result-formatting";
+import { formatOperatorResult, formatSchemaLine } from "./result-formatting";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, OperatorLink, PortDescription } from "../../types/workflow";
@@ -559,5 +559,53 @@ describe("formatOperatorResult - statsEnabled column stats", () => {
     expect(out).toContain(`- "customer_id" (str): null=0, distinct=10000`);
     expect(out).toContain(`- "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30`);
     expect(out).toContain(`- "amount" (numeric): null=0, mean=219.2, min=95, max=520`);
+  });
+});
+
+describe("formatSchemaLine — compact typed schema (lever E)", () => {
+  test("builds 'name (type)' for every column from columnStats type tags", () => {
+    const info = makeOpInfo({
+      result: [{ __row_index__: 0, id: 1, name: "x", amount: 5.0 }],
+      columnStats: {
+        id: "(numeric): null=0, mean=1, min=1, max=1",
+        name: "(str): null=0, distinct=1",
+        amount: "(numeric): null=0, mean=5, min=5, max=5",
+      },
+    });
+    const line = formatSchemaLine(info);
+    expect(line).toBe("Schema (3 cols): id (numeric), name (str), amount (numeric)");
+  });
+
+  test("lists ALL columns even when wide (no 50-col truncation)", () => {
+    const stats: Record<string, string> = {};
+    const row: Record<string, any> = { __row_index__: 0 };
+    for (let i = 0; i < 80; i++) {
+      stats[`c${i}`] = "(numeric): null=0";
+      row[`c${i}`] = i;
+    }
+    const line = formatSchemaLine(makeOpInfo({ result: [row], columnStats: stats }))!;
+    expect(line.startsWith("Schema (80 cols): ")).toBe(true);
+    expect(line).toContain("c0 (numeric)");
+    expect(line).toContain("c79 (numeric)"); // middle/last columns are NOT dropped
+  });
+
+  test("falls back to result headers (names only) when columnStats is absent", () => {
+    const info = makeOpInfo({ result: [{ __row_index__: 0, a: 1, b: 2 }] });
+    expect(formatSchemaLine(info)).toBe("Schema (2 cols): a, b");
+  });
+
+  test("returns undefined when no columns are known", () => {
+    expect(formatSchemaLine(makeOpInfo({ result: [] }))).toBeUndefined();
+  });
+
+  test("schemaInResult option prepends the Schema line to the result; off by default omits it", () => {
+    const info = makeOpInfo({
+      result: [{ __row_index__: 0, id: 1, amount: 5.0 }],
+      columnStats: { id: "(numeric): null=0", amount: "(numeric): null=0" },
+    });
+    const withSchema = formatOperatorResult("op1", info, EMPTY_STATE, { schemaInResult: true });
+    expect(withSchema).toContain("Schema (2 cols): id (numeric), amount (numeric)");
+    const without = formatOperatorResult("op1", info, EMPTY_STATE, {});
+    expect(without).not.toContain("Schema (");
   });
 });
