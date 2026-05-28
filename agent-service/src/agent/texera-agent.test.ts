@@ -176,6 +176,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("component-key");
     expect(agent.getSystemInfo().systemPrompt).toContain("distinct counts");
   });
+
+  test("key-grain comparison guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Key-Grain Candidate Comparison");
+
+    agent.updateSettings({ keyGrainComparisonGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Key-Grain Candidate Comparison");
+    expect(agent.getSystemInfo().systemPrompt).toContain("Key-Grain Comparison Hint");
+    expect(agent.getSystemInfo().systemPrompt).toContain("selected_for_final");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

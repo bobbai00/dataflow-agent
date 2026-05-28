@@ -400,6 +400,7 @@ export class TexeraAgent {
         cardinalityPressureGuidance: this.settings.cardinalityPressureGuidance,
         entityKeyHygieneGuidance: this.settings.entityKeyHygieneGuidance,
         componentGrainGuidance: this.settings.componentGrainGuidance,
+        keyGrainComparisonGuidance: this.settings.keyGrainComparisonGuidance,
         fallbackContractGuidance: this.settings.fallbackContractGuidance,
         resultRendering: this.settings.resultRendering,
         contextScope: this.settings.contextScope,
@@ -711,6 +712,7 @@ export class TexeraAgent {
     cardinalityPressureGuidance?: boolean;
     entityKeyHygieneGuidance?: boolean;
     componentGrainGuidance?: boolean;
+    keyGrainComparisonGuidance?: boolean;
     fallbackContractGuidance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
@@ -832,6 +834,13 @@ export class TexeraAgent {
       updates.componentGrainGuidance !== this.settings.componentGrainGuidance
     ) {
       this.settings.componentGrainGuidance = updates.componentGrainGuidance;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.keyGrainComparisonGuidance !== undefined &&
+      updates.keyGrainComparisonGuidance !== this.settings.keyGrainComparisonGuidance
+    ) {
+      this.settings.keyGrainComparisonGuidance = updates.keyGrainComparisonGuidance;
       promptNeedsRebuild = true;
     }
     if (

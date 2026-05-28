@@ -87,6 +87,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       cardinalityPressureGuidance: settings.cardinalityPressureGuidance,
       entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
       componentGrainGuidance: settings.componentGrainGuidance,
+      keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
       fallbackContractGuidance: settings.fallbackContractGuidance,
     });
 }
@@ -170,6 +171,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     cardinalityPressureGuidance: agentSettings.cardinalityPressureGuidance,
     entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
     componentGrainGuidance: agentSettings.componentGrainGuidance,
+    keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
     fallbackContractGuidance: agentSettings.fallbackContractGuidance,
   };
 
@@ -293,6 +295,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           cardinalityPressureGuidance: settings.cardinalityPressureGuidance,
           entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
           componentGrainGuidance: settings.componentGrainGuidance,
+          keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
           fallbackContractGuidance: settings.fallbackContractGuidance,
         });
       }
@@ -336,6 +339,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             cardinalityPressureGuidance: t.Optional(t.Boolean()),
             entityKeyHygieneGuidance: t.Optional(t.Boolean()),
             componentGrainGuidance: t.Optional(t.Boolean()),
+            keyGrainComparisonGuidance: t.Optional(t.Boolean()),
             fallbackContractGuidance: t.Optional(t.Boolean()),
           })
         ),
@@ -583,6 +587,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       cardinalityPressureGuidance: agentSettings.cardinalityPressureGuidance,
       entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
       componentGrainGuidance: agentSettings.componentGrainGuidance,
+      keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
       fallbackContractGuidance: agentSettings.fallbackContractGuidance,
     };
   })
@@ -631,6 +636,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         cardinalityPressureGuidance: settings.cardinalityPressureGuidance,
         entityKeyHygieneGuidance: settings.entityKeyHygieneGuidance,
         componentGrainGuidance: settings.componentGrainGuidance,
+        keyGrainComparisonGuidance: settings.keyGrainComparisonGuidance,
         fallbackContractGuidance: settings.fallbackContractGuidance,
       });
 
@@ -666,6 +672,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         cardinalityPressureGuidance: agentSettings.cardinalityPressureGuidance,
         entityKeyHygieneGuidance: agentSettings.entityKeyHygieneGuidance,
         componentGrainGuidance: agentSettings.componentGrainGuidance,
+        keyGrainComparisonGuidance: agentSettings.keyGrainComparisonGuidance,
         fallbackContractGuidance: agentSettings.fallbackContractGuidance,
       };
     },
@@ -696,6 +703,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         cardinalityPressureGuidance: t.Optional(t.Boolean()),
         entityKeyHygieneGuidance: t.Optional(t.Boolean()),
         componentGrainGuidance: t.Optional(t.Boolean()),
+        keyGrainComparisonGuidance: t.Optional(t.Boolean()),
         fallbackContractGuidance: t.Optional(t.Boolean()),
       }),
     }

@@ -222,6 +222,13 @@ export interface AgentSettings {
    */
   componentGrainGuidance: boolean;
   /**
+   * When true, render prompt/context hints for ambiguous entity-key grain in
+   * high-cardinality string labels. The hint asks the agent to build a
+   * candidate-key comparison table before finalizing entity-level grouping or
+   * distinct counts. Off by default for baseline reproducibility.
+   */
+  keyGrainComparisonGuidance: boolean;
+  /**
    * When true, append CODE-mode guidance and context hints for dependency or
    * runtime-capability failures. The model must preserve the task's semantic
    * contract instead of answering from an unvalidated surrogate. Off by default
@@ -275,6 +282,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   cardinalityPressureGuidance: false,
   entityKeyHygieneGuidance: false,
   componentGrainGuidance: false,
+  keyGrainComparisonGuidance: false,
   fallbackContractGuidance: false,
 };
 
@@ -334,6 +342,7 @@ export interface AgentSettingsApi {
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
+  keyGrainComparisonGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }
 
@@ -387,5 +396,6 @@ export interface UpdateAgentSettingsRequest {
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
+  keyGrainComparisonGuidance?: boolean;
   fallbackContractGuidance?: boolean;
 }

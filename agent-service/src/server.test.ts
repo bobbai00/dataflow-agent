@@ -216,6 +216,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       cardinalityPressureGuidance: true,
       entityKeyHygieneGuidance: true,
       componentGrainGuidance: true,
+      keyGrainComparisonGuidance: true,
       fallbackContractGuidance: true,
       resultRendering: "adaptive",
       contextScope: "active-lineage",
@@ -233,6 +234,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       cardinalityPressureGuidance: boolean;
       entityKeyHygieneGuidance: boolean;
       componentGrainGuidance: boolean;
+      keyGrainComparisonGuidance: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
       contextScope: string;
@@ -248,6 +250,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.cardinalityPressureGuidance).toBe(true);
     expect(body.entityKeyHygieneGuidance).toBe(true);
     expect(body.componentGrainGuidance).toBe(true);
+    expect(body.keyGrainComparisonGuidance).toBe(true);
     expect(body.fallbackContractGuidance).toBe(true);
     expect(body.resultRendering).toBe("adaptive");
     expect(body.contextScope).toBe("active-lineage");
@@ -266,6 +269,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       cardinalityPressureGuidance: boolean;
       entityKeyHygieneGuidance: boolean;
       componentGrainGuidance: boolean;
+      keyGrainComparisonGuidance: boolean;
       fallbackContractGuidance: boolean;
       resultRendering: string;
       contextScope: string;
@@ -282,6 +286,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.cardinalityPressureGuidance).toBe(true);
     expect(reread.entityKeyHygieneGuidance).toBe(true);
     expect(reread.componentGrainGuidance).toBe(true);
+    expect(reread.keyGrainComparisonGuidance).toBe(true);
     expect(reread.fallbackContractGuidance).toBe(true);
     expect(reread.resultRendering).toBe("adaptive");
     expect(reread.contextScope).toBe("active-lineage");

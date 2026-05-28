@@ -95,6 +95,10 @@ export interface AssembleContextOptions {
    *  labels whose values may encode sub-entity or sampling-location
    *  components. Off by default. */
   componentGrainGuidance?: boolean;
+  /** Render compact candidate key-grain comparison hints next to
+   *  high-cardinality string labels whose values expose multiple plausible
+   *  entity grains. Off by default. */
+  keyGrainComparisonGuidance?: boolean;
 }
 
 /**
@@ -132,6 +136,11 @@ const ENTITY_KEY_HYGIENE_CONTEXT_NOTICE = [
 const COMPONENT_GRAIN_CONTEXT_NOTICE = [
   "Component grain: high-cardinality string labels may combine base entities with sub-entities, sampling locations, suffixes, prefixes, or other components.",
   "Before entity-level grouping or distinct counts, compare whole-label keys with component-derived candidate keys using compact DataFrame evidence.",
+].join(" ");
+
+const KEY_GRAIN_COMPARISON_CONTEXT_NOTICE = [
+  "Key-grain comparison: ambiguous high-cardinality entity labels need a candidate-key evidence table before final grouping or distinct counts.",
+  "Compare raw whole-label, normalized whole-label, and observed component-derived keys, then mark exactly which candidate preserves the requested grain.",
 ].join(" ");
 
 const LARGE_ROW_COUNT_THRESHOLD = 100_000;
@@ -576,6 +585,7 @@ function appendContextNotices(sections: string[], options: AssembleContextOption
     ...(options.cardinalityPressureGuidance ? [CARDINALITY_PRESSURE_CONTEXT_NOTICE] : []),
     ...(options.entityKeyHygieneGuidance ? [ENTITY_KEY_HYGIENE_CONTEXT_NOTICE] : []),
     ...(options.componentGrainGuidance ? [COMPONENT_GRAIN_CONTEXT_NOTICE] : []),
+    ...(options.keyGrainComparisonGuidance ? [KEY_GRAIN_COMPARISON_CONTEXT_NOTICE] : []),
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -998,6 +1008,12 @@ function serializeOperatorFull(
     for (const l of componentGrainHint.split("\n")) lines.push("  " + l);
   }
 
+  const keyGrainComparisonHint = options.keyGrainComparisonGuidance ? buildKeyGrainComparisonHint(info) : undefined;
+  if (keyGrainComparisonHint) {
+    lines.push("Key-Grain Comparison Hint:");
+    for (const l of keyGrainComparisonHint.split("\n")) lines.push("  " + l);
+  }
+
   const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
   if (fallbackContractHint) {
     lines.push("Fallback Contract Hint:");
@@ -1148,6 +1164,11 @@ function serializeOperatorContextDigest(
   if (componentGrainHint) {
     lines.push("Component Grain Hint:");
     for (const l of componentGrainHint.split("\n")) lines.push("  " + l);
+  }
+  const keyGrainComparisonHint = options.keyGrainComparisonGuidance ? buildKeyGrainComparisonHint(info) : undefined;
+  if (keyGrainComparisonHint) {
+    lines.push("Key-Grain Comparison Hint:");
+    for (const l of keyGrainComparisonHint.split("\n")) lines.push("  " + l);
   }
   return lines.join("\n");
 }
@@ -1342,6 +1363,40 @@ function findComponentGrainCandidates(info: OperatorInfo): ComponentGrainCandida
     return b.distinct - a.distinct || a.columnName.localeCompare(b.columnName);
   });
   return candidates;
+}
+
+function buildKeyGrainComparisonHint(info: OperatorInfo | undefined): string | undefined {
+  if (!info || info.error) return undefined;
+
+  const candidates = findComponentGrainCandidates(info);
+  if (candidates.length === 0) return undefined;
+
+  const rowCount = info.totalRowCount ?? info.outputTuples;
+  const rowText = Number.isFinite(rowCount) ? ` over ${rowCount} rows` : "";
+  const candidateText = candidates
+    .slice(0, COMPONENT_GRAIN_MAX_HINT_COLUMNS)
+    .map(c => {
+      const pieces = [`${JSON.stringify(c.columnName)} distinct=${c.distinct}`];
+      if (c.signals.length > 0) pieces.push(`signals=${formatValueList(c.signals, 4)}`);
+      if (c.samples.length > 0) pieces.push(`samples=${formatValueList(c.samples, COMPONENT_GRAIN_MAX_SAMPLES)}`);
+      return pieces.join("; ");
+    })
+    .join(" | ");
+
+  const lines = [`Detected ambiguous entity-key grain candidates${rowText}: ${candidateText}.`];
+  lines.push(
+    "Before final grouping, joining, deduplication, or distinct counts, create a candidate key-grain comparison table."
+  );
+  lines.push(
+    "Compare at least raw whole-label, normalized whole-label, and observed component-derived candidates supported by the data."
+  );
+  lines.push(
+    "The evidence table should include candidate_id, source_columns, transformation, distinct_count, non_null_count, blank_count, changed_label_count, split_or_merge_count, sample_raw_to_key_groups, preserves_task_grain, selected_for_final, and rationale."
+  );
+  lines.push(
+    "Use the final selected key only after exactly one candidate is marked selected_for_final=true with evidence that it preserves the requested entity grain."
+  );
+  return lines.join("\n");
 }
 
 function sampleStringValues(info: OperatorInfo, columnName: string, limit: number): string[] {

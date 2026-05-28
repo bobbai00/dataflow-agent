@@ -48,6 +48,7 @@ export interface CodeModePromptOptions {
   cardinalityPressureGuidance?: boolean;
   entityKeyHygieneGuidance?: boolean;
   componentGrainGuidance?: boolean;
+  keyGrainComparisonGuidance?: boolean;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -205,6 +206,26 @@ component.
 - Choose a coarser or finer component grain only when the user request and the
   evidence show that component is the requested entity. Otherwise preserve the
   whole label and record why.`;
+
+const KEY_GRAIN_COMPARISON_GUIDANCE = `## Key-Grain Candidate Comparison
+
+When a high-cardinality string label may represent multiple possible entity
+grains, compare candidate keys before using one for a final entity-level
+grouping, join, deduplication, or distinct count.
+
+- When a current or upstream operator shows a \`Key-Grain Comparison Hint\`,
+  create a compact comparison DataFrame before finalizing.
+- The comparison should include one row per candidate key grain. At minimum,
+  include raw whole-label, normalized whole-label, and any component-derived
+  candidates supported by observed label structure.
+- Include columns that make the decision auditable: candidate_id,
+  source_columns, transformation, distinct_count, non_null_count, blank_count,
+  changed_label_count, split_or_merge_count, sample_raw_values,
+  sample_raw_to_key_groups, preserves_task_grain, selected_for_final, and
+  rationale.
+- Only the final operator should use the candidate marked selected_for_final =
+  true. If no candidate preserves the requested grain, preserve the whole label
+  or return a diagnostic table rather than silently choosing a key.`;
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -497,6 +518,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.cardinalityPressureGuidance) sections.push(CARDINALITY_PRESSURE_GUIDANCE);
   if (options.entityKeyHygieneGuidance) sections.push(ENTITY_KEY_HYGIENE_GUIDANCE);
   if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
+  if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
