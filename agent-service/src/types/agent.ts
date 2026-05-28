@@ -133,6 +133,12 @@ export interface AgentSettings {
    * later automatic materialization until explicitly inspected.
    */
   postStepTimeoutBackoff: boolean;
+  /**
+   * When true, a post-step timeout backoff becomes an action contract: another
+   * edit to the same timed-out lineage is blocked unless the submitted code is
+   * visibly bounded/chunked/sampled. Off by default for baseline reproducibility.
+   */
+  postStepTimeoutActionContract: boolean;
   maxSteps: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
@@ -343,6 +349,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   executionTimeoutMs: 240000,
   postStepExecutionTimeoutMs: 0,
   postStepTimeoutBackoff: false,
+  postStepTimeoutActionContract: false,
   maxSteps: 100,
   allowedOperatorTypes: [
     "CSVFileScan",
@@ -434,6 +441,7 @@ export interface AgentSettingsApi {
   executionTimeoutMinutes?: number;
   postStepExecutionTimeoutSeconds?: number;
   postStepTimeoutBackoff?: boolean;
+  postStepTimeoutActionContract?: boolean;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];
@@ -501,6 +509,7 @@ export interface UpdateAgentSettingsRequest {
   executionTimeoutMinutes?: number;
   postStepExecutionTimeoutSeconds?: number;
   postStepTimeoutBackoff?: boolean;
+  postStepTimeoutActionContract?: boolean;
   disabledTools?: string[];
   maxSteps?: number;
   allowedOperatorTypes?: string[];

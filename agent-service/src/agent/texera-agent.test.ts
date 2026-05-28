@@ -289,6 +289,18 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("compact diagnostic table");
   });
 
+  test("post-step timeout action contract rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Timeout-Backoff Action Contract");
+
+    agent.updateSettings({ postStepTimeoutActionContract: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Timeout-Backoff Action Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("TIMEOUT_BACKOFF_ACTION_REQUIRED");
+    expect(agent.getSystemInfo().systemPrompt).toContain("chunked/sample-first");
+  });
+
   test("post-step execution timeout only overrides auto-materialization config", () => {
     const agent = makeAgent();
     agent.setDelegateConfig({ userToken: "test-token", workflowId: 42 });
@@ -363,6 +375,50 @@ describe("TexeraAgent — initial state", () => {
       [{ toolName: "executeOperator", toolCallId: "exec-1", input: { operatorId: "loader" } }],
       [{ toolCallId: "exec-1", output: "loader result", isError: false }]
     );
+
+    expect((agent as any).splitPostStepTargetsByTimeoutBackoff(["loader"]).runnableTargets).toEqual(["loader"]);
+  });
+
+  test("timeout action contract blocks another unbounded edit to a timed-out lineage", () => {
+    const agent = makeAgent();
+    agent.updateSettings({ postStepTimeoutBackoff: true, postStepTimeoutActionContract: true });
+    agent
+      .getWorkflowState()
+      .setWorkflowContent(workflowWithLinks(["loader", "downstream"], [["loader", "downstream"]]));
+
+    (agent as any).markPostStepTimedOutLineage(["loader"]);
+    const message = (agent as any).handleBeforeCodeOperatorChange({
+      operatorId: "downstream",
+      isModify: true,
+      submittedCode: "def process(loader):\n    return loader.copy()",
+    });
+
+    expect(message).toContain("TIMEOUT_BACKOFF_ACTION_REQUIRED");
+    expect(message).toContain("loader");
+    expect(message).toContain("unbounded edit");
+  });
+
+  test("timeout action contract allows bounded recovery edits and clears that target", () => {
+    const agent = makeAgent();
+    agent.updateSettings({ postStepTimeoutBackoff: true, postStepTimeoutActionContract: true });
+    agent.getWorkflowState().setWorkflowContent(workflowWith(["loader"]));
+
+    (agent as any).markPostStepTimedOutLineage(["loader"]);
+    const message = (agent as any).handleBeforeCodeOperatorChange({
+      operatorId: "loader",
+      isModify: true,
+      submittedCode:
+        "def load():\n" +
+        "    import pandas as pd\n" +
+        "    rows = []\n" +
+        "    for chunk in pd.read_csv('/data/input.csv', chunksize=10000):\n" +
+        "        rows.append(chunk.head(10))\n" +
+        "        break\n" +
+        "    return pd.concat(rows, ignore_index=True)",
+    });
+
+    expect(message).toBeNull();
+    (agent as any).handleAfterCodeOperatorChange({ operatorId: "loader", isModify: true });
 
     expect((agent as any).splitPostStepTargetsByTimeoutBackoff(["loader"]).runnableTargets).toEqual(["loader"]);
   });

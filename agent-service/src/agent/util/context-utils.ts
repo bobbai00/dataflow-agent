@@ -125,6 +125,9 @@ export interface AssembleContextOptions {
    *  unresolved failures, recent tool errors, or repeated operator edits. Off
    *  by default. */
   flowStallRecoveryContract?: boolean;
+  /** CODE-mode prompt/tool guard only. Accepted here so the server can pass
+   *  one settings bundle to both prompt and context assembly. */
+  postStepTimeoutActionContract?: boolean;
   /** Render a LATEST-mode candidate-selection impact contract notice after
    *  candidate-key evidence exists but no executed impact table compares those
    *  candidates against the downstream entity predicate or final measure. Off

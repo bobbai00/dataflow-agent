@@ -56,6 +56,7 @@ export interface CodeModePromptOptions {
   boundaryTokenInventoryContract?: boolean;
   flowProgressDigest?: boolean;
   flowStallRecoveryContract?: boolean;
+  postStepTimeoutActionContract?: boolean;
   candidateSelectionImpactContract?: boolean;
   evidenceDependencyGate?: boolean;
   executionSafeOperatorIds?: boolean;
@@ -391,6 +392,29 @@ as a required dataflow recovery step, not optional advice.
   sample evidence.
 - After the diagnostic or repair, execute the affected operator and base the
   next step on visible result rows, schema, stats, or error text.`;
+
+const POST_STEP_TIMEOUT_ACTION_CONTRACT_GUIDANCE = `## Timeout-Backoff Action Contract
+
+Use post-step timeout backoff as dataflow execution evidence, not just as a
+warning string.
+
+- When the context or a tool result says \`POST_STEP_TIMEOUT_BACKOFF\` or
+  \`TIMEOUT_BACKOFF_ACTION_REQUIRED\`, the skipped lineage already proved that
+  full automatic materialization is unsafe or too expensive.
+- Do not keep revising the same full-load/full-processing target after that
+  signal. The next code edit should pivot to one of these recovery actions:
+  create an independent bounded diagnostic, create a chunked/sample-first
+  loader or reducer, reduce to the task-required row grain before expensive
+  work, or call \`executeOperator\` explicitly when a full run is intentionally
+  required.
+- A bounded recovery operator should return ordinary DataFrame evidence such
+  as target operator, blocking operator(s), original row/file scope, sampled or
+  chunked row count, columns discovered, caught error text if any, and the
+  reason the bounded result is safe to scale.
+- If the same operator id is reused, make the submitted code visibly bounded
+  with row limits, chunks, samples, or deterministic scope reduction; otherwise
+  the harness may block the edit so the run does not repeat the same timeout
+  loop.`;
 
 const CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE = `## Candidate-Selection Impact Contract
 
@@ -770,6 +794,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.boundaryTokenInventoryContract) sections.push(BOUNDARY_TOKEN_INVENTORY_CONTRACT_GUIDANCE);
   if (options.flowProgressDigest) sections.push(FLOW_PROGRESS_DIGEST_GUIDANCE);
   if (options.flowStallRecoveryContract) sections.push(FLOW_STALL_RECOVERY_CONTRACT_GUIDANCE);
+  if (options.postStepTimeoutActionContract) sections.push(POST_STEP_TIMEOUT_ACTION_CONTRACT_GUIDANCE);
   if (options.candidateSelectionImpactContract) sections.push(CANDIDATE_SELECTION_IMPACT_CONTRACT_GUIDANCE);
   if (options.evidenceDependencyGate) sections.push(EVIDENCE_DEPENDENCY_GATE_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);

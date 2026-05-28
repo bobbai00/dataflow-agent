@@ -198,6 +198,7 @@ export class TexeraAgent {
   private lastCompilationResult: WorkflowCompilationResponse | null = null;
   private pendingContextNotices: string[] = [];
   private postStepTimedOutOperatorIds: Set<string> = new Set();
+  private postStepTimeoutRecoveryEditsToClear: Set<string> = new Set();
 
   private log: Logger;
 
@@ -411,6 +412,7 @@ export class TexeraAgent {
         boundaryTokenInventoryContract: this.settings.boundaryTokenInventoryContract,
         flowProgressDigest: this.settings.flowProgressDigest,
         flowStallRecoveryContract: this.settings.flowStallRecoveryContract,
+        postStepTimeoutActionContract: this.settings.postStepTimeoutActionContract,
         candidateSelectionImpactContract: this.settings.candidateSelectionImpactContract,
         evidenceDependencyGate: this.settings.evidenceDependencyGate,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
@@ -506,6 +508,44 @@ export class TexeraAgent {
       `because their lineage includes prior post-step timeout operator(s): ${blockingSummary}${blockingSuffix}. ` +
       `Skipped targets: ${targetSummary}${targetSuffix}. ` +
       "Create a bounded source/diagnostic probe that avoids the timed-out full lineage, or call executeOperator explicitly if the full run is required."
+    );
+  }
+
+  private hasBoundedTimeoutRecoverySignal(code: string): boolean {
+    const lower = code.toLowerCase();
+    return [
+      /\bchunksize\s*=/,
+      /\bnrows\s*=/,
+      /\biterator\s*=\s*true\b/,
+      /\.head\s*\(/,
+      /\.sample\s*\(/,
+      /\.iloc\s*\[\s*:\s*\d+/,
+      /\bislice\s*\(/,
+      /\breadlines\s*\(\s*\)\s*\[\s*:\s*\d+/,
+      /\blimit\s+\d+\b/,
+      /\blimit\s*=\s*\d+\b/,
+      /\bmax_rows\s*=\s*\d+\b/,
+    ].some(pattern => pattern.test(lower));
+  }
+
+  private buildPostStepTimeoutActionBlockMessage(operatorId: string, submittedCode: string): string | null {
+    if (!this.settings.postStepTimeoutActionContract) return null;
+    if (this.postStepTimedOutOperatorIds.size === 0) return null;
+    const blockers = this.getPostStepTimeoutBlockingOperators(operatorId);
+    if (blockers.length === 0) return null;
+
+    if (this.hasBoundedTimeoutRecoverySignal(submittedCode)) {
+      this.postStepTimeoutRecoveryEditsToClear.add(operatorId);
+      return null;
+    }
+
+    const blockerSummary = blockers.slice(0, 8).join(", ");
+    const blockerSuffix = blockers.length > 8 ? `, ... +${blockers.length - 8} more` : "";
+    return (
+      `TIMEOUT_BACKOFF_ACTION_REQUIRED: operator \`${operatorId}\` is in a lineage with prior post-step timeout operator(s): ` +
+      `${blockerSummary}${blockerSuffix}. The previous full automatic materialization was unsafe or too expensive. ` +
+      "Do not submit another unbounded edit to this same full target. Create a new bounded diagnostic/probe or chunked reducer, " +
+      "make this edit visibly bounded with nrows/chunksize/head/sample/limit-style scope reduction, or call executeOperator explicitly if the full run is required."
     );
   }
 
@@ -867,6 +907,7 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     postStepExecutionTimeoutMs?: number;
     postStepTimeoutBackoff?: boolean;
+    postStepTimeoutActionContract?: boolean;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
     maxUnexecutedCodeEdits?: number;
@@ -923,7 +964,15 @@ export class TexeraAgent {
       this.settings.postStepTimeoutBackoff = updates.postStepTimeoutBackoff;
       if (!updates.postStepTimeoutBackoff) {
         this.postStepTimedOutOperatorIds.clear();
+        this.postStepTimeoutRecoveryEditsToClear.clear();
       }
+    }
+    if (
+      updates.postStepTimeoutActionContract !== undefined &&
+      updates.postStepTimeoutActionContract !== this.settings.postStepTimeoutActionContract
+    ) {
+      this.settings.postStepTimeoutActionContract = updates.postStepTimeoutActionContract;
+      promptNeedsRebuild = true;
     }
     if (updates.disabledTools !== undefined) {
       this.settings.disabledTools = updates.disabledTools;
@@ -1141,6 +1190,12 @@ export class TexeraAgent {
       return executionCadenceMessage;
     }
 
+    const timeoutBackoffMessage = this.buildPostStepTimeoutActionBlockMessage(args.operatorId, args.submittedCode);
+    if (timeoutBackoffMessage) {
+      this.pendingContextNotices.push(timeoutBackoffMessage);
+      return timeoutBackoffMessage;
+    }
+
     if (this.settings.maxOperatorEdits <= 0) return null;
 
     if (!args.isModify) {
@@ -1172,7 +1227,10 @@ export class TexeraAgent {
     return message;
   }
 
-  private handleAfterCodeOperatorChange(_args: { operatorId: string; isModify: boolean }): void {
+  private handleAfterCodeOperatorChange(args: { operatorId: string; isModify: boolean }): void {
+    if (this.postStepTimeoutRecoveryEditsToClear.delete(args.operatorId)) {
+      this.postStepTimedOutOperatorIds.delete(args.operatorId);
+    }
     if (this.getExecutionCadenceLimit() <= 0) return;
     this.codeEditsSinceExecution++;
   }
@@ -1203,6 +1261,7 @@ export class TexeraAgent {
       const operatorId = (tc.input as any)?.operatorId;
       if (operatorId) {
         this.postStepTimedOutOperatorIds.delete(operatorId);
+        this.postStepTimeoutRecoveryEditsToClear.delete(operatorId);
       }
       if (this.getExecutionCadenceLimit() > 0) {
         this.codeEditsSinceExecution = 0;
