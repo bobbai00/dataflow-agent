@@ -210,6 +210,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxOperatorEdits: 2,
       lineageHintOnStall: true,
       schemaFirstCodeMode: true,
+      tableStructureHints: true,
     });
     expect(res.status).toBe(200);
     const body = await readJson<{
@@ -218,12 +219,14 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
       schemaFirstCodeMode: boolean;
+      tableStructureHints: boolean;
     }>(res);
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
     expect(body.maxOperatorEdits).toBe(2);
     expect(body.lineageHintOnStall).toBe(true);
     expect(body.schemaFirstCodeMode).toBe(true);
+    expect(body.tableStructureHints).toBe(true);
 
     // A follow-up GET reflects the same values.
     const reread = await readJson<{
@@ -233,6 +236,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
       schemaFirstCodeMode: boolean;
+      tableStructureHints: boolean;
     }>(await getJson(`${API}/agents/${created.id}/settings`));
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
@@ -240,5 +244,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.maxOperatorEdits).toBe(2);
     expect(reread.lineageHintOnStall).toBe(true);
     expect(reread.schemaFirstCodeMode).toBe(true);
+    expect(reread.tableStructureHints).toBe(true);
   });
 });

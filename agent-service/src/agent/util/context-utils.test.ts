@@ -383,6 +383,142 @@ describe("assembleContext — Latest", () => {
     expect(c).toContain("Output Schema: [row_count: double]");
   });
 
+  test("tableStructureHints renders generic loader structure evidence only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "load a semi-structured file" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "loader" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", {
+      operators: [
+        {
+          ...makeOp("loader", "DataLoading"),
+          outputPorts: [{ portID: "output-0" }],
+        },
+      ],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "a",
+      "loader",
+      makeInfo("loader", 5, undefined, {
+        result: [
+          {
+            __row_index__: 0,
+            "State: Identity Theft Reports": Number.NaN,
+            "Unnamed: 1": Number.NaN,
+            "Unnamed: 2": Number.NaN,
+            "Unnamed: 3": Number.NaN,
+          },
+          {
+            __row_index__: 1,
+            "State: Identity Theft Reports": "State",
+            "Unnamed: 1": "Theft Type",
+            "Unnamed: 2": "# of Reports",
+            "Unnamed: 3": "Percentage",
+          },
+          {
+            __row_index__: 2,
+            "State: Identity Theft Reports": "Alabama",
+            "Unnamed: 1": "Bank Account",
+            "Unnamed: 2": "1,202",
+            "Unnamed: 3": "9%",
+          },
+          {
+            __row_index__: 4,
+            "State: Identity Theft Reports": "Source: Consumer report",
+            "Unnamed: 1": null,
+            "Unnamed: 2": null,
+            "Unnamed: 3": null,
+          },
+        ],
+        columnStats: {
+          "State: Identity Theft Reports": "(str): null=1, distinct=4",
+          "Unnamed: 1": "(str): null=2, distinct=2",
+          "Unnamed: 2": "(str): null=2, distinct=2",
+          "Unnamed: 3": "(str): null=2, distinct=2",
+        },
+      })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Table Structure Hint");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        tableStructureHints: true,
+      })
+    );
+    expect(hintedContext).toContain("Table Structure Hint:");
+    expect(hintedContext).toContain("generated/unnamed columns: Unnamed: 1, Unnamed: 2, Unnamed: 3");
+    expect(hintedContext).toContain("leading mostly-empty row at preview index 0");
+    expect(hintedContext).toContain(
+      "embedded header-like row at preview index 1: State, Theft Type, # of Reports, Percentage"
+    );
+    expect(hintedContext).toContain("footer/source-note-like row at preview index 3: Source: Consumer report");
+    expect(hintedContext).toContain("normalize this loader");
+  });
+
+  test("tableStructureHints does not render on clean rectangular loader output", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "load clean table" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "loader" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", {
+      operators: [
+        {
+          ...makeOp("loader", "DataLoading"),
+          outputPorts: [{ portID: "output-0" }],
+        },
+      ],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "a",
+      "loader",
+      makeInfo("loader", 2, undefined, {
+        result: [
+          { __row_index__: 0, city: "Seattle", reports: 12 },
+          { __row_index__: 1, city: "Portland", reports: 8 },
+        ],
+        columnStats: {
+          city: "(str): null=0, distinct=2",
+          reports: "(numeric): null=0, mean=10, min=8, max=12",
+        },
+      })
+    );
+
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        tableStructureHints: true,
+      })
+    );
+    expect(c).not.toContain("Table Structure Hint");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

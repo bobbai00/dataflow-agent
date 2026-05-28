@@ -66,6 +66,10 @@ export interface AssembleContextOptions {
   /** Render current-snapshot compiler schemas in CODE mode as well as
    *  GENERAL mode. */
   schemaFirstCodeMode?: boolean;
+  /** Render compact DataLoading structure hints when the successful output
+   *  looks like a semi-structured file rather than one clean rectangular
+   *  table. Off by default. */
+  tableStructureHints?: boolean;
 }
 
 /**
@@ -875,6 +879,12 @@ function serializeOperatorFull(
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
 
+  const tableStructureHint = options.tableStructureHints ? buildTableStructureHint(op, info) : undefined;
+  if (tableStructureHint) {
+    lines.push("Table Structure Hint:");
+    for (const l of tableStructureHint.split("\n")) lines.push("  " + l);
+  }
+
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
@@ -1154,6 +1164,152 @@ function parseWorkflowPortIndex(portId: string, expectedType: "input" | "output"
   const match = portId.match(/^(input|output)-(\d+)$/);
   if (!match || match[1] !== expectedType) return undefined;
   return Number.parseInt(match[2], 10);
+}
+
+function buildTableStructureHint(op: OperatorPredicate, info: OperatorInfo | undefined): string | undefined {
+  if (op.operatorType !== "DataLoading" || !info || info.error || !info.result || info.result.length === 0) {
+    return undefined;
+  }
+
+  const columns = inferRenderableColumns(info);
+  if (columns.length === 0) return undefined;
+
+  const evidence: string[] = [];
+  const generatedColumns = columns.filter(isGeneratedColumnName);
+  if (generatedColumns.length > 0) {
+    evidence.push(`generated/unnamed columns: ${formatValueList(generatedColumns, 6)}`);
+  }
+
+  const leadingMostlyEmpty = findLeadingMostlyEmptyRow(info.result, columns);
+  if (leadingMostlyEmpty !== undefined) {
+    evidence.push(`leading mostly-empty row at preview index ${leadingMostlyEmpty}`);
+  }
+
+  const headerRow = findHeaderLikeRow(info.result, columns);
+  if (headerRow) {
+    evidence.push(
+      `embedded header-like row at preview index ${headerRow.index}: ${formatValueList(headerRow.values, 8)}`
+    );
+  }
+
+  const footerRow = findFooterLikeRow(info.result, columns);
+  if (footerRow) {
+    evidence.push(`footer/source-note-like row at preview index ${footerRow.index}: ${shortenCell(footerRow.value)}`);
+  }
+
+  if (evidence.length === 0) return undefined;
+
+  return [
+    "- Loader output may include metadata/header/footer rows rather than one clean table.",
+    ...evidence.map(item => `- Evidence: ${item}.`),
+    "- Before downstream aggregation, normalize this loader: choose the real header/body rows, drop metadata/footer rows, and return one rectangular table with semantic column names.",
+  ].join("\n");
+}
+
+function inferRenderableColumns(info: OperatorInfo): string[] {
+  const resultColumns: string[] = [];
+  const seen = new Set<string>();
+  for (const row of info.result ?? []) {
+    if (!row || typeof row !== "object") continue;
+    for (const columnName of Object.keys(row)) {
+      if (!isRenderableColumn(columnName) || seen.has(columnName)) continue;
+      seen.add(columnName);
+      resultColumns.push(columnName);
+    }
+  }
+  if (resultColumns.length > 0) return resultColumns;
+  return Object.keys(info.columnStats ?? {}).filter(isRenderableColumn);
+}
+
+function isGeneratedColumnName(columnName: string): boolean {
+  return /^Unnamed(?::|\b)/i.test(columnName) || /^\d+$/.test(columnName) || /^column_?\d+$/i.test(columnName);
+}
+
+function findLeadingMostlyEmptyRow(rows: Record<string, any>[], columns: string[]): number | undefined {
+  for (let i = 0; i < Math.min(rows.length, 3); i++) {
+    if (emptyRatio(rows[i], columns) >= 0.75) return i;
+  }
+  return undefined;
+}
+
+function emptyRatio(row: Record<string, any>, columns: string[]): number {
+  if (columns.length === 0) return 0;
+  const emptyCount = columns.filter(columnName => isBlankCell(row?.[columnName])).length;
+  return emptyCount / columns.length;
+}
+
+function findHeaderLikeRow(
+  rows: Record<string, any>[],
+  columns: string[]
+): { index: number; values: string[] } | undefined {
+  const hasGeneratedColumns = columns.some(isGeneratedColumnName);
+  const maxRows = Math.min(rows.length, 8);
+  for (let i = 0; i < maxRows; i++) {
+    const values = columns
+      .map(columnName => rows[i]?.[columnName])
+      .filter(v => !isBlankCell(v))
+      .map(normalizeCell);
+    if (values.length < 2) continue;
+    const labelCount = values.filter(looksLikeHeaderLabel).length;
+    const matchesColumnNames = values.filter(v =>
+      columns.some(c => normalizeForCompare(c) === normalizeForCompare(v))
+    ).length;
+    if (labelCount >= 2 && labelCount / values.length >= 0.6 && (hasGeneratedColumns || matchesColumnNames >= 2)) {
+      return { index: i, values };
+    }
+  }
+  return undefined;
+}
+
+function findFooterLikeRow(
+  rows: Record<string, any>[],
+  columns: string[]
+): { index: number; value: string } | undefined {
+  for (let i = 0; i < rows.length; i++) {
+    for (const columnName of columns) {
+      const value = normalizeCell(rows[i]?.[columnName]);
+      if (/^(source|sources|note|notes|footnote|references?|copyright)\b[:\s-]*/i.test(value)) {
+        return { index: i, value };
+      }
+    }
+  }
+  return undefined;
+}
+
+function looksLikeHeaderLabel(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 80) return false;
+  if (!/[A-Za-z#]/.test(trimmed)) return false;
+  const numericChars = (trimmed.match(/[0-9.%$,\-]/g) ?? []).length;
+  return numericChars / trimmed.length < 0.5;
+}
+
+function isBlankCell(value: any): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "number") return Number.isNaN(value);
+  const normalized = normalizeCell(value).toLowerCase();
+  return normalized.length === 0 || normalized === "nan" || normalized === "none" || normalized === "null";
+}
+
+function normalizeCell(value: any): string {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function normalizeForCompare(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9#]+/g, "");
+}
+
+function formatValueList(values: string[], limit: number): string {
+  const shown = values.slice(0, limit).map(shortenCell);
+  const suffix = values.length > shown.length ? `, ... ${values.length - shown.length} more` : "";
+  return shown.join(", ") + suffix;
+}
+
+function shortenCell(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 80) return normalized;
+  return normalized.slice(0, 77) + "...";
 }
 
 function formatSchema(schema: PortSchema): string {

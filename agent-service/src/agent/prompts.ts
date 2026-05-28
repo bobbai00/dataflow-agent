@@ -37,13 +37,11 @@ const R_UDF_OPERATOR_TYPES = ["RUDF"];
 // The CODE-mode system prompt is the merged/curated prompt kept verbatim in
 // `prompts/code-mode.md`. Treat that markdown file as the single source of
 // truth — edits to the prompt are made there, not in this TypeScript file.
-const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(
-  new URL("./prompts/code-mode.md", import.meta.url),
-  "utf8"
-);
+const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
 
 export interface CodeModePromptOptions {
   metricEvidenceGuidance?: boolean;
+  tableStructureHints?: boolean;
 }
 
 const METRIC_EVIDENCE_GUIDANCE = `## Metric Evidence and Provenance
@@ -70,6 +68,21 @@ Use the dataflow graph to make final calculations auditable:
   in the final operator.
 - Keep this evidence in operator result tables, not only in prose, so LATEST
   context can show the current state without relying on hidden trajectory.`;
+
+const TABLE_STRUCTURE_HINT_GUIDANCE = `## Table Structure Hints
+
+When a DataLoading operator includes a \`Table Structure Hint\`, treat it as a
+loader-quality issue before trusting downstream calculations:
+
+- Normalize the loader output into one rectangular table with semantic column
+  names before aggregating, joining, or filtering for the final answer.
+- Use the hint evidence to choose real header/body rows and drop metadata,
+  blank, repeated-header, footer, note, and source rows.
+- Keep this normalization in the DataLoading operator when possible so every
+  downstream operator receives the same clean table.
+- Do not answer from a downstream aggregate built on a hinted loader until the
+  loader has been normalized or a diagnostic operator proves the hint is a
+  harmless false positive.`;
 
 // ============================================================================
 // Shared sections
@@ -141,7 +154,6 @@ const KEY_PRINCIPLES = `
 - **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
 - **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
 - **Avoid \`print(...)\`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing \`print(...)\` still runs, but the tool result will carry a \`[WARNING]\` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.`;
-
 
 // ============================================================================
 // GENERAL mode template + Python/R UDF guides
@@ -333,8 +345,11 @@ function buildAllowedOperatorSchemas(
  * isolated, measurable guidance sections here.
  */
 export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): string {
-  if (!options.metricEvidenceGuidance) return CODE_MODE_SYSTEM_PROMPT;
-  return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${METRIC_EVIDENCE_GUIDANCE}\n`;
+  const sections: string[] = [];
+  if (options.metricEvidenceGuidance) sections.push(METRIC_EVIDENCE_GUIDANCE);
+  if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
+  if (sections.length === 0) return CODE_MODE_SYSTEM_PROMPT;
+  return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${sections.join("\n\n")}\n`;
 }
 
 /**
@@ -379,10 +394,7 @@ export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowed
 // instruction. If the gateway's chat template later re-adds a BOS marker
 // causing double-BOS issues, strip it here.
 // ---------------------------------------------------------------------------
-const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(
-  new URL("./prompts/local-react.txt", import.meta.url),
-  "utf8"
-);
+const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/local-react.txt", import.meta.url), "utf8");
 
 /**
  * Returns the local-react driver's system prompt verbatim. The text is

@@ -74,6 +74,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       contextNotices,
       metricEvidenceGuidance: settings.metricEvidenceGuidance,
       schemaFirstCodeMode: settings.schemaFirstCodeMode,
+      tableStructureHints: settings.tableStructureHints,
     });
 }
 
@@ -148,6 +149,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     lineageHintOnStall: agentSettings.lineageHintOnStall,
     metricEvidenceGuidance: agentSettings.metricEvidenceGuidance,
     schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
+    tableStructureHints: agentSettings.tableStructureHints,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -262,6 +264,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           lineageHintOnStall: settings.lineageHintOnStall,
           metricEvidenceGuidance: settings.metricEvidenceGuidance,
           schemaFirstCodeMode: settings.schemaFirstCodeMode,
+          tableStructureHints: settings.tableStructureHints,
         });
       }
 
@@ -296,6 +299,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             lineageHintOnStall: t.Optional(t.Boolean()),
             metricEvidenceGuidance: t.Optional(t.Boolean()),
             schemaFirstCodeMode: t.Optional(t.Boolean()),
+            tableStructureHints: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -534,6 +538,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       lineageHintOnStall: agentSettings.lineageHintOnStall,
       metricEvidenceGuidance: agentSettings.metricEvidenceGuidance,
       schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
+      tableStructureHints: agentSettings.tableStructureHints,
     };
   })
 
@@ -573,6 +578,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageHintOnStall: settings.lineageHintOnStall,
         metricEvidenceGuidance: settings.metricEvidenceGuidance,
         schemaFirstCodeMode: settings.schemaFirstCodeMode,
+        tableStructureHints: settings.tableStructureHints,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -599,6 +605,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageHintOnStall: agentSettings.lineageHintOnStall,
         metricEvidenceGuidance: agentSettings.metricEvidenceGuidance,
         schemaFirstCodeMode: agentSettings.schemaFirstCodeMode,
+        tableStructureHints: agentSettings.tableStructureHints,
       };
     },
     {
@@ -620,6 +627,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageHintOnStall: t.Optional(t.Boolean()),
         metricEvidenceGuidance: t.Optional(t.Boolean()),
         schemaFirstCodeMode: t.Optional(t.Boolean()),
+        tableStructureHints: t.Optional(t.Boolean()),
       }),
     }
   );

@@ -393,6 +393,7 @@ export class TexeraAgent {
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt({
         metricEvidenceGuidance: this.settings.metricEvidenceGuidance,
+        tableStructureHints: this.settings.tableStructureHints,
       });
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -693,6 +694,7 @@ export class TexeraAgent {
     lineageHintOnStall?: boolean;
     metricEvidenceGuidance?: boolean;
     schemaFirstCodeMode?: boolean;
+    tableStructureHints?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -764,6 +766,13 @@ export class TexeraAgent {
     if (updates.schemaFirstCodeMode !== undefined) {
       this.settings.schemaFirstCodeMode = updates.schemaFirstCodeMode;
       // Pure render-time toggle. Read at next assembleContext call.
+    }
+    if (
+      updates.tableStructureHints !== undefined &&
+      updates.tableStructureHints !== this.settings.tableStructureHints
+    ) {
+      this.settings.tableStructureHints = updates.tableStructureHints;
+      promptNeedsRebuild = true;
     }
 
     if (promptNeedsRebuild) {

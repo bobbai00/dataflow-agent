@@ -153,6 +153,12 @@ export interface AgentSettings {
    * default for baseline reproducibility.
    */
   schemaFirstCodeMode: boolean;
+  /**
+   * When true, append compact hints to suspicious DataLoading results whose
+   * preview suggests metadata/header/footer rows are mixed into the table.
+   * Off by default for baseline reproducibility.
+   */
+  tableStructureHints: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -192,6 +198,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   lineageHintOnStall: false,
   metricEvidenceGuidance: false,
   schemaFirstCodeMode: false,
+  tableStructureHints: false,
 };
 
 /**
@@ -242,6 +249,7 @@ export interface AgentSettingsApi {
   lineageHintOnStall?: boolean;
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
+  tableStructureHints?: boolean;
 }
 
 export interface AgentInfo {
@@ -286,4 +294,5 @@ export interface UpdateAgentSettingsRequest {
   lineageHintOnStall?: boolean;
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
+  tableStructureHints?: boolean;
 }
