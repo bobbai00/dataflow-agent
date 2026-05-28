@@ -129,6 +129,17 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("## Bounded Execution Probes");
     expect(agent.getSystemInfo().systemPrompt).toContain("bounded probe");
   });
+
+  test("fallback contract guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Fallback Contract");
+
+    agent.updateSettings({ fallbackContractGuidance: true });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Fallback Contract");
+    expect(agent.getSystemInfo().systemPrompt).toContain("semantic_contract_preserved");
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

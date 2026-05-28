@@ -197,6 +197,13 @@ export interface AgentSettings {
    * reproducibility.
    */
   boundedExecutionGuidance: boolean;
+  /**
+   * When true, append CODE-mode guidance and context hints for dependency or
+   * runtime-capability failures. The model must preserve the task's semantic
+   * contract instead of answering from an unvalidated surrogate. Off by default
+   * for baseline reproducibility.
+   */
+  fallbackContractGuidance: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -241,6 +248,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   tableStructureHints: false,
   rawLoaderProvenance: false,
   boundedExecutionGuidance: false,
+  fallbackContractGuidance: false,
 };
 
 /**
@@ -296,6 +304,7 @@ export interface AgentSettingsApi {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  fallbackContractGuidance?: boolean;
 }
 
 export interface AgentInfo {
@@ -345,4 +354,5 @@ export interface UpdateAgentSettingsRequest {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  fallbackContractGuidance?: boolean;
 }

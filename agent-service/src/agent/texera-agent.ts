@@ -397,6 +397,7 @@ export class TexeraAgent {
         tableStructureHints: this.settings.tableStructureHints,
         rawLoaderProvenance: this.settings.rawLoaderProvenance,
         boundedExecutionGuidance: this.settings.boundedExecutionGuidance,
+        fallbackContractGuidance: this.settings.fallbackContractGuidance,
         resultRendering: this.settings.resultRendering,
         contextScope: this.settings.contextScope,
       });
@@ -704,6 +705,7 @@ export class TexeraAgent {
     tableStructureHints?: boolean;
     rawLoaderProvenance?: boolean;
     boundedExecutionGuidance?: boolean;
+    fallbackContractGuidance?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -803,6 +805,13 @@ export class TexeraAgent {
       updates.boundedExecutionGuidance !== this.settings.boundedExecutionGuidance
     ) {
       this.settings.boundedExecutionGuidance = updates.boundedExecutionGuidance;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.fallbackContractGuidance !== undefined &&
+      updates.fallbackContractGuidance !== this.settings.fallbackContractGuidance
+    ) {
+      this.settings.fallbackContractGuidance = updates.fallbackContractGuidance;
       promptNeedsRebuild = true;
     }
 

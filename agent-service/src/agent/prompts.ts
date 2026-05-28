@@ -45,6 +45,7 @@ export interface CodeModePromptOptions {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   boundedExecutionGuidance?: boolean;
+  fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
 }
@@ -148,6 +149,28 @@ operator whose upstream shape suggests many repeated expensive calls.
   probe logic rather than launching the full expensive execution.
 - Keep the probe as temporary scaffolding: once the full operator succeeds and
   no downstream operator depends on the probe, delete it in a later safe batch.`;
+
+const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
+
+Runtime or dependency failures are evidence about the execution environment, not
+permission to answer with a looser surrogate method.
+
+- If an operator fails because an import, package install, API/library call, or
+  runtime capability is unavailable, preserve the user's requested semantic
+  contract before continuing.
+- First check whether an exact equivalent can be implemented with packages and
+  input data already available. If so, return a DataFrame with the replacement
+  method, why it is semantically equivalent, row coverage, and validation
+  checks.
+- If only an approximation, proxy, heuristic, fitted surrogate, sampled
+  substitute, or partial implementation is available, do not use it as the
+  final answer unless the user explicitly asked for that relaxation.
+- Instead return a diagnostic DataFrame that records the missing capability,
+  the operation it blocked, alternatives checked, semantic_contract_preserved =
+  false, and the downstream rows affected.
+- A fallback operator must make the contract status visible as ordinary output
+  columns so LATEST context can audit whether the final answer is based on the
+  requested method or on a rejected surrogate.`;
 
 // ============================================================================
 // Shared sections
@@ -415,6 +438,7 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.tableStructureHints) sections.push(TABLE_STRUCTURE_HINT_GUIDANCE);
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
   if (options.boundedExecutionGuidance) sections.push(BOUNDED_EXECUTION_GUIDANCE);
+  if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
   }

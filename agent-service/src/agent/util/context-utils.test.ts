@@ -842,6 +842,47 @@ describe("assembleContext — Latest", () => {
     expect(c).not.toContain("Raw Loader Provenance");
   });
 
+  test("fallbackContractGuidance renders dependency-failure contract hints only when enabled", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "run exact library method" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "model" } }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["model"]));
+    storage.setOperatorResult(
+      "a",
+      "model",
+      makeInfo(
+        "model",
+        0,
+        "CalledProcessError: Command '['python', '-m', 'pip', 'install', 'exact-model']' returned non-zero exit status 1."
+      )
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).not.toContain("Fallback Contract Hint:");
+
+    const hintedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        fallbackContractGuidance: true,
+      })
+    );
+    expect(hintedContext).toContain("# Agent Guidance");
+    expect(hintedContext).toContain("Fallback contract:");
+    expect(hintedContext).toContain("Fallback Contract Hint:");
+    expect(hintedContext).toContain("package install failed");
+    expect(hintedContext).toContain("semantic_contract_preserved=false");
+    expect(hintedContext).toContain("Do not answer from an approximation");
+  });
+
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));

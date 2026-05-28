@@ -81,6 +81,9 @@ export interface AssembleContextOptions {
   /** Render compact raw-source provenance for DataLoading operators that read
    *  literal relative file paths. Off by default. */
   rawLoaderProvenance?: boolean;
+  /** Render compact fallback-contract hints next to dependency/runtime
+   *  capability failures. Off by default. */
+  fallbackContractGuidance?: boolean;
 }
 
 /**
@@ -98,6 +101,11 @@ const METRIC_EVIDENCE_CONTEXT_NOTICE = [
   "then sort/filter by the metric. A raw count alone is not a valid final selection for a derived metric.",
   "If a loader reads a wildcard or multiple sources, add source_path/source_file provenance columns before concatenation",
   "and prefer preserved provenance over reparsing display labels.",
+].join(" ");
+
+const FALLBACK_CONTRACT_CONTEXT_NOTICE = [
+  "Fallback contract: dependency, package, API, or runtime-capability failures do not permit a looser proxy final answer.",
+  "Use an exact equivalent with validation evidence, or return a diagnostic DataFrame with semantic_contract_preserved=false.",
 ].join(" ");
 
 /**
@@ -530,6 +538,7 @@ function renderLatest(
 function appendContextNotices(sections: string[], options: AssembleContextOptions): void {
   const notices = [
     ...(options.metricEvidenceGuidance ? [METRIC_EVIDENCE_CONTEXT_NOTICE] : []),
+    ...(options.fallbackContractGuidance ? [FALLBACK_CONTRACT_CONTEXT_NOTICE] : []),
     ...(options.contextNotices ?? []),
   ]
     .map(n => n.trim())
@@ -729,7 +738,7 @@ function serializeSnapshotFull(
     const isOutOfScope = scopedOperatorIds !== undefined && !scopedOperatorIds.has(op.operatorID);
     lines.push(
       isOutOfScope
-        ? serializeOperatorContextDigest(op, snapshot, allLinks, operatorLevel)
+        ? serializeOperatorContextDigest(op, snapshot, allLinks, operatorLevel, options)
         : serializeOperatorFull(
             op,
             snapshot,
@@ -934,6 +943,12 @@ function serializeOperatorFull(
     for (const l of rawLoaderProvenance.split("\n")) lines.push("  " + l);
   }
 
+  const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
+  if (fallbackContractHint) {
+    lines.push("Fallback Contract Hint:");
+    for (const l of fallbackContractHint.split("\n")) lines.push("  " + l);
+  }
+
   if (execText) {
     lines.push(renderDigest ? "Result Digest:" : "Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
@@ -1027,7 +1042,8 @@ function serializeOperatorContextDigest(
   op: OperatorPredicate,
   snapshot: SnapshotData,
   allLinks: WorkflowContent["links"],
-  operatorLevel: number
+  operatorLevel: number,
+  options: AssembleContextOptions
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   const opHash = "#".repeat(operatorLevel);
@@ -1050,6 +1066,11 @@ function serializeOperatorContextDigest(
 
   if (info.error) {
     lines.push(`Result Digest: ERROR ${shortenDigestText(info.error, 220)}`);
+    const fallbackContractHint = options.fallbackContractGuidance ? buildFallbackContractHint(info) : undefined;
+    if (fallbackContractHint) {
+      lines.push("Fallback Contract Hint:");
+      for (const l of fallbackContractHint.split("\n")) lines.push("  " + l);
+    }
     return lines.join("\n");
   }
 
@@ -1065,6 +1086,54 @@ function shortenDigestText(value: string, maxChars: number): string {
   const normalized = String(value).replace(/\s+/g, " ").trim();
   if (normalized.length <= maxChars) return normalized;
   return normalized.slice(0, maxChars - 3) + "...";
+}
+
+function buildFallbackContractHint(info: OperatorInfo | undefined): string | undefined {
+  if (!info?.error) return undefined;
+  const error = info.error;
+  const signals = detectRuntimeCapabilitySignals(error);
+  if (signals.length === 0) return undefined;
+
+  const lines = [`Detected runtime-capability failure: ${signals.join(", ")}.`];
+  lines.push("Do not answer from an approximation, proxy, heuristic, fitted surrogate, or partial substitute.");
+  lines.push(
+    "Next action: implement an exact equivalent with validation evidence, or return a diagnostic DataFrame with missing_capability, blocked_operation, alternatives_checked, semantic_contract_preserved=false, and affected_rows."
+  );
+  return lines.join("\n");
+}
+
+function detectRuntimeCapabilitySignals(error: string): string[] {
+  const text = error.toLowerCase();
+  const signals: string[] = [];
+
+  if (
+    text.includes("modulenotfounderror") ||
+    text.includes("importerror") ||
+    text.includes("no module named") ||
+    text.includes("cannot import name")
+  ) {
+    signals.push("import unavailable");
+  }
+  if (
+    text.includes("pip install") ||
+    text.includes("calledprocesserror") ||
+    text.includes("returned non-zero exit status") ||
+    text.includes("could not find a version") ||
+    text.includes("failed building wheel")
+  ) {
+    signals.push("package install failed");
+  }
+  if (
+    text.includes("api/library call") ||
+    text.includes("not implemented") ||
+    text.includes("unsupported") ||
+    text.includes("command not found") ||
+    text.includes("permission denied")
+  ) {
+    signals.push("runtime capability unavailable");
+  }
+
+  return Array.from(new Set(signals));
 }
 
 /**
