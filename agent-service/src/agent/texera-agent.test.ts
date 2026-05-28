@@ -199,6 +199,79 @@ describe("TexeraAgent — initial state", () => {
     expect(agent.getSystemInfo().systemPrompt).toContain("## Execution-Safe Operator IDs");
     expect(agent.getSystemInfo().systemPrompt).toContain("Do not use underscores");
   });
+
+  test("execution evidence cadence guidance rebuilds the CODE-mode prompt", () => {
+    const agent = makeAgent();
+    agent.setDelegateConfig({ userToken: "test-token", workflowId: 42 });
+
+    expect(agent.getSystemInfo().systemPrompt).not.toContain("## Execution Evidence Cadence");
+
+    agent.updateSettings({ maxUnexecutedCodeEdits: 3 });
+
+    expect(agent.getSystemInfo().systemPrompt).toContain("## Execution Evidence Cadence");
+    expect(agent.getSystemInfo().systemPrompt).toContain("at most 3 CODE operators");
+    expect(agent.getSystemInfo().systemPrompt).toContain("executeOperator");
+  });
+
+  test("execution evidence cadence exposes executeOperator only when execution is available", () => {
+    const noDelegate = makeAgent();
+    noDelegate.updateSettings({ maxUnexecutedCodeEdits: 1 });
+    expect(noDelegate.getSystemInfo().tools.map(tool => tool.name)).not.toContain("executeOperator");
+    expect(noDelegate.getSystemInfo().systemPrompt).not.toContain("## Execution Evidence Cadence");
+
+    const delegated = makeAgent();
+    delegated.setDelegateConfig({ userToken: "test-token", workflowId: 42 });
+    delegated.updateSettings({ maxUnexecutedCodeEdits: 1 });
+    const tools = delegated.getSystemInfo().tools;
+
+    expect(tools.map(tool => tool.name)).toContain("executeOperator");
+    expect(tools.find(tool => tool.name === "createOrModifyOperator")?.description).toContain("EXECUTION CADENCE");
+  });
+
+  test("execution evidence guard blocks edits after the configured cadence and resets on execution evidence", () => {
+    const agent = makeAgent();
+    agent.setDelegateConfig({ userToken: "test-token", workflowId: 42 });
+    agent.updateSettings({ maxUnexecutedCodeEdits: 2 });
+
+    expect(
+      (agent as any).handleBeforeCodeOperatorChange({
+        operatorId: "waterTests",
+        isModify: false,
+        submittedCode: "def load():\n    return None",
+      })
+    ).toBeNull();
+    (agent as any).handleAfterCodeOperatorChange({ operatorId: "waterTests", isModify: false });
+
+    expect(
+      (agent as any).handleBeforeCodeOperatorChange({
+        operatorId: "safeBeaches",
+        isModify: false,
+        submittedCode: "def process(waterTests):\n    return waterTests",
+      })
+    ).toBeNull();
+    (agent as any).handleAfterCodeOperatorChange({ operatorId: "safeBeaches", isModify: false });
+
+    const blocked = (agent as any).handleBeforeCodeOperatorChange({
+      operatorId: "finalCount",
+      isModify: false,
+      submittedCode: "def process(safeBeaches):\n    return safeBeaches",
+    });
+    expect(blocked).toContain("EXECUTION_EVIDENCE_GUARD");
+    expect(blocked).toContain("executeOperator");
+
+    (agent as any).recordExecutionEvidence(
+      [{ toolName: "executeOperator", toolCallId: "exec-1", input: { operatorId: "safeBeaches" } }],
+      [{ toolCallId: "exec-1", output: "[ERROR] bad operator", isError: true }]
+    );
+
+    expect(
+      (agent as any).handleBeforeCodeOperatorChange({
+        operatorId: "finalCount",
+        isModify: false,
+        submittedCode: "def process(safeBeaches):\n    return safeBeaches",
+      })
+    ).toBeNull();
+  });
 });
 
 describe("TexeraAgent — handleDebugInput plain-text path", () => {

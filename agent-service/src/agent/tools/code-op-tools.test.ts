@@ -595,6 +595,26 @@ describe("createOrModifyOperator — modify result shape (post-cleanup)", () => 
     expect(result).toContain("CONVERGENCE_GUARD");
     expect((ws.getOperator(opId)!.operatorProperties as any).code).toBe(originalCode);
   });
+
+  test("successful code changes notify the execution cadence callback", async () => {
+    const ws = new WorkflowState();
+    const opId = "csvLoader";
+    seedOp(ws, opId, "def load() -> pd.DataFrame:\n    return pd.DataFrame({'x': [1]})");
+    const seen: Array<{ operatorId: string; isModify: boolean }> = [];
+    const tool = createCreateOrModifyOperatorTool(ws, new Map(), {
+      onAfterCodeOperatorChange: args => seen.push(args),
+    });
+    const run = (args: { operatorId: string; code: string; summary?: string }): Promise<string> =>
+      (tool.execute as any)(args, {} as any);
+
+    const modifyResult = await run({
+      operatorId: opId,
+      code: "def load() -> pd.DataFrame:\n    return pd.DataFrame({'x': [2]})",
+      summary: "Load a changed tiny frame",
+    });
+    expect(modifyResult).toContain("Operator csvLoader modified");
+    expect(seen).toEqual([{ operatorId: "csvLoader", isModify: true }]);
+  });
 });
 
 describe("stripPythonCommentsAndStrings", () => {

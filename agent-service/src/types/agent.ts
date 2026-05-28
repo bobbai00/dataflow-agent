@@ -166,6 +166,13 @@ export interface AgentSettings {
    */
   lineageHintOnStall: boolean;
   /**
+   * Maximum successful CODE-mode create/modify calls allowed after the last
+   * explicit operator-result inspection before the tool blocks more code
+   * edits and asks for `executeOperator`. 0 disables the guard. Off by
+   * default for baseline reproducibility.
+   */
+  maxUnexecutedCodeEdits: number;
+  /**
    * When true, append CODE-mode guidance that asks the agent to preserve
    * provenance keys through the DAG and make derived final metrics auditable
    * as ordinary output columns; the context assembler also repeats a compact
@@ -282,6 +289,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   includeOperatorProperties: true,
   maxOperatorEdits: 0,
   lineageHintOnStall: false,
+  maxUnexecutedCodeEdits: 0,
   metricEvidenceGuidance: false,
   schemaFirstCodeMode: false,
   tableStructureHints: false,
@@ -343,6 +351,7 @@ export interface AgentSettingsApi {
   includeOperatorProperties?: boolean;
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
+  maxUnexecutedCodeEdits?: number;
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;
@@ -398,6 +407,7 @@ export interface UpdateAgentSettingsRequest {
   includeOperatorProperties?: boolean;
   maxOperatorEdits?: number;
   lineageHintOnStall?: boolean;
+  maxUnexecutedCodeEdits?: number;
   metricEvidenceGuidance?: boolean;
   schemaFirstCodeMode?: boolean;
   tableStructureHints?: boolean;

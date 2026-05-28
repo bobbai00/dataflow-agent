@@ -50,6 +50,7 @@ export interface CodeModePromptOptions {
   componentGrainGuidance?: boolean;
   keyGrainComparisonGuidance?: boolean;
   executionSafeOperatorIds?: boolean;
+  maxUnexecutedCodeEdits?: number;
   fallbackContractGuidance?: boolean;
   resultRendering?: OperatorResultRendering;
   contextScope?: OperatorContextScope;
@@ -241,6 +242,23 @@ logical IDs:
   rejects logical operator IDs containing \`_\`.
 - In \`def process(...)\`, parameter names must exactly match upstream
   operator IDs, so keep all created IDs in the same execution-safe style.`;
+
+function buildExecutionEvidenceCadenceGuidance(limit: number): string {
+  return `## Execution Evidence Cadence
+
+Operator code is an unverified hypothesis until at least one result table,
+schema, row count, or execution error has been inspected.
+
+- After creating or modifying at most ${limit} CODE operators, inspect a
+  current operator result with \`executeOperator\` before making more code
+  edits.
+- Execute the newest candidate, the current final operator, or the operator
+  most likely to expose the bottleneck. Use its rows, schema, row count, and
+  errors as evidence for the next edit.
+- Do not keep creating parallel final/count/diagnostic operators without
+  result evidence. Replace or modify an existing candidate once execution
+  evidence shows what is wrong.`;
+}
 
 const FALLBACK_CONTRACT_GUIDANCE = `## Fallback Contract
 
@@ -535,6 +553,9 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.componentGrainGuidance) sections.push(COMPONENT_GRAIN_GUIDANCE);
   if (options.keyGrainComparisonGuidance) sections.push(KEY_GRAIN_COMPARISON_GUIDANCE);
   if (options.executionSafeOperatorIds) sections.push(EXECUTION_SAFE_OPERATOR_ID_GUIDANCE);
+  if ((options.maxUnexecutedCodeEdits ?? 0) > 0) {
+    sections.push(buildExecutionEvidenceCadenceGuidance(options.maxUnexecutedCodeEdits!));
+  }
   if (options.fallbackContractGuidance) sections.push(FALLBACK_CONTRACT_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);

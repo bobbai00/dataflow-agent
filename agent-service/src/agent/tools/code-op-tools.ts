@@ -611,6 +611,7 @@ export function createCreateOrModifyOperatorTool(
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
   const executionSafeOperatorIds = !!context?.settings?.executionSafeOperatorIds;
+  const maxUnexecutedCodeEdits = Math.max(0, Math.floor(context?.settings?.maxUnexecutedCodeEdits ?? 0));
   const operatorIdRule = executionSafeOperatorIds
     ? `1. operatorId must be an execution-safe Python identifier: start with a letter and then use
    only letters or digits. Use camelCase. Do NOT use underscores; workflow
@@ -624,6 +625,14 @@ export function createCreateOrModifyOperatorTool(
 2. Function name MUST be exactly "load" or "process"
 3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
    The parameter name is the upstream operatorId verbatim.`;
+  const executionCadenceRule =
+    maxUnexecutedCodeEdits > 0
+      ? `
+
+EXECUTION CADENCE:
+- After ${maxUnexecutedCodeEdits} successful create/modify calls without an explicit result inspection, this tool blocks further code edits.
+- Use executeOperator on the newest candidate, the current final operator, or the likely bottleneck before creating more variants.`
+      : "";
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -632,6 +641,7 @@ export function createCreateOrModifyOperatorTool(
 
 RULES:
 ${operatorIdRule}
+${executionCadenceRule}
 
 ## def load() -> pd.DataFrame
 Load data from files. No input parameters. File I/O allowed.
@@ -830,6 +840,8 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
             resultMsg = `${resultMsg}\n${formatNoOpWarning()}`;
           }
         }
+
+        context?.onAfterCodeOperatorChange?.({ operatorId, isModify: !!existingOperator });
 
         const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;
         return createToolResult(finalMsg);

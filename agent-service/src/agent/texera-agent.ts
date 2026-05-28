@@ -45,6 +45,7 @@ import {
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
+  createExecuteOperatorTool,
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
@@ -193,6 +194,7 @@ export class TexeraAgent {
 
   private consecutiveCodeEditOperatorId: string | undefined = undefined;
   private consecutiveCodeEditCount = 0;
+  private codeEditsSinceExecution = 0;
   private lastCompilationResult: WorkflowCompilationResponse | null = null;
   private pendingContextNotices: string[] = [];
 
@@ -402,6 +404,7 @@ export class TexeraAgent {
         componentGrainGuidance: this.settings.componentGrainGuidance,
         keyGrainComparisonGuidance: this.settings.keyGrainComparisonGuidance,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
+        maxUnexecutedCodeEdits: this.getExecutionCadenceLimit(),
         fallbackContractGuidance: this.settings.fallbackContractGuidance,
         resultRendering: this.settings.resultRendering,
         contextScope: this.settings.contextScope,
@@ -422,6 +425,11 @@ export class TexeraAgent {
     };
   }
 
+  private getExecutionCadenceLimit(): number {
+    if (!this.delegateConfig) return 0;
+    return Math.max(0, Math.floor(this.settings.maxUnexecutedCodeEdits));
+  }
+
   private createTools(): Record<string, any> {
     const operatorSchemas = new Map<string, any>();
     for (const type of Object.keys(this.metadataStore.getAllOperatorTypes())) {
@@ -432,6 +440,7 @@ export class TexeraAgent {
       }
     }
 
+    const executionCadenceLimit = this.getExecutionCadenceLimit();
     const context: ToolContext = {
       metadataStore: this.metadataStore,
       settings: {
@@ -440,9 +449,11 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         maxOperatorEdits: this.settings.maxOperatorEdits,
         lineageHintOnStall: this.settings.lineageHintOnStall,
+        maxUnexecutedCodeEdits: executionCadenceLimit,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
       },
       onBeforeCodeOperatorChange: args => this.handleBeforeCodeOperatorChange(args),
+      onAfterCodeOperatorChange: args => this.handleAfterCodeOperatorChange(args),
     };
 
     const tools: Record<string, any> = {
@@ -455,6 +466,21 @@ export class TexeraAgent {
         operatorSchemas,
         context
       );
+      if (executionCadenceLimit > 0) {
+        tools[TOOL_NAME_EXECUTE_OPERATOR] = createExecuteOperatorTool(
+          this.workflowState,
+          () => {
+            const config = this.buildExecutionConfig();
+            if (!config) throw new Error("Execution config is not available for this agent.");
+            return config;
+          },
+          (opId, operatorInfo) => {
+            if (this.head !== undefined) {
+              this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
+            }
+          }
+        );
+      }
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -499,6 +525,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         maxOperatorEdits: this.settings.maxOperatorEdits,
         lineageHintOnStall: this.settings.lineageHintOnStall,
+        maxUnexecutedCodeEdits: 0,
         executionSafeOperatorIds: this.settings.executionSafeOperatorIds,
       },
     };
@@ -707,6 +734,7 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
+    maxUnexecutedCodeEdits?: number;
     metricEvidenceGuidance?: boolean;
     schemaFirstCodeMode?: boolean;
     tableStructureHints?: boolean;
@@ -786,6 +814,14 @@ export class TexeraAgent {
     }
     if (updates.lineageHintOnStall !== undefined) {
       this.settings.lineageHintOnStall = updates.lineageHintOnStall;
+    }
+    if (updates.maxUnexecutedCodeEdits !== undefined) {
+      const next = Math.max(0, Math.floor(updates.maxUnexecutedCodeEdits));
+      if (next !== this.settings.maxUnexecutedCodeEdits) {
+        this.settings.maxUnexecutedCodeEdits = next;
+        this.codeEditsSinceExecution = Math.min(this.codeEditsSinceExecution, next);
+        promptNeedsRebuild = true;
+      }
     }
     if (
       updates.metricEvidenceGuidance !== undefined &&
@@ -886,6 +922,12 @@ export class TexeraAgent {
     isModify: boolean;
     submittedCode: string;
   }): string | null {
+    const executionCadenceMessage = this.buildExecutionCadenceBlockMessage();
+    if (executionCadenceMessage) {
+      this.pendingContextNotices.push(executionCadenceMessage);
+      return executionCadenceMessage;
+    }
+
     if (this.settings.maxOperatorEdits <= 0) return null;
 
     if (!args.isModify) {
@@ -915,6 +957,39 @@ export class TexeraAgent {
 
     this.pendingContextNotices.push(message);
     return message;
+  }
+
+  private handleAfterCodeOperatorChange(_args: { operatorId: string; isModify: boolean }): void {
+    if (this.getExecutionCadenceLimit() <= 0) return;
+    this.codeEditsSinceExecution++;
+  }
+
+  private buildExecutionCadenceBlockMessage(): string | null {
+    const limit = this.getExecutionCadenceLimit();
+    if (limit <= 0) return null;
+    if (this.codeEditsSinceExecution < limit) return null;
+
+    return (
+      `EXECUTION_EVIDENCE_GUARD: ${this.codeEditsSinceExecution} successful CODE edits have been accepted ` +
+      `since the last explicit result inspection; limit is ${limit}. ` +
+      "Use executeOperator on the newest candidate, current final operator, or likely bottleneck before creating or modifying more code. " +
+      "Use the result rows, schema, row count, or error as evidence for the next step."
+    );
+  }
+
+  private recordExecutionEvidence(
+    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
+  ): void {
+    if (this.getExecutionCadenceLimit() <= 0 || !toolCalls || !toolResults) return;
+    const resultsByCallId = new Map(toolResults.map(result => [result.toolCallId, result]));
+    for (const tc of toolCalls) {
+      if (tc.toolName !== TOOL_NAME_EXECUTE_OPERATOR) continue;
+      const tr = resultsByCallId.get(tc.toolCallId);
+      if (!tr) continue;
+      this.codeEditsSinceExecution = 0;
+      return;
+    }
   }
 
   private buildLineageStallHint(operatorId: string, submittedCode: string): string | undefined {
@@ -1092,6 +1167,7 @@ export class TexeraAgent {
   }): void {
     this.delegateConfig = config;
 
+    this.rebuildSystemPrompt();
     this.tools = this.createTools();
 
     this.setupWorkflowChangeHandlers();
@@ -1266,6 +1342,7 @@ export class TexeraAgent {
           // turns and final summaries don't own a snapshot.
           this.maybeCreateSnapshotForHead(afterStepContent);
 
+          this.recordExecutionEvidence(formattedToolCalls, formattedToolResults);
           await this.runPostStepExecution(toolCalls, toolResults);
 
           isFirstStep = false;
@@ -1916,6 +1993,7 @@ export class TexeraAgent {
       // Function(...) always carries a single tool call → snapshot every time.
       this.maybeCreateSnapshotForHead(afterContent);
 
+      this.recordExecutionEvidence(formattedToolCalls, formattedToolResults);
       await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
 
       return { kind: "function_call", stopped: false, error: isError ? String(output) : undefined };

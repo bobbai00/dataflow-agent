@@ -37,6 +37,7 @@ export interface ToolContext {
     executionTimeoutMs?: number;
     maxOperatorEdits?: number;
     lineageHintOnStall?: boolean;
+    maxUnexecutedCodeEdits?: number;
     executionSafeOperatorIds?: boolean;
   };
   onBeforeCodeOperatorChange?: (args: {
@@ -44,6 +45,7 @@ export interface ToolContext {
     isModify: boolean;
     submittedCode: string;
   }) => string | null | undefined;
+  onAfterCodeOperatorChange?: (args: { operatorId: string; isModify: boolean }) => void;
 }
 
 export const TOOL_NAME_DELETE_OPERATOR = "deleteOperator";

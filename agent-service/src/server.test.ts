@@ -209,6 +209,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       toolTimeoutSeconds: 30,
       maxOperatorEdits: 2,
       lineageHintOnStall: true,
+      maxUnexecutedCodeEdits: 3,
       schemaFirstCodeMode: true,
       tableStructureHints: true,
       rawLoaderProvenance: true,
@@ -228,6 +229,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       toolTimeoutSeconds: number;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
+      maxUnexecutedCodeEdits: number;
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
@@ -245,6 +247,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.toolTimeoutSeconds).toBe(30);
     expect(body.maxOperatorEdits).toBe(2);
     expect(body.lineageHintOnStall).toBe(true);
+    expect(body.maxUnexecutedCodeEdits).toBe(3);
     expect(body.schemaFirstCodeMode).toBe(true);
     expect(body.tableStructureHints).toBe(true);
     expect(body.rawLoaderProvenance).toBe(true);
@@ -265,6 +268,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       includeOperatorProperties: boolean;
       maxOperatorEdits: number;
       lineageHintOnStall: boolean;
+      maxUnexecutedCodeEdits: number;
       schemaFirstCodeMode: boolean;
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
@@ -283,6 +287,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.includeOperatorProperties).toBe(true);
     expect(reread.maxOperatorEdits).toBe(2);
     expect(reread.lineageHintOnStall).toBe(true);
+    expect(reread.maxUnexecutedCodeEdits).toBe(3);
     expect(reread.schemaFirstCodeMode).toBe(true);
     expect(reread.tableStructureHints).toBe(true);
     expect(reread.rawLoaderProvenance).toBe(true);
