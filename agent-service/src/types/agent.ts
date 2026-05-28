@@ -66,6 +66,11 @@ export enum OperatorResultRendering {
   ADAPTIVE = "adaptive",
 }
 
+export enum OperatorContextScope {
+  ALL = "all",
+  ACTIVE_LINEAGE = "active-lineage",
+}
+
 /**
  * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
  * (Python `def load()` / `def process(...)`); GENERAL uses typed
@@ -107,6 +112,13 @@ export interface AgentSettings {
    * latest frontier and digests stable operators.
    */
   resultRendering: OperatorResultRendering;
+  /**
+   * Controls which operators render in detail inside the current snapshot.
+   * `all` preserves the legacy whole-DAG view; `active-lineage` keeps the
+   * latest frontier and its upstream lineage detailed while compressing
+   * unrelated branches to concise operator digests.
+   */
+  contextScope: OperatorContextScope;
   toolTimeoutMs: number;
   executionTimeoutMs: number;
   maxSteps: number;
@@ -186,6 +198,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxOperatorResultCellCharLimit: 2000,
   operatorResultSerializationMode: OperatorResultSerializationMode.TSV,
   resultRendering: OperatorResultRendering.ROWS,
+  contextScope: OperatorContextScope.ALL,
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
@@ -257,6 +270,7 @@ export interface AgentSettingsApi {
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
   resultRendering?: "rows" | "digest" | "adaptive";
+  contextScope?: "all" | "active-lineage";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
@@ -304,6 +318,7 @@ export interface UpdateAgentSettingsRequest {
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
   resultRendering?: "rows" | "digest" | "adaptive";
+  contextScope?: "all" | "active-lineage";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];

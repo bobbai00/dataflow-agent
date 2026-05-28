@@ -27,7 +27,7 @@ import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
 import type { ReActStep } from "../../types/agent";
-import { AgentMode, ContextMode, OperatorResultRendering } from "../../types/agent";
+import { AgentMode, ContextMode, OperatorContextScope, OperatorResultRendering } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
@@ -54,6 +54,10 @@ export interface AssembleContextOptions {
   statsEnabled?: boolean;
   /** Successful result rendering policy. Defaults to row previews. */
   resultRendering?: OperatorResultRendering;
+  /** Operator detail scope inside the current snapshot. Defaults to the
+   *  whole DAG. `active-lineage` only affects LATEST mode when a frontier can
+   *  be inferred from snapshot/event provenance. */
+  contextScope?: OperatorContextScope;
   /** When true (the default), each operator's `operatorProperties` render as
    *  a `Properties:` line in the snapshot, EXCEPT the Python code operators
    *  in `CODE_OPERATOR_TYPES` (their `code` is large and already surfaced on
@@ -506,13 +510,15 @@ function renderLatest(
   //    is defined as a single point on the snapshot tree, so no events
   //    are rendered above this.
   const focusOperatorIds = computeLatestFocusOperatorIds(path, leafSnapshot);
+  const scopedOperatorIds = computeLatestScopedOperatorIds(leafSnapshot.workflow, focusOperatorIds, options);
   const dag = serializeSnapshotFull(
     leafSnapshot,
     workflowState,
     options,
     /*isCurrent=*/ true,
     /*sectionLevel=*/ 2,
-    focusOperatorIds
+    focusOperatorIds,
+    scopedOperatorIds
   );
   if (dag) {
     sections.push("# Current Dataflow");
@@ -706,7 +712,8 @@ function serializeSnapshotFull(
   options: AssembleContextOptions,
   isCurrent: boolean,
   sectionLevel: number,
-  focusOperatorIds?: Set<string>
+  focusOperatorIds?: Set<string>,
+  scopedOperatorIds?: Set<string>
 ): string | null {
   const { workflow } = snapshot;
   if (workflow.operators.length === 0) return null;
@@ -719,8 +726,20 @@ function serializeSnapshotFull(
   lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
+    const isOutOfScope = scopedOperatorIds !== undefined && !scopedOperatorIds.has(op.operatorID);
     lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, focusOperatorIds)
+      isOutOfScope
+        ? serializeOperatorContextDigest(op, snapshot, allLinks, operatorLevel)
+        : serializeOperatorFull(
+            op,
+            snapshot,
+            workflowState,
+            options,
+            isCurrent,
+            allLinks,
+            operatorLevel,
+            focusOperatorIds
+          )
     );
     lines.push("");
   }
@@ -964,6 +983,88 @@ function computeLatestFocusOperatorIds(path: PathNode[], leafSnapshot: SnapshotD
   }
 
   return focus.size > 0 ? focus : undefined;
+}
+
+function computeLatestScopedOperatorIds(
+  workflow: WorkflowContent,
+  focusOperatorIds: Set<string> | undefined,
+  options: AssembleContextOptions
+): Set<string> | undefined {
+  const scope = options.contextScope ?? OperatorContextScope.ALL;
+  if (scope !== OperatorContextScope.ACTIVE_LINEAGE) return undefined;
+  if (!focusOperatorIds || focusOperatorIds.size === 0) return undefined;
+
+  const operatorIds = new Set(workflow.operators.map(op => op.operatorID));
+  const scoped = new Set<string>();
+  const queue: string[] = [];
+  for (const opId of focusOperatorIds) {
+    if (!operatorIds.has(opId)) continue;
+    scoped.add(opId);
+    queue.push(opId);
+  }
+  if (queue.length === 0) return undefined;
+
+  const childToParents = new Map<string, string[]>();
+  for (const link of workflow.links) {
+    const parents = childToParents.get(link.target.operatorID) ?? [];
+    parents.push(link.source.operatorID);
+    childToParents.set(link.target.operatorID, parents);
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const parent of childToParents.get(current) ?? []) {
+      if (!operatorIds.has(parent) || scoped.has(parent)) continue;
+      scoped.add(parent);
+      queue.push(parent);
+    }
+  }
+
+  return scoped;
+}
+
+function serializeOperatorContextDigest(
+  op: OperatorPredicate,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"],
+  operatorLevel: number
+): string {
+  const info = snapshot.results.get(op.operatorID)?.info;
+  const opHash = "#".repeat(operatorLevel);
+  const lines: string[] = [];
+  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+  lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+  lines.push("Context Scope: outside active lineage; details compressed.");
+
+  if (!info) {
+    const failedUpstreams = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
+    if (failedUpstreams.length > 0) {
+      const noun = failedUpstreams.length === 1 ? "operator" : "operators";
+      const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
+      lines.push(`Result Digest: skipped; upstream ${noun} ${list} errored.`);
+    } else {
+      lines.push("Result Digest: no execution result visible.");
+    }
+    return lines.join("\n");
+  }
+
+  if (info.error) {
+    lines.push(`Result Digest: ERROR ${shortenDigestText(info.error, 220)}`);
+    return lines.join("\n");
+  }
+
+  const columns = inferRenderableColumns(info);
+  const rowCount = info.totalRowCount ?? info.outputTuples ?? "unknown";
+  const columnCount = columns.length > 0 ? columns.length : "unknown";
+  const columnText = columns.length > 0 ? `; columns=${formatValueList(columns, 12)}` : "";
+  lines.push(`Result Digest: Completed; output shape=(${rowCount}, ${columnCount})${columnText}`);
+  return lines.join("\n");
+}
+
+function shortenDigestText(value: string, maxChars: number): string {
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return normalized.slice(0, maxChars - 3) + "...";
 }
 
 /**

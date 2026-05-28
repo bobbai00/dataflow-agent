@@ -30,7 +30,7 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { OperatorResultRendering } from "../types/agent";
+import { OperatorContextScope, OperatorResultRendering } from "../types/agent";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
@@ -45,6 +45,7 @@ export interface CodeModePromptOptions {
   tableStructureHints?: boolean;
   rawLoaderProvenance?: boolean;
   resultRendering?: OperatorResultRendering;
+  contextScope?: OperatorContextScope;
 }
 
 const METRIC_EVIDENCE_GUIDANCE = `## Metric Evidence and Provenance
@@ -114,6 +115,17 @@ compressed successful result for a stable part of the dataflow:
   operator.
 - Prefer editing the current frontier operator before reopening stable upstream
   operators unless the digest/schema/provenance evidence points upstream.`;
+
+const ACTIVE_LINEAGE_SCOPE_GUIDANCE = `## Active Lineage Scope
+
+When an operator is marked \`outside active lineage\`, it is a compact digest of
+a branch that is not upstream of the latest frontier:
+
+- Use detailed operators on the active lineage for the next edit or answer.
+- Use off-lineage digests and the Links section only to decide whether a branch
+  has become relevant.
+- If an off-lineage branch is needed, make it the new frontier with a focused
+  operator edit or inspection instead of reasoning from hidden rows.`;
 
 // ============================================================================
 // Shared sections
@@ -382,6 +394,9 @@ export function buildCodeModeSystemPrompt(options: CodeModePromptOptions = {}): 
   if (options.rawLoaderProvenance) sections.push(RAW_LOADER_PROVENANCE_GUIDANCE);
   if (options.resultRendering && options.resultRendering !== OperatorResultRendering.ROWS) {
     sections.push(RESULT_DIGEST_GUIDANCE);
+  }
+  if (options.contextScope === OperatorContextScope.ACTIVE_LINEAGE) {
+    sections.push(ACTIVE_LINEAGE_SCOPE_GUIDANCE);
   }
   if (sections.length === 0) return CODE_MODE_SYSTEM_PROMPT;
   return `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${sections.join("\n\n")}\n`;

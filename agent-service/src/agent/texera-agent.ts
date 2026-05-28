@@ -31,6 +31,7 @@ import {
   AgentState as AgentStateEnum,
   ContextMode,
   DEFAULT_AGENT_SETTINGS,
+  OperatorContextScope,
   OperatorResultSerializationMode,
 } from "../types/agent";
 import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
@@ -396,6 +397,7 @@ export class TexeraAgent {
         tableStructureHints: this.settings.tableStructureHints,
         rawLoaderProvenance: this.settings.rawLoaderProvenance,
         resultRendering: this.settings.resultRendering,
+        contextScope: this.settings.contextScope,
       });
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -683,6 +685,7 @@ export class TexeraAgent {
     maxOperatorResultCellCharLimit?: number;
     operatorResultSerializationMode?: OperatorResultSerializationMode;
     resultRendering?: AgentSettings["resultRendering"];
+    contextScope?: OperatorContextScope;
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     disabledTools?: Set<string>;
@@ -713,6 +716,10 @@ export class TexeraAgent {
     }
     if (updates.resultRendering !== undefined) {
       this.settings.resultRendering = updates.resultRendering;
+      promptNeedsRebuild = true;
+    }
+    if (updates.contextScope !== undefined) {
+      this.settings.contextScope = updates.contextScope;
       promptNeedsRebuild = true;
     }
     if (updates.toolTimeoutMs !== undefined) {

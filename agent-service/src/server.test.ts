@@ -213,6 +213,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       tableStructureHints: true,
       rawLoaderProvenance: true,
       resultRendering: "adaptive",
+      contextScope: "active-lineage",
     });
     expect(res.status).toBe(200);
     const body = await readJson<{
@@ -224,6 +225,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
       resultRendering: string;
+      contextScope: string;
     }>(res);
     expect(body.maxSteps).toBe(7);
     expect(body.toolTimeoutSeconds).toBe(30);
@@ -233,6 +235,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(body.tableStructureHints).toBe(true);
     expect(body.rawLoaderProvenance).toBe(true);
     expect(body.resultRendering).toBe("adaptive");
+    expect(body.contextScope).toBe("active-lineage");
 
     // A follow-up GET reflects the same values.
     const reread = await readJson<{
@@ -245,6 +248,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       tableStructureHints: boolean;
       rawLoaderProvenance: boolean;
       resultRendering: string;
+      contextScope: string;
     }>(await getJson(`${API}/agents/${created.id}/settings`));
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
@@ -255,5 +259,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(reread.tableStructureHints).toBe(true);
     expect(reread.rawLoaderProvenance).toBe(true);
     expect(reread.resultRendering).toBe("adaptive");
+    expect(reread.contextScope).toBe("active-lineage");
   });
 });

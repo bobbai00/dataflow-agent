@@ -21,7 +21,13 @@ import { describe, expect, test } from "bun:test";
 import { assembleContext, computeDelta } from "./context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { AgentMode, ContextMode, OperatorResultRendering, type ReActStep } from "../../types/agent";
+import {
+  AgentMode,
+  ContextMode,
+  OperatorContextScope,
+  OperatorResultRendering,
+  type ReActStep,
+} from "../../types/agent";
 import type { WorkflowContent } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
 
@@ -322,6 +328,130 @@ describe("assembleContext — Latest", () => {
     expect(adaptiveContext).not.toContain("S0");
     expect(adaptiveContext).toContain("Result:");
     expect(adaptiveContext).toContain("F0");
+  });
+
+  test("active-lineage context scope compresses off-frontier branches only", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "build a branched flow" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "src" } }],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
+      {
+        id: "t2",
+        stepId: 2,
+        role: "agent",
+        parentId: "t1",
+        messageId: "m1",
+        isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "side" } }],
+        toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
+      },
+      {
+        id: "t3",
+        stepId: 3,
+        role: "agent",
+        parentId: "t2",
+        messageId: "m1",
+        isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc3", input: { operatorId: "frontier" } }],
+        toolResults: [{ toolCallId: "tc3", output: "ok", isError: false }],
+      },
+    ]);
+
+    const src = { ...makeOp("src"), outputPorts: [{ portID: "output-0" }] };
+    const side = {
+      ...makeOp("side"),
+      inputPorts: [{ portID: "input-0" }],
+      outputPorts: [{ portID: "output-0" }],
+    };
+    const frontier = {
+      ...makeOp("frontier"),
+      inputPorts: [{ portID: "input-0" }],
+      outputPorts: [{ portID: "output-0" }],
+    };
+
+    storage.createSnapshot("t1", {
+      operators: [src],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "t1",
+      "src",
+      makeInfo("src", 1, undefined, { result: [{ __row_index__: 0, src_value: "S0" }] })
+    );
+
+    storage.createSnapshot("t2", {
+      operators: [src, side],
+      operatorPositions: {},
+      links: [
+        {
+          linkID: "src-side",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "side", portID: "input-0" },
+        },
+      ],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "t2",
+      "side",
+      makeInfo("side", 1, undefined, { result: [{ __row_index__: 0, side_value: "B0" }] })
+    );
+
+    storage.createSnapshot("t3", {
+      operators: [src, side, frontier],
+      operatorPositions: {},
+      links: [
+        {
+          linkID: "src-side",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "side", portID: "input-0" },
+        },
+        {
+          linkID: "src-frontier",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "frontier", portID: "input-0" },
+        },
+      ],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    storage.setOperatorResult(
+      "t3",
+      "frontier",
+      makeInfo("frontier", 1, undefined, { result: [{ __row_index__: 0, final_value: "F0" }] })
+    );
+
+    const defaultContext = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(defaultContext).toContain("S0");
+    expect(defaultContext).toContain("B0");
+    expect(defaultContext).toContain("F0");
+    expect(defaultContext).not.toContain("outside active lineage");
+
+    const scopedContext = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        contextScope: OperatorContextScope.ACTIVE_LINEAGE,
+      })
+    );
+    expect(scopedContext).toContain("S0");
+    expect(scopedContext).toContain("F0");
+    expect(scopedContext).not.toContain("B0");
+    expect(scopedContext).toContain("Context Scope: outside active lineage; details compressed.");
+    expect(scopedContext).toContain("Result Digest: Completed; output shape=(1, 1); columns=side_value");
+    expect(scopedContext).toContain("- src → side");
+    expect(scopedContext).toContain("- src → frontier");
   });
 
   test("CODE mode schemas stay hidden by default and render when schemaFirstCodeMode is on", () => {
