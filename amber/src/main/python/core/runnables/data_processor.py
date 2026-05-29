@@ -816,8 +816,86 @@ class DataProcessor(Runnable, Stoppable):
                     parts.append(f"top_5={{{inner}}}")
                 except Exception:
                     pass
+            # Numeric values wearing formatting punctuation — currency
+            # "$1,234", thousands "1,234", percent "45%", accounting
+            # "(1,234)". Such a column arrived as str *because* the
+            # punctuation blocked numeric parsing; a later
+            # to_numeric(errors="coerce") then silently NULLs every formatted
+            # value (e.g. "$1,234" -> NaN), dropping exactly the rows that
+            # carry the data. Surface the format so the agent strips before
+            # converting. Full-column, pandas-native (see _detect_numeric_format).
+            try:
+                fmt = DataProcessor._detect_numeric_format(non_null)
+                if fmt is not None:
+                    parts.append(f"format={fmt}")
+            except Exception:
+                pass
 
         return f"({col_type}): " + ", ".join(parts)
+
+    @staticmethod
+    def _detect_numeric_format(non_null: pandas.Series) -> Optional[str]:
+        """
+        Decide whether an object/str column is really numeric values wearing
+        formatting punctuation, and if so name the format. Returns one of
+        ``"currency"`` / ``"thousands"`` / ``"percent"`` / ``"accounting"`` /
+        ``"numeric-as-text"``, or ``None`` when the column is genuinely
+        non-numeric text.
+
+        Full-column and pandas-native — NOT a regex over a render-time
+        preview sample. We let ``pandas.to_numeric`` be the judge on the whole
+        column: a column qualifies only when stripping currency / grouping /
+        percent punctuation (and mapping accounting parens to a leading minus)
+        RECOVERS a large block of values that ``to_numeric`` misses as-is. That
+        gate ("cleaning materially beats raw parsing AND ends up almost all
+        numeric") is what separates a real $/comma-formatted number column from
+        free text that happens to contain the odd numeral — without keying on
+        any column name or task literal, so it generalizes.
+
+        The dominant punctuation among the *rescued* values (those that parse
+        only after cleaning) picks the tag, so the agent gets the specific
+        cleaning to apply rather than a generic warning.
+        """
+        s = non_null.astype(str).str.strip()
+        if len(s) < 2:
+            return None
+        raw = pandas.to_numeric(s, errors="coerce")
+        raw_frac = float(raw.notna().mean())
+        # Map accounting "(123)" -> "-123", then drop $, grouping commas,
+        # percent signs and whitespace. ($ is literal inside the char class.)
+        cleaned_str = s.str.replace(r"^\((.*)\)$", r"-\1", regex=True).str.replace(
+            r"[$,%\s]", "", regex=True
+        )
+        cleaned = pandas.to_numeric(cleaned_str, errors="coerce")
+        clean_frac = float(cleaned.notna().mean())
+        # Two gates:
+        #   clean_frac >= 0.8 — the column is predominantly numeric once cleaned,
+        #     i.e. a number column, not free text. (Set at 0.8 rather than higher
+        #     because raw loader output routinely mixes a header/footer row or
+        #     two into a data column — "# of Reports", "Source: ..." — which are
+        #     real strings that drag the parse fraction down without changing
+        #     what the column *is*.)
+        #   delta >= 0.1 — a material block (>=10%) of values parse ONLY after
+        #     cleaning. Since cleaning only ever adds parses (clean superset of
+        #     raw), delta == the rescued fraction: the formatted values a naive
+        #     to_numeric(coerce) would silently NULL. A plain digit-string column
+        #     parses raw (delta ~ 0) and is correctly NOT flagged.
+        if clean_frac < 0.8 or clean_frac - raw_frac < 0.1:
+            return None
+        rescued = s[cleaned.notna() & raw.isna()]
+        if rescued.empty:
+            rescued = s
+        # $ before commas: currency usually carries both, and $ is the more
+        # specific signal. Parens before commas for the same reason.
+        if float(rescued.str.contains("$", regex=False).mean()) >= 0.5:
+            return "currency"
+        if float(rescued.str.contains("%", regex=False).mean()) >= 0.5:
+            return "percent"
+        if float(rescued.str.match(r"^\(.*\)$").mean()) >= 0.5:
+            return "accounting"
+        if float(rescued.str.contains(",", regex=False).mean()) >= 0.5:
+            return "thousands"
+        return "numeric-as-text"
 
     def _set_output_state(self, output_state: State) -> None:
         """

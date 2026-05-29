@@ -9,26 +9,34 @@ import { extractLoaderSourcePath } from "./tools/code-op-tools";
 import { formatValueFormatHints } from "./tools/result-formatting";
 
 describe("formatValueFormatHints (value-format flags)", () => {
-  const mk = (rows: any[]) => ({ result: rows } as any);
-  test("thousands-separated numeric column → coerce-dataloss warning", () => {
-    const h = formatValueFormatHints(mk([{ n: "1,234" }, { n: "67,819" }, { n: "28,438" }]));
+  // The backend (data_processor._detect_numeric_format) does detection over the
+  // whole column and ships a `format=<tag>` field on columnStats; this renders.
+  const mk = (columnStats: Record<string, string>) => ({ columnStats } as any);
+  test("thousands tag → coerce-dataloss warning", () => {
+    const h = formatValueFormatHints(mk({ n: "(str): null=0, distinct=3, format=thousands" }));
     expect(h).toBeDefined();
     expect(h!).toContain("thousands-separated");
     expect(h!.toLowerCase()).toContain("coerce");
   });
-  test("currency column flagged", () => {
-    const h = formatValueFormatHints(mk([{ amt: "$1,234.50" }, { amt: "$9,820" }, { amt: "$6,290" }]));
+  test("currency tag flagged", () => {
+    const h = formatValueFormatHints(mk({ amt: "(str): null=0, distinct=3, format=currency" }));
     expect(h).toBeDefined();
     expect(h!).toContain("currency");
   });
-  test("leading-zero codes → keep as string", () => {
-    const h = formatValueFormatHints(mk([{ code: "007" }, { code: "012" }, { code: "003" }]));
+  test("accounting tag → minus-sign guidance", () => {
+    const h = formatValueFormatHints(mk({ pnl: "(str): null=0, distinct=4, format=accounting" }));
     expect(h).toBeDefined();
-    expect(h!.toLowerCase()).toContain("string");
+    expect(h!.toLowerCase()).toContain("minus");
   });
-  test("ordinary text / numeric columns NOT flagged", () => {
-    expect(formatValueFormatHints(mk([{ city: "East" }, { city: "West" }]))).toBeUndefined();
-    expect(formatValueFormatHints(mk([{ x: 1 }, { x: 2 }]))).toBeUndefined();
+  test("multi-word tag (numeric-as-text) parses fully", () => {
+    const h = formatValueFormatHints(mk({ v: "(str): null=0, format=numeric-as-text" }));
+    expect(h).toBeDefined();
+    expect(h!.toLowerCase()).toContain("text");
+  });
+  test("untagged columns NOT flagged", () => {
+    expect(formatValueFormatHints(mk({ city: '(str): null=0, distinct=2, top_5={"East"=1, "West"=1}' }))).toBeUndefined();
+    expect(formatValueFormatHints(mk({ x: "(numeric): null=0, mean=1.5, min=1, max=2" }))).toBeUndefined();
+    expect(formatValueFormatHints(mk({}))).toBeUndefined();
   });
 });
 

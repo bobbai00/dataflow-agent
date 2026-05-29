@@ -31,10 +31,13 @@ export interface FormatOperatorResultOptions {
    *  the result-row headers (names only). A cheaper, complete substitute for
    *  the verbose `Column stats:` block (lever E). Defaults to false. */
   schemaInResult?: boolean;
-  /** When true, append a `Format hints:` line flagging string columns whose
-   *  sample values look like currency `$1,234`, percent, thousands-separated,
-   *  parenthesized-negatives, or leading-zero codes — with the cleaning the
-   *  model should apply BEFORE numeric conversion. Targets silent
+  /** When true, append a `Format hints:` line naming string columns the backend
+   *  detected as numbers wearing formatting punctuation (currency `$1,234`,
+   *  thousands-separated, percent, accounting `(1,234)`) and the cleaning the
+   *  model should apply BEFORE numeric conversion. Detection is done in the
+   *  Python worker over the *whole* column via pandas (see
+   *  data_processor._detect_numeric_format) and shipped as a `format=<tag>`
+   *  field on `columnStats`; this side only renders. Targets silent
    *  to_numeric(errors='coerce') dataloss. Defaults to false. */
   valueFormatFlags?: boolean;
 }
@@ -135,50 +138,42 @@ export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
 }
 
 /**
- * Detect, per string column, a numeric-bearing surface format from the sample
- * rows (currency `$1,234`, percent, thousands-separated, parenthesized
- * negatives, leading-zero codes) and the cleaning the model should apply BEFORE
- * numeric conversion. Conservative: flags a column only when a clear majority
- * (>=60%) of >=2 non-empty sampled string values match a single pattern, so it
- * doesn't fire on ordinary text. Keyed purely on value shape — no task/column
- * literals — so it generalizes. Targets the dominant accuracy killer: silent
- * `to_numeric(errors='coerce')` dataloss on comma/$-bearing numbers.
+ * Map each backend format tag (see data_processor._detect_numeric_format) to
+ * the concrete cleaning the model should apply BEFORE numeric conversion.
  */
-function detectColumnFormats(opInfo: OperatorInfo): Record<string, string> {
-  const result = Array.isArray(opInfo.result) ? (opInfo.result as Record<string, any>[]) : [];
-  if (result.length === 0) return {};
-  const cols = Object.keys(result[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
-  const out: Record<string, string> = {};
-  for (const col of cols) {
-    const strs = result
-      .map(r => r[col])
-      .filter(v => typeof v === "string" && v.trim().length > 0)
-      .slice(0, 20) as string[];
-    if (strs.length < 2) continue;
-    const frac = (re: RegExp) => strs.filter(s => re.test(s.trim())).length / strs.length;
-    if (frac(/^-?\$\s?[\d,]+(\.\d+)?$/) >= 0.6)
-      out[col] = "currency ($, commas) — strip $ and commas, then convert; do NOT to_numeric(coerce) (it nulls them)";
-    else if (frac(/^-?[\d,]+(\.\d+)?\s?%$/) >= 0.6)
-      out[col] = "percent (%) — strip %, then convert; check whether the answer wants a fraction or ×100";
-    else if (frac(/^-?\d{1,3}(,\d{3})+(\.\d+)?$/) >= 0.6)
-      out[col] = "thousands-separated — strip commas before converting; to_numeric(coerce) would silently NULL these rows";
-    else if (frac(/^\(\s*[\d,]+(\.\d+)?\s*\)$/) >= 0.6)
-      out[col] = "parenthesized negatives — convert ( ) to a minus sign before numeric";
-    else if (frac(/^0\d+$/) >= 0.6)
-      out[col] = "leading-zero codes — keep as string, do NOT cast to int";
-  }
-  return out;
+const VALUE_FORMAT_HINTS: Record<string, string> = {
+  currency: "currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them",
+  thousands: "thousands-separated — strip commas before to_numeric; coerce would silently NULL these rows",
+  percent: "percent (%) — strip % before converting; check whether the answer wants a fraction or ×100",
+  accounting: "accounting negatives — convert ( ) to a leading minus before numeric",
+  "numeric-as-text": "numbers stored as text — strip punctuation before to_numeric; coerce drops non-parseable rows",
+};
+
+/** Pull the `format=<tag>` field the backend embeds in a column's stats string. */
+function extractFormatTag(stat: string): string | undefined {
+  const m = /(?:^|[,\s])format=([\w-]+)/.exec(stat);
+  return m ? m[1] : undefined;
 }
 
 /**
- * Render the `Format hints:` line from detectColumnFormats — one clause per
- * flagged column. Returns `undefined` when nothing is flagged (no line emitted).
+ * Render the `Format hints:` line from the per-column `format=<tag>` annotation
+ * the backend embeds in `opInfo.columnStats`. Detection lives in the Python
+ * worker, which holds the *whole* column and uses pandas.to_numeric as the
+ * judge (see data_processor._detect_numeric_format) — far more reliable than a
+ * regex over the truncated preview, and non-duplicative (one detection path).
+ * This function only renders. Returns `undefined` when no column is tagged.
  */
 export function formatValueFormatHints(opInfo: OperatorInfo): string | undefined {
-  const fmt = detectColumnFormats(opInfo);
-  const cols = Object.keys(fmt);
-  if (cols.length === 0) return undefined;
-  return `Format hints: ${cols.map(c => `"${c}" ${fmt[c]}`).join("; ")}`;
+  const stats = opInfo.columnStats ?? {};
+  const clauses: string[] = [];
+  for (const [col, stat] of Object.entries(stats)) {
+    if (typeof stat !== "string") continue;
+    const tag = extractFormatTag(stat);
+    const hint = tag ? VALUE_FORMAT_HINTS[tag] : undefined;
+    if (hint) clauses.push(`"${col}" ${hint}`);
+  }
+  if (clauses.length === 0) return undefined;
+  return `Format hints: ${clauses.join("; ")}`;
 }
 
 /**
@@ -213,7 +208,11 @@ function formatColumnStats(stats: Record<string, string> | undefined): string | 
     header = `Column stats (showing first ${leftCount} and last ${rightCount} of ${total} columns):`;
   }
   const lines = [header];
-  for (const [col, stat] of shown) lines.push(`- "${col}" ${stat}`);
+  // Strip the `format=<tag>` field: it's an annotation for the value-format
+  // hint line (formatValueFormatHints), surfaced there only when the
+  // valueFormatFlags lever is on — not part of the distribution stats.
+  for (const [col, stat] of shown)
+    lines.push(`- "${col}" ${stat.replace(/,?\s*format=[\w-]+/g, "")}`);
   return lines.join("\n");
 }
 
