@@ -188,6 +188,15 @@ export interface AgentSettings {
    * cost. Robust to the new-id evasion.
    */
   maxLoadersPerSource: number;
+  /**
+   * When true, each non-error operator result gets a `Format hints:` line
+   * flagging string columns whose sample values look like currency `$1,234`,
+   * percent, thousands-separated, parenthesized-negatives, or leading-zero
+   * codes — with the cleaning to apply BEFORE numeric conversion. Targets the
+   * silent `to_numeric(errors='coerce')` dataloss accuracy killer. Keyed only
+   * on value shape (no task literals). Disabled by default (no-op).
+   */
+  valueFormatFlags: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -228,6 +237,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   attemptReflection: false,
   loaderHint: false,
   maxLoadersPerSource: 0,
+  valueFormatFlags: false,
 };
 
 /**
@@ -279,6 +289,7 @@ export interface AgentSettingsApi {
   attemptReflection?: boolean;
   loaderHint?: boolean;
   maxLoadersPerSource?: number;
+  valueFormatFlags?: boolean;
 }
 
 export interface AgentInfo {
@@ -324,4 +335,5 @@ export interface UpdateAgentSettingsRequest {
   attemptReflection?: boolean;
   loaderHint?: boolean;
   maxLoadersPerSource?: number;
+  valueFormatFlags?: boolean;
 }

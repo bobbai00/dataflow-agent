@@ -6,6 +6,31 @@
 import { describe, expect, test } from "bun:test";
 import { formatLoaderHint } from "./util/context-utils";
 import { extractLoaderSourcePath } from "./tools/code-op-tools";
+import { formatValueFormatHints } from "./tools/result-formatting";
+
+describe("formatValueFormatHints (value-format flags)", () => {
+  const mk = (rows: any[]) => ({ result: rows } as any);
+  test("thousands-separated numeric column → coerce-dataloss warning", () => {
+    const h = formatValueFormatHints(mk([{ n: "1,234" }, { n: "67,819" }, { n: "28,438" }]));
+    expect(h).toBeDefined();
+    expect(h!).toContain("thousands-separated");
+    expect(h!.toLowerCase()).toContain("coerce");
+  });
+  test("currency column flagged", () => {
+    const h = formatValueFormatHints(mk([{ amt: "$1,234.50" }, { amt: "$9,820" }, { amt: "$6,290" }]));
+    expect(h).toBeDefined();
+    expect(h!).toContain("currency");
+  });
+  test("leading-zero codes → keep as string", () => {
+    const h = formatValueFormatHints(mk([{ code: "007" }, { code: "012" }, { code: "003" }]));
+    expect(h).toBeDefined();
+    expect(h!.toLowerCase()).toContain("string");
+  });
+  test("ordinary text / numeric columns NOT flagged", () => {
+    expect(formatValueFormatHints(mk([{ city: "East" }, { city: "West" }]))).toBeUndefined();
+    expect(formatValueFormatHints(mk([{ x: 1 }, { x: 2 }]))).toBeUndefined();
+  });
+});
 
 describe("formatLoaderHint (plan4)", () => {
   test("UnicodeDecodeError → suggests cp1252/latin-1, not utf-8 retry", () => {

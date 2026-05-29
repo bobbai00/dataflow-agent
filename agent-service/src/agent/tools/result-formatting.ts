@@ -31,6 +31,12 @@ export interface FormatOperatorResultOptions {
    *  the result-row headers (names only). A cheaper, complete substitute for
    *  the verbose `Column stats:` block (lever E). Defaults to false. */
   schemaInResult?: boolean;
+  /** When true, append a `Format hints:` line flagging string columns whose
+   *  sample values look like currency `$1,234`, percent, thousands-separated,
+   *  parenthesized-negatives, or leading-zero codes — with the cleaning the
+   *  model should apply BEFORE numeric conversion. Targets silent
+   *  to_numeric(errors='coerce') dataloss. Defaults to false. */
+  valueFormatFlags?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -90,8 +96,9 @@ export function formatOperatorResult(
 
   const briefSummary = formatExecuteOperatorResult(operatorId);
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
+  const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, schemaLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
 /**
@@ -125,6 +132,53 @@ export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
     return m ? `${col} (${m[1]})` : col;
   });
   return `Schema (${cols.length} cols): ${parts.join(", ")}`;
+}
+
+/**
+ * Detect, per string column, a numeric-bearing surface format from the sample
+ * rows (currency `$1,234`, percent, thousands-separated, parenthesized
+ * negatives, leading-zero codes) and the cleaning the model should apply BEFORE
+ * numeric conversion. Conservative: flags a column only when a clear majority
+ * (>=60%) of >=2 non-empty sampled string values match a single pattern, so it
+ * doesn't fire on ordinary text. Keyed purely on value shape — no task/column
+ * literals — so it generalizes. Targets the dominant accuracy killer: silent
+ * `to_numeric(errors='coerce')` dataloss on comma/$-bearing numbers.
+ */
+function detectColumnFormats(opInfo: OperatorInfo): Record<string, string> {
+  const result = Array.isArray(opInfo.result) ? (opInfo.result as Record<string, any>[]) : [];
+  if (result.length === 0) return {};
+  const cols = Object.keys(result[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
+  const out: Record<string, string> = {};
+  for (const col of cols) {
+    const strs = result
+      .map(r => r[col])
+      .filter(v => typeof v === "string" && v.trim().length > 0)
+      .slice(0, 20) as string[];
+    if (strs.length < 2) continue;
+    const frac = (re: RegExp) => strs.filter(s => re.test(s.trim())).length / strs.length;
+    if (frac(/^-?\$\s?[\d,]+(\.\d+)?$/) >= 0.6)
+      out[col] = "currency ($, commas) — strip $ and commas, then convert; do NOT to_numeric(coerce) (it nulls them)";
+    else if (frac(/^-?[\d,]+(\.\d+)?\s?%$/) >= 0.6)
+      out[col] = "percent (%) — strip %, then convert; check whether the answer wants a fraction or ×100";
+    else if (frac(/^-?\d{1,3}(,\d{3})+(\.\d+)?$/) >= 0.6)
+      out[col] = "thousands-separated — strip commas before converting; to_numeric(coerce) would silently NULL these rows";
+    else if (frac(/^\(\s*[\d,]+(\.\d+)?\s*\)$/) >= 0.6)
+      out[col] = "parenthesized negatives — convert ( ) to a minus sign before numeric";
+    else if (frac(/^0\d+$/) >= 0.6)
+      out[col] = "leading-zero codes — keep as string, do NOT cast to int";
+  }
+  return out;
+}
+
+/**
+ * Render the `Format hints:` line from detectColumnFormats — one clause per
+ * flagged column. Returns `undefined` when nothing is flagged (no line emitted).
+ */
+export function formatValueFormatHints(opInfo: OperatorInfo): string | undefined {
+  const fmt = detectColumnFormats(opInfo);
+  const cols = Object.keys(fmt);
+  if (cols.length === 0) return undefined;
+  return `Format hints: ${cols.map(c => `"${c}" ${fmt[c]}`).join("; ")}`;
 }
 
 /**

@@ -682,6 +682,7 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     schemaInResult?: boolean;
     loaderHint?: boolean;
+    valueFormatFlags?: boolean;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -752,6 +753,11 @@ export class TexeraAgent {
       this.settings.loaderHint = updates.loaderHint;
       // Pure render-time toggle — appends a `Loader hint:` remediation line to
       // a failed load-stage operator's Result. Read at next assembleContext.
+    }
+    if (updates.valueFormatFlags !== undefined) {
+      this.settings.valueFormatFlags = updates.valueFormatFlags;
+      // Pure render-time toggle — appends a `Format hints:` line flagging
+      // currency/percent/thousands columns. Read at next assembleContext.
     }
     if (updates.maxLoadersPerSource !== undefined) {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;

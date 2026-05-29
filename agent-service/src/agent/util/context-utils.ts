@@ -63,6 +63,11 @@ export interface AssembleContextOptions {
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
    *  the exception class parsed from the error string. Off by default. */
   loaderHint?: boolean;
+  /** When true, append a `Format hints:` line flagging string columns whose
+   *  sample values look like currency/percent/thousands-separated/etc., with the
+   *  cleaning to apply before numeric conversion. Targets silent coercion
+   *  dataloss. Off by default. */
+  valueFormatFlags?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -866,6 +871,7 @@ function serializeOperatorFull(
     ? formatOperatorResult(op.operatorID, info, workflowState, {
         statsEnabled: options.statsEnabled,
         schemaInResult: options.schemaInResult,
+        valueFormatFlags: options.valueFormatFlags,
       })
     : undefined;
 
