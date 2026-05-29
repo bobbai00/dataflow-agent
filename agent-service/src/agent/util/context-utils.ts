@@ -95,6 +95,18 @@ export interface AssembleContextOptions {
   /** W4: render a compact per-column stats block (numeric null/min/max;
    *  categorical distinct/top-5) — high-signal subset of columnStats. Off by default. */
   compactStats?: boolean;
+  /** W3: in LATEST mode (which otherwise shows only a snapshot, no events),
+   *  render a compact `# Recent steps` construction timeline — the last K
+   *  create/modify/delete actions with their ok/ERROR status — so the model
+   *  knows the trajectory it took. Off by default. */
+  lineageTimeline?: boolean;
+  /** Internal (computed in assembleContext, not a setting): the rendered recent
+   *  construction timeline, fed to the LATEST renderer. */
+  recentTimeline?: string;
+  /** W2: few-shot best-practices prompt toggle. Not used by the assembler (it
+   *  affects the SYSTEM prompt, applied in TexeraAgent.rebuildSystemPrompt) —
+   *  declared here only so the settings pass-through type-checks. */
+  fewShotPrompt?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -187,6 +199,9 @@ export function assembleContext(
   // from visibleSteps here. Stash on options so the per-operator serializer
   // (which doesn't see the path) can read it.
   options.editCountsByOp = buildEditCountsByOp(path);
+  // W3: compact construction timeline for LATEST mode (rendered only when the
+  // lineageTimeline flag is on). Cheap to compute; gated at render time.
+  options.recentTimeline = buildTimeline(path);
 
   let content: string;
   switch (mode) {
@@ -408,6 +423,46 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
 }
 
 /**
+ * W3 — compact construction timeline. LATEST mode renders only the current
+ * snapshot (no events), so the model can't see the trajectory it took. This
+ * walks the path's operator edits in order and renders the last K as
+ * `created/modified/deleted \`op\` → ok|ERROR: …`, so the model sees what it
+ * already tried (cheaply — one short line per event, not full FULL-mode
+ * snapshots). Returns undefined when there are no edits yet.
+ */
+function buildTimeline(fullPath: PathNode[], maxEvents = 14): string | undefined {
+  const events: string[] = [];
+  const known = new Set<string>();
+  for (const node of fullPath) {
+    if (node.step.role !== "agent" || !node.step.toolCalls) continue;
+    const trs = node.step.toolResults ?? [];
+    node.step.toolCalls.forEach((tc, i) => {
+      const inp = (tc.input ?? {}) as Record<string, unknown>;
+      const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
+      if (!opId) return;
+      let verb: string;
+      if (tc.toolName === "createOrModifyOperator") {
+        verb = known.has(opId) ? "modified" : "created";
+        known.add(opId);
+      } else if (tc.toolName === "deleteOperator") {
+        verb = "deleted";
+        known.delete(opId);
+      } else return;
+      const out = trs[i]?.output;
+      const txt = typeof out === "string" ? out : out ? JSON.stringify(out) : "";
+      const errM = /\[ERROR\][^\n]*/.exec(txt);
+      const status = errM ? `ERROR ${errM[0].replace("[ERROR]", "").trim().slice(0, 80)}` : "ok";
+      events.push(`${verb} \`${escapeQuotes(opId)}\` → ${status}`);
+    });
+  }
+  if (events.length === 0) return undefined;
+  const shown = events.slice(-maxEvents);
+  const omitted = events.length - shown.length;
+  const lines = shown.map((e, i) => `${omitted + i + 1}. ${e}`);
+  return (omitted > 0 ? `(… ${omitted} earlier steps …)\n` : "") + lines.join("\n");
+}
+
+/**
  * Render a single tool-call line as a natural-language statement. Three
  * special tool names get the short verb-noun form; everything else falls
  * back to `<toolName> on operator "X"` (or just `<toolName>` when no
@@ -549,6 +604,15 @@ function renderLatest(
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
+    sections.push("");
+  }
+
+  // 1b. W3: # Recent steps — the construction timeline (LATEST otherwise shows
+  //     no events). Gated by the lineageTimeline flag.
+  if (options.lineageTimeline && options.recentTimeline) {
+    sections.push("# Recent steps (your construction trajectory so far)");
+    sections.push("");
+    sections.push(options.recentTimeline);
     sections.push("");
   }
 

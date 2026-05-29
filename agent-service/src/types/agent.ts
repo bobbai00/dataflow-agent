@@ -225,6 +225,8 @@ export interface AgentSettings {
    */
   coercionTelemetry: boolean;
   compactStats: boolean;
+  lineageTimeline: boolean;
+  fewShotPrompt: boolean;
   maxResultRows: number;
 }
 
@@ -272,6 +274,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   graphAudit: false,
   coercionTelemetry: false,
   compactStats: false,
+  lineageTimeline: false,
+  fewShotPrompt: false,
   maxResultRows: 0,
 };
 
@@ -330,6 +334,8 @@ export interface AgentSettingsApi {
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
   compactStats?: boolean;
+  lineageTimeline?: boolean;
+  fewShotPrompt?: boolean;
   maxResultRows?: number;
 }
 
@@ -382,5 +388,7 @@ export interface UpdateAgentSettingsRequest {
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
   compactStats?: boolean;
+  lineageTimeline?: boolean;
+  fewShotPrompt?: boolean;
   maxResultRows?: number;
 }

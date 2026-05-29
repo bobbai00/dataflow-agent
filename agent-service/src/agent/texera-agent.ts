@@ -34,6 +34,42 @@ import {
   OperatorResultSerializationMode,
 } from "../types/agent";
 import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
+
+/**
+ * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
+ * `fewShotPrompt` setting is on. Examples (not just instructions, which got poor
+ * .copy() adherence) of the good per-step discipline: inspect-then-decide, lean
+ * comment-free code, messy-file handling, commit the answer at a terminal op.
+ */
+const FEW_SHOT_BEST_PRACTICES = `
+
+# Worked examples — how to work at each step
+
+These show the WORKING STYLE to follow (not task answers).
+
+Example A — inspect before you transform. After a load/edit, READ the result's
+Schema + sample rows BEFORE writing the next operator. If columns are generic
+(\`Unnamed: 1\`, \`0\`) or a header/footer value sits in a data row, the file
+was parsed wrong — re-load with the right \`sep=\`/\`header=\`/\`skiprows=\`,
+don't build on the broken frame.
+
+Example B — lean, ephemeral code (each operator runs in isolation; code is
+discarded). Write the minimum:
+\`\`\`
+def process(sales):
+    df = sales[sales["status"] == "active"]
+    df["amount"] = pd.to_numeric(df["amount"].str.replace(r"[$,]", "", regex=True), errors="coerce")
+    return df.groupby("region", as_index=False)["amount"].sum()
+\`\`\`
+No comments/docstrings, no \`.copy()\`, no \`import pandas as pd\` (it's already \`pd\`).
+
+Example C — clean before you aggregate. Formatted numbers ("1,234", "$5") and
+sentinel/footer rows must be stripped/dropped BEFORE a sum/mean/count, or
+\`to_numeric(errors="coerce")\` silently NULLs them and the total is wrong.
+
+Example D — commit the answer. The final operator must OUTPUT the answer in the
+exact type/shape the question asks (a scalar, or a clean list) — don't leave it
+implicit in an intermediate frame.`;
 import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
 import {
   createAddOperatorTool,
@@ -388,6 +424,11 @@ export class TexeraAgent {
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt();
     }
+    // W2: append worked per-step best-practice examples (few-shot). Examples,
+    // not just the instruction (which got poor .copy() adherence). Off by default.
+    if (this.settings.fewShotPrompt && this.settings.agentMode !== AgentMode.GENERAL && !this.systemPromptBuilder) {
+      this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
+    }
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -688,6 +729,8 @@ export class TexeraAgent {
     graphAudit?: boolean;
     coercionTelemetry?: boolean;
     compactStats?: boolean;
+    lineageTimeline?: boolean;
+    fewShotPrompt?: boolean;
     maxResultRows?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
@@ -792,6 +835,14 @@ export class TexeraAgent {
     if (updates.compactStats !== undefined) {
       this.settings.compactStats = updates.compactStats;
       // Pure render-time toggle — compact per-column stats block (W4).
+    }
+    if (updates.lineageTimeline !== undefined) {
+      this.settings.lineageTimeline = updates.lineageTimeline;
+      // Pure render-time toggle — LATEST-mode construction timeline (W3).
+    }
+    if (updates.fewShotPrompt !== undefined) {
+      this.settings.fewShotPrompt = updates.fewShotPrompt;
+      promptNeedsRebuild = true; // W2: changes the SYSTEM prompt
     }
     if (updates.maxLoadersPerSource !== undefined) {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;
