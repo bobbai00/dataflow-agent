@@ -47,7 +47,17 @@ export interface FormatOperatorResultOptions {
    *  Targets the dominant silent-cardinality wrong-answer and the cost spiral
    *  tail. Defaults to false. */
   lineageStats?: boolean;
+  /** When true, surface a `Join check ⚠` line for any degenerate merge the
+   *  worker's transparent join instrumentation flagged (near-zero key match —
+   *  with an unmatched-key SAMPLE — or a many-to-many fan-out). Read from the
+   *  reserved `__join_telemetry__` entry the worker publishes on `columnStats`
+   *  (see join_telemetry.py). Alarm-only. Defaults to false. */
+  joinTelemetry?: boolean;
 }
+
+/** Reserved columnStats key the worker uses to ship join diagnostics (lever 2).
+ *  Not a real column — filtered from schema/stats rendering. */
+const JOIN_TELEMETRY_KEY = "__join_telemetry__";
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
  *  re-echoed every turn. Cap both the TSV preview and the stats block at
@@ -108,8 +118,9 @@ export function formatOperatorResult(
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
+  const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, schemaLine, formatHints, lineageLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
 /**
@@ -125,7 +136,7 @@ export function formatOperatorResult(
  */
 export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
   const stats = opInfo.columnStats ?? {};
-  const statCols = Object.keys(stats);
+  const statCols = Object.keys(stats).filter(k => k !== JOIN_TELEMETRY_KEY);
   let cols: string[];
   if (statCols.length > 0) {
     cols = statCols;
@@ -226,6 +237,20 @@ export function formatLineage(opInfo: OperatorInfo): string | undefined {
 }
 
 /**
+ * Render the join-telemetry line(s) from the reserved `__join_telemetry__`
+ * entry the worker publishes on `columnStats` (lever 2). Detection lives in the
+ * Python worker (it has the input frames + the join keys, via transparent
+ * pandas.merge instrumentation — see join_telemetry.py); this only renders.
+ * The worker joins multiple diagnostics with " || "; we render one per line.
+ * Returns `undefined` when no degenerate join was flagged.
+ */
+export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {
+  const v = opInfo.columnStats?.[JOIN_TELEMETRY_KEY];
+  if (typeof v !== "string" || v.length === 0) return undefined;
+  return v.split(" || ").map(s => s.trim()).filter(Boolean).join("\n");
+}
+
+/**
  * Render a `Column stats:` block from `OperatorInfo.columnStats`.
  *
  * The backend ships per-column annotations as pre-formatted display strings
@@ -240,7 +265,9 @@ export function formatLineage(opInfo: OperatorInfo): string | undefined {
  */
 function formatColumnStats(stats: Record<string, string> | undefined): string | undefined {
   if (!stats) return undefined;
-  const entries = Object.entries(stats).filter(([, v]) => typeof v === "string" && v.length > 0);
+  const entries = Object.entries(stats).filter(
+    ([k, v]) => k !== JOIN_TELEMETRY_KEY && typeof v === "string" && v.length > 0
+  );
   if (entries.length === 0) return undefined;
   entries.sort(([a], [b]) => a.localeCompare(b));
   // Wide tables: keep first half + last half by column name, drop the middle.

@@ -330,9 +330,15 @@ class DataProcessor(Runnable, Stoppable):
         then enters EXCEPTION_PAUSE, so anything queued after the switch
         would arrive at the controller only after the worker resumes.
         """
+        joined = False
         try:
             executor = self._context.executor_manager.executor
             port_id = self._context.tuple_processing_manager.get_input_port_id()
+            # Lever 2: transparently instrument pandas merge for multi-table
+            # operators only (the join-capable ones), to keep the monkeypatch
+            # blast radius tight. The wrapper is fully guarded; it can never
+            # break the user's merge.
+            joined = self._maybe_install_join_telemetry(executor)
             with replace_print(
                 self._context.worker_id,
                 self._context.console_message_manager.print_buf,
@@ -344,7 +350,29 @@ class DataProcessor(Runnable, Stoppable):
             self._context.exception_manager.set_exception_info(exc_info)
             self._report_exception(exc_info)
         finally:
+            if joined:
+                try:
+                    from core.util import join_telemetry
+                    join_telemetry.uninstall()
+                except Exception:
+                    pass
             self._switch_context()
+
+    @staticmethod
+    def _maybe_install_join_telemetry(executor) -> bool:
+        """Install the transparent merge instrumentation (lever 2) ONLY for
+        multi-table operators — the only ones that join two input frames. Keeps
+        the global pandas.merge monkeypatch off every loader / single-table op.
+        Returns True iff installed (so `_executor_session` uninstalls)."""
+        try:
+            from pytexera.udf.udf_multi_table_operator import UDFMultiTableOperator
+            from core.util import join_telemetry
+        except Exception:
+            return False
+        if not isinstance(executor, UDFMultiTableOperator):
+            return False
+        join_telemetry.install()
+        return True
 
     def _set_output_tuple(self, output_iterator: Iterator[Optional[TupleLike]]) -> None:
         """
@@ -608,6 +636,17 @@ class DataProcessor(Runnable, Stoppable):
         for i, col_name in enumerate(deduped_columns):
             col = df.iloc[:, i]
             stats[col_name] = self._compute_column_stats(col)
+        # Lever 2: attach any degenerate-join diagnostics captured by the merge
+        # instrumentation during this operator's execution, under a reserved
+        # key (the agent-service strips it from the schema/stats render and
+        # surfaces it via the gated `joinTelemetry` line).
+        try:
+            from core.util import join_telemetry
+            diags = join_telemetry.drain()
+            if diags:
+                stats["__join_telemetry__"] = " || ".join(diags)
+        except Exception:
+            pass
         self._context.statistics_manager.set_result_statistics(stats)
 
     @staticmethod

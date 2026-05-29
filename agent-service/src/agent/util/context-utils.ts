@@ -73,6 +73,11 @@ export interface AssembleContextOptions {
    *  explosion. Derived from carried row counts; targets silent-cardinality
    *  wrong-answers and the cost spiral tail. Off by default. */
   lineageStats?: boolean;
+  /** When true, surface a `Join check ⚠` line for any degenerate merge the
+   *  worker flagged (near-zero key match with an unmatched-key sample, or a
+   *  many-to-many fan-out). Read from the reserved `__join_telemetry__` entry on
+   *  columnStats. Alarm-only. Off by default. */
+  joinTelemetry?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -878,6 +883,7 @@ function serializeOperatorFull(
         schemaInResult: options.schemaInResult,
         valueFormatFlags: options.valueFormatFlags,
         lineageStats: options.lineageStats,
+        joinTelemetry: options.joinTelemetry,
       })
     : undefined;
 

@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { formatLoaderHint } from "./util/context-utils";
 import { extractLoaderSourcePath } from "./tools/code-op-tools";
-import { formatValueFormatHints, formatLineage } from "./tools/result-formatting";
+import { formatValueFormatHints, formatLineage, formatJoinTelemetry } from "./tools/result-formatting";
 
 describe("formatValueFormatHints (value-format flags)", () => {
   // The backend (data_processor._detect_numeric_format) does detection over the
@@ -68,6 +68,23 @@ describe("formatLineage (lever 1: cardinality ALARM, alarm-only emission)", () =
   });
   test("no output count → undefined", () => {
     expect(formatLineage({ inputPortShapes: [{ portIndex: 0, rows: 5, columns: 2 }] } as any)).toBeUndefined();
+  });
+});
+
+describe("formatJoinTelemetry (lever 2: degenerate-join surfacing)", () => {
+  const mk = (cs: Record<string, string>) => ({ columnStats: cs } as any);
+  test("renders the worker's join diagnostic from the reserved key", () => {
+    const h = formatJoinTelemetry(mk({ state: "(str): null=0", __join_telemetry__: "Join check ⚠ on state: 5×3 → 0% matched; left-only ['CA']; right-only ['California']" }));
+    expect(h!).toContain("Join check ⚠");
+    expect(h!).toContain("left-only");
+  });
+  test("multiple diagnostics ' || '-joined render one per line", () => {
+    const h = formatJoinTelemetry(mk({ __join_telemetry__: "Join check ⚠ A || Join check ⚠ B" }));
+    expect(h!.split("\n").length).toBe(2);
+  });
+  test("no reserved key → undefined", () => {
+    expect(formatJoinTelemetry(mk({ state: "(str): null=0" }))).toBeUndefined();
+    expect(formatJoinTelemetry({} as any)).toBeUndefined();
   });
 });
 

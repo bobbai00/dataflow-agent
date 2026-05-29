@@ -206,6 +206,12 @@ export interface AgentSettings {
    * tail. Disabled by default (no-op).
    */
   lineageStats: boolean;
+  /**
+   * When true, a degenerate merge (near-zero key match, with an unmatched-key
+   * sample, or a many-to-many fan-out) flagged by the worker's transparent join
+   * instrumentation surfaces as a `Join check ⚠` line. Alarm-only; off by default.
+   */
+  joinTelemetry: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -248,6 +254,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxLoadersPerSource: 0,
   valueFormatFlags: false,
   lineageStats: false,
+  joinTelemetry: false,
 };
 
 /**
@@ -301,6 +308,7 @@ export interface AgentSettingsApi {
   maxLoadersPerSource?: number;
   valueFormatFlags?: boolean;
   lineageStats?: boolean;
+  joinTelemetry?: boolean;
 }
 
 export interface AgentInfo {
@@ -348,4 +356,5 @@ export interface UpdateAgentSettingsRequest {
   maxLoadersPerSource?: number;
   valueFormatFlags?: boolean;
   lineageStats?: boolean;
+  joinTelemetry?: boolean;
 }

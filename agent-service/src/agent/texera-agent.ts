@@ -684,6 +684,7 @@ export class TexeraAgent {
     loaderHint?: boolean;
     valueFormatFlags?: boolean;
     lineageStats?: boolean;
+    joinTelemetry?: boolean;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -763,6 +764,11 @@ export class TexeraAgent {
     if (updates.lineageStats !== undefined) {
       this.settings.lineageStats = updates.lineageStats;
       // Pure render-time toggle — appends a `Lineage:` row-count line + alarms.
+      // Read at next assembleContext.
+    }
+    if (updates.joinTelemetry !== undefined) {
+      this.settings.joinTelemetry = updates.joinTelemetry;
+      // Pure render-time toggle — surfaces worker-flagged degenerate joins.
       // Read at next assembleContext.
     }
     if (updates.maxLoadersPerSource !== undefined) {
