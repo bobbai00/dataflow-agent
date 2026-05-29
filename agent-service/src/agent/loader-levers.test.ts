@@ -40,12 +40,11 @@ describe("formatValueFormatHints (value-format flags)", () => {
   });
 });
 
-describe("formatLineage (lever 1: cardinality lineage + alarms)", () => {
+describe("formatLineage (lever 1: cardinality ALARM, alarm-only emission)", () => {
   const mk = (out: number, inRows: number[]) =>
     ({ totalRowCount: out, inputPortShapes: inRows.map((rows, portIndex) => ({ portIndex, rows, columns: 3 })) } as any);
-  test("normal shrink → kept% line, no alarm", () => {
-    const h = formatLineage(mk(200, [1000]));
-    expect(h).toBe("Lineage: 1000 in → 200 out (20% of largest input)");
+  test("normal shrink → NO line (alarm-only)", () => {
+    expect(formatLineage(mk(200, [1000]))).toBeUndefined();
   });
   test("empty output → EMPTY alarm", () => {
     const h = formatLineage(mk(0, [1000]));
@@ -55,20 +54,17 @@ describe("formatLineage (lever 1: cardinality lineage + alarms)", () => {
   test("fan-out explosion → EXPLODED alarm", () => {
     const h = formatLineage(mk(5000, [100]));
     expect(h!).toContain("EXPLODED");
+    expect(h!).toContain("⚠");
   });
-  test("2x concat does NOT trip the fan-out alarm", () => {
-    const h = formatLineage(mk(2000, [1000, 1000]));
-    expect(h!).not.toContain("EXPLODED");
-    expect(h!).toContain("[1000, 1000] in");
+  test("2x concat does NOT alarm", () => {
+    expect(formatLineage(mk(2000, [1000, 1000]))).toBeUndefined();
   });
-  test("source (no inputs) → loaded rows; empty load alarms", () => {
-    expect(formatLineage(mk(500, []))).toBe("Lineage: loaded 500 rows");
-    expect(formatLineage(mk(0, []))!).toContain("EMPTY");
+  test("source: empty load alarms, non-empty load is silent", () => {
+    expect(formatLineage(mk(500, []))).toBeUndefined();
+    expect(formatLineage(mk(0, []))!).toContain("⚠");
   });
   test("aggregation to 1 row does NOT alarm (legit shrink)", () => {
-    const h = formatLineage(mk(1, [50000]));
-    expect(h!).not.toContain("⚠");
-    expect(h!).toContain("→ 1 out");
+    expect(formatLineage(mk(1, [50000]))).toBeUndefined();
   });
   test("no output count → undefined", () => {
     expect(formatLineage({ inputPortShapes: [{ portIndex: 0, rows: 5, columns: 2 }] } as any)).toBeUndefined();

@@ -185,18 +185,22 @@ export function formatValueFormatHints(opInfo: OperatorInfo): string | undefined
 }
 
 /**
- * Per-operator cardinality lineage (lever 1). Renders input→output row counts
- * (kept % of the largest input) and a CONSERVATIVE alarm on the two degenerate
- * transitions that are unambiguous bugs in any tabular pipeline:
+ * Per-operator cardinality lineage ALARM (lever 1, alarm-only). Returns a line
+ * ONLY when an operator's row-count transition is one of the two degenerate
+ * cases that are unambiguous bugs in any tabular pipeline:
  *   - empty output (0 rows) when there was input — over-restrictive filter or a
  *     zero-match join (the dominant silent wrong-answer / NaN failure);
- *   - fan-out explosion (output ≫ largest input) — a join on a non-unique key.
+ *   - fan-out explosion (output ≫ largest input) — a join on a non-unique key;
+ *   - (source) an empty load — 0 rows read.
  *
- * Deliberately does NOT alarm on shrinkage: filters, aggregations, dedup and
- * argmax legitimately drop most rows, so alarming there would be pure noise
- * (the alarm-fatigue risk). Derived only from row counts already in
- * `OperatorInfo` — topology-level, keyed on no column/task literal, so it
- * generalizes. Returns `undefined` when no output row count is known.
+ * Returns `undefined` for every other operator — NO routine per-operator line.
+ * Rationale (measured): emitting "X in → Y out (kept %)" on every operator
+ * every turn floods LATEST-mode context (median 13, max 756 lines/trace) with
+ * no accuracy payoff and a real cost penalty; the SIGNAL is the alarm, not the
+ * routine count. Deliberately does NOT alarm on shrinkage: filters /
+ * aggregations / dedup / argmax legitimately drop most rows (the alarm-fatigue
+ * risk). Derived only from row counts already in `OperatorInfo` — topology-
+ * level, keyed on no column/task literal, so it generalizes.
  */
 export function formatLineage(opInfo: OperatorInfo): string | undefined {
   const out = opInfo.totalRowCount ?? opInfo.outputTuples;
@@ -204,22 +208,21 @@ export function formatLineage(opInfo: OperatorInfo): string | undefined {
   const inRows = (opInfo.inputPortShapes ?? [])
     .map(s => s.rows)
     .filter((r): r is number => typeof r === "number" && r >= 0);
-  // Source/loader (no inputs): report loaded rows; alarm only on empty load.
   if (inRows.length === 0) {
+    // Source/loader: alarm only on an empty load; otherwise silent.
     return out === 0
-      ? "Lineage: loaded 0 rows  ⚠ EMPTY — check the file path/glob and parse options (wrong delimiter, header, or all rows skipped)"
-      : `Lineage: loaded ${out} rows`;
+      ? "Lineage ⚠: loaded 0 rows — check the file path/glob and parse options (wrong delimiter, header, or all rows skipped)"
+      : undefined;
   }
   const maxIn = Math.max(...inRows);
-  const kept = maxIn > 0 ? Math.round((100 * out) / maxIn) : 0;
   const inDesc = inRows.length === 1 ? `${maxIn} in` : `[${inRows.join(", ")}] in`;
-  let alarm = "";
   if (out === 0 && maxIn > 0) {
-    alarm = "  ⚠ EMPTY output (0 rows) — over-restrictive filter or a zero-match join; verify the filter condition and join keys/dtypes";
-  } else if (maxIn > 0 && out > 3 * maxIn) {
-    alarm = `  ⚠ row count EXPLODED (${out} ≫ ${maxIn} in) — likely a join on a non-unique key (fan-out); verify join keys are correct and unique`;
+    return `Lineage ⚠: ${inDesc} → 0 out — EMPTY output from an over-restrictive filter or a zero-match join; verify the filter condition and join keys/dtypes`;
   }
-  return `Lineage: ${inDesc} → ${out} out (${kept}% of largest input)${alarm}`;
+  if (maxIn > 0 && out > 3 * maxIn) {
+    return `Lineage ⚠: ${inDesc} → ${out} out — row count EXPLODED (fan-out); likely a join on a non-unique key; verify join keys are correct and unique`;
+  }
+  return undefined; // normal transition: no line (the count is already in the shape metadata)
 }
 
 /**
