@@ -687,6 +687,7 @@ export class TexeraAgent {
     joinTelemetry?: boolean;
     graphAudit?: boolean;
     coercionTelemetry?: boolean;
+    maxResultRows?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -782,6 +783,10 @@ export class TexeraAgent {
       this.settings.coercionTelemetry = updates.coercionTelemetry;
       // Pure render-time toggle — surfaces coerce-to-NaN dataloss.
       // Read at next assembleContext.
+    }
+    if (updates.maxResultRows !== undefined) {
+      this.settings.maxResultRows = updates.maxResultRows;
+      // Pure render-time setting — caps the per-operator TSV sample rows (W1).
     }
     if (updates.maxLoadersPerSource !== undefined) {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;

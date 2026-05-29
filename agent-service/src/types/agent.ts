@@ -224,6 +224,7 @@ export interface AgentSettings {
    * sample of the dropped values). Off by default.
    */
   coercionTelemetry: boolean;
+  maxResultRows: number;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -269,6 +270,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   joinTelemetry: false,
   graphAudit: false,
   coercionTelemetry: false,
+  maxResultRows: 0,
 };
 
 /**
@@ -325,6 +327,7 @@ export interface AgentSettingsApi {
   joinTelemetry?: boolean;
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
+  maxResultRows?: number;
 }
 
 export interface AgentInfo {
@@ -375,4 +378,5 @@ export interface UpdateAgentSettingsRequest {
   joinTelemetry?: boolean;
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
+  maxResultRows?: number;
 }

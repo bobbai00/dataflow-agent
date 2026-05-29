@@ -78,6 +78,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       joinTelemetry: settings.joinTelemetry,
       graphAudit: settings.graphAudit,
       coercionTelemetry: settings.coercionTelemetry,
+      maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
     });
 }
@@ -158,6 +159,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     joinTelemetry: agentSettings.joinTelemetry,
     graphAudit: agentSettings.graphAudit,
     coercionTelemetry: agentSettings.coercionTelemetry,
+    maxResultRows: agentSettings.maxResultRows,
     attemptReflection: agentSettings.attemptReflection,
   };
 
@@ -278,6 +280,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           joinTelemetry: settings.joinTelemetry,
           graphAudit: settings.graphAudit,
           coercionTelemetry: settings.coercionTelemetry,
+          maxResultRows: settings.maxResultRows,
           attemptReflection: settings.attemptReflection,
         });
       }
@@ -318,6 +321,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             joinTelemetry: t.Optional(t.Boolean()),
             graphAudit: t.Optional(t.Boolean()),
             coercionTelemetry: t.Optional(t.Boolean()),
+            maxResultRows: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
           })
         ),
@@ -598,6 +602,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         joinTelemetry: settings.joinTelemetry,
         graphAudit: settings.graphAudit,
         coercionTelemetry: settings.coercionTelemetry,
+        maxResultRows: settings.maxResultRows,
         attemptReflection: settings.attemptReflection,
       });
 
@@ -630,6 +635,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         joinTelemetry: agentSettings.joinTelemetry,
         graphAudit: agentSettings.graphAudit,
         coercionTelemetry: agentSettings.coercionTelemetry,
+        maxResultRows: agentSettings.maxResultRows,
         attemptReflection: agentSettings.attemptReflection,
       };
     },
@@ -657,6 +663,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         joinTelemetry: t.Optional(t.Boolean()),
         graphAudit: t.Optional(t.Boolean()),
         coercionTelemetry: t.Optional(t.Boolean()),
+        maxResultRows: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
       }),
     }

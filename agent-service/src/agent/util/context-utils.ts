@@ -89,6 +89,9 @@ export interface AssembleContextOptions {
    *  with a sample of the dropped values. Read from `__coercion_telemetry__` on
    *  columnStats. Alarm-only. Off by default. */
   coercionTelemetry?: boolean;
+  /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
+   *  0/undefined = no cap. */
+  maxResultRows?: number;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -896,6 +899,7 @@ function serializeOperatorFull(
         lineageStats: options.lineageStats,
         joinTelemetry: options.joinTelemetry,
         coercionTelemetry: options.coercionTelemetry,
+        maxResultRows: options.maxResultRows,
       })
     : undefined;
 

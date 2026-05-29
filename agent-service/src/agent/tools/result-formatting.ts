@@ -59,6 +59,9 @@ export interface FormatOperatorResultOptions {
    *  SAMPLE of the dropped values. Read from the reserved `__coercion_telemetry__`
    *  entry on columnStats (see coercion_telemetry.py). Alarm-only. Defaults to false. */
   coercionTelemetry?: boolean;
+  /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
+   *  row count, vs the char-budget proxy). 0/undefined = no cap. */
+  maxResultRows?: number;
 }
 
 /** Reserved columnStats keys the worker uses to ship operator-level diagnostics
@@ -114,7 +117,21 @@ export function formatOperatorResult(
       })
     : jsonArray;
 
-  const dataString = jsonToTableFormat(serializableArray);
+  // W1 (row-based sampling): a TRUE row cap — keep first ceil(N/2) + last
+  // floor(N/2) rows (the original row objects keep `__row_index__`, so
+  // jsonToTableFormat renders the `...` gap). Cleaner than the char-budget
+  // proxy. 0/undefined = no cap (current behavior). Cell-level trim is
+  // unaffected (it happens downstream in the TSV renderer / backend).
+  let sampleRows = serializableArray;
+  const cap = options.maxResultRows ?? 0;
+  if (cap > 0 && sampleRows.length > cap) {
+    const head = Math.ceil(cap / 2);
+    const tail = Math.floor(cap / 2);
+    sampleRows = tail > 0
+      ? [...sampleRows.slice(0, head), ...sampleRows.slice(sampleRows.length - tail)]
+      : sampleRows.slice(0, head);
+  }
+  const dataString = jsonToTableFormat(sampleRows);
 
   const metadataLines = [
     formatInputOutputMetadata(workflowState, operatorId, opInfo, columns),
