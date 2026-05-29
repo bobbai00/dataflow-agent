@@ -78,6 +78,12 @@ export interface AssembleContextOptions {
    *  many-to-many fan-out). Read from the reserved `__join_telemetry__` entry on
    *  columnStats. Alarm-only. Off by default. */
   joinTelemetry?: boolean;
+  /** When true, a `DataLoading` operator whose output reaches NO downstream
+   *  operator (a dead/forgotten load — pure typed-DAG reachability) gets a
+   *  `Graph check ⚠` line telling the agent to wire it in or drop it. Current
+   *  snapshot only. Uniquely enabled by the dataflow graph (a free-form script
+   *  has no graph to audit). Off by default. */
+  graphAudit?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -965,6 +971,24 @@ function serializeOperatorFull(
       const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
       lines.push(
         `Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`
+      );
+    }
+  }
+
+  // Lever 3: graph-reachability audit. A DataLoading op whose output reaches no
+  // downstream operator (its only reachable sink is itself) is a dead/forgotten
+  // load — pure typed-DAG topology, uniquely auditable because dataflow HAS a
+  // graph. Current snapshot only (workflowState is the live graph then). Off by
+  // default. Conservative: only when the DAG has other operators (so it's not
+  // the trivial single-load start state).
+  if (options.graphAudit && isCurrent && op.operatorType === "DataLoading") {
+    const totalOps = snapshot.workflow.operators.length;
+    const sinks = workflowState.getDownstreamSinks(op.operatorID);
+    const feedsNothing = sinks.length === 0 || (sinks.length === 1 && sinks[0] === op.operatorID);
+    if (totalOps > 1 && feedsNothing) {
+      lines.push(
+        "Graph check ⚠: this loaded data is not consumed by any downstream operator — " +
+          "wire it into the pipeline that produces the answer, or it contributes nothing to the result."
       );
     }
   }

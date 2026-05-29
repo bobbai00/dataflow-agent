@@ -685,6 +685,7 @@ export class TexeraAgent {
     valueFormatFlags?: boolean;
     lineageStats?: boolean;
     joinTelemetry?: boolean;
+    graphAudit?: boolean;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -769,6 +770,11 @@ export class TexeraAgent {
     if (updates.joinTelemetry !== undefined) {
       this.settings.joinTelemetry = updates.joinTelemetry;
       // Pure render-time toggle — surfaces worker-flagged degenerate joins.
+      // Read at next assembleContext.
+    }
+    if (updates.graphAudit !== undefined) {
+      this.settings.graphAudit = updates.graphAudit;
+      // Pure render-time toggle — flags dead/disconnected load operators.
       // Read at next assembleContext.
     }
     if (updates.maxLoadersPerSource !== undefined) {

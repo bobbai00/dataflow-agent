@@ -212,6 +212,12 @@ export interface AgentSettings {
    * instrumentation surfaces as a `Join check ⚠` line. Alarm-only; off by default.
    */
   joinTelemetry: boolean;
+  /**
+   * When true, a DataLoading operator whose output reaches no downstream
+   * operator (a dead/forgotten load — typed-DAG reachability) gets a
+   * `Graph check ⚠` line. Off by default.
+   */
+  graphAudit: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -255,6 +261,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   valueFormatFlags: false,
   lineageStats: false,
   joinTelemetry: false,
+  graphAudit: false,
 };
 
 /**
@@ -309,6 +316,7 @@ export interface AgentSettingsApi {
   valueFormatFlags?: boolean;
   lineageStats?: boolean;
   joinTelemetry?: boolean;
+  graphAudit?: boolean;
 }
 
 export interface AgentInfo {
@@ -357,4 +365,5 @@ export interface UpdateAgentSettingsRequest {
   valueFormatFlags?: boolean;
   lineageStats?: boolean;
   joinTelemetry?: boolean;
+  graphAudit?: boolean;
 }
