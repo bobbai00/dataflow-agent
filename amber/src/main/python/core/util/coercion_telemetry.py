@@ -67,6 +67,12 @@ def _summarize(arg, result, kind: str) -> None:
             return
         newly_null = before_mask & result.isna()
         nulled = int(newly_null.sum())
+        # Partial coercion only: SOME values parsed, some were silently dropped —
+        # the silent-dataloss signature. All-nulled (nulled == before) means the
+        # whole column is non-numeric (a wrong-column conversion), a different
+        # issue we don't flag here (avoids the alarm-fatigue noise).
+        if nulled >= before:
+            return
         if nulled < _MIN_LOSS or nulled / before < _LOSS_FRAC:
             return
         sample = sorted(set(arg[newly_null].astype(str)))[:_SAMPLE]

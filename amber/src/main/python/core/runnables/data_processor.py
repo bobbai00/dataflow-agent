@@ -331,6 +331,7 @@ class DataProcessor(Runnable, Stoppable):
         would arrive at the controller only after the worker resumes.
         """
         joined = False
+        coerced = False
         try:
             executor = self._context.executor_manager.executor
             port_id = self._context.tuple_processing_manager.get_input_port_id()
@@ -339,6 +340,10 @@ class DataProcessor(Runnable, Stoppable):
             # blast radius tight. The wrapper is fully guarded; it can never
             # break the user's merge.
             joined = self._maybe_install_join_telemetry(executor)
+            # Lever 4: instrument to_numeric/to_datetime coerce for every
+            # operator — coercion dataloss can happen in any UDF (load or
+            # process). Guarded; can never break the user's conversion.
+            coerced = self._install_coercion_telemetry()
             with replace_print(
                 self._context.worker_id,
                 self._context.console_message_manager.print_buf,
@@ -354,6 +359,12 @@ class DataProcessor(Runnable, Stoppable):
                 try:
                     from core.util import join_telemetry
                     join_telemetry.uninstall()
+                except Exception:
+                    pass
+            if coerced:
+                try:
+                    from core.util import coercion_telemetry
+                    coercion_telemetry.uninstall()
                 except Exception:
                     pass
             self._switch_context()
@@ -372,6 +383,18 @@ class DataProcessor(Runnable, Stoppable):
         if not isinstance(executor, UDFMultiTableOperator):
             return False
         join_telemetry.install()
+        return True
+
+    @staticmethod
+    def _install_coercion_telemetry() -> bool:
+        """Install the transparent to_numeric/to_datetime coerce instrumentation
+        (lever 4) for every operator — coercion dataloss is common and can occur
+        in any UDF. Guarded; returns True iff installed."""
+        try:
+            from core.util import coercion_telemetry
+        except Exception:
+            return False
+        coercion_telemetry.install()
         return True
 
     def _set_output_tuple(self, output_iterator: Iterator[Optional[TupleLike]]) -> None:
@@ -645,6 +668,14 @@ class DataProcessor(Runnable, Stoppable):
             diags = join_telemetry.drain()
             if diags:
                 stats["__join_telemetry__"] = " || ".join(diags)
+        except Exception:
+            pass
+        # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
+        try:
+            from core.util import coercion_telemetry
+            cdiags = coercion_telemetry.drain()
+            if cdiags:
+                stats["__coercion_telemetry__"] = " || ".join(cdiags)
         except Exception:
             pass
         self._context.statistics_manager.set_result_statistics(stats)
