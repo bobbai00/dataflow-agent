@@ -92,6 +92,9 @@ export interface AssembleContextOptions {
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
+  /** W4: render a compact per-column stats block (numeric null/min/max;
+   *  categorical distinct/top-5) — high-signal subset of columnStats. Off by default. */
+  compactStats?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -900,6 +903,7 @@ function serializeOperatorFull(
         joinTelemetry: options.joinTelemetry,
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
+        compactStats: options.compactStats,
       })
     : undefined;
 

@@ -62,6 +62,12 @@ export interface FormatOperatorResultOptions {
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
+  /** W4: render a COMPACT per-column stats block (numeric: null/min/max;
+   *  categorical: distinct + top-5) — the high-signal subset of the worker's
+   *  columnStats, dropping mean + the verbose top_10. A middle ground between
+   *  the bare schema line and the full `Column stats:` block (which cost ~53%
+   *  on mini). Defaults to false. */
+  compactStats?: boolean;
 }
 
 /** Reserved columnStats keys the worker uses to ship operator-level diagnostics
@@ -145,7 +151,9 @@ export function formatOperatorResult(
   const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
   const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
-  const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
+  const statsBlock = options.statsEnabled
+    ? formatColumnStats(opInfo.columnStats)
+    : options.compactStats ? formatCompactStats(opInfo.columnStats) : undefined;
   return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
@@ -321,6 +329,42 @@ function formatColumnStats(stats: Record<string, string> | undefined): string | 
   // valueFormatFlags lever is on — not part of the distribution stats.
   for (const [col, stat] of shown)
     lines.push(`- "${col}" ${stat.replace(/,?\s*format=[\w-]+/g, "")}`);
+  return lines.join("\n");
+}
+
+/**
+ * W4 — compact, dataflow-aware stats. The worker's per-column stat strings
+ * already exist (columnStats); this renders the high-signal SUBSET: for numeric
+ * keep null/min/max (drop mean + the verbose top_10); for categorical keep
+ * distinct + top_5; bool/datetime/list pass through (already terse). Strips the
+ * format= tag. A middle ground between the bare schema line and the full
+ * `Column stats:` block. Same wide-table truncation as formatColumnStats.
+ */
+function compactifyStat(s: string): string {
+  let out = s.replace(/,?\s*format=[\w-]+/g, "");
+  if (out.startsWith("(numeric)")) {
+    out = out.replace(/,?\s*mean=[^,]+/g, "").replace(/,?\s*top_10=\{[^}]*\}/g, "");
+  }
+  return out;
+}
+function formatCompactStats(stats: Record<string, string> | undefined): string | undefined {
+  if (!stats) return undefined;
+  const entries = Object.entries(stats).filter(
+    ([k, v]) => !RESERVED_STATS_KEYS.has(k) && typeof v === "string" && v.length > 0
+  );
+  if (entries.length === 0) return undefined;
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  const total = entries.length;
+  let shown = entries;
+  let header = "Column stats (compact):";
+  if (total > MAX_STATS_COLUMNS) {
+    const leftCount = Math.ceil(MAX_STATS_COLUMNS / 2);
+    const rightCount = Math.floor(MAX_STATS_COLUMNS / 2);
+    shown = [...entries.slice(0, leftCount), ...entries.slice(-rightCount)];
+    header = `Column stats (compact, first ${leftCount} + last ${rightCount} of ${total}):`;
+  }
+  const lines = [header];
+  for (const [col, stat] of shown) lines.push(`- "${col}" ${compactifyStat(stat)}`);
   return lines.join("\n");
 }
 

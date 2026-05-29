@@ -687,6 +687,7 @@ export class TexeraAgent {
     joinTelemetry?: boolean;
     graphAudit?: boolean;
     coercionTelemetry?: boolean;
+    compactStats?: boolean;
     maxResultRows?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
@@ -787,6 +788,10 @@ export class TexeraAgent {
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
+    }
+    if (updates.compactStats !== undefined) {
+      this.settings.compactStats = updates.compactStats;
+      // Pure render-time toggle — compact per-column stats block (W4).
     }
     if (updates.maxLoadersPerSource !== undefined) {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;
