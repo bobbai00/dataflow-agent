@@ -40,6 +40,13 @@ export interface FormatOperatorResultOptions {
    *  field on `columnStats`; this side only renders. Targets silent
    *  to_numeric(errors='coerce') dataloss. Defaults to false. */
   valueFormatFlags?: boolean;
+  /** When true, append a `Lineage:` line per operator: input→output row counts
+   *  (kept % of the largest input) plus a conservative ALARM on degenerate
+   *  cardinality transitions (empty output, fan-out row explosion). Derived
+   *  purely from `OperatorInfo` row counts already carried (no extra data pass).
+   *  Targets the dominant silent-cardinality wrong-answer and the cost spiral
+   *  tail. Defaults to false. */
+  lineageStats?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -100,8 +107,9 @@ export function formatOperatorResult(
   const briefSummary = formatExecuteOperatorResult(operatorId);
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
+  const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, schemaLine, formatHints, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, lineageLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
 /**
@@ -174,6 +182,44 @@ export function formatValueFormatHints(opInfo: OperatorInfo): string | undefined
   }
   if (clauses.length === 0) return undefined;
   return `Format hints: ${clauses.join("; ")}`;
+}
+
+/**
+ * Per-operator cardinality lineage (lever 1). Renders input→output row counts
+ * (kept % of the largest input) and a CONSERVATIVE alarm on the two degenerate
+ * transitions that are unambiguous bugs in any tabular pipeline:
+ *   - empty output (0 rows) when there was input — over-restrictive filter or a
+ *     zero-match join (the dominant silent wrong-answer / NaN failure);
+ *   - fan-out explosion (output ≫ largest input) — a join on a non-unique key.
+ *
+ * Deliberately does NOT alarm on shrinkage: filters, aggregations, dedup and
+ * argmax legitimately drop most rows, so alarming there would be pure noise
+ * (the alarm-fatigue risk). Derived only from row counts already in
+ * `OperatorInfo` — topology-level, keyed on no column/task literal, so it
+ * generalizes. Returns `undefined` when no output row count is known.
+ */
+export function formatLineage(opInfo: OperatorInfo): string | undefined {
+  const out = opInfo.totalRowCount ?? opInfo.outputTuples;
+  if (typeof out !== "number") return undefined;
+  const inRows = (opInfo.inputPortShapes ?? [])
+    .map(s => s.rows)
+    .filter((r): r is number => typeof r === "number" && r >= 0);
+  // Source/loader (no inputs): report loaded rows; alarm only on empty load.
+  if (inRows.length === 0) {
+    return out === 0
+      ? "Lineage: loaded 0 rows  ⚠ EMPTY — check the file path/glob and parse options (wrong delimiter, header, or all rows skipped)"
+      : `Lineage: loaded ${out} rows`;
+  }
+  const maxIn = Math.max(...inRows);
+  const kept = maxIn > 0 ? Math.round((100 * out) / maxIn) : 0;
+  const inDesc = inRows.length === 1 ? `${maxIn} in` : `[${inRows.join(", ")}] in`;
+  let alarm = "";
+  if (out === 0 && maxIn > 0) {
+    alarm = "  ⚠ EMPTY output (0 rows) — over-restrictive filter or a zero-match join; verify the filter condition and join keys/dtypes";
+  } else if (maxIn > 0 && out > 3 * maxIn) {
+    alarm = `  ⚠ row count EXPLODED (${out} ≫ ${maxIn} in) — likely a join on a non-unique key (fan-out); verify join keys are correct and unique`;
+  }
+  return `Lineage: ${inDesc} → ${out} out (${kept}% of largest input)${alarm}`;
 }
 
 /**

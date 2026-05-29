@@ -68,6 +68,11 @@ export interface AssembleContextOptions {
    *  cleaning to apply before numeric conversion. Targets silent coercion
    *  dataloss. Off by default. */
   valueFormatFlags?: boolean;
+  /** When true, each operator result gets a `Lineage:` line: input→output row
+   *  counts (kept %) plus a conservative alarm on empty-output / fan-out
+   *  explosion. Derived from carried row counts; targets silent-cardinality
+   *  wrong-answers and the cost spiral tail. Off by default. */
+  lineageStats?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -872,6 +877,7 @@ function serializeOperatorFull(
         statsEnabled: options.statsEnabled,
         schemaInResult: options.schemaInResult,
         valueFormatFlags: options.valueFormatFlags,
+        lineageStats: options.lineageStats,
       })
     : undefined;
 

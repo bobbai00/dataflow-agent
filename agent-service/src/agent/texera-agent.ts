@@ -683,6 +683,7 @@ export class TexeraAgent {
     schemaInResult?: boolean;
     loaderHint?: boolean;
     valueFormatFlags?: boolean;
+    lineageStats?: boolean;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -758,6 +759,11 @@ export class TexeraAgent {
       this.settings.valueFormatFlags = updates.valueFormatFlags;
       // Pure render-time toggle — appends a `Format hints:` line flagging
       // currency/percent/thousands columns. Read at next assembleContext.
+    }
+    if (updates.lineageStats !== undefined) {
+      this.settings.lineageStats = updates.lineageStats;
+      // Pure render-time toggle — appends a `Lineage:` row-count line + alarms.
+      // Read at next assembleContext.
     }
     if (updates.maxLoadersPerSource !== undefined) {
       this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;

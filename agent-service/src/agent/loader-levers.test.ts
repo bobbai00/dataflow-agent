@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { formatLoaderHint } from "./util/context-utils";
 import { extractLoaderSourcePath } from "./tools/code-op-tools";
-import { formatValueFormatHints } from "./tools/result-formatting";
+import { formatValueFormatHints, formatLineage } from "./tools/result-formatting";
 
 describe("formatValueFormatHints (value-format flags)", () => {
   // The backend (data_processor._detect_numeric_format) does detection over the
@@ -37,6 +37,41 @@ describe("formatValueFormatHints (value-format flags)", () => {
     expect(formatValueFormatHints(mk({ city: '(str): null=0, distinct=2, top_5={"East"=1, "West"=1}' }))).toBeUndefined();
     expect(formatValueFormatHints(mk({ x: "(numeric): null=0, mean=1.5, min=1, max=2" }))).toBeUndefined();
     expect(formatValueFormatHints(mk({}))).toBeUndefined();
+  });
+});
+
+describe("formatLineage (lever 1: cardinality lineage + alarms)", () => {
+  const mk = (out: number, inRows: number[]) =>
+    ({ totalRowCount: out, inputPortShapes: inRows.map((rows, portIndex) => ({ portIndex, rows, columns: 3 })) } as any);
+  test("normal shrink → kept% line, no alarm", () => {
+    const h = formatLineage(mk(200, [1000]));
+    expect(h).toBe("Lineage: 1000 in → 200 out (20% of largest input)");
+  });
+  test("empty output → EMPTY alarm", () => {
+    const h = formatLineage(mk(0, [1000]));
+    expect(h!).toContain("EMPTY output");
+    expect(h!).toContain("⚠");
+  });
+  test("fan-out explosion → EXPLODED alarm", () => {
+    const h = formatLineage(mk(5000, [100]));
+    expect(h!).toContain("EXPLODED");
+  });
+  test("2x concat does NOT trip the fan-out alarm", () => {
+    const h = formatLineage(mk(2000, [1000, 1000]));
+    expect(h!).not.toContain("EXPLODED");
+    expect(h!).toContain("[1000, 1000] in");
+  });
+  test("source (no inputs) → loaded rows; empty load alarms", () => {
+    expect(formatLineage(mk(500, []))).toBe("Lineage: loaded 500 rows");
+    expect(formatLineage(mk(0, []))!).toContain("EMPTY");
+  });
+  test("aggregation to 1 row does NOT alarm (legit shrink)", () => {
+    const h = formatLineage(mk(1, [50000]));
+    expect(h!).not.toContain("⚠");
+    expect(h!).toContain("→ 1 out");
+  });
+  test("no output count → undefined", () => {
+    expect(formatLineage({ inputPortShapes: [{ portIndex: 0, rows: 5, columns: 2 }] } as any)).toBeUndefined();
   });
 });
 

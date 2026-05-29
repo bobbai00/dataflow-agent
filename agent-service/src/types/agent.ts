@@ -197,6 +197,15 @@ export interface AgentSettings {
    * on value shape (no task literals). Disabled by default (no-op).
    */
   valueFormatFlags: boolean;
+  /**
+   * When true, each operator result carries a `Lineage:` line — input→output
+   * row counts (kept % of largest input) plus a conservative alarm on
+   * empty-output / fan-out-explosion transitions. Derived from row counts
+   * already carried in OperatorInfo (topology-level, no column/task literal).
+   * Targets the dominant silent-cardinality wrong-answer and the cost spiral
+   * tail. Disabled by default (no-op).
+   */
+  lineageStats: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -238,6 +247,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   loaderHint: false,
   maxLoadersPerSource: 0,
   valueFormatFlags: false,
+  lineageStats: false,
 };
 
 /**
@@ -290,6 +300,7 @@ export interface AgentSettingsApi {
   loaderHint?: boolean;
   maxLoadersPerSource?: number;
   valueFormatFlags?: boolean;
+  lineageStats?: boolean;
 }
 
 export interface AgentInfo {
@@ -336,4 +347,5 @@ export interface UpdateAgentSettingsRequest {
   loaderHint?: boolean;
   maxLoadersPerSource?: number;
   valueFormatFlags?: boolean;
+  lineageStats?: boolean;
 }

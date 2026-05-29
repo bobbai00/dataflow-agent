@@ -74,6 +74,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       schemaInResult: settings.schemaInResult,
       loaderHint: settings.loaderHint,
       valueFormatFlags: settings.valueFormatFlags,
+      lineageStats: settings.lineageStats,
       attemptReflection: settings.attemptReflection,
     });
 }
@@ -150,6 +151,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     schemaInResult: agentSettings.schemaInResult,
     loaderHint: agentSettings.loaderHint,
     valueFormatFlags: agentSettings.valueFormatFlags,
+    lineageStats: agentSettings.lineageStats,
     attemptReflection: agentSettings.attemptReflection,
   };
 
@@ -266,6 +268,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           schemaInResult: settings.schemaInResult,
           loaderHint: settings.loaderHint,
           valueFormatFlags: settings.valueFormatFlags,
+          lineageStats: settings.lineageStats,
           attemptReflection: settings.attemptReflection,
         });
       }
@@ -302,6 +305,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             schemaInResult: t.Optional(t.Boolean()),
             loaderHint: t.Optional(t.Boolean()),
             valueFormatFlags: t.Optional(t.Boolean()),
+            lineageStats: t.Optional(t.Boolean()),
             attemptReflection: t.Optional(t.Boolean()),
           })
         ),
@@ -578,6 +582,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaInResult: settings.schemaInResult,
         loaderHint: settings.loaderHint,
         valueFormatFlags: settings.valueFormatFlags,
+        lineageStats: settings.lineageStats,
         attemptReflection: settings.attemptReflection,
       });
 
@@ -606,6 +611,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaInResult: agentSettings.schemaInResult,
         loaderHint: agentSettings.loaderHint,
         valueFormatFlags: agentSettings.valueFormatFlags,
+        lineageStats: agentSettings.lineageStats,
         attemptReflection: agentSettings.attemptReflection,
       };
     },
@@ -629,6 +635,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         schemaInResult: t.Optional(t.Boolean()),
         loaderHint: t.Optional(t.Boolean()),
         valueFormatFlags: t.Optional(t.Boolean()),
+        lineageStats: t.Optional(t.Boolean()),
         attemptReflection: t.Optional(t.Boolean()),
       }),
     }
