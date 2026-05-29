@@ -53,11 +53,19 @@ export interface FormatOperatorResultOptions {
    *  reserved `__join_telemetry__` entry the worker publishes on `columnStats`
    *  (see join_telemetry.py). Alarm-only. Defaults to false. */
   joinTelemetry?: boolean;
+  /** When true, surface a coercion-dataloss line for any
+   *  `to_numeric/to_datetime(errors="coerce")` that the worker's transparent
+   *  instrumentation saw silently null a material block of values — with a
+   *  SAMPLE of the dropped values. Read from the reserved `__coercion_telemetry__`
+   *  entry on columnStats (see coercion_telemetry.py). Alarm-only. Defaults to false. */
+  coercionTelemetry?: boolean;
 }
 
-/** Reserved columnStats key the worker uses to ship join diagnostics (lever 2).
- *  Not a real column — filtered from schema/stats rendering. */
+/** Reserved columnStats keys the worker uses to ship operator-level diagnostics
+ *  (levers 2 & 4). Not real columns — filtered from schema/stats rendering. */
 const JOIN_TELEMETRY_KEY = "__join_telemetry__";
+const COERCION_TELEMETRY_KEY = "__coercion_telemetry__";
+const RESERVED_STATS_KEYS = new Set([JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY]);
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
  *  re-echoed every turn. Cap both the TSV preview and the stats block at
@@ -119,8 +127,9 @@ export function formatOperatorResult(
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
   const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
+  const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const statsBlock = options.statsEnabled ? formatColumnStats(opInfo.columnStats) : undefined;
-  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
 /**
@@ -136,7 +145,7 @@ export function formatOperatorResult(
  */
 export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
   const stats = opInfo.columnStats ?? {};
-  const statCols = Object.keys(stats).filter(k => k !== JOIN_TELEMETRY_KEY);
+  const statCols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   let cols: string[];
   if (statCols.length > 0) {
     cols = statCols;
@@ -244,10 +253,16 @@ export function formatLineage(opInfo: OperatorInfo): string | undefined {
  * The worker joins multiple diagnostics with " || "; we render one per line.
  * Returns `undefined` when no degenerate join was flagged.
  */
-export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {
-  const v = opInfo.columnStats?.[JOIN_TELEMETRY_KEY];
+/** Render a reserved operator-level diagnostic the worker shipped under `key`
+ *  on columnStats (one diagnostic per line; worker joins them with " || "). */
+export function formatReservedDiag(opInfo: OperatorInfo, key: string): string | undefined {
+  const v = opInfo.columnStats?.[key];
   if (typeof v !== "string" || v.length === 0) return undefined;
   return v.split(" || ").map(s => s.trim()).filter(Boolean).join("\n");
+}
+
+export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {
+  return formatReservedDiag(opInfo, JOIN_TELEMETRY_KEY);
 }
 
 /**
@@ -266,7 +281,7 @@ export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {
 function formatColumnStats(stats: Record<string, string> | undefined): string | undefined {
   if (!stats) return undefined;
   const entries = Object.entries(stats).filter(
-    ([k, v]) => k !== JOIN_TELEMETRY_KEY && typeof v === "string" && v.length > 0
+    ([k, v]) => !RESERVED_STATS_KEYS.has(k) && typeof v === "string" && v.length > 0
   );
   if (entries.length === 0) return undefined;
   entries.sort(([a], [b]) => a.localeCompare(b));

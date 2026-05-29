@@ -218,6 +218,12 @@ export interface AgentSettings {
    * `Graph check ⚠` line. Off by default.
    */
   graphAudit: boolean;
+  /**
+   * When true, a `to_numeric/to_datetime(errors="coerce")` that silently nulled
+   * a material block of values surfaces as a coercion-dataloss line (with a
+   * sample of the dropped values). Off by default.
+   */
+  coercionTelemetry: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -262,6 +268,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   lineageStats: false,
   joinTelemetry: false,
   graphAudit: false,
+  coercionTelemetry: false,
 };
 
 /**
@@ -317,6 +324,7 @@ export interface AgentSettingsApi {
   lineageStats?: boolean;
   joinTelemetry?: boolean;
   graphAudit?: boolean;
+  coercionTelemetry?: boolean;
 }
 
 export interface AgentInfo {
@@ -366,4 +374,5 @@ export interface UpdateAgentSettingsRequest {
   lineageStats?: boolean;
   joinTelemetry?: boolean;
   graphAudit?: boolean;
+  coercionTelemetry?: boolean;
 }

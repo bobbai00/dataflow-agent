@@ -84,6 +84,11 @@ export interface AssembleContextOptions {
    *  snapshot only. Uniquely enabled by the dataflow graph (a free-form script
    *  has no graph to audit). Off by default. */
   graphAudit?: boolean;
+  /** When true, surface a coercion-dataloss line for any to_numeric/to_datetime
+   *  (errors="coerce") the worker saw silently null a material block of values,
+   *  with a sample of the dropped values. Read from `__coercion_telemetry__` on
+   *  columnStats. Alarm-only. Off by default. */
+  coercionTelemetry?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -890,6 +895,7 @@ function serializeOperatorFull(
         valueFormatFlags: options.valueFormatFlags,
         lineageStats: options.lineageStats,
         joinTelemetry: options.joinTelemetry,
+        coercionTelemetry: options.coercionTelemetry,
       })
     : undefined;
 
