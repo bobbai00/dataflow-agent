@@ -81,6 +81,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       compactStats: settings.compactStats,
       lineageTimeline: settings.lineageTimeline,
       fewShotPrompt: settings.fewShotPrompt,
+      tableStructureHint: settings.tableStructureHint,
       maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
     });
@@ -165,6 +166,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     compactStats: agentSettings.compactStats,
     lineageTimeline: agentSettings.lineageTimeline,
     fewShotPrompt: agentSettings.fewShotPrompt,
+    tableStructureHint: agentSettings.tableStructureHint,
     maxResultRows: agentSettings.maxResultRows,
     attemptReflection: agentSettings.attemptReflection,
   };
@@ -289,6 +291,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           compactStats: settings.compactStats,
           lineageTimeline: settings.lineageTimeline,
           fewShotPrompt: settings.fewShotPrompt,
+          tableStructureHint: settings.tableStructureHint,
           maxResultRows: settings.maxResultRows,
           attemptReflection: settings.attemptReflection,
         });
@@ -333,6 +336,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             compactStats: t.Optional(t.Boolean()),
             lineageTimeline: t.Optional(t.Boolean()),
             fewShotPrompt: t.Optional(t.Boolean()),
+            tableStructureHint: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
           })
@@ -617,6 +621,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactStats: settings.compactStats,
         lineageTimeline: settings.lineageTimeline,
         fewShotPrompt: settings.fewShotPrompt,
+        tableStructureHint: settings.tableStructureHint,
         maxResultRows: settings.maxResultRows,
         attemptReflection: settings.attemptReflection,
       });
@@ -653,6 +658,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactStats: agentSettings.compactStats,
         lineageTimeline: agentSettings.lineageTimeline,
         fewShotPrompt: agentSettings.fewShotPrompt,
+        tableStructureHint: agentSettings.tableStructureHint,
         maxResultRows: agentSettings.maxResultRows,
         attemptReflection: agentSettings.attemptReflection,
       };
@@ -684,6 +690,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactStats: t.Optional(t.Boolean()),
         lineageTimeline: t.Optional(t.Boolean()),
         fewShotPrompt: t.Optional(t.Boolean()),
+        tableStructureHint: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
       }),

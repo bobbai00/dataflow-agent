@@ -678,6 +678,17 @@ class DataProcessor(Runnable, Stoppable):
                 stats["__coercion_telemetry__"] = " || ".join(cdiags)
         except Exception:
             pass
+        # Table-structure hints (#25/#26/#27): pre-emptive grain / partition /
+        # dirty-load signals, attached under a reserved key like the telemetry
+        # above. Always computed (cheap, one pass); the agent-service strips this
+        # key from schema/stats rendering and surfaces it only when the gated
+        # `tableStructureHint` flag is on, so this is a no-op by default.
+        try:
+            table_hints = self._detect_table_structure(df)
+            if table_hints:
+                stats["__table_hints__"] = " || ".join(table_hints)
+        except Exception:
+            pass
         self._context.statistics_manager.set_result_statistics(stats)
 
     @staticmethod
@@ -902,6 +913,116 @@ class DataProcessor(Runnable, Stoppable):
                 pass
 
         return f"({col_type}): " + ", ".join(parts)
+
+    @staticmethod
+    def _detect_table_structure(df: pandas.DataFrame) -> list:
+        """
+        Name-agnostic STRUCTURAL profile of a DataFrame, surfaced as short
+        pre-emptive hints at the operator boundary. Surface-only: the agent
+        decides whether to act; nothing here mutates data. Mirrors the
+        offline-validated probes in ``claude/profile_probe.py`` (see
+        ``claude/PROBE-FINDINGS.md``). Every signal is pure cardinality / null
+        structure, so it generalizes without keying on column names or task
+        literals -- the same property that made ``_detect_numeric_format`` work
+        where post-hoc surfacing levers did not.
+
+          - empty regions  -> .dropna(how='all')         (#25)
+          - duplicate rows -> .drop_duplicates()          (#25)
+          - candidate key  -> table grain (one row per key)            (#26)
+          - group columns  -> rows-per-group (group before aggregating) (#26)
+          - partition cols -> low-cardinality value distribution = a    (#27)
+                              subset/gate axis the agent often omits
+
+        Columns whose name is blank or matches pandas' ``Unnamed: N``
+        placeholder are skipped for grain/partition: their presence signals an
+        unresolved header (skiprows/header=), which makes per-column cardinality
+        meaningless until the header is fixed -- surfacing them would be noise
+        (the false-positive class noted in PROBE-FINDINGS.md).
+        """
+        try:
+            n_rows = len(df)
+            if n_rows == 0 or df.shape[1] == 0:
+                return []
+        except Exception:
+            return []
+        hints: list = []
+        card_max = 10
+
+        try:
+            isna = df.isna()
+            er = int(isna.all(axis=1).sum())
+            ec = int(isna.all(axis=0).sum())
+            sparse = int((isna.mean(axis=0) > 0.95).sum()) - ec
+            parts = []
+            if er:
+                parts.append(f"{er} all-null row(s)")
+            if ec:
+                parts.append(f"{ec} all-null col(s)")
+            if sparse > 0:
+                parts.append(f"{sparse} >=95%-null col(s)")
+            if parts:
+                hints.append("empty: " + ", ".join(parts) + " -> consider dropna(how='all')")
+        except Exception:
+            pass
+
+        try:
+            if n_rows >= 4:
+                dups = int(df.duplicated().sum())
+                if dups and dups / n_rows >= 0.01:
+                    hints.append(
+                        f"duplicates: {dups} fully-duplicate row(s) ({dups / n_rows:.0%}) "
+                        "-> consider drop_duplicates() before aggregating"
+                    )
+        except Exception:
+            pass
+
+        def _is_placeholder(name) -> bool:
+            s = str(name).strip()
+            return s == "" or s.startswith("Unnamed:")
+
+        keys: list = []
+        groups: list = []
+        partitions: list = []
+        for col_name in df.columns:
+            if _is_placeholder(col_name):
+                continue
+            try:
+                nn = df[col_name].dropna()
+                if len(nn) == 0:
+                    continue
+                nu = int(nn.nunique())
+            except Exception:
+                continue
+            disp = str(col_name)
+            if len(disp) > 24:
+                disp = disp[:23] + "…"
+            if nu == len(nn) and nu == n_rows and n_rows >= 8:
+                keys.append(disp)
+                continue
+            if 2 <= nu <= card_max:
+                try:
+                    vc = nn.value_counts()
+                    top = ", ".join(f"{k}:{int(v)}" for k, v in list(vc.items())[:4])
+                    flag = " [binary]" if nu == 2 else ""
+                    partitions.append(f"{disp}{{{top}}}{flag}")
+                except Exception:
+                    pass
+            elif n_rows >= 8 and nu >= 2 and nu < n_rows and n_rows / nu >= 2 and nu <= max(card_max, n_rows // 5):
+                groups.append(f"{disp}~{n_rows / nu:.0f}/grp")
+
+        if keys:
+            hints.append("key: " + " | ".join(keys[:3]) + " (one row per key)")
+        if groups:
+            hints.append(
+                "groups: " + ", ".join(groups[:4])
+                + " (group before per-group aggregation; row count != group count)"
+            )
+        if partitions:
+            hints.append(
+                "partition: " + " | ".join(partitions[:5])
+                + " (subset/gate axis -- filter if the question scopes a subset)"
+            )
+        return hints
 
     @staticmethod
     def _detect_numeric_format(non_null: pandas.Series) -> Optional[str]:

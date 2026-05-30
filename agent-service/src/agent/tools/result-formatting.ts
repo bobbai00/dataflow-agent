@@ -68,13 +68,21 @@ export interface FormatOperatorResultOptions {
    *  the bare schema line and the full `Column stats:` block (which cost ~53%
    *  on mini). Defaults to false. */
   compactStats?: boolean;
+  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
+   *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
+   *  empty rows/cols + duplicates) computed name-agnostically by the worker over
+   *  the whole DataFrame (see data_processor._detect_table_structure). Read from
+   *  the reserved `__table_hints__` entry on columnStats; this side only renders.
+   *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
+  tableStructureHint?: boolean;
 }
 
 /** Reserved columnStats keys the worker uses to ship operator-level diagnostics
  *  (levers 2 & 4). Not real columns — filtered from schema/stats rendering. */
 const JOIN_TELEMETRY_KEY = "__join_telemetry__";
 const COERCION_TELEMETRY_KEY = "__coercion_telemetry__";
-const RESERVED_STATS_KEYS = new Set([JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY]);
+const TABLE_HINTS_KEY = "__table_hints__";
+const RESERVED_STATS_KEYS = new Set([JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY]);
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
  *  re-echoed every turn. Cap both the TSV preview and the stats block at
@@ -151,10 +159,11 @@ export function formatOperatorResult(
   const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
   const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
+  const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
   const statsBlock = options.statsEnabled
     ? formatColumnStats(opInfo.columnStats)
     : options.compactStats ? formatCompactStats(opInfo.columnStats) : undefined;
-  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, tableHintsLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 
 /**
@@ -284,6 +293,19 @@ export function formatReservedDiag(opInfo: OperatorInfo, key: string): string | 
   const v = opInfo.columnStats?.[key];
   if (typeof v !== "string" || v.length === 0) return undefined;
   return v.split(" || ").map(s => s.trim()).filter(Boolean).join("\n");
+}
+
+/** Render a `Data hints:` block from the reserved `__table_hints__` entry the
+ *  worker publishes on `columnStats` (#25/#26/#27). The worker joins the
+ *  individual hints with " || "; we split them back into one indented line each
+ *  under a header. Detection is entirely worker-side (pandas over the whole
+ *  column); this only renders. Returns `undefined` when no hint was published. */
+export function formatTableHints(opInfo: OperatorInfo): string | undefined {
+  const v = opInfo.columnStats?.[TABLE_HINTS_KEY];
+  if (!v || typeof v !== "string" || v.length === 0) return undefined;
+  const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
+  if (parts.length === 0) return undefined;
+  return ["Data hints:", ...parts.map(p => `- ${p}`)].join("\n");
 }
 
 export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {

@@ -95,6 +95,10 @@ export interface AssembleContextOptions {
   /** W4: render a compact per-column stats block (numeric null/min/max;
    *  categorical distinct/top-5) — high-signal subset of columnStats. Off by default. */
   compactStats?: boolean;
+  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
+   *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
+   *  computed name-agnostically by the worker. Render-time only. Default false. */
+  tableStructureHint?: boolean;
   /** W3: in LATEST mode (which otherwise shows only a snapshot, no events),
    *  render a compact `# Recent steps` construction timeline — the last K
    *  create/modify/delete actions with their ok/ERROR status — so the model
@@ -968,6 +972,7 @@ function serializeOperatorFull(
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
         compactStats: options.compactStats,
+        tableStructureHint: options.tableStructureHint,
       })
     : undefined;
 

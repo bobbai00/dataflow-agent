@@ -731,6 +731,7 @@ export class TexeraAgent {
     compactStats?: boolean;
     lineageTimeline?: boolean;
     fewShotPrompt?: boolean;
+    tableStructureHint?: boolean;
     maxResultRows?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
@@ -839,6 +840,9 @@ export class TexeraAgent {
     if (updates.lineageTimeline !== undefined) {
       this.settings.lineageTimeline = updates.lineageTimeline;
       // Pure render-time toggle — LATEST-mode construction timeline (W3).
+    }
+    if (updates.tableStructureHint !== undefined) {
+      this.settings.tableStructureHint = updates.tableStructureHint;
     }
     if (updates.fewShotPrompt !== undefined) {
       this.settings.fewShotPrompt = updates.fewShotPrompt;

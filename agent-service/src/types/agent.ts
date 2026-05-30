@@ -227,6 +227,7 @@ export interface AgentSettings {
   compactStats: boolean;
   lineageTimeline: boolean;
   fewShotPrompt: boolean;
+  tableStructureHint: boolean;
   maxResultRows: number;
 }
 
@@ -276,6 +277,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   compactStats: false,
   lineageTimeline: false,
   fewShotPrompt: false,
+  tableStructureHint: false,
   maxResultRows: 0,
 };
 
@@ -336,6 +338,7 @@ export interface AgentSettingsApi {
   compactStats?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
+  tableStructureHint?: boolean;
   maxResultRows?: number;
 }
 
@@ -390,5 +393,6 @@ export interface UpdateAgentSettingsRequest {
   compactStats?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
+  tableStructureHint?: boolean;
   maxResultRows?: number;
 }
