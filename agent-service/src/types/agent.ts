@@ -230,6 +230,7 @@ export interface AgentSettings {
   tableStructureHint: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
+  frontierDepth: number;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -281,6 +282,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   tableStructureHint: false,
   loaderEscalation: false,
   maxResultRows: 0,
+  frontierDepth: 0,
 };
 
 /**
@@ -343,6 +345,7 @@ export interface AgentSettingsApi {
   tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
+  frontierDepth?: number;
 }
 
 export interface AgentInfo {
@@ -399,4 +402,5 @@ export interface UpdateAgentSettingsRequest {
   tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
+  frontierDepth?: number;
 }

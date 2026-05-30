@@ -735,6 +735,7 @@ export class TexeraAgent {
     tableStructureHint?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
+    frontierDepth?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -830,6 +831,9 @@ export class TexeraAgent {
       this.settings.coercionTelemetry = updates.coercionTelemetry;
       // Pure render-time toggle — surfaces coerce-to-NaN dataloss.
       // Read at next assembleContext.
+    }
+    if (updates.frontierDepth !== undefined) {
+      this.settings.frontierDepth = updates.frontierDepth;
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
