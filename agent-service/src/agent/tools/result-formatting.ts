@@ -163,6 +163,12 @@ export function formatOperatorResult(
   const statsBlock = options.statsEnabled
     ? formatColumnStats(opInfo.columnStats)
     : options.compactStats ? formatCompactStats(opInfo.columnStats) : undefined;
+  // #30 frontier-render: non-frontier ops get only the cheap schema line + brief
+  // summary (column inventory preserved) — drop the expensive sample rows + stats
+  // + hint blocks that dominate per-step LATEST re-render cost.
+  if (options.frontierStub) {
+    return [briefSummary, schemaLine].filter(Boolean).join("\n");
+  }
   return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, tableHintsLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
 }
 

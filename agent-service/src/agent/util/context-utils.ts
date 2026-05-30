@@ -99,6 +99,8 @@ export interface AssembleContextOptions {
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
   tableStructureHint?: boolean;
+  /** #30 frontier-render: 0=off (render all ops full); N>0 = render only ops within N hops of a sink in full, stub the rest to schema-line. */
+  frontierDepth?: number;
   /** W3: in LATEST mode (which otherwise shows only a snapshot, no events),
    *  render a compact `# Recent steps` construction timeline — the last K
    *  create/modify/delete actions with their ok/ERROR status — so the model
@@ -962,6 +964,12 @@ function serializeOperatorFull(
   operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
+  // #30 frontier-render: when frontierDepth>0, only operators within that many
+  // hops of a sink render in full; the rest are "stubbed" to schema-line only.
+  // Recomputed per render (small DAGs); 0/undefined = render all in full (no-op).
+  const frontierStub =
+    (options.frontierDepth ?? 0) > 0 &&
+    !workflowState.getFrontierOperators(options.frontierDepth as number).includes(op.operatorID);
   const execText = info
     ? formatOperatorResult(op.operatorID, info, workflowState, {
         statsEnabled: options.statsEnabled,
@@ -973,6 +981,7 @@ function serializeOperatorFull(
         maxResultRows: options.maxResultRows,
         compactStats: options.compactStats,
         tableStructureHint: options.tableStructureHint,
+        frontierStub,
       })
     : undefined;
 
