@@ -726,6 +726,7 @@ export class TexeraAgent {
     loaderHint?: boolean;
     valueFormatFlags?: boolean;
     lineageStats?: boolean;
+    lineageErrorContext?: boolean;
     joinTelemetry?: boolean;
     graphAudit?: boolean;
     coercionTelemetry?: boolean;
@@ -811,6 +812,9 @@ export class TexeraAgent {
       this.settings.valueFormatFlags = updates.valueFormatFlags;
       // Pure render-time toggle — appends a `Format hints:` line flagging
       // currency/percent/thousands columns. Read at next assembleContext.
+    }
+    if (updates.lineageErrorContext !== undefined) {
+      this.settings.lineageErrorContext = updates.lineageErrorContext;
     }
     if (updates.lineageStats !== undefined) {
       this.settings.lineageStats = updates.lineageStats;
