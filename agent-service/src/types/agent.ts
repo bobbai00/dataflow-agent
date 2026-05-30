@@ -228,6 +228,7 @@ export interface AgentSettings {
   lineageTimeline: boolean;
   fewShotPrompt: boolean;
   tableStructureHint: boolean;
+  loaderEscalation: boolean;
   maxResultRows: number;
 }
 
@@ -278,6 +279,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   lineageTimeline: false,
   fewShotPrompt: false,
   tableStructureHint: false,
+  loaderEscalation: false,
   maxResultRows: 0,
 };
 

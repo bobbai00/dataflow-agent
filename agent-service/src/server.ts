@@ -82,6 +82,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       lineageTimeline: settings.lineageTimeline,
       fewShotPrompt: settings.fewShotPrompt,
       tableStructureHint: settings.tableStructureHint,
+      loaderEscalation: settings.loaderEscalation,
       maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
     });
@@ -167,6 +168,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     lineageTimeline: agentSettings.lineageTimeline,
     fewShotPrompt: agentSettings.fewShotPrompt,
     tableStructureHint: agentSettings.tableStructureHint,
+    loaderEscalation: agentSettings.loaderEscalation,
     maxResultRows: agentSettings.maxResultRows,
     attemptReflection: agentSettings.attemptReflection,
   };
@@ -292,6 +294,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           lineageTimeline: settings.lineageTimeline,
           fewShotPrompt: settings.fewShotPrompt,
           tableStructureHint: settings.tableStructureHint,
+          loaderEscalation: settings.loaderEscalation,
           maxResultRows: settings.maxResultRows,
           attemptReflection: settings.attemptReflection,
         });
@@ -337,6 +340,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             lineageTimeline: t.Optional(t.Boolean()),
             fewShotPrompt: t.Optional(t.Boolean()),
             tableStructureHint: t.Optional(t.Boolean()),
+            loaderEscalation: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
           })
@@ -622,6 +626,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageTimeline: settings.lineageTimeline,
         fewShotPrompt: settings.fewShotPrompt,
         tableStructureHint: settings.tableStructureHint,
+        loaderEscalation: settings.loaderEscalation,
         maxResultRows: settings.maxResultRows,
         attemptReflection: settings.attemptReflection,
       });
@@ -659,6 +664,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageTimeline: agentSettings.lineageTimeline,
         fewShotPrompt: agentSettings.fewShotPrompt,
         tableStructureHint: agentSettings.tableStructureHint,
+        loaderEscalation: agentSettings.loaderEscalation,
         maxResultRows: agentSettings.maxResultRows,
         attemptReflection: agentSettings.attemptReflection,
       };
@@ -691,6 +697,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         lineageTimeline: t.Optional(t.Boolean()),
         fewShotPrompt: t.Optional(t.Boolean()),
         tableStructureHint: t.Optional(t.Boolean()),
+        loaderEscalation: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
       }),

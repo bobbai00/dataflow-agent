@@ -473,7 +473,8 @@ export class TexeraAgent {
         operatorSchemas,
         context,
         this.settings.maxOperatorEdits,
-        this.settings.maxLoadersPerSource
+        this.settings.maxLoadersPerSource,
+        this.settings.loaderEscalation
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -732,6 +733,7 @@ export class TexeraAgent {
     lineageTimeline?: boolean;
     fewShotPrompt?: boolean;
     tableStructureHint?: boolean;
+    loaderEscalation?: boolean;
     maxResultRows?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
@@ -843,6 +845,10 @@ export class TexeraAgent {
     }
     if (updates.tableStructureHint !== undefined) {
       this.settings.tableStructureHint = updates.tableStructureHint;
+    }
+    if (updates.loaderEscalation !== undefined) {
+      this.settings.loaderEscalation = updates.loaderEscalation;
+      // Read by createTools() below when (re)building the code-op tool (#29).
     }
     if (updates.fewShotPrompt !== undefined) {
       this.settings.fewShotPrompt = updates.fewShotPrompt;

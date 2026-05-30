@@ -662,7 +662,8 @@ export function createCreateOrModifyOperatorTool(
   operatorSchemas: Map<string, any>,
   context?: ToolContext,
   maxOperatorEdits = 0,
-  maxLoadersPerSource = 0
+  maxLoadersPerSource = 0,
+  loaderEscalation = false
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -678,6 +679,17 @@ export function createCreateOrModifyOperatorTool(
   // never runs mid-`sendMessage`); each KramaBench task uses a fresh agent, so
   // the counters reset per task.
   const guardEditCounts = new Map<string, number>();
+
+  // #29 loader-budget ESCALATION (loaderEscalation). The plain loader-proliferation
+  // guard below is a SOFT rejection: a weak model (gpt-5-mini) re-issues a
+  // near-identical loader for the same source, gets the same rejection, and loops
+  // (biomedical-hard-1 = the same loader rejected 15× → spiral to the step cap;
+  // gpt-5.2 escapes in ~2 tries). This counter tracks repeated rejections per
+  // operatorId so that after the 2nd identical rejection we escalate from a polite
+  // re-rejection to a hard directive naming the exact loader to reuse. No-op when
+  // loaderEscalation=false. Same closure-lifetime semantics as guardEditCounts
+  // (one agent = one task = fresh counters).
+  const loaderRejectCounts = new Map<string, number>();
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -797,6 +809,21 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .filter(o => extractLoaderSourcePath(String((o.operatorProperties as any)?.code ?? "")) === newPath)
               .map(o => o.operatorID);
             if (sameSourceLoaders.length >= maxLoadersPerSource) {
+              if (loaderEscalation) {
+                const rejects = (loaderRejectCounts.get(operatorId) ?? 0) + 1;
+                loaderRejectCounts.set(operatorId, rejects);
+                if (rejects >= 2) {
+                  const reuse = sameSourceLoaders[0];
+                  return createErrorResult(
+                    `Operator \`${operatorId}\` is BLOCKED: you have tried to create a loader for ` +
+                    `[${newPath}] ${rejects} times and it keeps being REJECTED because that source is ` +
+                    `already loaded by \`${reuse}\`. Stop creating loaders for this source. Instead, create a ` +
+                    `process() operator that takes \`${reuse}\` as its input parameter ` +
+                    `(\`def process(${reuse}): ...\`), or modify \`${reuse}\` if its load logic needs fixing. ` +
+                    `Do NOT call createOrModifyOperator for a loader on this source again.`
+                  );
+                }
+              }
               return createErrorResult(buildLoaderProliferationMessage(operatorId, newPath, sameSourceLoaders));
             }
           }
