@@ -68,6 +68,9 @@ export interface FormatOperatorResultOptions {
    *  the bare schema line and the full `Column stats:` block (which cost ~53%
    *  on mini). Defaults to false. */
   compactStats?: boolean;
+  /** #30 frontier-render: this op is NON-frontier; render schema-line only,
+   *  dropping sample rows + stats + hint blocks (keeps column names). Default false. */
+  frontierStub?: boolean;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
    *  empty rows/cols + duplicates) computed name-agnostically by the worker over
