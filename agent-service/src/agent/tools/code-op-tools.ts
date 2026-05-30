@@ -810,8 +810,11 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .map(o => o.operatorID);
             if (sameSourceLoaders.length >= maxLoadersPerSource) {
               if (loaderEscalation) {
-                const rejects = (loaderRejectCounts.get(operatorId) ?? 0) + 1;
-                loaderRejectCounts.set(operatorId, rejects);
+                // Key on the SOURCE PATH, not operatorId: the weak model retries
+                // the rejected loader under DIFFERENT operatorIds, so a per-id
+                // counter never reaches the threshold. Per-source catches the loop.
+                const rejects = (loaderRejectCounts.get(newPath) ?? 0) + 1;
+                loaderRejectCounts.set(newPath, rejects);
                 if (rejects >= 2) {
                   const reuse = sameSourceLoaders[0];
                   return createErrorResult(
