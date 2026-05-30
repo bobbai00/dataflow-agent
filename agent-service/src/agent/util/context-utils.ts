@@ -73,6 +73,10 @@ export interface AssembleContextOptions {
    *  explosion. Derived from carried row counts; targets silent-cardinality
    *  wrong-answers and the cost spiral tail. Off by default. */
   lineageStats?: boolean;
+  /** #28: on an errored (non-loader) operator, render its direct upstream inputs'
+   *  schema + a few sample rows so the model fixes against real consumed data,
+   *  not guessed columns. Render-time only. Default false. */
+  lineageErrorContext?: boolean;
   /** When true, surface a `Join check ⚠` line for any degenerate merge the
    *  worker flagged (near-zero key match with an unmatched-key sample, or a
    *  many-to-many fan-out). Read from the reserved `__join_telemetry__` entry on
@@ -1052,6 +1056,16 @@ function serializeOperatorFull(
       const hint = formatLoaderHint(info.error);
       if (hint) for (const l of hint.split("\n")) lines.push("  " + l);
     }
+    // #28 lineage error-attribution. On the CURRENT snapshot, when a (non-loader)
+    // operator errors, surface its DIRECT upstream inputs' schema + a few sample
+    // rows — the real data this operator consumes — so the model fixes against
+    // actual inputs instead of guessing column names/types (the wrong-column /
+    // KeyError re-derivation loop). Dataflow-native: the typed DAG gives us the
+    // exact inputs the process() reads. Off by default (no-op).
+    if (options.lineageErrorContext && isCurrent && info?.error && op.operatorType !== "DataLoading") {
+      const lc = buildLineageErrorContext(op.operatorID, snapshot, allLinks);
+      if (lc) for (const l of lc.split("\n")) lines.push("  " + l);
+    }
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
     // "blocked by upstream error" from "not yet executed" by walking
@@ -1170,6 +1184,42 @@ function collectFailedUpstreamRoots(
     }
   }
   return failed;
+}
+
+/**
+ * #28 lineage error-attribution. For an errored operator, build an `Inputs:`
+ * block showing each DIRECT upstream input (process() param == upstream
+ * operatorId via links) that has a SUCCESSFUL result: its column schema +
+ * first few sample rows — the real data this operator consumes — so the model
+ * fixes against actual columns/values instead of guessing. Upstreams that
+ * errored / have no result are skipped. Returns "" when nothing useful.
+ */
+function buildLineageErrorContext(
+  opId: string,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"]
+): string {
+  const MAX_ROWS = 3;
+  const parents: string[] = [];
+  const seen = new Set<string>();
+  for (const link of allLinks) {
+    if (link.target.operatorID !== opId) continue;
+    const p = link.source.operatorID;
+    if (!seen.has(p)) { seen.add(p); parents.push(p); }
+  }
+  const blocks: string[] = [];
+  for (const pid of parents) {
+    const pInfo = snapshot.results.get(pid)?.info;
+    if (!pInfo || pInfo.error || !Array.isArray(pInfo.result) || pInfo.result.length === 0) continue;
+    const rows = pInfo.result as Record<string, unknown>[];
+    const cols = Object.keys(rows[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
+    if (cols.length === 0) continue;
+    const header = cols.join("\t");
+    const body = rows.slice(0, MAX_ROWS).map(r => cols.map(c => String(r[c] ?? "")).join("\t")).join("\n");
+    blocks.push(`Input \`${pid}\` (${cols.length} cols, ${rows.length} rows): ${cols.join(", ")}\n${header}\n${body}`);
+  }
+  if (blocks.length === 0) return "";
+  return "Inputs (the actual data this operator consumes \u2014 fix against these real columns/values, do not guess):\n" + blocks.join("\n");
 }
 
 /* ============================================================================
