@@ -82,7 +82,6 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       lineageTimeline: settings.lineageTimeline,
       fewShotPrompt: settings.fewShotPrompt,
       tableStructureHint: settings.tableStructureHint,
-      loaderEscalation: settings.loaderEscalation,
       maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
     });

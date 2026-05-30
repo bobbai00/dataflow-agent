@@ -341,6 +341,7 @@ export interface AgentSettingsApi {
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
   tableStructureHint?: boolean;
+  loaderEscalation?: boolean;
   maxResultRows?: number;
 }
 
@@ -396,5 +397,6 @@ export interface UpdateAgentSettingsRequest {
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
   tableStructureHint?: boolean;
+  loaderEscalation?: boolean;
   maxResultRows?: number;
 }
