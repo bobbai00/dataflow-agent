@@ -721,17 +721,8 @@ export class TexeraAgent {
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     includeOperatorProperties?: boolean;
-    schemaInResult?: boolean;
-    loaderHint?: boolean;
-    valueFormatFlags?: boolean;
-    lineageStats?: boolean;
-    lineageErrorContext?: boolean;
-    joinTelemetry?: boolean;
-    graphAudit?: boolean;
-    coercionTelemetry?: boolean;
     lineageTimeline?: boolean;
     fewShotPrompt?: boolean;
-    tableStructureHint?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
     flowLevel?: number;
@@ -791,44 +782,6 @@ export class TexeraAgent {
       // `Properties:` line is emitted in the assembled snapshot (code
       // operators are always stripped regardless). Read at next assembly.
     }
-    if (updates.schemaInResult !== undefined) {
-      this.settings.schemaInResult = updates.schemaInResult;
-      // Pure render-time toggle — controls whether a compact `Schema:` line
-      // (col + type) precedes each operator's result. Read at next assembly.
-    }
-    if (updates.loaderHint !== undefined) {
-      this.settings.loaderHint = updates.loaderHint;
-      // Pure render-time toggle — appends a `Loader hint:` remediation line to
-      // a failed load-stage operator's Result. Read at next assembleContext.
-    }
-    if (updates.valueFormatFlags !== undefined) {
-      this.settings.valueFormatFlags = updates.valueFormatFlags;
-      // Pure render-time toggle — appends a `Format hints:` line flagging
-      // currency/percent/thousands columns. Read at next assembleContext.
-    }
-    if (updates.lineageErrorContext !== undefined) {
-      this.settings.lineageErrorContext = updates.lineageErrorContext;
-    }
-    if (updates.lineageStats !== undefined) {
-      this.settings.lineageStats = updates.lineageStats;
-      // Pure render-time toggle — appends a `Lineage:` row-count line + alarms.
-      // Read at next assembleContext.
-    }
-    if (updates.joinTelemetry !== undefined) {
-      this.settings.joinTelemetry = updates.joinTelemetry;
-      // Pure render-time toggle — surfaces worker-flagged degenerate joins.
-      // Read at next assembleContext.
-    }
-    if (updates.graphAudit !== undefined) {
-      this.settings.graphAudit = updates.graphAudit;
-      // Pure render-time toggle — flags dead/disconnected load operators.
-      // Read at next assembleContext.
-    }
-    if (updates.coercionTelemetry !== undefined) {
-      this.settings.coercionTelemetry = updates.coercionTelemetry;
-      // Pure render-time toggle — surfaces coerce-to-NaN dataloss.
-      // Read at next assembleContext.
-    }
     if (updates.flowLevel !== undefined) {
       this.settings.flowLevel = updates.flowLevel;
       // DECORATE flow facet ordinal level (CONTEXT-DESIGN §5). Expanded to the
@@ -845,9 +798,6 @@ export class TexeraAgent {
     if (updates.lineageTimeline !== undefined) {
       this.settings.lineageTimeline = updates.lineageTimeline;
       // Pure render-time toggle — LATEST-mode construction timeline (W3).
-    }
-    if (updates.tableStructureHint !== undefined) {
-      this.settings.tableStructureHint = updates.tableStructureHint;
     }
     if (updates.loaderEscalation !== undefined) {
       this.settings.loaderEscalation = updates.loaderEscalation;

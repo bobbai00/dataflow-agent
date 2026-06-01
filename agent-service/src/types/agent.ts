@@ -150,7 +150,6 @@ export interface AgentSettings {
    * inventory so a downstream `def process(upstream)` writes against real
    * columns. Disabled by default (no-op).
    */
-  schemaInResult: boolean;
   /**
    * When true, an operator that has been edited repeatedly (≥ the reflection
    * threshold) gets an `Attempt reflection:` block in the current snapshot:
@@ -173,7 +172,6 @@ export interface AgentSettings {
    * but loops without acting; this injects the remediation knowledge it lacks.
    * No task/column/domain literals. Disabled by default (no-op).
    */
-  loaderHint: boolean;
   /**
    * Global loader-proliferation budget (goal.md lever F / generalizes C). The
    * maximum number of distinct `DataLoading` operator ids that may read the
@@ -195,7 +193,6 @@ export interface AgentSettings {
    * silent `to_numeric(errors='coerce')` dataloss accuracy killer. Keyed only
    * on value shape (no task literals). Disabled by default (no-op).
    */
-  valueFormatFlags: boolean;
   /**
    * When true, each operator result carries a `Lineage:` line — input→output
    * row counts (kept % of largest input) plus a conservative alarm on
@@ -204,29 +201,23 @@ export interface AgentSettings {
    * Targets the dominant silent-cardinality wrong-answer and the cost spiral
    * tail. Disabled by default (no-op).
    */
-  lineageStats: boolean;
-  lineageErrorContext: boolean;
   /**
    * When true, a degenerate merge (near-zero key match, with an unmatched-key
    * sample, or a many-to-many fan-out) flagged by the worker's transparent join
    * instrumentation surfaces as a `Join check ⚠` line. Alarm-only; off by default.
    */
-  joinTelemetry: boolean;
   /**
    * When true, a DataLoading operator whose output reaches no downstream
    * operator (a dead/forgotten load — typed-DAG reachability) gets a
    * `Graph check ⚠` line. Off by default.
    */
-  graphAudit: boolean;
   /**
    * When true, a `to_numeric/to_datetime(errors="coerce")` that silently nulled
    * a material block of values surfaces as a coercion-dataloss line (with a
    * sample of the dropped values). Off by default.
    */
-  coercionTelemetry: boolean;
   lineageTimeline: boolean;
   fewShotPrompt: boolean;
-  tableStructureHint: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
   flowLevel: number;
@@ -266,19 +257,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   contextMode: ContextMode.LATEST,
   parallelToolCalls: false,
   includeOperatorProperties: true,
-  schemaInResult: false,
   attemptReflection: false,
-  loaderHint: false,
   maxLoadersPerSource: 0,
-  valueFormatFlags: false,
-  lineageStats: false,
-  lineageErrorContext: false,
-  joinTelemetry: false,
-  graphAudit: false,
-  coercionTelemetry: false,
   lineageTimeline: false,
   fewShotPrompt: false,
-  tableStructureHint: false,
   loaderEscalation: false,
   maxResultRows: 0,
   flowLevel: 0,
@@ -329,19 +311,10 @@ export interface AgentSettingsApi {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
-  schemaInResult?: boolean;
   attemptReflection?: boolean;
-  loaderHint?: boolean;
   maxLoadersPerSource?: number;
-  valueFormatFlags?: boolean;
-  lineageStats?: boolean;
-  lineageErrorContext?: boolean;
-  joinTelemetry?: boolean;
-  graphAudit?: boolean;
-  coercionTelemetry?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
-  tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
   flowLevel?: number;
@@ -386,19 +359,10 @@ export interface UpdateAgentSettingsRequest {
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
-  schemaInResult?: boolean;
   attemptReflection?: boolean;
-  loaderHint?: boolean;
   maxLoadersPerSource?: number;
-  valueFormatFlags?: boolean;
-  lineageStats?: boolean;
-  lineageErrorContext?: boolean;
-  joinTelemetry?: boolean;
-  graphAudit?: boolean;
-  coercionTelemetry?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
-  tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
   flowLevel?: number;
