@@ -30,6 +30,8 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult } from "../tools/result-formatting";
+import { levelsToFlags } from "../context/decorate/registry";
+import type { DecorateLevel } from "../context/decorate/types";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -127,6 +129,15 @@ export interface AssembleContextOptions {
    *  attempt-reflection render — LATEST shows no history, so it's reconstructed
    *  from `visibleSteps`. */
   editCountsByOp?: Map<string, number>;
+  /** DECORATE ordinal levels (claude/CONTEXT-DESIGN.md §5). When set (>=0), the
+   *  flow/data facet level expands — via the rung catalog (context/decorate/
+   *  registry.levelsToFlags) — into the individual render flags above, OR-ing
+   *  them on. This is the new ordinal knob replacing the per-lever booleans;
+   *  the booleans remain valid and any explicitly-set boolean is preserved
+   *  (the level only turns rungs ON, never off). Undefined ⇒ legacy boolean
+   *  behavior, no expansion. */
+  flowLevel?: number;
+  dataLevel?: number;
 }
 
 /**
@@ -186,6 +197,21 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  // DECORATE levels → render flags (claude/CONTEXT-DESIGN.md §5). When the
+  // caller supplies ordinal facet levels, expand them through the rung catalog
+  // and OR the resulting rung flags onto `options`. Levels only turn rungs ON;
+  // an explicitly-set boolean is never cleared. Undefined levels ⇒ no-op, so
+  // existing boolean-only callers are unaffected.
+  if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
+    const clamp = (n: number | undefined): DecorateLevel =>
+      (Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel);
+    const expanded = levelsToFlags(clamp(options.flowLevel), clamp(options.dataLevel));
+    const bag = options as unknown as Record<string, unknown>;
+    for (const flag of Object.keys(expanded)) {
+      bag[flag] = true;
+    }
+  }
+
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
 
   // The latest user-message content lives in its own top-of-prompt

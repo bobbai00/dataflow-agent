@@ -1095,3 +1095,60 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
  *  (abbreviateSummary when event.summary == snapshot.customDisplayName)
  * ========================================================================= */
 
+
+/* ============================================================================
+ *  DECORATE levels (context/decorate registry) — flow_level / data_level
+ *  expand to the same render flags as the equivalent booleans (the shim).
+ * ========================================================================= */
+
+describe("assembleContext — DECORATE levels", () => {
+  test("dataLevel/flowLevel produce IDENTICAL output to the equivalent booleans", () => {
+    const A = buildCanonicalScenario();
+    const B = buildCanonicalScenario();
+    // converge ≈ flow L2 (schema + loaderHint + cardinality + error-context)
+    //              + data L2 (schema + tableStructureHint)
+    const viaLevels = content(
+      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
+        ...opts, flowLevel: 2, dataLevel: 2,
+      })
+    );
+    const viaBooleans = content(
+      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
+        ...opts, schemaInResult: true, loaderHint: true, lineageStats: true,
+        lineageErrorContext: true, tableStructureHint: true,
+      })
+    );
+    expect(viaLevels).toBe(viaBooleans);
+  });
+
+  test("undefined levels -> no expansion (pure legacy boolean behavior)", () => {
+    const A = buildCanonicalScenario();
+    const B = buildCanonicalScenario();
+    const noLevels = content(
+      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, { ...opts })
+    );
+    const zeroLevels = content(
+      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
+        ...opts, flowLevel: 0, dataLevel: 0,
+      })
+    );
+    expect(zeroLevels).toBe(noLevels);
+  });
+
+  test("a level never clears an explicitly-set boolean (only turns rungs ON)", () => {
+    const A = buildCanonicalScenario();
+    // data L0 expands nothing, but an explicit tableStructureHint:true stays on.
+    const c = content(
+      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
+        ...opts, dataLevel: 0, flowLevel: 0, tableStructureHint: true,
+      })
+    );
+    const B = buildCanonicalScenario();
+    const ref = content(
+      assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
+        ...opts, tableStructureHint: true,
+      })
+    );
+    expect(c).toBe(ref);
+  });
+});
