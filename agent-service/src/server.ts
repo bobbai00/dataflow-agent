@@ -85,6 +85,8 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       tableStructureHint: settings.tableStructureHint,
       maxResultRows: settings.maxResultRows,
       frontierDepth: settings.frontierDepth,
+      flowLevel: settings.flowLevel,
+      dataLevel: settings.dataLevel,
       attemptReflection: settings.attemptReflection,
     });
 }
@@ -173,6 +175,8 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     loaderEscalation: agentSettings.loaderEscalation,
     maxResultRows: agentSettings.maxResultRows,
     frontierDepth: agentSettings.frontierDepth,
+    flowLevel: agentSettings.flowLevel,
+    dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
   };
 
@@ -301,6 +305,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           loaderEscalation: settings.loaderEscalation,
           maxResultRows: settings.maxResultRows,
           frontierDepth: settings.frontierDepth,
+          flowLevel: settings.flowLevel,
+          dataLevel: settings.dataLevel,
           attemptReflection: settings.attemptReflection,
         });
       }
@@ -349,6 +355,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             loaderEscalation: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
             frontierDepth: t.Optional(t.Number()),
+            flowLevel: t.Optional(t.Number()),
+            dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
           })
         ),
@@ -637,6 +645,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         loaderEscalation: settings.loaderEscalation,
         maxResultRows: settings.maxResultRows,
         frontierDepth: settings.frontierDepth,
+        flowLevel: settings.flowLevel,
+        dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
       });
 
@@ -677,6 +687,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         loaderEscalation: agentSettings.loaderEscalation,
         maxResultRows: agentSettings.maxResultRows,
         frontierDepth: agentSettings.frontierDepth,
+        flowLevel: agentSettings.flowLevel,
+        dataLevel: agentSettings.dataLevel,
         attemptReflection: agentSettings.attemptReflection,
       };
     },
@@ -712,6 +724,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         loaderEscalation: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
         frontierDepth: t.Optional(t.Number()),
+        flowLevel: t.Optional(t.Number()),
+        dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
       }),
     }

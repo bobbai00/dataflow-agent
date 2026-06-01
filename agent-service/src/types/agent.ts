@@ -232,6 +232,8 @@ export interface AgentSettings {
   loaderEscalation: boolean;
   maxResultRows: number;
   frontierDepth: number;
+  flowLevel: number;
+  dataLevel: number;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -285,6 +287,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   loaderEscalation: false,
   maxResultRows: 0,
   frontierDepth: 0,
+  flowLevel: 0,
+  dataLevel: 0,
 };
 
 /**
@@ -349,6 +353,8 @@ export interface AgentSettingsApi {
   loaderEscalation?: boolean;
   maxResultRows?: number;
   frontierDepth?: number;
+  flowLevel?: number;
+  dataLevel?: number;
 }
 
 export interface AgentInfo {
@@ -407,4 +413,6 @@ export interface UpdateAgentSettingsRequest {
   loaderEscalation?: boolean;
   maxResultRows?: number;
   frontierDepth?: number;
+  flowLevel?: number;
+  dataLevel?: number;
 }

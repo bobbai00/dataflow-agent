@@ -737,6 +737,8 @@ export class TexeraAgent {
     loaderEscalation?: boolean;
     maxResultRows?: number;
     frontierDepth?: number;
+    flowLevel?: number;
+    dataLevel?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
   }): void {
@@ -838,6 +840,15 @@ export class TexeraAgent {
     }
     if (updates.frontierDepth !== undefined) {
       this.settings.frontierDepth = updates.frontierDepth;
+    }
+    if (updates.flowLevel !== undefined) {
+      this.settings.flowLevel = updates.flowLevel;
+      // DECORATE flow facet ordinal level (CONTEXT-DESIGN §5). Expanded to the
+      // flow rung flags by assembleContext via the rung catalog.
+    }
+    if (updates.dataLevel !== undefined) {
+      this.settings.dataLevel = updates.dataLevel;
+      // DECORATE data facet ordinal level (CONTEXT-DESIGN §5).
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
