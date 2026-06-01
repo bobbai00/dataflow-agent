@@ -980,6 +980,26 @@ class DataProcessor(Runnable, Stoppable):
             s = str(name).strip()
             return s == "" or s.startswith("Unnamed:")
 
+        # Header-resolution hint (data-facet, load-quality). Blank / `Unnamed: N`
+        # column names signal an UNRESOLVED header (the real header is not row 0
+        # -- the file needs skiprows=/header=). This is a SILENT failure: the read
+        # succeeds, so loader_hint (exception-keyed) never fires, yet downstream
+        # column access is wrong. Surfacing it as an explicit remediation is the
+        # pre-emptive counterpart to merely dropping these columns from the grain/
+        # partition profile. Fires only when placeholders are a minority (a fully
+        # headerless frame is a different, louder situation).
+        try:
+            n_cols = df.shape[1]
+            n_placeholder = sum(1 for c in df.columns if _is_placeholder(c))
+            if n_cols > 0 and 0 < n_placeholder < n_cols:
+                hints.append(
+                    f"header: {n_placeholder} of {n_cols} columns are unnamed/placeholder "
+                    "(Unnamed:N) -> the header is likely unresolved; re-read with header=/skiprows= "
+                    "so the real column names load, then index by name"
+                )
+        except Exception:
+            pass
+
         keys: list = []
         groups: list = []
         partitions: list = []

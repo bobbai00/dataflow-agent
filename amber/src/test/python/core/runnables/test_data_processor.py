@@ -1572,3 +1572,63 @@ class TestComputeColumnStatsTopN:
         )
         line = self._stats(col)
         assert line.startswith("(str):"), line
+
+
+class TestDetectTableStructure:
+    """_detect_table_structure (data-facet structural profile #25/#26/#27 +
+    the header-resolution hint). Static method over a whole DataFrame; the
+    accuracy-relevant rung of the campaign."""
+
+    @staticmethod
+    def _hints(df):
+        return DataProcessor._detect_table_structure(df)
+
+    def test_empty_rows_and_cols(self):
+        df = _pd.DataFrame({"a": [1, None, 3], "b": [None, None, None]})
+        hints = self._hints(df)
+        assert any(h.startswith("empty:") for h in hints), hints
+        assert any("all-null col" in h for h in hints), hints
+
+    def test_duplicate_rows(self):
+        df = _pd.DataFrame({"a": [1, 1, 1, 1], "b": ["x", "x", "x", "x"]})
+        hints = self._hints(df)
+        assert any(h.startswith("duplicates:") for h in hints), hints
+
+    def test_candidate_key_grain(self):
+        df = _pd.DataFrame({"id": list(range(10)), "v": [1] * 10})
+        hints = self._hints(df)
+        assert any(h.startswith("key:") and "id" in h for h in hints), hints
+
+    def test_binary_partition_gate(self):
+        df = _pd.DataFrame({"excluded": (["No"] * 8) + (["Yes"] * 2), "x": list(range(10))})
+        hints = self._hints(df)
+        part = [h for h in hints if h.startswith("partition:")]
+        assert part and "excluded" in part[0] and "[binary]" in part[0], hints
+
+    def test_header_resolution_hint_fires_on_unnamed_minority(self):
+        df = _pd.DataFrame({"real": [1, 2, 3], "Unnamed: 1": [4, 5, 6], "Unnamed: 2": [7, 8, 9]})
+        hints = self._hints(df)
+        hdr = [h for h in hints if h.startswith("header:")]
+        assert hdr, hints
+        assert "2 of 3 columns are unnamed/placeholder" in hdr[0], hdr
+        assert "skiprows=" in hdr[0] or "header=" in hdr[0], hdr
+
+    def test_header_hint_silent_when_no_placeholders(self):
+        df = _pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        assert not any(h.startswith("header:") for h in self._hints(df)), self._hints(df)
+
+    def test_header_hint_silent_when_all_placeholders(self):
+        # a fully headerless frame is a different (louder) situation — hint only
+        # fires on a MINORITY of placeholder columns.
+        df = _pd.DataFrame({"Unnamed: 0": [1, 2, 3], "Unnamed: 1": [4, 5, 6]})
+        assert not any(h.startswith("header:") for h in self._hints(df)), self._hints(df)
+
+    def test_placeholder_cols_excluded_from_grain_partition(self):
+        # Unnamed columns must NOT appear in key/partition output (they are
+        # dropped from those, even though the header hint counts them).
+        df = _pd.DataFrame({"Unnamed: 0": list(range(10)), "real": [1] * 10})
+        hints = self._hints(df)
+        assert not any("Unnamed" in h for h in hints if h.startswith(("key:", "partition:", "groups:"))), hints
+
+    def test_empty_frame_returns_no_hints(self):
+        assert self._hints(_pd.DataFrame()) == []
