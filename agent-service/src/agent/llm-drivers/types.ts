@@ -27,8 +27,7 @@ import type { WorkflowCompilationResponse } from "../../api/compile-api";
  * Bag of agent state a context assembler reads from when rendering the
  * next prepareStep message. Each assembler ignores fields it doesn't need
  * — the SDK-driver assembler uses every field; the local-react assembler
- * uses only `visibleSteps`, `workflowState`, `snapshotStorage`, and
- * `settings.statsEnabled`.
+ * uses only `visibleSteps`, `workflowState`, and `snapshotStorage`.
  *
  * `compilationResult` is `null` whenever the agent intentionally skipped
  * compilation (e.g. `getNextStepContext()` previews or empty workflows).

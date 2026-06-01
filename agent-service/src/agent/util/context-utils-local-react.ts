@@ -63,10 +63,6 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { formatOperatorResult } from "../tools/result-formatting";
 
 export interface AssembleLocalReactContextOptions {
-  /** Forwarded to `formatOperatorResult`. When true, every non-error
-   *  operator result with a `columnStats` annotation gets a `Column stats:`
-   *  block appended. Matches the AgentSettings flag of the same name. */
-  statsEnabled?: boolean;
 }
 
 const SENTINEL_INSTRUCTION =
@@ -268,9 +264,7 @@ function renderOperator(
 
   const info = snapshot.results.get(op.operatorID)?.info;
   if (info) {
-    const execText = formatOperatorResult(op.operatorID, info, workflowState, {
-      statsEnabled: options.statsEnabled,
-    });
+    const execText = formatOperatorResult(op.operatorID, info, workflowState, {});
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push(`  ${l}`);
   }

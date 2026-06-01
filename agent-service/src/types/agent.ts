@@ -130,7 +130,6 @@ export interface AgentSettings {
    * signal to noticeably shift the model's decisions on the next turn at
    * relatively low token cost.
    */
-  statsEnabled: boolean;
   /**
    * When true, each operator's `operatorProperties` are rendered as a
    * `Properties:` line in the assembled snapshot — EXCEPT the Python code
@@ -225,13 +224,11 @@ export interface AgentSettings {
    * sample of the dropped values). Off by default.
    */
   coercionTelemetry: boolean;
-  compactStats: boolean;
   lineageTimeline: boolean;
   fewShotPrompt: boolean;
   tableStructureHint: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
-  frontierDepth: number;
   flowLevel: number;
   dataLevel: number;
 }
@@ -268,7 +265,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   agentMode: AgentMode.CODE,
   contextMode: ContextMode.LATEST,
   parallelToolCalls: false,
-  statsEnabled: true,
   includeOperatorProperties: true,
   schemaInResult: false,
   attemptReflection: false,
@@ -280,13 +276,11 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   joinTelemetry: false,
   graphAudit: false,
   coercionTelemetry: false,
-  compactStats: false,
   lineageTimeline: false,
   fewShotPrompt: false,
   tableStructureHint: false,
   loaderEscalation: false,
   maxResultRows: 0,
-  frontierDepth: 0,
   flowLevel: 0,
   dataLevel: 0,
 };
@@ -334,7 +328,6 @@ export interface AgentSettingsApi {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
-  statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
   schemaInResult?: boolean;
   attemptReflection?: boolean;
@@ -346,13 +339,11 @@ export interface AgentSettingsApi {
   joinTelemetry?: boolean;
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
-  compactStats?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
   tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
-  frontierDepth?: number;
   flowLevel?: number;
   dataLevel?: number;
 }
@@ -394,7 +385,6 @@ export interface UpdateAgentSettingsRequest {
   agentMode?: "code" | "general";
   contextMode?: "full" | "delta" | "latest";
   parallelToolCalls?: boolean;
-  statsEnabled?: boolean;
   includeOperatorProperties?: boolean;
   schemaInResult?: boolean;
   attemptReflection?: boolean;
@@ -406,13 +396,11 @@ export interface UpdateAgentSettingsRequest {
   joinTelemetry?: boolean;
   graphAudit?: boolean;
   coercionTelemetry?: boolean;
-  compactStats?: boolean;
   lineageTimeline?: boolean;
   fewShotPrompt?: boolean;
   tableStructureHint?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
-  frontierDepth?: number;
   flowLevel?: number;
   dataLevel?: number;
 }

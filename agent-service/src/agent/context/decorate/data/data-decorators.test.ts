@@ -23,7 +23,6 @@ import { formatSchemaLine } from "./schema";
 import { formatTableHints } from "./structural-profile";
 import { formatValueFormatHints } from "./value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "./diagnostics";
-import { formatColumnStats, formatCompactStats } from "./stats";
 import { JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY, RESERVED_STATS_KEYS } from "./reserved-keys";
 
 const mk = (columnStats: Record<string, string>, extra: Partial<OperatorInfo> = {}): OperatorInfo =>
@@ -86,30 +85,6 @@ describe("reserved diagnostics", () => {
   test("undefined when absent / empty", () => {
     expect(formatJoinTelemetry(mk({}))).toBeUndefined();
     expect(formatReservedDiag(mk({ [COERCION_TELEMETRY_KEY]: "" }), COERCION_TELEMETRY_KEY)).toBeUndefined();
-  });
-});
-
-/* ---- stats blocks (data L1 verbose/compact) ---------------------------- */
-describe("stats blocks", () => {
-  test("formatColumnStats lists columns (alpha-sorted), strips format= tag, skips reserved", () => {
-    const s = formatColumnStats({ b: "(numeric): mean=2, format=currency", a: "(str): distinct=3", [JOIN_TELEMETRY_KEY]: "x" })!;
-    expect(s.startsWith("Column stats:")).toBe(true);
-    expect(s).toContain('- "a" (str): distinct=3');
-    expect(s).toContain('- "b" (numeric): mean=2');
-    expect(s).not.toContain("format=");
-    expect(s).not.toContain(JOIN_TELEMETRY_KEY);
-  });
-  test("formatCompactStats drops mean + top_10 for numeric", () => {
-    const s = formatCompactStats({ n: "(numeric): null=0, mean=5, min=1, max=9, top_10={1=2}" })!;
-    expect(s).toContain("null=0");
-    expect(s).toContain("min=1");
-    expect(s).not.toContain("mean=");
-    expect(s).not.toContain("top_10");
-  });
-  test("undefined when empty", () => {
-    expect(formatColumnStats(undefined)).toBeUndefined();
-    expect(formatColumnStats({})).toBeUndefined();
-    expect(formatCompactStats({ [TABLE_HINTS_KEY]: "x" })).toBeUndefined();
   });
 });
 

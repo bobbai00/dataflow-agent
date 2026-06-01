@@ -50,10 +50,6 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
-  /** When true, every non-error operator result whose `OperatorInfo` carries
-   *  `columnStats` is followed by a `Column stats:` section listing
-   *  per-column stats (one column per line). Off by default. */
-  statsEnabled?: boolean;
   /** When true (the default), each operator's `operatorProperties` render as
    *  a `Properties:` line in the snapshot, EXCEPT the Python code operators
    *  in `CODE_OPERATOR_TYPES` (their `code` is large and already surfaced on
@@ -62,7 +58,8 @@ export interface AssembleContextOptions {
   includeOperatorProperties?: boolean;
   /** When true, a compact `Schema:` line (col + type, all columns) precedes
    *  each non-error operator result, derived from `columnStats`/headers.
-   *  Off by default. Intended as a cheaper substitute for `statsEnabled`. */
+   *  Off by default. Internal flag — the public knob is `dataLevel` (≥1), which
+   *  expands to this via the rung catalog. */
   schemaInResult?: boolean;
   /** When true, a load-stage operator (`DataLoading`) that errored gets a
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
@@ -101,15 +98,10 @@ export interface AssembleContextOptions {
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
-  /** W4: render a compact per-column stats block (numeric null/min/max;
-   *  categorical distinct/top-5) — high-signal subset of columnStats. Off by default. */
-  compactStats?: boolean;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
   tableStructureHint?: boolean;
-  /** #30 frontier-render: 0=off (render all ops full); N>0 = render only ops within N hops of a sink in full, stub the rest to schema-line. */
-  frontierDepth?: number;
   /** W3: in LATEST mode (which otherwise shows only a snapshot, no events),
    *  render a compact `# Recent steps` construction timeline — the last K
    *  create/modify/delete actions with their ok/ERROR status — so the model
@@ -958,24 +950,15 @@ function serializeOperatorFull(
   operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
-  // #30 frontier-render: when frontierDepth>0, only operators within that many
-  // hops of a sink render in full; the rest are "stubbed" to schema-line only.
-  // Recomputed per render (small DAGs); 0/undefined = render all in full (no-op).
-  const frontierStub =
-    (options.frontierDepth ?? 0) > 0 &&
-    !workflowState.getFrontierOperators(options.frontierDepth as number).includes(op.operatorID);
   const execText = info
     ? formatOperatorResult(op.operatorID, info, workflowState, {
-        statsEnabled: options.statsEnabled,
         schemaInResult: options.schemaInResult,
         valueFormatFlags: options.valueFormatFlags,
         lineageStats: options.lineageStats,
         joinTelemetry: options.joinTelemetry,
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
-        compactStats: options.compactStats,
         tableStructureHint: options.tableStructureHint,
-        frontierStub,
       })
     : undefined;
 

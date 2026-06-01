@@ -31,7 +31,6 @@ import { formatSchemaLine } from "../context/decorate/data/schema";
 import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
-import { formatColumnStats, formatCompactStats, MAX_STATS_COLUMNS } from "../context/decorate/data/stats";
 import { formatLineage } from "../context/decorate/flow/cardinality";
 
 // Back-compat re-exports: these render helpers were defined here before the
@@ -47,10 +46,6 @@ export {
 };
 
 export interface FormatOperatorResultOptions {
-  /** When true and `opInfo.columnStats` is a non-empty map, append a
-   *  `Column stats:` block — one indented line per column. Errors are
-   *  rendered the same way regardless. Defaults to false. */
-  statsEnabled?: boolean;
   /** When true, prepend a compact `Schema:` line listing every output column
    *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
    *  the result-row headers (names only). A cheaper, complete substitute for
@@ -87,15 +82,6 @@ export interface FormatOperatorResultOptions {
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
-  /** W4: render a COMPACT per-column stats block (numeric: null/min/max;
-   *  categorical: distinct + top-5) — the high-signal subset of the worker's
-   *  columnStats, dropping mean + the verbose top_10. A middle ground between
-   *  the bare schema line and the full `Column stats:` block (which cost ~53%
-   *  on mini). Defaults to false. */
-  compactStats?: boolean;
-  /** #30 frontier-render: this op is NON-frontier; render schema-line only,
-   *  dropping sample rows + stats + hint blocks (keeps column names). Default false. */
-  frontierStub?: boolean;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
    *  empty rows/cols + duplicates) computed name-agnostically by the worker over
@@ -181,16 +167,7 @@ export function formatOperatorResult(
   const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  const statsBlock = options.statsEnabled
-    ? formatColumnStats(opInfo.columnStats)
-    : options.compactStats ? formatCompactStats(opInfo.columnStats) : undefined;
-  // #30 frontier-render: non-frontier ops get only the cheap schema line + brief
-  // summary (column inventory preserved) — drop the expensive sample rows + stats
-  // + hint blocks that dominate per-step LATEST re-render cost.
-  if (options.frontierStub) {
-    return [briefSummary, schemaLine].filter(Boolean).join("\n");
-  }
-  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, tableHintsLine, ...metadataLines, dataString, statsBlock].filter(Boolean).join("\n");
+  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, tableHintsLine, ...metadataLines, dataString].filter(Boolean).join("\n");
 }
 
 

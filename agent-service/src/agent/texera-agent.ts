@@ -720,7 +720,6 @@ export class TexeraAgent {
     agentMode?: AgentMode;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
-    statsEnabled?: boolean;
     includeOperatorProperties?: boolean;
     schemaInResult?: boolean;
     loaderHint?: boolean;
@@ -730,13 +729,11 @@ export class TexeraAgent {
     joinTelemetry?: boolean;
     graphAudit?: boolean;
     coercionTelemetry?: boolean;
-    compactStats?: boolean;
     lineageTimeline?: boolean;
     fewShotPrompt?: boolean;
     tableStructureHint?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
-    frontierDepth?: number;
     flowLevel?: number;
     dataLevel?: number;
     maxLoadersPerSource?: number;
@@ -788,12 +785,6 @@ export class TexeraAgent {
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
     }
-    if (updates.statsEnabled !== undefined) {
-      this.settings.statsEnabled = updates.statsEnabled;
-      // Pure render-time toggle — controls whether `Column stats:` is
-      // appended to each non-error operator's Result block at context-
-      // assembly time. Read at the next assembleContext call.
-    }
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
       // Pure render-time toggle — controls whether each operator's
@@ -838,9 +829,6 @@ export class TexeraAgent {
       // Pure render-time toggle — surfaces coerce-to-NaN dataloss.
       // Read at next assembleContext.
     }
-    if (updates.frontierDepth !== undefined) {
-      this.settings.frontierDepth = updates.frontierDepth;
-    }
     if (updates.flowLevel !== undefined) {
       this.settings.flowLevel = updates.flowLevel;
       // DECORATE flow facet ordinal level (CONTEXT-DESIGN §5). Expanded to the
@@ -853,10 +841,6 @@ export class TexeraAgent {
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
-    }
-    if (updates.compactStats !== undefined) {
-      this.settings.compactStats = updates.compactStats;
-      // Pure render-time toggle — compact per-column stats block (W4).
     }
     if (updates.lineageTimeline !== undefined) {
       this.settings.lineageTimeline = updates.lineageTimeline;
