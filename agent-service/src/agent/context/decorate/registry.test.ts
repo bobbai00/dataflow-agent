@@ -36,20 +36,28 @@ describe("decorate registry", () => {
     expect(ids).toEqual(["data.coercion", "data.schema", "data.structural_profile", "data.value_format"]);
   });
 
-  test("flow facet rungs are independent of data facet", () => {
+  test("flow facet rungs are independent of data facet; schema is data-only", () => {
     const flow = rungsForLevel("flow", 3).map(r => r.id);
     expect(flow.every(id => id.startsWith("flow."))).toBe(true);
+    // schema belongs to the data facet, not flow
+    expect(flow).not.toContain("flow.schema");
   });
 
-  test("levelsToFlags expands the proven converge stack (flow L2 + data L2)", () => {
-    // converge ≈ schema + loader_hint + structural profile
-    const flags = levelsToFlags(2, 2);
-    expect(flags.schemaInResult).toBe(true);     // flow+data L1
-    expect(flags.loaderHint).toBe(true);          // flow L2
-    expect(flags.tableStructureHint).toBe(true);  // data L2
-    // value-level and topology are L3 — must NOT be on at level 2
-    expect(flags.valueFormatFlags).toBeUndefined();
-    expect(flags.graphAudit).toBeUndefined();
+  test("levelsToFlags expands the proven converge stack (flow L1 + data L1)", () => {
+    // converge = loader_hint (flow L1) + schema (data L1)
+    const flags = levelsToFlags(1, 1);
+    expect(flags.loaderHint).toBe(true);       // flow L1
+    expect(flags.schemaInResult).toBe(true);   // data L1
+    // the structural-profile win (data L2) is NOT on at data L1
+    expect(flags.tableStructureHint).toBeUndefined();
+    expect(flags.lineageStats).toBeUndefined();
+  });
+
+  test("data L2 adds the structural-profile win on top of converge", () => {
+    const flags = levelsToFlags(1, 2);
+    expect(flags.schemaInResult).toBe(true);
+    expect(flags.tableStructureHint).toBe(true);
+    expect(flags.valueFormatFlags).toBeUndefined(); // L3
   });
 
   test("levelsToFlags(0,0) is empty (pure baseline)", () => {
@@ -67,6 +75,7 @@ describe("decorate registry", () => {
   test("flagToLevel inverts the mapping", () => {
     expect(flagToLevel("data", "tableStructureHint")).toBe(2);
     expect(flagToLevel("data", "schemaInResult")).toBe(1);
+    expect(flagToLevel("flow", "loaderHint")).toBe(1);
     expect(flagToLevel("flow", "graphAudit")).toBe(3);
   });
 

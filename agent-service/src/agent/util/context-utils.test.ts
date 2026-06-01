@@ -1105,8 +1105,8 @@ describe("assembleContext — DECORATE levels", () => {
   test("dataLevel/flowLevel produce IDENTICAL output to the equivalent booleans", () => {
     const A = buildCanonicalScenario();
     const B = buildCanonicalScenario();
-    // converge ≈ flow L2 (schema + loaderHint + cardinality + error-context)
-    //              + data L2 (schema + tableStructureHint)
+    // flow L2 = loaderHint (L1) + cardinality + error-context (L2)
+    // data L2 = schema (L1) + structural profile (L2)
     const viaLevels = content(
       assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
         ...opts, flowLevel: 2, dataLevel: 2,
@@ -1114,8 +1114,8 @@ describe("assembleContext — DECORATE levels", () => {
     );
     const viaBooleans = content(
       assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts, schemaInResult: true, loaderHint: true, lineageStats: true,
-        lineageErrorContext: true, tableStructureHint: true,
+        ...opts, loaderHint: true, lineageStats: true, lineageErrorContext: true,
+        schemaInResult: true, tableStructureHint: true,
       })
     );
     expect(viaLevels).toBe(viaBooleans);
@@ -1177,7 +1177,7 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     return s;
   }
 
-  test("loader-remediation: flow L2 (or loaderHint flag) renders the hint; off by default", () => {
+  test("loader-remediation: flow L1 (or loaderHint flag) renders the hint; off by default", () => {
     const off = errorScenario();
     const cOff = content(assembleContext(off.steps, off.workflowState, off.storage, ContextMode.LATEST, { ...opts }));
     expect(cOff).not.toContain("Loader hint:");
@@ -1188,17 +1188,19 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     expect(cFlag).toContain("cp1252");
 
     const viaLevel = errorScenario();
-    const cLevel = content(assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
-    // flow L2 enables loaderHint (among others) → identical hint present
+    const cLevel = content(assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 }));
+    // flow L1 = loader remediation → identical hint present
     expect(cLevel).toContain("Loader hint:");
     expect(cLevel).toContain("cp1252");
   });
 
-  test("flowLevel=2 reproduces the explicit loaderHint output byte-for-byte", () => {
+  test("flowLevel=2 reproduces the explicit flow-rung output byte-for-byte", () => {
     const a = errorScenario();
     const b = errorScenario();
-    const viaLevel = content(assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, { ...opts, schemaInResult: true, loaderHint: true, lineageStats: true, lineageErrorContext: true }));
-    const viaBool = content(assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
-    expect(viaBool).toBe(viaLevel);
+    // flow L2 = loaderHint (L1) + cardinality + error-context (L2). No schema
+    // (that is the data facet).
+    const viaBool = content(assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, { ...opts, loaderHint: true, lineageStats: true, lineageErrorContext: true }));
+    const viaLevel = content(assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
+    expect(viaLevel).toBe(viaBool);
   });
 });

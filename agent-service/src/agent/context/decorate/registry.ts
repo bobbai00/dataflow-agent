@@ -45,29 +45,24 @@ import { graphAudit } from "./flow/graph-audit";
  */
 export const RUNGS: readonly RungDescriptor[] = [
   // ---- FLOW facet ----
+  // Flow ladder (decorate the typed DAG / lineage). Schema is a DATA-facet rung
+  // (it describes the table payload), so flow L1 starts at loader remediation —
+  // the proven pre-emptive flow rung that the converge stack ships.
   {
-    id: "flow.schema",
+    id: "flow.loader_remediation",
     facet: "flow",
     level: 1,
     mode: "preemptive",
-    flag: "schemaInResult",
-    note: "compact Schema: (col+type) line per result — load-bearing for accuracy, kept in converge",
+    flag: "loaderHint",
+    note: "on a failed DataLoading op, remediation keyed on the exception class (converge)",
   },
   {
     id: "flow.cardinality",
     facet: "flow",
-    level: 1,
+    level: 2,
     mode: "posthoc",
     flag: "lineageStats",
     note: "per-op rows in→out, kept %, + empty/fan-out alarm",
-  },
-  {
-    id: "flow.loader_remediation",
-    facet: "flow",
-    level: 2,
-    mode: "preemptive",
-    flag: "loaderHint",
-    note: "on a failed DataLoading op, remediation keyed on the exception class",
   },
   {
     id: "flow.error_context",
@@ -135,13 +130,11 @@ export function rungsForLevel(facet: DecorateFacet, level: DecorateLevel): RungD
 }
 
 /**
- * Migration shim: expand the two ordinal facet levels into the set of legacy
- * option flags the current assembler reads. Returns a partial map of
- * `{ flagName: true }` for every rung enabled at the given levels.
- *
- * `schemaInResult` is backed by BOTH facets' L1 (it is the schema line, which
- * is simultaneously the cheapest flow-I/O view and the cheapest data view); the
- * set naturally de-duplicates it.
+ * Expand the two ordinal facet levels into the set of internal render flags the
+ * assembler consumes (via AssembleContextOptions). Returns a partial map of
+ * `{ flagName: true }` for every rung enabled at the given levels. These flags
+ * are NOT a public knob surface — `flowLevel`/`dataLevel` are the public knobs;
+ * the per-rung flags are the internal expansion target.
  */
 export function levelsToFlags(flowLevel: DecorateLevel, dataLevel: DecorateLevel): Record<string, boolean> {
   const out: Record<string, boolean> = {};
