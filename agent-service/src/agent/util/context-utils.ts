@@ -34,6 +34,7 @@ import { levelsToFlags, runOperatorDecorators } from "../context/decorate/regist
 import type { DecorateLevel } from "../context/decorate/types";
 import type { OperatorDecorateCtx } from "../context/decorate/decorator";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
+import { buildTimeline } from "../context/select/reinjection/timeline";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -306,7 +307,7 @@ export function assembleContext(
  * whole context — independent of the underlying ReAct step IDs (which restart
  * per messageId and are 0-based).
  */
-interface PathNode {
+export interface PathNode {
   step: ReActStep;
   snapshot: SnapshotData | undefined;
   eventIndex: number;
@@ -468,37 +469,10 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  * already tried (cheaply — one short line per event, not full FULL-mode
  * snapshots). Returns undefined when there are no edits yet.
  */
-function buildTimeline(fullPath: PathNode[], maxEvents = 14): string | undefined {
-  const events: string[] = [];
-  const known = new Set<string>();
-  for (const node of fullPath) {
-    if (node.step.role !== "agent" || !node.step.toolCalls) continue;
-    const trs = node.step.toolResults ?? [];
-    node.step.toolCalls.forEach((tc, i) => {
-      const inp = (tc.input ?? {}) as Record<string, unknown>;
-      const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
-      if (!opId) return;
-      let verb: string;
-      if (tc.toolName === "createOrModifyOperator") {
-        verb = known.has(opId) ? "modified" : "created";
-        known.add(opId);
-      } else if (tc.toolName === "deleteOperator") {
-        verb = "deleted";
-        known.delete(opId);
-      } else return;
-      const out = trs[i]?.output;
-      const txt = typeof out === "string" ? out : out ? JSON.stringify(out) : "";
-      const errM = /\[ERROR\][^\n]*/.exec(txt);
-      const status = errM ? `ERROR ${errM[0].replace("[ERROR]", "").trim().slice(0, 80)}` : "ok";
-      events.push(`${verb} \`${escapeQuotes(opId)}\` → ${status}`);
-    });
-  }
-  if (events.length === 0) return undefined;
-  const shown = events.slice(-maxEvents);
-  const omitted = events.length - shown.length;
-  const lines = shown.map((e, i) => `${omitted + i + 1}. ${e}`);
-  return (omitted > 0 ? `(… ${omitted} earlier steps …)\n` : "") + lines.join("\n");
-}
+// `buildTimeline` (W3 reinjection rung) now lives in
+// context/select/reinjection/timeline (imported above, re-exported for
+// back-compat with any external importers).
+export { buildTimeline };
 
 /**
  * Render a single tool-call line as a natural-language statement. Three
