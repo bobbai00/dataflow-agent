@@ -30,8 +30,10 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult } from "../tools/result-formatting";
-import { levelsToFlags } from "../context/decorate/registry";
+import { levelsToFlags, runOperatorDecorators } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
+import type { OperatorDecorateCtx } from "../context/decorate/decorator";
+import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -968,21 +970,9 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
  * remediation knowledge, not visibility — so we inject the fix pattern once,
  * localized to the failing loader operator.
  */
-export function formatLoaderHint(errorText: string): string | undefined {
-  if (/UnicodeDecodeError|codec can't decode|'utf-8' codec/.test(errorText)) {
-    return 'Loader hint: the file is not UTF-8. Re-read with an explicit encoding — try encoding="cp1252" (Windows-1252) first, then encoding="latin-1" (which never fails). Do not retry the default UTF-8.';
-  }
-  if (/ParserError|Error tokenizing|tokenizing data|Expected \d+ fields/.test(errorText)) {
-    return 'Loader hint: CSV parsing failed — likely the wrong delimiter, ragged rows, or metadata/comment lines before the header. Pass an explicit sep=, set engine="python" with on_bad_lines="skip", and/or skiprows= to skip preamble; inspect the first raw lines to find the true header row.';
-  }
-  if (/FileNotFoundError|No such file|cannot find the (?:file|path)|does not exist/.test(errorText)) {
-    return "Loader hint: the path does not exist as written. Use the EXACT file path(s) from the task description verbatim (do not invent directories or rename files); paths may be relative. If a directory or glob is intended, enumerate it and read the matching file(s).";
-  }
-  if (/ValueError/.test(errorText) && /could not convert|invalid literal|Unable to parse|does not match format/.test(errorText)) {
-    return 'Loader hint: a value failed type conversion while loading. Read the affected column(s) as strings first (dtype=str), then clean (strip $, commas, %, whitespace) and convert with pd.to_numeric(..., errors="coerce") or pd.to_datetime(...); or pass the right parse options to the reader.';
-  }
-  return undefined;
-}
+// `formatLoaderHint` now lives in context/decorate/flow/loader-remediation and
+// is re-exported here for back-compat with any existing importers.
+export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
 function serializeOperatorFull(
   op: OperatorPredicate,
@@ -1029,6 +1019,21 @@ function serializeOperatorFull(
   //   - error info                    → `Result:` block beginning with
   //     `[ERROR] …`, which (per the Amber backend's format) carries the
   //     user's code + line marker inline.
+  // Context + flag predicate for the operator-attached DECORATE rungs (migrated
+  // out of inline gates into context/decorate/flow/*). `isFlagEnabled` reads the
+  // resolved options so the registry stays decoupled from AssembleContextOptions.
+  const decorateCtx: OperatorDecorateCtx = {
+    op,
+    snapshot,
+    workflowState,
+    allLinks,
+    info,
+    isCurrent,
+    editCount: options.editCountsByOp?.get(op.operatorID) ?? 0,
+  };
+  const isFlagEnabled = (flag: string): boolean =>
+    (options as unknown as Record<string, unknown>)[flag] === true;
+
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
@@ -1074,23 +1079,11 @@ function serializeOperatorFull(
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
-    // plan4: stage-aware loader-remediation hint. Only on the CURRENT snapshot
-    // (inject-once, per lever D — avoids repeating it across FULL-mode history),
-    // for load-stage operators (DataLoading) that errored; keyed solely on the
-    // exception class in the error string. Off by default (no-op).
-    if (options.loaderHint && isCurrent && op.operatorType === "DataLoading" && info?.error) {
-      const hint = formatLoaderHint(info.error);
-      if (hint) for (const l of hint.split("\n")) lines.push("  " + l);
-    }
-    // #28 lineage error-attribution. On the CURRENT snapshot, when a (non-loader)
-    // operator errors, surface its DIRECT upstream inputs' schema + a few sample
-    // rows — the real data this operator consumes — so the model fixes against
-    // actual inputs instead of guessing column names/types (the wrong-column /
-    // KeyError re-derivation loop). Dataflow-native: the typed DAG gives us the
-    // exact inputs the process() reads. Off by default (no-op).
-    if (options.lineageErrorContext && isCurrent && info?.error && op.operatorType !== "DataLoading") {
-      const lc = buildLineageErrorContext(op.operatorID, snapshot, allLinks);
-      if (lc) for (const l of lc.split("\n")) lines.push("  " + l);
+    // In-result DECORATE rungs (loader-remediation flow-L2, lineage error-context
+    // flow-L2). Migrated out of inline gates into context/decorate/flow/*; the
+    // registry runs each enabled rung whose `applies` is true, in render order.
+    for (const l of runOperatorDecorators("in-result", decorateCtx, isFlagEnabled)) {
+      lines.push("  " + l);
     }
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
@@ -1107,22 +1100,10 @@ function serializeOperatorFull(
     }
   }
 
-  // Lever 3: graph-reachability audit. A DataLoading op whose output reaches no
-  // downstream operator (its only reachable sink is itself) is a dead/forgotten
-  // load — pure typed-DAG topology, uniquely auditable because dataflow HAS a
-  // graph. Current snapshot only (workflowState is the live graph then). Off by
-  // default. Conservative: only when the DAG has other operators (so it's not
-  // the trivial single-load start state).
-  if (options.graphAudit && isCurrent && op.operatorType === "DataLoading") {
-    const totalOps = snapshot.workflow.operators.length;
-    const sinks = workflowState.getDownstreamSinks(op.operatorID);
-    const feedsNothing = sinks.length === 0 || (sinks.length === 1 && sinks[0] === op.operatorID);
-    if (totalOps > 1 && feedsNothing) {
-      lines.push(
-        "Graph check ⚠: this loaded data is not consumed by any downstream operator — " +
-          "wire it into the pipeline that produces the answer, or it contributes nothing to the result."
-      );
-    }
+  // Post-block DECORATE rungs (graph-audit flow-L3). Migrated out of the inline
+  // gate into context/decorate/flow/graph-audit.
+  for (const l of runOperatorDecorators("post-block", decorateCtx, isFlagEnabled)) {
+    lines.push(l);
   }
 
   // plan3: attempt reflection. On the CURRENT snapshot, when this operator has
@@ -1212,41 +1193,7 @@ function collectFailedUpstreamRoots(
   return failed;
 }
 
-/**
- * #28 lineage error-attribution. For an errored operator, build an `Inputs:`
- * block showing each DIRECT upstream input (process() param == upstream
- * operatorId via links) that has a SUCCESSFUL result: its column schema +
- * first few sample rows — the real data this operator consumes — so the model
- * fixes against actual columns/values instead of guessing. Upstreams that
- * errored / have no result are skipped. Returns "" when nothing useful.
- */
-function buildLineageErrorContext(
-  opId: string,
-  snapshot: SnapshotData,
-  allLinks: WorkflowContent["links"]
-): string {
-  const MAX_ROWS = 3;
-  const parents: string[] = [];
-  const seen = new Set<string>();
-  for (const link of allLinks) {
-    if (link.target.operatorID !== opId) continue;
-    const p = link.source.operatorID;
-    if (!seen.has(p)) { seen.add(p); parents.push(p); }
-  }
-  const blocks: string[] = [];
-  for (const pid of parents) {
-    const pInfo = snapshot.results.get(pid)?.info;
-    if (!pInfo || pInfo.error || !Array.isArray(pInfo.result) || pInfo.result.length === 0) continue;
-    const rows = pInfo.result as Record<string, unknown>[];
-    const cols = Object.keys(rows[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
-    if (cols.length === 0) continue;
-    const header = cols.join("\t");
-    const body = rows.slice(0, MAX_ROWS).map(r => cols.map(c => String(r[c] ?? "")).join("\t")).join("\n");
-    blocks.push(`Input \`${pid}\` (${cols.length} cols, ${rows.length} rows): ${cols.join(", ")}\n${header}\n${body}`);
-  }
-  if (blocks.length === 0) return "";
-  return "Inputs (the actual data this operator consumes \u2014 fix against these real columns/values, do not guess):\n" + blocks.join("\n");
-}
+// `buildLineageErrorContext` (#28) now lives in context/decorate/flow/error-context.
 
 /* ============================================================================
  *  Shared helpers

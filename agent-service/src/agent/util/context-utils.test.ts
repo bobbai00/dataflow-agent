@@ -1152,3 +1152,53 @@ describe("assembleContext — DECORATE levels", () => {
     expect(c).toBe(ref);
   });
 });
+
+/* ============================================================================
+ *  DECORATE operator rungs — end-to-end through assembleContext (registry path)
+ * ========================================================================= */
+
+describe("assembleContext — operator DECORATE rungs (integration)", () => {
+  /** A 2-op scenario: a DataLoading op `ld` that errored, feeding a process op. */
+  function errorScenario() {
+    const s = buildScenario([
+      { id: "init", stepId: 0, role: "agent", messageId: "m-init", content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc0", input: {} }],
+        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }] },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "go" },
+      { id: "t1", stepId: 1, role: "agent", messageId: "m-task", parentId: "user", content: "load",
+        isBegin: true, isEnd: false,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "ld" } }],
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }] },
+    ]);
+    // DataLoading op so the loader-remediation rung applies.
+    const wf: WorkflowContent = { ...makeWorkflow([]), operators: [makeOp("ld", "DataLoading")] };
+    s.storage.createSnapshot("t1", wf);
+    s.storage.setOperatorResult("t1", "ld", makeInfo("ld", 0, "UnicodeDecodeError: 'utf-8' codec can't decode byte 0x93"));
+    return s;
+  }
+
+  test("loader-remediation: flow L2 (or loaderHint flag) renders the hint; off by default", () => {
+    const off = errorScenario();
+    const cOff = content(assembleContext(off.steps, off.workflowState, off.storage, ContextMode.LATEST, { ...opts }));
+    expect(cOff).not.toContain("Loader hint:");
+
+    const viaFlag = errorScenario();
+    const cFlag = content(assembleContext(viaFlag.steps, viaFlag.workflowState, viaFlag.storage, ContextMode.LATEST, { ...opts, loaderHint: true }));
+    expect(cFlag).toContain("Loader hint:");
+    expect(cFlag).toContain("cp1252");
+
+    const viaLevel = errorScenario();
+    const cLevel = content(assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
+    // flow L2 enables loaderHint (among others) → identical hint present
+    expect(cLevel).toContain("Loader hint:");
+    expect(cLevel).toContain("cp1252");
+  });
+
+  test("flowLevel=2 reproduces the explicit loaderHint output byte-for-byte", () => {
+    const a = errorScenario();
+    const b = errorScenario();
+    const viaLevel = content(assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, { ...opts, schemaInResult: true, loaderHint: true, lineageStats: true, lineageErrorContext: true }));
+    const viaBool = content(assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
+    expect(viaBool).toBe(viaLevel);
+  });
+});
