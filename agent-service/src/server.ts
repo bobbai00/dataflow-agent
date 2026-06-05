@@ -21,6 +21,7 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
+import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
 import { getBackendConfig } from "./api/backend-api";
 import { extractUserFromToken, validateToken } from "./api/auth-api";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
@@ -703,9 +704,7 @@ function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
     outputTuples: info.outputTuples,
     inputPortShapes: info.inputPortShapes,
     outputColumns:
-      info.result && info.result.length > 0
-        ? Object.keys(info.result[0]).filter(k => k !== "__row_index__").length
-        : undefined,
+      info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
     error: info.error,
     warnings: info.warnings,
     consoleLogCount: info.consoleLogs?.length,

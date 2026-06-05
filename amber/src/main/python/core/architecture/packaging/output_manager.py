@@ -45,6 +45,7 @@ from core.models import Tuple, Schema, StateFrame
 from core.models.payload import DataPayload, DataFrame
 from core.models.state import State
 from core.storage.document_factory import DocumentFactory
+from core.storage.vfs_uri_factory import VFSURIFactory
 from core.storage.runnables.port_storage_writer import (
     PortStorageWriter,
     PortStorageWriterElement,
@@ -91,6 +92,10 @@ class OutputManager:
         # without re-deriving the URI.
         self._port_storage_uris: typing.Dict[PortIdentity, str] = dict()
 
+        self._port_state_writers: typing.Dict[
+            PortIdentity, typing.Tuple[Queue, PortStorageWriter, Thread]
+        ] = dict()
+
     def is_missing_output_ports(self):
         """
         This method is only used for ensuring correct region execution.
@@ -111,27 +116,32 @@ class OutputManager:
         self,
         port_id: PortIdentity,
         schema: Schema,
-        storage_uri: typing.Optional[str] = None,
+        storage_uri_base: typing.Optional[str] = None,
     ) -> None:
         if port_id.id is None:
             port_id.id = 0
         if port_id.internal is None:
             port_id.internal = False
 
-        if storage_uri is not None:
-            self.set_up_port_storage_writer(port_id, storage_uri)
+        if storage_uri_base is not None:
+            self.set_up_port_storage_writer(port_id, storage_uri_base)
 
         # each port can only be added and initialized once.
         if port_id not in self._ports:
             self._ports[port_id] = WorkerPort(schema)
 
-    def set_up_port_storage_writer(self, port_id: PortIdentity, storage_uri: str):
+    def set_up_port_storage_writer(self, port_id: PortIdentity, storage_uri_base: str):
         """
         Create a separate thread for saving output tuples of a port
-        to storage in batch.
+        to storage in batch, and open a long-lived buffered writer for
+        state materialization on the same port. `storage_uri_base` is the
+        port's base URI; the result and state URIs are derived from it.
         """
-        self._port_storage_uris[port_id] = storage_uri
-        document, _ = DocumentFactory.open_document(storage_uri)
+        result_uri = VFSURIFactory.result_uri(storage_uri_base)
+        # Tracked so recreate_port_storage_writer can rebuild the result
+        # document at this exact URI when the output schema is inferred.
+        self._port_storage_uris[port_id] = result_uri
+        document, _ = DocumentFactory.open_document(result_uri)
         buffered_item_writer = document.writer(str(get_worker_index(self.worker_id)))
         writer_queue = Queue()
         port_storage_writer = PortStorageWriter(
@@ -147,6 +157,29 @@ class OutputManager:
             writer_queue,
             port_storage_writer,
             writer_thread,
+        )
+
+        state_document, _ = DocumentFactory.open_document(
+            VFSURIFactory.state_uri(storage_uri_base)
+        )
+        state_buffered_item_writer = state_document.writer(
+            str(get_worker_index(self.worker_id))
+        )
+        state_writer_queue = Queue()
+        state_port_writer = PortStorageWriter(
+            buffered_item_writer=state_buffered_item_writer,
+            queue=state_writer_queue,
+        )
+        state_writer_thread = threading.Thread(
+            target=state_port_writer.run,
+            daemon=True,
+            name=f"port_state_writer_thread_{port_id}",
+        )
+        state_writer_thread.start()
+        self._port_state_writers[port_id] = (
+            state_writer_queue,
+            state_port_writer,
+            state_writer_thread,
         )
 
     def recreate_port_storage_writer(
@@ -241,6 +274,20 @@ class OutputManager:
                 PortStorageWriterElement(data_tuple=tuple_)
             )
 
+    def save_state_to_storage_if_needed(self, state: State, port_id=None) -> None:
+        # When port_id is omitted the same state row is fanned out to
+        # every output port's state table. This mirrors the
+        # broadcast-to-all-workers behavior on the emit side: state is
+        # shared context, not per-key data, so every downstream operator
+        # (and every worker reading the materialization) needs the full
+        # set.
+        element = PortStorageWriterElement(data_tuple=state.to_tuple())
+        if port_id is None:
+            for writer_queue, _, _ in self._port_state_writers.values():
+                writer_queue.put(element)
+        elif port_id in self._port_state_writers:
+            self._port_state_writers[port_id][0].put(element)
+
     def close_port_storage_writers(self) -> None:
         """
         Flush the buffers of port storage writers and wait for all the
@@ -254,6 +301,11 @@ class OutputManager:
         for _, _, writer_thread in self._port_storage_writers.values():
             # This blocking call will wait for all the writer to finish commit
             writer_thread.join()
+        for _, state_writer, _ in self._port_state_writers.values():
+            state_writer.stop()
+        for _, _, state_writer_thread in self._port_state_writers.values():
+            state_writer_thread.join()
+        self._port_state_writers.clear()
 
     def add_partitioning(self, tag: PhysicalLink, partitioning: Partitioning) -> None:
         """

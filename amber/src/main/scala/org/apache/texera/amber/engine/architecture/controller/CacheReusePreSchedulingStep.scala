@@ -28,6 +28,7 @@ import org.apache.texera.amber.core.workflow.{
   WorkflowContext,
   WorkflowSettings
 }
+import org.apache.texera.amber.core.storage.VFSURIFactory
 import org.apache.texera.amber.engine.architecture.scheduling.config.{OutputPortConfig, ResourceConfig}
 import org.apache.texera.amber.engine.architecture.scheduling.{
   PreSchedulingHints,
@@ -214,7 +215,7 @@ object CacheReusePreSchedulingStep {
       .flatMap { pid =>
         cachedOutputsByPort.get(pid).map { cached =>
           pid -> OutputPortConfig(
-            storageURI = cached.resultUri,
+            storageURIBase = cachedPortBaseURI(cached.resultUri),
             cachedTupleCount = cached.tupleCount,
             cachedResultStatistics = cached.resultStatistics,
             materialize = false
@@ -242,6 +243,26 @@ object CacheReusePreSchedulingStep {
   }
 
   /**
+    * Recover the port's materialization base URI from a cached result URI.
+    *
+    * Cache records persist the RESULT URI (`<portBase>/result`) under the SOURCE
+    * execution that originally materialized the data. `OutputPortConfig` now carries a
+    * base URI from which consumers re-derive the result URI via
+    * `VFSURIFactory.resultURI`, so we decode the cached URI (preserving its source
+    * execution id) and rebuild the base.
+    */
+  private def cachedPortBaseURI(resultUri: URI): URI = {
+    val (wfId, eid, gpidOpt, _) = VFSURIFactory.decodeURI(resultUri)
+    VFSURIFactory.createPortBaseURI(
+      wfId,
+      eid,
+      gpidOpt.getOrElse(
+        throw new IllegalStateException(s"Cached result URI missing globalPortId: $resultUri")
+      )
+    )
+  }
+
+  /**
     * Build skipped regions (outside Pasta scope) with reuse-only output-port bindings.
     */
   private def buildSkipRegions(
@@ -266,7 +287,7 @@ object CacheReusePreSchedulingStep {
         .flatMap { outputPort =>
           cachedOutputsByPort.get(outputPort).map { cached =>
             outputPort -> OutputPortConfig(
-              storageURI = cached.resultUri,
+              storageURIBase = cachedPortBaseURI(cached.resultUri),
               cachedTupleCount = cached.tupleCount,
               cachedResultStatistics = cached.resultStatistics,
               materialize = false

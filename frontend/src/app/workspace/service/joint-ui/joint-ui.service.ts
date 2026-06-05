@@ -229,6 +229,56 @@ export class JointUIService {
   public static readonly DEFAULT_GROUP_MARGIN_BOTTOM = 40;
   public static readonly DEFAULT_COMMENT_WIDTH = 32;
   public static readonly DEFAULT_COMMENT_HEIGHT = 32;
+  public static readonly MAX_OPERATOR_NAME_PIXELS = 200;
+  private static readonly OPERATOR_NAME_FONT = "14px sans-serif";
+  private static measureCtx: CanvasRenderingContext2D | null = null;
+
+  private static getMeasureContext(): CanvasRenderingContext2D | null {
+    if (JointUIService.measureCtx) return JointUIService.measureCtx;
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return null;
+    ctx.font = JointUIService.OPERATOR_NAME_FONT;
+    JointUIService.measureCtx = ctx;
+    return ctx;
+  }
+
+  public static measureOperatorNameWidth(text: string): number {
+    const ctx = JointUIService.getMeasureContext();
+    if (ctx) return ctx.measureText(text).width;
+    // Fallback for jsdom-without-canvas: approximate at ~14px sans-serif.
+    return text.length * 7;
+  }
+
+  // Split a string into grapheme clusters so truncation does not break
+  // surrogate pairs (emoji) or ZWJ sequences (e.g. family emoji, flags).
+  // Falls back to code-point iteration if Intl.Segmenter is unavailable.
+  private static splitGraphemes(name: string): string[] {
+    if (typeof Intl.Segmenter === "function") {
+      return Array.from(new Intl.Segmenter().segment(name), s => s.segment);
+    }
+    return Array.from(name);
+  }
+
+  public static truncateOperatorDisplayName(
+    name: string,
+    measure: (text: string) => number = JointUIService.measureOperatorNameWidth
+  ): string {
+    if (!name) return name;
+    const budget = JointUIService.MAX_OPERATOR_NAME_PIXELS;
+    if (measure(name) <= budget) return name;
+    const ellipsis = "…";
+    const prefixBudget = budget - measure(ellipsis);
+    const graphemes = JointUIService.splitGraphemes(name);
+    // Binary-search the longest grapheme prefix that fits inside prefixBudget.
+    let lo = 0;
+    let hi = graphemes.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >>> 1;
+      if (measure(graphemes.slice(0, mid).join("")) <= prefixBudget) lo = mid;
+      else hi = mid - 1;
+    }
+    return graphemes.slice(0, lo).join("") + ellipsis;
+  }
 
   private operatorSchemas: ReadonlyArray<OperatorSchema> = [];
 
@@ -373,7 +423,6 @@ export class JointUIService {
       if (portId != null) {
         const parts = portId.split("-");
         const numericSuffix = parts.length > 1 ? parts[1] : portId;
-
         const count: number = inputMetrics[numericSuffix] ?? 0;
         const rawAttrs = (portDef.attrs as any) || {};
         const oldText: string = (rawAttrs[".port-label"] && rawAttrs[".port-label"].text) || "";
@@ -398,7 +447,6 @@ export class JointUIService {
       if (portId != null) {
         const parts = portId.split("-");
         const numericSuffix = parts.length > 1 ? parts[1] : portId;
-
         const count: number = outputMetrics[numericSuffix] ?? 0;
         const rawAttrs = (portDef.attrs as any) || {};
         const oldText: string = (rawAttrs[".port-label"] && rawAttrs[".port-label"].text) || "";
@@ -522,11 +570,6 @@ export class JointUIService {
       ".remove-input-port-button": { visibility: "visible" },
       ".remove-output-port-button": { visibility: "visible" },
     });
-
-    const element = jointPaper.getModelById(operatorID) as joint.shapes.devs.Model;
-    if (!element) {
-      return;
-    }
   }
 
   public changeOperatorState(jointPaper: joint.dia.Paper, operatorID: string, operatorState: OperatorState): void {
@@ -827,40 +870,6 @@ export class JointUIService {
         ref: ".port-body",
         "ref-y": 0.5,
         "y-alignment": "middle",
-      },
-    };
-  }
-
-  /**
-   * This function create a custom svg style for the operator
-   * @returns the custom attributes of the tooltip.
-   */
-  public static getCustomOperatorStatusTooltipStyleAttrs(): joint.shapes.devs.ModelSelectors {
-    return {
-      "element-node": {
-        style: { "pointer-events": "none" },
-      },
-      polygon: {
-        fill: "#FFFFFF",
-        "follow-scale": true,
-        stroke: "purple",
-        "stroke-width": "2",
-        rx: "5px",
-        ry: "5px",
-        refPoints: "0,30 150,30 150,120 85,120 75,150 65,120 0,120",
-        display: "none",
-        style: { "pointer-events": "none" },
-      },
-      "#operatorCount": {
-        fill: "#595959",
-        "font-size": "12px",
-        ref: "polygon",
-        "y-alignment": "middle",
-        "x-alignment": "left",
-        "ref-x": 0.05,
-        "ref-y": 0.2,
-        display: "none",
-        style: { "pointer-events": "none" },
       },
     };
   }

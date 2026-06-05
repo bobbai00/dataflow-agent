@@ -18,8 +18,19 @@
 import sys
 from loguru import logger
 
-from core.python_worker import PythonWorker
-from core.storage.storage_config import StorageConfig
+try:
+    from core.python_worker import PythonWorker
+    from core.storage.storage_config import StorageConfig
+except ModuleNotFoundError as e:
+    if e.name == "proto" or (e.name or "").startswith("proto."):
+        sys.exit(
+            "Python proto bindings are missing (amber/src/main/python/proto/). "
+            "They are generated, not checked in. Generate them by running "
+            "`bash bin/python-proto-gen.sh` from the repo root (requires protoc and "
+            '`pip install "betterproto[compiler]"`), or build the engine with sbt, '
+            "which regenerates them on compile."
+        )
+    raise
 
 
 def init_loguru_logger(stream_log_level) -> None:
@@ -52,6 +63,7 @@ if __name__ == "__main__":
         iceberg_rest_catalog_uri,
         iceberg_rest_catalog_warehouse_name,
         iceberg_table_namespace,
+        iceberg_table_state_namespace,
         iceberg_file_storage_directory_path,
         iceberg_table_commit_batch_size,
         s3_endpoint,
@@ -68,6 +80,7 @@ if __name__ == "__main__":
         iceberg_rest_catalog_uri,
         iceberg_rest_catalog_warehouse_name,
         iceberg_table_namespace,
+        iceberg_table_state_namespace,
         iceberg_file_storage_directory_path,
         iceberg_table_commit_batch_size,
         s3_endpoint,

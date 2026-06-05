@@ -19,7 +19,7 @@
 
 import { z } from "zod";
 import { tool } from "ai";
-import { createErrorResult, formatExecuteOperatorResult } from "./tools-utility";
+import { createErrorResult, formatExecuteOperatorResult, getVisibleResultHeaders } from "./tools-utility";
 import type { WorkflowState } from "../workflow-state";
 import { getBackendConfig } from "../../api/backend-api";
 import { env } from "../../config/env";
@@ -487,7 +487,8 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   if (!jsonResult || jsonResult.length === 0) return "";
 
   const hasRowIndex = jsonResult.length > 0 && "__row_index__" in jsonResult[0];
-  const headers = Object.keys(jsonResult[0]).filter(h => h !== "__row_index__");
+  const headers = getVisibleResultHeaders(jsonResult[0]);
+  if (headers.length === 0) return "";
   // Leading tab aligns headers with the index column (pandas __repr__ style).
   const headerLine = "\t" + headers.join("\t");
 
@@ -612,7 +613,7 @@ export async function executeOperatorAndFormat(
     }
 
     const jsonArray = opInfo.result as Record<string, any>[];
-    const headers = jsonArray.length > 0 ? Object.keys(jsonArray[0]).filter(k => k !== "__row_index__") : [];
+    const headers = jsonArray.length > 0 ? getVisibleResultHeaders(jsonArray[0]) : [];
     const columns = headers.length;
 
     // Persist every per-op info — sibling errors included — so the snapshot
