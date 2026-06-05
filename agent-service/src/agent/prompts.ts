@@ -343,11 +343,16 @@ export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowed
 // The local LLM was fine-tuned with a specific system prompt baked into its
 // training distribution — reproducing that prompt verbatim is what unlocks
 // the model's tool-calling behavior. The source of truth is
-// `prompts/local-react.txt`, copied from the training-set sample at
-// `preview.md` lines 1–91. The leading `<｜begin▁of▁sentence｜>` token is
-// part of the verbatim selection — kept as-is per the user's "intact"
-// instruction. If the gateway's chat template later re-adds a BOS marker
-// causing double-BOS issues, strip it here.
+// `prompts/local-react.txt`, holding only the raw system content (down to the
+// trailing `Begin!`).
+//
+// The model now uses the ChatML chat template: the gateway wraps this text as
+// `<|im_start|>system\n…\n<|im_end|>` and the per-turn context as
+// `<|im_start|>user\n…<|im_end|>` automatically when the driver sends
+// role-tagged messages — so NO framing/BOS tokens belong in this file. (The
+// earlier DeepSeek `<｜begin▁of▁sentence｜>` prefix was removed when the model
+// switched to ChatML; embedding it would leak a stray off-distribution token
+// inside the system block.)
 // ---------------------------------------------------------------------------
 const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(
   new URL("./prompts/local-react.txt", import.meta.url),
