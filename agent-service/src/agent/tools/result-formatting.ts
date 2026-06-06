@@ -60,19 +60,6 @@ export interface FormatOperatorResultOptions {
    *  field on `columnStats`; this side only renders. Targets silent
    *  to_numeric(errors='coerce') dataloss. Defaults to false. */
   valueFormatFlags?: boolean;
-  /** When true, append a `Lineage:` line per operator: input→output row counts
-   *  (kept % of the largest input) plus a conservative ALARM on degenerate
-   *  cardinality transitions (empty output, fan-out row explosion). Derived
-   *  purely from `OperatorInfo` row counts already carried (no extra data pass).
-   *  Targets the dominant silent-cardinality wrong-answer and the cost spiral
-   *  tail. Defaults to false. */
-  lineageStats?: boolean;
-  /** When true, surface a `Join check ⚠` line for any degenerate merge the
-   *  worker's transparent join instrumentation flagged (near-zero key match —
-   *  with an unmatched-key SAMPLE — or a many-to-many fan-out). Read from the
-   *  reserved `__join_telemetry__` entry the worker publishes on `columnStats`
-   *  (see join_telemetry.py). Alarm-only. Defaults to false. */
-  joinTelemetry?: boolean;
   /** When true, surface a coercion-dataloss line for any
    *  `to_numeric/to_datetime(errors="coerce")` that the worker's transparent
    *  instrumentation saw silently null a material block of values — with a
@@ -160,11 +147,14 @@ export function formatOperatorResult(
   const briefSummary = formatExecuteOperatorResult(operatorId);
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
-  const lineageLine = options.lineageStats ? formatLineage(opInfo) : undefined;
-  const joinLine = options.joinTelemetry ? formatJoinTelemetry(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  return [briefSummary, schemaLine, formatHints, lineageLine, joinLine, coercionLine, tableHintsLine, ...metadataLines, dataString].filter(Boolean).join("\n");
+  // Flow rungs (lineage/join) moved to the consolidated "Operators needing
+  // attention" section in context-utils; result-formatting owns only data-facet
+  // annotation (schema/value-format/coercion/structure) + the TSV substrate.
+  return [briefSummary, schemaLine, formatHints, coercionLine, tableHintsLine, ...metadataLines, dataString]
+    .filter(Boolean)
+    .join("\n");
 }
 
 

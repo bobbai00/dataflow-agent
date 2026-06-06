@@ -36,10 +36,10 @@ describe("SELECT history-mode axis", () => {
     expect(d.representation).toBe("aggregated");
     expect(d.axisRank).toBe(0);
   });
-  test("DELTA and FULL are trajectory, ordered by axisRank", () => {
+  test("DELTA is the bounded trajectory (axisRank 1); full was removed", () => {
     expect(historyModeDescriptor("delta")!.representation).toBe("trajectory");
     expect(historyModeDescriptor("delta")!.axisRank).toBe(1);
-    expect(historyModeDescriptor("full")!.axisRank).toBe(2);
+    expect(historyModeDescriptor("full")).toBeUndefined();
   });
   test("case-insensitive lookup; unknown ⇒ undefined", () => {
     expect(historyModeDescriptor("LATEST")!.mode).toBe("latest");
@@ -47,7 +47,7 @@ describe("SELECT history-mode axis", () => {
   });
   test("modes are ranked monotonically aggregated→trajectory", () => {
     const ranks = HISTORY_MODES.map(m => m.axisRank);
-    expect(ranks).toEqual([0, 1, 2]);
+    expect(ranks).toEqual([0, 1]);
   });
 });
 

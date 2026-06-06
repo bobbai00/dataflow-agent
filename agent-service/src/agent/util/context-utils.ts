@@ -30,10 +30,12 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult } from "../tools/result-formatting";
-import { levelsToFlags, runOperatorDecorators } from "../context/decorate/registry";
+import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
-import type { OperatorDecorateCtx } from "../context/decorate/decorator";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
+import { formatLineage } from "../context/decorate/flow/cardinality";
+import { buildLineageErrorContext } from "../context/decorate/flow/error-context";
+import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildTimeline } from "../context/select/reinjection/timeline";
 import { createLogger } from "../../logger";
 
@@ -236,22 +238,9 @@ export function assembleContext(
 
   let content: string;
   switch (mode) {
-    case ContextMode.FULL:
-      content = renderInterleaved(
-        tasks,
-        "full",
-        workflowState,
-        options,
-        initSnapshot,
-        latestUserContent,
-        latestUserStepId,
-        createFlagsByStep
-      );
-      break;
     case ContextMode.DELTA:
       content = renderInterleaved(
         tasks,
-        "delta",
         workflowState,
         options,
         initSnapshot,
@@ -538,7 +527,6 @@ function renderActionHead(
  */
 function renderInterleaved(
   tasks: TaskGroup[],
-  flavour: "full" | "delta",
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
@@ -558,7 +546,7 @@ function renderInterleaved(
   }
 
   // 2. # Agent Events — every event in the path, each followed by its
-  // destination snapshot (full or delta depending on `flavour`).
+  // destination snapshot (the per-turn delta of changed operators).
   sections.push("# Agent Events");
   sections.push("");
 
@@ -570,7 +558,6 @@ function renderInterleaved(
   for (const task of tasks) {
     const body = serializeTaskBody(
       task,
-      flavour,
       workflowState,
       options,
       lastSnapshotId,
@@ -590,6 +577,17 @@ function renderInterleaved(
   if (!renderedAny) {
     sections.push("(no agent actions yet)");
     sections.push("");
+  }
+
+  // FLOW section over the leaf snapshot (composable with delta too — placed
+  // last, after the event/snapshot trajectory). Empty ⇒ omitted.
+  const leaf = lastSnapshotOf(tasks);
+  if (leaf) {
+    const flow = buildFlowSection(leaf, workflowState, options);
+    if (flow) {
+      sections.push("");
+      sections.push(flow);
+    }
   }
 
   return sections.join("\n").trimEnd();
@@ -634,7 +632,110 @@ function renderLatest(
     sections.push("# Current Dataflow");
     sections.push(dag);
   }
+
+  // 3. # Operators needing attention — the FLOW section. A consolidated,
+  //    root-cause-first projection of failures + anomalies over the leaf
+  //    snapshot, placed last (highest-attention position). Gated by flowLevel
+  //    (expanded into the per-rung flags); empty ⇒ omitted.
+  const flow = buildFlowSection(leafSnapshot, workflowState, options);
+  if (flow) {
+    sections.push("");
+    sections.push(flow);
+  }
   return sections.join("\n").trimEnd();
+}
+
+/**
+ * FLOW section (Phase-1 trajectory/graph projection). Scans the leaf snapshot
+ * in topological order (root cause before downstream symptom) and emits a
+ * self-contained entry for every operator that needs attention: hard errors,
+ * upstream-blocked operators, and (level-gated) soft anomalies. Reuses the same
+ * pure flow renderers that previously decorated each operator inline — now
+ * consolidated into one end-of-context section so the actionable signal isn't
+ * buried in the DAG dump. Returns undefined when nothing needs attention.
+ *
+ * Level gating (via the flags flowLevel expands into):
+ *   L1 loaderHint            — remediation on failed DataLoading ops
+ *   L2 lineageErrorContext   — errored process op: upstream input schema + sample
+ *   L2 lineageStats          — empty-output / fan-out cardinality alarms
+ *   L3 graphAudit            — dead/disconnected loaders
+ *   L3 joinTelemetry         — degenerate-join telemetry
+ */
+function buildFlowSection(
+  snapshot: SnapshotData,
+  workflowState: WorkflowState,
+  options: AssembleContextOptions
+): string | undefined {
+  const anyFlow =
+    options.loaderHint ||
+    options.lineageStats ||
+    options.lineageErrorContext ||
+    options.graphAudit ||
+    options.joinTelemetry;
+  if (!anyFlow) return undefined;
+
+  const { workflow } = snapshot;
+  if (workflow.operators.length === 0) return undefined;
+  const { sortedOps, allLinks } = topoSortDag(workflow);
+
+  const entries: string[] = [];
+  for (const op of sortedOps) {
+    const info = snapshot.results.get(op.operatorID)?.info;
+    const lines: string[] = [];
+
+    if (info?.error) {
+      lines.push(`error: ${info.error.split("\n")[0]}`);
+      if (options.loaderHint && op.operatorType === "DataLoading") {
+        const hint = formatLoaderHint(info.error);
+        if (hint) lines.push(...hint.split("\n"));
+      }
+      if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
+        const block = buildLineageErrorContext(op.operatorID, snapshot, allLinks);
+        if (block) lines.push(...block.split("\n"));
+      }
+    } else if (!info) {
+      const roots = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
+      if (roots.length > 0) {
+        const noun = roots.length === 1 ? "operator" : "operators";
+        lines.push(`blocked — upstream ${noun} ${roots.map(id => `\`${id}\``).join(", ")} errored; fix those first`);
+      }
+    } else {
+      if (options.lineageStats) {
+        const alarm = formatLineage(info);
+        if (alarm) lines.push(alarm);
+      }
+      if (options.joinTelemetry) {
+        const jt = formatJoinTelemetry(info);
+        if (jt) lines.push(...jt.split("\n"));
+      }
+    }
+
+    // Dead-loader audit (L3) — independent of execution state.
+    if (options.graphAudit && op.operatorType === "DataLoading" && workflow.operators.length > 1) {
+      const sinks = workflowState.getDownstreamSinks(op.operatorID);
+      const feedsNothing = sinks.length === 0 || (sinks.length === 1 && sinks[0] === op.operatorID);
+      if (feedsNothing) {
+        lines.push(
+          "Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it."
+        );
+      }
+    }
+
+    if (lines.length > 0) {
+      entries.push(`### \`${op.operatorID}\` (${op.operatorType})`);
+      for (const l of lines) entries.push(l);
+      entries.push("");
+    }
+  }
+
+  if (entries.length === 0) return undefined;
+  return [
+    "# Operators needing attention (resolve these before adding new operators)",
+    "",
+    ...entries,
+  ]
+    .join("\n")
+    .trimEnd();
 }
 
 /* ============================================================================
@@ -647,7 +748,6 @@ function renderLatest(
  */
 function serializeTaskBody(
   task: TaskGroup,
-  flavour: "full" | "delta",
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   lastSnapshotId: string | undefined,
@@ -679,16 +779,17 @@ function serializeTaskBody(
       // and the snapshot's own section headings start at H4.
       const snapshotHeadingLevel = 3;
       const snapshotSectionLevel = snapshotHeadingLevel + 1;
-      const body =
-        flavour === "full"
-          ? serializeSnapshotFull(node.snapshot, workflowState, options, isCurrent, snapshotSectionLevel)
-          : serializeSnapshotDelta(node.snapshot, getPrev(), workflowState, options, isCurrent, snapshotSectionLevel);
+      const body = serializeSnapshotDelta(
+        node.snapshot,
+        getPrev(),
+        workflowState,
+        options,
+        isCurrent,
+        snapshotSectionLevel
+      );
       if (body) {
         const snapshotHash = "#".repeat(snapshotHeadingLevel);
-        const snapshotTitle =
-          flavour === "full"
-            ? `Completed dataflow after event ${node.eventIndex}`
-            : `Dataflow changes after event ${node.eventIndex}`;
+        const snapshotTitle = `Dataflow changes after event ${node.eventIndex}`;
         lines.push(`${snapshotHash} ${snapshotTitle}`);
         lines.push("");
         lines.push(body);
@@ -824,7 +925,6 @@ function serializeSnapshotFull(
     );
     lines.push("");
   }
-  appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
   return lines.join("\n").trimEnd();
 }
 
@@ -872,8 +972,6 @@ function serializeSnapshotDelta(
       lines.push("");
     }
   }
-
-  appendLinkLines(lines, sortedOps, allLinks, sectionLevel);
 
   if (lines.length === 0) return null;
   return lines.join("\n").trimEnd();
@@ -940,6 +1038,40 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
 // is re-exported here for back-compat with any existing importers.
 export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
+/**
+ * Per-operator topology, embedded in the operator block so connectivity is
+ * complete and local (no separate `## Links` section to cross-reference).
+ * Renders BOTH directions:
+ *   Inputs: <up> (→ port N), …   ← upstream ids, port-accurate (port shown only
+ *                                  for multi-input ops; ports drive join param order)
+ *   Used by: <down>, …           ← downstream ids (impact / consumer reasoning)
+ * Source operators emit no `Inputs:`; sinks emit no `Used by:`. Unlike the
+ * executed-only `Input operator(table shape)` result line (which is *shape*,
+ * data-scoped), these lines are always present — even for un-executed ops and
+ * for ops whose downstream consumer is omitted by delta.
+ */
+function formatOperatorAdjacency(op: OperatorPredicate, allLinks: WorkflowContent["links"]): string[] {
+  const lines: string[] = [];
+  const inbound = allLinks
+    .filter(l => l.target.operatorID === op.operatorID)
+    .map(l => ({ up: l.source.operatorID, port: op.inputPorts?.findIndex(p => p.portID === l.target.portID) ?? -1 }))
+    .sort((a, b) => a.port - b.port);
+  if (inbound.length > 0) {
+    const multiInput = (op.inputPorts?.length ?? 0) > 1;
+    lines.push(
+      "Inputs: " +
+        inbound.map(i => (multiInput && i.port >= 0 ? `${i.up} (→ port ${i.port})` : i.up)).join(", ")
+    );
+  }
+  const downstream = Array.from(
+    new Set(allLinks.filter(l => l.source.operatorID === op.operatorID).map(l => l.target.operatorID))
+  );
+  if (downstream.length > 0) {
+    lines.push("Used by: " + downstream.join(", "));
+  }
+  return lines;
+}
+
 function serializeOperatorFull(
   op: OperatorPredicate,
   snapshot: SnapshotData,
@@ -954,8 +1086,6 @@ function serializeOperatorFull(
     ? formatOperatorResult(op.operatorID, info, workflowState, {
         schemaInResult: options.schemaInResult,
         valueFormatFlags: options.valueFormatFlags,
-        lineageStats: options.lineageStats,
-        joinTelemetry: options.joinTelemetry,
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
         tableStructureHint: options.tableStructureHint,
@@ -976,25 +1106,11 @@ function serializeOperatorFull(
   //   - error info                    → `Result:` block beginning with
   //     `[ERROR] …`, which (per the Amber backend's format) carries the
   //     user's code + line marker inline.
-  // Context + flag predicate for the operator-attached DECORATE rungs (migrated
-  // out of inline gates into context/decorate/flow/*). `isFlagEnabled` reads the
-  // resolved options so the registry stays decoupled from AssembleContextOptions.
-  const decorateCtx: OperatorDecorateCtx = {
-    op,
-    snapshot,
-    workflowState,
-    allLinks,
-    info,
-    isCurrent,
-    editCount: options.editCountsByOp?.get(op.operatorID) ?? 0,
-  };
-  const isFlagEnabled = (flag: string): boolean =>
-    (options as unknown as Record<string, unknown>)[flag] === true;
-
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+  for (const l of formatOperatorAdjacency(op, allLinks)) lines.push(l);
 
   // Operator properties (config). Rendered for every operator except the
   // Python code operators (whose `code` is stripped — see CODE_OPERATOR_TYPES)
@@ -1036,12 +1152,6 @@ function serializeOperatorFull(
   if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
-    // In-result DECORATE rungs (loader-remediation flow-L2, lineage error-context
-    // flow-L2). Migrated out of inline gates into context/decorate/flow/*; the
-    // registry runs each enabled rung whose `applies` is true, in render order.
-    for (const l of runOperatorDecorators("in-result", decorateCtx, isFlagEnabled)) {
-      lines.push("  " + l);
-    }
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
     // "blocked by upstream error" from "not yet executed" by walking
@@ -1057,11 +1167,6 @@ function serializeOperatorFull(
     }
   }
 
-  // Post-block DECORATE rungs (graph-audit flow-L3). Migrated out of the inline
-  // gate into context/decorate/flow/graph-audit.
-  for (const l of runOperatorDecorators("post-block", decorateCtx, isFlagEnabled)) {
-    lines.push(l);
-  }
 
   // plan3: attempt reflection. On the CURRENT snapshot, when this operator has
   // been edited >= the threshold, surface its attempt history so the agent
@@ -1186,27 +1291,6 @@ function topoSortDag(workflow: WorkflowContent) {
     (a, b) => (topoOrder.get(a.operatorID) ?? 0) - (topoOrder.get(b.operatorID) ?? 0)
   );
   return { sortedOps, allLinks, topoOrder };
-}
-
-function appendLinkLines(
-  lines: string[],
-  sortedOps: OperatorPredicate[],
-  allLinks: WorkflowContent["links"],
-  sectionLevel: number
-): void {
-  if (allLinks.length === 0) return;
-  const opOrder = new Map(sortedOps.map((op, i) => [op.operatorID, i]));
-  const sortedLinks = [...allLinks].sort((a, b) => {
-    const srcA = opOrder.get(a.source.operatorID) ?? 0;
-    const srcB = opOrder.get(b.source.operatorID) ?? 0;
-    if (srcA !== srcB) return srcA - srcB;
-    return (opOrder.get(a.target.operatorID) ?? 0) - (opOrder.get(b.target.operatorID) ?? 0);
-  });
-  const sectionHash = "#".repeat(sectionLevel);
-  lines.push(`${sectionHash} Links`);
-  for (const link of sortedLinks) {
-    lines.push(`- ${link.source.operatorID} → ${link.target.operatorID}`);
-  }
 }
 
 function lastSnapshotOf(tasks: TaskGroup[]): SnapshotData | undefined {

@@ -18,10 +18,6 @@
  */
 
 import type { DecorateFacet, DecorateLevel, RungDescriptor } from "./types";
-import type { OperatorDecorator, OperatorDecorateCtx } from "./decorator";
-import { loaderRemediation } from "./flow/loader-remediation";
-import { errorContext } from "./flow/error-context";
-import { graphAudit } from "./flow/graph-audit";
 
 /**
  * THE DECORATE CATALOG — single source of truth for the facet ladders
@@ -149,41 +145,10 @@ export function flagToLevel(facet: DecorateFacet, flag: string): DecorateLevel |
   return hit.length ? (Math.min(...hit) as DecorateLevel) : undefined;
 }
 
-/* ============================================================================
- *  Operator-attached decorators (runtime). These implement the Decorator
- *  contract (render bodies migrated out of context-utils.serializeOperatorFull).
- *  Registration ORDER is the render order within a placement — preserved from
- *  the original inline gate order so output is byte-identical post-migration.
- * ========================================================================= */
-
-/** All operator decorators, in render order. */
-export const OPERATOR_DECORATORS: readonly OperatorDecorator[] = [
-  loaderRemediation, // in-result, flow L2
-  errorContext, // in-result, flow L2
-  graphAudit, // post-block, flow L3
-] as const;
-
-/**
- * Run every enabled operator decorator with the given placement whose `applies`
- * is true, in registration order, and return the appended lines (un-indented;
- * the caller owns indentation). A decorator is "enabled" when an
- * `isFlagEnabled(flag)` predicate says its catalog flag is on — the assembler
- * passes a predicate backed by the resolved options, so this stays decoupled
- * from AssembleContextOptions.
- */
-export function runOperatorDecorators(
-  placement: OperatorDecorator["placement"],
-  ctx: OperatorDecorateCtx,
-  isFlagEnabled: (flag: string) => boolean
-): string[] {
-  const out: string[] = [];
-  for (const d of OPERATOR_DECORATORS) {
-    if (d.placement !== placement) continue;
-    const descriptor = RUNGS.find(r => r.id === d.id);
-    const flag = descriptor?.flag ?? d.id;
-    if (!isFlagEnabled(flag)) continue;
-    if (!d.applies(ctx)) continue;
-    out.push(...d.render(ctx));
-  }
-  return out;
-}
+// NOTE: the per-operator Decorator machinery (OPERATOR_DECORATORS /
+// runOperatorDecorators) was removed when the FLOW facet moved out of
+// per-operator annotation into the consolidated "Operators needing attention"
+// section (context-utils.buildFlowSection). The pure flow renderers
+// (formatLoaderHint, buildLineageErrorContext, formatLineage, formatJoinTelemetry)
+// are now called directly by that section. DATA-facet rungs remain inline via
+// result-formatting (formatOperatorResult).

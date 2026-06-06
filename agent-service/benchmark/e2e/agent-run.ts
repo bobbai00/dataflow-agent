@@ -59,6 +59,14 @@ const MODEL_TYPE = process.env.TEXERA_AGENT_MODEL ?? "claude-haiku-4.5";
 const TURN_TIMEOUT_MS = Number(process.env.TEXERA_AGENT_TURN_TIMEOUT_MS ?? "600000");
 const LOCAL_CU_URI =
   process.env.TEXERA_LOCAL_CU_URI ?? process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT ?? "http://localhost:8085";
+// Context-assembly knobs (paper §5). Defaults match production defaults so the
+// harness behaves identically unless overridden — used to exercise each SELECT
+// mode (latest|delta) and the flow/data DECORATE levels end-to-end.
+const CONTEXT_MODE = (process.env.TEXERA_AGENT_CONTEXT_MODE ?? "latest") as "delta" | "latest";
+const FLOW_LEVEL =
+  process.env.TEXERA_AGENT_FLOW_LEVEL !== undefined ? Number(process.env.TEXERA_AGENT_FLOW_LEVEL) : undefined;
+const DATA_LEVEL =
+  process.env.TEXERA_AGENT_DATA_LEVEL !== undefined ? Number(process.env.TEXERA_AGENT_DATA_LEVEL) : undefined;
 
 const log = (...args: unknown[]) => console.log("[agent-e2e]", ...args);
 const logErr = (...args: unknown[]) => console.error("[agent-e2e]", ...args);
@@ -86,14 +94,23 @@ async function runSpec(
   let agentId: string | null = null;
   const t0 = Date.now();
   try {
-    log(`  creating agent (model=${MODEL_TYPE}, mode=code)`);
+    log(
+      `  creating agent (model=${MODEL_TYPE}, mode=code, contextMode=${CONTEXT_MODE}` +
+        `${FLOW_LEVEL !== undefined ? `, flowLevel=${FLOW_LEVEL}` : ""}` +
+        `${DATA_LEVEL !== undefined ? `, dataLevel=${DATA_LEVEL}` : ""})`
+    );
     const agentInfo = await createAgent({
       modelType: MODEL_TYPE,
       name: `agent-e2e-${ctx.runId}-${wid}`,
       userToken: ctx.token,
       workflowId: wid,
       computingUnitId: ctx.cuid,
-      settings: { agentMode: AgentMode.CODE },
+      settings: {
+        agentMode: AgentMode.CODE,
+        contextMode: CONTEXT_MODE,
+        ...(FLOW_LEVEL !== undefined ? { flowLevel: FLOW_LEVEL } : {}),
+        ...(DATA_LEVEL !== undefined ? { dataLevel: DATA_LEVEL } : {}),
+      },
     });
     agentId = agentInfo.id;
     log(`  agentId=${agentId}; sending prompt (turnTimeout=${TURN_TIMEOUT_MS}ms)`);

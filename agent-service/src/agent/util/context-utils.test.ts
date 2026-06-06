@@ -204,8 +204,10 @@ describe("assembleContext — Latest", () => {
     // Trailing block: # Current Dataflow (H1) → ## Operators (H2) → ### Operator X (H3).
     expect(c).toContain("### Operator `src` (TestOp)");
     expect(c).toContain("### Operator `filt` (TestOp)");
-    expect(c).toContain("## Links");
-    expect(c).toContain("- src → filt");
+    // Topology is now embedded per-operator (no separate ## Links section).
+    expect(c).not.toContain("## Links");
+    expect(c).toContain("Inputs: src"); // filt's upstream
+    expect(c).toContain("Used by: filt"); // src's downstream
 
     // No legacy echo lines.
     expect(c).not.toContain("User's request is:");
@@ -256,71 +258,6 @@ describe("assembleContext — Latest", () => {
 });
 
 /* ============================================================================
- *  Full mode
- * ========================================================================= */
-
-describe("assembleContext — Full", () => {
-  test("interleaves each action-bearing event with its destination snapshot, no trailing block", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-
-    // # User Task + # Agent Events headers apply to FULL mode too.
-    expect(c).toContain("# User Task");
-    expect(c).toContain("# Agent Events");
-    expect(c).not.toContain("# Recent Agent Events"); // renamed
-
-    // Per-event snapshot headers — Full uses the "Completed dataflow" wording.
-    // Inline snapshots now nest under ## Agent Event N (H2) → snapshot wrapper at H3.
-    expect(c).toContain("### Completed dataflow after event 2"); // src added (t1)
-    expect(c).toContain("### Completed dataflow after event 3"); // filt added (t2)
-    // No snapshot for the user request (event 1) or the thought-only t3 (event 4).
-    expect(c).not.toContain("### Completed dataflow after event 1");
-    expect(c).not.toContain("### Completed dataflow after event 4");
-    // Init is excluded entirely.
-    expect(c).not.toContain("# Event 0");
-    expect(c).not.toContain("- initialize");
-    // No trailing "# Current Dataflow" block in Full mode
-    expect(c).not.toContain("# Current Dataflow");
-  });
-
-  test("ordering: snapshot for event N appears AFTER event N's lines, BEFORE event N+1", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const event2 = c.indexOf("## Agent Event 2");
-    const snap2 = c.indexOf("### Completed dataflow after event 2");
-    const event3 = c.indexOf("## Agent Event 3");
-    expect(event2).toBeGreaterThan(-1);
-    expect(snap2).toBeGreaterThan(event2);
-    expect(event3).toBeGreaterThan(snap2);
-  });
-
-  test("renders every operator in full at every snapshot — event 2's snapshot shows src; event 3's shows src+filt", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const after2 = c.slice(c.indexOf("### Completed dataflow after event 2"), c.indexOf("## Agent Event 3"));
-    const after3 = c.slice(c.indexOf("### Completed dataflow after event 3"), c.indexOf("## Agent Event 4"));
-    // Inline snapshots nest under ## Agent Event N (H2) → wrapper H3 → Operators H4 → Operator X H5.
-    expect(after2).toContain("##### Operator `src`");
-    expect(after2).not.toContain("##### Operator `filt`"); // filt doesn't exist yet at event 2's snapshot
-    expect(after3).toContain("##### Operator `src`");
-    expect(after3).toContain("##### Operator `filt`");
-    // No "unchanged" markers in Full mode — every op is full.
-    expect(after3).not.toContain("unchanged");
-  });
-
-  test("inline snapshot section headings sit two levels below the agent-event header", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
-    const after3 = c.slice(c.indexOf("### Completed dataflow after event 3"), c.indexOf("## Agent Event 4"));
-    // Snapshot wrapper at H3; Operators/Links at H4; Operator X at H5.
-    expect(after3).toContain("#### Operators");
-    expect(after3).toContain("#### Links");
-    expect(after3).toContain("##### Operator `src`");
-    expect(after3).toContain("##### Operator `filt`");
-  });
-});
-
-/* ============================================================================
  *  Delta mode
  * ========================================================================= */
 
@@ -348,8 +285,10 @@ describe("assembleContext — Delta", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     const after3 = c.slice(c.indexOf("### Dataflow changes after event 3"), c.indexOf("## Agent Event 4"));
-    expect(after3).toContain("#### Links");
-    expect(after3).toContain("- src → filt");
+    // Edge stays visible via filt's embedded Inputs line even though the
+    // upstream `src` is unchanged and omitted from the delta snapshot.
+    expect(after3).not.toContain("#### Links");
+    expect(after3).toContain("Inputs: src");
   });
 
   test("when Δ is empty (no operator added/modified/re-executed), the operators block is omitted", () => {
@@ -477,7 +416,7 @@ describe("assembleContext — cross-mode invariants", () => {
     const ofMode = (m: ContextMode) => content(assembleContext(steps, workflowState, storage, m, opts));
 
     // # User Task is universally present.
-    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       const c = ofMode(mode);
       expect(c).toContain("# User Task");
       expect(c).toContain("Build me a pipeline.");
@@ -485,7 +424,7 @@ describe("assembleContext — cross-mode invariants", () => {
 
     // Full + Delta render the events section with each agent event + its
     // natural-language action lines.
-    for (const mode of [ContextMode.FULL, ContextMode.DELTA]) {
+    for (const mode of [ContextMode.DELTA]) {
       const c = ofMode(mode);
       expect(c).toContain("# Agent Events");
       expect(c).toContain("## Agent Event 2");
@@ -538,7 +477,7 @@ describe("assembleContext — cross-mode invariants", () => {
       makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" })
     );
     const ws = new WorkflowState();
-    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: true }));
       expect(c).not.toContain("secret_payload");
       expect(c).not.toContain("Properties:");
@@ -550,14 +489,14 @@ describe("assembleContext — cross-mode invariants", () => {
     const ws = new WorkflowState();
 
     // Default (flag undefined ⇒ on): properties render.
-    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       const c = content(assembleContext(stepsAll, ws, storage, mode, opts));
       expect(c).toContain("Properties:");
       expect(c).toContain("age > 18");
     }
 
     // Flag off: legacy strip-everything behavior.
-    for (const mode of [ContextMode.FULL, ContextMode.DELTA, ContextMode.LATEST]) {
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: false }));
       expect(c).not.toContain("Properties:");
       expect(c).not.toContain("age > 18");
@@ -606,7 +545,7 @@ describe("assembleContext — action line format", () => {
 
     // Latest mode renders no events, so Full mode is the place to assert
     // the natural-language line shape.
-    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(cFull).toContain('- create operator "src", result: Added operator src, input ports: 0, output ports: 1');
 
     // Code and summary are NOT on the event line.
@@ -647,7 +586,7 @@ describe("assembleContext — action line format", () => {
     ]);
     storage.createSnapshot("a1", makeWorkflow(["src"]));
     storage.createSnapshot("a2", makeWorkflow(["src"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(c).toContain('- create operator "src", result: Added operator src');
     expect(c).toContain('- modify operator "src", result: Updated operator src');
   });
@@ -674,7 +613,7 @@ describe("assembleContext — action line format", () => {
       },
     ]);
     storage.createSnapshot("a1", makeWorkflow([])); // empty after delete
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(c).toContain('- create operator "tmp", result: Added operator tmp');
     expect(c).toContain('- delete operator "tmp", result: Deleted operator tmp');
   });
@@ -717,7 +656,7 @@ describe("assembleContext — action line format", () => {
     storage.createSnapshot("a1", makeWorkflow(["op"]));
     storage.createSnapshot("a2", makeWorkflow([]));
     storage.createSnapshot("a3", makeWorkflow(["op"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     // Both creations render as `create operator "op"` — not `modify`.
     // Use a regex-count: should see two `- create operator "op"` lines.
     const matches = c.match(/- create operator "op"/g) ?? [];
@@ -741,7 +680,7 @@ describe("assembleContext — action line format", () => {
       },
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(c).toContain('- executeOperator on operator "src", result: Executed operator src');
   });
 
@@ -763,7 +702,7 @@ describe("assembleContext — action line format", () => {
       },
     ]);
     storage.createSnapshot("a", makeWorkflow(["x"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(c).toContain('- create operator "x", result:');
     expect(c).toContain("    [ERROR] something broke");
     expect(c).toContain("      hint: try with encoding='latin-1'");
@@ -783,7 +722,7 @@ describe("assembleContext — action line format", () => {
         isEnd: true,
       },
     ]);
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     expect(c).toContain("## Agent Event 2");
     expect(c).toContain("Thought: thinking out loud, no tools");
     // No `Actions:` label, no event line, no `result:` text.
@@ -802,7 +741,7 @@ describe("assembleContext — action-less steps", () => {
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       { id: "a", stepId: 1, role: "agent", parentId: "u", messageId: "m1", content: "hi back", isEnd: true },
     ]);
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.FULL, opts));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     // No snapshots created → no inline snapshot headers (either flavour name).
     expect(c).not.toContain("Completed dataflow after event");
     expect(c).not.toContain("Dataflow changes after event");
@@ -1202,5 +1141,23 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     const viaBool = content(assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, { ...opts, loaderHint: true, lineageStats: true, lineageErrorContext: true }));
     const viaLevel = content(assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
     expect(viaLevel).toBe(viaBool);
+  });
+
+  test("flow renders in a consolidated '# Operators needing attention' section after the dataflow, not inline", () => {
+    const s = errorScenario();
+    const c = content(assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 }));
+    // Consolidated section present and placed AFTER the snapshot (recency).
+    expect(c).toContain("# Operators needing attention");
+    expect(c.indexOf("# Current Dataflow")).toBeLessThan(c.indexOf("# Operators needing attention"));
+    // The errored operator is listed in the section with its remediation.
+    const section = c.slice(c.indexOf("# Operators needing attention"));
+    expect(section).toContain("### `ld` (DataLoading)");
+    expect(section).toContain("Loader hint:");
+    // The hint is NOT also rendered inline inside the operator's snapshot block.
+    const dataflow = c.slice(c.indexOf("# Current Dataflow"), c.indexOf("# Operators needing attention"));
+    expect(dataflow).not.toContain("Loader hint:");
+    // flow off ⇒ no section at all.
+    const cOff = content(assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts }));
+    expect(cOff).not.toContain("# Operators needing attention");
   });
 });

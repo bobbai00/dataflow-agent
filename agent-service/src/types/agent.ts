@@ -71,19 +71,19 @@ export enum AgentMode {
 }
 
 /**
- * Snapshot-selection policy for serializing the ReAct context (paper §5).
- * Each mode trades fidelity for token cost.
+ * Snapshot-selection policy for serializing the ReAct context (paper §5,
+ * Phase 1). Trades trajectory fidelity for token cost; orthogonal to the
+ * flow/data DECORATE levels (Phase 2).
  *
- * - FULL — every snapshot on the path rendered in full; events and snapshots
- *   are interleaved. Highest cost, highest fidelity.
- * - DELTA — every snapshot on the path interleaved with its event, but only
- *   the operators changed by that step's actions are rendered in full; the
- *   rest are id+description placeholders. Cost scales with distinct edits.
- * - LATEST — events without per-turn snapshots, plus one trailing block
- *   containing only the current snapshot. Cheapest; loses trajectory.
+ * - DELTA — each event interleaved with its snapshot, rendering only the
+ *   operators that event changed (unchanged operators are omitted; topology
+ *   is embedded per-operator). Cost scales with distinct edits.
+ * - LATEST — no per-event history; just the user task + the current snapshot.
+ *   Cheapest. When flowLevel>0, a consolidated "Operators needing attention"
+ *   flow section follows the snapshot — a targeted, lossy projection of the
+ *   trajectory's failures/lineage (the middle ground between LATEST and DELTA).
  */
 export enum ContextMode {
-  FULL = "full",
   DELTA = "delta",
   LATEST = "latest",
 }
@@ -308,7 +308,7 @@ export interface AgentSettingsApi {
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
-  contextMode?: "full" | "delta" | "latest";
+  contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;
@@ -356,7 +356,7 @@ export interface UpdateAgentSettingsRequest {
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general";
-  contextMode?: "full" | "delta" | "latest";
+  contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;

@@ -46,18 +46,17 @@
 export type HistoryRepresentation = "aggregated" | "trajectory";
 
 export interface HistoryModeDescriptor {
-  /** matches ContextMode values ("latest" | "delta" | "full"). */
+  /** matches ContextMode values ("latest" | "delta"). */
   mode: string;
   representation: HistoryRepresentation;
-  /** ordinal on the axis: 0 aggregated → 2 unbounded trajectory. */
-  axisRank: 0 | 1 | 2;
+  /** ordinal on the axis: 0 aggregated → 1 bounded trajectory. */
+  axisRank: 0 | 1;
   note: string;
 }
 
 export const HISTORY_MODES: readonly HistoryModeDescriptor[] = [
-  { mode: "latest", representation: "aggregated", axisRank: 0, note: "current DAG snapshot only (the converge baseline)" },
+  { mode: "latest", representation: "aggregated", axisRank: 0, note: "current DAG snapshot only (the converge baseline); +flowLevel adds a targeted failure/lineage projection" },
   { mode: "delta", representation: "trajectory", axisRank: 1, note: "changes since the last turn (bounded trajectory)" },
-  { mode: "full", representation: "trajectory", axisRank: 2, note: "entire verbatim history (≈ flat-script context; reference only)" },
 ] as const;
 
 export function historyModeDescriptor(mode: string): HistoryModeDescriptor | undefined {
