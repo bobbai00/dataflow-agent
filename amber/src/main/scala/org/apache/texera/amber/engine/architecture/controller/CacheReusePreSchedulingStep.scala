@@ -232,7 +232,13 @@ object CacheReusePreSchedulingStep {
           val outputPort = GlobalPortIdentity(link.fromOpId, link.fromPortId)
           cachedOutputsByPort.get(outputPort) match {
             case Some(cached) =>
-              val uris = acc.getOrElse(inputPort, List.empty) :+ cached.resultUri
+              // Input-port reader URIs must be the materialization BASE (the reader
+              // derives result/state via VFSURIFactory.result_uri/state_uri), exactly
+              // like the scheduler-derived path (CostBasedScheduleGenerator uses the
+              // producer's `storageURIBase`). The cache persists the RESULT uri, so
+              // strip it back to the base — otherwise the reader opens
+              // `<base>/result/result`, finds no table, and the consumer hangs.
+              val uris = acc.getOrElse(inputPort, List.empty) :+ cachedPortBaseURI(cached.resultUri)
               acc.updated(inputPort, uris)
             case None =>
               acc
