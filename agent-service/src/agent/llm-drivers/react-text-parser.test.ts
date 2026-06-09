@@ -20,157 +20,223 @@
 import { describe, expect, test } from "bun:test";
 import { parseReActText } from "./react-text-parser";
 
-describe("parseReActText", () => {
-  test("terminal turn: thought only, no actions", () => {
-    const out = parseReActText("Thought: The answer is 42.\n");
-    expect(out.thought).toBe("The answer is 42.");
+describe("parseReActText (Qwen3-Coder tool-call format)", () => {
+  test("terminal turn: free text, no tool call", () => {
+    const out = parseReActText("The answer is 42.\n\n**Final Answer: 42**\n");
+    expect(out.thought).toBe("The answer is 42.\n\n**Final Answer: 42**");
     expect(out.actions).toEqual([]);
   });
 
-  test("single action with Python-dict payload", () => {
-    const raw = `Thought: I will load the data.
-Action: createOrModifyOperator
-Action Input: {'operatorId': 'loadData', 'summary': 'Load the CSV'}
-Observation:`;
+  test("single tool call with multi-line code preserves interior indentation", () => {
+    const raw = `I will load the data.
+<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+loadData
+</parameter>
+<parameter=code>
+def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv')
+</parameter>
+<parameter=summary>
+Load x.csv
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
     expect(out.thought).toBe("I will load the data.");
     expect(out.actions).toHaveLength(1);
     expect(out.actions[0].name).toBe("createOrModifyOperator");
-    expect(out.actions[0].input).toEqual({ operatorId: "loadData", summary: "Load the CSV" });
+    expect(out.actions[0].input).toEqual({
+      operatorId: "loadData",
+      code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv')",
+      summary: "Load x.csv",
+    });
   });
 
-  test("multiple Action / Action Input pairs in one turn", () => {
-    const raw = `Thought: Load both files in parallel.
-
-Action: createOrModifyOperator
-Action Input: {'operatorId': 'a', 'summary': 'first'}
-
-Action: createOrModifyOperator
-Action Input: {'operatorId': 'b', 'summary': 'second'}
-
-Observation:`;
+  test("multiple <tool_call> blocks in one turn map to ordered actions", () => {
+    const raw = `Load both files.
+<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+a
+</parameter>
+<parameter=summary>
+first
+</parameter>
+</function>
+</tool_call>
+<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+b
+</parameter>
+<parameter=summary>
+second
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
+    expect(out.thought).toBe("Load both files.");
     expect(out.actions).toHaveLength(2);
     expect(out.actions[0].input).toEqual({ operatorId: "a", summary: "first" });
     expect(out.actions[1].input).toEqual({ operatorId: "b", summary: "second" });
   });
 
-  test("payload with nested braces and escaped quotes inside double-quoted value", () => {
-    // Mirrors the canonical sample: dict-style outer, double-quoted code value
-    // that itself contains single-quoted Python strings and {} characters.
-    const raw = `Action: createOrModifyOperator
-Action Input: {'operatorId': 'filterCands', 'code': "def process(d) -> pd.DataFrame:\\n    return d[~d['Candidate'].isin(['A', 'B'])]\\n", 'summary': 'Filter'}
-Observation:`;
+  test("deleteOperator single-parameter call", () => {
+    const raw = `Removing the orphan.
+<tool_call>
+<function=deleteOperator>
+<parameter=operatorId>
+badLoader
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
     expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].name).toBe("deleteOperator");
+    expect(out.actions[0].input).toEqual({ operatorId: "badLoader" });
+  });
+
+  test("code containing single + double quotes and braces is preserved verbatim", () => {
+    const raw = `<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+filterCands
+</parameter>
+<parameter=code>
+def process(d) -> pd.DataFrame:
+    return d[~d['Candidate'].isin(['A', 'B'])]
+</parameter>
+<parameter=summary>
+Filter out candidates A and B
+</parameter>
+</function>
+</tool_call>`;
+    const out = parseReActText(raw);
     const inp = out.actions[0].input;
     expect(inp.operatorId).toBe("filterCands");
-    expect(inp.summary).toBe("Filter");
-    expect(inp.code).toContain("def process");
-    expect(inp.code).toContain("['A', 'B']");
+    expect(inp.code).toContain("def process(d)");
+    expect(inp.code).toContain("d[~d['Candidate'].isin(['A', 'B'])]");
+    expect(inp.summary).toBe("Filter out candidates A and B");
   });
 
-  test("truncates everything from the first Observation: line", () => {
-    const raw = `Action: createOrModifyOperator
-Action Input: {'operatorId': 'a', 'summary': 'first'}
-Observation:
-Action: shouldBeIgnored
-Action Input: {'operatorId': 'noise'}
-Function(name='alsoIgnored', arguments='{...}')`;
+  test("inline parameter value (no surrounding newlines)", () => {
+    const raw = `<tool_call>
+<function=deleteOperator>
+<parameter=operatorId>orphan</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
-    expect(out.actions).toHaveLength(1);
-    expect(out.actions[0].input.operatorId).toBe("a");
+    expect(out.actions[0].input).toEqual({ operatorId: "orphan" });
   });
 
-  test("strict JSON payload still parses", () => {
-    const raw = `Action: createOrModifyOperator
-Action Input: {"operatorId": "a", "summary": "first"}`;
+  test("<think> reasoning block is stripped from the thought", () => {
+    const raw = `<think>
+The user wants the 2009-10 row. Let me filter.
+</think>
+Filtering to the 2009-10 season.
+<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+filterSeason
+</parameter>
+<parameter=summary>
+Filter to 2009-10
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
-    expect(out.actions[0].input).toEqual({ operatorId: "a", summary: "first" });
+    expect(out.thought).toBe("Filtering to the 2009-10 season.");
+    expect(out.thought).not.toContain("<think>");
+    expect(out.thought).not.toContain("Let me filter");
+    expect(out.actions[0].input).toEqual({ operatorId: "filterSeason", summary: "Filter to 2009-10" });
   });
 
-  test("True/False/None tokens convert to JSON booleans/null", () => {
-    const raw = `Action: t
-Action Input: {'a': True, 'b': False, 'c': None}`;
+  test("leading 'Thought:' label is stripped even when the model mimics the context format", () => {
+    const raw = `Thought: building the loader now.
+<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+src
+</parameter>
+<parameter=summary>
+load src.csv
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
-    expect(out.actions[0].input).toEqual({ a: true, b: false, c: null });
+    expect(out.thought).toBe("building the loader now.");
   });
 
-  test("malformed payload surfaces as __parseError so the loop survives", () => {
-    const raw = `Action: createOrModifyOperator
-Action Input: {this is not valid at all`;
+  test("action-only turn yields an empty thought", () => {
+    const raw = `<tool_call>
+<function=deleteOperator>
+<parameter=operatorId>
+x
+</parameter>
+</function>
+</tool_call>`;
     const out = parseReActText(raw);
-    expect(out.actions).toHaveLength(1);
-    expect(out.actions[0].input.__parseError).toBeDefined();
-    expect(out.actions[0].input.__rawInput).toContain("this is not valid");
-  });
-
-  test("Action Input not opening with brace records a parse error and keeps going", () => {
-    const raw = `Action: t1
-Action Input: not an object
-Action: t2
-Action Input: {'ok': 1}`;
-    const out = parseReActText(raw);
-    expect(out.actions).toHaveLength(2);
-    expect(out.actions[0].input.__parseError).toBeDefined();
-    expect(out.actions[1].input).toEqual({ ok: 1 });
-  });
-
-  test("leading 'Thought:' label is stripped even when followed by an action", () => {
-    const raw = `Thought:    multiline
-thought here
-
-Action: t
-Action Input: {'k': 1}`;
-    const out = parseReActText(raw);
-    expect(out.thought.startsWith("multiline")).toBe(true);
-  });
-
-  test("no Thought label, just bare text before action", () => {
-    const raw = `Some bare reasoning.
-Action: t
-Action Input: {'k': 1}`;
-    const out = parseReActText(raw);
-    expect(out.thought).toBe("Some bare reasoning.");
-    expect(out.actions[0].input).toEqual({ k: 1 });
-  });
-
-  test("strips <Analyze> preamble that appears before the first Thought:", () => {
-    const raw = `<Analyze>
-I can see the data has been loaded. Let me plan the next steps:
-1. group by beach
-2. compute violation rate
-</Analyze>
-Thought: I'll create operators to analyze the data.
-Action: createOrModifyOperator
-Action Input: {'operatorId': 'groupByBeach', 'summary': 'group by beach'}`;
-    const out = parseReActText(raw);
-    expect(out.thought).toBe("I'll create operators to analyze the data.");
-    // The Analyze block must NOT bleed into the thought.
-    expect(out.thought).not.toContain("<Analyze>");
-    expect(out.thought).not.toContain("group by beach");
-    expect(out.actions).toHaveLength(1);
-    expect(out.actions[0].input).toEqual({ operatorId: "groupByBeach", summary: "group by beach" });
-  });
-
-  test("preamble drop keeps only the FIRST Thought block — later ones stay in the thought", () => {
-    const raw = `Some preamble.
-Thought: first thought.
-More on the first thought.
-Thought: this second mention is part of the same thought block.
-Action: t
-Action Input: {'k': 1}`;
-    const out = parseReActText(raw);
-    expect(out.thought.startsWith("first thought.")).toBe(true);
-    expect(out.thought).toContain("second mention");
-    expect(out.thought).not.toContain("Some preamble");
-  });
-
-  test("no Thought label and no preamble drop applied (terminal action-only turn)", () => {
-    const raw = `Action: t
-Action Input: {'k': 1}`;
-    const out = parseReActText(raw);
-    expect(out.actions).toHaveLength(1);
     expect(out.thought).toBe("");
+    expect(out.actions).toHaveLength(1);
+  });
+
+  test("text emitted after the call (illegal suffix) is ignored, not folded into the thought", () => {
+    const raw = `Reason.
+<tool_call>
+<function=deleteOperator>
+<parameter=operatorId>
+x
+</parameter>
+</function>
+</tool_call>
+Some trailing chatter that should be dropped.`;
+    const out = parseReActText(raw);
+    expect(out.thought).toBe("Reason.");
+    expect(out.thought).not.toContain("trailing chatter");
+    expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].input).toEqual({ operatorId: "x" });
+  });
+
+  test("truncated output (missing closing </parameter> and </function>) still parses", () => {
+    const raw = `<tool_call>
+<function=createOrModifyOperator>
+<parameter=operatorId>
+loadData
+</parameter>
+<parameter=code>
+def load() -> pd.DataFrame:
+    return pd.read_csv('/data/x.csv')`;
+    const out = parseReActText(raw);
+    expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].name).toBe("createOrModifyOperator");
+    expect(out.actions[0].input.operatorId).toBe("loadData");
+    expect(out.actions[0].input.code).toContain("pd.read_csv('/data/x.csv')");
+  });
+
+  test("bare <function=> without the <tool_call> wrapper is still extracted", () => {
+    const raw = `<function=deleteOperator>
+<parameter=operatorId>
+x
+</parameter>
+</function>`;
+    const out = parseReActText(raw);
+    expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].name).toBe("deleteOperator");
+    expect(out.actions[0].input).toEqual({ operatorId: "x" });
+  });
+
+  test("malformed tool call surfaces __parseError so the loop never terminates silently", () => {
+    const raw = `Doing a thing.
+<tool_call>
+this block has no function tag at all
+</tool_call>`;
+    const out = parseReActText(raw);
+    expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].input.__parseError).toBeDefined();
+    expect(out.actions[0].input.__rawInput).toContain("no function tag");
+    // thought is still recovered
+    expect(out.thought).toBe("Doing a thing.");
   });
 });

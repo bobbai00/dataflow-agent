@@ -18,28 +18,31 @@
  */
 
 /**
- * Text-mode ReAct driver for the in-house local LLM. The model emits
- * `Thought: / Action: / Action Input:` blocks (Python-dict payloads) and
- * its tool descriptions are baked into its training prompt — so the agent
- * sends one user message per turn, no `tools`, no `system`, no
- * SDK-managed stop condition.
+ * Text-mode driver for the in-house local LLM. The model emits the
+ * Qwen3-Coder XML tool-call protocol — optional natural-language reasoning
+ * followed by `<tool_call><function=NAME><parameter=KEY>…</parameter>…
+ * </function></tool_call>` blocks — and its tool catalog + output-format
+ * instructions are baked into its training prompt (`prompts/local-react.txt`,
+ * sent as `system`). So the agent sends one user message per turn, no
+ * `tools` param (the gateway returns the raw `<tool_call>` text, which this
+ * driver parses itself), and no SDK-managed stop condition.
  *
  * Per turn:
  *   1. `prepareStep` re-renders context (events + current dataflow) into a
  *      single user message via `assembleLocalReactContext`.
- *   2. The driver calls `generateText({ model, messages })` — the SDK is
- *      used as a thin OpenAI-compatible HTTP client; the routing,
- *      authentication, and feature-flag chain (agent-service →
- *      AccessControlService → LiteLLM gateway) is inherited from the
- *      injected `model` instance, exactly matching the SDK driver.
- *   3. `parseReActText` pulls the thought + ordered list of actions out of
- *      the raw completion. Everything from the first `Observation:` line
- *      onward is discarded (matches the local LLM's training format).
+ *   2. The driver calls `generateText({ model, system, messages })` — the
+ *      SDK is used as a thin OpenAI-compatible chat client; routing,
+ *      authentication, and the feature-flag chain (agent-service →
+ *      AccessControlService → LiteLLM gateway) are inherited from the
+ *      injected `model` instance, and the gateway's ChatML template wraps
+ *      the system/user content as `<|im_start|>…<|im_end|>`.
+ *   3. `parseReActText` pulls the thought (pre-call reasoning) + ordered
+ *      list of tool calls out of the raw completion.
  *   4. The driver executes each action sequentially against the agent's
  *      tool registry, collects results, then calls `onStepFinish` so the
  *      agent's bookkeeping runs identically to the SDK path.
- *   5. The loop ends when the model emits zero actions in a turn (the
- *      training-time terminal signal) or when `maxSteps` is reached.
+ *   5. The loop ends when the model emits zero tool calls in a turn (its
+ *      final text-only answer) or when `maxSteps` is reached.
  */
 
 import { generateText, type LanguageModel, type ModelMessage } from "ai";

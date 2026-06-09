@@ -18,319 +18,156 @@
  */
 
 /**
- * Pure parser for the local-react LLM's text-mode output. Maps the model's
- * raw completion into a thought string plus the list of tool calls it
- * emitted. The driver uses the actions list as both the work to execute
- * and the termination signal — `actions.length === 0` ends the loop.
+ * Pure parser for the local LLM's Qwen3-Coder-style tool-call output. Maps
+ * the model's raw completion into a thought string plus the ordered list of
+ * tool calls it emitted. The driver uses the actions list as both the work
+ * to execute and the termination signal — `actions.length === 0` ends the
+ * loop (the model's final text-only answer).
  *
- * Format (verified against the kramabench training set):
+ * Format (the Qwen3-Coder XML tool-call protocol baked into the system
+ * prompt — see `prompts/local-react.txt`). Optional natural-language
+ * reasoning comes BEFORE the call (never after), then one or more tool
+ * calls, each wrapped in `<tool_call>`:
  *
- *   Thought: <free text>
+ *   <reasoning text>                       # optional — becomes the thought
+ *   <tool_call>
+ *   <function=createOrModifyOperator>
+ *   <parameter=operatorId>
+ *   loadData
+ *   </parameter>
+ *   <parameter=code>
+ *   def load() -> pd.DataFrame:
+ *       return pd.read_csv('/data/x.csv')
+ *   </parameter>
+ *   <parameter=summary>
+ *   Load x.csv
+ *   </parameter>
+ *   </function>
+ *   </tool_call>
  *
- *   Action: <toolName>
- *   Action Input: { ... }
+ *   <tool_call>                            # multiple <tool_call> blocks in
+ *   <function=deleteOperator>...</function># one turn map to parallel calls
+ *   </tool_call>
  *
- *   Action: <toolName>           # multiple Action/Action Input pairs per
- *   Action Input: { ... }        # turn map to parallel tool calls
- *
- *   Observation:                 # everything from this line onward is
- *   <ignored>                    # echo / noise — discarded before parsing
- *
- * Payloads are Python-dict-style literals (single-quoted keys + mixed
- * single/double quoted values, `True`/`False`/`None`), not strict JSON.
- * The repair pass converts them to JSON before `JSON.parse`.
+ * Parameter values are plain strings — every tool parameter in this service
+ * is a string (operatorId / code / summary), so there is NO JSON / Python
+ * literal coercion: the bytes between the tags are taken verbatim, with only
+ * the formatting whitespace at the value boundaries trimmed.
  */
 
 export interface ParsedAction {
-  /** Tool name as emitted by the model. */
+  /** Tool name as emitted by the model (the `<function=NAME>` value). */
   name: string;
-  /** Parsed call arguments. When the Action Input payload cannot be parsed,
-   *  this is `{ __parseError: <error message>, __rawInput: <raw string> }`
-   *  so the downstream tool fails with a clear error that travels back to
-   *  the model on the next turn — never `undefined`, never silently
-   *  dropped, so the loop can't hang on a malformed emission. */
+  /** Parsed call arguments: a `{ paramName: stringValue }` record. When a
+   *  tool-call block can't be parsed at all, this is
+   *  `{ __parseError: <message>, __rawInput: <raw string> }` so the
+   *  downstream tool fails with a clear error that travels back to the model
+   *  on the next turn — never `undefined`, never silently dropped, so the
+   *  loop can't hang or terminate early on a malformed emission. */
   input: any;
 }
 
 export interface ParsedReActOutput {
-  /** Free-text content before the first Action / Final Answer marker.
-   *  Leading "Thought:" label is stripped. May be the empty string. */
+  /** Free-text reasoning the model emitted before the first tool call.
+   *  `<think>…</think>` blocks and a leading "Thought:" label are stripped.
+   *  May be the empty string. On a terminal turn (no tool calls) this holds
+   *  the model's full final answer. */
   thought: string;
   /** Tool calls in emit order. Empty ⇒ terminal: the driver ends the loop. */
   actions: ParsedAction[];
 }
 
-/** Find the byte offset where the parseable region ends — i.e. the start
- *  of the first `Observation:` line. Returns `text.length` when there is
- *  no Observation marker. */
-function findObservationCutoff(text: string): number {
-  const m = /^[ \t]*Observation\s*:/m.exec(text);
-  return m ? m.index : text.length;
+/** Byte offset of the first tool-call marker (`<tool_call>` or, if the model
+ *  drops the wrapper, a bare `<function=`). Returns -1 when neither exists —
+ *  the whole completion is then free text (a terminal turn). */
+function findFirstMarker(text: string): number {
+  const a = text.indexOf("<tool_call>");
+  const b = text.search(/<function=/);
+  const found = [a, b].filter(i => i >= 0);
+  return found.length > 0 ? Math.min(...found) : -1;
 }
 
-/** Find the byte offset of the first `Thought:` label (case-insensitive,
- *  line-anchored). Returns -1 when no such label exists.
- *
- *  Used to strip model-emitted scratchpad prefixes — `<Analyze>…</Analyze>`
- *  blocks, hidden reasoning, etc. — that appear before the real ReAct
- *  transcript begins. The local LLM was trained to lead with `Thought:`,
- *  so anything before it is preamble the agent should not record. */
-function findThoughtAnchor(text: string): number {
-  const m = /(?:^|\n)[ \t]*Thought\s*:/i.exec(text);
-  if (!m) return -1;
-  // The (?:^|\n) prefix may capture the leading newline; advance past it
-  // so the returned offset points at the `T` of `Thought`.
-  return text[m.index] === "\n" ? m.index + 1 : m.index;
+/** Remove `<think>…</think>` reasoning blocks. Applied only to the
+ *  pre-tool-call region so it can never corrupt parameter values (which live
+ *  inside `<tool_call>` and may legitimately contain angle brackets). */
+function stripThinkBlocks(s: string): string {
+  return s.replace(/<think>[\s\S]*?<\/think>/gi, "");
 }
 
 /**
- * Tolerant Python-literal → JSON converter, scoped to what the local LLM
- * actually emits:
- *  - single-quoted strings become double-quoted, with `\'` unescaped to `'`
- *    and unescaped `"` escaped to `\"`;
- *  - bare `True` / `False` / `None` tokens become `true` / `false` / `null`;
- *  - everything inside double-quoted strings is preserved verbatim.
+ * Strip the formatting whitespace the protocol wraps around a value (the
+ * newline right after `<parameter=…>` and the trailing newline before
+ * `</parameter>`) without touching interior indentation.
  *
- * Not a full Python parser — it only handles the shapes seen in training
- * data. When the result is not valid JSON the caller falls back to the
- * raw-input marker so the loop survives.
+ * A plain `.trim()` is correct for this tool surface: every parameter is a
+ * string whose first content line is flush-left (operatorId / summary are
+ * single-line; a `code` block's top-level `def` sits at column 0), so
+ * trimming the ends never removes indentation that Python relies on, while
+ * robustly absorbing any extra blank lines the model adds at the boundaries.
  */
-function pythonLiteralToJson(src: string): string {
-  let out = "";
-  let i = 0;
-  // 0 = normal, 1 = inside single-quoted string, 2 = inside double-quoted string
-  let state: 0 | 1 | 2 = 0;
-  while (i < src.length) {
-    const ch = src[i];
-    if (state === 0) {
-      if (ch === "'") {
-        out += '"';
-        state = 1;
-        i++;
-        continue;
-      }
-      if (ch === '"') {
-        out += '"';
-        state = 2;
-        i++;
-        continue;
-      }
-      // Bare True/False/None at a word boundary.
-      const tail = src.slice(i);
-      let m: RegExpMatchArray | null;
-      if ((m = /^True(?![A-Za-z0-9_])/.exec(tail))) {
-        out += "true";
-        i += 4;
-        continue;
-      }
-      if ((m = /^False(?![A-Za-z0-9_])/.exec(tail))) {
-        out += "false";
-        i += 5;
-        continue;
-      }
-      if ((m = /^None(?![A-Za-z0-9_])/.exec(tail))) {
-        out += "null";
-        i += 4;
-        continue;
-      }
-      out += ch;
-      i++;
-      continue;
-    }
-    if (state === 1) {
-      if (ch === "\\" && i + 1 < src.length) {
-        const next = src[i + 1];
-        if (next === "'") {
-          out += "'";
-          i += 2;
-          continue;
-        }
-        if (next === '"') {
-          out += '\\"';
-          i += 2;
-          continue;
-        }
-        out += ch + next;
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        out += '"';
-        state = 0;
-        i++;
-        continue;
-      }
-      if (ch === '"') {
-        out += '\\"';
-        i++;
-        continue;
-      }
-      out += ch;
-      i++;
-      continue;
-    }
-    // state === 2 — inside double-quoted string, preserve content.
-    if (ch === "\\" && i + 1 < src.length) {
-      out += ch + src[i + 1];
-      i += 2;
-      continue;
-    }
-    if (ch === '"') {
-      out += '"';
-      state = 0;
-      i++;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
+function trimValue(v: string): string {
+  return v.trim();
 }
 
-/** Attempt strict JSON parse, then fall back to the Python-literal repair.
- *  Returns the parsed value or throws — caller wraps the error. */
-function tolerantParseObject(payload: string): any {
-  try {
-    return JSON.parse(payload);
-  } catch {
-    // fall through
+/** Parse the `<parameter=KEY>VALUE</parameter>` pairs inside one function
+ *  body into a `{ key: value }` record. Tolerant of a missing closing
+ *  `</parameter>` on the final pair (truncated output) — it then captures to
+ *  the end of the body. */
+function parseParameters(body: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  const re = /<parameter=([^>\r\n\t ]+)\s*>([\s\S]*?)(?:<\/parameter>|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    params[m[1]] = trimValue(m[2]);
+    if (re.lastIndex <= m.index) break; // zero-width guard
   }
-  const repaired = pythonLiteralToJson(payload);
-  return JSON.parse(repaired);
+  return params;
 }
 
 /**
- * Starting at `start` (which must point at `{`), return the index just past
- * the matching `}`. Tracks quote state so braces inside string literals
- * don't count. Returns -1 if no balanced match is found.
- */
-function findBalancedBraceEnd(text: string, start: number): number {
-  if (text[start] !== "{") return -1;
-  let depth = 0;
-  let i = start;
-  // 0 = normal, 1 = single-string, 2 = double-string
-  let state: 0 | 1 | 2 = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    if (state === 0) {
-      if (ch === "{") depth++;
-      else if (ch === "}") {
-        depth--;
-        if (depth === 0) return i + 1;
-      } else if (ch === "'") state = 1;
-      else if (ch === '"') state = 2;
-    } else if (state === 1) {
-      if (ch === "\\" && i + 1 < text.length) {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") state = 0;
-    } else {
-      if (ch === "\\" && i + 1 < text.length) {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') state = 0;
-    }
-    i++;
-  }
-  return -1;
-}
-
-/** Skip ASCII spaces / tabs / line breaks. */
-function skipWhitespace(text: string, i: number): number {
-  while (i < text.length && (text[i] === " " || text[i] === "\t" || text[i] === "\r" || text[i] === "\n")) {
-    i++;
-  }
-  return i;
-}
-
-/**
- * Parse one local-react model emission.
+ * Parse one local-LLM emission.
  *
- * - Truncates at the first `Observation:` line so the trailing
- *   `Function(...)` echo / backend `[WARNING]` blocks the gateway sometimes
- *   appends don't get re-parsed as tool calls.
- * - Collects every `Action: <name>` / `Action Input: <{...}>` pair in emit
- *   order. Each pair becomes one `ParsedAction`.
- * - Anything before the first `Action:` is the thought (leading `Thought:`
- *   label stripped).
+ * - Everything before the first tool-call marker is the thought (with
+ *   `<think>` blocks and a leading "Thought:" label stripped). Anything the
+ *   model emits AFTER the calls (the protocol forbids a suffix, but be
+ *   defensive) is ignored — it is neither thought nor action.
+ * - Every `<function=NAME>…</function>` block (across all `<tool_call>`
+ *   wrappers) becomes one `ParsedAction`, in emit order. The `<tool_call>` /
+ *   `</tool_call>` tags themselves are not required for extraction.
+ * - When tool-call markers are present but nothing parseable is found, a
+ *   single `__parseError` action is emitted so the driver does NOT mistake
+ *   the turn for a terminal (zero-action) one and the model gets feedback.
  *
- * Returns `{ thought, actions }`. Never throws — malformed payloads
- * surface as `__parseError` actions so the loop can recover via the
- * tool-result feedback channel.
+ * Never throws.
  */
 export function parseReActText(raw: string): ParsedReActOutput {
-  const cutoff = findObservationCutoff(raw);
-  let text = raw.slice(0, cutoff);
+  const markerIdx = findFirstMarker(raw);
 
-  // Drop any pre-`Thought:` preamble the model emits (e.g.
-  // `<Analyze>…</Analyze>` blocks, scratchpad notes). The local LLM was
-  // trained to lead with `Thought:`, so content before it is noise that
-  // would otherwise bleed into the recorded thought. If the output has
-  // no `Thought:` label at all, leave the text untouched — terminal
-  // turns may emit just an Action or just a final answer.
-  const thoughtIdx = findThoughtAnchor(text);
-  if (thoughtIdx > 0) {
-    text = text.slice(thoughtIdx);
-  }
+  const thoughtRegion = markerIdx >= 0 ? raw.slice(0, markerIdx) : raw;
+  let thought = stripThinkBlocks(thoughtRegion).trim();
+  thought = thought.replace(/^Thought\s*:\s*/i, "").trim();
 
   const actions: ParsedAction[] = [];
-  // Match `Action:` followed by a tool name. The (?:^|\n) anchor keeps us
-  // from matching `Action:` that appears inside a quoted thought (the model
-  // rarely does this but cheap insurance).
-  const actionRe = /(?:^|\n)[ \t]*Action\s*:[ \t]*(\S+)[ \t]*\r?\n[ \t]*Action Input\s*:[ \t]*/g;
-  let firstMarkerIndex = -1;
-
-  let m: RegExpExecArray | null;
-  while ((m = actionRe.exec(text)) !== null) {
-    if (firstMarkerIndex < 0) firstMarkerIndex = m.index;
-    const name = m[1];
-    const payloadStart = skipWhitespace(text, actionRe.lastIndex);
-    if (text[payloadStart] !== "{") {
-      // Action Input present but doesn't open with `{` — record a parse
-      // error so the tool layer surfaces it to the model next turn.
+  if (markerIdx >= 0) {
+    const region = raw.slice(markerIdx);
+    // Tolerant of a missing trailing `</function>` (truncated output): the
+    // `$` alternative lets the final block capture to end of string.
+    const fnRe = /<function=([^>\r\n\t ]+)\s*>([\s\S]*?)(?:<\/function>|$)/g;
+    let m: RegExpExecArray | null;
+    while ((m = fnRe.exec(region)) !== null) {
+      actions.push({ name: m[1], input: parseParameters(m[2]) });
+      if (fnRe.lastIndex <= m.index) break; // zero-width guard
+    }
+    if (actions.length === 0) {
       actions.push({
-        name,
+        name: "__unparsed__",
         input: {
-          __parseError: "Action Input did not begin with '{'",
-          __rawInput: text.slice(actionRe.lastIndex).split("\n")[0] ?? "",
+          __parseError: "tool-call markers found but no <function=...> block could be parsed",
+          __rawInput: region.trim().slice(0, 2000),
         },
       });
-      continue;
     }
-    const payloadEnd = findBalancedBraceEnd(text, payloadStart);
-    if (payloadEnd < 0) {
-      actions.push({
-        name,
-        input: {
-          __parseError: "Action Input has no matching closing brace",
-          __rawInput: text.slice(payloadStart),
-        },
-      });
-      // Can't reliably advance past unbalanced braces — bail on further
-      // actions from this turn rather than risk re-parsing the same bytes.
-      break;
-    }
-    const payloadStr = text.slice(payloadStart, payloadEnd);
-    let input: any;
-    try {
-      input = tolerantParseObject(payloadStr);
-    } catch (err) {
-      input = {
-        __parseError: err instanceof Error ? err.message : String(err),
-        __rawInput: payloadStr,
-      };
-    }
-    actions.push({ name, input });
-    // Continue scanning after the payload; reset the regex index so
-    // multi-action turns work.
-    actionRe.lastIndex = payloadEnd;
   }
-
-  const thoughtEnd = firstMarkerIndex >= 0 ? firstMarkerIndex : text.length;
-  let thought = text.slice(0, thoughtEnd).trim();
-  thought = thought.replace(/^\s*Thought\s*:\s*/i, "").trim();
 
   return { thought, actions };
 }
