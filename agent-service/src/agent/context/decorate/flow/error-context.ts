@@ -57,7 +57,10 @@ export function buildLineageErrorContext(
     const cols = Object.keys(rows[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
     if (cols.length === 0) continue;
     const header = cols.join("\t");
-    const body = rows.slice(0, MAX_ROWS).map(r => cols.map(c => String(r[c] ?? "")).join("\t")).join("\n");
+    const body = rows
+      .slice(0, MAX_ROWS)
+      .map(r => cols.map(c => String(r[c] ?? "")).join("\t"))
+      .join("\n");
     blocks.push(`Input \`${pid}\` (${cols.length} cols, ${rows.length} rows): ${cols.join(", ")}\n${header}\n${body}`);
   }
   if (blocks.length === 0) return "";
@@ -65,6 +68,35 @@ export function buildLineageErrorContext(
     "Inputs (the actual data this operator consumes — fix against these real columns/values, do not guess):\n" +
     blocks.join("\n")
   );
+}
+
+/**
+ * LATEST-mode variant of the error-context rung. In LATEST every operator's full
+ * Result (schema + sample rows) is already rendered in the snapshot, so
+ * re-dumping the upstream input (as `buildLineageErrorContext` does) is pure
+ * duplication. Instead, name the direct upstream(s) that produced a usable result
+ * and point the model at the Result already on screen — single source of truth,
+ * no re-printed schema/rows. Returns "" when no upstream has a usable result
+ * (nothing to reference; the upstream's own entry / the blocked-upstream note
+ * covers it).
+ */
+export function lineageErrorPointer(opId: string, snapshot: SnapshotData, allLinks: WorkflowContent["links"]): string {
+  const seen = new Set<string>();
+  const usable: string[] = [];
+  for (const link of allLinks) {
+    if (link.target.operatorID !== opId) continue;
+    const p = link.source.operatorID;
+    if (seen.has(p)) continue;
+    seen.add(p);
+    const pInfo = snapshot.results.get(p)?.info;
+    if (pInfo && !pInfo.error && Array.isArray(pInfo.result) && pInfo.result.length > 0) {
+      usable.push(p);
+    }
+  }
+  if (usable.length === 0) return "";
+  const ids = usable.map(p => `\`${p}\``).join(", ");
+  const poss = usable.length > 1 ? "their" : "its";
+  return `fix against the real columns/values of input ${ids} (see ${poss} Result above); don't guess column names.`;
 }
 
 export const errorContext: OperatorDecorator = {

@@ -721,7 +721,8 @@ export class TexeraAgent {
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     includeOperatorProperties?: boolean;
-    lineageTimeline?: boolean;
+    thoughtReplay?: boolean;
+    thoughtReplayK?: number;
     fewShotPrompt?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
@@ -795,9 +796,13 @@ export class TexeraAgent {
       this.settings.maxResultRows = updates.maxResultRows;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
     }
-    if (updates.lineageTimeline !== undefined) {
-      this.settings.lineageTimeline = updates.lineageTimeline;
-      // Pure render-time toggle — LATEST-mode construction timeline (W3).
+    if (updates.thoughtReplay !== undefined) {
+      this.settings.thoughtReplay = updates.thoughtReplay;
+      // Pure render-time toggle — LATEST-mode thought-replay reinjection rung.
+    }
+    if (updates.thoughtReplayK !== undefined) {
+      this.settings.thoughtReplayK = updates.thoughtReplayK;
+      // Pure render-time setting — how many recent events the # Reasoning block shows.
     }
     if (updates.loaderEscalation !== undefined) {
       this.settings.loaderEscalation = updates.loaderEscalation;
@@ -1019,6 +1024,8 @@ export class TexeraAgent {
                   inputTokens: usage.inputTokens,
                   outputTokens: usage.outputTokens,
                   totalTokens: usage.totalTokens,
+                  reasoningTokens: (usage as any).reasoningTokens,
+                  cachedInputTokens: (usage as any).cachedInputTokens,
                 }
               : undefined,
             inputMessages: lastPreparedMessages,

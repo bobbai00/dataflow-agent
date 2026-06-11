@@ -96,6 +96,10 @@ export class VercelToolUseDriver implements LLMDriver {
                 inputTokens: usage.inputTokens,
                 outputTokens: usage.outputTokens,
                 totalTokens: usage.totalTokens,
+                // Per-class breakdown — the python client re-aggregates usage per
+                // step, so reasoning/cache must ride on each step's usage.
+                reasoningTokens: (usage as any).reasoningTokens,
+                cachedInputTokens: (usage as any).cachedInputTokens,
               }
             : undefined,
         });
@@ -107,6 +111,8 @@ export class VercelToolUseDriver implements LLMDriver {
       inputTokens: finalUsage?.inputTokens ?? finalUsage?.promptTokens ?? 0,
       outputTokens: finalUsage?.outputTokens ?? finalUsage?.completionTokens ?? 0,
       totalTokens: finalUsage?.totalTokens ?? 0,
+      reasoningTokens: finalUsage?.reasoningTokens ?? 0,
+      cachedInputTokens: finalUsage?.cachedInputTokens ?? 0,
     };
     return {
       text: result.text,

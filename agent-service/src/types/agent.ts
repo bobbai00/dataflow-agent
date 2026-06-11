@@ -28,7 +28,12 @@ export interface TokenUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  // Per-class breakdown for accurate cost. `cachedInputTokens` is the subset of
+  // input served from cache (cheap cache-read); `cacheCreationInputTokens` is the
+  // Anthropic cache-WRITE count; `reasoningTokens` is the thinking subset of output.
   cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  reasoningTokens?: number;
 }
 
 export interface ReActStep {
@@ -212,11 +217,15 @@ export interface AgentSettings {
    * `Graph check ⚠` line. Off by default.
    */
   /**
-   * When true, a `to_numeric/to_datetime(errors="coerce")` that silently nulled
-   * a material block of values surfaces as a coercion-dataloss line (with a
-   * sample of the dropped values). Off by default.
+   * Thought-replay reinjection rung (LATEST only). When true, the assembled
+   * context gains a `# Reasoning` block — the last `thoughtReplayK` agent events,
+   * each as its thought + the compressed actions it produced — and each operator
+   * carries a `Last edited: step N` back-pointer into it. Recovers the reasoning
+   * trajectory LATEST folds away. Off by default.
    */
-  lineageTimeline: boolean;
+  thoughtReplay: boolean;
+  /** How many recent events the `# Reasoning` block shows (default 10). */
+  thoughtReplayK: number;
   fewShotPrompt: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
@@ -259,7 +268,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   includeOperatorProperties: true,
   attemptReflection: false,
   maxLoadersPerSource: 0,
-  lineageTimeline: false,
+  thoughtReplay: false,
+  thoughtReplayK: 5,
   fewShotPrompt: false,
   loaderEscalation: false,
   maxResultRows: 0,
@@ -313,7 +323,8 @@ export interface AgentSettingsApi {
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;
   maxLoadersPerSource?: number;
-  lineageTimeline?: boolean;
+  thoughtReplay?: boolean;
+  thoughtReplayK?: number;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
@@ -361,7 +372,8 @@ export interface UpdateAgentSettingsRequest {
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;
   maxLoadersPerSource?: number;
-  lineageTimeline?: boolean;
+  thoughtReplay?: boolean;
+  thoughtReplayK?: number;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;

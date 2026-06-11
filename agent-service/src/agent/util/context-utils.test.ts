@@ -516,7 +516,7 @@ describe("assembleContext — cross-mode invariants", () => {
  * ========================================================================= */
 
 describe("assembleContext — action line format", () => {
-  test("first createOrModifyOperator call on an op renders as `create operator \"X\"`", () => {
+  test('first createOrModifyOperator call on an op renders as `create operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -559,7 +559,7 @@ describe("assembleContext — action line format", () => {
     expect(cFull).not.toContain("(failed)");
   });
 
-  test("subsequent createOrModifyOperator call on the same op renders as `modify operator \"X\"`", () => {
+  test('subsequent createOrModifyOperator call on the same op renders as `modify operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -591,7 +591,7 @@ describe("assembleContext — action line format", () => {
     expect(c).toContain('- modify operator "src", result: Updated operator src');
   });
 
-  test("deleteOperator renders as `delete operator \"X\"`", () => {
+  test('deleteOperator renders as `delete operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -664,7 +664,7 @@ describe("assembleContext — action line format", () => {
     expect(c).toContain('- delete operator "op"');
   });
 
-  test("non-special tool name falls back to `<toolName> on operator \"X\"`", () => {
+  test('non-special tool name falls back to `<toolName> on operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -851,9 +851,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     expect(c).toContain("Unmatched type for field 'Unnamed: 2'");
 
     // Downstream gets the skipped marker pointing at the errored upstream.
-    expect(c).toContain(
-      "Result: (skipped — upstream operator `climateMeasurements` errored; see [ERROR] above)"
-    );
+    expect(c).toContain("Result: (skipped — upstream operator `climateMeasurements` errored; see [ERROR] above)");
   });
 
   test("skipped marker walks transitively through ops with no info", () => {
@@ -885,7 +883,13 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     ]);
     scenario.storage.createSnapshot(
       "t1",
-      makeWorkflow(["A", "B", "C"], [["A", "B"], ["B", "C"]])
+      makeWorkflow(
+        ["A", "B", "C"],
+        [
+          ["A", "B"],
+          ["B", "C"],
+        ]
+      )
     );
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "RuntimeError: bad"));
     // B and C: no info → transitively blocked by A
@@ -927,7 +931,13 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     ]);
     scenario.storage.createSnapshot(
       "t1",
-      makeWorkflow(["A", "B", "C"], [["A", "C"], ["B", "C"]])
+      makeWorkflow(
+        ["A", "B", "C"],
+        [
+          ["A", "C"],
+          ["B", "C"],
+        ]
+      )
     );
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
@@ -939,9 +949,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
 
     // Both upstreams referenced together (plural "operators"); order
     // tracks the link discovery order.
-    expect(c).toMatch(
-      /Result: \(skipped — upstream operators `A`, `B` errored; see \[ERROR\] above\)/
-    );
+    expect(c).toMatch(/Result: \(skipped — upstream operators `A`, `B` errored; see \[ERROR\] above\)/);
   });
 
   test("no placeholder when upstream ran successfully", () => {
@@ -1034,7 +1042,6 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
  *  (abbreviateSummary when event.summary == snapshot.customDisplayName)
  * ========================================================================= */
 
-
 /* ============================================================================
  *  DECORATE levels (context/decorate registry) — flow_level / data_level
  *  expand to the same render flags as the equivalent booleans (the shim).
@@ -1048,13 +1055,19 @@ describe("assembleContext — DECORATE levels", () => {
     // data L2 = schema (L1) + structural profile (L2)
     const viaLevels = content(
       assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
-        ...opts, flowLevel: 2, dataLevel: 2,
+        ...opts,
+        flowLevel: 2,
+        dataLevel: 2,
       })
     );
     const viaBooleans = content(
       assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts, loaderHint: true, lineageStats: true, lineageErrorContext: true,
-        schemaInResult: true, tableStructureHint: true,
+        ...opts,
+        loaderHint: true,
+        lineageStats: true,
+        lineageErrorContext: true,
+        schemaInResult: true,
+        tableStructureHint: true,
       })
     );
     expect(viaLevels).toBe(viaBooleans);
@@ -1063,12 +1076,12 @@ describe("assembleContext — DECORATE levels", () => {
   test("undefined levels -> no expansion (pure legacy boolean behavior)", () => {
     const A = buildCanonicalScenario();
     const B = buildCanonicalScenario();
-    const noLevels = content(
-      assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, { ...opts })
-    );
+    const noLevels = content(assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, { ...opts }));
     const zeroLevels = content(
       assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts, flowLevel: 0, dataLevel: 0,
+        ...opts,
+        flowLevel: 0,
+        dataLevel: 0,
       })
     );
     expect(zeroLevels).toBe(noLevels);
@@ -1079,13 +1092,17 @@ describe("assembleContext — DECORATE levels", () => {
     // data L0 expands nothing, but an explicit tableStructureHint:true stays on.
     const c = content(
       assembleContext(A.steps, A.workflowState, A.storage, ContextMode.LATEST, {
-        ...opts, dataLevel: 0, flowLevel: 0, tableStructureHint: true,
+        ...opts,
+        dataLevel: 0,
+        flowLevel: 0,
+        tableStructureHint: true,
       })
     );
     const B = buildCanonicalScenario();
     const ref = content(
       assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
-        ...opts, tableStructureHint: true,
+        ...opts,
+        tableStructureHint: true,
       })
     );
     expect(c).toBe(ref);
@@ -1100,19 +1117,37 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
   /** A 2-op scenario: a DataLoading op `ld` that errored, feeding a process op. */
   function errorScenario() {
     const s = buildScenario([
-      { id: "init", stepId: 0, role: "agent", messageId: "m-init", content: "init",
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "tc0", input: {} }],
-        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }] },
+        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }],
+      },
       { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "go" },
-      { id: "t1", stepId: 1, role: "agent", messageId: "m-task", parentId: "user", content: "load",
-        isBegin: true, isEnd: false,
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "load",
+        isBegin: true,
+        isEnd: false,
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "ld" } }],
-        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }] },
+        toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
+      },
     ]);
     // DataLoading op so the loader-remediation rung applies.
     const wf: WorkflowContent = { ...makeWorkflow([]), operators: [makeOp("ld", "DataLoading")] };
     s.storage.createSnapshot("t1", wf);
-    s.storage.setOperatorResult("t1", "ld", makeInfo("ld", 0, "UnicodeDecodeError: 'utf-8' codec can't decode byte 0x93"));
+    s.storage.setOperatorResult(
+      "t1",
+      "ld",
+      makeInfo("ld", 0, "UnicodeDecodeError: 'utf-8' codec can't decode byte 0x93")
+    );
     return s;
   }
 
@@ -1122,12 +1157,22 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     expect(cOff).not.toContain("Loader hint:");
 
     const viaFlag = errorScenario();
-    const cFlag = content(assembleContext(viaFlag.steps, viaFlag.workflowState, viaFlag.storage, ContextMode.LATEST, { ...opts, loaderHint: true }));
+    const cFlag = content(
+      assembleContext(viaFlag.steps, viaFlag.workflowState, viaFlag.storage, ContextMode.LATEST, {
+        ...opts,
+        loaderHint: true,
+      })
+    );
     expect(cFlag).toContain("Loader hint:");
     expect(cFlag).toContain("cp1252");
 
     const viaLevel = errorScenario();
-    const cLevel = content(assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 }));
+    const cLevel = content(
+      assembleContext(viaLevel.steps, viaLevel.workflowState, viaLevel.storage, ContextMode.LATEST, {
+        ...opts,
+        flowLevel: 1,
+      })
+    );
     // flow L1 = loader remediation → identical hint present
     expect(cLevel).toContain("Loader hint:");
     expect(cLevel).toContain("cp1252");
@@ -1138,14 +1183,25 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     const b = errorScenario();
     // flow L2 = loaderHint (L1) + cardinality + error-context (L2). No schema
     // (that is the data facet).
-    const viaBool = content(assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, { ...opts, loaderHint: true, lineageStats: true, lineageErrorContext: true }));
-    const viaLevel = content(assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 }));
+    const viaBool = content(
+      assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, {
+        ...opts,
+        loaderHint: true,
+        lineageStats: true,
+        lineageErrorContext: true,
+      })
+    );
+    const viaLevel = content(
+      assembleContext(b.steps, b.workflowState, b.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 })
+    );
     expect(viaLevel).toBe(viaBool);
   });
 
   test("flow renders in a consolidated '# Operators needing attention' section after the dataflow, not inline", () => {
     const s = errorScenario();
-    const c = content(assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 }));
+    const c = content(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 1 })
+    );
     // Consolidated section present and placed AFTER the snapshot (recency).
     expect(c).toContain("# Operators needing attention");
     expect(c.indexOf("# Current Dataflow")).toBeLessThan(c.indexOf("# Operators needing attention"));
@@ -1159,5 +1215,146 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
     // flow off ⇒ no section at all.
     const cOff = content(assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts }));
     expect(cOff).not.toContain("# Operators needing attention");
+  });
+});
+
+/* ============================================================================
+ *  Lineage-error-context dedup (LATEST pointer vs DELTA dump)
+ * ========================================================================= */
+
+describe("assembleContext — lineage-error-context dedup", () => {
+  function lineageScenario() {
+    const s = buildScenario([
+      {
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
+        toolCalls: [{ toolName: "initialize", toolCallId: "tc0", input: {} }],
+        toolResults: [{ toolCallId: "tc0", output: "ok", isError: false }],
+      },
+      { id: "user", stepId: 0, role: "user", messageId: "m-task", parentId: "init", content: "go" },
+      {
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m-task",
+        parentId: "user",
+        content: "build",
+        isBegin: true,
+        isEnd: false,
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "tcU", input: { operatorId: "up" } },
+          { toolName: "createOrModifyOperator", toolCallId: "tcP", input: { operatorId: "proc" } },
+        ],
+        toolResults: [
+          { toolCallId: "tcU", output: "ok", isError: false },
+          { toolCallId: "tcP", output: "[ERROR] KeyError: 'Year'", isError: true },
+        ],
+      },
+    ]);
+    const wf: WorkflowContent = {
+      ...makeWorkflow(["up", "proc"], [["up", "proc"]]),
+      operators: [makeOp("up", "DataLoading"), makeOp("proc", "DataProcessing")],
+    };
+    s.storage.createSnapshot("t1", wf);
+    s.storage.setOperatorResult("t1", "up", makeInfo("up", 5)); // usable upstream result
+    s.storage.setOperatorResult("t1", "proc", makeInfo("proc", 0, "KeyError: 'Year'"));
+    return s;
+  }
+
+  test("LATEST references the upstream's Result (pointer) instead of re-dumping it", () => {
+    const s = lineageScenario();
+    const c = content(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, { ...opts, flowLevel: 2 })
+    );
+    expect(c).toContain("# Operators needing attention (fix in this order)");
+    const section = c.slice(c.indexOf("# Operators needing attention"));
+    expect(section).toContain("fix against the real columns/values of input `up`");
+    expect(section).toContain("see its Result above");
+    // the verbose upstream dump is NOT repeated in LATEST (it's already in the snapshot)
+    expect(section).not.toContain("Inputs (the actual data");
+  });
+
+  test("DELTA keeps the full upstream dump (the upstream may be omitted there)", () => {
+    const s = lineageScenario();
+    const c = content(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, { ...opts, flowLevel: 2 })
+    );
+    const section = c.slice(c.indexOf("# Operators needing attention"));
+    expect(section).toContain("Inputs (the actual data this operator consumes");
+    expect(section).not.toContain("fix against the real columns/values");
+  });
+});
+
+/* ============================================================================
+ *  Thought-replay reinjection rung (LATEST)
+ * ========================================================================= */
+
+describe("assembleContext — thoughtReplay (LATEST)", () => {
+  test("renders # Reasoning block: event-grouped thoughts + compressed actions", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: true })
+    );
+    expect(c).toContain("# Reasoning (your recent steps)");
+    // Path drops the hidden init step, so the first real event is index 1 (user),
+    // and the two agent actions land at events 2 (src) and 3 (filt).
+    expect(c).toContain('Step 2: "I\'ll start with the source."');
+    expect(c).toContain("  created `src` → ok");
+    expect(c).toContain('Step 3: "Now the filter."');
+    expect(c).toContain("  created `filt` → ok");
+    // Thought-only step (no tool calls) is still an event.
+    expect(c).toContain('Step 4: "What should I do next?"');
+  });
+
+  test("each operator carries a Last edited back-pointer (latest-edit grain)", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: true })
+    );
+    const dataflow = c.slice(c.indexOf("# Current Dataflow"));
+    expect(dataflow).toContain("Last edited: step 2"); // src
+    expect(dataflow).toContain("Last edited: step 3"); // filt
+    // `existing` was loaded at init (no thought-bearing edit) ⇒ no pointer.
+    const existingBlock = dataflow.slice(dataflow.indexOf("Operator `existing`"));
+    const existingOnly = existingBlock.slice(0, existingBlock.indexOf("Operator `src`"));
+    expect(existingOnly).not.toContain("Last edited:");
+  });
+
+  test("thoughtReplayK caps the block and notes the omitted count", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
+        ...opts,
+        thoughtReplay: true,
+        thoughtReplayK: 1,
+      })
+    );
+    // events are {2: src, 3: filt, 4: thought-only}; K=1 keeps only the last.
+    expect(c).toContain("(… 2 earlier steps …)");
+    expect(c).toContain('Step 4: "What should I do next?"');
+    expect(c).not.toContain('Step 2: "I\'ll start with the source."');
+  });
+
+  test("OFF (default) ⇒ no # Reasoning, no Last edited, byte-identical to explicit false", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const cDefault = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts }));
+    const cFalse = content(
+      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: false })
+    );
+    expect(cDefault).toBe(cFalse);
+    expect(cDefault).not.toContain("# Reasoning");
+    expect(cDefault).not.toContain("Last edited:");
+  });
+
+  test("scoped to LATEST: DELTA ignores thoughtReplay (block + pointers absent)", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(
+      assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, thoughtReplay: true })
+    );
+    expect(c).not.toContain("# Reasoning");
+    expect(c).not.toContain("Last edited:");
   });
 });

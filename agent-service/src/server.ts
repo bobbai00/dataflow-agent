@@ -62,8 +62,7 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
   if (kind === "local-react") {
     return ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
-      assembleLocalReactContext(visibleSteps, workflowState, snapshotStorage, {
-      });
+      assembleLocalReactContext(visibleSteps, workflowState, snapshotStorage, {});
   }
   return ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
     // Context is controlled by the SELECT mode (settings.contextMode), the two
@@ -77,7 +76,8 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       includeOperatorProperties: settings.includeOperatorProperties,
       flowLevel: settings.flowLevel,
       dataLevel: settings.dataLevel,
-      lineageTimeline: settings.lineageTimeline,
+      thoughtReplay: settings.thoughtReplay,
+      thoughtReplayK: settings.thoughtReplayK,
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
@@ -152,7 +152,8 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
-    lineageTimeline: agentSettings.lineageTimeline,
+    thoughtReplay: agentSettings.thoughtReplay,
+    thoughtReplayK: agentSettings.thoughtReplayK,
     fewShotPrompt: agentSettings.fewShotPrompt,
     loaderEscalation: agentSettings.loaderEscalation,
     maxResultRows: agentSettings.maxResultRows,
@@ -270,7 +271,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           includeOperatorProperties: settings.includeOperatorProperties,
-          lineageTimeline: settings.lineageTimeline,
+          thoughtReplay: settings.thoughtReplay,
+          thoughtReplayK: settings.thoughtReplayK,
           fewShotPrompt: settings.fewShotPrompt,
           loaderEscalation: settings.loaderEscalation,
           maxResultRows: settings.maxResultRows,
@@ -308,7 +310,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
-            lineageTimeline: t.Optional(t.Boolean()),
+            thoughtReplay: t.Optional(t.Boolean()),
+            thoughtReplayK: t.Optional(t.Number()),
             fewShotPrompt: t.Optional(t.Boolean()),
             loaderEscalation: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
@@ -585,7 +588,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         includeOperatorProperties: settings.includeOperatorProperties,
-        lineageTimeline: settings.lineageTimeline,
+        thoughtReplay: settings.thoughtReplay,
+        thoughtReplayK: settings.thoughtReplayK,
         fewShotPrompt: settings.fewShotPrompt,
         loaderEscalation: settings.loaderEscalation,
         maxResultRows: settings.maxResultRows,
@@ -615,7 +619,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: agentSettings.contextMode,
         parallelToolCalls: agentSettings.parallelToolCalls,
         includeOperatorProperties: agentSettings.includeOperatorProperties,
-        lineageTimeline: agentSettings.lineageTimeline,
+        thoughtReplay: agentSettings.thoughtReplay,
+        thoughtReplayK: agentSettings.thoughtReplayK,
         fewShotPrompt: agentSettings.fewShotPrompt,
         loaderEscalation: agentSettings.loaderEscalation,
         maxResultRows: agentSettings.maxResultRows,
@@ -640,7 +645,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         includeOperatorProperties: t.Optional(t.Boolean()),
-        lineageTimeline: t.Optional(t.Boolean()),
+        thoughtReplay: t.Optional(t.Boolean()),
+        thoughtReplayK: t.Optional(t.Number()),
         fewShotPrompt: t.Optional(t.Boolean()),
         loaderEscalation: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
@@ -703,8 +709,7 @@ function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
     inputTuples: info.inputTuples,
     outputTuples: info.outputTuples,
     inputPortShapes: info.inputPortShapes,
-    outputColumns:
-      info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
+    outputColumns: info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
     error: info.error,
     warnings: info.warnings,
     consoleLogCount: info.consoleLogs?.length,

@@ -34,9 +34,9 @@ import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 import { formatLineage } from "../context/decorate/flow/cardinality";
-import { buildLineageErrorContext } from "../context/decorate/flow/error-context";
+import { buildLineageErrorContext, lineageErrorPointer } from "../context/decorate/flow/error-context";
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
-import { buildTimeline } from "../context/select/reinjection/timeline";
+import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -104,14 +104,19 @@ export interface AssembleContextOptions {
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
   tableStructureHint?: boolean;
-  /** W3: in LATEST mode (which otherwise shows only a snapshot, no events),
-   *  render a compact `# Recent steps` construction timeline — the last K
-   *  create/modify/delete actions with their ok/ERROR status — so the model
-   *  knows the trajectory it took. Off by default. */
-  lineageTimeline?: boolean;
-  /** Internal (computed in assembleContext, not a setting): the rendered recent
-   *  construction timeline, fed to the LATEST renderer. */
-  recentTimeline?: string;
+  /** Thought-replay reinjection rung (LATEST only). When on, render a
+   *  `# Reasoning` block — the last `thoughtReplayK` agent EVENTS, each as its
+   *  thought + the compressed actions it produced — and tag each operator with a
+   *  `Last edited: step N` back-pointer into that block. Recovers the reasoning
+   *  LATEST otherwise folds away. Off by default. */
+  thoughtReplay?: boolean;
+  /** How many recent events the `# Reasoning` block shows. Undefined ⇒ 10. */
+  thoughtReplayK?: number;
+  /** Internal (computed in assembleContext, NOT a setting): the event-grouped
+   *  reasoning structure + per-operator latest-edit map, fed to the LATEST
+   *  renderer and the per-operator back-pointer. Built only when thoughtReplay
+   *  is on and the mode is LATEST. */
+  reasoning?: Reasoning;
   /** W2: few-shot best-practices prompt toggle. Not used by the assembler (it
    *  affects the SYSTEM prompt, applied in TexeraAgent.rebuildSystemPrompt) —
    *  declared here only so the settings pass-through type-checks. */
@@ -201,7 +206,7 @@ export function assembleContext(
   // existing boolean-only callers are unaffected.
   if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
     const clamp = (n: number | undefined): DecorateLevel =>
-      (Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel);
+      Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel;
     const expanded = levelsToFlags(clamp(options.flowLevel), clamp(options.dataLevel));
     const bag = options as unknown as Record<string, unknown>;
     for (const flag of Object.keys(expanded)) {
@@ -232,9 +237,13 @@ export function assembleContext(
   // from visibleSteps here. Stash on options so the per-operator serializer
   // (which doesn't see the path) can read it.
   options.editCountsByOp = buildEditCountsByOp(path);
-  // W3: compact construction timeline for LATEST mode (rendered only when the
-  // lineageTimeline flag is on). Cheap to compute; gated at render time.
-  options.recentTimeline = buildTimeline(path);
+  // Thought-replay reinjection rung (LATEST only): event-grouped recent thoughts
+  // + compressed actions, plus the per-operator latest-edit map that drives the
+  // `Last edited:` back-pointer. DELTA already shows thoughts inline via
+  // serializeTurn, so this is scoped to LATEST to avoid double-rendering.
+  if (options.thoughtReplay && mode === ContextMode.LATEST) {
+    options.reasoning = buildReasoning(path);
+  }
 
   let content: string;
   switch (mode) {
@@ -253,8 +262,7 @@ export function assembleContext(
       // Latest = user task + the leaf snapshot. No events rendered at all
       // — context is defined as a single point on the snapshot tree, not
       // as an interleaved walk along its edges.
-      const leafSnapshot =
-        lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
+      const leafSnapshot = lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
       content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
       break;
     }
@@ -450,10 +458,9 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  * already tried (cheaply — one short line per event, not full FULL-mode
  * snapshots). Returns undefined when there are no edits yet.
  */
-// `buildTimeline` (W3 reinjection rung) now lives in
-// context/select/reinjection/timeline (imported above, re-exported for
-// back-compat with any external importers).
-export { buildTimeline };
+// The thought-replay reinjection rung lives in
+// context/select/reinjection/reasoning (imported above). It supersedes the
+// former structural-only `buildTimeline` rung, which was removed.
 
 /**
  * Render a single tool-call line as a natural-language statement. Three
@@ -583,7 +590,7 @@ function renderInterleaved(
   // last, after the event/snapshot trajectory). Empty ⇒ omitted.
   const leaf = lastSnapshotOf(tasks);
   if (leaf) {
-    const flow = buildFlowSection(leaf, workflowState, options);
+    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
     if (flow) {
       sections.push("");
       sections.push(flow);
@@ -609,25 +616,24 @@ function renderLatest(
     sections.push("");
   }
 
-  // 1b. W3: # Recent steps — the construction timeline (LATEST otherwise shows
-  //     no events). Gated by the lineageTimeline flag.
-  if (options.lineageTimeline && options.recentTimeline) {
-    sections.push("# Recent steps (your construction trajectory so far)");
-    sections.push("");
-    sections.push(options.recentTimeline);
-    sections.push("");
+  // 1b. # Reasoning — thought-replay reinjection rung. LATEST otherwise folds
+  //     away the trajectory; this re-injects the last K agent EVENTS, each as
+  //     its thought + the compressed actions it produced (event-granular:
+  //     one thought : N actions). Gated by the thoughtReplay flag.
+  if (options.thoughtReplay && options.reasoning) {
+    const block = renderReasoning(options.reasoning, options.thoughtReplayK ?? 10);
+    if (block) {
+      sections.push("# Reasoning (your recent steps)");
+      sections.push("");
+      sections.push(block);
+      sections.push("");
+    }
   }
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
   //    are rendered above this.
-  const dag = serializeSnapshotFull(
-    leafSnapshot,
-    workflowState,
-    options,
-    /*isCurrent=*/ true,
-    /*sectionLevel=*/ 2
-  );
+  const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
   if (dag) {
     sections.push("# Current Dataflow");
     sections.push(dag);
@@ -637,7 +643,7 @@ function renderLatest(
   //    root-cause-first projection of failures + anomalies over the leaf
   //    snapshot, placed last (highest-attention position). Gated by flowLevel
   //    (expanded into the per-rung flags); empty ⇒ omitted.
-  const flow = buildFlowSection(leafSnapshot, workflowState, options);
+  const flow = buildFlowSection(leafSnapshot, workflowState, options, /*isLatest=*/ true);
   if (flow) {
     sections.push("");
     sections.push(flow);
@@ -656,7 +662,11 @@ function renderLatest(
  *
  * Level gating (via the flags flowLevel expands into):
  *   L1 loaderHint            — remediation on failed DataLoading ops
- *   L2 lineageErrorContext   — errored process op: upstream input schema + sample
+ *   L2 lineageErrorContext   — errored process op: in DELTA, the upstream input
+ *                              schema + sample rows (the model can't otherwise see
+ *                              them); in LATEST, where every operator's Result is
+ *                              already rendered, just a pointer to the upstream's
+ *                              Result (no duplication).
  *   L2 lineageStats          — empty-output / fan-out cardinality alarms
  *   L3 graphAudit            — dead/disconnected loaders
  *   L3 joinTelemetry         — degenerate-join telemetry
@@ -664,7 +674,8 @@ function renderLatest(
 function buildFlowSection(
   snapshot: SnapshotData,
   workflowState: WorkflowState,
-  options: AssembleContextOptions
+  options: AssembleContextOptions,
+  isLatest: boolean
 ): string | undefined {
   const anyFlow =
     options.loaderHint ||
@@ -690,7 +701,12 @@ function buildFlowSection(
         if (hint) lines.push(...hint.split("\n"));
       }
       if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
-        const block = buildLineageErrorContext(op.operatorID, snapshot, allLinks);
+        // LATEST already renders every operator's Result, so reference the
+        // upstream instead of re-dumping it; DELTA may have omitted the
+        // upstream, so keep the full schema + sample-rows block there.
+        const block = isLatest
+          ? lineageErrorPointer(op.operatorID, snapshot, allLinks)
+          : buildLineageErrorContext(op.operatorID, snapshot, allLinks);
         if (block) lines.push(...block.split("\n"));
       }
     } else if (!info) {
@@ -729,13 +745,7 @@ function buildFlowSection(
   }
 
   if (entries.length === 0) return undefined;
-  return [
-    "# Operators needing attention (resolve these before adding new operators)",
-    "",
-    ...entries,
-  ]
-    .join("\n")
-    .trimEnd();
+  return ["# Operators needing attention (fix in this order)", "", ...entries].join("\n").trimEnd();
 }
 
 /* ============================================================================
@@ -832,10 +842,7 @@ function serializeUserEventInline(node: PathNode): string {
  * `buildCreateFlagsByStep`); `undefined` is treated as "everything is a
  * create" — a safe fallback when the step has no recorded calls.
  */
-function serializeTurn(
-  node: PathNode,
-  createFlags: Map<string, boolean> | undefined
-): string {
+function serializeTurn(node: PathNode, createFlags: Map<string, boolean> | undefined): string {
   const step = node.step;
   const lines: string[] = [];
   lines.push(`## Agent Event ${node.eventIndex}`);
@@ -920,9 +927,7 @@ function serializeSnapshotFull(
   lines.push(`${sectionHash} Operators`);
   lines.push("");
   for (const op of sortedOps) {
-    lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel)
-    );
+    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -966,9 +971,7 @@ function serializeSnapshotDelta(
     lines.push(`${sectionHash} Operators`);
     lines.push("");
     for (const op of deltaOps) {
-      lines.push(
-        serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel)
-      );
+      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
       lines.push("");
     }
   }
@@ -1059,8 +1062,7 @@ function formatOperatorAdjacency(op: OperatorPredicate, allLinks: WorkflowConten
   if (inbound.length > 0) {
     const multiInput = (op.inputPorts?.length ?? 0) > 1;
     lines.push(
-      "Inputs: " +
-        inbound.map(i => (multiInput && i.port >= 0 ? `${i.up} (→ port ${i.port})` : i.up)).join(", ")
+      "Inputs: " + inbound.map(i => (multiInput && i.port >= 0 ? `${i.up} (→ port ${i.port})` : i.up)).join(", ")
     );
   }
   const downstream = Array.from(
@@ -1112,6 +1114,15 @@ function serializeOperatorFull(
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   for (const l of formatOperatorAdjacency(op, allLinks)) lines.push(l);
 
+  // Thought-replay back-pointer: tie this operator to the step whose thought
+  // last edited it (latest-edit grain). The thought text lives once in the
+  // `# Reasoning` block; this is just the O(1) reference. `reasoning` is only
+  // populated when thoughtReplay is on AND the mode is LATEST.
+  if (options.thoughtReplay) {
+    const evt = options.reasoning?.opToEvent.get(op.operatorID);
+    if (evt !== undefined) lines.push(`Last edited: step ${evt}`);
+  }
+
   // Operator properties (config). Rendered for every operator except the
   // Python code operators (whose `code` is stripped — see CODE_OPERATOR_TYPES)
   // and only when the toggle is on (default) and there is at least one
@@ -1161,12 +1172,9 @@ function serializeOperatorFull(
     if (failedUpstreams.length > 0) {
       const noun = failedUpstreams.length === 1 ? "operator" : "operators";
       const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
-      lines.push(
-        `Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`
-      );
+      lines.push(`Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`);
     }
   }
-
 
   // plan3: attempt reflection. On the CURRENT snapshot, when this operator has
   // been edited >= the threshold, surface its attempt history so the agent
