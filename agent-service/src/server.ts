@@ -60,16 +60,13 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 }
 
 function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
-  if (kind === "local-react") {
-    return ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
-      assembleLocalReactContext(visibleSteps, workflowState, snapshotStorage, {});
-  }
-  return ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
-    // Context is controlled by the SELECT mode (settings.contextMode), the two
-    // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
-    // into the individual decoration rungs via the catalog), plus the substrate /
-    // select / prior knobs below. The per-rung decoration booleans are NOT a
-    // public knob — they are the internal expansion target of the levels.
+  // The rich SDK context (`# User Task` / `# Current Dataflow` + decoration
+  // rungs). Controlled by the SELECT mode (settings.contextMode), the two
+  // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
+  // into the individual decoration rungs via the catalog), plus the substrate /
+  // select / prior knobs below. The per-rung decoration booleans are NOT a
+  // public knob — they are the internal expansion target of the levels.
+  const sdkContext: ContextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
     assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
       compilationResult,
       agentMode: settings.agentMode,
@@ -83,6 +80,22 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       maxResultRows: settings.maxResultRows,
       attemptReflection: settings.attemptReflection,
     });
+
+  if (kind === "local-react") {
+    // The local text-mode driver picks the assembler by tool-call dialect so
+    // each dialect's context matches the format its system prompt describes:
+    //   - qwen-xml  → the SDK context (its prompt is the CODE-mode body, which
+    //     describes `# User Task` / `# Current Dataflow`).
+    //   - react-text → the legacy `# Event N` / Thought:/Actions: renderer that
+    //     `prompts/local-react.txt` describes.
+    // Read per-call from settings (toolDialect is mutable), mirroring how the
+    // driver selects its parser and the prompt is rebuilt.
+    return input =>
+      input.settings.toolDialect === "react-text"
+        ? assembleLocalReactContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {})
+        : sdkContext(input);
+  }
+  return sdkContext;
 }
 
 const agentStore = new Map<string, TexeraAgent>();
@@ -162,6 +175,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     flowLevel: agentSettings.flowLevel,
     dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
+    toolDialect: agentSettings.toolDialect,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -282,6 +296,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           flowLevel: settings.flowLevel,
           dataLevel: settings.dataLevel,
           attemptReflection: settings.attemptReflection,
+          toolDialect: settings.toolDialect,
         });
       }
 
@@ -322,6 +337,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             flowLevel: t.Optional(t.Number()),
             dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
+            toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
           })
         ),
       }),
@@ -601,6 +617,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: settings.flowLevel,
         dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
+        toolDialect: settings.toolDialect,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -633,6 +650,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: agentSettings.flowLevel,
         dataLevel: agentSettings.dataLevel,
         attemptReflection: agentSettings.attemptReflection,
+        toolDialect: agentSettings.toolDialect,
       };
     },
     {
@@ -660,6 +678,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: t.Optional(t.Number()),
         dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
+        toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
       }),
     }
   );

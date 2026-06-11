@@ -1,0 +1,88 @@
+# Tools
+
+You have access to the following functions:
+
+<tools>
+<function>
+<name>createOrModifyOperator</name>
+<description>Add or modify a Python function as an operator in the dataflow.
+- If operatorId does NOT exist: creates a new operator
+- If operatorId exists: modifies the existing operator (must keep same type)
+
+RULES:
+1. operatorId must be a valid Python identifier — letters, digits, and underscores;
+   the first character must be a letter or underscore. snake_case and camelCase are
+   both fine. Reserved Python keywords (e.g. "for", "class") are not allowed.
+2. Function name MUST be exactly "load" or "process"
+3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
+   The parameter name is the upstream operatorId verbatim.
+
+## def load() -> pd.DataFrame
+Load data from files. No input parameters. File I/O allowed.
+
+Example: operatorId="customers"
+  def load() -> pd.DataFrame:
+      return pd.read_csv('/data/customers.csv')
+
+## def process(opId1, opId2, ...) -> pd.DataFrame
+Transform input data. Each parameter references an existing operator id. Links between operators will be auto-created.
+
+Example: operatorId="filteredCustomers" (requires "customers" to exist)
+  def process(customers) -> pd.DataFrame:
+      return customers[customers['age'] > 18]
+  # Creates link: customers-->filteredCustomers</description>
+<parameters>
+<parameter>
+<name>operatorId</name>
+<type>string</type>
+<description>Unique operator name (valid Python variable). Other operators reference this as input parameter.</description>
+</parameter>
+<parameter>
+<name>code</name>
+<type>string</type>
+<description>Python function: def load() or def process(...)</description>
+</parameter>
+<parameter>
+<name>summary</name>
+<type>string</type>
+<description>Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded.</description>
+</parameter>
+<required>["operatorId", "code", "summary"]</required>
+</parameters>
+</function>
+<function>
+<name>deleteOperator</name>
+<description>Delete an operator from the workflow. This also deletes all connected links.</description>
+<parameters>
+<parameter>
+<name>operatorId</name>
+<type>string</type>
+<description>ID of the operator to delete</description>
+</parameter>
+<required>["operatorId"]</required>
+</parameters>
+</function>
+</tools>
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+<tool_call>
+<function=example_function_name>
+<parameter=example_parameter_1>
+value_1
+</parameter>
+<parameter=example_parameter_2>
+This is the value for the second parameter
+that can span
+multiple lines
+</parameter>
+</function>
+</tool_call>
+
+<IMPORTANT>
+Reminder:
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+</IMPORTANT>

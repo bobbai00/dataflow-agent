@@ -234,6 +234,14 @@ export interface AgentSettings {
   maxResultRows: number;
   flowLevel: number;
   dataLevel: number;
+  /**
+   * Tool-call dialect for the local text-mode driver (`local-react`). Selects
+   * the system prompt, the output parser, AND the context assembler so all
+   * three agree (qwen-xml → CODE-mode prompt + SDK context; react-text →
+   * `local-react.txt` + `# Event N` context). Ignored by the `vercel-tool-use`
+   * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
+   */
+  toolDialect: LocalToolDialect;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -279,6 +287,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxResultRows: 0,
   flowLevel: 0,
   dataLevel: 0,
+  toolDialect: "qwen-xml",
 };
 
 /**
@@ -286,15 +295,38 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
  *  - "vercel-tool-use" — the Vercel AI SDK drives the loop with native
  *    tool-calling frames (default; what every Anthropic / OpenAI-compatible
  *    model uses today).
- *  - "local-react" — text-mode ReAct. The model emits `Thought:` /
- *    `Action:` / `Action Input:` blocks; tool descriptions live in the
- *    model's training, not on the wire. Used for the in-house local LLM
- *    served via the dknet gateway.
+ *  - "local-react" — text-mode driver for the in-house local LLM served via
+ *    the dknet gateway. Tool descriptions live in the model's training prompt,
+ *    not on the wire; the model emits tool calls as text that the driver
+ *    parses. The exact wire syntax is the `toolDialect` setting (`qwen-xml`
+ *    XML tool calls or `react-text` Thought/Action/Action Input) — see
+ *    `LocalToolDialect`.
  *
  * Bound at agent construction (the driver and context-renderer pair travel
- * together) and not mutable via UpdateAgentSettings.
+ * together) and not mutable via UpdateAgentSettings. (The `toolDialect`
+ * sub-mode, by contrast, IS mutable.)
  */
 export type AgentDriverKind = "vercel-tool-use" | "local-react";
+
+/**
+ * Tool-call dialect for the `local-react` text-mode driver — the wire syntax
+ * the local LLM uses for tool calls. Unlike `AgentDriverKind` (which picks the
+ * driver class / wire mechanics), this is a sub-mode WITHIN that driver: same
+ * loop, no `tools` param. It swaps the three things that must agree for a
+ * format — the system prompt, the output parser, and the context assembler:
+ *
+ *  - "qwen-xml"    — Qwen3-Coder XML: `<tool_call><function=…><parameter=…>…
+ *    </function></tool_call>`. Prompt = CODE-mode body (`code-mode.md`) +
+ *    `local-qwen-tools.txt`; parser `parseQwenToolCall`; context the SDK
+ *    `assembleContext` (`# User Task` / `# Current Dataflow`). Default.
+ *  - "react-text"  — DeepSeek-style ReAct text: `Thought:` / `Action:` /
+ *    `Action Input:` (Python-dict payloads). Prompt `prompts/local-react.txt`;
+ *    parser `parseReActText`; context `assembleLocalReactContext` (`# Event N`).
+ *
+ * A per-agent setting (default `qwen-xml`); changing it rebuilds the system
+ * prompt and switches the parser + assembler on the next turn.
+ */
+export type LocalToolDialect = "qwen-xml" | "react-text";
 
 export interface UserInfo {
   uid: number;
@@ -335,6 +367,7 @@ export interface AgentSettingsApi {
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;
+  toolDialect?: LocalToolDialect;
 }
 
 export interface AgentInfo {
@@ -385,4 +418,5 @@ export interface UpdateAgentSettingsRequest {
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;
+  toolDialect?: LocalToolDialect;
 }

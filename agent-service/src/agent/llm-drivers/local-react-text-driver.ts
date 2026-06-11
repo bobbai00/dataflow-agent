@@ -18,14 +18,18 @@
  */
 
 /**
- * Text-mode driver for the in-house local LLM. The model emits the
- * Qwen3-Coder XML tool-call protocol — optional natural-language reasoning
- * followed by `<tool_call><function=NAME><parameter=KEY>…</parameter>…
- * </function></tool_call>` blocks — and its tool catalog + output-format
- * instructions are baked into its training prompt (`prompts/local-react.txt`,
- * sent as `system`). So the agent sends one user message per turn, no
- * `tools` param (the gateway returns the raw `<tool_call>` text, which this
- * driver parses itself), and no SDK-managed stop condition.
+ * Text-mode driver for the in-house local LLM. The model's tool catalog +
+ * output-format instructions are baked into its training prompt (sent as
+ * `system`), so the agent sends one user message per turn, no `tools` param
+ * (the gateway returns the raw completion text, which this driver parses
+ * itself), and no SDK-managed stop condition.
+ *
+ * The wire syntax depends on the configured `toolDialect` (a per-agent
+ * setting; the system prompt is matched to it by the agent factory):
+ *   - "qwen-xml"   — `<tool_call><function=NAME><parameter=KEY>…</parameter>
+ *     …</function></tool_call>` (parser `parseQwenToolCall`). Default.
+ *   - "react-text" — `Thought:` / `Action:` / `Action Input:` (parser
+ *     `parseReActText`).
  *
  * Per turn:
  *   1. `prepareStep` re-renders context (events + current dataflow) into a
@@ -36,7 +40,7 @@
  *      AccessControlService → LiteLLM gateway) are inherited from the
  *      injected `model` instance, and the gateway's ChatML template wraps
  *      the system/user content as `<|im_start|>…<|im_end|>`.
- *   3. `parseReActText` pulls the thought (pre-call reasoning) + ordered
+ *   3. The dialect's parser pulls the thought (pre-call reasoning) + ordered
  *      list of tool calls out of the raw completion.
  *   4. The driver executes each action sequentially against the agent's
  *      tool registry, collects results, then calls `onStepFinish` so the
@@ -48,7 +52,8 @@
 import { generateText, type LanguageModel, type ModelMessage } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult, DriverStepFinish } from "./types";
 import type { TokenUsage } from "../../types/agent";
-import { parseReActText } from "./react-text-parser";
+import { parseReActText, type ParsedReActOutput } from "./react-text-parser";
+import { parseQwenToolCall } from "./qwen-tool-call-parser";
 
 export interface LocalReactTextDriverOptions {
   model: LanguageModel;
@@ -76,6 +81,13 @@ export class LocalReactTextDriver implements LLMDriver {
     let messages: ModelMessage[] = input.initialMessages;
     let lastThought = "";
     const aggregated: TokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+    // Pick the parser for the configured tool-call dialect once per turn (the
+    // dialect is fixed for the duration of a turn). The system prompt the
+    // agent sends is already matched to the same dialect, so the model's
+    // emission shape and this parser agree. Default → the Qwen XML format.
+    const parse: (raw: string) => ParsedReActOutput =
+      input.toolDialect === "react-text" ? parseReActText : parseQwenToolCall;
 
     for (let stepNumber = 1; stepNumber <= input.maxSteps; stepNumber++) {
       const prepared = await input.prepareStep({ stepNumber, messages });
@@ -107,7 +119,7 @@ export class LocalReactTextDriver implements LLMDriver {
       aggregated.outputTokens = (aggregated.outputTokens ?? 0) + (usage?.outputTokens ?? 0);
       aggregated.totalTokens = (aggregated.totalTokens ?? 0) + (usage?.totalTokens ?? 0);
 
-      const parsed = parseReActText(rawText);
+      const parsed = parse(rawText);
       lastThought = parsed.thought;
 
       const toolCalls = parsed.actions.map(a => ({

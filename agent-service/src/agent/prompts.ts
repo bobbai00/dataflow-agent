@@ -30,6 +30,7 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
+import type { LocalToolDialect } from "../types/agent";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
@@ -338,34 +339,51 @@ export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowed
 }
 
 // ---------------------------------------------------------------------------
-// Local-react (in-house local LLM) system prompt.
+// Local-react (in-house local LLM) system prompts — one per tool-call dialect.
 //
-// The local LLM was fine-tuned with a specific system prompt baked into its
-// training distribution — reproducing that prompt verbatim is what unlocks
-// the model's tool-calling behavior. The source of truth is
-// `prompts/local-react.txt`, holding only the raw system content (the
-// Qwen3-Coder tool-call protocol: a `# Tools` / `<tools>` catalog plus the
-// `<tool_call><function=…><parameter=…>` output-format instructions, down to
-// the trailing `</IMPORTANT>`).
+// The local LLM's tool catalog + output-format instructions are baked into its
+// system prompt (no `tools` on the wire; the driver parses the model's text).
+// The two dialects pair a prompt with the context renderer that prompt
+// describes, so the model's stated input format matches what it actually sees:
+//   - "qwen-xml"  — the CODE-mode body (`code-mode.md`, shared with the
+//     vercel-tool-use driver) + the `<tools>`/`<tool_call>` appendix
+//     (`local-qwen-tools.txt`), composed below. It describes the
+//     `# User Task` / `# Current Dataflow` context → paired with the SDK
+//     assembler `assembleContext` (server.ts).
+//   - "react-text" — the standalone `local-react.txt` (plain-text tool list +
+//     `Thought / Action / Action Input / Observation`, down to `Begin!`). It
+//     describes the `# Event N` context → paired with `assembleLocalReactContext`.
 //
 // The model uses the ChatML chat template: the gateway wraps this text as
 // `<|im_start|>system\n…<|im_end|>` and the per-turn context as
 // `<|im_start|>user\n…<|im_end|>` automatically when the driver sends
-// role-tagged messages — so NO framing/BOS tokens belong in this file. (An
-// earlier DeepSeek `<｜begin▁of▁sentence｜>` prefix was dropped when the model
-// switched to ChatML; embedding it would leak a stray off-distribution token
-// inside the system block.)
+// role-tagged messages — so NO framing/BOS tokens belong in these files.
 // ---------------------------------------------------------------------------
-const LOCAL_REACT_SYSTEM_PROMPT: string = readFileSync(
+// `qwen-xml` is NOT a standalone file: it is the CODE-mode prompt (the single
+// source of truth in `code-mode.md`, shared with the vercel-tool-use driver)
+// plus the XML tool-call appendix in `local-qwen-tools.txt` (the `# Tools` /
+// `<tools>` catalog + `<tool_call>` output-format instructions). Composing at
+// load time keeps the body in lock-step with `code-mode.md` — no drift — and
+// is why the qwen-xml dialect is paired with the SDK context assembler
+// (`assembleContext`, server.ts): `code-mode.md` describes the `# User Task` /
+// `# Current Dataflow` context that assembler renders, so prompt and context
+// agree. `react-text` keeps its standalone `# Event N` prompt + the
+// `assembleLocalReactContext` renderer.
+const QWEN_TOOL_APPENDIX: string = readFileSync(
+  new URL("./prompts/local-qwen-tools.txt", import.meta.url),
+  "utf8"
+);
+const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(
   new URL("./prompts/local-react.txt", import.meta.url),
   "utf8"
 );
+const QWEN_XML_SYSTEM_PROMPT: string = `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 
 /**
- * Returns the local-react driver's system prompt verbatim. The text is
- * loaded once at module load; callers can invoke this on every agent
- * construction without paying for repeated file I/O.
+ * Returns the local driver's system prompt for the given tool-call dialect.
+ * The texts are loaded/composed once at module load; callers can invoke this
+ * on every agent construction / settings change without repeated file I/O.
  */
-export function buildLocalReactSystemPrompt(): string {
-  return LOCAL_REACT_SYSTEM_PROMPT;
+export function buildLocalReactSystemPrompt(dialect: LocalToolDialect): string {
+  return dialect === "react-text" ? REACT_TEXT_SYSTEM_PROMPT : QWEN_XML_SYSTEM_PROMPT;
 }

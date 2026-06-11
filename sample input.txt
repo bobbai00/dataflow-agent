@@ -1,0 +1,225 @@
+<|im_start|>system
+You are a data science Copilot that helps users solve data-centric tasks by building dataflows.
+
+## What is Dataflow?
+
+Dataflow represents data analysis as a DAG (directed acyclic graph) where:
+- Each **operator** is a single step of data processing
+- Each **link** represents data dependency between operators
+- Each operator receives table(s) from input operator(s), processes them, and outputs a single table
+- The output table can be viewed via execution, or passed to downstream operators via links
+
+After each of your actions, a dataflow snapshot — the operators and their execution results — is produced and surfaced to you in subsequent turns so you can see how the action shaped the state.
+
+## Context Format
+
+Each turn, the input you receive is a chronological list of past **events**. Every event is one of two kinds:
+
+- **User Task** — a request or follow-up message written by the user.
+- **Agent Actions** — your prior thought together with the tool calls you made on that turn.
+
+Events are numbered globally (`# Event 1`, `# Event 2`, …) in the order they happened. Older events appear earlier in the list; the most recent events sit at the bottom and reflect the current state of your work.
+
+**The `code` argument of each past tool call is omitted from this context to save tokens — only `operatorId` and `summary` are preserved. Treat the `summary` of each past action as the authoritative description of what that step did; do not claim you can't see the previous code, and do not ask the user to re-show it. If you need to change a past operator's logic, just call `createOrModifyOperator` again with the same `operatorId` and new `code`.**
+
+### Operator Result Tables
+
+When an operator has executed, its output table is rendered into the context **as TSV** with three parts:
+
+- **Header line** — starts with a tab, then tab-separated column names. The leading tab marks the row-index column, which has no name. The header is not a data row.
+- **Row index** — each data row begins with a 0-based integer index. The index is the row's position in the DataFrame, not a domain key — do not reason about an index value as if it carried meaning.
+- **Omitted middle** — a line of `...` tokens (one per column, plus a leading `...` for the row-index column) means rows in between were omitted purely to fit the context window. Those rows still exist in the DataFrame; the table shape line above the TSV reports the true total row count.
+
+## Key Principles
+
+- **Call tools only through the native protocol**: Invoke tools using the tool-call mechanism. Never emit `<action>`, `<thought>`, `<operator>`, or any other tag-like structures in your response — those shapes appear in your input to describe past turns and existing state, never in your output.
+- **One operation per operator**: Each operator does one task (join, filter, aggregate, etc.). Use links to connect them.
+- **Build incrementally**: Link new operators to existing ones. Never recreate data already in the workflow.
+- **Read documentation first**: When the task mentions abstract concepts, load documentation to understand exact definitions.
+- **Write detailed, parameter-rich summaries**: Every operator's summary must enumerate the key parameters of what it does. For **data loading**, include the filename (not the full path) and any non-default parameters — skip rows, header setting, delimiter, encoding, row limit (e.g., `nrows=5`). For **data processing**, include the column names involved, join keys and join type, filter conditions with thresholds, groupby keys, and aggregation methods. A summary like "Load customers.csv" or "Process data" is not acceptable — a reader who sees only the summary should understand the operator's intent.
+- **Refine or fix operator in place by modifying operators**: When an operator errors or produces an unexpected result, modify that operator directly — don't add a downstream operator to patch the output or recreate the pipeline. For execution errors, read the error message and the input operator's result, then rewrite the failing operator's code. For semantically wrong results, trace back to the operator whose logic is off (often upstream of where you first noticed the problem) and fix it in place.
+- **Debug by isolating**: When encountering unexpected results, isolate the problematic logic into its own operator.
+- **Understand column semantics**: Before analysis, examine column names and their stats to understand what each column represents. Columns may carry semantic meaning that affects how data should be filtered or interpreted — respect these signals and apply appropriate preprocessing before computing results.
+- **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
+- **Handle messy data files**: Load data files directly in a single operator. Real-world data files are often malformed — they may have wrong delimiters, missing or misplaced headers, metadata/comment rows, or multiple tables in one file. After loading, inspect the result. If column names look auto-generated (e.g., `Unnamed: 0`) or a data value appears as a header, adjust the loading parameters (e.g., `header=`, `skiprows=`, `sep=`) by modifying the data loading operator.
+- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
+- **Every operator MUST return a DataFrame**: `def load()` and `def process(...)` must end with `return <pd.DataFrame>`. Code that falls through (or only `return`s bare) is rejected — the operator would run but produce no result data.
+- **Avoid `print(...)`**: print output is dropped and is not part of the operator's result; only the returned DataFrame is surfaced. Code containing `print(...)` still runs, but the tool result will carry a `[WARNING]` reminding you to remove it. Use the returned DataFrame to expose values you wanted to inspect.
+
+Answer the following questions as best you can. You have access to the following tools:
+
+createOrModifyOperator: Call this tool to interact with the createOrModifyOperator API. What is the createOrModifyOperator API useful for? Add or modify a Python function as an operator in the dataflow.
+- If operatorId does NOT exist: creates a new operator
+- If operatorId exists: modifies the existing operator (must keep same type)
+
+RULES:
+1. operatorId MUST be a camelCase Python identifier — start with a lowercase letter,
+   contain only letters and digits, NO underscores and NO hyphens.
+   Example: "lowHumidityFilter" — NOT "low_humidity_filter", "LowHumidityFilter", or "low-humidity-filter".
+   (The Texera runtime rejects underscores in operator IDs because they collide with the VFS URI delimiter.)
+2. Function name MUST be exactly "load" or "process"
+3. For process(): each parameter MUST match an existing operator's operatorId - links are auto-created/updated.
+   Because every operator id is camelCase, the matching def-process parameter is also camelCase.
+
+## def load() -> pd.DataFrame
+Load data from files. No input parameters. File I/O allowed.
+
+Example: operatorId="customers"
+  def load() -> pd.DataFrame:
+      return pd.read_csv('/data/customers.csv')
+
+## def process(opId1, opId2, ...) -> pd.DataFrame
+Transform input data. Each parameter references an existing operator id. Links between operators will be auto-created.
+
+Example: operatorId="filteredCustomers" (requires "customers" to exist)
+  def process(customers) -> pd.DataFrame:
+      return customers[customers['age'] > 18]
+  # Creates link: customers-->filteredCustomers Parameters: {"type": "object", "properties": {"operatorId": {"type": "string", "description": "Unique operator name (valid Python variable). Other operators reference this as input parameter."}, "code": {"type": "string", "description": "Python function: def load() or def process(...)"}, "summary": {"type": "string", "description": "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded."}}, "required": ["operatorId", "code", "summary"]} Format the arguments as a JSON object.
+
+deleteOperator: Call this tool to interact with the deleteOperator API. What is the deleteOperator API useful for? Delete an operator from the workflow. This also deletes all connected links. Parameters: {"type": "object", "properties": {"operatorId": {"type": "string", "description": "ID of the operator to delete"}}, "required": ["operatorId"]} Format the arguments as a JSON object.
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [createOrModifyOperator,deleteOperator]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can be repeated zero or more times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+<|im_end|>
+<|im_start|>user
+# Event 1 (User Task)
+
+You are a data scientist. Answer the following question based on the data files.
+
+Data files available (use these paths to read the data):
+[
+  "data/wildfire/input/noaa_wildfires.csv",
+  "data/wildfire/input/noaa_wildfires_variabledescrip.csv"
+]
+
+Note: All paths are relative. Some paths may contain wildcards (e.g., "folder/*" or "file-*.csv"). Use glob patterns to match and read those files.
+
+Question: According to NOAA, in Julies, are the size of a fire and the median wind speed in the area strongly correlated? The answer should be Yes or No.
+
+Answer format: The result should be a single string, either Yes or No.
+
+Your last line MUST BE: **Final Answer: <value>**
+
+# Event 2 (Agent Actions)
+
+Thought: This step changes a small set of related operators: `loadWildfires`, `loadVariableDesc`. I will keep the update localized so the next snapshot can verify the effect.
+
+Actions:
+- createOrModifyOperator(operatorId="loadWildfires", summary="Load noaa_wildfires.csv containing wildfire data") (result: Added operator loadWildfires, input ports: 0, output ports: 1)
+- createOrModifyOperator(operatorId="loadVariableDesc", summary="Load noaa_wildfires_variabledescrip.csv containing variable descriptions") (result: Added operator loadVariableDesc, input ports: 0, output ports: 1)
+
+# Event 3 (Agent Actions)
+
+Thought: This step changes a small set of related operators: `loadWildfires`, `loadVariableDesc`. I will keep the update localized so the next snapshot can verify the effect.
+
+Actions:
+- createOrModifyOperator(operatorId="loadWildfires", summary="Load noaa_wildfires.csv containing wildfire records with fire size, wind speed, date, and location information") (result: Operator loadWildfires modified)
+- createOrModifyOperator(operatorId="loadVariableDesc", summary="Load noaa_wildfires_variabledescrip.csv with latin-1 encoding containing variable definitions and descriptions") (result: Operator loadVariableDesc modified)
+
+# Event 4 (Agent Actions)
+
+Thought: The workflow needs observable evidence about the data structure. I will update `exploreData` to explore the wildfire data structure and variable descriptions to identify columns for fire size and wind speed and expose that evidence as a DataFrame.
+
+Actions:
+- createOrModifyOperator(operatorId="exploreData", summary="Explore the wildfire data structure and variable descriptions to identify columns for fire size and wind speed") (result:
+    [WARNING] Operator code contains `print(...)` — print output is dropped and not part of the operator's result; only the returned DataFrame is surfaced, so remove the print and expose values via the returned DataFrame instead.
+    Added operator exploreData, input ports: 2, output ports: 1, created links: [loadWildfires --> exploreData, loadVariableDesc --> exploreData]
+  )
+
+# Event 5 (Agent Actions)
+
+Thought: The workflow needs observable evidence about the data structure. I will update `exploreData` to explore variable descriptions to identify columns for fire size and wind speed and expose that evidence as a DataFrame.
+
+Actions:
+- createOrModifyOperator(operatorId="exploreData", summary="Explore variable descriptions to identify columns for fire size and wind speed") (result: Operator exploreData modified, deleted links: [loadWildfires --> exploreData, loadVariableDesc --> exploreData], created links: [loadWildfires --> exploreData, loadVariableDesc --> exploreData])
+
+# Event 6 (Agent Actions)
+
+Thought: The relevant rows should be isolated in a dedicated operator. I will update `filterJuly` to filter wildfire data for July records where start_day_of_year is between 182 and 212 (July month range) so the filtered result can be verified directly.
+
+Actions:
+- createOrModifyOperator(operatorId="filterJuly", summary="Filter wildfire data for July records where start_day_of_year is between 182 and 212 (July month range)") (result: Added operator filterJuly, input ports: 1, output ports: 1, created links: [loadWildfires --> filterJuly])
+
+User's request is: You are a data scientist. Answer the following question based on the data files.
+
+Data files available (use these paths to read the data):
+[
+  "data/wildfire/input/noaa_wildfires.csv",
+  "data/wildfire/input/noaa_wildfires_variabledescrip.csv"
+]
+
+Note: All paths are relative. Some paths may contain wildcards (e.g., "folder/*" or "file-*.csv"). Use glob patterns to match and read those files.
+
+Question: According to NOAA, in Julies, are the size of a fire and the median wind speed in the area strongly correlated? The answer should be Yes or No.
+
+Answer format: The result should be a single string, either Yes or No.
+
+Your last line MUST BE: **Final Answer: <value>**
+
+Above is user's request and the steps you already took. You as an assistant please keep working on solving user's request based on the progress of current workflow.
+
+# Current Dataflow
+## Operators
+
+### Operator `loadWildfires` (DataLoading)
+Summary: Load noaa_wildfires.csv containing wildfire records with fire size, wind speed, date, and location information
+Result:
+  Executed operator loadWildfires
+  Output table shape: (6658, 37)
+  	start_year	region_ind	incident_number	avrh_mean	wind_med	erc_med	rain_sum	region	state	incident_name	cause	dominant_strategy_25_s	dominant_strategy_50_s	dominant_strategy_75_s	subdom_strategy	start_date	controlled_date	duration	prim_threatened_aggregate	comm_threatened_aggregate	outb_threatened_aggregate	injuries_to_date_last	fatalities_last	latitude	longitude	start_day_of_year	control_year	control_day_of_year	gt_100	dom_strat_ind_75	dom_strat_ind_25	dom_strat_ind_50	station_verified_in_psa	hec	cause_ind	total_fire_region	total_fire_west
+  0	2002	6	CA-ANF-3518	39	6	77	0	California	CA	williams/curve complex	U	Full Suppression	Full Suppression	Full Suppression	NaN	9/22/2002	10/15/2002	24	33100	180	15903	4	0	34	-118	265	2002	288	1	0	0	0	45421	15417	0	99	403
+  ...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...
+  6657	2016	5	35_4413752	40	9	21	2	Southwest	NM	spur	L	Other	Other	Other	Monitor	5/21/2016	7/28/2016	69	0	0	138	1	0	34	-109	142	2016	210	1	1	1	1	292005	1174	0	126	479
+
+### Operator `loadVariableDesc` (DataLoading)
+Summary: Load noaa_wildfires_variabledescrip.csv with latin-1 encoding containing variable definitions and descriptions
+Result:
+  Executed operator loadVariableDesc
+  Output table shape: (37, 3)
+  	Variable Name 	Young et al. 2020, Table 1	Alternative description
+  0	start_year	Discovery Year	Year wildfire incident is discovered, described as YYYY
+  1	region_ind	NaN	Numeric value representing the region
+  ...	...	...	...
+  36	total_fire_west	Number of Fires - West	Total number of wildifire incidents in the western U.S. (containing all six regions and 11 states) i...
+
+### Operator `filterJuly` (DataProcessing)
+Summary: Filter wildfire data for July records where start_day_of_year is between 182 and 212 (July month range)
+Result:
+  Executed operator filterJuly
+  Input operator(table shape): loadWildfires(6658, undefined)
+  Output table shape: (2003, 37)
+  	start_year	region_ind	incident_number	avrh_mean	wind_med	erc_med	rain_sum	region	state	incident_name	cause	dominant_strategy_25_s	dominant_strategy_50_s	dominant_strategy_75_s	subdom_strategy	start_date	controlled_date	duration	prim_threatened_aggregate	comm_threatened_aggregate	outb_threatened_aggregate	injuries_to_date_last	fatalities_last	latitude	longitude	start_day_of_year	control_year	control_day_of_year	gt_100	dom_strat_ind_75	dom_strat_ind_25	dom_strat_ind_50	station_verified_in_psa	hec	cause_ind	total_fire_region	total_fire_west
+  0	2002	6	CA-INF-602	25	7	20	0	California	CA	birch	H	Full Suppression	Full Suppression	Full Suppression	NaN	7/1/2002	7/6/2002	6	400	10	0	0	0	38	-119	182	2002	187	1	0	0	0	43710	1062	1	99	403
+  ...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...	...
+  2002	2016	5	04_4325849	47	4	92	0	Southwest	AZ	benchmark	L	Other	Other	Other	Monitor	7/18/2016	7/31/2016	14	0	0	0	0	0	34	-112	200	2016	213	1	1	1	1	20503	585	0	126	479
+
+### Operator `exploreData` (DataProcessing)
+Summary: Explore variable descriptions to identify columns for fire size and wind speed
+Result:
+  Executed operator exploreData
+  Input operator(table shape): loadWildfires(6658, undefined), loadVariableDesc(37, undefined)
+  Output table shape: (37, 2)
+  	Column	Description
+  0	start_year	Year wildfire incident is discovered, described as YYYY
+  1	region_ind	Numeric value representing the region
+  2	incident_number	ICS-209 identifier (wildfire incident identifying number)
+  3	avrh_mean	Average (mean) Relative Humidity, a percentage defined as "Daily average water vapor in the air rela...
+  ...	...	...
+  35	total_fire_region	Total number of wildifire incidents in a given region (see "region" attribute) in a given fire year ...
+  36	total_fire_west	Total number of wildifire incidents in the western U.S. (containing all six regions and 11 states) i...
+
+## Links
+- loadWildfires → filterJuly
+- loadWildfires → exploreData
+- loadVariableDesc → exploreData
+<|im_end|>

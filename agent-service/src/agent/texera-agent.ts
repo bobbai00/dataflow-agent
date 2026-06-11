@@ -24,7 +24,7 @@ import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import type { AgentDelegateConfig, AgentSettings, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type { AgentDelegateConfig, AgentSettings, LocalToolDialect, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
@@ -125,8 +125,9 @@ export interface TexeraAgentConfig {
   /** Optional override for `rebuildSystemPrompt`. When provided, the
    *  agent uses this verbatim instead of the agent-mode-based builders —
    *  used by the local-react driver to inject the LLM's training-time
-   *  system prompt unchanged. */
-  systemPromptBuilder?: () => string;
+   *  system prompt unchanged. Receives the current tool-call dialect so the
+   *  prompt can match the dialect the parser expects. */
+  systemPromptBuilder?: (dialect: LocalToolDialect) => string;
 }
 
 export interface AgentMessageResult {
@@ -199,7 +200,7 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
-  private readonly systemPromptBuilder: (() => string) | undefined;
+  private readonly systemPromptBuilder: ((dialect: LocalToolDialect) => string) | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -417,8 +418,8 @@ export class TexeraAgent {
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
-      // distribution.
-      this.systemPrompt = this.systemPromptBuilder();
+      // distribution — and the tool-call dialect the parser expects.
+      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect);
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -731,6 +732,7 @@ export class TexeraAgent {
     dataLevel?: number;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
+    toolDialect?: LocalToolDialect;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -826,6 +828,13 @@ export class TexeraAgent {
       this.settings.attemptReflection = updates.attemptReflection;
       // Pure render-time toggle — injects an `Attempt reflection:` block on
       // heavily-edited operators. Read at the next assembleContext.
+    }
+    if (updates.toolDialect !== undefined && updates.toolDialect !== this.settings.toolDialect) {
+      this.settings.toolDialect = updates.toolDialect;
+      // Local-react only: selects the system prompt AND the output parser for
+      // the next turn. The parser is read from settings at runTurn; the prompt
+      // is rebuilt below (the builder is dialect-aware).
+      promptNeedsRebuild = true;
     }
 
     if (promptNeedsRebuild) {
@@ -969,6 +978,7 @@ export class TexeraAgent {
         tools: this.tools,
         maxSteps: this.settings.maxSteps,
         parallelToolCalls: this.settings.parallelToolCalls,
+        toolDialect: this.settings.toolDialect,
         abortSignal: this.abortController?.signal,
         prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
           let compilationResult: WorkflowCompilationResponse | null = null;

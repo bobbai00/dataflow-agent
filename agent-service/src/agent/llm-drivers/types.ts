@@ -18,7 +18,7 @@
  */
 
 import type { ModelMessage } from "ai";
-import type { ReActStep, TokenUsage, AgentSettings } from "../../types/agent";
+import type { ReActStep, TokenUsage, AgentSettings, LocalToolDialect } from "../../types/agent";
 import type { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
@@ -101,6 +101,11 @@ export interface DriverRunTurnInput {
    *  calls per turn. The local-react driver always supports multiple Action
    *  pairs in a single turn — this flag is effectively a no-op there. */
   parallelToolCalls: boolean;
+  /** Tool-call dialect for the local text-mode driver — selects which parser
+   *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
+   *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
+   *  calls). Defaults to `qwen-xml` when unset. */
+  toolDialect?: LocalToolDialect;
   abortSignal?: AbortSignal;
   prepareStep: DriverPrepareStep;
   onStepFinish: (args: DriverStepFinish) => Promise<void>;
