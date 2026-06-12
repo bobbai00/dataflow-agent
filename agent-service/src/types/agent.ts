@@ -221,7 +221,7 @@ export interface AgentSettings {
    * context gains a `# Reasoning` block — the last `thoughtReplayK` agent events,
    * each as its thought + the compressed actions it produced — and each operator
    * carries a `Last edited: step N` back-pointer into it. Recovers the reasoning
-   * trajectory LATEST folds away. Off by default.
+   * trajectory LATEST folds away. On by default.
    */
   thoughtReplay: boolean;
   /** How many recent events the `# Reasoning` block shows (default 10). */
@@ -279,8 +279,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   includeOperatorProperties: true,
   attemptReflection: false,
   maxLoadersPerSource: 0,
-  thoughtReplay: false,
-  thoughtReplayK: 5,
+  thoughtReplay: true,
+  thoughtReplayK: 10,
   errorReflection: false,
   fewShotPrompt: false,
   loaderEscalation: false,
