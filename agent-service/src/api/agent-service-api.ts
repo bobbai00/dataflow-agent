@@ -55,16 +55,20 @@ export async function createAgent(opts: CreateAgentOptions): Promise<AgentInfo> 
   const body: Record<string, unknown> = {
     modelType: opts.modelType,
     name: opts.name,
-    userToken: opts.userToken,
     workflowId: opts.workflowId,
     computingUnitId: opts.computingUnitId,
     settings: opts.settings,
   };
   for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
 
+  // The agent service reads the delegating user's JWT from the Authorization
+  // header (apache/texera#5421), not the request body.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.userToken) headers["Authorization"] = `Bearer ${opts.userToken}`;
+
   const response = await fetch(`${agentBase(opts.baseUrl)}/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   if (!response.ok) {
