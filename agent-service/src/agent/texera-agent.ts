@@ -1176,6 +1176,11 @@ export class TexeraAgent {
    *
    * Requirements / contract:
    * - `steps[]` may be in any order; parent links (`parentId`) define the tree.
+   *   A `parentId` that doesn't match any step in the archive is dropped and
+   *   the step becomes a root. This is the normal export shape: the synthetic
+   *   `initialize` bootstrap step is excluded from every client-facing list,
+   *   so the earliest exported step always references a parent that was never
+   *   exported.
    * - `snapshots`: optional `Record<stepId, WorkflowContent>` — explicit
    *   per-step overrides. When provided for a step, that snapshot is loaded
    *   verbatim and replay is skipped for that step.
@@ -1198,8 +1203,8 @@ export class TexeraAgent {
    * - Operator execution results are NOT in the export — the snapshot
    *   storage's results map stays empty until the user re-runs.
    *
-   * Throws on structural problems (missing parent, cycle, duplicate id) so a
-   * partial state is never installed.
+   * Throws on structural problems (cycle, duplicate id) so a partial state
+   * is never installed.
    */
   async importReActSteps(
     steps: ReActStep[],
@@ -1209,7 +1214,7 @@ export class TexeraAgent {
       throw new Error("import requires a non-empty steps array");
     }
 
-    // Validate ids/parents first; bail before mutating anything.
+    // Validate ids first; bail before mutating anything.
     const seenIds = new Set<string>();
     for (const s of steps) {
       if (!s || typeof s.id !== "string" || s.id.length === 0) {
@@ -1218,20 +1223,28 @@ export class TexeraAgent {
       if (seenIds.has(s.id)) throw new Error(`duplicate step id: ${s.id}`);
       seenIds.add(s.id);
     }
-    const validParent = (pid: string | undefined): boolean => !pid || seenIds.has(pid);
-    for (const s of steps) {
-      if (!validParent(s.parentId)) {
-        throw new Error(`step ${s.id} has unknown parentId ${s.parentId}`);
-      }
+    // A parentId not present in the archive is dropped and the step becomes
+    // a root. Exports never contain the synthetic `initialize` bootstrap step
+    // (it is filtered from every client-facing list), so the earliest
+    // exported step always carries a dangling parentId — replaying it from
+    // the empty workflow is the documented root semantics.
+    const knownParent = (pid: string | undefined): string | undefined =>
+      pid !== undefined && seenIds.has(pid) ? pid : undefined;
+    const orphans = steps.filter(s => s.parentId !== undefined && !seenIds.has(s.parentId));
+    if (orphans.length > 0) {
+      this.log.warn(
+        { steps: orphans.map(s => ({ id: s.id, parentId: s.parentId })) },
+        "import: parentId not in archive (the initialize root is never exported) — treating step as a root"
+      );
     }
 
-    // Build child adjacency. Roots (parentId undefined) are listed under the
-    // synthetic VIRTUAL_ROOT key only for traversal/cycle bookkeeping — they
-    // never become real entries in `stepsById`.
+    // Build child adjacency. Roots (no surviving parent link) are listed
+    // under the synthetic VIRTUAL_ROOT key only for traversal/cycle
+    // bookkeeping — they never become real entries in `stepsById`.
     const VIRTUAL_ROOT = "__import_root__";
     const childrenOf = new Map<string, string[]>();
     for (const s of steps) {
-      const key = s.parentId ?? VIRTUAL_ROOT;
+      const key = knownParent(s.parentId) ?? VIRTUAL_ROOT;
       const arr = childrenOf.get(key) ?? [];
       arr.push(s.id);
       childrenOf.set(key, arr);
@@ -1271,7 +1284,7 @@ export class TexeraAgent {
     this.clearHistory();
     const stepById = new Map<string, ReActStep>();
     for (const s of steps) {
-      stepById.set(s.id, { ...s, timestamp: toEpochMs(s.timestamp) });
+      stepById.set(s.id, { ...s, parentId: knownParent(s.parentId), timestamp: toEpochMs(s.timestamp) });
     }
     const order: ReActStep[] = [];
     const queue: string[] = [...(childrenOf.get(VIRTUAL_ROOT) ?? [])];

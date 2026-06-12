@@ -242,7 +242,7 @@ describe("TexeraAgent — importReActSteps", () => {
     expect(wf?.operators.length).toBe(2);
   });
 
-  test("rejects steps with unknown parentId", async () => {
+  test("promotes a step with an unknown parentId to a root", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [
       makeStep({
@@ -255,7 +255,38 @@ describe("TexeraAgent — importReActSteps", () => {
         timestamp: 1,
       }),
     ];
-    await expect(agent.importReActSteps(steps)).rejects.toThrow(/unknown parentId/);
+    const { headId, importedCount } = await agent.importReActSteps(steps);
+    expect(importedCount).toBe(1);
+    expect(headId).toBe("orphan");
+    // The dangling link is dropped, not preserved.
+    expect(agent.getAllSteps()[0].parentId).toBeUndefined();
+    expect(agent.getAncestorPath()).toEqual(["orphan"]);
+  });
+
+  test("imports an export whose first step references the never-exported initialize root", async () => {
+    // Real exports come from getRenderableReActSteps(), which filters out the
+    // synthetic `initialize` bootstrap step — so the earliest exported step
+    // always points at a parent missing from the archive.
+    const agent = makeAgent();
+    const steps: ReActStep[] = [
+      makeStep({
+        id: "s2",
+        parentId: "s1-init-not-exported",
+        messageId: "m1",
+        stepId: 0,
+        role: "user",
+        content: "u",
+        timestamp: 1,
+      }),
+      makeStep({ id: "s3", parentId: "s2", messageId: "m1", stepId: 1, role: "agent", content: "a", timestamp: 2 }),
+      makeStep({ id: "s4", parentId: "s3", messageId: "m1", stepId: 2, role: "agent", content: "b", timestamp: 3 }),
+    ];
+
+    const { headId, importedCount } = await agent.importReActSteps(steps);
+
+    expect(importedCount).toBe(3);
+    expect(headId).toBe("s4");
+    expect(agent.getAncestorPath()).toEqual(["s2", "s3", "s4"]);
   });
 
   test("rejects duplicate step ids", async () => {
