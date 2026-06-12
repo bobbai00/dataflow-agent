@@ -37,6 +37,7 @@ import { formatLineage } from "../context/decorate/flow/cardinality";
 import { buildLineageErrorContext, lineageErrorPointer } from "../context/decorate/flow/error-context";
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
+import { buildErrorReflection, renderErrorReflection, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -117,6 +118,18 @@ export interface AssembleContextOptions {
    *  renderer and the per-operator back-pointer. Built only when thoughtReplay
    *  is on and the mode is LATEST. */
   reasoning?: Reasoning;
+  /** Error-reflection rung (LATEST only). When on, an operator that has been
+   *  (re)written repeatedly gets an `Attempts: …` block in the end-of-context
+   *  "Operators needing attention" section: attempt count, errored count, the
+   *  distinct error signatures seen, and a "blocked → change strategy" verdict
+   *  when the recent errors repeat. Recovers the past-attempt history LATEST
+   *  folds away (the input the prompt's "change strategy after 2 fails" needs).
+   *  Off by default. */
+  errorReflection?: boolean;
+  /** Internal (computed in assembleContext, NOT a setting): per-operator attempt
+   *  / error history, built from the path only when errorReflection is on and the
+   *  mode is LATEST. */
+  errorReflectionMap?: Map<string, ErrorReflectionEntry>;
   /** W2: few-shot best-practices prompt toggle. Not used by the assembler (it
    *  affects the SYSTEM prompt, applied in TexeraAgent.rebuildSystemPrompt) —
    *  declared here only so the settings pass-through type-checks. */
@@ -243,6 +256,9 @@ export function assembleContext(
   // serializeTurn, so this is scoped to LATEST to avoid double-rendering.
   if (options.thoughtReplay && mode === ContextMode.LATEST) {
     options.reasoning = buildReasoning(path);
+  }
+  if (options.errorReflection && mode === ContextMode.LATEST) {
+    options.errorReflectionMap = buildErrorReflection(path);
   }
 
   let content: string;
@@ -682,7 +698,8 @@ function buildFlowSection(
     options.lineageStats ||
     options.lineageErrorContext ||
     options.graphAudit ||
-    options.joinTelemetry;
+    options.joinTelemetry ||
+    options.errorReflection;
   if (!anyFlow) return undefined;
 
   const { workflow } = snapshot;
@@ -735,6 +752,15 @@ function buildFlowSection(
           "Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it."
         );
       }
+    }
+
+    // Error-reflection rung — append per-operator attempt/error history (LATEST
+    // only; map built in assembleContext). Composes with the error/lineage lines
+    // above on the same operator entry, and also surfaces an operator that is
+    // being rewritten repeatedly even when it isn't currently in an error state.
+    if (options.errorReflection && options.errorReflectionMap) {
+      const refl = renderErrorReflection(options.errorReflectionMap.get(op.operatorID));
+      for (const l of refl) lines.push(l);
     }
 
     if (lines.length > 0) {

@@ -226,6 +226,9 @@ export interface AgentSettings {
   thoughtReplay: boolean;
   /** How many recent events the `# Reasoning` block shows (default 10). */
   thoughtReplayK: number;
+  /** Error-reflection rung (LATEST only): show each churning operator's attempt
+   *  count + distinct errors + a blocked→change-strategy verdict. Off by default. */
+  errorReflection: boolean;
   fewShotPrompt: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
@@ -270,6 +273,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxLoadersPerSource: 0,
   thoughtReplay: false,
   thoughtReplayK: 5,
+  errorReflection: false,
   fewShotPrompt: false,
   loaderEscalation: false,
   maxResultRows: 0,
@@ -325,6 +329,7 @@ export interface AgentSettingsApi {
   maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
+  errorReflection?: boolean;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
@@ -374,6 +379,7 @@ export interface UpdateAgentSettingsRequest {
   maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
+  errorReflection?: boolean;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;

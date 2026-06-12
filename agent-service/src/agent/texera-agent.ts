@@ -723,6 +723,7 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     thoughtReplay?: boolean;
     thoughtReplayK?: number;
+    errorReflection?: boolean;
     fewShotPrompt?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
@@ -803,6 +804,10 @@ export class TexeraAgent {
     if (updates.thoughtReplayK !== undefined) {
       this.settings.thoughtReplayK = updates.thoughtReplayK;
       // Pure render-time setting — how many recent events the # Reasoning block shows.
+    }
+    if (updates.errorReflection !== undefined) {
+      this.settings.errorReflection = updates.errorReflection;
+      // Pure render-time toggle — LATEST-mode error-reflection rung.
     }
     if (updates.loaderEscalation !== undefined) {
       this.settings.loaderEscalation = updates.loaderEscalation;
