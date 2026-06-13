@@ -1225,7 +1225,14 @@ function serializeOperatorFull(
   // operator's result and is NOT passed downstream — the returned DataFrame remains
   // the only data plane. Truncated to the per-cell char cap.
   if (info?.consoleLogs && info.consoleLogs.length > 0) {
+    // Only actual print() output (ConsoleMessageType.PRINT). consoleLogs also
+    // carries ERROR/COMMAND/DEBUGGER messages — the error traceback is already in
+    // the Result block, so including it here would duplicate + mislabel it.
     let text = info.consoleLogs
+      .filter(c => {
+        const t = String(c.msgType ?? "").toUpperCase();
+        return t === "PRINT" || t === "0";
+      })
       .map(c => c.message)
       .filter(m => typeof m === "string" && m.trim().length > 0)
       .join("\n")
