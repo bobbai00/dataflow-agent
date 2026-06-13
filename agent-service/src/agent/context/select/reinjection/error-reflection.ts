@@ -153,28 +153,27 @@ export function renderFoldedError(entry: ErrorReflectionEntry | undefined): stri
   const { attempts, erroredAttempts, distinctErrors, repeating, codes } = entry;
   const lines: string[] = [];
 
-  const verdict =
-    erroredAttempts >= 2 && repeating
-      ? " — the SAME error is repeating; this approach is blocked, change strategy instead of resubmitting a near-variant."
-      : erroredAttempts >= 2
-        ? " — errors are still changing; make sure each edit targets the actual error."
-        : "";
-  lines.push(`Attempts: rewritten ${attempts}× (${erroredAttempts} errored)${verdict}`);
+  // Plain facts, in the tool's own vocabulary ("modify"/"no-op"/"fails") — no
+  // editorializing verdict (the steering instruction lives in the system prompt).
+  const t = attempts === 1 ? "time" : "times";
+  let head = `You have modified this operator ${attempts} ${t}; ${erroredAttempts} failed with an error.`;
+  if (erroredAttempts >= 2 && repeating) head += " The last modifications failed with the same error.";
+  lines.push(head);
 
-  // last code diff (current vs previous attempt)
+  // Code diff: current vs the previous modification.
   if (codes.length >= 2) {
     const { removed, added } = lineDiff(codes[codes.length - 2], codes[codes.length - 1]);
     if (removed.length || added.length) {
-      lines.push("Last change vs previous attempt:");
+      lines.push("Diff from your previous modification:");
       for (const l of removed.slice(0, MAX_DIFF_LINES)) lines.push(`  - ${l.trim()}`);
       for (const l of added.slice(0, MAX_DIFF_LINES)) lines.push(`  + ${l.trim()}`);
     } else {
-      lines.push("Last attempt was an EXACT resubmit (no code change) — do not repeat it.");
+      lines.push("Your last modification used the same code as the one before it (a no-op).");
     }
   }
 
   if (distinctErrors.length > 1) {
-    lines.push("Distinct errors seen (most recent first):");
+    lines.push("Errors so far (most recent first):");
     for (const e of distinctErrors) lines.push(`  - ${e}`);
   }
   return lines;
