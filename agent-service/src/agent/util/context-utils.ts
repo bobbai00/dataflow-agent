@@ -719,12 +719,10 @@ function buildFlowSection(
 
     if (info?.error) {
       if (options.errorReflection) {
-        // Fold mode: error detail lives on the operator's own block. Only surface
-        // an op in the pointer index once it's stuck (>= N consecutive same-op
-        // refixes); below that the inline [ERROR] in its Result is enough.
-        const entry = options.errorReflectionMap?.get(op.operatorID);
-        const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
-        if (entry && entry.consecutive >= threshold) erroredOps.push(op.operatorID);
+        // Fold mode: error detail (input schema, history) lives on the operator's
+        // own block; here just record the id for the pointer index so any errored
+        // operator stays salient.
+        erroredOps.push(op.operatorID);
       } else {
         lines.push(`error: ${info.error.split("\n")[0]}`);
         if (options.loaderHint && op.operatorType === "DataLoading") {
@@ -1229,14 +1227,16 @@ function serializeOperatorFull(
   if (options.errorReflection && isCurrent && info?.error) {
     const entry = options.errorReflectionMap?.get(op.operatorID);
     const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
-    // Only intervene once the model has gone N consecutive (re)fixes on this op —
-    // below that it just sees the inline [ERROR] in its Result and fixes normally.
+    // Debugging aids shown on ANY execution error: the upstream input schema (fix
+    // against real columns) and a loader-remediation hint.
+    for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
+    if (op.operatorType === "DataLoading") {
+      const hint = formatLoaderHint(info.error);
+      if (hint) for (const l of hint.split("\n")) lines.push(l);
+    }
+    // Attempt/error HISTORY (count, repeated-error verdict, last-attempt diff) only
+    // once the model has gone >= N consecutive (re)fixes on this op (it's stuck).
     if (entry && entry.consecutive >= threshold) {
-      for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
-      if (op.operatorType === "DataLoading") {
-        const hint = formatLoaderHint(info.error);
-        if (hint) for (const l of hint.split("\n")) lines.push(l);
-      }
       for (const l of renderFoldedError(entry)) lines.push(l);
     }
   }
