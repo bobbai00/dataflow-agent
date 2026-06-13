@@ -101,6 +101,9 @@ export interface AssembleContextOptions {
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
+  /** Per-cell char cap (reused as the truncation limit for the surfaced print
+   *  output block). Undefined ⇒ no cap. */
+  maxOperatorResultCellCharLimit?: number;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
@@ -1214,6 +1217,24 @@ function serializeOperatorFull(
       const noun = failedUpstreams.length === 1 ? "operator" : "operators";
       const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
       lines.push(`Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`);
+    }
+  }
+
+  // Print output (debug-only). Surface the operator's captured stdout so the model
+  // can see what it printed instead of having it silently dropped. It is NOT the
+  // operator's result and is NOT passed downstream — the returned DataFrame remains
+  // the only data plane. Truncated to the per-cell char cap.
+  if (info?.consoleLogs && info.consoleLogs.length > 0) {
+    let text = info.consoleLogs
+      .map(c => c.message)
+      .filter(m => typeof m === "string" && m.trim().length > 0)
+      .join("\n")
+      .trimEnd();
+    const cap = options.maxOperatorResultCellCharLimit;
+    if (cap && cap > 0 && text.length > cap) text = text.slice(0, cap) + " …(truncated)";
+    if (text) {
+      lines.push("Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):");
+      for (const l of text.split("\n")) lines.push("  " + l);
     }
   }
 

@@ -79,6 +79,7 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       thoughtReplayK: settings.thoughtReplayK,
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
+      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       attemptReflection: settings.attemptReflection,
     });
 
@@ -305,6 +306,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           fewShotPrompt: settings.fewShotPrompt,
           loaderEscalation: settings.loaderEscalation,
           maxResultRows: settings.maxResultRows,
+          maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
           flowLevel: settings.flowLevel,
           dataLevel: settings.dataLevel,
           attemptReflection: settings.attemptReflection,
@@ -627,6 +629,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         fewShotPrompt: settings.fewShotPrompt,
         loaderEscalation: settings.loaderEscalation,
         maxResultRows: settings.maxResultRows,
+        maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         flowLevel: settings.flowLevel,
         dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,

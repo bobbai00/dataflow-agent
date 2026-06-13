@@ -455,9 +455,6 @@ function stripPythonCommentsAndStrings(code: string): string {
  */
 type ContractResult = null | { kind: "error" | "warning"; message: string };
 
-const PRINT_WARNING_MESSAGE =
-  "Operator code contains `print(...)` — print output is dropped and not part of the operator's result; only the returned DataFrame is surfaced, so remove the print and expose values via the returned DataFrame instead.";
-
 function noReturnErrorMessage(fnName: string): string {
   return `Operator code's \`${fnName}\` function has no \`return <pd.DataFrame>\` statement — every operator must return a pd.DataFrame, otherwise it runs but produces no result data.`;
 }
@@ -528,11 +525,6 @@ for fn in funcs:
     if not has_value_return:
         sys.stdout.write('NO_RETURN:' + fn.name)
         sys.exit(3)
-# Soft check: any print() call → warning.
-for n in ast.walk(tree):
-    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'print':
-        sys.stdout.write('HAS_PRINT')
-        sys.exit(2)
 sys.exit(0)
 `;
     const proc = spawn("python3", ["-c", pythonCode]);
@@ -544,9 +536,6 @@ sys.exit(0)
     proc.on("close", exitCode => {
       if (pythonMissing) return resolve("PYTHON_UNAVAILABLE");
       if (exitCode === 0) return resolve(null);
-      if (exitCode === 2) {
-        return resolve({ kind: "warning", message: PRINT_WARNING_MESSAGE });
-      }
       if (exitCode === 3) {
         const fnName = stdout.replace(/^NO_RETURN:/, "") || "function";
         return resolve({ kind: "error", message: noReturnErrorMessage(fnName) });
@@ -592,10 +581,6 @@ function regexContractCheck(code: string): ContractResult {
     if (!hasValueReturn) {
       return { kind: "error", message: noReturnErrorMessage(fnName) };
     }
-  }
-  // Soft check: print(...) → warning.
-  if (/\bprint\s*\(/.test(stripped)) {
-    return { kind: "warning", message: PRINT_WARNING_MESSAGE };
   }
   return null;
 }

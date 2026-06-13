@@ -101,36 +101,26 @@ describe("validateOperatorId — Python identifier shape", () => {
   });
 });
 
-describe("regexContractCheck — warns on print()", () => {
-  test("flags a bare print() call as a warning (not an error)", () => {
+describe("regexContractCheck — print() is allowed (debug output is surfaced, not warned)", () => {
+  test("a bare print() call is NOT flagged (returns null)", () => {
     const res = regexContractCheck(`def process(df):
     print(df.columns)
     return df`);
-    expect(res).not.toBeNull();
-    expect(res!.kind).toBe("warning");
-    expect(res!.message).toContain("print(...)");
+    expect(res).toBeNull();
   });
 
-  test("flags print() with whitespace before the paren", () => {
+  test("print() with whitespace before the paren is NOT flagged", () => {
     const res = regexContractCheck(`def process(df):
     print (df.columns)
     return df`);
+    expect(res).toBeNull();
+  });
+
+  test("a function that prints but has no return is still a hard error", () => {
+    const res = regexContractCheck(`def process(df):
+    print(df.columns)`);
     expect(res).not.toBeNull();
-    expect(res!.kind).toBe("warning");
-    expect(res!.message).toContain("print(...)");
-  });
-
-  test("allows the word `print` inside a string literal", () => {
-    const res = regexContractCheck(`def process(df):
-    return df.assign(note="please print() this row")`);
-    expect(res).toBeNull();
-  });
-
-  test("allows the word `print` inside a comment", () => {
-    const res = regexContractCheck(`def process(df):
-    # remember to print(...) for the demo
-    return df`);
-    expect(res).toBeNull();
+    expect(res!.kind).toBe("error");
   });
 });
 
@@ -275,11 +265,9 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     expect((op!.operatorProperties as any).code).toBe(goodCode);
   });
 
-  test("DOES replace an existing operator's code when the new code only triggers a print() warning", async () => {
-    // Same pre-seed as the hard-error case above, but this time the new code
-    // contains a print() — soft warning, not a blocker. The modification
-    // should land (new code replaces old) and the result should carry
-    // `[WARNING] …`.
+  test("DOES replace an existing operator's code when the new code contains print() — no warning", async () => {
+    // print() is allowed now (its output is surfaced as a debug block, not
+    // dropped/warned). The modification lands cleanly with no `[WARNING]`.
     const { ws, execute } = buildTool();
     const opId = "loadCsv";
     const goodCode = `def load() -> pd.DataFrame:
@@ -302,8 +290,7 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     print('loading...')
     return pd.read_csv('/data/x.csv')`;
     const result = await execute({ operatorId: opId, code: printCode, summary: "with debug print" });
-    expect(result).toMatch(/^\[WARNING\] /);
-    expect(result).toContain("print(...)");
+    expect(result).not.toContain("WARNING");
     // The modification DID land — `code` is the new code now.
     const op = ws.getOperator(opId);
     expect(op).toBeDefined();
@@ -325,41 +312,6 @@ describe("createOrModifyOperator — contract enforcement at the tool boundary",
     expect(terminators.length).toBe(1);
   });
 
-  test("the print() warning line is a single sentence", async () => {
-    // Pre-seed an existing operator so we exercise the MODIFY path (the ADD
-    // path needs schema/metadata wiring this harness doesn't provide).
-    const { ws, execute } = buildTool();
-    const opId = "p";
-    ws.addOperator({
-      operatorID: opId,
-      operatorType: "DataLoading",
-      operatorVersion: "v1",
-      operatorProperties: { code: "def load() -> pd.DataFrame:\n    return pd.read_csv('/data/x.csv')" },
-      inputPorts: [],
-      outputPorts: [{ portID: "output-0", displayName: "" }],
-      showAdvanced: false,
-      isDisabled: false,
-      customDisplayName: opId,
-      dynamicInputPorts: false,
-      dynamicOutputPorts: false,
-    } as any);
-
-    const result = await execute({
-      operatorId: opId,
-      code: `def load() -> pd.DataFrame:
-    print("hi")
-    return pd.read_csv('/data/x.csv')`,
-      summary: "x",
-    });
-    expect(typeof result).toBe("string");
-    // The warning is the FIRST line of the result; the rest is the normal
-    // success message. We test only the warning line itself.
-    const firstLine = (result as string).split("\n", 1)[0];
-    expect(firstLine).toMatch(/^\[WARNING\] /);
-    const body = firstLine.replace(/^\[WARNING\]\s*/, "").trim();
-    const terminators = body.match(/[.!?](?:\s|$)/g) || [];
-    expect(terminators.length).toBe(1);
-  });
 });
 
 describe("stripDocstringsAndComments", () => {
