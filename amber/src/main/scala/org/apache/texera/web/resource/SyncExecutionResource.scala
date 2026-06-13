@@ -302,12 +302,27 @@ class SyncExecutionResource extends LazyLogging {
       // Let the result writer flush before we read storage.
       Thread.sleep(500)
 
-      // Console DB writes lag the in-memory store; pass the latter so error extraction
-      // can fall back when the row hasn't landed yet.
-      val inMemoryConsoleState = terminationReason match {
-        case ConsoleErrorDetected(consoleState) => Some(consoleState)
-        case _                                  => None
+      // Console messages (incl. print output) only reach their document when the
+      // writers are closed. The engine normally closes them on the terminal state
+      // event, but the kill/target-results path tears the client down before that
+      // fires — so flush explicitly here, for every termination path (including a
+      // half-way failure), so prints land in the document we're about to read.
+      try {
+        if (executionService.executionConsoleService != null) {
+          executionService.executionConsoleService.commitConsoleMessages()
+        }
+      } catch {
+        case e: Exception =>
+          logger.warn(s"Failed to commit console messages: ${e.getMessage}")
       }
+
+      // Pass the LIVE in-memory console store (freshest snapshot, for every
+      // termination path). It holds every console message received so far —
+      // including prints emitted before an operator failed half-way — which the DB
+      // document can miss when the client is torn down before its writer flushes.
+      // collectConsoleLogs merges this with the DB so prints survive either way.
+      val inMemoryConsoleState: Option[ExecutionConsoleStore] =
+        Some(executionService.executionStateStore.consoleStore.getState)
 
       val executionId = executionService.workflowContext.executionId
       val operatorInfos = collectOperatorInfos(
@@ -435,25 +450,27 @@ class SyncExecutionResource extends LazyLogging {
           maxOperatorResultCellCharLimit
         )
 
-      // DB is authoritative once written; fall back to in-memory state for in-flight runs
-      // where the console row hasn't been persisted yet.
+      // Merge the persisted DB document (full-fidelity, authoritative when present)
+      // with the in-memory store. Neither alone is complete: the DB can miss a print
+      // when the writer is torn down before flushing (e.g. an operator that fails
+      // half-way), while the in-memory store truncates print titles to the display
+      // length. Union them so prints survive regardless of which source captured them.
       val dbConsoleLogs = collectConsoleLogs(executionId, opId)
-      val consoleLogs = dbConsoleLogs.orElse {
-        inMemoryConsoleState.flatMap { consoleState =>
-          consoleState.operatorConsole
-            .get(opId)
-            .map { opConsole =>
-              opConsole.consoleMessages.map { msg =>
-                ConsoleMessageInfo(
-                  msgType = msg.msgType.name,
-                  title = msg.title,
-                  message = msg.message
-                )
-              }.toList
-            }
-            .filter(_.nonEmpty)
-        }
+      val memConsoleLogs = inMemoryConsoleState.flatMap { consoleState =>
+        consoleState.operatorConsole
+          .get(opId)
+          .map { opConsole =>
+            opConsole.consoleMessages.map { msg =>
+              ConsoleMessageInfo(
+                msgType = msg.msgType.name,
+                title = msg.title,
+                message = msg.message
+              )
+            }.toList
+          }
+          .filter(_.nonEmpty)
       }
+      val consoleLogs = mergeConsoleLogs(dbConsoleLogs, memConsoleLogs)
 
       // Python writes the full error text to `message`; Scala writes it to `title`
       // (with a stack trace in `message`). Pick whichever is longer to avoid losing detail.
@@ -849,6 +866,33 @@ class SyncExecutionResource extends LazyLogging {
       fieldNames.exists(name => name == "html-content" || name == "json-content")
     } catch {
       case _: Exception => false
+    }
+  }
+
+  /**
+    * Union two console-log sources, deduplicating across them. DB messages are kept
+    * verbatim (full fidelity) and take precedence; in-memory messages are appended
+    * only when not already present. Dedup keys on msgType + the first 80 chars of the
+    * body so an in-memory message (whose title is truncated to the display length)
+    * still matches its full-text DB counterpart instead of being added twice.
+    */
+  private def mergeConsoleLogs(
+      db: Option[List[ConsoleMessageInfo]],
+      mem: Option[List[ConsoleMessageInfo]]
+  ): Option[List[ConsoleMessageInfo]] = {
+    val dbList = db.getOrElse(List.empty)
+    val memList = mem.getOrElse(List.empty)
+    if (dbList.isEmpty && memList.isEmpty) {
+      None
+    } else {
+      def key(m: ConsoleMessageInfo): String = {
+        val body = if (m.title.nonEmpty) m.title else m.message
+        m.msgType + "|" + body.take(80)
+      }
+      val merged = mutable.LinkedHashMap[String, ConsoleMessageInfo]()
+      dbList.foreach(m => merged.getOrElseUpdate(key(m), m))
+      memList.foreach(m => merged.getOrElseUpdate(key(m), m))
+      Some(merged.values.toList)
     }
   }
 

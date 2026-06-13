@@ -19,6 +19,9 @@
 
 interface ConsoleMessage {
   msgType: string;
+  // print() output is carried in `title` (message is empty); error messages may
+  // populate either field. Read whichever is non-empty.
+  title?: string;
   message: string;
 }
 

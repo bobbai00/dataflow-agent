@@ -1233,7 +1233,8 @@ function serializeOperatorFull(
         const t = String(c.msgType ?? "").toUpperCase();
         return t === "PRINT" || t === "0";
       })
-      .map(c => c.message)
+      // print() text is carried in `title` (message is empty); prefer whichever is set.
+      .map(c => (typeof c.title === "string" && c.title.trim().length > 0) ? c.title : c.message)
       .filter(m => typeof m === "string" && m.trim().length > 0)
       .join("\n")
       .trimEnd();

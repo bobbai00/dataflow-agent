@@ -63,7 +63,7 @@ import org.apache.texera.web.storage.ExecutionStateStore
 import org.apache.texera.web.{SubscriptionManager, WebsocketInput}
 
 import java.time.Instant
-import java.util.concurrent.{ExecutorService, Executors}
+import java.util.concurrent.{ExecutorService, Executors, TimeUnit}
 import scala.collection.mutable
 
 /**
@@ -210,6 +210,32 @@ class ExecutionConsoleService(
       case ExecutionStateUpdate(state: WorkflowAggregatedState.Recognized)
           if Set(COMPLETED, FAILED, KILLED).contains(state) =>
         logger.info("Workflow execution terminated. Commit console messages.")
+        commitConsoleMessages()
+      case _ =>
+    }
+  )
+
+  /**
+    * Flush and close all console-message writers so the persisted documents are
+    * complete and readable.
+    *
+    * Console messages (including `print(...)` output) live only in each operator's
+    * buffered writer until it is closed — close() is what flushes the buffer to the
+    * underlying document. Normally this is driven by the engine's terminal
+    * COMPLETED/FAILED/KILLED state update above. The synchronous execution path,
+    * however, tears the client down (kill + manual state override) before that event
+    * propagates, so without an explicit commit the prints would never reach the
+    * document and the agent would only ever see error messages (which the sync path
+    * reads from the in-memory store). SyncExecutionResource calls this before reading
+    * the console documents.
+    *
+    * The close runs on the single writer thread so it serializes *after* any pending
+    * putOne writes, and we block (bounded) until it finishes. The map is cleared so a
+    * subsequent terminal-state callback is a no-op rather than a double close.
+    */
+  def commitConsoleMessages(): Unit = {
+    val task = consoleWriterThread.submit(new Runnable {
+      override def run(): Unit = {
         consoleMessageOpIdToWriterMap.values.foreach { writer =>
           try {
             writer.close()
@@ -218,9 +244,16 @@ class ExecutionConsoleService(
               logger.error("Failed to close console message writer", e)
           }
         }
-      case _ =>
+        consoleMessageOpIdToWriterMap.clear()
+      }
+    })
+    try {
+      task.get(10, TimeUnit.SECONDS)
+    } catch {
+      case e: Exception =>
+        logger.error("Timed out committing console messages", e)
     }
-  )
+  }
 
   /**
     * Processes a console message for display, performing truncation if needed.
