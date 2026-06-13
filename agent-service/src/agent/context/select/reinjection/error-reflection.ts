@@ -40,8 +40,9 @@ import type { PathNode } from "../../../util/context-utils";
  * Pure: derives only from the path.
  */
 
-/** Min (re)writes before an operator's reflection is shown. */
-export const REFLECTION_MIN_ATTEMPTS = 2;
+/** Default N: consecutive same-operator (re)fixing attempts before the folded
+ *  error/attempt history is included. Overridable per-run via errorReflectionThreshold. */
+export const DEFAULT_REFLECTION_THRESHOLD = 3;
 /** Distinct error signatures listed (most recent first). */
 const MAX_DISTINCT_ERRORS = 3;
 /** Per-error first-line cap. */
@@ -60,6 +61,8 @@ export interface ErrorReflectionEntry {
   repeating: boolean;
   /** code submitted on each attempt, in order (for diffing the last two). */
   codes: string[];
+  /** longest run of BACK-TO-BACK edits to this op (the "stuck on it" signal). */
+  consecutive: number;
 }
 
 function firstErrorLine(output: unknown): string | undefined {
@@ -73,6 +76,7 @@ function firstErrorLine(output: unknown): string | undefined {
 /** Walk the path once, accumulating per-operator attempt/error/code history. */
 export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorReflectionEntry> {
   const seq = new Map<string, { err: string | undefined; code: string }[]>();
+  const order: string[] = []; // global edit order, for consecutive-run counting
 
   for (const node of fullPath) {
     const step = node.step;
@@ -90,7 +94,18 @@ export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorRef
       const arr = seq.get(opId) ?? [];
       arr.push({ err: isErr ? (firstErrorLine(tr?.output) ?? "[ERROR] (unspecified)") : undefined, code });
       seq.set(opId, arr);
+      order.push(opId);
     });
+  }
+
+  // Longest run of back-to-back edits to each op (N "consecutive fixing attempts").
+  const maxConsecutive = new Map<string, number>();
+  let runOp: string | null = null;
+  let runLen = 0;
+  for (const op of order) {
+    if (op === runOp) runLen++;
+    else { runOp = op; runLen = 1; }
+    maxConsecutive.set(op, Math.max(maxConsecutive.get(op) ?? 0, runLen));
   }
 
   const out = new Map<string, ErrorReflectionEntry>();
@@ -110,6 +125,7 @@ export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorRef
       distinctErrors: distinct,
       repeating,
       codes: arr.map(a => a.code),
+      consecutive: maxConsecutive.get(opId) ?? 0,
     });
   }
   return out;
@@ -133,7 +149,7 @@ function lineDiff(prev: string, curr: string): { removed: string[]; added: strin
  * history the serializer can't see: count, repeated-error verdict, last diff.
  */
 export function renderFoldedError(entry: ErrorReflectionEntry | undefined): string[] {
-  if (!entry || entry.attempts < REFLECTION_MIN_ATTEMPTS) return [];
+  if (!entry) return [];
   const { attempts, erroredAttempts, distinctErrors, repeating, codes } = entry;
   const lines: string[] = [];
 

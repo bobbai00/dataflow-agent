@@ -229,6 +229,8 @@ export interface AgentSettings {
   /** Error-reflection rung (LATEST only): show each churning operator's attempt
    *  count + distinct errors + a blocked→change-strategy verdict. Off by default. */
   errorReflection: boolean;
+  /** N consecutive same-operator refixes before the folded error/attempt history shows. */
+  errorReflectionThreshold: number;
   fewShotPrompt: boolean;
   loaderEscalation: boolean;
   maxResultRows: number;
@@ -282,6 +284,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   thoughtReplay: true,
   thoughtReplayK: 10,
   errorReflection: false,
+  errorReflectionThreshold: 3,
   fewShotPrompt: false,
   loaderEscalation: false,
   maxResultRows: 0,
@@ -362,6 +365,7 @@ export interface AgentSettingsApi {
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   errorReflection?: boolean;
+  errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;
@@ -412,6 +416,7 @@ export interface UpdateAgentSettingsRequest {
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   errorReflection?: boolean;
+  errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   loaderEscalation?: boolean;
   maxResultRows?: number;

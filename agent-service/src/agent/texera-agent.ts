@@ -725,6 +725,7 @@ export class TexeraAgent {
     thoughtReplay?: boolean;
     thoughtReplayK?: number;
     errorReflection?: boolean;
+    errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
     loaderEscalation?: boolean;
     maxResultRows?: number;
@@ -810,6 +811,10 @@ export class TexeraAgent {
     if (updates.errorReflection !== undefined) {
       this.settings.errorReflection = updates.errorReflection;
       // Pure render-time toggle — LATEST-mode error-reflection rung.
+    }
+    if (updates.errorReflectionThreshold !== undefined) {
+      this.settings.errorReflectionThreshold = updates.errorReflectionThreshold;
+      // Pure render-time setting — N consecutive refixes before folded history shows.
     }
     if (updates.loaderEscalation !== undefined) {
       this.settings.loaderEscalation = updates.loaderEscalation;

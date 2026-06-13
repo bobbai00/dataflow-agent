@@ -37,7 +37,7 @@ import { formatLineage } from "../context/decorate/flow/cardinality";
 import { buildLineageErrorContext, lineageErrorPointer, upstreamInputSchema } from "../context/decorate/flow/error-context";
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
-import { buildErrorReflection, renderFoldedError, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
+import { buildErrorReflection, renderFoldedError, DEFAULT_REFLECTION_THRESHOLD, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -126,6 +126,11 @@ export interface AssembleContextOptions {
    *  folds away (the input the prompt's "change strategy after 2 fails" needs).
    *  Off by default. */
   errorReflection?: boolean;
+  /** N: only after this many CONSECUTIVE same-operator (re)fixing attempts is the
+   *  folded error/attempt history (input schema, count, diff, distinct errors)
+   *  included for that operator. Below N the operator just shows its inline error.
+   *  Undefined ⇒ DEFAULT_REFLECTION_THRESHOLD. */
+  errorReflectionThreshold?: number;
   /** Internal (computed in assembleContext, NOT a setting): per-operator attempt
    *  / error history, built from the path only when errorReflection is on and the
    *  mode is LATEST. */
@@ -714,11 +719,12 @@ function buildFlowSection(
 
     if (info?.error) {
       if (options.errorReflection) {
-        // Fold mode: ALL error detail (message, input schema, attempt history,
-        // loader hint) lives on the operator's own block in # Current Dataflow.
-        // Here we only record the id for the pointer index below — no inline
-        // re-dump (that's the double-show we're removing).
-        erroredOps.push(op.operatorID);
+        // Fold mode: error detail lives on the operator's own block. Only surface
+        // an op in the pointer index once it's stuck (>= N consecutive same-op
+        // refixes); below that the inline [ERROR] in its Result is enough.
+        const entry = options.errorReflectionMap?.get(op.operatorID);
+        const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
+        if (entry && entry.consecutive >= threshold) erroredOps.push(op.operatorID);
       } else {
         lines.push(`error: ${info.error.split("\n")[0]}`);
         if (options.loaderHint && op.operatorType === "DataLoading") {
@@ -1221,12 +1227,18 @@ function serializeOperatorFull(
   // history is derived from the path (errorReflectionMap, built in assembleContext);
   // the current error itself is already in the Result block above.
   if (options.errorReflection && isCurrent && info?.error) {
-    for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
-    if (op.operatorType === "DataLoading") {
-      const hint = formatLoaderHint(info.error);
-      if (hint) for (const l of hint.split("\n")) lines.push(l);
+    const entry = options.errorReflectionMap?.get(op.operatorID);
+    const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
+    // Only intervene once the model has gone N consecutive (re)fixes on this op —
+    // below that it just sees the inline [ERROR] in its Result and fixes normally.
+    if (entry && entry.consecutive >= threshold) {
+      for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
+      if (op.operatorType === "DataLoading") {
+        const hint = formatLoaderHint(info.error);
+        if (hint) for (const l of hint.split("\n")) lines.push(l);
+      }
+      for (const l of renderFoldedError(entry)) lines.push(l);
     }
-    for (const l of renderFoldedError(options.errorReflectionMap?.get(op.operatorID))) lines.push(l);
   }
 
   // plan3: attempt reflection. On the CURRENT snapshot, when this operator has
