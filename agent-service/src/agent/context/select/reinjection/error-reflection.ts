@@ -20,30 +20,34 @@
 import type { PathNode } from "../../../util/context-utils";
 
 /**
- * SELECT reinjection rung — "error reflection".
+ * SELECT reinjection rung — "error reflection", FOLDED INTO THE OPERATOR.
  *
  * LATEST shows only the leaf snapshot, so it folds away an operator's *past*
  * attempts and the errors each produced. The model is told (system prompt) to
- * "change strategy after 2 failed attempts" — but in LATEST it can't see that
- * it is on attempt N with the same error, so a weak model resubmits a
- * byte-identical edit until the step cap (the observed loader/operator death-
- * loops). This rung recovers the missing evidence: per operator, how many times
- * it was (re)written, how many errored, the DISTINCT error signatures seen, and
- * whether the recent attempts are REPEATING (same error → blocked) — rendered
- * only for operators that are actually churning, inside the end-of-context
- * "Operators needing attention" section (composes with the lineage lines on the
- * same operator). Pure: derives only from the path.
+ * change strategy after repeated failures — but in LATEST it can't see that it is
+ * on attempt N with the same error, so a weak model resubmits a near-identical
+ * edit until the step cap (the observed loader/operator death-loops).
+ *
+ * This rung recovers the missing evidence and renders it **inside the failing
+ * operator's own block** in `# Current Dataflow` (the operator stays in the DAG —
+ * no separate section, no quarantine). For an op that has errored across attempts:
+ *   - attempt count + deduped error signatures (with a "same error repeating →
+ *     blocked, change strategy" verdict);
+ *   - the **code diff of the last attempt vs the previous one** (changed lines
+ *     only) — surfaces trivial-variation churn far more cheaply than full code;
+ *   - the operator's **input schema** is rendered by the serializer alongside this.
+ *
+ * Pure: derives only from the path.
  */
 
-/** Min (re)writes before an operator's reflection is shown. Matches the prompt's
- *  "change strategy after 2 failed attempts" — a 3rd attempt is where it helps. */
-export const REFLECTION_MIN_ATTEMPTS = 3;
-/** Min errored attempts to trigger the crash-loop ("blocked") reflection. */
-const MIN_ERRORED_ATTEMPTS = 2;
+/** Min (re)writes before an operator's reflection is shown. */
+export const REFLECTION_MIN_ATTEMPTS = 2;
 /** Distinct error signatures listed (most recent first). */
 const MAX_DISTINCT_ERRORS = 3;
 /** Per-error first-line cap. */
 const ERR_MAX_CHARS = 160;
+/** Cap on diff lines shown (each side). */
+const MAX_DIFF_LINES = 12;
 
 export interface ErrorReflectionEntry {
   /** total createOrModifyOperator calls on this op along the path. */
@@ -54,6 +58,8 @@ export interface ErrorReflectionEntry {
   distinctErrors: string[];
   /** the last >= 2 errored attempts produced the SAME first-line. */
   repeating: boolean;
+  /** code submitted on each attempt, in order (for diffing the last two). */
+  codes: string[];
 }
 
 function firstErrorLine(output: unknown): string | undefined {
@@ -64,10 +70,9 @@ function firstErrorLine(output: unknown): string | undefined {
   return line.length <= ERR_MAX_CHARS ? line : line.slice(0, ERR_MAX_CHARS - 1) + "…";
 }
 
-/** Walk the path once, accumulating per-operator attempt/error history. */
+/** Walk the path once, accumulating per-operator attempt/error/code history. */
 export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorReflectionEntry> {
-  // operatorId → ordered list of error first-lines (undefined = a non-error attempt)
-  const seq = new Map<string, (string | undefined)[]>();
+  const seq = new Map<string, { err: string | undefined; code: string }[]>();
 
   for (const node of fullPath) {
     const step = node.step;
@@ -81,23 +86,22 @@ export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorRef
       if (!opId) return;
       const tr = trs[i];
       const isErr = !!(tr && (tr as any).isError) || !!firstErrorLine(tr?.output);
+      const code = typeof inp.code === "string" ? inp.code : "";
       const arr = seq.get(opId) ?? [];
-      arr.push(isErr ? (firstErrorLine(tr?.output) ?? "[ERROR] (unspecified)") : undefined);
+      arr.push({ err: isErr ? (firstErrorLine(tr?.output) ?? "[ERROR] (unspecified)") : undefined, code });
       seq.set(opId, arr);
     });
   }
 
   const out = new Map<string, ErrorReflectionEntry>();
   for (const [opId, arr] of seq) {
-    const errs = arr.filter((e): e is string => e !== undefined);
-    // distinct, most-recent-first
+    const errs = arr.map(a => a.err).filter((e): e is string => e !== undefined);
     const distinct: string[] = [];
     for (let i = arr.length - 1; i >= 0; i--) {
-      const e = arr[i];
+      const e = arr[i].err;
       if (e && !distinct.includes(e)) distinct.push(e);
       if (distinct.length >= MAX_DISTINCT_ERRORS) break;
     }
-    // repeating = the last two errored attempts share a first-line
     const lastTwo = errs.slice(-2);
     const repeating = lastTwo.length === 2 && lastTwo[0] === lastTwo[1];
     out.set(opId, {
@@ -105,36 +109,57 @@ export function buildErrorReflection(fullPath: PathNode[]): Map<string, ErrorRef
       erroredAttempts: errs.length,
       distinctErrors: distinct,
       repeating,
+      codes: arr.map(a => a.code),
     });
   }
   return out;
 }
 
+/** Minimal line diff: the lines removed (from prev) and added (in curr). */
+function lineDiff(prev: string, curr: string): { removed: string[]; added: string[] } {
+  const a = prev.split("\n");
+  const b = curr.split("\n");
+  const bSet = new Set(b);
+  const aSet = new Set(a);
+  const removed = a.filter(l => l.trim() && !bSet.has(l));
+  const added = b.filter(l => l.trim() && !aSet.has(l));
+  return { removed, added };
+}
+
 /**
- * Render the per-operator reflection lines for the flow section, or [] when the
- * operator hasn't churned enough to warrant it. Two shapes:
- *   - crash/blocked loop (errors repeating): say it's blocked → change strategy.
- *   - semantic churn (rewritten, no errors): the result is wrong, not crashing.
+ * Render the attempt/error history lines to fold INTO the operator's block.
+ * Returns [] when the op hasn't churned enough. The op's current error and code
+ * are already shown by the serializer (Result/[ERROR]); this adds only the
+ * history the serializer can't see: count, repeated-error verdict, last diff.
  */
-export function renderErrorReflection(entry: ErrorReflectionEntry | undefined): string[] {
+export function renderFoldedError(entry: ErrorReflectionEntry | undefined): string[] {
   if (!entry || entry.attempts < REFLECTION_MIN_ATTEMPTS) return [];
-  const { attempts, erroredAttempts, distinctErrors, repeating } = entry;
+  const { attempts, erroredAttempts, distinctErrors, repeating, codes } = entry;
   const lines: string[] = [];
 
-  if (erroredAttempts >= MIN_ERRORED_ATTEMPTS) {
-    const verdict = repeating
-      ? "the recent attempts returned the SAME error — this approach is BLOCKED. Do not resubmit a near-variant; change strategy (fix the root cause, restructure the logic, or use a different operator/input)."
-      : "the errors are still changing — make sure each edit addresses the actual error, not a guess.";
-    lines.push(`Attempts: rewritten ${attempts}× (${erroredAttempts} errored). ${verdict}`);
-    if (distinctErrors.length > 0) {
-      lines.push("Distinct errors seen (most recent first):");
-      for (const e of distinctErrors) lines.push(`  - ${e}`);
+  const verdict =
+    erroredAttempts >= 2 && repeating
+      ? " — the SAME error is repeating; this approach is blocked, change strategy instead of resubmitting a near-variant."
+      : erroredAttempts >= 2
+        ? " — errors are still changing; make sure each edit targets the actual error."
+        : "";
+  lines.push(`Attempts: rewritten ${attempts}× (${erroredAttempts} errored)${verdict}`);
+
+  // last code diff (current vs previous attempt)
+  if (codes.length >= 2) {
+    const { removed, added } = lineDiff(codes[codes.length - 2], codes[codes.length - 1]);
+    if (removed.length || added.length) {
+      lines.push("Last change vs previous attempt:");
+      for (const l of removed.slice(0, MAX_DIFF_LINES)) lines.push(`  - ${l.trim()}`);
+      for (const l of added.slice(0, MAX_DIFF_LINES)) lines.push(`  + ${l.trim()}`);
+    } else {
+      lines.push("Last attempt was an EXACT resubmit (no code change) — do not repeat it.");
     }
-  } else {
-    // edited many times but rarely/never errored → semantic thrashing
-    lines.push(
-      `Attempts: rewritten ${attempts}× with no execution error — the output is likely semantically WRONG, not crashing. Re-check the upstream input schema/values and this operator's actual Result above rather than rewriting the code again.`
-    );
+  }
+
+  if (distinctErrors.length > 1) {
+    lines.push("Distinct errors seen (most recent first):");
+    for (const e of distinctErrors) lines.push(`  - ${e}`);
   }
   return lines;
 }

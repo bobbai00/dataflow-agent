@@ -99,6 +99,38 @@ export function lineageErrorPointer(opId: string, snapshot: SnapshotData, allLin
   return `fix against the real columns/values of input ${ids} (see ${poss} Result above); don't guess column names.`;
 }
 
+/**
+ * Compact input-schema lines for an errored op — the direct upstream(s)' columns
+ * (name + light type from the first row), so a fix targets real columns. Used by
+ * the folded error-into-operator rung. Returns [] when no upstream has a result.
+ */
+export function upstreamInputSchema(
+  opId: string,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"]
+): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const link of allLinks) {
+    if (link.target.operatorID !== opId) continue;
+    const pid = link.source.operatorID;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const pInfo = snapshot.results.get(pid)?.info;
+    if (!pInfo || pInfo.error || !Array.isArray(pInfo.result) || pInfo.result.length === 0) continue;
+    const row0 = pInfo.result[0] as Record<string, unknown>;
+    const cols = Object.keys(row0).filter(k => k !== "__row_index__" && k !== "__is_visualization__");
+    if (cols.length === 0) continue;
+    const typed = cols.map(c => {
+      const v = row0[c];
+      const t = v === null || v === undefined ? "?" : typeof v === "number" ? "num" : typeof v === "boolean" ? "bool" : "str";
+      return `${c} (${t})`;
+    });
+    lines.push(`Input schema \`${pid}\`: ${typed.join(", ")}`);
+  }
+  return lines;
+}
+
 export const errorContext: OperatorDecorator = {
   id: "flow.error_context",
   facet: "flow",

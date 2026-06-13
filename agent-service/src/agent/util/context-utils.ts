@@ -34,10 +34,10 @@ import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 import { formatLineage } from "../context/decorate/flow/cardinality";
-import { buildLineageErrorContext, lineageErrorPointer } from "../context/decorate/flow/error-context";
+import { buildLineageErrorContext, lineageErrorPointer, upstreamInputSchema } from "../context/decorate/flow/error-context";
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
-import { buildErrorReflection, renderErrorReflection, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
+import { buildErrorReflection, renderFoldedError, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -707,24 +707,33 @@ function buildFlowSection(
   const { sortedOps, allLinks } = topoSortDag(workflow);
 
   const entries: string[] = [];
+  const erroredOps: string[] = []; // for the fold-mode pointer index
   for (const op of sortedOps) {
     const info = snapshot.results.get(op.operatorID)?.info;
     const lines: string[] = [];
 
     if (info?.error) {
-      lines.push(`error: ${info.error.split("\n")[0]}`);
-      if (options.loaderHint && op.operatorType === "DataLoading") {
-        const hint = formatLoaderHint(info.error);
-        if (hint) lines.push(...hint.split("\n"));
-      }
-      if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
-        // LATEST already renders every operator's Result, so reference the
-        // upstream instead of re-dumping it; DELTA may have omitted the
-        // upstream, so keep the full schema + sample-rows block there.
-        const block = isLatest
-          ? lineageErrorPointer(op.operatorID, snapshot, allLinks)
-          : buildLineageErrorContext(op.operatorID, snapshot, allLinks);
-        if (block) lines.push(...block.split("\n"));
+      if (options.errorReflection) {
+        // Fold mode: ALL error detail (message, input schema, attempt history,
+        // loader hint) lives on the operator's own block in # Current Dataflow.
+        // Here we only record the id for the pointer index below — no inline
+        // re-dump (that's the double-show we're removing).
+        erroredOps.push(op.operatorID);
+      } else {
+        lines.push(`error: ${info.error.split("\n")[0]}`);
+        if (options.loaderHint && op.operatorType === "DataLoading") {
+          const hint = formatLoaderHint(info.error);
+          if (hint) lines.push(...hint.split("\n"));
+        }
+        if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
+          // LATEST already renders every operator's Result, so reference the
+          // upstream instead of re-dumping it; DELTA may have omitted the
+          // upstream, so keep the full schema + sample-rows block there.
+          const block = isLatest
+            ? lineageErrorPointer(op.operatorID, snapshot, allLinks)
+            : buildLineageErrorContext(op.operatorID, snapshot, allLinks);
+          if (block) lines.push(...block.split("\n"));
+        }
       }
     } else if (!info) {
       const roots = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
@@ -754,20 +763,22 @@ function buildFlowSection(
       }
     }
 
-    // Error-reflection rung — append per-operator attempt/error history (LATEST
-    // only; map built in assembleContext). Composes with the error/lineage lines
-    // above on the same operator entry, and also surfaces an operator that is
-    // being rewritten repeatedly even when it isn't currently in an error state.
-    if (options.errorReflection && options.errorReflectionMap) {
-      const refl = renderErrorReflection(options.errorReflectionMap.get(op.operatorID));
-      for (const l of refl) lines.push(l);
-    }
-
     if (lines.length > 0) {
       entries.push(`### \`${op.operatorID}\` (${op.operatorType})`);
       for (const l of lines) entries.push(l);
       entries.push("");
     }
+  }
+
+  // Fold mode: a one-line pointer index keeps errored operators salient (their
+  // full detail is folded onto each operator's own block above), in root-cause
+  // (topological) order. Prepended so it sits right under the section header.
+  if (options.errorReflection && erroredOps.length > 0) {
+    const ids = erroredOps.map(id => `\`${id}\``).join(", ");
+    entries.unshift(
+      `Operators with execution errors (see each operator's block above for the error, input schema, and attempt history): ${ids} — fix \`${erroredOps[0]}\` first (root cause), then re-run.`,
+      ""
+    );
   }
 
   if (entries.length === 0) return undefined;
@@ -1200,6 +1211,22 @@ function serializeOperatorFull(
       const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
       lines.push(`Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`);
     }
+  }
+
+  // Error-reflection FOLDED into the operator (LATEST). When this op has errored,
+  // co-locate everything needed to fix it on its own block: the upstream INPUT
+  // SCHEMA (fix against real columns), a loader remediation hint for failed loads,
+  // and the attempt/error HISTORY (count, repeated-error → "blocked, change
+  // strategy" verdict, and the code diff of the last vs previous attempt). The
+  // history is derived from the path (errorReflectionMap, built in assembleContext);
+  // the current error itself is already in the Result block above.
+  if (options.errorReflection && isCurrent && info?.error) {
+    for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
+    if (op.operatorType === "DataLoading") {
+      const hint = formatLoaderHint(info.error);
+      if (hint) for (const l of hint.split("\n")) lines.push(l);
+    }
+    for (const l of renderFoldedError(options.errorReflectionMap?.get(op.operatorID))) lines.push(l);
   }
 
   // plan3: attempt reflection. On the CURRENT snapshot, when this operator has

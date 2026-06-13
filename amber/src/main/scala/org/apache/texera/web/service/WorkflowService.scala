@@ -397,7 +397,7 @@ class WorkflowService(
           logger.debug(s"Error processing document at $uri: ${error.getMessage}")
       }
     }
-    // Delete this execution's large binaries
-    LargeBinaryManager.deleteByExecution(eid.id)
+    // Delete large binaries produced by these executions
+    executionIds.foreach(eid => LargeBinaryManager.deleteByExecution(eid.id))
   }
 }
