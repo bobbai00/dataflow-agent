@@ -19,11 +19,11 @@
 
 package org.apache.texera.amber.operator
 
-import org.apache.texera.amber.config.UdfConfig
 import org.apache.texera.amber.core.executor.OpExecWithCode
 import org.apache.texera.amber.core.tuple.Schema
 import org.apache.texera.amber.core.virtualidentity.{ExecutionIdentity, WorkflowIdentity}
 import org.apache.texera.amber.core.workflow.{PhysicalOp, PortIdentity, SchemaPropagationFunc}
+import org.apache.texera.common.config.UdfConfig
 
 /**
   * Utility object for validating Python UDF code at workflow-compile time.
