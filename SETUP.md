@@ -138,6 +138,26 @@ Key `.env` values:
 To enable the in-GUI AI copilot, set `copilot-enabled = true` in
 `common/config/src/main/resources/gui.conf`.
 
+### AI copilot → LiteLLM gateway (DKNet-2)
+
+The GUI AI copilot calls AccessControlService (`:9096`), which proxies its
+chat/model requests to a LiteLLM gateway configured in
+`common/config/src/main/resources/llm.conf` (`base-url` + `master-key`, each
+overridable via the `LITELLM_BASE_URL` / `LITELLM_MASTER_KEY` env vars).
+
+**To use the DKNet-2 server's LiteLLM**, export these before launching the JVM
+services (the forked service JVMs inherit the environment) — this keeps the
+secret key out of git rather than hard-coding it in `llm.conf`:
+
+```bash
+export LITELLM_BASE_URL="https://texera.dknet-ai.org/litellm"
+export LITELLM_MASTER_KEY="<dknet-2 master key — obtain from the deployment owner>"
+```
+
+The proxy routes (`/api/chat`, `/api/models`) require an authenticated
+REGULAR/ADMIN user and `copilot-enabled = true` (above); otherwise they return
+`403`.
+
 ## 6. Verify end-to-end
 
 The agent-service e2e suite drives auth + workflow CRUD + dataset upload + execution
