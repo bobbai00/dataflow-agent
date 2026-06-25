@@ -178,7 +178,8 @@ class OperatorExecutionSpec extends AnyFlatSpec {
         outputTupleMetrics = Seq(portTupleMetrics(0, 5L, 50L)),
         dataProcessingTime = 7L,
         controlProcessingTime = 3L,
-        idleTime = 1L
+        idleTime = 1L,
+        resultStatistics = Map.empty
       )
     )
     // worker-2 sees 4 tuples / 40 bytes on input port 0; 2 / 20 on output port 0
@@ -190,7 +191,8 @@ class OperatorExecutionSpec extends AnyFlatSpec {
         outputTupleMetrics = Seq(portTupleMetrics(0, 2L, 20L)),
         dataProcessingTime = 11L,
         controlProcessingTime = 13L,
-        idleTime = 17L
+        idleTime = 17L,
+        resultStatistics = Map.empty
       )
     )
 
@@ -225,7 +227,8 @@ class OperatorExecutionSpec extends AnyFlatSpec {
         outputTupleMetrics = Seq.empty,
         dataProcessingTime = 0L,
         controlProcessingTime = 0L,
-        idleTime = 0L
+        idleTime = 0L,
+        resultStatistics = Map.empty
       )
     )
     applyUpdate(
@@ -236,7 +239,8 @@ class OperatorExecutionSpec extends AnyFlatSpec {
         outputTupleMetrics = Seq.empty,
         dataProcessingTime = 0L,
         controlProcessingTime = 0L,
-        idleTime = 0L
+        idleTime = 0L,
+        resultStatistics = Map.empty
       )
     )
     val stats = opExec.getStats.operatorStatistics
