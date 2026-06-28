@@ -262,33 +262,31 @@ describe("assembleContext — Latest", () => {
  * ========================================================================= */
 
 describe("assembleContext — Delta", () => {
-  test("event 3's snapshot renders filt in full and omits unchanged src entirely", () => {
+  test("event 3's Observation lists filt (changed) and omits unchanged src/existing", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    // After init exclusion: t2 (was event 4) is now event 3.
-    // Inline snapshots nest at H3 in the new layout → Operator X at H5.
-    const after3 = c.slice(c.indexOf("### Dataflow changes after event 3"), c.indexOf("## Agent Event 4"));
+    // After init exclusion: t2 (was event 4) is now event 3. The Observation is a
+    // minimal per-operator list; slice event 3's whole block.
+    const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
 
-    // The Δ operator (filt) is rendered in full.
-    expect(after3).toContain("##### Operator `filt` (TestOp)");
-    expect(after3).not.toContain("executed");
-    expect(after3).toContain("Result:");
-    // Unchanged operators (src, existing) are dropped entirely — no
-    // placeholder heading, no Summary, no "unchanged" marker. Their ids
-    // still appear in the trailing Links section.
-    expect(after3).not.toContain("##### Operator `src`");
-    expect(after3).not.toContain("##### Operator `existing`");
-    expect(after3).not.toContain("unchanged");
+    // The Δ operator (filt) is listed with its raw result.
+    expect(after3).toContain("Observation:");
+    expect(after3).toContain("- operator filt added");
+    expect(after3).toContain("result:");
+    // Unchanged operators (src, existing) aren't in this event's Δ → not listed.
+    expect(after3).not.toContain("- operator src");
+    expect(after3).not.toContain("- operator existing");
   });
 
-  test("edges of the current snapshot are always emitted (even when only one endpoint is in delta)", () => {
+  test("delta Observation is minimal — no adjacency / Links / Summary / Schema decorations", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    const after3 = c.slice(c.indexOf("### Dataflow changes after event 3"), c.indexOf("## Agent Event 4"));
-    // Edge stays visible via filt's embedded Inputs line even though the
-    // upstream `src` is unchanged and omitted from the delta snapshot.
+    const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
+    // The observation carries only the raw result — those decorations are LATEST's view.
     expect(after3).not.toContain("#### Links");
-    expect(after3).toContain("Inputs: src");
+    expect(after3).not.toContain("Inputs:");
+    expect(after3).not.toContain("Used by:");
+    expect(after3).not.toContain("Summary:");
   });
 
   test("when Δ is empty (no operator added/modified/re-executed), the operators block is omitted", () => {
@@ -327,12 +325,20 @@ describe("assembleContext — Delta", () => {
     // sourceStepId result → empty Δ.
     storage.createSnapshot("a2", makeWorkflow(["a"]));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    // Event numbering: user=1, a1=2, a2=3. a1 added op "a" → its snapshot at
-    // event 2 has a non-empty Δ and DOES render. a2's snapshot at event 3
-    // has an empty Δ (same op, same props, no new sourceStepId result) AND
-    // no links — so the whole snapshot block is dropped.
-    expect(c).toContain("### Dataflow changes after event 2");
-    expect(c).not.toContain("### Dataflow changes after event 3");
+    // Event numbering: user=1, a1=2, a2=3. a1 added op "a" → event 2's
+    // Observation renders its result-summary `#### Operators` block. a2 re-issues
+    // a no-op modify on "a" (same props, no new sourceStepId result) → empty Δ →
+    // event 3's Observation carries only the one-line action outcome, no
+    // `#### Operators` result-summary block.
+    const ev2 = c.slice(c.indexOf("## Agent Event 2"), c.indexOf("## Agent Event 3"));
+    const ev3 = c.slice(c.indexOf("## Agent Event 3"));
+    expect(ev2).toContain("- operator a added");
+    expect(ev2).toContain("result:");
+    // a2 is a no-op modify (same props, no new result) → empty Δ → "a" is not a
+    // changed/re-executed operator, just a one-line "(no change)" outcome.
+    expect(ev3).not.toContain("- operator a added");
+    expect(ev3).not.toContain("- operator a updated");
+    expect(ev3).toContain("- operator a (no change): ok");
   });
 
   test("no trailing # Current Dataflow block", () => {
@@ -422,17 +428,23 @@ describe("assembleContext — cross-mode invariants", () => {
       expect(c).toContain("Build me a pipeline.");
     }
 
-    // Full + Delta render the events section with each agent event + its
-    // natural-language action lines.
+    // Delta renders the events section: each agent event + its standard tool-call
+    // Action + its Observation.
     for (const mode of [ContextMode.DELTA]) {
       const c = ofMode(mode);
       expect(c).toContain("# Agent Events");
       expect(c).toContain("## Agent Event 2");
       expect(c).toContain("## Agent Event 3");
       expect(c).toContain("## Agent Event 4");
-      expect(c).toContain('- create operator "src", result: ok');
-      expect(c).toContain('- create operator "filt", result: ok');
-      // Legacy `# Recent Agent Events` header is gone (renamed).
+      // Standard tool-call Action: registered tool name + key:value params.
+      expect(c).toContain("Action:");
+      expect(c).toContain("- createOrModifyOperator");
+      expect(c).toContain("operatorId: src");
+      expect(c).toContain("operatorId: filt");
+      // Observation lists the affected operators.
+      expect(c).toContain("Observation:");
+      expect(c).toContain("- operator src added");
+      expect(c).toContain("- operator filt added");
       expect(c).not.toContain("# Recent Agent Events");
     }
 
@@ -441,7 +453,7 @@ describe("assembleContext — cross-mode invariants", () => {
     expect(cLatest).not.toContain("# Agent Events");
     expect(cLatest).not.toContain("# Recent Agent Events");
     expect(cLatest).not.toContain("## Agent Event");
-    expect(cLatest).not.toContain('- create operator "src"');
+    expect(cLatest).not.toContain("Observation:");
   });
 
   // Shared single-step scenario builder for the property-rendering tests:
@@ -484,23 +496,26 @@ describe("assembleContext — cross-mode invariants", () => {
     }
   });
 
-  test("non-code operator properties render by default and hide when the flag is off", () => {
+  test("non-code operator properties render in LATEST by default and hide when the flag is off", () => {
     const { storage, stepsAll } = propScenario(makeOp("flt", "Filter", { predicate: "age > 18" }));
     const ws = new WorkflowState();
 
-    // Default (flag undefined ⇒ on): properties render.
-    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-      const c = content(assembleContext(stepsAll, ws, storage, mode, opts));
-      expect(c).toContain("Properties:");
-      expect(c).toContain("age > 18");
-    }
+    // LATEST default (flag undefined ⇒ on): the operator block renders Properties.
+    const cOn = content(assembleContext(stepsAll, ws, storage, ContextMode.LATEST, opts));
+    expect(cOn).toContain("Properties:");
+    expect(cOn).toContain("age > 18");
 
     // Flag off: legacy strip-everything behavior.
-    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-      const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: false }));
-      expect(c).not.toContain("Properties:");
-      expect(c).not.toContain("age > 18");
-    }
+    const cOff = content(
+      assembleContext(stepsAll, ws, storage, ContextMode.LATEST, { ...opts, includeOperatorProperties: false })
+    );
+    expect(cOff).not.toContain("Properties:");
+    expect(cOff).not.toContain("age > 18");
+
+    // DELTA's minimal Observation never renders operator Properties — config rides
+    // on the Action's params (GENERAL-mode tools) or is LATEST's view, not here.
+    const cDelta = content(assembleContext(stepsAll, ws, storage, ContextMode.DELTA, opts));
+    expect(cDelta).not.toContain("Properties:");
   });
 
   test("empty-property operators never render a Properties line", () => {
@@ -512,10 +527,10 @@ describe("assembleContext — cross-mode invariants", () => {
 });
 
 /* ============================================================================
- *  Action line format (params + result, no `(succeeded)` label)
+ *  Delta tool-call Action format + per-operator Observation
  * ========================================================================= */
 
-describe("assembleContext — action line format", () => {
+describe("assembleContext — delta Action / Observation format", () => {
   test('first createOrModifyOperator call on an op renders as `create operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
@@ -543,20 +558,18 @@ describe("assembleContext — action line format", () => {
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
 
-    // Latest mode renders no events, so Full mode is the place to assert
-    // the natural-language line shape.
     const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    expect(cFull).toContain('- create operator "src", result: Added operator src, input ports: 0, output ports: 1');
-
-    // Code and summary are NOT on the event line.
-    expect(cFull).not.toContain("def load");
-    expect(cFull).not.toContain("summary=");
-    expect(cFull).not.toContain('"Load customers.csv"');
-    // No legacy function-call shape.
-    expect(cFull).not.toContain('createOrModifyOperator(operatorId="src")');
-    // No legacy status label / arrow.
-    expect(cFull).not.toContain("(succeeded)");
-    expect(cFull).not.toContain("(failed)");
+    // Standard tool-call Action: registered tool name + key:value params, code as a block.
+    expect(cFull).toContain("Action:");
+    expect(cFull).toContain("- createOrModifyOperator");
+    expect(cFull).toContain("operatorId: src");
+    expect(cFull).toContain("summary: Load customers.csv");
+    expect(cFull).toContain("code:");
+    expect(cFull).toContain("def load(): ..."); // code IS shown — the action is lossless
+    // The tool RESULT is not inlined into the action; it lives in the Observation.
+    expect(cFull).not.toContain(", result:");
+    // Observation lists the created operator.
+    expect(cFull).toContain("- operator src added");
   });
 
   test('subsequent createOrModifyOperator call on the same op renders as `modify operator "X"`', () => {
@@ -585,10 +598,18 @@ describe("assembleContext — action line format", () => {
       },
     ]);
     storage.createSnapshot("a1", makeWorkflow(["src"]));
+    storage.setOperatorResult("a1", "src", makeInfo("src", 3));
     storage.createSnapshot("a2", makeWorkflow(["src"]));
+    // a2 re-executes src (new result sourced at a2) → src is in a2's Δ.
+    storage.setOperatorResult("a2", "src", makeInfo("src", 4));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    expect(c).toContain('- create operator "src", result: Added operator src');
-    expect(c).toContain('- modify operator "src", result: Updated operator src');
+    // Both calls render in standard tool-call form...
+    expect(c).toContain("- createOrModifyOperator");
+    expect(c).toContain("operatorId: src");
+    // ...and the create-vs-modify distinction shows in the Observation verb.
+    expect(c).toContain("- operator src added");
+    expect(c).toContain("- operator src updated");
+    expect(c).not.toContain(", result:");
   });
 
   test('deleteOperator renders as `delete operator "X"`', () => {
@@ -614,8 +635,12 @@ describe("assembleContext — action line format", () => {
     ]);
     storage.createSnapshot("a1", makeWorkflow([])); // empty after delete
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    expect(c).toContain('- create operator "tmp", result: Added operator tmp');
-    expect(c).toContain('- delete operator "tmp", result: Deleted operator tmp');
+    // Both tool calls render in standard form (tool name + params)...
+    expect(c).toContain("- createOrModifyOperator");
+    expect(c).toContain("- deleteOperator");
+    expect(c).toContain("operatorId: tmp");
+    // ...and the delete surfaces in the Observation.
+    expect(c).toContain("- operator tmp deleted");
   });
 
   test("create → delete → re-create on same id reads as two separate `create`s", () => {
@@ -657,11 +682,11 @@ describe("assembleContext — action line format", () => {
     storage.createSnapshot("a2", makeWorkflow([]));
     storage.createSnapshot("a3", makeWorkflow(["op"]));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    // Both creations render as `create operator "op"` — not `modify`.
-    // Use a regex-count: should see two `- create operator "op"` lines.
-    const matches = c.match(/- create operator "op"/g) ?? [];
+    // Both creations read as `added` in the Observation (delete reset the id), and
+    // the delete shows once. Two `- operator op added` lines (a1 and a3).
+    const matches = c.match(/- operator op added/g) ?? [];
     expect(matches.length).toBe(2);
-    expect(c).toContain('- delete operator "op"');
+    expect(c).toContain("- operator op deleted");
   });
 
   test('non-special tool name falls back to `<toolName> on operator "X"`', () => {
@@ -681,10 +706,13 @@ describe("assembleContext — action line format", () => {
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    expect(c).toContain('- executeOperator on operator "src", result: Executed operator src');
+    // Any tool renders by its registered name + params; the affected op shows in the Observation.
+    expect(c).toContain("- executeOperator");
+    expect(c).toContain("operatorId: src");
+    expect(c).toContain("- operator src updated");
   });
 
-  test("multi-line tool output is broken onto an indented block under `, result:`", () => {
+  test("an errored operator's error surfaces in its Observation result, not inlined in the action", () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -695,17 +723,62 @@ describe("assembleContext — action line format", () => {
         messageId: "m1",
         content: "trying",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "x" } }],
-        toolResults: [
-          { toolCallId: "tc", output: "[ERROR] something broke\n  hint: try with encoding='latin-1'", isError: true },
-        ],
+        toolResults: [{ toolCallId: "tc", output: "[ERROR] something broke", isError: true }],
         isEnd: true,
       },
     ]);
     storage.createSnapshot("a", makeWorkflow(["x"]));
+    // In a real run the failed op's error lands in its snapshot result; the
+    // Observation renders it via the operator's Result block (T/A/O), and the
+    // Action line stays result-free.
+    storage.setOperatorResult("a", "x", makeInfo("x", 0, "something broke\n  hint: try with encoding='latin-1'"));
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
-    expect(c).toContain('- create operator "x", result:');
-    expect(c).toContain("    [ERROR] something broke");
-    expect(c).toContain("      hint: try with encoding='latin-1'");
+    expect(c).toContain("Action:");
+    expect(c).not.toContain(", result:");
+    const obs = c.slice(c.indexOf("Observation:"));
+    expect(obs).toContain("- operator x added");
+    expect(obs).toContain("[ERROR] something broke");
+    expect(obs).toContain("hint: try with encoding='latin-1'");
+  });
+
+  test("delta error result is self-contained: keeps exception + `at line N` + `Operator code:` block", () => {
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "trying",
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "tc",
+            input: { operatorId: "x", code: "def process(df):\n    return df['missing']" },
+          },
+        ],
+        toolResults: [{ toolCallId: "tc", output: "[ERROR] KeyError", isError: true }],
+        isEnd: true,
+      },
+    ]);
+    storage.createSnapshot("a", makeWorkflow(["x"]));
+    // Engine-style error: exception + `at line N` pointer + an `Operator code:` block.
+    const engineError =
+      "KeyError: 'missing'\n  at line 2 in `process`\n\nOperator code:\n  1 | def process(df):\n> 2 |     return df['missing']";
+    storage.setOperatorResult("a", "x", makeInfo("x", 0, engineError));
+
+    // DELTA: the error result is self-contained — exception + line pointer + the
+    // `Operator code:` block (kept so the failing line is shown in context, even
+    // though the Action above also carries the code).
+    const cDelta = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    expect(cDelta).toContain("[ERROR] KeyError: 'missing'");
+    expect(cDelta).toContain("at line 2 in `process`");
+    expect(cDelta).toContain("Operator code:");
+
+    // LATEST also keeps the full error.
+    const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    expect(cLatest).toContain("Operator code:");
   });
 
   test("thought-only agent event renders no `Actions:` block", () => {

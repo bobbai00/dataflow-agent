@@ -34,10 +34,19 @@ import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 import { formatLineage } from "../context/decorate/flow/cardinality";
-import { buildLineageErrorContext, lineageErrorPointer, upstreamInputSchema } from "../context/decorate/flow/error-context";
+import {
+  buildLineageErrorContext,
+  lineageErrorPointer,
+  upstreamInputSchema,
+} from "../context/decorate/flow/error-context";
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
-import { buildErrorReflection, renderFoldedError, DEFAULT_REFLECTION_THRESHOLD, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
+import {
+  buildErrorReflection,
+  renderFoldedError,
+  DEFAULT_REFLECTION_THRESHOLD,
+  type ErrorReflectionEntry,
+} from "../context/select/reinjection/error-reflection";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -486,42 +495,6 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
 // context/select/reinjection/reasoning (imported above). It supersedes the
 // former structural-only `buildTimeline` rung, which was removed.
 
-/**
- * Render a single tool-call line as a natural-language statement. Three
- * special tool names get the short verb-noun form; everything else falls
- * back to `<toolName> on operator "X"` (or just `<toolName>` when no
- * operator id is present).
- *
- *   - createOrModifyOperator → `- create operator "X"` or `- modify operator "X"`
- *     (decided by the create-flag map; default to `create` if absent)
- *   - deleteOperator         → `- delete operator "X"`
- *   - any other tool         → `- <toolName> on operator "X"` (or `- <toolName>`)
- *
- * The trailing `, result: ...` is appended by the caller — this helper
- * returns the head only, so the caller can decide between inline and
- * indented multi-line result rendering.
- */
-function renderActionHead(
-  tc: { toolName: string; input?: unknown },
-  createFlags: Map<string, boolean> | undefined
-): string {
-  const inp = (tc.input ?? {}) as Record<string, unknown>;
-  const rawOpId = typeof inp.operatorId === "string" ? inp.operatorId : "";
-  const opId = rawOpId.length > 0 ? rawOpId : "";
-  const tool = tc.toolName;
-  if (tool === "createOrModifyOperator" && opId) {
-    const isCreate = createFlags?.get(opId) ?? true;
-    return `- ${isCreate ? "create" : "modify"} operator "${escapeQuotes(opId)}"`;
-  }
-  if (tool === "deleteOperator" && opId) {
-    return `- delete operator "${escapeQuotes(opId)}"`;
-  }
-  if (opId) {
-    return `- ${tool} on operator "${escapeQuotes(opId)}"`;
-  }
-  return `- ${tool}`;
-}
-
 /* ============================================================================
  *  Rendering: interleaved (FULL & DELTA) + trailing-snapshot (LATEST)
  * ========================================================================= */
@@ -565,7 +538,6 @@ function renderInterleaved(
   latestUserStepId: string | undefined,
   createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
-  const lastSnapshotId = lastSnapshotIdOf(tasks);
   const sections: string[] = [];
 
   // 1. # User Task
@@ -576,8 +548,9 @@ function renderInterleaved(
     sections.push("");
   }
 
-  // 2. # Agent Events — every event in the path, each followed by its
-  // destination snapshot (the per-turn delta of changed operators).
+  // 2. # Agent Events — every event in the path as a Thought / Action /
+  // Observation triplet (the Observation lists the operators changed or
+  // re-executed by that event; see serializeTaskBody).
   sections.push("# Agent Events");
   sections.push("");
 
@@ -591,7 +564,6 @@ function renderInterleaved(
       task,
       workflowState,
       options,
-      lastSnapshotId,
       () => prevSnapshot,
       s => {
         prevSnapshot = s;
@@ -804,7 +776,6 @@ function serializeTaskBody(
   task: TaskGroup,
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  lastSnapshotId: string | undefined,
   getPrev: () => SnapshotData | undefined,
   setPrev: (s: SnapshotData) => void,
   latestUserStepId: string | undefined,
@@ -823,30 +794,68 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, createFlagsByStep.get(node.step.id)));
+    lines.push(serializeTurn(node));
     lines.push("");
 
     if (node.snapshot) {
-      const isCurrent = node.snapshot.id === lastSnapshotId;
-      // Events render as `## Agent Event N` at H2 (nested under H1
-      // `# Agent Events`), so the inline snapshot wrapper goes at H3
-      // and the snapshot's own section headings start at H4.
-      const snapshotHeadingLevel = 3;
-      const snapshotSectionLevel = snapshotHeadingLevel + 1;
-      const body = serializeSnapshotDelta(
-        node.snapshot,
-        getPrev(),
-        workflowState,
-        options,
-        isCurrent,
-        snapshotSectionLevel
-      );
-      if (body) {
-        const snapshotHash = "#".repeat(snapshotHeadingLevel);
-        const snapshotTitle = `Dataflow changes after event ${node.eventIndex}`;
-        lines.push(`${snapshotHash} ${snapshotTitle}`);
+      // Observation = the execution outcome of the Action: a minimal per-operator
+      // list with NO decorations (Summary / Inputs / Used by / Schema / Data
+      // hints are LATEST's view, not here). Every operator that CHANGED or
+      // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
+      // runPostStepExecution, via computeDelta case c) renders as
+      // `- operator <id> <added|updated|deleted>` followed by its raw result. On
+      // error the result keeps the engine's exception + `at line N` pointer + the
+      // `Operator code:` block (self-contained — the failing line shown in context;
+      // see renderRawResult), even though the Action above also carries the code.
+      const prev = getPrev();
+      const delta = computeDelta(prev, node.snapshot);
+      const createFlags = createFlagsByStep.get(node.step.id);
+      const calls = node.step.toolCalls ?? [];
+      const results = node.step.toolResults ?? [];
+
+      // Verb for each directly-acted operator (create→added, modify→updated);
+      // deletes are collected separately (a deleted op is gone from the snapshot,
+      // so it never appears in Δ).
+      const actedVerb = new Map<string, string>();
+      const deletedOps: string[] = [];
+      const noChangeOutcome: string[] = [];
+      calls.forEach((tc, i) => {
+        const inp = tc.input as Record<string, unknown> | undefined;
+        const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
+        if (tc.toolName === "deleteOperator" && opId) {
+          deletedOps.push(opId);
+        } else if (tc.toolName === "createOrModifyOperator" && opId) {
+          actedVerb.set(opId, createFlags?.get(opId) ? "added" : "updated");
+        }
+        // An action whose operator isn't reflected in Δ (a rejected/no-op edit, or
+        // a non-operator tool) keeps a one-line outcome so the attempt isn't lost.
+        if (opId && tc.toolName !== "deleteOperator" && !delta.has(opId)) {
+          noChangeOutcome.push(`- operator ${opId} (no change): ${conciseOutcome(results[i]?.output)}`);
+        }
+      });
+
+      const obs: string[] = [];
+      for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
+      const { sortedOps } = topoSortDag(node.snapshot.workflow);
+      for (const op of sortedOps) {
+        if (!delta.has(op.operatorID)) continue;
+        obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        const info = node.snapshot.results.get(op.operatorID)?.info;
+        const resultText = info ? renderRawResult(op.operatorID, info, workflowState, options) : "(not executed)";
+        const rlines = resultText.split("\n");
+        if (rlines.length <= 1) {
+          obs.push(`  result: ${rlines[0] ?? ""}`);
+        } else {
+          obs.push("  result:");
+          for (const l of rlines) obs.push(`    ${l}`);
+        }
+      }
+      obs.push(...noChangeOutcome);
+
+      if (obs.length > 0) {
+        lines.push("Observation:");
         lines.push("");
-        lines.push(body);
+        lines.push(...obs);
         lines.push("");
       }
       setPrev(node.snapshot);
@@ -873,20 +882,14 @@ function serializeUserEventInline(node: PathNode): string {
 
 /**
  * Render one agent event as `## Agent Event N` + optional `Thought:` +
- * optional `Actions:` block. Each tool call becomes a single
- * natural-language line: `- create operator "X", result: …` /
- * `- modify operator "X", result: …` / `- delete operator "X", result: …`
- * (or `- <toolName> on operator "X", result: …` for non-special tools).
- *
- * Multi-line tool outputs (e.g. an [ERROR] block with stack trace + code)
- * break onto an indented continuation after `, result:`. Single-line
- * outputs stay inline.
- *
- * `createFlags` is the per-event create/modify map for this step (from
- * `buildCreateFlagsByStep`); `undefined` is treated as "everything is a
- * create" — a safe fallback when the step has no recorded calls.
+ * optional `Action:` block. Each tool call is rendered in standard tool-call
+ * form by `renderToolCall` — the registered tool name (`createOrModifyOperator`
+ * / `deleteOperator`) plus every parameter as a `key: value` pair, with the
+ * multi-line `code` parameter as an indented block. Lossless: exactly what the
+ * model emitted. The execution outcome is rendered separately as the caller's
+ * `Observation:` block.
  */
-function serializeTurn(node: PathNode, createFlags: Map<string, boolean> | undefined): string {
+function serializeTurn(node: PathNode): string {
   const step = node.step;
   const lines: string[] = [];
   lines.push(`## Agent Event ${node.eventIndex}`);
@@ -896,36 +899,81 @@ function serializeTurn(node: PathNode, createFlags: Map<string, boolean> | undef
     lines.push("");
   }
 
+  // Action: the tool call(s) the model issued, in standard tool-call form via
+  // renderToolCall (tool name + `key: value` params + `code` block). Lossless.
+  // The execution OUTCOME is rendered separately as the `Observation:` block.
   if (step.toolCalls && step.toolCalls.length > 0) {
-    lines.push("Actions:");
-    for (let i = 0; i < step.toolCalls.length; i++) {
-      const tc = step.toolCalls[i];
-      const tr = step.toolResults?.[i];
-      const head = renderActionHead(tc, createFlags);
-      const output = stringifyOutput(tr?.output).trim();
-      if (output.length === 0) {
-        // No tool output recorded — emit just the call line so the trace
-        // still notes the action.
-        lines.push(head);
-      } else if (!output.includes("\n")) {
-        // Single-line output: keep it inline after `, result:`.
-        lines.push(`${head}, result: ${output}`);
-      } else {
-        // Multi-line output (typical for [ERROR] blocks carrying a stack
-        // trace + the user's code): break onto its own indented block
-        // following the `, result:` header. Indentation matches what the
-        // tool itself emits (the engine indents the error body by two).
-        lines.push(`${head}, result:`);
-        for (const l of output.split("\n")) lines.push(`    ${l}`);
-      }
+    lines.push("Action:");
+    for (const tc of step.toolCalls) {
+      for (const l of renderToolCall(tc)) lines.push(l);
     }
     lines.push("");
   }
   return lines.join("\n").trimEnd();
 }
 
-function escapeQuotes(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+/** A one-line, code-free outcome for a tool result: `ok` or the first line of
+ *  an `[ERROR] …` block, truncated. Used in the Observation only for actions
+ *  whose effect is NOT carried by a result summary (a rejected / no-op edit that
+ *  mutated nothing, or a non-operator tool) — the multi-line body (stack trace +
+ *  echoed code) is deliberately dropped. */
+function conciseOutcome(output: unknown): string {
+  const txt = stringifyOutput(output).trim();
+  if (txt.length === 0) return "ok";
+  return txt.split("\n")[0].trim().slice(0, 200);
+}
+
+/**
+ * Render one tool call in standard tool-call form for the DELTA `Action:` block:
+ * `- <toolName>` followed by every parameter as an indented `key: value` pair,
+ * with the multi-line `code` parameter rendered LAST as its own indented block.
+ * Lossless — this is exactly what the model emitted (in CODE mode the operator's
+ * predecessors are the `def process(<predecessors>)` arg names, so the `code`
+ * block already carries them). Non-`code` string values are whitespace-collapsed
+ * onto a single `key: value` line; non-strings are JSON-encoded.
+ */
+function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
+  const inp = (tc.input ?? {}) as Record<string, unknown>;
+  const lines: string[] = [`- ${tc.toolName}`];
+  for (const [k, v] of Object.entries(inp)) {
+    if (k === "code") continue; // rendered last as a block
+    const val = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : JSON.stringify(v);
+    lines.push(`    ${k}: ${val}`);
+  }
+  if (typeof inp.code === "string" && inp.code.length > 0) {
+    lines.push("    code:");
+    for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
+  }
+  return lines;
+}
+
+/**
+ * The raw execution result for the DELTA `Observation:` — output table (TSV,
+ * row-capped) or the FULL error, with NO data-facet decorations (schema /
+ * structural profile / value-format / coercion: those are LATEST's view). The
+ * one clean-up is dropping the redundant `Executed operator X` status line (the
+ * `- operator X <verb>` line already says it). The engine error's `Operator
+ * code:` block is intentionally KEPT (it makes the error self-contained — the
+ * agent sees the failing line in its own code right where the error is), even
+ * though the same code also appears in the Action.
+ */
+function renderRawResult(
+  operatorId: string,
+  info: Parameters<typeof formatOperatorResult>[1],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions
+): string {
+  const raw = formatOperatorResult(operatorId, info, workflowState, {
+    schemaInResult: false,
+    tableStructureHint: false,
+    valueFormatFlags: false,
+    coercionTelemetry: false,
+    maxResultRows: options.maxResultRows,
+  });
+  let bodyLines = raw.split("\n");
+  if (bodyLines[0] && /^Executed operator /.test(bodyLines[0])) bodyLines = bodyLines.slice(1);
+  const text = bodyLines.join("\n").trim();
+  return text.length > 0 ? text : "(no result)";
 }
 
 function stringifyOutput(output: unknown): string {
@@ -974,53 +1022,6 @@ function serializeSnapshotFull(
     lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
     lines.push("");
   }
-  return lines.join("\n").trimEnd();
-}
-
-/**
- * Delta snapshot: only render operators that are in Δ. Unchanged operators
- * are omitted entirely — no placeholder, no summary, no heading entry.
- *
- * Rationale: every unchanged operator costs ~2 lines × N turns in the rolling
- * context. The agent already saw each operator in full in the snapshot that
- * introduced or last modified it, and the trailing `### Links` block keeps the
- * graph wiring visible so it can recall what each unchanged op-id is. This is
- * a token-vs-semantic-anchor trade we make in favour of tokens; if the agent
- * ever struggles to recall what an unchanged op did, swap this back to the
- * placeholder form (see git blame for the previous implementation).
- *
- * If Δ is empty AND there are no links (e.g. a pure deleteOperator that
- * leaves an empty workflow), the whole snapshot block is dropped — the
- * caller's `if (body)` check then skips emitting the heading too.
- */
-function serializeSnapshotDelta(
-  snapshot: SnapshotData,
-  prevSnapshot: SnapshotData | undefined,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  isCurrent: boolean,
-  sectionLevel: number
-): string | null {
-  const { workflow } = snapshot;
-  if (workflow.operators.length === 0) return null;
-
-  const delta = computeDelta(prevSnapshot, snapshot);
-  const lines: string[] = [];
-  const { sortedOps, allLinks } = topoSortDag(workflow);
-  const sectionHash = "#".repeat(sectionLevel);
-  const operatorLevel = sectionLevel + 1;
-
-  const deltaOps = sortedOps.filter(op => delta.has(op.operatorID));
-  if (deltaOps.length > 0) {
-    lines.push(`${sectionHash} Operators`);
-    lines.push("");
-    for (const op of deltaOps) {
-      lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
-      lines.push("");
-    }
-  }
-
-  if (lines.length === 0) return null;
   return lines.join("\n").trimEnd();
 }
 
@@ -1234,14 +1235,16 @@ function serializeOperatorFull(
         return t === "PRINT" || t === "0";
       })
       // print() text is carried in `title` (message is empty); prefer whichever is set.
-      .map(c => (typeof c.title === "string" && c.title.trim().length > 0) ? c.title : c.message)
+      .map(c => (typeof c.title === "string" && c.title.trim().length > 0 ? c.title : c.message))
       .filter(m => typeof m === "string" && m.trim().length > 0)
       .join("\n")
       .trimEnd();
     const cap = options.maxOperatorResultCellCharLimit;
     if (cap && cap > 0 && text.length > cap) text = text.slice(0, cap) + " …(truncated)";
     if (text) {
-      lines.push("Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):");
+      lines.push(
+        "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"
+      );
       for (const l of text.split("\n")) lines.push("  " + l);
     }
   }
@@ -1413,10 +1416,6 @@ function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
     if (path[i].snapshot) return path[i].snapshot;
   }
   return undefined;
-}
-
-function lastSnapshotIdOf(tasks: TaskGroup[]): string | undefined {
-  return lastSnapshotOf(tasks)?.id;
 }
 
 function formatSchema(schema: PortSchema): string {
