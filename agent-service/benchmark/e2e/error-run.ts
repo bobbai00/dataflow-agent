@@ -24,7 +24,7 @@
  * For every spec we assert that `info.error` of the failing operator
  * contains:
  *   - the expected exception type
- *   - the user code (we look for the "User code:" header)
+ *   - the user code (we look for the "Operator code:" header)
  *   - the offending line, marked with `>` (the renderer in
  *     data_processor.py prefixes the failing line with "> <num> | ...")
  *
@@ -109,8 +109,8 @@ function assertErrorShape(spec: ErrorWorkflowSpec, info: OperatorInfo | undefine
       ok: error.includes(spec.expectedExceptionType),
     },
     {
-      label: 'contains "User code:" section header',
-      ok: error.includes("User code:"),
+      label: 'contains "Operator code:" section header',
+      ok: error.includes("Operator code:"),
     },
     {
       label: 'contains a ">"-marked line',
@@ -142,7 +142,12 @@ function hasMarkedLineWithSubstring(error: string, substring: string): boolean {
   return false;
 }
 
-async function runOne(token: string, cuid: number, spec: ErrorWorkflowSpec, runId: string): Promise<{ wid: number; passed: boolean }> {
+async function runOne(
+  token: string,
+  cuid: number,
+  spec: ErrorWorkflowSpec,
+  runId: string
+): Promise<{ wid: number; passed: boolean }> {
   const persistedName = `${spec.name} [errors-e2e ${runId}]`;
   log(`---- ${spec.name} ----`);
   log(`creating workflow "${persistedName}"`);
