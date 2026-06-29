@@ -32,6 +32,9 @@ trait DebugCommandHandler {
   this: ControllerAsyncRPCHandlerInitializer =>
 
   override def debugCommand(msg: DebugCommandRequest, ctx: AsyncRPCContext): Future[EmptyReturn] = {
+    logger.info(
+      s"[DebugCommandHandler] routing debug command to workerId='${msg.workerId}', cmd='${msg.cmd}'"
+    )
     workerInterface.debugCommand(msg, mkContext(ActorVirtualIdentity(msg.workerId)))
     EmptyReturn()
   }

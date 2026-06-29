@@ -18,6 +18,8 @@
 from pdb import Pdb
 from threading import Condition
 
+from loguru import logger
+
 from core.models.single_blocking_io import SingleBlockingIO
 
 
@@ -49,5 +51,9 @@ class DebugManager:
         :param command: the command to be put, in string format.
         :return:
         """
+        logger.info(
+            f"[DebugManager] put_debug_command: {command!r} "
+            f"(prev_value={self._debug_in.value!r})"
+        )
         self._debug_in.write(command)
         self._debug_in.flush()

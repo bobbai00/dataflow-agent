@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+from loguru import logger
+
 from core.architecture.handlers.control.control_handler_base import ControlHandler
 from core.architecture.managers.context import Context
 from core.architecture.managers.pause_manager import PauseType
@@ -28,6 +30,10 @@ class WorkerDebugCommandHandler(ControlHandler):
     async def debug_command(self, req: DebugCommandRequest) -> EmptyReturn:
         # translate the command with the context.
         translated_command = self.translate_debug_command(req.cmd, self.context)
+        logger.info(
+            f"[WorkerDebugCommandHandler] received cmd={req.cmd!r} "
+            f"-> translated={translated_command!r} on worker_id={self.context.worker_id}"
+        )
 
         # send the translated command to debugger to consume later.
         self.context.debug_manager.put_debug_command(translated_command)

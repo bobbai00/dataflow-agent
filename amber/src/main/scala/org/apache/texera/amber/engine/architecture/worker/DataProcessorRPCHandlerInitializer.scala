@@ -87,8 +87,8 @@ class DataProcessorRPCHandlerInitializer(val dp: DataProcessor)
     dp.executor = execInitInfo match {
       case OpExecWithClassName(className, descString) =>
         ExecFactory.newExecFromJavaClassName(className, descString, workerIdx, workerCount)
-      case OpExecWithCode(code, _, _) =>
-        ExecFactory.newExecFromJavaCode(code)
+      case OpExecWithCode(code, language, _) =>
+        ExecFactory.newExecFromCode(code, language)
       case OpExecSource(storageUri, _) =>
         new CacheSourceOpExec(URI.create(storageUri))
       case OpExecInitInfo.Empty =>
