@@ -278,12 +278,26 @@ describe("assembleContext — Delta", () => {
     expect(after3).not.toContain("- operator existing");
   });
 
-  test("delta Observation is minimal — no adjacency / Links / Summary / Schema decorations", () => {
+  test("delta Observation: structural decorations (Links / Inputs / Used by / Summary) are LATEST-only", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
-    // The observation carries only the raw result — those decorations are LATEST's view.
+    // Operator-block structural decorations are LATEST's view, never in DELTA.
     expect(after3).not.toContain("#### Links");
+    expect(after3).not.toContain("Inputs:");
+    expect(after3).not.toContain("Used by:");
+    expect(after3).not.toContain("Summary:");
+    // At data_level 0 (default opts) there is also no data-facet decoration.
+    expect(after3).not.toContain("Schema (");
+  });
+
+  test("delta Observation honors dataLevel — Schema line is symmetric with LATEST", () => {
+    const { steps, storage, workflowState } = buildCanonicalScenario();
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, dataLevel: 1 }));
+    const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
+    // data_level >= 1 ⇒ the Δ result carries the same Schema line LATEST renders.
+    expect(after3).toContain("Schema (");
+    // …but the structural decorations remain LATEST-only (not part of the data facet).
     expect(after3).not.toContain("Inputs:");
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");

@@ -798,12 +798,14 @@ function serializeTaskBody(
     lines.push("");
 
     if (node.snapshot) {
-      // Observation = the execution outcome of the Action: a minimal per-operator
-      // list with NO decorations (Summary / Inputs / Used by / Schema / Data
-      // hints are LATEST's view, not here). Every operator that CHANGED or
+      // Observation = the execution outcome of the Action: a per-operator list.
+      // The operator-block STRUCTURAL decorations (Summary / Inputs / Used by)
+      // are LATEST's view and stay out here; the DATA-facet decorations (Schema /
+      // Data hints / Format hints) render per `dataLevel`, symmetric with LATEST
+      // (see renderRawResult). Every operator that CHANGED or
       // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
       // runPostStepExecution, via computeDelta case c) renders as
-      // `- operator <id> <added|updated|deleted>` followed by its raw result. On
+      // `- operator <id> <added|updated|deleted>` followed by its result. On
       // error the result keeps the engine's exception + `at line N` pointer + the
       // `Operator code:` block (self-contained — the failing line shown in context;
       // see renderRawResult), even though the Action above also carries the code.
@@ -948,10 +950,13 @@ function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
 }
 
 /**
- * The raw execution result for the DELTA `Observation:` — output table (TSV,
- * row-capped) or the FULL error, with NO data-facet decorations (schema /
- * structural profile / value-format / coercion: those are LATEST's view). The
- * one clean-up is dropping the redundant `Executed operator X` status line (the
+ * The execution result for the DELTA `Observation:` — output table (TSV,
+ * row-capped) or the FULL error. Data-facet decorations (schema / structural
+ * profile / value-format / coercion) are rendered per `dataLevel`, SYMMETRIC
+ * with LATEST — the data ladder means the same thing in both context modes.
+ * (The operator-block STRUCTURAL lines — Summary / Inputs / Used by — remain
+ * LATEST-only; they are not part of the data facet.) The one clean-up is
+ * dropping the redundant `Executed operator X` status line (the
  * `- operator X <verb>` line already says it). The engine error's `Operator
  * code:` block is intentionally KEPT (it makes the error self-contained — the
  * agent sees the failing line in its own code right where the error is), even
@@ -964,10 +969,10 @@ function renderRawResult(
   options: AssembleContextOptions
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
-    schemaInResult: false,
-    tableStructureHint: false,
-    valueFormatFlags: false,
-    coercionTelemetry: false,
+    schemaInResult: options.schemaInResult,
+    tableStructureHint: options.tableStructureHint,
+    valueFormatFlags: options.valueFormatFlags,
+    coercionTelemetry: options.coercionTelemetry,
     maxResultRows: options.maxResultRows,
   });
   let bodyLines = raw.split("\n");
