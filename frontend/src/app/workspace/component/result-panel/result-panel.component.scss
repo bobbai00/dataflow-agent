@@ -73,6 +73,13 @@ $type-colors: (
   height: 100%;
 }
 
+// The tab pane is locked to the panel height; without an overflow it clips a
+// tall result table instead of scrolling it (nz-table only sets horizontal
+// scroll via nzScroll.x). Let the pane scroll vertically.
+:host ::ng-deep .result-content .ant-tabs-tabpane {
+  overflow-y: auto;
+}
+
 #result-buttons {
   position: absolute;
   bottom: 0;

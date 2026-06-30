@@ -45,7 +45,6 @@ import { ErrorFrameComponent } from "./error-frame/error-frame.component";
 import { WorkflowConsoleService } from "../../service/workflow-console/workflow-console.service";
 import { NzResizeEvent, NzResizableDirective, NzResizeHandlesComponent } from "ng-zorro-antd/resizable";
 import { VisualizationFrameContentComponent } from "../visualization-panel-content/visualization-frame-content.component";
-import { calculateTotalTranslate3d } from "../../../common/util/panel-dock";
 import { isDefined } from "../../../common/util/predicate";
 import { CdkDragEnd, CdkDrag, CdkDragHandle } from "@angular/cdk/drag-drop";
 import { PanelService } from "../../service/panel/panel.service";
@@ -64,6 +63,10 @@ import { FormlyRepeatDndComponent } from "../../../common/formly/repeat-dnd/repe
 
 export const DEFAULT_WIDTH = 800;
 export const DEFAULT_HEIGHT = 500;
+// #result-container is positioned at CSS `top: -300px` (see result-panel.component.scss);
+// this mirrors that offset and is used to compute the dock translate that pulls the panel
+// fully on-screen at the bottom-left of the canvas.
+const RESULT_PANEL_DOCK_TOP_OFFSET = 300;
 /**
  * ResultPanelComponent is the bottom level area that displays the
  *  execution result of a workflow after the execution finishes.
@@ -131,12 +134,18 @@ export class ResultPanelComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    const style = localStorage.getItem("result-panel-style");
-    if (style) document.getElementById("result-container")!.style.cssText = style;
-    const translates = document.getElementById("result-container")!.style.transform;
-    const [xOffset, yOffset, _] = calculateTotalTranslate3d(translates);
-    this.returnPosition = { x: -xOffset, y: -yOffset };
+    // NOTE: intentionally do NOT restore a persisted inline cssText here. The CDK-drag
+    // transform accumulates an unbounded translate3d() chain; restoring it on load can
+    // dock the panel off-screen (button toggles but panel never appears). Start clean.
+    //
+    // #result-container is positioned at CSS `top: -300px` inside the bottom-anchored
+    // #result, so at the default height it hangs (DEFAULT_HEIGHT - 300)px below the
+    // viewport. Seed the docked position with the lift that pulls it fully on-screen;
+    // updateReturnPosition() then corrects for any restored (non-default) height. Finally
+    // start docked so both the initial render and the "reset position" button land in view.
+    this.returnPosition = { x: 0, y: -(DEFAULT_HEIGHT - RESULT_PANEL_DOCK_TOP_OFFSET) };
     this.updateReturnPosition(DEFAULT_HEIGHT, this.height);
+    this.dragPosition = { x: this.returnPosition.x, y: this.returnPosition.y };
     this.registerAutoRerenderResultPanel();
     this.registerAutoOpenResultPanel();
     this.registerResultClearedHandler();
@@ -159,11 +168,9 @@ export class ResultPanelComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     localStorage.setItem("result-panel-width", String(this.width));
     localStorage.setItem("result-panel-height", String(this.height));
-
-    const resultContainer = document.getElementById("result-container");
-    if (resultContainer) {
-      localStorage.setItem("result-panel-style", resultContainer.style.cssText);
-    }
+    // NOTE: deliberately not persisting result-container cssText. Its CDK-drag transform
+    // accumulates a runaway translate3d() chain that, when restored on load, can place the
+    // panel off-screen. Width/height above are enough to restore a usable docked panel.
   }
 
   handleResultPanelForVersionPreview() {
