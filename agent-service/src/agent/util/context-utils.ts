@@ -62,6 +62,60 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
+  /** LATEST only: when true, render the full Thought/Action/Observation
+   *  trajectory as a `# Agent Turns` section (delta-style) on top of the
+   *  latest-state core — the same per-event serializer DELTA uses. The block is
+   *  pre-rendered by assembleContext and stashed in `agentTurnsRendered`. */
+  agentTurns?: boolean;
+  /** Internal: the pre-rendered `# Agent Turns` body (set by assembleContext
+   *  when `agentTurns` is on in LATEST mode; consumed by renderLatest). */
+  agentTurnsRendered?: string;
+  /** DELTA supersession-collapse. When true, an operator's result renders only
+   *  at the latest turn that produced it AND only while the operator is still
+   *  live in the DAG; every superseded / deleted / re-executed-away result is
+   *  replaced with an `(omitted — superseded)` marker. Thoughts + Actions are
+   *  never touched. Near-lossless (drops only obsolete results), so it bounds
+   *  result content to the number of LIVE operators instead of trajectory
+   *  length. `latestResultNode` / `liveOps` are precomputed by assembleContext. */
+  collapseSuperseded?: boolean;
+  /** Internal: opId → step id of the LAST turn that produced that op's result. */
+  latestResultNode?: Map<string, string>;
+  /** Internal: operator ids still present in the leaf (current) snapshot. */
+  liveOps?: Set<string>;
+  /** DELTA context-budget cap (the watermark), in *tokens* (estimated as
+   *  chars / 4, matching the agent's own input-token estimate). Bounds the
+   *  assembled user-message context; the fixed system prompt is a separate,
+   *  ~constant message and is not counted. Only meaningful with
+   *  `collapseSuperseded` on:
+   *    - cap unset / ≤ 0 → legacy unconditional collapse (every superseded
+   *      result is blanked).
+   *    - cap > 0 → WATERMARK: lossless delta is sent untouched while it fits
+   *      the cap (the append-only prefix stays intact → prompt cache stays
+   *      warm). Only when delta exceeds the cap do we blank superseded results
+   *      OLDEST-FIRST — the minimum prefix needed to get back under the cap.
+   *  This is the knob that turns "always collapse" (cache-hostile) into "only
+   *  collapse under size pressure". Default 0 (off). */
+  contextBudgetTokens?: number;
+  /** Internal (computed by assembleContext): the exact set of `${stepId}::${opId}`
+   *  result entries to blank as superseded. Empty/undefined ⇒ lossless delta.
+   *  Populated by the budget watermark — see `renderDeltaWithBudget`. */
+  collapseSet?: Set<string>;
+  /** DELTA naive sliding-window baseline (the comparator for collapseSuperseded).
+   *  Shares the `contextBudgetTokens` cap: below the cap, lossless delta is sent
+   *  untouched; above it, the OLDEST whole agent events are dropped (not just their
+   *  results — the entire Thought/Action/Observation turn) until the context fits,
+   *  with the prev-snapshot reseeded so the surviving events' deltas stay correct
+   *  and an `(… N earlier events omitted …)` marker in their place. This is the
+   *  standard "drop oldest turns" eviction; the contrast that shows DAG-aware
+   *  supersession-collapse keeps more useful signal at the same budget. Off by
+   *  default; takes precedence over collapseSuperseded when both are set. */
+  truncateOldest?: boolean;
+  /** Internal (computed by the truncation watermark): keep only agent events whose
+   *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
+   *  keep all (lossless). */
+  keepFromEventIndex?: number;
+  /** Internal: how many oldest events were dropped (drives the omitted marker). */
+  omittedEventsCount?: number;
   /** When true (the default), each operator's `operatorProperties` render as
    *  a `Properties:` line in the snapshot, EXCEPT the Python code operators
    *  in `CODE_OPERATOR_TYPES` (their `code` is large and already surfaced on
@@ -189,6 +243,14 @@ const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessi
 const ATTEMPT_REFLECTION_THRESHOLD = 3;
 
 /**
+ * Chars-per-token divisor for the `contextBudgetTokens` watermark. Matches the
+ * agent's own input-token estimate (`Math.ceil(userMessage.length / 4)` in
+ * texera-agent.ts) so the cap the caller sets in tokens lines up with the usage
+ * the agent reports. A real tokenizer can drop in here later.
+ */
+const CHARS_PER_TOKEN = 4;
+
+/**
  * Build the assembled user-message context the LLM sees on the next
  * `prepareStep`. A context is a path on the snapshot tree from the root
  * (empty snapshot) to the leaf (current snapshot). The path is rendered
@@ -277,24 +339,64 @@ export function assembleContext(
   if (options.errorReflection && mode === ContextMode.LATEST) {
     options.errorReflectionMap = buildErrorReflection(path);
   }
+  // Supersession-collapse pre-pass (DELTA): which turn owns each operator's
+  // current result, and which operators are still live in the leaf snapshot.
+  if (options.collapseSuperseded) {
+    options.latestResultNode = computeLatestResultNodes(tasks, initSnapshot);
+    const leaf = lastSnapshotOf(tasks);
+    options.liveOps = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
+  }
 
   let content: string;
   switch (mode) {
-    case ContextMode.DELTA:
-      content = renderInterleaved(
-        tasks,
-        workflowState,
-        options,
-        initSnapshot,
-        latestUserContent,
-        latestUserStepId,
-        createFlagsByStep
-      );
+    case ContextMode.DELTA: {
+      const budgetChars =
+        options.contextBudgetTokens && options.contextBudgetTokens > 0
+          ? options.contextBudgetTokens * CHARS_PER_TOKEN
+          : undefined;
+      // truncateOldest (naive sliding window) takes precedence over the
+      // supersession-collapse path when both are set; both share the cap.
+      content =
+        options.truncateOldest && budgetChars !== undefined
+          ? renderDeltaTruncated(
+              tasks,
+              workflowState,
+              options,
+              initSnapshot,
+              latestUserContent,
+              latestUserStepId,
+              createFlagsByStep,
+              budgetChars
+            )
+          : renderDeltaWithBudget(
+              tasks,
+              workflowState,
+              options,
+              initSnapshot,
+              latestUserContent,
+              latestUserStepId,
+              createFlagsByStep
+            );
       break;
+    }
     case ContextMode.LATEST: {
-      // Latest = user task + the leaf snapshot. No events rendered at all
-      // — context is defined as a single point on the snapshot tree, not
-      // as an interleaved walk along its edges.
+      // Latest = user task + the leaf snapshot. Optionally (agentTurns) also
+      // prepend the full Thought/Action/Observation trajectory as a
+      // `# Agent Turns` section — the same per-event bodies DELTA renders, on
+      // top of the latest-state core.
+      if (options.agentTurns) {
+        // Thought + Action only — the per-operator results would just duplicate
+        // the `# Current Dataflow` core that follows, so omit the Observation.
+        options.agentTurnsRendered = renderAgentEvents(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserStepId,
+          createFlagsByStep,
+          /* omitObservation */ true
+        );
+      }
       const leafSnapshot = lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
       content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
       break;
@@ -529,6 +631,264 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  *   ### Operator `x` (Type)
  *   ...
  */
+/**
+ * Supersession pre-pass: replay the per-turn deltas (same rolling-prev logic as
+ * the renderer) and record, for each operator, the step id of the LATEST turn
+ * that produced a result for it. Combined with the leaf snapshot's live-operator
+ * set, this lets serializeTaskBody keep only each operator's current live result
+ * and omit every superseded/deleted one (collapseSuperseded).
+ */
+function computeLatestResultNodes(
+  tasks: TaskGroup[],
+  initSnapshot: SnapshotData | undefined
+): Map<string, string> {
+  const latest = new Map<string, string>();
+  let prev: SnapshotData | undefined = initSnapshot;
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent" || !node.snapshot) continue;
+      for (const opId of computeDelta(prev, node.snapshot)) latest.set(opId, node.step.id);
+      prev = node.snapshot;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Enumerate every superseded operator result the renderer COULD blank, in
+ * oldest-first (path) order. A result is collapsible exactly when the inline
+ * serializer's keep-test fails — i.e. it is NOT the operator's current live
+ * result (latest result-turn AND still in the leaf DAG). Each entry is the
+ * `${stepId}::${opId}` key the serializer matches against `options.collapseSet`.
+ *
+ * Mirrors the renderer's iteration precisely (rolling `computeDelta` seeded by
+ * the init snapshot, then topo-sorted ops), so blanking the whole list is
+ * byte-identical to the legacy unconditional collapse, and blanking a prefix
+ * (`slice(0, k)`) drops the k oldest superseded results — the unit the budget
+ * watermark searches over.
+ */
+function computeSupersededCandidates(
+  tasks: TaskGroup[],
+  initSnapshot: SnapshotData | undefined,
+  latestResultNode: Map<string, string> | undefined,
+  liveOps: Set<string> | undefined
+): string[] {
+  const keys: string[] = [];
+  let prev: SnapshotData | undefined = initSnapshot;
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent" || !node.snapshot) continue;
+      const delta = computeDelta(prev, node.snapshot);
+      const { sortedOps } = topoSortDag(node.snapshot.workflow);
+      for (const op of sortedOps) {
+        if (!delta.has(op.operatorID)) continue;
+        const isLiveLatest =
+          (liveOps?.has(op.operatorID) ?? false) && latestResultNode?.get(op.operatorID) === node.step.id;
+        if (!isLiveLatest) keys.push(`${node.step.id}::${op.operatorID}`);
+      }
+      prev = node.snapshot;
+    }
+  }
+  return keys;
+}
+
+/**
+ * DELTA render with optional supersession-collapse under a context-budget cap.
+ *
+ * Lossless delta is the baseline (the proven-best keeper: append-only prefix →
+ * warm prompt cache, full result history). `collapseSuperseded` enables blanking
+ * superseded results; `contextBudgetTokens` (B) governs WHEN:
+ *
+ *   - B unset / ≤ 0 → legacy unconditional collapse (blank ALL superseded).
+ *   - B > 0 → WATERMARK. Render lossless first; if it fits B, send it untouched
+ *     (no retroactive edits, so the cache-stable prefix is preserved). Only once
+ *     delta exceeds B do we blank superseded results OLDEST-FIRST — the minimum
+ *     prefix that gets back under B. `size(k)` (blank oldest k) is monotone
+ *     non-increasing in k, so we binary-search the smallest sufficient k. If even
+ *     a full collapse can't reach B, blank all and log the residual overflow
+ *     (never silently truncate).
+ *
+ * B is measured against this function's output (the assembled user message),
+ * estimated as chars / CHARS_PER_TOKEN; the fixed system prompt is separate.
+ */
+function renderDeltaWithBudget(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>
+): string {
+  const renderWith = (collapseSet: Set<string> | undefined): string => {
+    options.collapseSet = collapseSet;
+    return renderInterleaved(
+      tasks,
+      workflowState,
+      options,
+      initSnapshot,
+      latestUserContent,
+      latestUserStepId,
+      createFlagsByStep
+    );
+  };
+
+  if (!options.collapseSuperseded) return renderWith(undefined);
+
+  const candidates = computeSupersededCandidates(tasks, initSnapshot, options.latestResultNode, options.liveOps);
+  const budgetChars =
+    options.contextBudgetTokens && options.contextBudgetTokens > 0
+      ? options.contextBudgetTokens * CHARS_PER_TOKEN
+      : undefined;
+
+  // No cap → legacy unconditional collapse (blank every superseded result).
+  if (budgetChars === undefined) return renderWith(new Set(candidates));
+
+  // Watermark: keep lossless delta as long as it fits the cap.
+  const lossless = renderWith(undefined);
+  if (lossless.length <= budgetChars || candidates.length === 0) {
+    if (lossless.length > budgetChars) {
+      log.warn(
+        { budgetChars, sizeChars: lossless.length },
+        "context over budget but no superseded results available to collapse"
+      );
+    }
+    return lossless;
+  }
+
+  // Over budget: blank superseded results OLDEST-FIRST until back under the cap.
+  // A result whose block is no larger than the marker is left intact (blanking it
+  // would only grow the prompt), so the context never exceeds lossless delta and
+  // size is monotone non-increasing as we add blanks. Stop as soon as we fit. If
+  // even every collapsible result isn't enough, keep the smallest and log the
+  // residual overflow — never silently truncate.
+  const chosen = new Set<string>();
+  let bestOut = lossless;
+  let bestLen = lossless.length;
+  for (const key of candidates) {
+    if (bestLen <= budgetChars) break;
+    chosen.add(key);
+    const trial = renderWith(chosen);
+    if (trial.length < bestLen) {
+      bestOut = trial;
+      bestLen = trial.length;
+    } else {
+      chosen.delete(key); // marker ≥ this result — blanking wouldn't help
+    }
+  }
+  log[bestLen > budgetChars ? "warn" : "debug"](
+    { budgetChars, collapsed: chosen.size, candidates: candidates.length, sizeChars: bestLen },
+    bestLen > budgetChars
+      ? "context over budget even after collapsing every collapsible superseded result"
+      : "watermark supersession-collapse"
+  );
+  return bestOut;
+}
+
+/**
+ * DELTA naive sliding-window baseline (truncateOldest) — the comparator for the
+ * supersession-collapse arm. Same watermark: lossless delta is sent untouched
+ * while it fits the cap; once it exceeds, the OLDEST whole agent events are
+ * dropped (entire Thought/Action/Observation turns, not just results) until it
+ * fits. The prev-snapshot is RESEEDED to the state just before the first
+ * surviving event, so the survivors' per-turn deltas stay correct (otherwise the
+ * first survivor would diff against the empty init and re-render every operator
+ * as "added"). An `(… N earlier events omitted …)` marker stands in their place.
+ *
+ * This is the standard eviction every agent framework does; the contrast is that
+ * it drops the early-created operators' structure + results wholesale, whereas
+ * collapse keeps the structural lines and the live frontier and blanks only the
+ * superseded result bodies — so at the same budget collapse retains more signal.
+ */
+function renderDeltaTruncated(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  budgetChars: number
+): string {
+  const renderKeeping = (cutoff: number | undefined, reseed: SnapshotData | undefined, omitted: number): string => {
+    options.keepFromEventIndex = cutoff;
+    options.omittedEventsCount = omitted;
+    return renderInterleaved(tasks, workflowState, options, reseed, latestUserContent, latestUserStepId, createFlagsByStep);
+  };
+
+  // Lossless first (keep every event) — preserves the cache-stable prefix while
+  // it fits, exactly like the collapse watermark.
+  const lossless = renderKeeping(undefined, initSnapshot, 0);
+  if (lossless.length <= budgetChars) return lossless;
+
+  // Snapshot-bearing agent events, oldest→newest.
+  const evs: { idx: number; snap: SnapshotData }[] = [];
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
+    }
+  }
+  if (evs.length <= 1) return lossless; // nothing meaningful to drop
+
+  // Drop the oldest events; keep the largest surviving suffix that fits. Dropping
+  // more only shrinks the render (the first survivor reseeds against a later
+  // snapshot, so its delta also shrinks), so first-fit while scanning the drop
+  // count upward gives the smallest sufficient drop.
+  let bestOut = lossless;
+  let bestLen = lossless.length;
+  let dropped = 0;
+  for (let d = 1; d <= evs.length - 1; d++) {
+    bestOut = renderKeeping(evs[d].idx, evs[d - 1].snap, d); // keep eventIndex >= evs[d].idx
+    bestLen = bestOut.length;
+    dropped = d;
+    if (bestLen <= budgetChars) break;
+  }
+  log[bestLen > budgetChars ? "warn" : "debug"](
+    { budgetChars, dropped, kept: evs.length - dropped, sizeChars: bestLen },
+    bestLen > budgetChars
+      ? "context over budget even after keeping only the most recent event"
+      : "watermark truncate-oldest"
+  );
+  return bestOut;
+}
+
+/**
+ * Render the agent trajectory as the sequence of per-event Thought / Action /
+ * Observation bodies (delta-style). Shared by DELTA's `# Agent Events` section
+ * and LATEST's optional `# Agent Turns` section (agentTurns). The rolling
+ * prevSnapshot (seeded by the hidden init snapshot) drives the per-event
+ * "operator X added/updated" diff in each Observation. Returns the joined
+ * bodies, or the empty-trajectory placeholder.
+ */
+function renderAgentEvents(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  omitObservation = false
+): string {
+  const bodies: string[] = [];
+  let prevSnapshot: SnapshotData | undefined = initSnapshot;
+  for (const task of tasks) {
+    const body = serializeTaskBody(
+      task,
+      workflowState,
+      options,
+      () => prevSnapshot,
+      s => {
+        prevSnapshot = s;
+      },
+      latestUserStepId,
+      createFlagsByStep,
+      omitObservation
+    );
+    if (body) bodies.push(body);
+  }
+  return bodies.length ? bodies.join("\n\n") : "(no agent actions yet)";
+}
+
 function renderInterleaved(
   tasks: TaskGroup[],
   workflowState: WorkflowState,
@@ -554,33 +914,18 @@ function renderInterleaved(
   sections.push("# Agent Events");
   sections.push("");
 
-  // For Delta: rolling reference to the previous snapshot for diffing. The
-  // init snapshot (hidden Event 0) seeds it so the first real action diffs
-  // against the loaded workflow rather than appearing as a from-scratch add.
-  let prevSnapshot: SnapshotData | undefined = initSnapshot;
-  let renderedAny = false;
-  for (const task of tasks) {
-    const body = serializeTaskBody(
-      task,
-      workflowState,
-      options,
-      () => prevSnapshot,
-      s => {
-        prevSnapshot = s;
-      },
-      latestUserStepId,
-      createFlagsByStep
-    );
-    if (body) {
-      sections.push(body);
-      sections.push("");
-      renderedAny = true;
-    }
-  }
-  if (!renderedAny) {
-    sections.push("(no agent actions yet)");
+  // Sliding-window truncation marker (truncateOldest): the dropped oldest events
+  // are replaced by a single placeholder so the model knows history was elided.
+  if (options.omittedEventsCount && options.omittedEventsCount > 0) {
+    const n = options.omittedEventsCount;
+    sections.push(`(… ${n} earlier event${n === 1 ? "" : "s"} omitted to fit the context budget …)`);
     sections.push("");
   }
+
+  // For Delta: each event as a Thought/Action/Observation body, diffed against
+  // a rolling previous snapshot (seeded by the hidden init snapshot).
+  sections.push(renderAgentEvents(tasks, workflowState, options, initSnapshot, latestUserStepId, createFlagsByStep));
+  sections.push("");
 
   // FLOW section over the leaf snapshot (composable with delta too — placed
   // last, after the event/snapshot trajectory). Empty ⇒ omitted.
@@ -616,7 +961,7 @@ function renderLatest(
   //     away the trajectory; this re-injects the last K agent EVENTS, each as
   //     its thought + the compressed actions it produced (event-granular:
   //     one thought : N actions). Gated by the thoughtReplay flag.
-  if (options.thoughtReplay && options.reasoning) {
+  if (options.thoughtReplay && options.reasoning && !options.agentTurns) {
     const block = renderReasoning(options.reasoning, options.thoughtReplayK ?? 10);
     if (block) {
       sections.push("# Reasoning (your recent steps)");
@@ -624,6 +969,17 @@ function renderLatest(
       sections.push(block);
       sections.push("");
     }
+  }
+
+  // 1c. # Agent Turns — the full Thought/Action/Observation trajectory rendered
+  //     delta-style (agentTurns flag), on top of the latest-state core. The
+  //     fuller alternative to the last-K `# Reasoning` block above; pre-rendered
+  //     by assembleContext.
+  if (options.agentTurnsRendered) {
+    sections.push("# Agent Turns");
+    sections.push("");
+    sections.push(options.agentTurnsRendered);
+    sections.push("");
   }
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
@@ -779,11 +1135,19 @@ function serializeTaskBody(
   getPrev: () => SnapshotData | undefined,
   setPrev: (s: SnapshotData) => void,
   latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  /** When true, render only Thought + Action per event and omit the Observation
+   *  block. Used by LATEST's `# Agent Turns` section, where the per-operator
+   *  results would just duplicate `# Current Dataflow`. DELTA leaves it false. */
+  omitObservation = false
 ): string {
   const lines: string[] = [];
 
   for (const node of task.nodes) {
+    // Sliding-window truncation (truncateOldest): drop events older than the
+    // cutoff entirely. `continue` BEFORE any setPrev so the rolling prev stays at
+    // the reseeded snapshot until the first surviving event (keeps its delta correct).
+    if (options.keepFromEventIndex !== undefined && node.eventIndex < options.keepFromEventIndex) continue;
     if (node.step.role === "user") {
       // The latest user message is hoisted into the top-level `# User Task`
       // block by the caller. Skip it here so it doesn't appear twice.
@@ -797,7 +1161,7 @@ function serializeTaskBody(
     lines.push(serializeTurn(node));
     lines.push("");
 
-    if (node.snapshot) {
+    if (node.snapshot && !omitObservation) {
       // Observation = the execution outcome of the Action: a per-operator list.
       // The operator-block STRUCTURAL decorations (Summary / Inputs / Used by)
       // are LATEST's view and stay out here; the DATA-facet decorations (Schema /
@@ -842,6 +1206,15 @@ function serializeTaskBody(
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
         obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        // Supersession-collapse: blank this result iff assembleContext marked
+        // this `${stepId}::${opId}` entry in `collapseSet` (a superseded result
+        // selected by the budget watermark — oldest-first, or all of them under
+        // the legacy unconditional/no-cap path). The structural "- operator X …"
+        // line above is kept either way; only the result body is dropped.
+        if (options.collapseSet?.has(`${node.step.id}::${op.operatorID}`)) {
+          obs.push("  result: (omitted — superseded by a later edit)");
+          continue;
+        }
         const info = node.snapshot.results.get(op.operatorID)?.info;
         const resultText = info ? renderRawResult(op.operatorID, info, workflowState, options) : "(not executed)";
         const rlines = resultText.split("\n");

@@ -724,6 +724,10 @@ export class TexeraAgent {
     includeOperatorProperties?: boolean;
     thoughtReplay?: boolean;
     thoughtReplayK?: number;
+    agentTurns?: boolean;
+    collapseSuperseded?: boolean;
+    contextBudgetTokens?: number;
+    truncateOldest?: boolean;
     errorReflection?: boolean;
     errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
@@ -803,6 +807,24 @@ export class TexeraAgent {
     if (updates.thoughtReplay !== undefined) {
       this.settings.thoughtReplay = updates.thoughtReplay;
       // Pure render-time toggle — LATEST-mode thought-replay reinjection rung.
+    }
+    if (updates.agentTurns !== undefined) {
+      this.settings.agentTurns = updates.agentTurns;
+      // Pure render-time toggle — LATEST-mode `# Agent Turns` trajectory section.
+    }
+    if (updates.collapseSuperseded !== undefined) {
+      this.settings.collapseSuperseded = updates.collapseSuperseded;
+      // Pure render-time toggle — DELTA supersession-collapse of superseded results.
+    }
+    if (updates.contextBudgetTokens !== undefined) {
+      this.settings.contextBudgetTokens = updates.contextBudgetTokens;
+      // Pure render-time setting — DELTA context-budget watermark; superseded
+      // results are blanked oldest-first only once delta exceeds this many tokens.
+    }
+    if (updates.truncateOldest !== undefined) {
+      this.settings.truncateOldest = updates.truncateOldest;
+      // Pure render-time toggle — DELTA naive sliding-window (drop oldest events
+      // once over the budget); the comparator for collapseSuperseded.
     }
     if (updates.thoughtReplayK !== undefined) {
       this.settings.thoughtReplayK = updates.thoughtReplayK;

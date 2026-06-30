@@ -226,6 +226,28 @@ export interface AgentSettings {
   thoughtReplay: boolean;
   /** How many recent events the `# Reasoning` block shows (default 10). */
   thoughtReplayK: number;
+  /** Agent-turns section (LATEST only). When true, the LATEST context gains a
+   *  `# Agent Turns` section: the full Thought/Action/Observation trajectory
+   *  rendered delta-style (the same serializer DELTA uses), on top of the
+   *  latest-state core. A fuller alternative to thoughtReplay's last-K
+   *  `# Reasoning`. Off by default. */
+  agentTurns: boolean;
+  /** DELTA supersession-collapse. When true, an operator's result renders only
+   *  at the latest turn that produced it (and only while it's still live); every
+   *  superseded/deleted result becomes an `(omitted — superseded)` marker, while
+   *  Thoughts + Actions stay intact. Bounds result content to live-operator count
+   *  instead of trajectory length. Off by default. */
+  collapseSuperseded: boolean;
+  /** DELTA context-budget cap (watermark), in tokens (estimated chars/4). Only
+   *  active with `collapseSuperseded` on: lossless delta is sent untouched while
+   *  it fits the cap; superseded results are blanked oldest-first only when delta
+   *  exceeds it. `0` ⇒ no cap (legacy: collapse all superseded when the flag is
+   *  on). Default 0. */
+  contextBudgetTokens: number;
+  /** DELTA naive sliding-window baseline (comparator for collapseSuperseded).
+   *  Shares contextBudgetTokens: below the cap = lossless delta; above it, the
+   *  oldest whole agent events are dropped until it fits. Off by default. */
+  truncateOldest: boolean;
   /** Error-reflection rung (LATEST only): show each churning operator's attempt
    *  count + distinct errors + a blocked→change-strategy verdict. Off by default. */
   errorReflection: boolean;
@@ -283,6 +305,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxLoadersPerSource: 0,
   thoughtReplay: true,
   thoughtReplayK: 10,
+  agentTurns: false,
+  collapseSuperseded: false,
+  contextBudgetTokens: 0,
+  truncateOldest: false,
   errorReflection: false,
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
@@ -364,6 +390,10 @@ export interface AgentSettingsApi {
   maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
+  agentTurns?: boolean;
+  collapseSuperseded?: boolean;
+  contextBudgetTokens?: number;
+  truncateOldest?: boolean;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
@@ -415,6 +445,10 @@ export interface UpdateAgentSettingsRequest {
   maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
+  agentTurns?: boolean;
+  collapseSuperseded?: boolean;
+  contextBudgetTokens?: number;
+  truncateOldest?: boolean;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
