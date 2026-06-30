@@ -22,6 +22,7 @@ import type { ReActStep, TokenUsage, AgentSettings, LocalToolDialect } from "../
 import type { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
+import type { ExecutionWatcherSnapshot } from "../execution-watcher";
 
 /**
  * Bag of agent state a context assembler reads from when rendering the
@@ -38,6 +39,18 @@ export interface ContextAssemblerInput {
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
   compilationResult: WorkflowCompilationResponse | null;
+  /**
+   * Live execution monitor snapshot (executionControl/WS mode). Null when the
+   * agent has no watcher (REST mode) or none has been created yet. Rendered as
+   * the `# Execution` → `## Current execution state` section.
+   */
+  executionSnapshot?: ExecutionWatcherSnapshot | null;
+  /**
+   * The executionName whose `[execution]` steps should currently render.
+   * Cleared to null on a DAG edit so observations from an invalidated prior run
+   * are dropped from context (they stay in the step tree for replay).
+   */
+  currentRenderedExecutionName?: string | null;
 }
 
 /**

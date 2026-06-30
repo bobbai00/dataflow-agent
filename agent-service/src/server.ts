@@ -66,7 +66,15 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
   // into the individual decoration rungs via the catalog), plus the substrate /
   // select / prior knobs below. The per-rung decoration booleans are NOT a
   // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
+  const sdkContext: ContextAssembler = ({
+    visibleSteps,
+    workflowState,
+    snapshotStorage,
+    settings,
+    compilationResult,
+    executionSnapshot,
+    currentRenderedExecutionName,
+  }) =>
     assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
       compilationResult,
       agentMode: settings.agentMode,
@@ -81,6 +89,8 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       attemptReflection: settings.attemptReflection,
+      executionSnapshot,
+      currentRenderedExecutionName,
     });
 
   if (kind === "local-react") {
@@ -183,6 +193,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
     toolDialect: agentSettings.toolDialect,
+    executionControl: agentSettings.executionControl,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -310,6 +321,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           dataLevel: settings.dataLevel,
           attemptReflection: settings.attemptReflection,
           toolDialect: settings.toolDialect,
+          executionControl: settings.executionControl,
         });
       }
 
@@ -351,6 +363,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
+            executionControl: t.Optional(t.Boolean()),
           })
         ),
       }),
@@ -632,6 +645,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
         toolDialect: settings.toolDialect,
+        executionControl: settings.executionControl,
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -666,6 +680,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         dataLevel: agentSettings.dataLevel,
         attemptReflection: agentSettings.attemptReflection,
         toolDialect: agentSettings.toolDialect,
+        executionControl: agentSettings.executionControl,
       };
     },
     {
@@ -695,6 +710,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
+        executionControl: t.Optional(t.Boolean()),
       }),
     }
   );

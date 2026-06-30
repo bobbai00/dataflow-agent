@@ -17,6 +17,31 @@
  * under the License.
  */
 
+import type {
+  ExecutionWatcherSnapshot,
+  RecordedEvent,
+  WakeSignal,
+} from "../agent/execution-watcher";
+
+/**
+ * Diagnostics captured around a tool call or execution-role-step drain, used to
+ * explain what the live execution watcher observed during a wait window.
+ */
+export interface ExecutionDiagnostics {
+  /** For tool-call diagnostics: the originating tool. Omitted for execution-role-step drains. */
+  toolName?: string;
+  /** For tool-call diagnostics: links back to the tool call. */
+  toolCallId?: string;
+  /** Snapshot just before the first contributing event in this window. */
+  beforeSnapshot: ExecutionWatcherSnapshot;
+  /** Snapshot at the end of the await / drain. */
+  afterSnapshot: ExecutionWatcherSnapshot;
+  /** Wake-firing events received during this window, in arrival order. */
+  contributingEvents: RecordedEvent[];
+  /** Wake signals emitted by the rules over the events above. */
+  wakeSignals: WakeSignal[];
+}
+
 export enum AgentState {
   UNAVAILABLE = "UNAVAILABLE",
   AVAILABLE = "AVAILABLE",
@@ -42,7 +67,15 @@ export interface ReActStep {
   messageId: string;
   stepId: number;
   timestamp: number;
-  role: "user" | "agent";
+  /**
+   * Author of this step.
+   * - "user": real human message.
+   * - "agent": assistant's reasoning/tool-call step.
+   * - "execution": synthetic message authored by the ExecutionWatcher,
+   *   surfacing wake events between agent steps. Rendered as a `[execution]`
+   *   user-role message in the assembled context.
+   */
+  role: "user" | "agent" | "execution";
   content: string;
   isBegin: boolean;
   isEnd: boolean;
@@ -59,6 +92,25 @@ export interface ReActStep {
   usage?: TokenUsage;
   inputMessages?: any[];
   messageSource?: "chat" | "feedback";
+  /**
+   * For `role: "execution"` steps only: the executionName that was active
+   * when the watcher mailbox was drained. Used by the assembler to filter
+   * out [execution] observations that belong to a stale execution — when the
+   * agent edits the DAG (which conceptually invalidates prior runs), the
+   * "current" pointer is cleared and any [execution] step whose executionName
+   * doesn't match is omitted from the rendered context. They stay in the step
+   * tree for replay/audit.
+   */
+  executionName?: string;
+  /**
+   * Per-step execution diagnostics (NOT sent to the LLM). Populated when:
+   *   - the agent step called one or more execution-control tools (one entry
+   *     per call: start/pause/resume/kill);
+   *   - this is a `role:"execution"` step from a prepareStep mailbox drain
+   *     (single entry, no toolName/toolCallId).
+   * Used for trace export, time-travel inspection, post-hoc debugging.
+   */
+  executionDiagnostics?: ExecutionDiagnostics[];
 }
 
 export enum OperatorResultSerializationMode {
@@ -244,6 +296,25 @@ export interface AgentSettings {
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
   toolDialect: LocalToolDialect;
+  /**
+   * High-level toggle between two coherent execution UXes:
+   *
+   * `true` (live WS mode): the agent gets the WebSocket toolkit
+   *   (startExecution, pauseExecution, resumeExecution, killExecution,
+   *   getOperatorResult, debugPython, getConsoleLogs, retryCurrentTuple,
+   *   liveModifyOperator). Control tools BLOCK on the watcher until a wake
+   *   rule fires; passive monitoring happens via `[execution]` messages
+   *   drained between steps. No silent auto-execute on edit. Python UDF
+   *   exceptions auto-pause the worker so debugPython works on the failing row.
+   *
+   * `false` (default, REST mode): execution runs synchronously after each
+   *   edit via `runPostStepExecution`. Build-and-observe UX — results "just
+   *   appear" after each step. No runtime introspection / pause / debug.
+   *
+   * The two modes have different toolsets. Default `false` until the live WS
+   * path is validated end-to-end.
+   */
+  executionControl: boolean;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -291,6 +362,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowLevel: 0,
   dataLevel: 0,
   toolDialect: "qwen-xml",
+  executionControl: true,
 };
 
 /**
@@ -372,6 +444,8 @@ export interface AgentSettingsApi {
   flowLevel?: number;
   dataLevel?: number;
   toolDialect?: LocalToolDialect;
+  /** High-level toggle: live WS toolkit (true) vs sync REST auto-exec (false). */
+  executionControl?: boolean;
 }
 
 export interface AgentInfo {
@@ -423,4 +497,6 @@ export interface UpdateAgentSettingsRequest {
   flowLevel?: number;
   dataLevel?: number;
   toolDialect?: LocalToolDialect;
+  /** High-level toggle: live WS toolkit (true) vs sync REST auto-exec (false). */
+  executionControl?: boolean;
 }

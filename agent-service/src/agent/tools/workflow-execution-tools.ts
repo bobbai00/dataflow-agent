@@ -79,7 +79,7 @@ function getWorkflowMutex(workflowId: number): AsyncMutex {
   return mutex;
 }
 
-interface WorkflowValidationResult {
+export interface WorkflowValidationResult {
   isValid: boolean;
   errors: Record<string, Record<string, string>>;
 }
@@ -149,7 +149,7 @@ function combineValidations(...validations: OperatorValidation[]): OperatorValid
   return { isValid, messages };
 }
 
-function validateWorkflow(workflowState: WorkflowState): WorkflowValidationResult {
+export function validateWorkflow(workflowState: WorkflowState): WorkflowValidationResult {
   const errors: Record<string, Record<string, string>> = {};
 
   for (const operator of workflowState.getAllEnabledOperators()) {
@@ -181,7 +181,7 @@ function formatWorkflowValidationErrors(validationResult: WorkflowValidationResu
   return lines.join("\n");
 }
 
-function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
+export function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
   const useSubDAG = opsToViewResult && opsToViewResult.length === 1;
   const targetOperatorId = useSubDAG ? opsToViewResult[0] : undefined;
 

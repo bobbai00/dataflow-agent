@@ -24,7 +24,15 @@ import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import type { AgentDelegateConfig, AgentSettings, LocalToolDialect, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type {
+  AgentDelegateConfig,
+  AgentSettings,
+  ExecutionDiagnostics,
+  LocalToolDialect,
+  ReActStep,
+  TokenUsage,
+  UserInfo,
+} from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
@@ -33,7 +41,7 @@ import {
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
-import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt, EXECUTION_CONTROL_GUIDANCE } from "./prompts";
 
 /**
  * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
@@ -85,6 +93,22 @@ import {
   type ExecutionConfig,
 } from "./tools/workflow-execution-tools";
 import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
+import { ExecutionWatcher, type MailboxContents } from "./execution-watcher";
+import { ExecutionWsClient } from "../api/execution-ws-client";
+import { getBackendConfig } from "../api/backend-api";
+import { getConsoleMessageType } from "../types/execution-ws";
+import {
+  createWsExecutionTools,
+  TOOL_NAME_START_EXECUTION,
+  TOOL_NAME_PAUSE_EXECUTION,
+  TOOL_NAME_RESUME_EXECUTION,
+  TOOL_NAME_KILL_EXECUTION,
+  TOOL_NAME_GET_OPERATOR_RESULT,
+  TOOL_NAME_DEBUG_PYTHON,
+  TOOL_NAME_LIVE_MODIFY_OPERATOR,
+  TOOL_NAME_RETRY_CURRENT_TUPLE,
+  TOOL_NAME_GET_CONSOLE_LOGS,
+} from "./tools/ws-execution-tools";
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
@@ -177,6 +201,136 @@ function formatInitializationSummary(
   return lines.join("\n");
 }
 
+// ============================================================================
+// [execution] step rendering — turns a drained watcher mailbox into the
+// content of a synthetic `role:"execution"` ReActStep. Two layers: a plain-
+// English narrative (ranked by signal severity, with an action hint) followed
+// by the structured diff/signal details. Ported from the ai-debugging branch.
+// ============================================================================
+
+function renderMailboxAsExecutionMessage(m: MailboxContents): string {
+  const lines: string[] = [];
+
+  // ── Narrative (one paragraph, no jargon) ──
+  lines.push(composeExecutionNarrative(m));
+
+  // ── Details (structured) ──
+  const details: string[] = [];
+
+  if (m.diff.workflowState) {
+    details.push(`Workflow state: ${m.diff.workflowState.from} → ${m.diff.workflowState.to}`);
+  }
+
+  if (m.diff.perOperator && Object.keys(m.diff.perOperator).length > 0) {
+    details.push("Per-operator changes:");
+    for (const [opId, change] of Object.entries(m.diff.perOperator)) {
+      const fromStr = change.from
+        ? `${change.from.state} (in: ${change.from.inputTupleCount}, out: ${change.from.outputTupleCount})`
+        : "(new)";
+      const toStr = `${change.to.state} (in: ${change.to.inputTupleCount}, out: ${change.to.outputTupleCount})`;
+      details.push(`  - ${opId}: ${fromStr} → ${toStr}`);
+    }
+  }
+
+  if (m.diff.newConsoleMessages?.length) {
+    const errors = m.diff.newConsoleMessages.filter(msg => getConsoleMessageType(msg) === "ERROR");
+    if (errors.length > 0) {
+      details.push(`Console errors (${errors.length}):`);
+      for (const e of errors) {
+        const trunc = e.message.length > 300 ? e.message.slice(0, 300) + "…" : e.message;
+        details.push(`  - [${e.workerId}] ${e.title}: ${trunc}`);
+      }
+    }
+  }
+
+  if (m.diff.newFatalErrors?.length) {
+    details.push(`Fatal errors (${m.diff.newFatalErrors.length}):`);
+    for (const err of m.diff.newFatalErrors) {
+      const msg = err.message.length > 300 ? err.message.slice(0, 300) + "…" : err.message;
+      details.push(`  - ${err.type ?? "FATAL"}: ${msg}${err.operatorId ? ` (op=${err.operatorId})` : ""}`);
+    }
+  }
+
+  if (m.signals.length > 0) {
+    details.push(`Signals: ${m.signals.map(s => `${s.ruleId}/${s.severity}`).join(", ")}`);
+  }
+
+  if (details.length > 0) {
+    lines.push("");
+    lines.push("Details:");
+    for (const d of details) lines.push(d);
+  }
+
+  return lines.join("\n");
+}
+
+function composeExecutionNarrative(m: MailboxContents): string {
+  const sigIds = new Set(m.signals.map(s => s.ruleId));
+
+  // Auto-paused operator — most actionable, lead with it.
+  if (sigIds.has("operator-auto-paused")) {
+    const pausedOps: string[] = [];
+    if (m.diff.perOperator) {
+      for (const [opId, change] of Object.entries(m.diff.perOperator)) {
+        if (change.to.state === "Paused" && change.from?.state !== "Paused") pausedOps.push(opId);
+      }
+    }
+    const opsList = pausedOps.length > 0 ? pausedOps.join(", ") : "an operator";
+    const errBlurb = errorOneLiner(m);
+    let s = `A Python UDF in ${opsList} raised an exception, and the engine auto-paused that single worker (EXCEPTION_PAUSE — the failing tuple is parked in the worker for inspection). Other workers are still running.`;
+    if (errBlurb) s += ` The error was: ${errBlurb}.`;
+    s += ` Call \`debugPython\` directly on the paused worker to inspect the failing tuple — do NOT call \`pauseExecution\` first (a controller-level pause blocks the worker loop, so pdb commands never run). \`liveModifyOperator\` and \`retryCurrentTuple\`, by contrast, require a workflow-level pause.`;
+    return s;
+  }
+
+  // Fatal error / state-failed
+  if (sigIds.has("state-failed") || sigIds.has("fatal-error")) {
+    const fatal = m.diff.newFatalErrors?.[0];
+    if (fatal) {
+      return `The execution failed at engine level: ${fatal.type ?? "FATAL"} — ${truncate(fatal.message, 200)}${fatal.operatorId ? ` (operator: ${fatal.operatorId})` : ""}. This is usually a wiring or schema problem, not a runtime UDF bug; design-time fix + restart is the path forward.`;
+    }
+    return `The execution failed at engine level. Check the structured details for the fatal error.`;
+  }
+
+  // Console error without auto-pause (rare — usually a warning that didn't trip pause)
+  if (sigIds.has("console-error") && !sigIds.has("operator-auto-paused")) {
+    const err = errorOneLiner(m);
+    return `A worker logged an ERROR-level message${err ? `: ${err}` : ""}. The workflow is still running.`;
+  }
+
+  // State milestones
+  if (sigIds.has("state-paused")) {
+    return `The workflow paused (controller-level). While paused you can call \`liveModifyOperator\`, \`retryCurrentTuple\`, or \`getOperatorResult\` for inspection. (\`debugPython\` needs a worker self-pause from a UDF exception, not this controller pause.) Call \`resumeExecution\` to continue.`;
+  }
+  if (sigIds.has("state-completed-from-cache")) {
+    return `The workflow completed by returning cached results — no operators ran fresh. If you expected fresh computation, modify an operator to invalidate the cache and re-run.`;
+  }
+  if (sigIds.has("state-completed")) {
+    const ops = m.diff.perOperator
+      ? Object.entries(m.diff.perOperator).filter(([, c]) => c.to.state === "Completed").map(([id]) => id)
+      : [];
+    const opsBit = ops.length > 0 ? ` (${ops.join(", ")})` : "";
+    return `The workflow finished${opsBit}. Use \`getOperatorResult\` to inspect outputs.`;
+  }
+  if (sigIds.has("state-killed")) {
+    return `The execution was killed. All progress on the workflow is gone.`;
+  }
+
+  return `Execution updated.`;
+}
+
+function errorOneLiner(m: MailboxContents): string | null {
+  const errs = (m.diff.newConsoleMessages ?? []).filter(msg => getConsoleMessageType(msg) === "ERROR");
+  if (errs.length === 0) return null;
+  const first = errs[0];
+  const head = first.title ? `${first.title}: ${first.message}` : first.message;
+  return truncate(head.split("\n")[0], 180);
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
 export class TexeraAgent {
   readonly agentId: string;
   readonly agentName: string;
@@ -224,6 +378,25 @@ export class TexeraAgent {
   private tools: Record<string, any>;
 
   private abortController: AbortController | null = null;
+
+  /**
+   * Live execution monitor for the WS control toolkit (executionControl mode).
+   * Null until `ensureExecutionWatcher()` lazily constructs it. Persistent
+   * across messages — the WS connection stays open for the agent's lifetime.
+   */
+  private executionWatcher: ExecutionWatcher | null = null;
+  /**
+   * The executionName whose `[execution]` steps the assembler should currently
+   * render. Set when the watcher first surfaces an execution; cleared to null
+   * on a DAG edit (which invalidates prior-run observations).
+   */
+  private currentRenderedExecutionName: string | null = null;
+  /**
+   * Diagnostics buffered by the WS control tools during a step, drained in
+   * `onStepFinish` to stamp `executionDiagnostics[]` onto the ReActStep. Pure
+   * trace metadata — never sent to the model.
+   */
+  private pendingExecutionDiagnostics: ExecutionDiagnostics[] = [];
 
   private workflowChangeSubscription: Subscription | null = null;
 
@@ -430,6 +603,12 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode !== AgentMode.GENERAL && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
+    // executionControl (live WS) mode: append the build→run→observe→debug
+    // guidance so the prompt matches the registered WS toolkit. The
+    // systemPromptBuilder override (local-react) bakes its own prompt, so skip.
+    if (this.settings.executionControl && !this.systemPromptBuilder) {
+      this.systemPrompt += `\n${EXECUTION_CONTROL_GUIDANCE}`;
+    }
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -480,6 +659,49 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
+    }
+
+    // Live WS execution-control toolkit (executionControl mode). Net-new
+    // subsystem that runs ALONGSIDE the CRUD tools: control tools block on the
+    // watcher's wake rules; passive updates surface via `[execution]` messages
+    // drained between steps (see prepareStep). When on, `runPostStepExecution`
+    // (the REST auto-exec) is suppressed. Gated on a delegate config (needs a
+    // user token + workflow id to open the WS) — NOT on agentMode, so it works
+    // in CODE mode too. The watcher itself is owned by the agent
+    // (ensureExecutionWatcher); the tools only read it via watcherSlot.
+    if (this.settings.executionControl && this.buildExecutionConfig()) {
+      const watcherSlot = {
+        get: () => this.executionWatcher,
+        // The agent owns the watcher lifecycle, not the tools. `set` is a no-op
+        // kept for the WatcherSlot API.
+        set: (_w: ExecutionWatcher | null) => {},
+      };
+      const wsTools = createWsExecutionTools({
+        workflowState: this.workflowState,
+        watcherSlot,
+        getExecutionConfig: () => this.buildExecutionConfig()!,
+        getAbortSignal: () => this.abortController?.signal ?? undefined,
+        // Every successful getOperatorResult writes the rows back into the
+        // snapshot at HEAD so the rendered context stays in sync.
+        onOperatorResult: (operatorId, operatorInfo) => {
+          if (this.head !== undefined) {
+            this.snapshotStorage.setOperatorResult(this.head, operatorId, operatorInfo);
+          }
+        },
+        // Diagnostics buffer drained by onStepFinish to stamp ReActSteps.
+        recordExecutionDiagnostics: (diag: ExecutionDiagnostics) => {
+          this.pendingExecutionDiagnostics.push(diag);
+        },
+      });
+      tools[TOOL_NAME_START_EXECUTION] = wsTools[TOOL_NAME_START_EXECUTION];
+      tools[TOOL_NAME_PAUSE_EXECUTION] = wsTools[TOOL_NAME_PAUSE_EXECUTION];
+      tools[TOOL_NAME_RESUME_EXECUTION] = wsTools[TOOL_NAME_RESUME_EXECUTION];
+      tools[TOOL_NAME_KILL_EXECUTION] = wsTools[TOOL_NAME_KILL_EXECUTION];
+      tools[TOOL_NAME_GET_OPERATOR_RESULT] = wsTools[TOOL_NAME_GET_OPERATOR_RESULT];
+      tools[TOOL_NAME_DEBUG_PYTHON] = wsTools[TOOL_NAME_DEBUG_PYTHON];
+      tools[TOOL_NAME_LIVE_MODIFY_OPERATOR] = wsTools[TOOL_NAME_LIVE_MODIFY_OPERATOR];
+      tools[TOOL_NAME_RETRY_CURRENT_TUPLE] = wsTools[TOOL_NAME_RETRY_CURRENT_TUPLE];
+      tools[TOOL_NAME_GET_CONSOLE_LOGS] = wsTools[TOOL_NAME_GET_CONSOLE_LOGS];
     }
 
     // When parallel tool calls are enabled the model can emit N tool calls in
@@ -734,6 +956,7 @@ export class TexeraAgent {
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
+    executionControl?: boolean;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -841,10 +1064,24 @@ export class TexeraAgent {
       // is rebuilt below (the builder is dialect-aware).
       promptNeedsRebuild = true;
     }
+    if (updates.executionControl !== undefined && updates.executionControl !== this.settings.executionControl) {
+      this.settings.executionControl = updates.executionControl;
+      // Flips the whole execution UX: when true, createTools() below registers
+      // the live WS toolkit and runPostStepExecution becomes a no-op. The
+      // prompt's execution-guidance block is mode-dependent, so rebuild it.
+      promptNeedsRebuild = true;
+    }
 
     if (promptNeedsRebuild) {
       this.rebuildSystemPrompt();
     }
+
+    // Ensure the execution watcher exists whenever executionControl is on. This
+    // matters because the create-agent flow applies settings via updateSettings
+    // AFTER initialize() (where setDelegateConfig first tried — and skipped —
+    // ensureExecutionWatcher while the flag was still its default false).
+    // Idempotent + self-gating: no-op when executionControl is off or already set up.
+    this.ensureExecutionWatcher();
 
     this.tools = this.createTools();
     this.log.info(
@@ -886,9 +1123,50 @@ export class TexeraAgent {
   }): void {
     this.delegateConfig = config;
 
+    // Construct the live execution watcher up front (executionControl mode) so
+    // its snapshot/mailbox are stable references for the agent's lifetime. The
+    // WS connect happens in the background; the first startExecution awaits it.
+    // The watcher's `inExecution` gate keeps wake rules silent until the agent
+    // actually issues a startExecution, so the engine's state-replay of a prior
+    // run is not surfaced.
+    this.ensureExecutionWatcher();
+
     this.tools = this.createTools();
 
     this.setupWorkflowChangeHandlers();
+  }
+
+  /**
+   * Lazy-construct the ExecutionWatcher and underlying ExecutionWsClient.
+   * Idempotent — only the first call (with a delegate config and
+   * executionControl on) creates them; later calls are no-ops.
+   *
+   * Connection is NOT awaited — `watcher.connect()` is called for its side
+   * effect and the first `startExecution` tool awaits it again (idempotent).
+   */
+  private ensureExecutionWatcher(): void {
+    if (this.executionWatcher) return;
+    if (!this.delegateConfig) return;
+    if (!this.settings.executionControl) return;
+
+    const cfg = getBackendConfig();
+    const url = `${cfg.wsEndpoint.replace(/\/$/, "")}/wsapi/workflow-websocket`;
+    const wsClient = new ExecutionWsClient({
+      url,
+      token: this.delegateConfig.userToken,
+      workflowId: this.delegateConfig.workflowId,
+      computingUnitId: this.delegateConfig.computingUnitId ?? 1,
+    });
+    // Initial executionName is a placeholder; sendExecuteRequest replaces it
+    // on each startExecution.
+    const watcher = new ExecutionWatcher(wsClient, `agent-${this.agentId}-no-execution`);
+    watcher.start();
+    this.executionWatcher = watcher;
+    // Kick off connect in the background. If it fails, the first startExecution
+    // surfaces the error when it awaits.
+    watcher.connect().catch(err => {
+      this.log.error({ err: err?.message || err }, "WS connect failed");
+    });
   }
 
   getDelegateConfig():
@@ -927,6 +1205,23 @@ export class TexeraAgent {
       });
 
       subscription.add(persistSubscription);
+    }
+
+    // executionControl: any DAG edit invalidates prior execution observations.
+    // Clear the current-execution pointer so the assembler filters out stale
+    // [execution] steps; the agent's next startExecution sets a fresh
+    // per-execution executionName.
+    if (this.settings.executionControl) {
+      const invalidate = workflowChanged$.subscribe(() => {
+        if (this.currentRenderedExecutionName !== null) {
+          this.log.debug(
+            { executionName: this.currentRenderedExecutionName },
+            "DAG edit — invalidating [execution] observations"
+          );
+          this.currentRenderedExecutionName = null;
+        }
+      });
+      subscription.add(invalidate);
     }
 
     this.workflowChangeSubscription = subscription;
@@ -996,6 +1291,50 @@ export class TexeraAgent {
             }
           }
 
+          // Drain the watcher's mailbox into a synthetic `[execution]` ReActStep
+          // BEFORE assembling context, so this step (and every future one, since
+          // it's persisted in the step tree) sees the events that piled up
+          // between the last agent step and now. Gated on
+          // shouldSurfaceToPrepareStep() — sealed (terminal+drained) mailboxes
+          // are skipped so editing-phase prepareSteps stay clean.
+          if (this.executionWatcher && this.executionWatcher.shouldSurfaceToPrepareStep()) {
+            const drained = this.executionWatcher.drainMailbox();
+            if (drained) {
+              stepIndex++;
+              const execStepId = this.generateStepId();
+              const afterDrainSnapshot = this.executionWatcher.getSnapshot();
+              const execStep: ReActStep = {
+                id: execStepId,
+                parentId: this.head,
+                messageId,
+                stepId: stepIndex,
+                timestamp: Date.now(),
+                role: "execution",
+                content: renderMailboxAsExecutionMessage(drained),
+                isBegin: false,
+                isEnd: false,
+                // Tag with the watcher's current executionName so the assembler
+                // can filter out stale [execution] steps once the agent edits
+                // the DAG and clears `currentRenderedExecutionName`.
+                executionName: afterDrainSnapshot.executionName,
+                // Trace metadata only — never sent to the model.
+                executionDiagnostics: [
+                  {
+                    beforeSnapshot: drained.beforeSnapshot,
+                    afterSnapshot: afterDrainSnapshot,
+                    contributingEvents: drained.contributingEvents,
+                    wakeSignals: drained.signals,
+                  },
+                ],
+              };
+              this.addStep(execStep);
+              this.head = execStepId;
+              // Track the latest execution we've surfaced so the assembler can
+              // match [execution] steps against it.
+              this.currentRenderedExecutionName = execStep.executionName ?? null;
+            }
+          }
+
           const visibleSteps = this.getVisibleReActSteps();
           const processed = this.contextAssembler({
             visibleSteps,
@@ -1003,6 +1342,8 @@ export class TexeraAgent {
             snapshotStorage: this.snapshotStorage,
             settings: this.settings,
             compilationResult,
+            executionSnapshot: this.executionWatcher?.getSnapshot() ?? null,
+            currentRenderedExecutionName: this.currentRenderedExecutionName,
           });
           lastPreparedMessages = processed;
           return { messages: processed };
@@ -1049,7 +1390,13 @@ export class TexeraAgent {
                 }
               : undefined,
             inputMessages: lastPreparedMessages,
+            // Diagnostics buffered by any WS control tools called this step
+            // (start/pause/resume/kill). Trace metadata only — never sent to
+            // the model. Drained here so each batch attaches to its own step.
+            executionDiagnostics:
+              this.pendingExecutionDiagnostics.length > 0 ? this.pendingExecutionDiagnostics : undefined,
           };
+          this.pendingExecutionDiagnostics = [];
           lastPreparedMessages = undefined;
           this.addStep(agentStep);
           this.head = agentStepId;
@@ -1497,6 +1844,11 @@ export class TexeraAgent {
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
   ): Promise<void> {
+    // In executionControl (live WS) mode the agent drives execution explicitly
+    // via startExecution — the silent REST auto-exec is off so the two UXes
+    // don't both run the workflow.
+    if (this.settings.executionControl) return;
+
     const execConfig = this.buildExecutionConfig();
     if (!execConfig || !toolCalls || !toolResults) return;
 

@@ -1,0 +1,904 @@
+/**
+ * Unit tests for ws-execution-tools (Phase 3 verification, code-level).
+ *
+ * Mocks the watcher slot so we can verify each tool's pre-flight checks,
+ * state transitions, and error formatting without a real engine.
+ *
+ * Run: bun test src/tools/ws-execution-tools.test.ts
+ */
+
+import { describe, expect, test, beforeEach } from "bun:test";
+import { createWsExecutionTools, type WatcherSlot } from "./ws-execution-tools";
+import { WorkflowState } from "../workflow-state";
+import type { ExecutionWatcher, ExecutionWatcherSnapshot, AwaitResult } from "../execution-watcher";
+import type { ExecutionConfig } from "./workflow-execution-tools";
+
+// ─── Mock ExecutionWatcher ─────────────────────────────────────────────────
+
+function makeMockSnapshot(overrides: Partial<ExecutionWatcherSnapshot> = {}): ExecutionWatcherSnapshot {
+  return {
+    executionName: "mock-exec",
+    mostRecentStartedAt: Date.now(),
+    currentState: "Running",
+    perOperatorState: {},
+    workerIdsByOperator: {},
+    currentTuplesByOperator: {},
+    recentConsoleMessages: [],
+    consoleMessagesByOperator: {},
+    recentConsoleErrors: [],
+    fatalErrors: [],
+    pauseRequestedByAgent: false,
+    ...overrides,
+  };
+}
+
+interface MockWatcher {
+  watcher: ExecutionWatcher;
+  pauseCalled: number;
+  resumeCalled: number;
+  killCalled: number;
+  awaitCalled: number;
+  paginationCalled: { operatorId: string; pageIndex: number; pageSize: number }[];
+  debugCommandCalled: { operatorId: string; workerId: string; cmd: string }[];
+  modifyLogicCalled: { operatorPayload: any }[];
+  retryWorkersCalled: string[][];
+  snapshot: ExecutionWatcherSnapshot;
+  awaitResultOverride?: AwaitResult;
+  debugCommandShouldThrow?: Error;
+  /** When set, the mock pushes these messages into snapshot.consoleMessagesByOperator
+   *  on the next sendDebugCommand call so the tool's poll-loop can find them. */
+  debugCommandAppendOnSend?: { operatorId: string; messages: any[] };
+  modifyLogicResultOverride?: { isValid: boolean; errorMessage: string; applied: boolean };
+  modifyLogicShouldThrow?: Error;
+}
+
+function makeMockWatcher(snapshot: ExecutionWatcherSnapshot): MockWatcher {
+  const m: MockWatcher = {
+    watcher: null as any,
+    pauseCalled: 0,
+    resumeCalled: 0,
+    killCalled: 0,
+    awaitCalled: 0,
+    paginationCalled: [],
+    debugCommandCalled: [],
+    modifyLogicCalled: [],
+    retryWorkersCalled: [],
+    snapshot,
+  };
+  m.watcher = {
+    pause: () => {
+      m.pauseCalled++;
+      // Mirror engine behavior: pause completes synchronously in the mock so
+      // the awaitUntilState loop in pauseExecution sees the target state via
+      // fast-path. Real engine emits Pausing → Paused over WS; we collapse.
+      m.snapshot = { ...m.snapshot, currentState: "Paused" };
+    },
+    resume: () => {
+      m.resumeCalled++;
+      m.snapshot = { ...m.snapshot, currentState: "Running" };
+    },
+    kill: () => {
+      m.killCalled++;
+      m.snapshot = { ...m.snapshot, currentState: "Killed" };
+    },
+    isAlive: () => {
+      const s = m.snapshot.currentState;
+      return s !== "Completed" && s !== "Failed" && s !== "Killed" && s !== "Terminated";
+    },
+    getSnapshot: () => m.snapshot,
+    await: async (_abortSignal?: AbortSignal) => {
+      m.awaitCalled++;
+      return (
+        m.awaitResultOverride ?? {
+          reason: "events" as const,
+          snapshot: m.snapshot,
+          diff: {},
+          signals: [],
+          contributingEvents: [],
+          beforeSnapshot: m.snapshot,
+        }
+      );
+    },
+    requestPaginatedResult: async (operatorId: string, pageIndex: number, pageSize: number) => {
+      m.paginationCalled.push({ operatorId, pageIndex, pageSize });
+      return {
+        type: "PaginatedResultEvent" as const,
+        requestID: "mock-id",
+        operatorID: operatorId,
+        pageIndex,
+        table: [{ x: 1, y: "a" }, { x: 2, y: "b" }],
+        schema: [
+          { attributeName: "x", attributeType: "integer" },
+          { attributeName: "y", attributeType: "string" },
+        ],
+      };
+    },
+    requestModifyLogic: async (operatorPayload: any) => {
+      m.modifyLogicCalled.push({ operatorPayload });
+      if (m.modifyLogicShouldThrow) throw m.modifyLogicShouldThrow;
+      return m.modifyLogicResultOverride ?? { isValid: true, errorMessage: "", applied: true };
+    },
+    retryWorkers: (workers: string[]) => {
+      m.retryWorkersCalled.push(workers);
+    },
+    sendDebugCommand: (req: { operatorId: string; workerId: string; cmd: string }) => {
+      m.debugCommandCalled.push(req);
+      if (m.debugCommandShouldThrow) throw m.debugCommandShouldThrow;
+      if (m.debugCommandAppendOnSend) {
+        const { operatorId, messages } = m.debugCommandAppendOnSend;
+        const existing = m.snapshot.consoleMessagesByOperator[operatorId] ?? [];
+        m.snapshot = {
+          ...m.snapshot,
+          consoleMessagesByOperator: {
+            ...m.snapshot.consoleMessagesByOperator,
+            [operatorId]: [...existing, ...messages],
+          },
+        };
+      }
+    },
+    start: () => {},
+    applyEvent: () => {},
+    isMailboxEmpty: () => true,
+    peekMailbox: () => null,
+    drainMailbox: () => null,
+    shouldSurfaceToPrepareStep: () => false,
+    dispose: () => {},
+  } as unknown as ExecutionWatcher;
+  return m;
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────
+
+describe("ws-execution-tools", () => {
+  let workflowState: WorkflowState;
+  let watcherRef: { current: ExecutionWatcher | null };
+  let watcherSlot: WatcherSlot;
+  let mockConfig: ExecutionConfig;
+
+  beforeEach(() => {
+    workflowState = new WorkflowState();
+    watcherRef = { current: null };
+    watcherSlot = {
+      get: () => watcherRef.current,
+      set: w => {
+        watcherRef.current = w;
+      },
+    };
+    mockConfig = {
+      userToken: "fake-token",
+      workflowId: 1,
+      computingUnitId: 1,
+    };
+  });
+
+  test("startExecution: rejects empty workflow", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.startExecution as any).execute({});
+    expect(typeof result).toBe("string");
+    expect(result).toContain("[ERROR]");
+  });
+
+  test("startExecution: rejects when watcher already alive", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.startExecution as any).execute({});
+    expect(result).toContain("startExecution requires no execution in flight");
+  });
+
+  test("pauseExecution: errors when not Running", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.pauseExecution as any).execute({});
+    expect(result).toContain("pauseExecution requires Running state");
+    expect(mock.pauseCalled).toBe(0);
+  });
+
+  test("pauseExecution: pauses when Running and blocks on await", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.pauseExecution as any).execute({});
+    expect(result).toContain("Pause request sent");
+    expect(mock.pauseCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
+  });
+
+  test("resumeExecution: errors when not Paused", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.resumeExecution as any).execute({});
+    expect(result).toContain("resumeExecution requires Paused state");
+    expect(mock.resumeCalled).toBe(0);
+  });
+
+  test("resumeExecution: resumes when Paused", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.resumeExecution as any).execute({});
+    expect(result).toContain("Resume request sent");
+    expect(mock.resumeCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
+  });
+
+  test("killExecution: kills regardless of state and blocks on await", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.killExecution as any).execute({});
+    expect(result).toContain("Kill request sent");
+    expect(mock.killCalled).toBe(1);
+    expect(mock.awaitCalled).toBe(1);
+  });
+
+  test("recordExecutionDiagnostics: control tools forward await events to the sink", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    const wokeSnapshot = makeMockSnapshot({ currentState: "Paused" });
+    mock.awaitResultOverride = {
+      reason: "events",
+      snapshot: wokeSnapshot,
+      diff: { workflowState: { from: "Running", to: "Paused" } },
+      signals: [{ ruleId: "state-paused", reason: "paused", severity: "milestone", summary: "workflow paused" }],
+      contributingEvents: [
+        { timestamp: 1000, event: { type: "WorkflowStateEvent", state: "Paused" } as any },
+      ],
+      beforeSnapshot: makeMockSnapshot({ currentState: "Running" }),
+    };
+    watcherRef.current = mock.watcher;
+    const captured: any[] = [];
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+      recordExecutionDiagnostics: d => captured.push(d),
+    });
+    await (tools.pauseExecution as any).execute({});
+    expect(captured).toHaveLength(1);
+    expect(captured[0].toolName).toBe("pauseExecution");
+    expect(captured[0].wakeSignals.map((s: any) => s.ruleId)).toContain("state-paused");
+    expect(captured[0].contributingEvents).toHaveLength(1);
+    expect(captured[0].beforeSnapshot.currentState).toBe("Running");
+    expect(captured[0].afterSnapshot.currentState).toBe("Paused");
+  });
+
+  test("liveModifyOperator: errors when no watcher", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.liveModifyOperator as any).execute({
+      operatorId: "op1",
+      properties: { code: "print(1)" },
+    });
+    expect(result).toContain("No execution in flight");
+  });
+
+  test("liveModifyOperator: errors when not paused", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.liveModifyOperator as any).execute({
+      operatorId: "op1",
+      properties: { code: "print(1)" },
+    });
+    expect(result).toContain("requires Paused state");
+    expect(mock.modifyLogicCalled.length).toBe(0);
+  });
+
+  test("liveModifyOperator: errors when operator missing from workflow state", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.liveModifyOperator as any).execute({
+      operatorId: "ghost-op",
+      properties: { code: "print(1)" },
+    });
+    expect(result).toContain("not found in the workflow");
+    expect(mock.modifyLogicCalled.length).toBe(0);
+  });
+
+  test("liveModifyOperator: dispatches request, applies on success, updates local state", async () => {
+    workflowState.addOperator({
+      operatorID: "op1",
+      operatorType: "PythonUDFV2",
+      operatorVersion: "1",
+      operatorProperties: { code: "old", workers: 1 },
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      isDisabled: false,
+    } as any);
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.liveModifyOperator as any).execute({
+      operatorId: "op1",
+      properties: { code: "new" },
+    });
+    expect(mock.modifyLogicCalled.length).toBe(1);
+    const payload = mock.modifyLogicCalled[0].operatorPayload;
+    expect(payload.operatorID).toBe("op1");
+    expect(payload.operatorType).toBe("PythonUDFV2");
+    expect(payload.code).toBe("new");
+    expect(payload.workers).toBe(1); // shallow-merged, preserved
+    expect(result).toContain("logic queued (validated)");
+    // local state updated
+    expect(workflowState.getOperator("op1")!.operatorProperties.code).toBe("new");
+  });
+
+  test("liveModifyOperator: surfaces engine validation rejection without updating local state", async () => {
+    workflowState.addOperator({
+      operatorID: "op1",
+      operatorType: "PythonUDFV2",
+      operatorVersion: "1",
+      operatorProperties: { code: "old" },
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      isDisabled: false,
+    } as any);
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    mock.modifyLogicResultOverride = { isValid: false, errorMessage: "syntax error on line 3", applied: false };
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.liveModifyOperator as any).execute({
+      operatorId: "op1",
+      properties: { code: "broken" },
+    });
+    expect(result).toContain("Engine rejected");
+    expect(result).toContain("syntax error on line 3");
+    // local state NOT updated
+    expect(workflowState.getOperator("op1")!.operatorProperties.code).toBe("old");
+  });
+
+  test("retryCurrentTuple: errors when no watcher", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.retryCurrentTuple as any).execute({ operatorId: "op1" });
+    expect(result).toContain("No execution in flight");
+  });
+
+  test("retryCurrentTuple: errors when not paused", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Running" }));
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.retryCurrentTuple as any).execute({ operatorId: "op1" });
+    expect(result).toContain("requires Paused state");
+    expect(mock.retryWorkersCalled.length).toBe(0);
+  });
+
+  test("retryCurrentTuple: errors when no workers assigned", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        workerIdsByOperator: {},
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.retryCurrentTuple as any).execute({ operatorId: "op1" });
+    expect(result).toContain("No workers assigned");
+    expect(mock.retryWorkersCalled.length).toBe(0);
+  });
+
+  test("retryCurrentTuple: sends retry to assigned workers", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        workerIdsByOperator: { op1: ["WF1-op1-main-0", "WF1-op1-main-1"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.retryCurrentTuple as any).execute({ operatorId: "op1" });
+    expect(mock.retryWorkersCalled).toEqual([["WF1-op1-main-0", "WF1-op1-main-1"]]);
+    expect(result).toContain("Retry request sent to 2 workers");
+  });
+
+  test("getConsoleLogs: errors when no watcher", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.getConsoleLogs as any).execute({ operatorId: "op1" });
+    expect(result).toContain("No execution in flight");
+  });
+
+  test("getConsoleLogs: returns 'no messages' when buffer empty for operator", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.getConsoleLogs as any).execute({ operatorId: "op1" });
+    expect(result).toContain("No console messages buffered");
+  });
+
+  test("getConsoleLogs: returns messages most recent first, respects limit + level filter", async () => {
+    const mk = (level: "PRINT" | "ERROR", workerId: string, title: string, msg: string) => ({
+      workerId,
+      timestamp: { seconds: 0, nanos: 0 },
+      msgType: { name: level } as { name: "PRINT" | "ERROR" },
+      source: "test",
+      title,
+      message: msg,
+    });
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        consoleMessagesByOperator: {
+          op1: [
+            mk("PRINT", "WF1-op1-main-0", "", "msgA"),
+            mk("ERROR", "WF1-op1-main-0", "KeyError", "missing 'foo'"),
+            mk("PRINT", "WF1-op1-main-0", "", "msgC"),
+          ],
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    // Default — all levels, limit 20, most recent first
+    const all = await (tools.getConsoleLogs as any).execute({ operatorId: "op1" });
+    const idxC = (all as string).indexOf("msgC");
+    const idxA = (all as string).indexOf("msgA");
+    expect(idxC).toBeGreaterThan(-1);
+    expect(idxA).toBeGreaterThan(idxC); // most recent first → msgC appears before msgA
+
+    // ERROR-only filter
+    const errsOnly = await (tools.getConsoleLogs as any).execute({
+      operatorId: "op1",
+      levels: ["ERROR"],
+    });
+    expect(errsOnly).toContain("KeyError");
+    expect(errsOnly).not.toContain("msgC");
+    expect(errsOnly).not.toContain("msgA");
+  });
+
+  test("getOperatorResult: errors when no watcher", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.getOperatorResult as any).execute({
+      operatorId: "op1",
+      offset: 0,
+      limit: 10,
+    });
+    expect(result).toContain("No execution in flight");
+  });
+
+  test("debugPython: errors when no watcher", async () => {
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "p tuple_",
+    });
+    expect(result).toContain("No execution in flight");
+  });
+
+  test("debugPython: refuses when agent just called pauseExecution (controller pause)", async () => {
+    // The whole reason the gate exists: in a controller-level pause, every
+    // worker's MainLoop is blocked at the control queue and pdb never gets
+    // activated, so commands are silently dropped. The tool must refuse with
+    // a clear instruction telling the agent to resume, then set the breakpoint
+    // while Running.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        pauseRequestedByAgent: true,
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "b 7",
+    });
+    expect(result).toContain("[ERROR]");
+    expect(result).toContain("controller-level pause");
+    expect(result).toContain("resumeExecution");
+    // Critical: nothing should have been sent over the wire — the gate must
+    // short-circuit before sendDebugCommand to avoid the silent-overwrite trap.
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: allows EXCEPTION/DEBUG worker-self-pause (Paused but flag false)", async () => {
+    // Worker auto-paused on a UDF exception (or hit a breakpoint set while
+    // Running). Workflow state is Paused but pauseRequestedByAgent is false.
+    // pdb IS active in this case — the tool must let the command through.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        pauseRequestedByAgent: false,
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "p tuple_",
+    });
+    expect(result).not.toContain("controller-level pause");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "p tuple_" },
+    ]);
+  });
+
+  test("debugPython: works while workflow is Running (no Paused gate)", async () => {
+    // The whole point of removing the Paused gate: workflow-level pause
+    // would actually prevent the worker from progressing past the debug
+    // command. The tool must accept Running and dispatch the command.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "b 5",
+    });
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "b 5" },
+    ]);
+    expect(result).not.toContain("requires a Paused execution");
+  });
+
+  test("debugPython: rejects bare `cl` / `clear` (would silently no-op due to closed stdin)", async () => {
+    // Pdb's do_clear with no arg calls input('Clear all breaks? '), which
+    // reads sys.stdin — but the Python worker is launched with stdin closed
+    // (BasicIO.standard(false)). EOFError → reply='no' → nothing cleared.
+    // The tool must catch this client-side so the agent doesn't burn turns
+    // believing the breakpoints are gone.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    for (const bareCmd of ["cl", "clear", "  cl  ", "clear\t"]) {
+      const result = await (tools.debugPython as any).execute({
+        operatorId: "op1",
+        workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+        cmd: bareCmd,
+      });
+      expect(result).toContain("[ERROR]");
+      expect(result).toContain("sys.stdin");
+      expect(result).toContain("cl N");
+    }
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: allows `cl N` and `clear <bpnum>` (parametrized clear is fine)", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    // Push an immediate DEBUGGER response so the tool's 3s poll-loop exits
+    // on the first iteration; otherwise this test eats 6s of wall time.
+    mock.debugCommandAppendOnSend = {
+      operatorId: "op1",
+      messages: [
+        {
+          workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+          timestamp: { seconds: 0, nanos: 0 },
+          msgType: { name: "DEBUGGER" },
+          source: "pdb",
+          title: "",
+          message: "ack",
+        },
+      ],
+    };
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const r1 = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "cl 7",
+    });
+    expect(r1).not.toContain("[ERROR]");
+    const r2 = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "clear 1",
+    });
+    expect(r2).not.toContain("[ERROR]");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "cl 7" },
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "clear 1" },
+    ]);
+  });
+
+  test("debugPython: rejects guessed workerId not in workerIdsByOperator", async () => {
+    // Real bug seen in production: agent guesses "worker-0" but engine knows
+    // the worker as "WF4-PythonUDFV2-9a31a1-main-0". The RPC then lands in
+    // the dead-letter queue silently. The tool must validate against the
+    // engine-reported worker ids and refuse with a clear message.
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "worker-0",
+      cmd: "b 7",
+    });
+    expect(result).toContain("[ERROR]");
+    expect(result).toContain("dead-letter");
+    expect(result).toContain("WF4-PythonUDFV2-9a31a1-main-0");
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: accepts the real workerId from workerIdsByOperator", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Running",
+        perOperatorState: {
+          op1: { state: "Running", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+        workerIdsByOperator: { op1: ["WF4-PythonUDFV2-9a31a1-main-0"] },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF4-PythonUDFV2-9a31a1-main-0",
+      cmd: "b 7",
+    });
+    expect(result).not.toContain("dead-letter");
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF4-PythonUDFV2-9a31a1-main-0", cmd: "b 7" },
+    ]);
+  });
+
+  test("debugPython: errors when operator unknown", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        perOperatorState: {
+          opA: { state: "Paused", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+      }),
+    );
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "missing-op",
+      workerId: "WF1-missing-main-0",
+      cmd: "p tuple_",
+    });
+    expect(result).toContain("not part of the active execution");
+    expect(mock.debugCommandCalled.length).toBe(0);
+  });
+
+  test("debugPython: dispatches command and surfaces new DEBUGGER output", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 100, outputTupleCount: 50, numWorkers: 1 },
+        },
+        consoleMessagesByOperator: {},
+      }),
+    );
+    mock.debugCommandAppendOnSend = {
+      operatorId: "op1",
+      messages: [
+        {
+          workerId: "WF1-op1-main-0",
+          timestamp: { seconds: 0, nanos: 0 },
+          msgType: { name: "DEBUGGER" },
+          source: "pdb",
+          title: "",
+          message: "(Pdb) 42",
+        },
+      ],
+    };
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "p len(self.cache)",
+    });
+    expect(mock.debugCommandCalled).toEqual([
+      { operatorId: "op1", workerId: "WF1-op1-main-0", cmd: "p len(self.cache)" },
+    ]);
+    expect(result).toContain("(Pdb) 42");
+  });
+
+  test("debugPython: surfaces send errors", async () => {
+    const mock = makeMockWatcher(
+      makeMockSnapshot({
+        currentState: "Paused",
+        perOperatorState: {
+          op1: { state: "Paused", inputTupleCount: 0, outputTupleCount: 0, numWorkers: 1 },
+        },
+      }),
+    );
+    mock.debugCommandShouldThrow = new Error("WebSocket closed");
+    watcherRef.current = mock.watcher;
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.debugPython as any).execute({
+      operatorId: "op1",
+      workerId: "WF1-op1-main-0",
+      cmd: "n",
+    });
+    expect(result).toContain("[ERROR]");
+    expect(result).toContain("WebSocket closed");
+  });
+
+  test("getOperatorResult: fetches and formats rows", async () => {
+    const mock = makeMockWatcher(makeMockSnapshot({ currentState: "Paused" }));
+    watcherRef.current = mock.watcher;
+
+    const tools = createWsExecutionTools({
+      workflowState,
+      watcherSlot,
+      getExecutionConfig: () => mockConfig,
+    });
+    const result = await (tools.getOperatorResult as any).execute({
+      operatorId: "op1",
+      offset: 20,
+      limit: 10,
+    });
+    expect(result).toContain("Operator op1");
+    expect(result).toContain("Schema: x:integer, y:string");
+    expect(result).toContain("Rows: 2");
+    // pageIndex is 1-based on the wire (engine convention). offset=20, limit=10 → page 3.
+    expect(mock.paginationCalled).toEqual([{ operatorId: "op1", pageIndex: 3, pageSize: 10 }]);
+  });
+});

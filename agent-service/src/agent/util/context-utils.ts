@@ -38,6 +38,8 @@ import { buildLineageErrorContext, lineageErrorPointer, upstreamInputSchema } fr
 import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import { buildErrorReflection, renderFoldedError, DEFAULT_REFLECTION_THRESHOLD, type ErrorReflectionEntry } from "../context/select/reinjection/error-reflection";
+import { renderExecutionContext } from "../context/execution-section";
+import type { ExecutionWatcherSnapshot } from "../execution-watcher";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -161,6 +163,13 @@ export interface AssembleContextOptions {
    *  behavior, no expansion. */
   flowLevel?: number;
   dataLevel?: number;
+  /** Live execution monitor snapshot (executionControl/WS mode). When present
+   *  and not Uninitialized, a trailing `# Execution` section is appended with
+   *  the recent `[execution]` observations + current execution state. */
+  executionSnapshot?: ExecutionWatcherSnapshot | null;
+  /** The executionName whose `[execution]` steps render. Null ⇒ drop all (e.g.
+   *  after a DAG edit invalidated the prior run). */
+  currentRenderedExecutionName?: string | null;
 }
 
 /**
@@ -235,7 +244,12 @@ export function assembleContext(
     }
   }
 
-  const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+  // `role:"execution"` steps are action-less watcher observations — they carry
+  // no snapshot and must not flow through the snapshot-path renderers. Keep
+  // them out of path building; they render in their own trailing `# Execution`
+  // section (mode-independent) below.
+  const pathSteps = visibleSteps.filter(s => s.role !== "execution");
+  const { path, initSnapshot } = buildPath(pathSteps, snapshotStorage);
 
   // The latest user-message content lives in its own top-of-prompt
   // `# User Task` block — single source of truth, always present, never
@@ -292,6 +306,18 @@ export function assembleContext(
     }
   }
 
+  // Trailing `# Execution` section (executionControl/WS mode): recent
+  // [execution] observations filtered to the current run + the live execution
+  // snapshot. Mode-independent — appended after the DELTA/LATEST body.
+  const executionBlock = renderExecutionContext(
+    visibleSteps,
+    options.executionSnapshot,
+    options.currentRenderedExecutionName
+  );
+  if (executionBlock) {
+    content += `\n\n${executionBlock}`;
+  }
+
   log.debug(
     {
       mode,
@@ -299,6 +325,7 @@ export function assembleContext(
       pathLength: path.length,
       actionBearing: path.filter(n => n.snapshot !== undefined).length,
       initExcluded: initSnapshot !== undefined,
+      executionSection: executionBlock !== null,
     },
     "built context"
   );

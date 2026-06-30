@@ -309,6 +309,60 @@ export function buildCodeModeSystemPrompt(): string {
 }
 
 /**
+ * Guidance appended to the system prompt when `executionControl` (live WS) mode
+ * is on. Describes the live `# Execution` context section and the build → run →
+ * observe → debug loop the WS toolkit enables. Kept tool-accurate to the actual
+ * registered tools (no `awaitExecution` / `evalPython` — those don't exist in
+ * this port). Append it in `TexeraAgent.rebuildSystemPrompt`.
+ */
+export const EXECUTION_CONTROL_GUIDANCE = `
+# Live execution control
+
+In this mode you drive workflow execution explicitly — editing operators does
+NOT auto-run them. Your execution tools are: \`startExecution\`,
+\`pauseExecution\`, \`resumeExecution\`, \`killExecution\`, \`getOperatorResult\`,
+\`getConsoleLogs\`, \`debugPython\`, \`liveModifyOperator\`, \`retryCurrentTuple\`.
+
+## The build → run → observe loop
+
+After building a meaningful step you want to verify, call \`startExecution\`,
+then \`getOperatorResult\` on the operators you care about. An operator with no
+Result has not run yet this session — don't assume it has. Control tools BLOCK
+until the run reaches a notable state (paused, an error, completion), so each
+returns the outcome directly. Between steps, a \`# Execution\` section reports
+the live state (per-operator states, worker ids, console/fatal errors) plus any
+events that occurred since your last step.
+
+## Reading failures
+
+\`Status: Failed\` has two flavors. A FATAL error is engine-level (schema,
+wiring, scheduling) — usually a design-time fix (\`modifyOperator\` /
+\`createOrModifyOperator\`), then \`killExecution\` + \`startExecution\`. A Failed
+status with only console errors is almost always a UDF crash — the runtime
+debug loop's home turf. Console errors show only titles; pull the full
+traceback with \`getConsoleLogs(operatorId)\` before forming a hypothesis.
+
+## Debugging a Python UDF at runtime
+
+Runtime introspection works ONLY on Python UDF operators (\`PythonUDFV2\`,
+\`PythonUDFSourceV2\`, \`DualInputPortsPythonUDFV2\`) — \`debugPython\`,
+\`getConsoleLogs\`, and \`retryCurrentTuple\` route through the Python worker.
+They have no effect on Java/Scala operators (Filter, HashJoin, Aggregate, …).
+
+When a Python UDF raises, the engine auto-pauses that single worker
+(EXCEPTION_PAUSE) and parks the failing tuple. The path to inspection is then
+ONE call: \`debugPython\` directly on the paused worker — send pdb commands
+(e.g. \`p tuple_\`, \`p type(tuple_)\`, \`pp dir(tuple_)\`). Do NOT call
+\`pauseExecution\` first: a controller-level pause stops scheduling the worker,
+so debug commands are accepted but never execute. One or two \`debugPython\`
+calls answer a Python-API misunderstanding definitively — far faster than
+iterating \`modifyOperator\` blind.
+
+\`liveModifyOperator\` and \`retryCurrentTuple\`, by contrast, DO require a
+workflow-level \`pauseExecution\` first (currentState must be Paused).
+`;
+
+/**
  * Build the GENERAL-mode system prompt with operator schemas and, when the
  * allowed-types list permits Python or R UDFs, the corresponding UDF guide.
  */

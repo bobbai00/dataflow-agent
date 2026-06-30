@@ -36,6 +36,10 @@ const EnvSchema = z.object({
   LLM_ENDPOINT: z.string().url().default("http://localhost:9096"),
   WORKFLOW_COMPILING_SERVICE_ENDPOINT: z.string().url().default("http://localhost:9090"),
   WORKFLOW_EXECUTION_SERVICE_ENDPOINT: z.string().url().default("http://localhost:8085"),
+  // Live WebSocket control channel (`/wsapi/workflow-websocket`) used by the
+  // executionControl toolkit (pause/resume/debugPython). Same service as REST
+  // execution, ws:// scheme.
+  WORKFLOW_EXECUTION_WS_ENDPOINT: z.string().url().default("ws://localhost:8085"),
   EXECUTION_ENDPOINT_TEMPLATE: z.string().optional(),
 });
 

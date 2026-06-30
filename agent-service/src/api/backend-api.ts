@@ -26,6 +26,7 @@ interface BackendConfig {
   modelsEndpoint: string;
   compileEndpoint: string;
   executionEndpoint: string;
+  wsEndpoint: string;
 }
 
 const currentConfig: BackendConfig = {
@@ -35,6 +36,7 @@ const currentConfig: BackendConfig = {
   modelsEndpoint: env.LLM_ENDPOINT,
   compileEndpoint: env.WORKFLOW_COMPILING_SERVICE_ENDPOINT,
   executionEndpoint: env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
+  wsEndpoint: env.WORKFLOW_EXECUTION_WS_ENDPOINT,
 };
 
 export function getBackendConfig(): BackendConfig {
