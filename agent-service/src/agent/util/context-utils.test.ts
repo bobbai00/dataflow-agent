@@ -207,7 +207,7 @@ describe("assembleContext — Latest", () => {
     // Topology is now embedded per-operator (no separate ## Links section).
     expect(c).not.toContain("## Links");
     expect(c).toContain("Inputs: src"); // filt's upstream
-    expect(c).toContain("Used by: filt"); // src's downstream
+    expect(c).not.toContain("Used by:"); // downstream "Used by" line was removed
 
     // No legacy echo lines.
     expect(c).not.toContain("User's request is:");
@@ -235,7 +235,7 @@ describe("assembleContext — Latest", () => {
       withTurns.indexOf("# Current Dataflow")
     );
     expect(turnsSection).not.toContain("Observation:");
-    expect(turnsSection).not.toContain("Output table shape"); // no result tables in the turns
+    expect(turnsSection).not.toContain("Output Table:"); // no result tables in the turns
     expect(withTurns).toContain("# Current Dataflow"); // latest core retained (with results)
   });
 
@@ -268,8 +268,8 @@ describe("assembleContext — Latest", () => {
     expect(turns).toContain("pd.read_csv('data.csv')");
     // but the result/observation is NOT in the turns — it lives only in the core
     expect(turns).not.toContain("Observation:");
-    expect(turns).not.toContain("Output table shape");
-    expect(c).toContain("Output table shape: (42, 2)"); // latest result, in # Current Dataflow
+    expect(turns).not.toContain("Output Table:");
+    expect(c).toContain("Output Table: 42 rows, 2 cols"); // latest result, in # Current Dataflow
   });
 
   test("empty path → empty content", () => {
@@ -485,9 +485,9 @@ describe("assembleContext — collapseSuperseded (DELTA)", () => {
     expect(c).toContain("- operator filt added"); // t2 — structural line kept...
     expect(c).toContain("- operator filt updated"); // t3
     // ...but t2's filt result table is gone, while t3's (current) survives.
-    expect(c).toContain("Output table shape: (12, 2)"); // filt current result (t3)
-    expect(c).toContain("Output table shape: (100, 2)"); // src current result (t1)
-    expect(c).not.toContain("Output table shape: (50, 2)"); // filt's superseded t2 result
+    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current result (t3)
+    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current result (t1)
+    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // filt's superseded t2 result
   });
 
   // filt edited 3× (t2→50, t3→33, t4→12); src once (t1→100). Two superseded
@@ -564,17 +564,17 @@ describe("assembleContext — collapseSuperseded (DELTA)", () => {
       })
     );
     expect((c.match(/omitted — superseded/g) || []).length).toBe(1); // filt@t2 superseded
-    expect(c).not.toContain("Output table shape: (50, 2)"); // superseded result blanked
-    expect(c).toContain("Output table shape: (12, 2)"); // filt current — never blanked
-    expect(c).toContain("Output table shape: (100, 2)"); // src current — never blanked
+    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // superseded result blanked
+    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current — never blanked
+    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current — never blanked
   });
 
   test("watermark collapses OLDEST-first: a budget just under lossless blanks only the oldest superseded result", () => {
     const plainSc = supersession3Scenario();
     const plain = content(assembleContext(plainSc.steps, plainSc.workflowState, plainSc.storage, ContextMode.DELTA, opts));
     // No collapse yet → both superseded results present.
-    expect(plain).toContain("Output table shape: (50, 2)"); // filt@t2 (oldest superseded)
-    expect(plain).toContain("Output table shape: (33, 2)"); // filt@t3 (newer superseded)
+    expect(plain).toContain("Output Table: 50 rows, 2 cols"); // filt@t2 (oldest superseded)
+    expect(plain).toContain("Output Table: 33 rows, 2 cols"); // filt@t3 (newer superseded)
 
     // Budget just below lossless: one blank (the oldest) saves enough to fit.
     const budgetTokens = Math.floor(plain.length / 4) - 1;
@@ -587,10 +587,10 @@ describe("assembleContext — collapseSuperseded (DELTA)", () => {
       })
     );
     expect((c.match(/omitted — superseded/g) || []).length).toBe(1); // only ONE collapsed
-    expect(c).not.toContain("Output table shape: (50, 2)"); // oldest superseded → blanked
-    expect(c).toContain("Output table shape: (33, 2)"); // newer superseded → still present
-    expect(c).toContain("Output table shape: (12, 2)"); // filt current → present
-    expect(c).toContain("Output table shape: (100, 2)"); // src current → present
+    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // oldest superseded → blanked
+    expect(c).toContain("Output Table: 33 rows, 2 cols"); // newer superseded → still present
+    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current → present
+    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current → present
   });
 });
 
@@ -671,15 +671,15 @@ describe("assembleContext — truncateOldest (DELTA sliding window)", () => {
     // The 3 oldest events are dropped and replaced by a single marker.
     expect(c).toContain("3 earlier events omitted to fit the context budget");
     // Surviving event = t4 (filt's latest edit), with its current result.
-    expect(c).toContain("Output table shape: (12, 2)");
+    expect(c).toContain("Output Table: 12 rows, 2 cols");
     // RESEED PROOF: filt at t4 renders as "updated" (it was created back at t2,
     // which createFlags knows from the full path) — NOT "added". Without the
     // reseed it would diff against the empty init and read as a fresh add.
     expect(c).toContain("- operator filt updated");
     expect(c).not.toContain("- operator filt added");
     // Dropped events' results are gone (the naive baseline's information loss).
-    expect(c).not.toContain("Output table shape: (50, 2)"); // t2
-    expect(c).not.toContain("Output table shape: (33, 2)"); // t3
+    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // t2
+    expect(c).not.toContain("Output Table: 33 rows, 2 cols"); // t3
     // src was created in a dropped event and isn't in t4's delta → it vanishes
     // (exactly the structure-loss that supersession-collapse avoids).
     expect(c).not.toContain("- operator src added");

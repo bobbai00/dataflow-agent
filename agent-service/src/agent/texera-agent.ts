@@ -735,6 +735,9 @@ export class TexeraAgent {
     maxResultRows?: number;
     flowLevel?: number;
     dataLevel?: number;
+    columnStats?: boolean;
+    valueFormat?: boolean;
+    dataHints?: boolean;
     maxLoadersPerSource?: number;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
@@ -799,6 +802,18 @@ export class TexeraAgent {
     if (updates.dataLevel !== undefined) {
       this.settings.dataLevel = updates.dataLevel;
       // DECORATE data facet ordinal level (CONTEXT-DESIGN §5).
+    }
+    if (updates.columnStats !== undefined) {
+      this.settings.columnStats = updates.columnStats;
+      // Standalone Column Stats overlay (independent of dataLevel).
+    }
+    if (updates.valueFormat !== undefined) {
+      this.settings.valueFormat = updates.valueFormat;
+      // Standalone value-format-hints flag (data-derived family).
+    }
+    if (updates.dataHints !== undefined) {
+      this.settings.dataHints = updates.dataHints;
+      // Standalone structural Data-hints flag (data-derived family).
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
@@ -1012,7 +1027,7 @@ export class TexeraAgent {
           if (this.workflowState.getAllOperators().length > 0) {
             try {
               const logicalPlan = this.workflowState.toLogicalPlan();
-              compilationResult = await compileWorkflowAsync(logicalPlan);
+              compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken);
             } catch (e: any) {
               this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
             }

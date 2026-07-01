@@ -19,7 +19,7 @@
 
 import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowState } from "../workflow-state";
-import { formatExecuteOperatorResult, getVisibleResultHeaders } from "./tools-utility";
+import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
@@ -28,6 +28,7 @@ import {
   COERCION_TELEMETRY_KEY,
 } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
+import { formatColumnStats } from "../context/decorate/data/column-stats";
 import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
@@ -38,6 +39,7 @@ import { formatLineage } from "../context/decorate/flow/cardinality";
 // reference them from this module.
 export {
   formatSchemaLine,
+  formatColumnStats,
   formatValueFormatHints,
   formatLineage,
   formatTableHints,
@@ -49,8 +51,14 @@ export interface FormatOperatorResultOptions {
   /** When true, prepend a compact `Schema:` line listing every output column
    *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
    *  the result-row headers (names only). A cheaper, complete substitute for
-   *  the verbose `Column stats:` block (lever E). Defaults to false. */
+   *  the fuller `Column Schema and stats:` block. Defaults to false. */
   schemaInResult?: boolean;
+  /** When true, append the full per-column `Column Schema and stats:` block (null counts,
+   *  mean/min/max, distinct, top-N histograms, datetime range) the worker
+   *  publishes on `columnStats`. Standalone — independent of the data ladder, so
+   *  it composes on top of any `dataLevel`. Matches the format the CODE-mode
+   *  system prompt documents. Defaults to false. */
+  columnStats?: boolean;
   /** When true, append a `Format hints:` line naming string columns the backend
    *  detected as numbers wearing formatting punctuation (currency `$1,234`,
    *  thousands-separated, percent, accounting `(1,234)`) and the cleaning the
@@ -76,6 +84,17 @@ export interface FormatOperatorResultOptions {
    *  the reserved `__table_hints__` entry on columnStats; this side only renders.
    *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
   tableStructureHint?: boolean;
+  /** Resolve an input's COLUMN count from its upstream operator's output. The
+   *  engine's input port metrics carry only the row count (tuple count), so the
+   *  caller (which has the snapshot) supplies this to fill in `M cols` on the
+   *  `Inputs:` shape line. Returns undefined when unknown. */
+  resolveInputColumns?: (upstreamOpId: string) => number | undefined;
+  /** Whether to render the `Inputs:` shape line inside the Result block.
+   *  LATEST sets this false — it renders a single consolidated `Inputs:` line
+   *  (with counts) at the operator-block level, so repeating it here is
+   *  duplication. DELTA leaves it true (it has no operator-block level).
+   *  Undefined ⇒ true. */
+  inputsInResult?: boolean;
 }
 
 
@@ -139,20 +158,22 @@ export function formatOperatorResult(
   const dataString = jsonToTableFormat(sampleRows);
 
   const metadataLines = [
-    formatInputOutputMetadata(workflowState, operatorId, opInfo, columns),
+    formatInputOutputMetadata(workflowState, operatorId, opInfo, columns, options.inputsInResult !== false, options.resolveInputColumns),
     columnsTruncated ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)` : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const briefSummary = formatExecuteOperatorResult(operatorId);
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
+  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  // Flow rungs (lineage/join) moved to the consolidated "Operators needing
-  // attention" section in context-utils; result-formatting owns only data-facet
-  // annotation (schema/value-format/coercion/structure) + the TSV substrate.
-  return [briefSummary, schemaLine, formatHints, coercionLine, tableHintsLine, ...metadataLines, dataString]
+  // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
+  // then the data-derived annotations that DESCRIBE the table (schema / column
+  // schema+stats / format & structure hints), so annotations read AFTER the data
+  // they refer to. Flow rungs live in context-utils' "Operators needing
+  // attention" section; result-formatting owns only the data facet + TSV.
+  return [...metadataLines, dataString, schemaLine, colStatsBlock, formatHints, coercionLine, tableHintsLine]
     .filter(Boolean)
     .join("\n");
 }
@@ -166,13 +187,15 @@ function formatInputOutputMetadata(
   workflowState: WorkflowState,
   operatorId: string,
   opInfo: OperatorInfo,
-  outputColumns: number
+  outputColumns: number,
+  includeInputs: boolean,
+  resolveInputColumns?: (upstreamOpId: string) => number | undefined
 ): string {
   const outputRows = opInfo.totalRowCount ?? opInfo.outputTuples;
-  const outputLine = `Output table shape: (${outputRows}, ${outputColumns})`;
+  const outputLine = `Output Table: ${outputRows} rows, ${outputColumns} cols`;
 
   const inputShapes = opInfo.inputPortShapes;
-  if (!inputShapes || inputShapes.length === 0) {
+  if (!includeInputs || !inputShapes || inputShapes.length === 0) {
     return outputLine;
   }
 
@@ -189,12 +212,23 @@ function formatInputOutputMetadata(
   const inputPart = inputShapes
     .sort((a, b) => a.portIndex - b.portIndex)
     .map(p => {
-      const name = portIndexToUpstream.get(p.portIndex) ?? `input${p.portIndex}`;
-      return `${name}(${p.rows}, ${p.columns})`;
+      const upstreamId = portIndexToUpstream.get(p.portIndex);
+      const name = upstreamId ?? `input${p.portIndex}`;
+      const rowsPart = typeof p.rows === "number" ? `${p.rows} rows` : undefined;
+      // Input column count isn't in the engine's port metrics — resolve it from
+      // the upstream operator's output column count.
+      const cols = typeof p.columns === "number" ? p.columns : upstreamId ? resolveInputColumns?.(upstreamId) : undefined;
+      const colsPart = typeof cols === "number" ? `${cols} cols` : undefined;
+      const shape = [rowsPart, colsPart].filter(Boolean).join(", ");
+      return shape ? `${name} (${shape})` : name;
     })
     .join(", ");
 
-  return `Input operator(table shape): ${inputPart}\n${outputLine}`;
+  // Descriptive, single line: names each input by its SOURCE OPERATOR id (an
+  // operator's output IS this operator's input — see the chaining principle in
+  // the system prompt), so the model can trace a column back to the operator
+  // whose Result section defines it.
+  return `Inputs: ${inputPart}\n${outputLine}`;
 }
 
 function jsonToTableFormat(jsonResult: Record<string, any>[]): string {

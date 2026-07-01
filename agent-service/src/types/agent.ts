@@ -126,16 +126,6 @@ export interface AgentSettings {
    */
   parallelToolCalls: boolean;
   /**
-   * When true, each non-error operator result that the backend annotated
-   * with `columnStats` is followed by a `Column stats:` section in
-   * the assembled context (one line per column: `name: stat1; stat2; ...`).
-   * Helps the model reason about column semantics (numeric vs categorical,
-   * cardinality, null counts) without re-issuing inspection operators.
-   * Enabled by default — the type+summary line per column carries enough
-   * signal to noticeably shift the model's decisions on the next turn at
-   * relatively low token cost.
-   */
-  /**
    * When true, each operator's `operatorProperties` are rendered as a
    * `Properties:` line in the assembled snapshot — EXCEPT the Python code
    * operators (PythonUDFV2 / DataLoading / DataProcessing), whose `code`
@@ -144,17 +134,6 @@ export interface AgentSettings {
    * paper-§4.3 strip-everything behavior). Enabled by default.
    */
   includeOperatorProperties: boolean;
-  /**
-   * When true, each non-error operator result is preceded by a compact
-   * `Schema:` line — `col (type), col (type), …` for every output column,
-   * derived from the engine's `columnStats` (type tag) or, failing that, the
-   * result-row headers (names only). Unlike the verbose `Column stats:` block
-   * it lists ALL columns (it's compact enough not to truncate) and carries only
-   * name+type, not value distributions. Intended as a cheaper substitute for
-   * full stats in CODE mode (schema-first, lever E): explicit column+type
-   * inventory so a downstream `def process(upstream)` writes against real
-   * columns. Disabled by default (no-op).
-   */
   /**
    * When true, an operator that has been edited repeatedly (≥ the reflection
    * threshold) gets an `Attempt reflection:` block in the current snapshot:
@@ -258,6 +237,20 @@ export interface AgentSettings {
   maxResultRows: number;
   flowLevel: number;
   dataLevel: number;
+  /** Standalone overlay (independent of `dataLevel`): when true, each operator
+   *  result carries the full per-column `Column Schema and stats:` block the worker
+   *  publishes (null/mean/min/max/distinct/top-N). Off by default. */
+  columnStats: boolean;
+  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
+   *  append the `Format hints:` line for string columns that are numbers wearing
+   *  punctuation (currency/percent/thousands). Independent of `dataLevel` (which
+   *  can also enable it at L3). Off by default. */
+  valueFormat: boolean;
+  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
+   *  append the `Data hints:` structural-profile block (grain/key, partition
+   *  columns, dirty-load). Independent of `dataLevel` (which can also enable it
+   *  at L2). Off by default. */
+  dataHints: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -316,6 +309,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxResultRows: 0,
   flowLevel: 0,
   dataLevel: 0,
+  columnStats: false,
+  valueFormat: false,
+  dataHints: false,
   toolDialect: "qwen-xml",
 };
 
@@ -401,6 +397,9 @@ export interface AgentSettingsApi {
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;
+  columnStats?: boolean;
+  valueFormat?: boolean;
+  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
 }
 
@@ -456,5 +455,8 @@ export interface UpdateAgentSettingsRequest {
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;
+  columnStats?: boolean;
+  valueFormat?: boolean;
+  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
 }

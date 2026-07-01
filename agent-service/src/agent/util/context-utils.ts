@@ -28,6 +28,7 @@ import type { ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
+import type { OperatorInfo } from "../../types/execution";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
@@ -127,6 +128,11 @@ export interface AssembleContextOptions {
    *  Off by default. Internal flag — the public knob is `dataLevel` (≥1), which
    *  expands to this via the rung catalog. */
   schemaInResult?: boolean;
+  /** When true, each non-error operator result carries the full per-column
+   *  `Column Schema and stats:` block (null/mean/min/max/distinct/top-N/datetime-range)
+   *  published by the worker. Standalone flag — independent of `dataLevel`, so
+   *  it overlays on any data level. Off by default. */
+  columnStats?: boolean;
   /** When true, a load-stage operator (`DataLoading`) that errored gets a
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
    *  the exception class parsed from the error string. Off by default. */
@@ -1163,7 +1169,7 @@ function serializeTaskBody(
 
     if (node.snapshot && !omitObservation) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // The operator-block STRUCTURAL decorations (Summary / Inputs / Used by)
+      // The operator-block STRUCTURAL decorations (Summary / Inputs)
       // are LATEST's view and stay out here; the DATA-facet decorations (Schema /
       // Data hints / Format hints) render per `dataLevel`, symmetric with LATEST
       // (see renderRawResult). Every operator that CHANGED or
@@ -1216,7 +1222,11 @@ function serializeTaskBody(
           continue;
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
-        const resultText = info ? renderRawResult(op.operatorID, info, workflowState, options) : "(not executed)";
+        const resultText = info
+          ? renderRawResult(op.operatorID, info, workflowState, options, (id: string) =>
+              outputColsFromSnapshot(node.snapshot, id)
+            )
+          : "(not executed)";
         const rlines = resultText.split("\n");
         if (rlines.length <= 1) {
           obs.push(`  result: ${rlines[0] ?? ""}`);
@@ -1327,10 +1337,8 @@ function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
  * row-capped) or the FULL error. Data-facet decorations (schema / structural
  * profile / value-format / coercion) are rendered per `dataLevel`, SYMMETRIC
  * with LATEST — the data ladder means the same thing in both context modes.
- * (The operator-block STRUCTURAL lines — Summary / Inputs / Used by — remain
- * LATEST-only; they are not part of the data facet.) The one clean-up is
- * dropping the redundant `Executed operator X` status line (the
- * `- operator X <verb>` line already says it). The engine error's `Operator
+ * (The operator-block STRUCTURAL lines — Summary / Inputs — remain LATEST-only;
+ * they are not part of the data facet.) The engine error's `Operator
  * code:` block is intentionally KEPT (it makes the error self-contained — the
  * agent sees the failing line in its own code right where the error is), even
  * though the same code also appears in the Action.
@@ -1339,18 +1347,19 @@ function renderRawResult(
   operatorId: string,
   info: Parameters<typeof formatOperatorResult>[1],
   workflowState: WorkflowState,
-  options: AssembleContextOptions
+  options: AssembleContextOptions,
+  resolveInputColumns?: (upstreamOpId: string) => number | undefined
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
     schemaInResult: options.schemaInResult,
+    columnStats: options.columnStats,
     tableStructureHint: options.tableStructureHint,
     valueFormatFlags: options.valueFormatFlags,
     coercionTelemetry: options.coercionTelemetry,
     maxResultRows: options.maxResultRows,
+    resolveInputColumns,
   });
-  let bodyLines = raw.split("\n");
-  if (bodyLines[0] && /^Executed operator /.test(bodyLines[0])) bodyLines = bodyLines.slice(1);
-  const text = bodyLines.join("\n").trim();
+  const text = raw.trim();
   return text.length > 0 ? text : "(no result)";
 }
 
@@ -1464,35 +1473,52 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
 // is re-exported here for back-compat with any existing importers.
 export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
+/** An operator's output column count = the visible-header count of its result's
+ *  first row. Used to fill an input's `M cols` on the shape line (the engine's
+ *  input port metrics carry only the row/tuple count). Undefined when unknown. */
+function outputColsFromSnapshot(snapshot: SnapshotData | undefined, opId: string): number | undefined {
+  const r = snapshot?.results.get(opId)?.info?.result;
+  if (!Array.isArray(r) || !r[0] || typeof r[0] !== "object") return undefined;
+  return Object.keys(r[0] as Record<string, unknown>).filter(
+    k => k !== "__row_index__" && k !== "__is_visualization__"
+  ).length;
+}
+
 /**
- * Per-operator topology, embedded in the operator block so connectivity is
- * complete and local (no separate `## Links` section to cross-reference).
- * Renders BOTH directions:
- *   Inputs: <up> (→ port N), …   ← upstream ids, port-accurate (port shown only
- *                                  for multi-input ops; ports drive join param order)
- *   Used by: <down>, …           ← downstream ids (impact / consumer reasoning)
- * Source operators emit no `Inputs:`; sinks emit no `Used by:`. Unlike the
- * executed-only `Input operator(table shape)` result line (which is *shape*,
- * data-scoped), these lines are always present — even for un-executed ops and
- * for ops whose downstream consumer is omitted by delta.
+ * The operator's single consolidated `Inputs:` line, embedded in the operator
+ * block so upstream connectivity is local (no separate `## Links` section).
+ * Lists each upstream operator id + `(R rows, C cols)` when the op has executed
+ * (rows from this op's input port metrics, cols resolved from the upstream
+ * operator's output). Source operators emit nothing. Order is by port —
+ * cosmetic only; the engine binds `process()` params by NAME=id, not position.
  */
-function formatOperatorAdjacency(op: OperatorPredicate, allLinks: WorkflowContent["links"]): string[] {
+function formatOperatorAdjacency(
+  op: OperatorPredicate,
+  allLinks: WorkflowContent["links"],
+  opInfo?: OperatorInfo,
+  snapshot?: SnapshotData
+): string[] {
   const lines: string[] = [];
   const inbound = allLinks
     .filter(l => l.target.operatorID === op.operatorID)
     .map(l => ({ up: l.source.operatorID, port: op.inputPorts?.findIndex(p => p.portID === l.target.portID) ?? -1 }))
     .sort((a, b) => a.port - b.port);
   if (inbound.length > 0) {
-    const multiInput = (op.inputPorts?.length ?? 0) > 1;
-    lines.push(
-      "Inputs: " + inbound.map(i => (multiInput && i.port >= 0 ? `${i.up} (→ port ${i.port})` : i.up)).join(", ")
-    );
-  }
-  const downstream = Array.from(
-    new Set(allLinks.filter(l => l.source.operatorID === op.operatorID).map(l => l.target.operatorID))
-  );
-  if (downstream.length > 0) {
-    lines.push("Used by: " + downstream.join(", "));
+    const shapes = opInfo?.inputPortShapes ?? [];
+    // The single consolidated Inputs line: upstream id + (rows, cols) when the
+    // op has executed, in a stable order (by port — cosmetic only; the engine
+    // binds process() params by NAME=id, not position). Input row count comes
+    // from this op's port metrics; input column count from the upstream
+    // operator's output (engine port metrics omit it).
+    const parts = inbound.map(i => {
+      const shape = shapes.find(s => s.portIndex === i.port);
+      const rowsPart = typeof shape?.rows === "number" ? `${shape.rows} rows` : undefined;
+      const colN = typeof shape?.columns === "number" ? shape.columns : outputColsFromSnapshot(snapshot, i.up);
+      const colsPart = typeof colN === "number" ? `${colN} cols` : undefined;
+      const shapeStr = [rowsPart, colsPart].filter(Boolean).join(", ");
+      return shapeStr ? `${i.up} (${shapeStr})` : i.up;
+    });
+    lines.push("Inputs: " + parts.join(", "));
   }
   return lines;
 }
@@ -1510,10 +1536,14 @@ function serializeOperatorFull(
   const execText = info
     ? formatOperatorResult(op.operatorID, info, workflowState, {
         schemaInResult: options.schemaInResult,
+        columnStats: options.columnStats,
         valueFormatFlags: options.valueFormatFlags,
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
         tableStructureHint: options.tableStructureHint,
+        // LATEST renders a single consolidated `Inputs:` (with counts) at the
+        // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
+        inputsInResult: false,
       })
     : undefined;
 
@@ -1535,7 +1565,7 @@ function serializeOperatorFull(
   const lines: string[] = [];
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
-  for (const l of formatOperatorAdjacency(op, allLinks)) lines.push(l);
+  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the

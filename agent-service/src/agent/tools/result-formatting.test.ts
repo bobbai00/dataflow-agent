@@ -85,16 +85,16 @@ describe("formatOperatorResult - early returns", () => {
     expect(out).toBe("(no result data)");
   });
 
-  test("empty array result emits brief summary plus zero-column shape only", () => {
+  test("empty array result emits the zero-column shape only", () => {
     const out = formatOperatorResult("op1", makeOpInfo({ result: [], outputTuples: 0 }), EMPTY_STATE);
-    expect(out.split("\n")).toEqual(["Executed operator op1", "Output table shape: (0, 0)"]);
+    expect(out.split("\n")).toEqual(["Output Table: 0 rows, 0 cols"]);
   });
 });
 
 describe("formatOperatorResult - table shape and metadata", () => {
   test("uses outputTuples for row count when totalRowCount missing", () => {
     const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 7, result: [{ a: 1, b: 2 }] }), EMPTY_STATE);
-    expect(out).toContain("Output table shape: (7, 2)");
+    expect(out).toContain("Output Table: 7 rows, 2 cols");
   });
 
   test("totalRowCount overrides outputTuples in output shape", () => {
@@ -103,7 +103,7 @@ describe("formatOperatorResult - table shape and metadata", () => {
       makeOpInfo({ outputTuples: 7, totalRowCount: 999, result: [{ a: 1, b: 2 }] }),
       EMPTY_STATE
     );
-    expect(out).toContain("Output table shape: (999, 2)");
+    expect(out).toContain("Output Table: 999 rows, 2 cols");
   });
 
   test("filters internal __is_visualization__ key from outer column count", () => {
@@ -116,7 +116,7 @@ describe("formatOperatorResult - table shape and metadata", () => {
       EMPTY_STATE
     );
     // 1 visible column ("html-content") since __is_visualization__ is filtered.
-    expect(out).toContain("Output table shape: (1, 1)");
+    expect(out).toContain("Output Table: 1 rows, 1 cols");
   });
 
   test("appends warnings after metadata lines", () => {
@@ -130,10 +130,9 @@ describe("formatOperatorResult - table shape and metadata", () => {
       EMPTY_STATE
     );
     const lines = out.split("\n");
-    expect(lines[0]).toBe("Executed operator op1");
-    expect(lines[1]).toBe("Output table shape: (1, 1)");
-    expect(lines[2]).toBe("truncated to 1 row");
-    expect(lines[3]).toBe("something else");
+    expect(lines[0]).toBe("Output Table: 1 rows, 1 cols");
+    expect(lines[1]).toBe("truncated to 1 row");
+    expect(lines[2]).toBe("something else");
   });
 });
 
@@ -152,7 +151,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
       makeOpInfo({ outputTuples: 1, result: [makeWideRow(50)] }),
       EMPTY_STATE
     );
-    expect(out).toContain("Output table shape: (1, 50)");
+    expect(out).toContain("Output Table: 1 rows, 50 cols");
     expect(out).not.toContain("showing first");
     // every column header is present
     for (let i = 0; i < 50; i++) expect(out).toContain(`col_${i.toString().padStart(3, "0")}`);
@@ -165,7 +164,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
       EMPTY_STATE
     );
     // The shape line reports the TRUE total — not the rendered subset.
-    expect(out).toContain("Output table shape: (1, 200)");
+    expect(out).toContain("Output Table: 1 rows, 200 cols");
     // The truncation banner appears as its own metadata line.
     expect(out).toContain("(showing first 25 and last 25 of 200 columns)");
     // First 25 kept (col_000 .. col_024)
@@ -212,7 +211,7 @@ describe("formatOperatorResult - input port metadata", () => {
       }),
       EMPTY_STATE
     );
-    expect(out).toContain("Input operator(table shape): input0(5, 3)");
+    expect(out).toContain("Inputs: input0 (5 rows, 3 cols)");
   });
 
   test("uses upstream operator id when an input link matches the port", () => {
@@ -230,7 +229,7 @@ describe("formatOperatorResult - input port metadata", () => {
       }),
       state
     );
-    expect(out).toContain("Input operator(table shape): upstream(10, 2)");
+    expect(out).toContain("Inputs: upstream (10 rows, 2 cols)");
   });
 
   test("sorts multiple input ports by portIndex regardless of input order", () => {
@@ -253,7 +252,7 @@ describe("formatOperatorResult - input port metadata", () => {
       }),
       state
     );
-    expect(out).toContain("Input operator(table shape): up0(1, 1), up1(2, 2)");
+    expect(out).toContain("Inputs: up0 (1 rows, 1 cols), up1 (2 rows, 2 cols)");
   });
 });
 
@@ -303,10 +302,10 @@ describe("formatOperatorResult - visualization rows", () => {
       EMPTY_STATE
     );
     const lines = out.split("\n");
-    expect(out).toContain("Output table shape: (1, 1)");
-    // Header line is the third line (after brief summary and shape line).
-    expect(lines[2]).toBe("\tvalue");
-    expect(lines[3]).toBe("0\t1");
+    expect(out).toContain("Output Table: 1 rows, 1 cols");
+    // Header line is the second line (after the shape line).
+    expect(lines[1]).toBe("\tvalue");
+    expect(lines[2]).toBe("0\t1");
     expect(out).not.toContain("__is_visualization__");
   });
 });
@@ -314,8 +313,8 @@ describe("formatOperatorResult - visualization rows", () => {
 describe("jsonToTableFormat - cell coercion via formatOperatorResult", () => {
   function tableLines(opInfo: Partial<OperatorInfo>): string[] {
     const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 1, ...opInfo }), EMPTY_STATE);
-    // Skip brief summary + shape line.
-    return out.split("\n").slice(2);
+    // Skip the shape line (the table header + rows follow it).
+    return out.split("\n").slice(1);
   }
 
   test("null is rendered as NaN, undefined as empty cell", () => {

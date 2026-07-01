@@ -42,7 +42,10 @@ export interface WorkflowCompilationResponse {
   operatorErrors: Record<string, WorkflowFatalError>;
 }
 
-export async function compileWorkflowAsync(logicalPlan: LogicalPlan): Promise<WorkflowCompilationResponse | null> {
+export async function compileWorkflowAsync(
+  logicalPlan: LogicalPlan,
+  token?: string
+): Promise<WorkflowCompilationResponse | null> {
   const config = getBackendConfig();
   const url = `${config.compileEndpoint}/api/compile`;
 
@@ -56,7 +59,12 @@ export async function compileWorkflowAsync(logicalPlan: LogicalPlan): Promise<Wo
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // WorkflowCompilingService requires a valid JWT. Without it the call
+        // 401s and the agent reasons without output schemas (much slower).
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     });
 

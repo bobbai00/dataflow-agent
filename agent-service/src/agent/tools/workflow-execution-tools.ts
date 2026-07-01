@@ -382,7 +382,7 @@ function formatInputOutput(
   outputColumns: number
 ): string {
   const outputRows = opInfo.totalRowCount ?? opInfo.outputTuples;
-  const outputLine = `Output table shape: (${outputRows}, ${outputColumns})`;
+  const outputLine = `Output Table: ${outputRows} rows, ${outputColumns} cols`;
 
   const inputShapes = opInfo.inputPortShapes;
   if (!inputShapes || inputShapes.length === 0) {
@@ -403,11 +403,14 @@ function formatInputOutput(
     .sort((a, b) => a.portIndex - b.portIndex)
     .map(p => {
       const name = portIndexToUpstream.get(p.portIndex) ?? `input${p.portIndex}`;
-      return `${name}(${p.rows}, ${p.columns})`;
+      const rowsPart = typeof p.rows === "number" ? `${p.rows} rows` : undefined;
+      const colsPart = typeof p.columns === "number" ? `${p.columns} cols` : undefined;
+      const shape = [rowsPart, colsPart].filter(Boolean).join(", ");
+      return shape ? `${name} (${shape})` : name;
     })
     .join(", ");
 
-  return `Input operator(table shape): ${inputPart}\n${outputLine}`;
+  return `Inputs: ${inputPart}\n${outputLine}`;
 }
 
 /**

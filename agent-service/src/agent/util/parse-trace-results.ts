@@ -29,15 +29,15 @@
  *
  *     ### Operator `<id>` (<Type>)
  *     Summary: <customDisplayName>
+ *     Inputs: <upstream> (R rows, C cols)     (LATEST only; DELTA carries it in Result)
  *     Result:
- *       Executed operator <id>
- *       Output table shape: (R, C)
+ *       Output Table: N rows, M cols          (legacy traces: `Output table shape: (R, C)`)
  *       <TSV header>
  *       <TSV row 0>
  *       ...
- *       Column stats:
- *         <col>: <stat>             (older Kramabench trace format)
- *         - "<col>" <stat>          (current formatter — see `formatColumnStats`)
+ *       Column Schema and stats:              (legacy: `Column stats:`)
+ *         - "<col>" <stat>                    (current formatter — see `formatColumnStats`)
+ *         <col>: <stat>                       (older Kramabench trace format)
  *
  * Failures render as `Result:\n  [ERROR] <message>`. The renderer's
  * heading depth varies with context mode (`### Operator` in local-react,
@@ -149,14 +149,18 @@ function classifyResult(summary: string, resultBlock: string): ParsedOperatorRes
     };
   }
 
-  const shapeMatch = resultBlock.match(/Output table shape:\s*\((\d+),\s*(\d+)\)/);
+  // New descriptive form `Output: N rows, M cols`; fall back to the legacy
+  // `Output table shape: (N, M)` so older traces still import.
+  const shapeMatch =
+    resultBlock.match(/Output:\s*(\d+)\s*rows,\s*(\d+)\s*cols/) ??
+    resultBlock.match(/Output table shape:\s*\((\d+),\s*(\d+)\)/);
   const outputShape = shapeMatch
     ? { rows: parseInt(shapeMatch[1], 10), columns: parseInt(shapeMatch[2], 10) }
     : undefined;
 
   let columnStats: Record<string, string> | undefined;
   let tsvSection = resultBlock;
-  const statsIdx = resultBlock.search(/(^|\n)Column stats[^\n]*\n/);
+  const statsIdx = resultBlock.search(/(^|\n)Column (?:Schema and stats|[Ss]tats)[^\n]*\n/);
   if (statsIdx >= 0) {
     tsvSection = resultBlock.slice(0, statsIdx).replace(/\n+$/, "");
     const statsRaw = resultBlock.slice(statsIdx).replace(/^[\s\n]+/, "");
@@ -175,7 +179,7 @@ function classifyResult(summary: string, resultBlock: string): ParsedOperatorRes
 
   const warnings: string[] = [];
   if (shapeMatch) {
-    const shapeLineIdx = tsvLines.findIndex(l => l.includes("Output table shape"));
+    const shapeLineIdx = tsvLines.findIndex(l => /Output:\s*\d+\s*rows/.test(l) || l.includes("Output table shape"));
     if (shapeLineIdx >= 0 && dataStart > shapeLineIdx + 1) {
       for (let i = shapeLineIdx + 1; i < dataStart; i++) {
         const t = tsvLines[i].trim();
@@ -209,7 +213,7 @@ function parseColumnStats(block: string): Record<string, string> {
   };
   for (const raw of lines) {
     const line = raw.replace(/^\s+/, "");
-    if (!line || /^Column stats/i.test(line)) continue;
+    if (!line || /^Column (?:Schema and stats|stats)/i.test(line)) continue;
     const dashFmt = line.match(/^-\s+"([^"]+)"\s+(.*)$/);
     const colonFmt = line.match(/^([A-Za-z0-9_.\- ?%/]+):\s+(.*)$/);
     if (dashFmt) {

@@ -85,6 +85,9 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       attemptReflection: settings.attemptReflection,
+      columnStats: settings.columnStats,
+      valueFormatFlags: settings.valueFormat,
+      tableStructureHint: settings.dataHints,
     });
 
   if (kind === "local-react") {
@@ -190,6 +193,9 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     flowLevel: agentSettings.flowLevel,
     dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
+    columnStats: agentSettings.columnStats,
+    valueFormat: agentSettings.valueFormat,
+    dataHints: agentSettings.dataHints,
     toolDialect: agentSettings.toolDialect,
   };
 
@@ -321,6 +327,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           flowLevel: settings.flowLevel,
           dataLevel: settings.dataLevel,
           attemptReflection: settings.attemptReflection,
+          columnStats: settings.columnStats,
+          valueFormat: settings.valueFormat,
+          dataHints: settings.dataHints,
           toolDialect: settings.toolDialect,
         });
       }
@@ -366,6 +375,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             flowLevel: t.Optional(t.Number()),
             dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
+            columnStats: t.Optional(t.Boolean()),
+            valueFormat: t.Optional(t.Boolean()),
+            dataHints: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
           })
         ),
@@ -647,6 +659,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: settings.flowLevel,
         dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
+        columnStats: settings.columnStats,
+        valueFormat: settings.valueFormat,
+        dataHints: settings.dataHints,
         toolDialect: settings.toolDialect,
       });
 
@@ -681,6 +696,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: agentSettings.flowLevel,
         dataLevel: agentSettings.dataLevel,
         attemptReflection: agentSettings.attemptReflection,
+        columnStats: agentSettings.columnStats,
+        valueFormat: agentSettings.valueFormat,
+        dataHints: agentSettings.dataHints,
         toolDialect: agentSettings.toolDialect,
       };
     },
@@ -714,6 +732,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         flowLevel: t.Optional(t.Number()),
         dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
+        columnStats: t.Optional(t.Boolean()),
+        valueFormat: t.Optional(t.Boolean()),
+        dataHints: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
       }),
     }
