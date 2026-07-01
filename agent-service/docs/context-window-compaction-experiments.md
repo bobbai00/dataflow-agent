@@ -8,9 +8,11 @@ folding the oldest events into a stats *deck* (compress) beat dropping them
 
 ## TL;DR
 
-- **At a tight window (3k trajectory tokens), compress wins on BOTH axes** —
-  higher accuracy (**62.7% vs 58.3%**, +4.4 pts; 60 vs 56 tasks passed) **and
-  lower cost** ($4.40 vs $4.83) — despite sending *more* tokens.
+- **At a tight window (3k trajectory tokens), compress wins on accuracy** —
+  **62.7% vs 58.3%** (+4.4 pts; 60 vs 56 tasks passed). On **cost** the two are
+  effectively **tied per task** (~$0.033 median each): the lower *total* for
+  compress ($4.40 vs $4.83) is outlier-driven, not systematic — see "Cost &
+  context: outlier-corrected". So compress buys accuracy at ~no typical-task cost.
 - **At a loose window (6k), the two are within noise** and sliding edges ahead
   (59.1% vs 60.5%). Under light compaction the deck's overhead isn't repaid.
 - **Compress's value is concentrated exactly where compaction actually bites.**
@@ -196,12 +198,55 @@ change is *correctness* (the prompt no longer describes a format the model isn't
 shown), not performance. Kept as a conditional section (zero cost when the window
 is off); accuracy-neutral when on.
 
+## Cost & context: outlier-corrected (trimmed means)
+
+The total-cost and mean-token figures above are **heavily skewed by a few outlier
+tasks** (dense wide-table DAGs with 15–17 operators, whose deck balloons; plus a
+few 26-step max-out failures). Per-task distributions, 3k SUTs:
+
+**Context (input tokens/task)**
+
+| Config | mean | 5%-trim | 10%-trim | median | max |
+|---|---|---|---|---|---|
+| compress (heavy) | 48.8k | 40.9k | 38.0k | 33.0k | 309.9k |
+| sliding | 41.2k | 36.3k | 34.5k | 31.2k | 179.9k |
+| compress +prompt | 50.1k | 41.2k | 37.9k | 32.9k | 305.5k |
+
+The mean sits ~48% above the median (48.8k vs 33.0k, max 310k). Compress's context
+overhead vs sliding **collapses as you trim** — mean +18% → 5%-trim +12% →
+10%-trim +10% → **median +6%**. On a typical task the deck adds only ~6% context;
+the +18% mean is a handful of outliers.
+
+**Cost ($/task)**
+
+| Config | mean | 5%-trim | 10%-trim | median |
+|---|---|---|---|---|
+| compress | 0.040 | 0.036 | 0.034 | 0.033 |
+| sliding | 0.047 | 0.037 | 0.034 | 0.033 |
+| compress +prompt | 0.048 | 0.041 | 0.037 | 0.033 |
+
+**Trimmed, per-task cost is identical (~$0.033 median across all three).** This
+corrects two total-based claims earlier in this doc:
+
+- The "compress cheaper at 3k" total ($4.40 vs $4.83) was **outlier-driven** —
+  sliding's few 26-step max-out failures, not a systematic per-task advantage.
+  Per typical task, compress and sliding cost the **same**.
+- The compaction-prompt "+cost" was also outliers; trimmed it is flat, consistent
+  with the accuracy-neutral finding.
+
+**Net:** compress's real cost/context penalty over sliding is small and
+outlier-concentrated (the dense wide-table DAGs), not systematic — while its
+accuracy win at 3k holds. You pay slightly more only on the few tasks where
+retaining every operator matters most.
+
 ## Conclusions
 
 1. **Ship compress with a tight window.** In the regime a context limit exists
-   for (heavy compaction), compress is Pareto-better than sliding: more accurate
-   *and* cheaper. 3k trajectory tokens (≈ total input 6–7k with the system
-   prompt) is a good operating point for gpt-5.2 on this workload.
+   for (heavy compaction), compress is **more accurate** than sliding (+4.4 pts)
+   at **~no typical-task cost penalty** (per-task cost is tied at ~$0.033 median;
+   the lower total is outlier-driven — see the trimmed-mean section). 3k trajectory
+   tokens (≈ total input 6–7k with the system prompt) is a good operating point
+   for gpt-5.2 on this workload.
 2. **At loose budgets compaction barely matters** — either strategy ≈ lossless,
    and the deck's overhead isn't worth it. Don't compress if you don't have to.
 3. **The deck must stay lean to win everywhere.** The wide-table stats blowup is
