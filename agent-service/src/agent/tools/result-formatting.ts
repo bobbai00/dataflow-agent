@@ -77,6 +77,10 @@ export interface FormatOperatorResultOptions {
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
+  /** Cap the `Column Schema and stats:` block to the first N columns. Used by the
+   *  compress deck to keep wide-table stats lean (a compaction deck must stay
+   *  smaller than the raw records it replaces). 0/undefined ⇒ the default 50. */
+  columnStatsMaxCols?: number;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
    *  empty rows/cols + duplicates) computed name-agnostically by the worker over
@@ -164,7 +168,7 @@ export function formatOperatorResult(
   ].filter(Boolean);
 
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
-  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo) : undefined;
+  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo, options.columnStatsMaxCols ?? 0) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;

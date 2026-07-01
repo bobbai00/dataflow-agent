@@ -150,6 +150,9 @@ export interface AssembleContextOptions {
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
+  /** Cap the `Column Schema and stats:` block to the first N columns. The compress
+   *  deck sets this small so wide-table stats stay lean. 0/undefined ⇒ default 50. */
+  columnStatsMaxCols?: number;
   /** Per-cell char cap (reused as the truncation limit for the surfaced print
    *  output block). Undefined ⇒ no cap. */
   maxOperatorResultCellCharLimit?: number;
@@ -1356,6 +1359,7 @@ function renderRawResult(
   const raw = formatOperatorResult(operatorId, info, workflowState, {
     schemaInResult: options.schemaInResult,
     columnStats: options.columnStats,
+    columnStatsMaxCols: options.columnStatsMaxCols,
     tableStructureHint: options.tableStructureHint,
     valueFormatFlags: options.valueFormatFlags,
     coercionTelemetry: options.coercionTelemetry,
@@ -1387,6 +1391,14 @@ function stringifyOutput(output: unknown): string {
  * stays a compression (a 50k-row table can't dump thousands of rows). Errored /
  * empty operators have no rows to sample ⇒ the floor of 3 (harmless).
  */
+/** Lean-deck caps. A compaction deck must stay SMALLER than the raw trajectory
+ *  it replaces; on wide tables the per-column stats block and the wide TSV peek
+ *  are the dominant bloat, so the deck caps both tighter than the normal 50-col
+ *  view. Experiment: gpt-5.2 6k-compress lost to sliding because a 15-operator
+ *  wide-table deck ballooned to ~6k tokens; these caps target ≤ the raw view. */
+const DECK_STATS_MAX_COLS = 12;
+const DECK_MAX_ROWS = 5;
+
 export function deckRowCap(info: OperatorInfo | undefined, ratio: number | undefined, maxRows: number | undefined): number {
   const rows =
     info?.totalRowCount ?? info?.outputTuples ?? (Array.isArray(info?.result) ? (info!.result as unknown[]).length : 0);
@@ -1421,9 +1433,11 @@ function serializeSnapshotCompact(
   lines.push("");
   for (const op of sortedOps) {
     const info = snapshot.results.get(op.operatorID)?.info;
+    const rowCapCeil = Math.min(options.maxResultRows && options.maxResultRows > 0 ? options.maxResultRows : DECK_MAX_ROWS, DECK_MAX_ROWS);
     const perOpOptions: AssembleContextOptions = {
       ...options,
-      maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
+      maxResultRows: deckRowCap(info, options.deckSampleRatio, rowCapCeil),
+      columnStatsMaxCols: DECK_STATS_MAX_COLS,
     };
     lines.push(serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel));
     lines.push("");
@@ -1591,6 +1605,7 @@ function serializeOperatorFull(
     ? formatOperatorResult(op.operatorID, info, workflowState, {
         schemaInResult: options.schemaInResult,
         columnStats: options.columnStats,
+        columnStatsMaxCols: options.columnStatsMaxCols,
         valueFormatFlags: options.valueFormatFlags,
         coercionTelemetry: options.coercionTelemetry,
         maxResultRows: options.maxResultRows,
