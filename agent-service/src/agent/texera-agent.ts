@@ -128,7 +128,7 @@ export interface TexeraAgentConfig {
    *  system prompt unchanged. Receives the current tool-call dialect so the
    *  prompt can match the dialect the parser expects, and the contextMode so
    *  the described context format matches what the assembler renders. */
-  systemPromptBuilder?: (dialect: LocalToolDialect, contextMode: ContextMode) => string;
+  systemPromptBuilder?: (dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string;
 }
 
 export interface AgentMessageResult {
@@ -201,7 +201,7 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
-  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, contextMode: ContextMode) => string) | undefined;
+  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string) | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -416,15 +416,18 @@ export class TexeraAgent {
   }
 
   private rebuildSystemPrompt(): void {
+    // DELTA compaction section is only meaningful when the context-window budget
+    // is on (the `# Dataflow (compacted)` deck can then fire); gate the prompt on it.
+    const compactionEnabled = this.settings.contextWindowTokens > 0;
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
       // distribution — and the tool-call dialect the parser expects.
-      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, this.settings.contextMode);
+      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, this.settings.contextMode, compactionEnabled);
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
-      this.systemPrompt = buildCodeModeSystemPrompt(this.settings.contextMode);
+      this.systemPrompt = buildCodeModeSystemPrompt(this.settings.contextMode, compactionEnabled);
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
     // not just the instruction (which got poor .copy() adherence). Off by default.
@@ -828,10 +831,15 @@ export class TexeraAgent {
       // Pure render-time toggle — LATEST-mode `# Agent Turns` trajectory section.
     }
     if (updates.contextWindowTokens !== undefined) {
+      // Crossing the 0/>0 boundary flips the DELTA prompt's `## History
+      // Compaction` section on/off, so rebuild the prompt when the enabled-state
+      // changes.
+      if (updates.contextWindowTokens > 0 !== this.settings.contextWindowTokens > 0) {
+        promptNeedsRebuild = true;
+      }
       this.settings.contextWindowTokens = updates.contextWindowTokens;
-      // Pure render-time setting — DELTA context-window budget (tokens). 0 ⇒
-      // unbounded lossless delta; >0 ⇒ raw delta until it would overflow, then
-      // compaction via compactionStrategy.
+      // DELTA context-window budget (tokens). 0 ⇒ unbounded lossless delta;
+      // >0 ⇒ raw delta until it would overflow, then compaction via compactionStrategy.
     }
     if (updates.compactionStrategy !== undefined) {
       this.settings.compactionStrategy = updates.compactionStrategy;

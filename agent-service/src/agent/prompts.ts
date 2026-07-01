@@ -51,6 +51,11 @@ const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
   latest: rd("example.latest.md"),
   delta: rd("example.delta.md"),
 };
+// Conditional section: only injected into the DELTA prompt when the context-window
+// budget is enabled (compaction can fire), so the model is told its history may
+// fold into a `# Dataflow (compacted)` stats deck. When the window is off the
+// deck never appears, so the section is omitted to avoid dead tokens.
+const COMPACTION_FRAGMENT: string = rd("compaction.delta.md");
 
 // ============================================================================
 // Shared sections
@@ -315,13 +320,23 @@ function buildAllowedOperatorSchemas(
  * fed. This is a SWITCH on the mode, not a hardcoded/both-formats blob — LATEST
  * → `# Current Dataflow` layout, DELTA → `# Agent Events` layout. Edit the .md
  * files (template + fragments), not this function.
+ *
+ * `compactionEnabled` (DELTA only) additionally injects the `## History
+ * Compaction` section when the context-window budget is on — so the prompt
+ * describes the `# Dataflow (compacted)` deck the agent will actually see once
+ * its trajectory overflows the window. Off ⇒ the section is omitted (the deck
+ * never renders, so describing it would be dead tokens).
  */
-export function buildCodeModeSystemPrompt(contextMode: ContextMode = ContextMode.LATEST): string {
+export function buildCodeModeSystemPrompt(
+  contextMode: ContextMode = ContextMode.LATEST,
+  compactionEnabled = false
+): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
-  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", CONTEXT_FORMAT_FRAGMENTS[key]).replace(
-    "{{EXAMPLE}}",
-    EXAMPLE_FRAGMENTS[key]
-  );
+  const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
+  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", CONTEXT_FORMAT_FRAGMENTS[key])
+    .replace("{{COMPACTION}}", compaction)
+    .replace("{{EXAMPLE}}", EXAMPLE_FRAGMENTS[key])
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 /**
@@ -400,8 +415,9 @@ const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(
  */
 export function buildLocalReactSystemPrompt(
   dialect: LocalToolDialect,
-  contextMode: ContextMode = ContextMode.LATEST
+  contextMode: ContextMode = ContextMode.LATEST,
+  compactionEnabled = false
 ): string {
   if (dialect === "react-text") return REACT_TEXT_SYSTEM_PROMPT;
-  return `${buildCodeModeSystemPrompt(contextMode).trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
+  return `${buildCodeModeSystemPrompt(contextMode, compactionEnabled).trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 }

@@ -12,7 +12,7 @@ After each action, a dataflow snapshot — operators and their execution results
 ## Context Format
 
 {{CONTEXT_FORMAT}}
-
+{{COMPACTION}}
 ### Operator Result Tables
 
 Each executed operator block shows its `Summary:`, an `Inputs:` line naming each upstream operator with its `(R rows, C cols)` (omitted for source operators), and a `Result:` block. The `Result:` is laid out in this order: an `Output Table: N rows, M cols` line (the true totals of this operator's output), the output table itself, then any data annotations that DESCRIBE it (e.g. `Column Schema and stats:`).
