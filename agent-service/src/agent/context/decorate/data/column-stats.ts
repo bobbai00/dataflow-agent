@@ -38,19 +38,18 @@ const MAX_STATS_COLUMNS = 50;
  * telemetry) are dropped — they render via their own rungs. Returns undefined
  * when the operator published no real-column stats.
  */
-export function formatColumnStats(opInfo: OperatorInfo, maxColumns: number = MAX_STATS_COLUMNS): string | undefined {
+export function formatColumnStats(opInfo: OperatorInfo): string | undefined {
   const stats = opInfo.columnStats;
   if (!stats) return undefined;
   const cols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   if (cols.length === 0) return undefined;
-  const cap = maxColumns > 0 ? maxColumns : MAX_STATS_COLUMNS;
-  const shown = cols.slice(0, cap);
+  const shown = cols.slice(0, MAX_STATS_COLUMNS);
   const lines = shown.map(c => {
     const v = stats[c];
     return typeof v === "string" && v.length > 0 ? `- "${c}" ${v}` : `- "${c}"`;
   });
-  if (cols.length > cap) {
-    lines.push(`- … (${cols.length - cap} more columns omitted)`);
+  if (cols.length > MAX_STATS_COLUMNS) {
+    lines.push(`- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
   }
   return ["Column Schema and stats:", ...lines].join("\n");
 }
