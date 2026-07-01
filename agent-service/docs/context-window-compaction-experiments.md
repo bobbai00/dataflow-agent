@@ -174,6 +174,28 @@ column cap is the wrong knob. If 6k-compress is to be improved, the lever is
 *graduated fidelity* — full stats for the most recent K operators, one-line
 schema-only summaries for older ones — not blanket trimming.
 
+## Compaction-prompt iteration (accuracy-neutral)
+
+The DELTA system prompt originally described only the raw `# Agent Events`
+trajectory, not the `# Dataflow (compacted)` deck — a prompt-vs-context drift when
+the window is on. Added a conditional `## History Compaction` section (injected
+only for DELTA + window-on + compress) telling the model its oldest events fold
+into a trustworthy stats deck. Re-ran 3k compress with it (103/104):
+
+| 3k config | Overall | Pass | vs no-prompt |
+|---|---|---|---|
+| compress **+ prompt section** | 62.0% | 59 | — |
+| compress **heavy, no prompt** | 62.7% | 60 | baseline |
+| sliding | 58.3% | 56 | (prompt-aware still +3) |
+
+Outcome vs no-prompt: both-pass 50, prompt-only 9, no-prompt-only 10 — **symmetric,
+net zero**. **Describing the deck did not change accuracy** — the deck's headers
+(`# Dataflow (compacted — … results shown as statistics + sampled rows`) are
+self-describing enough that the explicit instruction added nothing. Value of the
+change is *correctness* (the prompt no longer describes a format the model isn't
+shown), not performance. Kept as a conditional section (zero cost when the window
+is off); accuracy-neutral when on.
+
 ## Conclusions
 
 1. **Ship compress with a tight window.** In the regime a context limit exists
