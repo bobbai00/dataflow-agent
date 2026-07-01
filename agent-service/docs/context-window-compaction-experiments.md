@@ -118,6 +118,28 @@ The stats-as-compression premise holds when raw records are large (many rows);
 KramaBench results are pre-capped small, so verbose per-column stats on wide
 tables are a poor trade.
 
+## gpt-5-mini cross-model pass (inconclusive — hang-biased)
+
+Repeating the sweep on **gpt-5-mini** did not replicate cleanly: **~40% of tasks
+per SUT hung** (watchdog-killed), *concentrated in the long/hard tasks* — exactly
+the ones where a trajectory overflows and compaction actually engages. On the
+completed subset (skewed toward short tasks where compaction is nearly a no-op),
+compress and sliding are **tied**:
+
+| Window | Compress pass% | Sliding pass% | compress-only / sliding-only |
+|---|---|---|---|
+| 3k | 64% (39/61) | 64% (38/59) | 4 / 4 |
+| 6k | 63% (39/62) | 60% (39/65) | 5 / 4 |
+
+This neither confirms nor refutes the gpt-5.2 finding: the missingness is *not
+random* — it removes precisely the heavy-compaction tasks that discriminate the
+two strategies, so the surviving tie is expected regardless of which strategy is
+better. gpt-5-mini on this LiteLLM harness is too hang-prone (reasoning-model
+timeouts / rate-limit stalls under concurrent load) for a clean run without a
+much longer, isolated, low-concurrency recovery pass. Recommendation: re-run
+gpt-5-mini **sequentially (no `--parallel`), one SUT at a time**, if a clean
+cross-model number is needed.
+
 ## Conclusions
 
 1. **Ship compress with a tight window.** In the regime a context limit exists
