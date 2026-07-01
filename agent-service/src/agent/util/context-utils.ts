@@ -24,7 +24,7 @@
 import type { ModelMessage } from "ai";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
-import type { ReActStep } from "../../types/agent";
+import type { CompactionStrategy, ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -71,47 +71,27 @@ export interface AssembleContextOptions {
   /** Internal: the pre-rendered `# Agent Turns` body (set by assembleContext
    *  when `agentTurns` is on in LATEST mode; consumed by renderLatest). */
   agentTurnsRendered?: string;
-  /** DELTA supersession-collapse. When true, an operator's result renders only
-   *  at the latest turn that produced it AND only while the operator is still
-   *  live in the DAG; every superseded / deleted / re-executed-away result is
-   *  replaced with an `(omitted — superseded)` marker. Thoughts + Actions are
-   *  never touched. Near-lossless (drops only obsolete results), so it bounds
-   *  result content to the number of LIVE operators instead of trajectory
-   *  length. `latestResultNode` / `liveOps` are precomputed by assembleContext. */
-  collapseSuperseded?: boolean;
-  /** Internal: opId → step id of the LAST turn that produced that op's result. */
-  latestResultNode?: Map<string, string>;
-  /** Internal: operator ids still present in the leaf (current) snapshot. */
-  liveOps?: Set<string>;
-  /** DELTA context-budget cap (the watermark), in *tokens* (estimated as
-   *  chars / 4, matching the agent's own input-token estimate). Bounds the
-   *  assembled user-message context; the fixed system prompt is a separate,
-   *  ~constant message and is not counted. Only meaningful with
-   *  `collapseSuperseded` on:
-   *    - cap unset / ≤ 0 → legacy unconditional collapse (every superseded
-   *      result is blanked).
-   *    - cap > 0 → WATERMARK: lossless delta is sent untouched while it fits
-   *      the cap (the append-only prefix stays intact → prompt cache stays
-   *      warm). Only when delta exceeds the cap do we blank superseded results
-   *      OLDEST-FIRST — the minimum prefix needed to get back under the cap.
-   *  This is the knob that turns "always collapse" (cache-hostile) into "only
-   *  collapse under size pressure". Default 0 (off). */
-  contextBudgetTokens?: number;
-  /** Internal (computed by assembleContext): the exact set of `${stepId}::${opId}`
-   *  result entries to blank as superseded. Empty/undefined ⇒ lossless delta.
-   *  Populated by the budget watermark — see `renderDeltaWithBudget`. */
-  collapseSet?: Set<string>;
-  /** DELTA naive sliding-window baseline (the comparator for collapseSuperseded).
-   *  Shares the `contextBudgetTokens` cap: below the cap, lossless delta is sent
-   *  untouched; above it, the OLDEST whole agent events are dropped (not just their
-   *  results — the entire Thought/Action/Observation turn) until the context fits,
-   *  with the prev-snapshot reseeded so the surviving events' deltas stay correct
-   *  and an `(… N earlier events omitted …)` marker in their place. This is the
-   *  standard "drop oldest turns" eviction; the contrast that shows DAG-aware
-   *  supersession-collapse keeps more useful signal at the same budget. Off by
-   *  default; takes precedence over collapseSuperseded when both are set. */
-  truncateOldest?: boolean;
-  /** Internal (computed by the truncation watermark): keep only agent events whose
+  /** DELTA context-window budget, in *tokens* (estimated via `estimateTokens`).
+   *  Bounds the assembled trajectory user-message — the true model window minus
+   *  the ~constant system prompt + response headroom, which the caller folds
+   *  into this number. Unset / ≤ 0 ⇒ unbounded (lossless raw delta — legacy).
+   *  When > 0, the assembler renders the "original" raw delta (schema-only, no
+   *  stats) while it fits, then COMPACTS via `compactionStrategy` once it would
+   *  overflow. DELTA mode only (LATEST is already single-snapshot). */
+  contextWindowTokens?: number;
+  /** How to compact once the raw delta exceeds `contextWindowTokens`:
+   *   - "sliding": drop the OLDEST whole agent events until it fits (an
+   *     `(… N earlier events omitted …)` marker stands in their place).
+   *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck
+   *     — the boundary snapshot rendered per-operator as Column Schema and stats
+   *     + a `deckSampleRatio` row peek — then resume raw delta for the fresh
+   *     suffix (rolling compaction). Default "compress". */
+  compactionStrategy?: CompactionStrategy;
+  /** compress-deck row sampling: fraction of each folded operator's output rows
+   *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
+   *  Undefined ⇒ 0.10. */
+  deckSampleRatio?: number;
+  /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
   keepFromEventIndex?: number;
@@ -249,12 +229,23 @@ const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessi
 const ATTEMPT_REFLECTION_THRESHOLD = 3;
 
 /**
- * Chars-per-token divisor for the `contextBudgetTokens` watermark. Matches the
- * agent's own input-token estimate (`Math.ceil(userMessage.length / 4)` in
- * texera-agent.ts) so the cap the caller sets in tokens lines up with the usage
- * the agent reports. A real tokenizer can drop in here later.
+ * Chars-per-token divisor for the context-window budget. Matches the agent's own
+ * input-token estimate (`Math.ceil(userMessage.length / 4)` in texera-agent.ts)
+ * so the window the caller sets in tokens lines up with the usage the agent
+ * reports.
  */
 const CHARS_PER_TOKEN = 4;
+
+/**
+ * Estimate the token count of a rendered context string. The single seam every
+ * budget decision routes through — a real tokenizer (e.g. gpt-tokenizer) drops
+ * in here later without touching any caller. Today: the deterministic chars/4
+ * heuristic (±10–15% on English + code), which needs no dependency and never
+ * disagrees with the agent's own input-token accounting.
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
 
 /**
  * Build the assembled user-message context the LLM sees on the next
@@ -345,36 +336,18 @@ export function assembleContext(
   if (options.errorReflection && mode === ContextMode.LATEST) {
     options.errorReflectionMap = buildErrorReflection(path);
   }
-  // Supersession-collapse pre-pass (DELTA): which turn owns each operator's
-  // current result, and which operators are still live in the leaf snapshot.
-  if (options.collapseSuperseded) {
-    options.latestResultNode = computeLatestResultNodes(tasks, initSnapshot);
-    const leaf = lastSnapshotOf(tasks);
-    options.liveOps = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
-  }
-
   let content: string;
   switch (mode) {
     case ContextMode.DELTA: {
-      const budgetChars =
-        options.contextBudgetTokens && options.contextBudgetTokens > 0
-          ? options.contextBudgetTokens * CHARS_PER_TOKEN
-          : undefined;
-      // truncateOldest (naive sliding window) takes precedence over the
-      // supersession-collapse path when both are set; both share the cap.
+      const windowTokens =
+        options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
+      // Unbounded window (0/unset) ⇒ legacy lossless delta (respects the data
+      // ladder / standalone flags as before). A positive window switches to the
+      // budgeted path: "original" raw delta (schema-only) while it fits, then
+      // compaction (sliding | compress) once it would overflow.
       content =
-        options.truncateOldest && budgetChars !== undefined
-          ? renderDeltaTruncated(
-              tasks,
-              workflowState,
-              options,
-              initSnapshot,
-              latestUserContent,
-              latestUserStepId,
-              createFlagsByStep,
-              budgetChars
-            )
-          : renderDeltaWithBudget(
+        windowTokens === undefined
+          ? renderInterleaved(
               tasks,
               workflowState,
               options,
@@ -382,6 +355,16 @@ export function assembleContext(
               latestUserContent,
               latestUserStepId,
               createFlagsByStep
+            )
+          : assembleBudgetedContext(
+              tasks,
+              workflowState,
+              options,
+              initSnapshot,
+              latestUserContent,
+              latestUserStepId,
+              createFlagsByStep,
+              windowTokens
             );
       break;
     }
@@ -638,173 +621,202 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  *   ...
  */
 /**
- * Supersession pre-pass: replay the per-turn deltas (same rolling-prev logic as
- * the renderer) and record, for each operator, the step id of the LATEST turn
- * that produced a result for it. Combined with the leaf snapshot's live-operator
- * set, this lets serializeTaskBody keep only each operator's current live result
- * and omit every superseded/deleted one (collapseSuperseded).
+ * The budgeted DELTA orchestrator (contextWindowTokens > 0). Renders the
+ * "original" raw delta — full trajectory, each observation showing raw records +
+ * a `Schema:` line ONLY (stats are the compression currency, reserved for the
+ * deck) — and, once that would overflow the window, COMPACTS via the chosen
+ * strategy:
+ *
+ *   - "sliding":  drop the OLDEST whole agent events until it fits, leaving an
+ *                 `(… N earlier events omitted …)` marker (renderDeltaTruncated).
+ *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck —
+ *                 the boundary snapshot rendered per-operator as stats + a
+ *                 ratio-sampled row peek — then resume raw delta for the fresh
+ *                 suffix (renderCompressed). This is the rolling compaction: as
+ *                 the suffix regrows past the window, the boundary advances and
+ *                 the deck re-renders from a newer snapshot.
+ *
+ * The budget is measured (via estimateTokens) against this function's output —
+ * the assembled trajectory user-message. The compaction is recomputed each turn
+ * from the current window; because a linear trajectory only grows, the chosen
+ * boundary advances monotonically without any persisted state.
  */
-function computeLatestResultNodes(
-  tasks: TaskGroup[],
-  initSnapshot: SnapshotData | undefined
-): Map<string, string> {
-  const latest = new Map<string, string>();
-  let prev: SnapshotData | undefined = initSnapshot;
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent" || !node.snapshot) continue;
-      for (const opId of computeDelta(prev, node.snapshot)) latest.set(opId, node.step.id);
-      prev = node.snapshot;
-    }
-  }
-  return latest;
-}
-
-/**
- * Enumerate every superseded operator result the renderer COULD blank, in
- * oldest-first (path) order. A result is collapsible exactly when the inline
- * serializer's keep-test fails — i.e. it is NOT the operator's current live
- * result (latest result-turn AND still in the leaf DAG). Each entry is the
- * `${stepId}::${opId}` key the serializer matches against `options.collapseSet`.
- *
- * Mirrors the renderer's iteration precisely (rolling `computeDelta` seeded by
- * the init snapshot, then topo-sorted ops), so blanking the whole list is
- * byte-identical to the legacy unconditional collapse, and blanking a prefix
- * (`slice(0, k)`) drops the k oldest superseded results — the unit the budget
- * watermark searches over.
- */
-function computeSupersededCandidates(
-  tasks: TaskGroup[],
-  initSnapshot: SnapshotData | undefined,
-  latestResultNode: Map<string, string> | undefined,
-  liveOps: Set<string> | undefined
-): string[] {
-  const keys: string[] = [];
-  let prev: SnapshotData | undefined = initSnapshot;
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent" || !node.snapshot) continue;
-      const delta = computeDelta(prev, node.snapshot);
-      const { sortedOps } = topoSortDag(node.snapshot.workflow);
-      for (const op of sortedOps) {
-        if (!delta.has(op.operatorID)) continue;
-        const isLiveLatest =
-          (liveOps?.has(op.operatorID) ?? false) && latestResultNode?.get(op.operatorID) === node.step.id;
-        if (!isLiveLatest) keys.push(`${node.step.id}::${op.operatorID}`);
-      }
-      prev = node.snapshot;
-    }
-  }
-  return keys;
-}
-
-/**
- * DELTA render with optional supersession-collapse under a context-budget cap.
- *
- * Lossless delta is the baseline (the proven-best keeper: append-only prefix →
- * warm prompt cache, full result history). `collapseSuperseded` enables blanking
- * superseded results; `contextBudgetTokens` (B) governs WHEN:
- *
- *   - B unset / ≤ 0 → legacy unconditional collapse (blank ALL superseded).
- *   - B > 0 → WATERMARK. Render lossless first; if it fits B, send it untouched
- *     (no retroactive edits, so the cache-stable prefix is preserved). Only once
- *     delta exceeds B do we blank superseded results OLDEST-FIRST — the minimum
- *     prefix that gets back under B. `size(k)` (blank oldest k) is monotone
- *     non-increasing in k, so we binary-search the smallest sufficient k. If even
- *     a full collapse can't reach B, blank all and log the residual overflow
- *     (never silently truncate).
- *
- * B is measured against this function's output (the assembled user message),
- * estimated as chars / CHARS_PER_TOKEN; the fixed system prompt is separate.
- */
-function renderDeltaWithBudget(
+function assembleBudgetedContext(
   tasks: TaskGroup[],
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
   latestUserContent: string | undefined,
   latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  windowTokens: number
 ): string {
-  const renderWith = (collapseSet: Set<string> | undefined): string => {
-    options.collapseSet = collapseSet;
-    return renderInterleaved(
+  // Phase-A "original" profile: raw records + schema line only. The data-stats
+  // family (column stats / structural hints / value-format / coercion) is off in
+  // the suffix — those are what the compress deck spends its budget on.
+  const suffixOptions: AssembleContextOptions = {
+    ...options,
+    schemaInResult: true,
+    columnStats: false,
+    tableStructureHint: false,
+    valueFormatFlags: false,
+    coercionTelemetry: false,
+    lineageStats: false,
+    keepFromEventIndex: undefined,
+    omittedEventsCount: 0,
+  };
+
+  // Phase A: lossless raw delta. If it fits the window, send it untouched (the
+  // append-only prefix keeps the prompt cache warm).
+  const lossless = renderInterleaved(
+    tasks,
+    workflowState,
+    suffixOptions,
+    initSnapshot,
+    latestUserContent,
+    latestUserStepId,
+    createFlagsByStep
+  );
+  if (estimateTokens(lossless) <= windowTokens) return lossless;
+
+  // Snapshot-bearing agent events, oldest→newest — the fold/evict candidates.
+  const evs: { idx: number; snap: SnapshotData }[] = [];
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
+    }
+  }
+  if (evs.length <= 1) return lossless; // nothing meaningful to fold/evict
+
+  if ((options.compactionStrategy ?? "compress") === "sliding") {
+    return renderDeltaTruncated(
+      tasks,
+      workflowState,
+      suffixOptions,
+      initSnapshot,
+      latestUserContent,
+      latestUserStepId,
+      createFlagsByStep,
+      windowTokens
+    );
+  }
+
+  // compress: fold the oldest d events into a stats deck (the boundary snapshot),
+  // keep the rest as raw-delta suffix. Advance the fold forward until it fits;
+  // larger folds shrink the raw suffix faster than the stats deck grows. When
+  // d === evs.length everything folds into the deck (empty suffix = LATEST-like).
+  let best = lossless;
+  let bestTokens = estimateTokens(lossless);
+  let folded = 0;
+  for (let d = 1; d <= evs.length; d++) {
+    const boundarySnap = evs[d - 1].snap;
+    const keepFrom = d < evs.length ? evs[d].idx : evs[d - 1].idx + 1; // suffix start (past-end ⇒ empty)
+    best = renderCompressed(
       tasks,
       workflowState,
       options,
-      initSnapshot,
+      suffixOptions,
+      boundarySnap,
+      keepFrom,
       latestUserContent,
       latestUserStepId,
       createFlagsByStep
     );
-  };
-
-  if (!options.collapseSuperseded) return renderWith(undefined);
-
-  const candidates = computeSupersededCandidates(tasks, initSnapshot, options.latestResultNode, options.liveOps);
-  const budgetChars =
-    options.contextBudgetTokens && options.contextBudgetTokens > 0
-      ? options.contextBudgetTokens * CHARS_PER_TOKEN
-      : undefined;
-
-  // No cap → legacy unconditional collapse (blank every superseded result).
-  if (budgetChars === undefined) return renderWith(new Set(candidates));
-
-  // Watermark: keep lossless delta as long as it fits the cap.
-  const lossless = renderWith(undefined);
-  if (lossless.length <= budgetChars || candidates.length === 0) {
-    if (lossless.length > budgetChars) {
-      log.warn(
-        { budgetChars, sizeChars: lossless.length },
-        "context over budget but no superseded results available to collapse"
-      );
-    }
-    return lossless;
+    bestTokens = estimateTokens(best);
+    folded = d;
+    if (bestTokens <= windowTokens) break;
   }
-
-  // Over budget: blank superseded results OLDEST-FIRST until back under the cap.
-  // A result whose block is no larger than the marker is left intact (blanking it
-  // would only grow the prompt), so the context never exceeds lossless delta and
-  // size is monotone non-increasing as we add blanks. Stop as soon as we fit. If
-  // even every collapsible result isn't enough, keep the smallest and log the
-  // residual overflow — never silently truncate.
-  const chosen = new Set<string>();
-  let bestOut = lossless;
-  let bestLen = lossless.length;
-  for (const key of candidates) {
-    if (bestLen <= budgetChars) break;
-    chosen.add(key);
-    const trial = renderWith(chosen);
-    if (trial.length < bestLen) {
-      bestOut = trial;
-      bestLen = trial.length;
-    } else {
-      chosen.delete(key); // marker ≥ this result — blanking wouldn't help
-    }
-  }
-  log[bestLen > budgetChars ? "warn" : "debug"](
-    { budgetChars, collapsed: chosen.size, candidates: candidates.length, sizeChars: bestLen },
-    bestLen > budgetChars
-      ? "context over budget even after collapsing every collapsible superseded result"
-      : "watermark supersession-collapse"
+  log[bestTokens > windowTokens ? "warn" : "debug"](
+    { windowTokens, folded, kept: evs.length - folded, tokens: bestTokens },
+    bestTokens > windowTokens
+      ? "context over window even after folding every event into the compacted deck"
+      : "compress compaction"
   );
-  return bestOut;
+  return best;
 }
 
 /**
- * DELTA naive sliding-window baseline (truncateOldest) — the comparator for the
- * supersession-collapse arm. Same watermark: lossless delta is sent untouched
- * while it fits the cap; once it exceeds, the OLDEST whole agent events are
- * dropped (entire Thought/Action/Observation turns, not just results) until it
- * fits. The prev-snapshot is RESEEDED to the state just before the first
+ * compress render: `# User Task` + a `# Dataflow (compacted)` deck of the
+ * boundary snapshot (per-operator stats + a ratio-sampled row peek) + the fresh
+ * `# Agent Events` suffix (raw delta for events at/after `keepFrom`, diffed
+ * against the boundary snapshot) + the leaf FLOW section. The deck REPLACES the
+ * dropped events' raw trajectory: their tables collapse to a few stat lines.
+ */
+function renderCompressed(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  suffixOptions: AssembleContextOptions,
+  boundarySnap: SnapshotData,
+  keepFrom: number,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>
+): string {
+  const sections: string[] = [];
+
+  if (latestUserContent) {
+    sections.push("# User Task");
+    sections.push("");
+    sections.push(latestUserContent);
+    sections.push("");
+  }
+
+  // Deck: the folded prefix, as statistics + sampled rows (deckOptions turns the
+  // stats family ON — the inverse of the schema-only suffix).
+  const deckOptions: AssembleContextOptions = {
+    ...options,
+    columnStats: true,
+    schemaInResult: true,
+    thoughtReplay: false,
+    errorReflection: false,
+    attemptReflection: false,
+  };
+  const deck = serializeSnapshotCompact(boundarySnap, workflowState, deckOptions, /*sectionLevel=*/ 2);
+  if (deck) {
+    sections.push(
+      "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
+    );
+    sections.push(deck);
+    sections.push("");
+  }
+
+  // Suffix: raw-delta agent events at/after the boundary. Reseed the rolling
+  // prev-snapshot to the boundary so the first surviving event diffs against the
+  // deck (not the empty init). No omitted-marker — the deck stands in its place.
+  const suffix: AssembleContextOptions = { ...suffixOptions, keepFromEventIndex: keepFrom, omittedEventsCount: 0 };
+  const events = renderAgentEvents(tasks, workflowState, suffix, boundarySnap, latestUserStepId, createFlagsByStep);
+  if (events && events !== "(no agent actions yet)") {
+    sections.push("# Agent Events (since the compacted snapshot above)");
+    sections.push("");
+    sections.push(events);
+    sections.push("");
+  }
+
+  const leaf = lastSnapshotOf(tasks);
+  if (leaf) {
+    const flow = buildFlowSection(leaf, workflowState, suffixOptions, /*isLatest=*/ false);
+    if (flow) {
+      sections.push("");
+      sections.push(flow);
+    }
+  }
+
+  return sections.join("\n").trimEnd();
+}
+
+/**
+ * DELTA sliding-window compaction (compactionStrategy="sliding"). Lossless raw
+ * delta is sent untouched while it fits the window; once it exceeds, the OLDEST
+ * whole agent events are dropped (entire Thought/Action/Observation turns) until
+ * it fits. The prev-snapshot is RESEEDED to the state just before the first
  * surviving event, so the survivors' per-turn deltas stay correct (otherwise the
  * first survivor would diff against the empty init and re-render every operator
  * as "added"). An `(… N earlier events omitted …)` marker stands in their place.
  *
- * This is the standard eviction every agent framework does; the contrast is that
- * it drops the early-created operators' structure + results wholesale, whereas
- * collapse keeps the structural lines and the live frontier and blanks only the
- * superseded result bodies — so at the same budget collapse retains more signal.
+ * This is the naive eviction baseline: it drops the early operators' structure +
+ * results wholesale, whereas compress keeps them as a compact stats deck — the
+ * contrast the experiments measure.
  */
 function renderDeltaTruncated(
   tasks: TaskGroup[],
@@ -814,7 +826,7 @@ function renderDeltaTruncated(
   latestUserContent: string | undefined,
   latestUserStepId: string | undefined,
   createFlagsByStep: Map<string, Map<string, boolean>>,
-  budgetChars: number
+  windowTokens: number
 ): string {
   const renderKeeping = (cutoff: number | undefined, reseed: SnapshotData | undefined, omitted: number): string => {
     options.keepFromEventIndex = cutoff;
@@ -823,9 +835,9 @@ function renderDeltaTruncated(
   };
 
   // Lossless first (keep every event) — preserves the cache-stable prefix while
-  // it fits, exactly like the collapse watermark.
+  // it fits the window.
   const lossless = renderKeeping(undefined, initSnapshot, 0);
-  if (lossless.length <= budgetChars) return lossless;
+  if (estimateTokens(lossless) <= windowTokens) return lossless;
 
   // Snapshot-bearing agent events, oldest→newest.
   const evs: { idx: number; snap: SnapshotData }[] = [];
@@ -841,19 +853,19 @@ function renderDeltaTruncated(
   // snapshot, so its delta also shrinks), so first-fit while scanning the drop
   // count upward gives the smallest sufficient drop.
   let bestOut = lossless;
-  let bestLen = lossless.length;
+  let bestTokens = estimateTokens(lossless);
   let dropped = 0;
   for (let d = 1; d <= evs.length - 1; d++) {
     bestOut = renderKeeping(evs[d].idx, evs[d - 1].snap, d); // keep eventIndex >= evs[d].idx
-    bestLen = bestOut.length;
+    bestTokens = estimateTokens(bestOut);
     dropped = d;
-    if (bestLen <= budgetChars) break;
+    if (bestTokens <= windowTokens) break;
   }
-  log[bestLen > budgetChars ? "warn" : "debug"](
-    { budgetChars, dropped, kept: evs.length - dropped, sizeChars: bestLen },
-    bestLen > budgetChars
-      ? "context over budget even after keeping only the most recent event"
-      : "watermark truncate-oldest"
+  log[bestTokens > windowTokens ? "warn" : "debug"](
+    { windowTokens, dropped, kept: evs.length - dropped, tokens: bestTokens },
+    bestTokens > windowTokens
+      ? "context over window even after keeping only the most recent event"
+      : "sliding compaction"
   );
   return bestOut;
 }
@@ -1212,15 +1224,6 @@ function serializeTaskBody(
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
         obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
-        // Supersession-collapse: blank this result iff assembleContext marked
-        // this `${stepId}::${opId}` entry in `collapseSet` (a superseded result
-        // selected by the budget watermark — oldest-first, or all of them under
-        // the legacy unconditional/no-cap path). The structural "- operator X …"
-        // line above is kept either way; only the result body is dropped.
-        if (options.collapseSet?.has(`${node.step.id}::${op.operatorID}`)) {
-          obs.push("  result: (omitted — superseded by a later edit)");
-          continue;
-        }
         const info = node.snapshot.results.get(op.operatorID)?.info;
         const resultText = info
           ? renderRawResult(op.operatorID, info, workflowState, options, (id: string) =>
@@ -1376,6 +1379,57 @@ function stringifyOutput(output: unknown): string {
 /* ============================================================================
  *  Snapshot rendering (Full and Delta variants of the per-snapshot DAG)
  * ========================================================================= */
+
+/**
+ * Rows to keep as a peek in the compress deck for one operator: `ratio` of the
+ * operator's true output-row count, clamped to `[3, maxResultRows||20]`. The
+ * ratio keeps the sample proportional to the data; the cap guarantees the deck
+ * stays a compression (a 50k-row table can't dump thousands of rows). Errored /
+ * empty operators have no rows to sample ⇒ the floor of 3 (harmless).
+ */
+export function deckRowCap(info: OperatorInfo | undefined, ratio: number | undefined, maxRows: number | undefined): number {
+  const rows =
+    info?.totalRowCount ?? info?.outputTuples ?? (Array.isArray(info?.result) ? (info!.result as unknown[]).length : 0);
+  const hardCap = maxRows && maxRows > 0 ? maxRows : 20;
+  const r = ratio && ratio > 0 ? ratio : 0.1;
+  return Math.max(3, Math.min(hardCap, Math.ceil(rows * r)));
+}
+
+/**
+ * Compact ("deck") snapshot render for the compress compaction. Same per-operator
+ * blocks as `serializeSnapshotFull`, but each operator's Result is rendered as
+ * statistics (Column Schema and stats) plus a `deckSampleRatio` row peek instead
+ * of its full table — the folded prefix's raw trajectory collapses to a few stat
+ * lines per operator. `isCurrent=false`: this is a historical fold, so no live
+ * compilation schemas. Per-operator `maxResultRows` is the ratio-sampled cap.
+ */
+function serializeSnapshotCompact(
+  snapshot: SnapshotData,
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  sectionLevel: number
+): string | null {
+  const { workflow } = snapshot;
+  if (workflow.operators.length === 0) return null;
+
+  const lines: string[] = [];
+  const { sortedOps, allLinks } = topoSortDag(workflow);
+  const sectionHash = "#".repeat(sectionLevel);
+  const operatorLevel = sectionLevel + 1;
+
+  lines.push(`${sectionHash} Operators`);
+  lines.push("");
+  for (const op of sortedOps) {
+    const info = snapshot.results.get(op.operatorID)?.info;
+    const perOpOptions: AssembleContextOptions = {
+      ...options,
+      maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
+    };
+    lines.push(serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel));
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
 
 /**
  * `sectionLevel` controls the depth of the "Operators" / "Links" headings (and,

@@ -24,7 +24,7 @@ import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import type { AgentDelegateConfig, AgentSettings, LocalToolDialect, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type { AgentDelegateConfig, AgentSettings, CompactionStrategy, LocalToolDialect, ReActStep, TokenUsage, UserInfo } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
@@ -724,9 +724,9 @@ export class TexeraAgent {
     thoughtReplay?: boolean;
     thoughtReplayK?: number;
     agentTurns?: boolean;
-    collapseSuperseded?: boolean;
-    contextBudgetTokens?: number;
-    truncateOldest?: boolean;
+    contextWindowTokens?: number;
+    compactionStrategy?: CompactionStrategy;
+    deckSampleRatio?: number;
     errorReflection?: boolean;
     errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
@@ -827,19 +827,19 @@ export class TexeraAgent {
       this.settings.agentTurns = updates.agentTurns;
       // Pure render-time toggle — LATEST-mode `# Agent Turns` trajectory section.
     }
-    if (updates.collapseSuperseded !== undefined) {
-      this.settings.collapseSuperseded = updates.collapseSuperseded;
-      // Pure render-time toggle — DELTA supersession-collapse of superseded results.
+    if (updates.contextWindowTokens !== undefined) {
+      this.settings.contextWindowTokens = updates.contextWindowTokens;
+      // Pure render-time setting — DELTA context-window budget (tokens). 0 ⇒
+      // unbounded lossless delta; >0 ⇒ raw delta until it would overflow, then
+      // compaction via compactionStrategy.
     }
-    if (updates.contextBudgetTokens !== undefined) {
-      this.settings.contextBudgetTokens = updates.contextBudgetTokens;
-      // Pure render-time setting — DELTA context-budget watermark; superseded
-      // results are blanked oldest-first only once delta exceeds this many tokens.
+    if (updates.compactionStrategy !== undefined) {
+      this.settings.compactionStrategy = updates.compactionStrategy;
+      // Pure render-time setting — how DELTA compacts over budget (sliding | compress).
     }
-    if (updates.truncateOldest !== undefined) {
-      this.settings.truncateOldest = updates.truncateOldest;
-      // Pure render-time toggle — DELTA naive sliding-window (drop oldest events
-      // once over the budget); the comparator for collapseSuperseded.
+    if (updates.deckSampleRatio !== undefined) {
+      this.settings.deckSampleRatio = updates.deckSampleRatio;
+      // Pure render-time setting — compress-deck row-sample fraction.
     }
     if (updates.thoughtReplayK !== undefined) {
       this.settings.thoughtReplayK = updates.thoughtReplayK;

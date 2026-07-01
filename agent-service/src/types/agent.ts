@@ -93,6 +93,15 @@ export enum ContextMode {
   LATEST = "latest",
 }
 
+/**
+ * DELTA compaction strategy — how the assembler shrinks the trajectory once the
+ * raw delta would exceed `contextWindowTokens`:
+ *   - "sliding": evict the oldest whole agent events until it fits.
+ *   - "compress": fold the oldest events into a stats deck, then resume raw
+ *     delta for the fresh suffix (rolling compaction).
+ */
+export type CompactionStrategy = "sliding" | "compress";
+
 export interface AgentSettings {
   systemPrompt: string;
   disabledTools: Set<string>;
@@ -198,22 +207,26 @@ export interface AgentSettings {
    *  latest-state core. A fuller alternative to thoughtReplay's last-K
    *  `# Reasoning`. Off by default. */
   agentTurns: boolean;
-  /** DELTA supersession-collapse. When true, an operator's result renders only
-   *  at the latest turn that produced it (and only while it's still live); every
-   *  superseded/deleted result becomes an `(omitted — superseded)` marker, while
-   *  Thoughts + Actions stay intact. Bounds result content to live-operator count
-   *  instead of trajectory length. Off by default. */
-  collapseSuperseded: boolean;
-  /** DELTA context-budget cap (watermark), in tokens (estimated chars/4). Only
-   *  active with `collapseSuperseded` on: lossless delta is sent untouched while
-   *  it fits the cap; superseded results are blanked oldest-first only when delta
-   *  exceeds it. `0` ⇒ no cap (legacy: collapse all superseded when the flag is
-   *  on). Default 0. */
-  contextBudgetTokens: number;
-  /** DELTA naive sliding-window baseline (comparator for collapseSuperseded).
-   *  Shares contextBudgetTokens: below the cap = lossless delta; above it, the
-   *  oldest whole agent events are dropped until it fits. Off by default. */
-  truncateOldest: boolean;
+  /** DELTA context-window budget, in tokens (estimated chars/4). Bounds the
+   *  assembled trajectory user-message — the true model window minus the
+   *  ~constant system prompt + response headroom, which the caller folds into
+   *  this number. `0` ⇒ unbounded (lossless delta — legacy behavior). When
+   *  `> 0`, the assembler renders the "original" raw delta (schema-only, no
+   *  stats) while it fits, then COMPACTS via `compactionStrategy` once it would
+   *  overflow. Only meaningful in DELTA mode. Default 0. */
+  contextWindowTokens: number;
+  /** How DELTA compacts once the raw delta exceeds `contextWindowTokens`:
+   *   - "sliding": drop the oldest whole agent events until it fits (an
+   *     `(… N earlier events omitted …)` marker stands in their place).
+   *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck
+   *     — the boundary snapshot rendered per-operator as `Column Schema and
+   *     stats:` + a ratio-sampled row peek — then resume raw delta for the
+   *     fresh suffix (rolling compaction). Default "compress". */
+  compactionStrategy: CompactionStrategy;
+  /** compress-deck row sampling: fraction of each folded operator's output rows
+   *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
+   *  Default 0.10. */
+  deckSampleRatio: number;
   /** Error-reflection rung (LATEST only): show each churning operator's attempt
    *  count + distinct errors + a blocked→change-strategy verdict. Off by default. */
   errorReflection: boolean;
@@ -284,9 +297,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   thoughtReplay: true,
   thoughtReplayK: 10,
   agentTurns: false,
-  collapseSuperseded: false,
-  contextBudgetTokens: 0,
-  truncateOldest: false,
+  contextWindowTokens: 0,
+  compactionStrategy: "compress",
+  deckSampleRatio: 0.1,
   errorReflection: false,
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
@@ -370,9 +383,9 @@ export interface AgentSettingsApi {
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   agentTurns?: boolean;
-  collapseSuperseded?: boolean;
-  contextBudgetTokens?: number;
-  truncateOldest?: boolean;
+  contextWindowTokens?: number;
+  compactionStrategy?: CompactionStrategy;
+  deckSampleRatio?: number;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
@@ -426,9 +439,9 @@ export interface UpdateAgentSettingsRequest {
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   agentTurns?: boolean;
-  collapseSuperseded?: boolean;
-  contextBudgetTokens?: number;
-  truncateOldest?: boolean;
+  contextWindowTokens?: number;
+  compactionStrategy?: CompactionStrategy;
+  deckSampleRatio?: number;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;

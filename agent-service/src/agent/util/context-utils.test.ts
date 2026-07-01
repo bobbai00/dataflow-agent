@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { assembleContext, computeDelta } from "./context-utils";
+import { assembleContext, computeDelta, deckRowCap, estimateTokens } from "./context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
@@ -421,182 +421,30 @@ describe("assembleContext — Delta", () => {
 });
 
 /* ============================================================================
- *  Δ computation
+ *  Budgeted context (contextWindowTokens + compaction)
  * ========================================================================= */
 
-describe("assembleContext — collapseSuperseded (DELTA)", () => {
-  // src edited once (t1); filt edited twice (t2 then t3, properties changed so the
-  // delta flags it). filt's t2 result is superseded by t3; src's is current.
-  function supersessionScenario() {
-    const sc = buildScenario([
-      {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
-        toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
-      },
-      { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
-      {
-        id: "t1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true, content: "add src",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c1", input: { operatorId: "src" } }],
-        toolResults: [{ toolCallId: "c1", output: "ok", isError: false }],
-      },
-      {
-        id: "t2", stepId: 2, role: "agent", messageId: "m", parentId: "t1", content: "add filt v1",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c2", input: { operatorId: "filt" } }],
-        toolResults: [{ toolCallId: "c2", output: "ok", isError: false }],
-      },
-      {
-        id: "t3", stepId: 3, role: "agent", messageId: "m", parentId: "t2", content: "fix filt",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c3", input: { operatorId: "filt" } }],
-        toolResults: [{ toolCallId: "c3", output: "ok", isError: false }],
-      },
-    ]);
-    sc.storage.createSnapshot("t1", makeWorkflow(["src"]));
-    sc.storage.setOperatorResult("t1", "src", makeInfo("src", 100));
-    sc.storage.createSnapshot("t2", makeWorkflow(["src", "filt"], [["src", "filt"]]));
-    sc.storage.setOperatorResult("t2", "filt", makeInfo("filt", 50));
-    // t3 re-edits filt: distinct properties so computeDelta flags it as changed.
-    sc.storage.createSnapshot("t3", {
-      operators: [makeOp("src"), makeOp("filt", "TestOp", { fixed: true })],
-      operatorPositions: {},
-      links: [{ linkID: "l", source: { operatorID: "src", portID: "output-0" }, target: { operatorID: "filt", portID: "input-0" } }],
-      commentBoxes: [],
-      settings: { dataTransferBatchSize: 400 },
-    } as any);
-    sc.storage.setOperatorResult("t3", "filt", makeInfo("filt", 12));
-    return sc;
-  }
-
-  test("off: every result renders (no markers)", () => {
-    const sc = supersessionScenario();
-    const c = content(assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, opts));
-    expect(c).not.toContain("omitted — superseded");
+describe("estimateTokens / deckRowCap", () => {
+  test("estimateTokens is chars/4, rounded up", () => {
+    expect(estimateTokens("")).toBe(0);
+    expect(estimateTokens("a")).toBe(1);
+    expect(estimateTokens("abcd")).toBe(1);
+    expect(estimateTokens("abcde")).toBe(2);
   });
 
-  test("on: only the current live result per operator survives; superseded ones are marked", () => {
-    const sc = supersessionScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, collapseSuperseded: true })
-    );
-    // exactly one superseded result — filt's t2 result (t3 superseded it).
-    expect((c.match(/omitted — superseded/g) || []).length).toBe(1);
-    // structural lines are kept for every event (the trail is intact).
-    expect(c).toContain("- operator src added");
-    expect(c).toContain("- operator filt added"); // t2 — structural line kept...
-    expect(c).toContain("- operator filt updated"); // t3
-    // ...but t2's filt result table is gone, while t3's (current) survives.
-    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current result (t3)
-    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current result (t1)
-    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // filt's superseded t2 result
-  });
-
-  // filt edited 3× (t2→50, t3→33, t4→12); src once (t1→100). Two superseded
-  // results (filt@t2, filt@t3), oldest-first; filt@t4 + src@t1 are current.
-  function supersession3Scenario() {
-    const sc = buildScenario([
-      {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
-        toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
-      },
-      { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
-      {
-        id: "t1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true, content: "add src",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c1", input: { operatorId: "src" } }],
-        toolResults: [{ toolCallId: "c1", output: "ok", isError: false }],
-      },
-      {
-        id: "t2", stepId: 2, role: "agent", messageId: "m", parentId: "t1", content: "add filt v1",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c2", input: { operatorId: "filt" } }],
-        toolResults: [{ toolCallId: "c2", output: "ok", isError: false }],
-      },
-      {
-        id: "t3", stepId: 3, role: "agent", messageId: "m", parentId: "t2", content: "fix filt v2",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c3", input: { operatorId: "filt" } }],
-        toolResults: [{ toolCallId: "c3", output: "ok", isError: false }],
-      },
-      {
-        id: "t4", stepId: 4, role: "agent", messageId: "m", parentId: "t3", content: "fix filt v3",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c4", input: { operatorId: "filt" } }],
-        toolResults: [{ toolCallId: "c4", output: "ok", isError: false }],
-      },
-    ]);
-    sc.storage.createSnapshot("t1", makeWorkflow(["src"]));
-    sc.storage.setOperatorResult("t1", "src", makeInfo("src", 100));
-    sc.storage.createSnapshot("t2", makeWorkflow(["src", "filt"], [["src", "filt"]]));
-    sc.storage.setOperatorResult("t2", "filt", makeInfo("filt", 50));
-    const filtWf = (tag: number): any => ({
-      operators: [makeOp("src"), makeOp("filt", "TestOp", { v: tag })],
-      operatorPositions: {},
-      links: [{ linkID: "l", source: { operatorID: "src", portID: "output-0" }, target: { operatorID: "filt", portID: "input-0" } }],
-      commentBoxes: [],
-      settings: { dataTransferBatchSize: 400 },
-    });
-    sc.storage.createSnapshot("t3", filtWf(3));
-    sc.storage.setOperatorResult("t3", "filt", makeInfo("filt", 33));
-    sc.storage.createSnapshot("t4", filtWf(4));
-    sc.storage.setOperatorResult("t4", "filt", makeInfo("filt", 12));
-    return sc;
-  }
-
-  test("watermark not reached (large budget): byte-identical to lossless delta", () => {
-    const sc = supersessionScenario();
-    const plain = content(assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, opts));
-    const sc2 = supersessionScenario();
-    const capped = content(
-      assembleContext(sc2.steps, sc2.workflowState, sc2.storage, ContextMode.DELTA, {
-        ...opts,
-        collapseSuperseded: true,
-        contextBudgetTokens: 100000, // far above this tiny context
-      })
-    );
-    expect(capped).toBe(plain); // below the cap → untouched delta
-    expect(capped).not.toContain("omitted — superseded");
-  });
-
-  test("watermark reached (tiny budget): collapse triggers; current results always survive", () => {
-    const sc = supersessionScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        collapseSuperseded: true,
-        contextBudgetTokens: 1, // forces collapse of all collapsible superseded results
-      })
-    );
-    expect((c.match(/omitted — superseded/g) || []).length).toBe(1); // filt@t2 superseded
-    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // superseded result blanked
-    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current — never blanked
-    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current — never blanked
-  });
-
-  test("watermark collapses OLDEST-first: a budget just under lossless blanks only the oldest superseded result", () => {
-    const plainSc = supersession3Scenario();
-    const plain = content(assembleContext(plainSc.steps, plainSc.workflowState, plainSc.storage, ContextMode.DELTA, opts));
-    // No collapse yet → both superseded results present.
-    expect(plain).toContain("Output Table: 50 rows, 2 cols"); // filt@t2 (oldest superseded)
-    expect(plain).toContain("Output Table: 33 rows, 2 cols"); // filt@t3 (newer superseded)
-
-    // Budget just below lossless: one blank (the oldest) saves enough to fit.
-    const budgetTokens = Math.floor(plain.length / 4) - 1;
-    const sc = supersession3Scenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        collapseSuperseded: true,
-        contextBudgetTokens: budgetTokens,
-      })
-    );
-    expect((c.match(/omitted — superseded/g) || []).length).toBe(1); // only ONE collapsed
-    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // oldest superseded → blanked
-    expect(c).toContain("Output Table: 33 rows, 2 cols"); // newer superseded → still present
-    expect(c).toContain("Output Table: 12 rows, 2 cols"); // filt current → present
-    expect(c).toContain("Output Table: 100 rows, 2 cols"); // src current → present
+  test("deckRowCap: ratio of rows, clamped to [3, cap]", () => {
+    expect(deckRowCap(makeInfo("x", 1000), 0.1, 20)).toBe(20);
+    expect(deckRowCap(makeInfo("x", 5), 0.1, 20)).toBe(3);
+    expect(deckRowCap(makeInfo("x", 300), 0.1, 25)).toBe(25);
+    expect(deckRowCap(makeInfo("x", 200), 0.1, 50)).toBe(20);
+    expect(deckRowCap(makeInfo("x", 1000), undefined, undefined)).toBe(20);
+    expect(deckRowCap(makeInfo("x", 0, "boom"), 0.1, 20)).toBe(3);
   });
 });
 
-describe("assembleContext — truncateOldest (DELTA sliding window)", () => {
+describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
   // src@t1(100); filt edited at t2(50), t3(33), t4(12). Four snapshot-bearing
-  // agent events — the unit the sliding window drops from the front.
+  // agent events — the unit both compaction strategies fold/evict from the front.
   function fourEventScenario() {
     const sc = buildScenario([
       {
@@ -644,47 +492,105 @@ describe("assembleContext — truncateOldest (DELTA sliding window)", () => {
     return sc;
   }
 
-  test("below cap (large budget): byte-identical to lossless delta, no omitted marker", () => {
+  test("window 0 (off): unbounded lossless delta — no compaction", () => {
     const sc = fourEventScenario();
-    const plain = content(assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, opts));
-    const sc2 = fourEventScenario();
-    const capped = content(
-      assembleContext(sc2.steps, sc2.workflowState, sc2.storage, ContextMode.DELTA, {
-        ...opts,
-        truncateOldest: true,
-        contextBudgetTokens: 100000,
-      })
-    );
-    expect(capped).toBe(plain);
-    expect(capped).not.toContain("omitted to fit the context budget");
+    const c = content(assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, opts));
+    expect(c).not.toContain("omitted");
+    expect(c).not.toContain("# Dataflow (compacted");
+    expect(c).toContain("Output Table: 50 rows, 2 cols");
   });
 
-  test("above cap (tiny budget): drops oldest events, keeps most recent, reseeds delta correctly", () => {
+  test("large window (>0, fits): raw delta, no compaction, Phase-A schema-only profile", () => {
     const sc = fourEventScenario();
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
         ...opts,
-        truncateOldest: true,
-        contextBudgetTokens: 1, // forces dropping down to the most recent event only
+        contextWindowTokens: 100000,
+        compactionStrategy: "compress",
       })
     );
-    // The 3 oldest events are dropped and replaced by a single marker.
-    expect(c).toContain("3 earlier events omitted to fit the context budget");
-    // Surviving event = t4 (filt's latest edit), with its current result.
+    expect(c).not.toContain("# Dataflow (compacted");
+    expect(c).not.toContain("omitted");
+    expect(c).toContain("Output Table: 50 rows, 2 cols");
     expect(c).toContain("Output Table: 12 rows, 2 cols");
-    // RESEED PROOF: filt at t4 renders as "updated" (it was created back at t2,
-    // which createFlags knows from the full path) — NOT "added". Without the
-    // reseed it would diff against the empty init and read as a fresh add.
+    expect(c).toContain("Schema (2 cols): id, value");
+  });
+
+  test("sliding, tiny window: drops oldest events, keeps most recent, reseeds delta", () => {
+    const sc = fourEventScenario();
+    const c = content(
+      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
+        ...opts,
+        contextWindowTokens: 1,
+        compactionStrategy: "sliding",
+      })
+    );
+    expect(c).toContain("earlier events omitted");
+    expect(c).toContain("Output Table: 12 rows, 2 cols");
     expect(c).toContain("- operator filt updated");
     expect(c).not.toContain("- operator filt added");
-    // Dropped events' results are gone (the naive baseline's information loss).
-    expect(c).not.toContain("Output Table: 50 rows, 2 cols"); // t2
-    expect(c).not.toContain("Output Table: 33 rows, 2 cols"); // t3
-    // src was created in a dropped event and isn't in t4's delta → it vanishes
-    // (exactly the structure-loss that supersession-collapse avoids).
     expect(c).not.toContain("- operator src added");
+    expect(c).not.toContain("Operator `src`");
+  });
+
+  test("compress, tiny window: folds prefix into a stats deck, PRESERVES folded operators", () => {
+    const sc = fourEventScenario();
+    const c = content(
+      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
+        ...opts,
+        contextWindowTokens: 1,
+        compactionStrategy: "compress",
+      })
+    );
+    expect(c).toContain("# Dataflow (compacted");
+    expect(c).not.toContain("earlier events omitted");
+    expect(c).toContain("Operator `src`");
+    expect(c).toContain("Operator `filt`");
+    expect(c).toContain("Output Table: 12 rows, 2 cols");
+  });
+
+  test("compress vs sliding contrast at the same window: compress keeps src, sliding drops it", () => {
+    const a = fourEventScenario();
+    const slid = content(
+      assembleContext(a.steps, a.workflowState, a.storage, ContextMode.DELTA, {
+        ...opts,
+        contextWindowTokens: 1,
+        compactionStrategy: "sliding",
+      })
+    );
+    const b = fourEventScenario();
+    const comp = content(
+      assembleContext(b.steps, b.workflowState, b.storage, ContextMode.DELTA, {
+        ...opts,
+        contextWindowTokens: 1,
+        compactionStrategy: "compress",
+      })
+    );
+    expect(slid).not.toContain("Operator `src`");
+    expect(comp).toContain("Operator `src`");
+  });
+
+  test("compress, partial fold: deck prefix + raw-delta suffix coexist", () => {
+    const ref = fourEventScenario();
+    const lossless = content(assembleContext(ref.steps, ref.workflowState, ref.storage, ContextMode.DELTA, opts));
+    const windowTokens = Math.floor(lossless.length / 4) - 1;
+    const sc = fourEventScenario();
+    const c = content(
+      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
+        ...opts,
+        contextWindowTokens: windowTokens,
+        compactionStrategy: "compress",
+      })
+    );
+    expect(c).toContain("# Dataflow (compacted");
+    expect(c).toContain("Operator `src`");
+    expect(c).toContain("# Agent Events (since the compacted snapshot above)");
   });
 });
+
+/* ============================================================================
+ *  Δ computation
+ * ========================================================================= */
 
 describe("computeDelta", () => {
   test("everything in the first non-empty snapshot is added when prev is the empty root", () => {
