@@ -416,9 +416,12 @@ export class TexeraAgent {
   }
 
   private rebuildSystemPrompt(): void {
-    // DELTA compaction section is only meaningful when the context-window budget
-    // is on (the `# Dataflow (compacted)` deck can then fire); gate the prompt on it.
-    const compactionEnabled = this.settings.contextWindowTokens > 0;
+    // The `## History Compaction` section describes the COMPRESS deck specifically,
+    // so inject it only when the window is on AND the strategy is compress. Sliding
+    // produces a self-describing `(… omitted …)` marker, not a deck, so it gets no
+    // section (describing a deck it never renders would be its own drift).
+    const compactionEnabled =
+      this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
@@ -842,8 +845,13 @@ export class TexeraAgent {
       // >0 ⇒ raw delta until it would overflow, then compaction via compactionStrategy.
     }
     if (updates.compactionStrategy !== undefined) {
+      // Switching to/from compress flips whether the `## History Compaction`
+      // (deck) section is in the prompt, so rebuild when it changes under a window.
+      if (updates.compactionStrategy !== this.settings.compactionStrategy && this.settings.contextWindowTokens > 0) {
+        promptNeedsRebuild = true;
+      }
       this.settings.compactionStrategy = updates.compactionStrategy;
-      // Pure render-time setting — how DELTA compacts over budget (sliding | compress).
+      // How DELTA compacts over budget (sliding | compress).
     }
     if (updates.deckSampleRatio !== undefined) {
       this.settings.deckSampleRatio = updates.deckSampleRatio;
