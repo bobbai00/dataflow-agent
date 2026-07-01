@@ -157,19 +157,6 @@ export interface AgentSettings {
    * No task/column/domain literals. Disabled by default (no-op).
    */
   /**
-   * Global loader-proliferation budget (goal.md lever F / generalizes C). The
-   * maximum number of distinct `DataLoading` operator ids that may read the
-   * SAME source path before a NEW loader for that path is rejected (the agent
-   * is told to reuse the existing loader). Targets the dominant cost driver
-   * plan1's per-op cap missed: re-loading one file under many fresh ids
-   * (baseline: 22 redundant loaders on one task), which a per-operator cap
-   * cannot see. Source path is parsed from the load() `code`. `0` disables the
-   * budget entirely (default — baseline reproduces). The rejected create
-   * returns an `[ERROR]` and mutates nothing, so it adds no execution/context
-   * cost. Robust to the new-id evasion.
-   */
-  maxLoadersPerSource: number;
-  /**
    * When true, each non-error operator result gets a `Format hints:` line
    * flagging string columns whose sample values look like currency `$1,234`,
    * percent, thousands-separated, parenthesized-negatives, or leading-zero
@@ -233,7 +220,6 @@ export interface AgentSettings {
   /** N consecutive same-operator refixes before the folded error/attempt history shows. */
   errorReflectionThreshold: number;
   fewShotPrompt: boolean;
-  loaderEscalation: boolean;
   maxResultRows: number;
   flowLevel: number;
   dataLevel: number;
@@ -295,7 +281,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   parallelToolCalls: false,
   includeOperatorProperties: true,
   attemptReflection: false,
-  maxLoadersPerSource: 0,
   thoughtReplay: true,
   thoughtReplayK: 10,
   agentTurns: false,
@@ -305,7 +290,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   errorReflection: false,
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
-  loaderEscalation: false,
   maxResultRows: 0,
   flowLevel: 0,
   dataLevel: 0,
@@ -383,7 +367,6 @@ export interface AgentSettingsApi {
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;
-  maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   agentTurns?: boolean;
@@ -393,7 +376,6 @@ export interface AgentSettingsApi {
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
-  loaderEscalation?: boolean;
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;
@@ -441,7 +423,6 @@ export interface UpdateAgentSettingsRequest {
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   attemptReflection?: boolean;
-  maxLoadersPerSource?: number;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
   agentTurns?: boolean;
@@ -451,7 +432,6 @@ export interface UpdateAgentSettingsRequest {
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
-  loaderEscalation?: boolean;
   maxResultRows?: number;
   flowLevel?: number;
   dataLevel?: number;

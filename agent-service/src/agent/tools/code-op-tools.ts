@@ -299,42 +299,6 @@ function buildConvergenceGuardMessage(operatorId: string, cap: number, upstreamI
 }
 
 /**
- * Extract a stable source-path key from a `load()` operator's code, for the
- * loader-proliferation budget (plan5). Finds the first file-reader / open call
- * and keys on its PATH-like string literals only (those containing a path
- * separator or a data-file extension), so kwargs like encoding="cp1252" or
- * sep=";" don't perturb the key and two loaders of the same file collapse to
- * one key regardless of read options. `os.path.join("dir","x.csv")` yields
- * "dir|x.csv". Returns `undefined` when no path literal is present (dynamic
- * path) — the budget then does not apply (conservative: only gate loaders
- * whose source we can identify). Keyed on code structure, never a task literal.
- */
-export function extractLoaderSourcePath(code: string): string | undefined {
-  const call =
-    /(?:read_csv|read_excel|read_parquet|read_json|read_table|read_fwf|read_html|read_sql_query|read_sql|read_pickle|read_stata|read_orc|open|load_workbook|loadtxt|genfromtxt)\s*\(([^)]*)\)/s.exec(
-      code
-    );
-  if (!call) return undefined;
-  const literals = [...call[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].trim());
-  const pathLike = literals.filter(
-    s => /[\/\\]/.test(s) || /\.(csv|tsv|txt|xlsx?|json|parquet|dat|gz|zip|orc|pkl|dta|fwf)$/i.test(s)
-  );
-  if (pathLike.length === 0) return undefined;
-  return [...new Set(pathLike)].sort().join("|");
-}
-
-function buildLoaderProliferationMessage(operatorId: string, sourcePath: string, existingLoaderIds: string[]): string {
-  const list = existingLoaderIds.map(id => `\`${id}\``).join(", ");
-  return (
-    `Loader budget: the new loader \`${operatorId}\` reads a source [${sourcePath}] already loaded by existing ` +
-    `operator(s) [${list}], so creating ANOTHER loader for it was REJECTED. Re-loading the same file under a new ` +
-    `id is wasted work and fragments the dataflow (a top cost driver). Instead: REUSE an existing loader as the ` +
-    `upstream input to your process() operator (pass its id as a parameter), or MODIFY that loader if its load ` +
-    `logic needs fixing. Do not create a duplicate loader for a file you already load.`
-  );
-}
-
-/**
  * Validate Python syntax via the system Python interpreter. Returns null on
  * success, or the stderr output on syntax error. Silently skips when Python is
  * not installed (validation is best-effort).
@@ -646,9 +610,7 @@ export function createCreateOrModifyOperatorTool(
   workflowState: WorkflowState,
   operatorSchemas: Map<string, any>,
   context?: ToolContext,
-  maxOperatorEdits = 0,
-  maxLoadersPerSource = 0,
-  loaderEscalation = false
+  maxOperatorEdits = 0
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -664,17 +626,6 @@ export function createCreateOrModifyOperatorTool(
   // never runs mid-`sendMessage`); each KramaBench task uses a fresh agent, so
   // the counters reset per task.
   const guardEditCounts = new Map<string, number>();
-
-  // #29 loader-budget ESCALATION (loaderEscalation). The plain loader-proliferation
-  // guard below is a SOFT rejection: a weak model (gpt-5-mini) re-issues a
-  // near-identical loader for the same source, gets the same rejection, and loops
-  // (biomedical-hard-1 = the same loader rejected 15× → spiral to the step cap;
-  // gpt-5.2 escapes in ~2 tries). This counter tracks repeated rejections per
-  // operatorId so that after the 2nd identical rejection we escalate from a polite
-  // re-rejection to a hard directive naming the exact loader to reuse. No-op when
-  // loaderEscalation=false. Same closure-lifetime semantics as guardEditCounts
-  // (one agent = one task = fresh counters).
-  const loaderRejectCounts = new Map<string, number>();
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -711,7 +662,10 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       summary: z
         .string()
         .describe(
-          "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded."
+          "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
+            "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
+            'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
+            "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
         ),
     }),
     execute: async (args: { operatorId: string; code: string; summary?: string }) => {
@@ -775,45 +729,6 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .filter(link => link.target.operatorID === operatorId)
               .map(link => link.source.operatorID);
             return createErrorResult(buildConvergenceGuardMessage(operatorId, maxOperatorEdits, upstreamIds));
-          }
-        }
-
-        // Loader-proliferation budget (plan5 / lever F). On a CREATE of a
-        // DataLoading op, reject if the same source path already has
-        // `maxLoadersPerSource` distinct loader ids — the agent should reuse
-        // the existing loader rather than re-load the file under a fresh id
-        // (the dominant proliferation cost driver a per-op cap can't see).
-        // Rejection mutates nothing, so the post-step exec skips it (no cost).
-        // 0 disables (no-op default; baseline reproduces).
-        if (maxLoadersPerSource > 0 && !existingOperator && type === "DataLoading") {
-          const newPath = extractLoaderSourcePath(code);
-          if (newPath) {
-            const sameSourceLoaders = workflowState
-              .getAllOperators()
-              .filter(o => o.operatorType === DATA_LOADING_OPERATOR_TYPE)
-              .filter(o => extractLoaderSourcePath(String((o.operatorProperties as any)?.code ?? "")) === newPath)
-              .map(o => o.operatorID);
-            if (sameSourceLoaders.length >= maxLoadersPerSource) {
-              if (loaderEscalation) {
-                // Key on the SOURCE PATH, not operatorId: the weak model retries
-                // the rejected loader under DIFFERENT operatorIds, so a per-id
-                // counter never reaches the threshold. Per-source catches the loop.
-                const rejects = (loaderRejectCounts.get(newPath) ?? 0) + 1;
-                loaderRejectCounts.set(newPath, rejects);
-                if (rejects >= 2) {
-                  const reuse = sameSourceLoaders[0];
-                  return createErrorResult(
-                    `Operator \`${operatorId}\` is BLOCKED: you have tried to create a loader for ` +
-                    `[${newPath}] ${rejects} times and it keeps being REJECTED because that source is ` +
-                    `already loaded by \`${reuse}\`. Stop creating loaders for this source. Instead, create a ` +
-                    `process() operator that takes \`${reuse}\` as its input parameter ` +
-                    `(\`def process(${reuse}): ...\`), or modify \`${reuse}\` if its load logic needs fixing. ` +
-                    `Do NOT call createOrModifyOperator for a loader on this source again.`
-                  );
-                }
-              }
-              return createErrorResult(buildLoaderProliferationMessage(operatorId, newPath, sameSourceLoaders));
-            }
           }
         }
 

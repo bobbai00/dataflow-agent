@@ -30,18 +30,27 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import type { LocalToolDialect } from "../types/agent";
+import { ContextMode, type LocalToolDialect } from "../types/agent";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
 
-// The CODE-mode system prompt is the merged/curated prompt kept verbatim in
-// `prompts/code-mode.md`. Treat that markdown file as the single source of
-// truth — edits to the prompt are made there, not in this TypeScript file.
-const CODE_MODE_SYSTEM_PROMPT: string = readFileSync(
-  new URL("./prompts/code-mode.md", import.meta.url),
-  "utf8"
-);
+// The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
+// context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
+// They are filled per `contextMode` (see `buildCodeModeSystemPrompt`) so the
+// prompt always describes the format the agent actually receives: the LATEST
+// `# Current Dataflow` snapshot, or the DELTA/FULL `# Agent Events` trajectory.
+// Edit the .md files (template + fragments), not this TypeScript.
+const CODE_MODE_TEMPLATE: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
+const rd = (name: string) => readFileSync(new URL(`./prompts/${name}`, import.meta.url), "utf8").trimEnd();
+const CONTEXT_FORMAT_FRAGMENTS: Record<"latest" | "delta", string> = {
+  latest: rd("context-format.latest.md"),
+  delta: rd("context-format.delta.md"),
+};
+const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
+  latest: rd("example.latest.md"),
+  delta: rd("example.delta.md"),
+};
 
 // ============================================================================
 // Shared sections
@@ -299,13 +308,20 @@ function buildAllowedOperatorSchemas(
 }
 
 /**
- * Build the CODE-mode system prompt. The prompt text lives verbatim in
- * `prompts/code-mode.md` and is loaded once at module load — edit the
- * markdown file (not this function) to change what the code-mode agent
- * sees as its system prompt.
+ * Build the CODE-mode system prompt for the given `contextMode`. The shared
+ * body lives in `prompts/code-mode.md`; the two context-mode-dependent sections
+ * (Context Format + the worked Example) are swapped in from the `*.latest.md` /
+ * `*.delta.md` fragments so the prompt matches the format the agent is actually
+ * fed. This is a SWITCH on the mode, not a hardcoded/both-formats blob — LATEST
+ * → `# Current Dataflow` layout, DELTA → `# Agent Events` layout. Edit the .md
+ * files (template + fragments), not this function.
  */
-export function buildCodeModeSystemPrompt(): string {
-  return CODE_MODE_SYSTEM_PROMPT;
+export function buildCodeModeSystemPrompt(contextMode: ContextMode = ContextMode.LATEST): string {
+  const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
+  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", CONTEXT_FORMAT_FRAGMENTS[key]).replace(
+    "{{EXAMPLE}}",
+    EXAMPLE_FRAGMENTS[key]
+  );
 }
 
 /**
@@ -377,13 +393,15 @@ const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(
   new URL("./prompts/local-react.txt", import.meta.url),
   "utf8"
 );
-const QWEN_XML_SYSTEM_PROMPT: string = `${CODE_MODE_SYSTEM_PROMPT.trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
-
 /**
  * Returns the local driver's system prompt for the given tool-call dialect.
- * The texts are loaded/composed once at module load; callers can invoke this
- * on every agent construction / settings change without repeated file I/O.
+ * `react-text` is standalone; `qwen-xml` is the CODE-mode body (mode-aware, so
+ * it matches the SDK context assembler) plus the XML tool-call appendix.
  */
-export function buildLocalReactSystemPrompt(dialect: LocalToolDialect): string {
-  return dialect === "react-text" ? REACT_TEXT_SYSTEM_PROMPT : QWEN_XML_SYSTEM_PROMPT;
+export function buildLocalReactSystemPrompt(
+  dialect: LocalToolDialect,
+  contextMode: ContextMode = ContextMode.LATEST
+): string {
+  if (dialect === "react-text") return REACT_TEXT_SYSTEM_PROMPT;
+  return `${buildCodeModeSystemPrompt(contextMode).trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 }

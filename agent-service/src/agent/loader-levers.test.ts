@@ -1,11 +1,10 @@
 /**
- * Unit tests for the plan4 (loader-remediation hint) and plan5
- * (loader-proliferation budget) helper functions. The full levers are
- * exercised end-to-end by the KramaBench runs; these lock in the pure logic.
+ * Unit tests for the plan4 (loader-remediation hint) helper functions. The
+ * full levers are exercised end-to-end by the KramaBench runs; these lock in
+ * the pure logic.
  */
 import { describe, expect, test } from "bun:test";
 import { formatLoaderHint } from "./util/context-utils";
-import { extractLoaderSourcePath } from "./tools/code-op-tools";
 import { formatValueFormatHints, formatLineage, formatJoinTelemetry } from "./tools/result-formatting";
 
 describe("formatValueFormatHints (value-format flags)", () => {
@@ -120,39 +119,5 @@ describe("formatLoaderHint (plan4)", () => {
     expect(formatLoaderHint("KeyError: 'Case_excluded'")).toBeUndefined();
     expect(formatLoaderHint("TypeError: unsupported operand type(s)")).toBeUndefined();
     expect(formatLoaderHint("ValueError: math domain error")).toBeUndefined(); // ValueError w/o conversion phrase
-  });
-});
-
-describe("extractLoaderSourcePath (plan5)", () => {
-  test("plain read_csv literal", () => {
-    expect(extractLoaderSourcePath("def load():\n    return pd.read_csv('/data/customers.csv')")).toBe(
-      "/data/customers.csv"
-    );
-  });
-
-  test("os.path.join keys on the path-like component (bare dir name dropped)", () => {
-    // 'data' is not path-like (no separator/extension) so it's dropped; the key
-    // is the filename. Conservative: keys on identifiable path literals only,
-    // so the budget under-detects rather than false-rejecting distinct files.
-    expect(extractLoaderSourcePath("pd.read_csv(os.path.join('data', 'y.csv'))")).toBe("y.csv");
-  });
-
-  test("encoding/sep kwargs are filtered out of the key (same file → same key)", () => {
-    const a = extractLoaderSourcePath("pd.read_csv('/d/x.csv', encoding='cp1252')");
-    const b = extractLoaderSourcePath('pd.read_csv("/d/x.csv", sep=";", encoding="latin-1")');
-    expect(a).toBe("/d/x.csv");
-    expect(b).toBe("/d/x.csv"); // kwargs 'cp1252'/'latin-1'/';' are not path-like → dropped
-    expect(a).toBe(b); // two loaders of the same file collapse to one budget key
-  });
-
-  test("read_excel / open / read_parquet recognised", () => {
-    expect(extractLoaderSourcePath("pd.read_excel('book.xlsx')")).toBe("book.xlsx");
-    expect(extractLoaderSourcePath("open('/tmp/a.dat')")).toBe("/tmp/a.dat");
-    expect(extractLoaderSourcePath("pd.read_parquet('/p/t.parquet')")).toBe("/p/t.parquet");
-  });
-
-  test("dynamic path (no literal) → undefined (budget does not apply)", () => {
-    expect(extractLoaderSourcePath("def load():\n    return pd.read_csv(path_var)")).toBeUndefined();
-    expect(extractLoaderSourcePath("def process(df):\n    return df[df.x > 1]")).toBeUndefined();
   });
 });

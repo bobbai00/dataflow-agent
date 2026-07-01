@@ -126,8 +126,9 @@ export interface TexeraAgentConfig {
    *  agent uses this verbatim instead of the agent-mode-based builders —
    *  used by the local-react driver to inject the LLM's training-time
    *  system prompt unchanged. Receives the current tool-call dialect so the
-   *  prompt can match the dialect the parser expects. */
-  systemPromptBuilder?: (dialect: LocalToolDialect) => string;
+   *  prompt can match the dialect the parser expects, and the contextMode so
+   *  the described context format matches what the assembler renders. */
+  systemPromptBuilder?: (dialect: LocalToolDialect, contextMode: ContextMode) => string;
 }
 
 export interface AgentMessageResult {
@@ -200,7 +201,7 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
-  private readonly systemPromptBuilder: ((dialect: LocalToolDialect) => string) | undefined;
+  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, contextMode: ContextMode) => string) | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -419,11 +420,11 @@ export class TexeraAgent {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
       // distribution — and the tool-call dialect the parser expects.
-      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect);
+      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, this.settings.contextMode);
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
-      this.systemPrompt = buildCodeModeSystemPrompt();
+      this.systemPrompt = buildCodeModeSystemPrompt(this.settings.contextMode);
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
     // not just the instruction (which got poor .copy() adherence). Off by default.
@@ -473,9 +474,7 @@ export class TexeraAgent {
         this.workflowState,
         operatorSchemas,
         context,
-        this.settings.maxOperatorEdits,
-        this.settings.maxLoadersPerSource,
-        this.settings.loaderEscalation
+        this.settings.maxOperatorEdits
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -731,14 +730,12 @@ export class TexeraAgent {
     errorReflection?: boolean;
     errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
-    loaderEscalation?: boolean;
     maxResultRows?: number;
     flowLevel?: number;
     dataLevel?: number;
     columnStats?: boolean;
     valueFormat?: boolean;
     dataHints?: boolean;
-    maxLoadersPerSource?: number;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
   }): void {
@@ -778,10 +775,13 @@ export class TexeraAgent {
       this.settings.agentMode = updates.agentMode;
       promptNeedsRebuild = true;
     }
-    if (updates.contextMode !== undefined) {
+    if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
       this.settings.contextMode = updates.contextMode;
-      // Context mode does not affect the system prompt (we stripped the
-      // mode-specific layout description from prompts.ts).
+      // Context mode now selects the prompt's Context-Format + Example sections
+      // (LATEST snapshot vs DELTA/FULL agent-events), so the prompt must rebuild.
+      promptNeedsRebuild = true;
+    } else if (updates.contextMode !== undefined) {
+      this.settings.contextMode = updates.contextMode;
     }
     if (updates.parallelToolCalls !== undefined) {
       this.settings.parallelToolCalls = updates.parallelToolCalls;
@@ -853,18 +853,9 @@ export class TexeraAgent {
       this.settings.errorReflectionThreshold = updates.errorReflectionThreshold;
       // Pure render-time setting — N consecutive refixes before folded history shows.
     }
-    if (updates.loaderEscalation !== undefined) {
-      this.settings.loaderEscalation = updates.loaderEscalation;
-      // Read by createTools() below when (re)building the code-op tool (#29).
-    }
     if (updates.fewShotPrompt !== undefined) {
       this.settings.fewShotPrompt = updates.fewShotPrompt;
       promptNeedsRebuild = true; // W2: changes the SYSTEM prompt
-    }
-    if (updates.maxLoadersPerSource !== undefined) {
-      this.settings.maxLoadersPerSource = updates.maxLoadersPerSource;
-      // Read by createTools() below when (re)building the code-op tool; the
-      // per-source loader budget is enforced inside that tool closure.
     }
     if (updates.attemptReflection !== undefined) {
       this.settings.attemptReflection = updates.attemptReflection;
