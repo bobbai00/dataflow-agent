@@ -16,9 +16,14 @@ folding the oldest events into a stats *deck* (compress) beat dropping them
 - **Compress's value is concentrated exactly where compaction actually bites.**
   The tighter the budget, the more it beats naive eviction — which is the regime
   a context-window limit is *for*.
-- Headline caveat & next lever: the deck **bloats on wide tables** (per-column
-  stats for 30-column loaders can be larger than the rows they summarize), which
-  is what erodes compress at 6k. A leaner deck is the next experiment.
+- The deck **bloats on wide tables** (per-column stats for 30-column loaders),
+  which erodes compress at 6k. But a **lean deck (capped stats cols/rows) made it
+  worse, not better** — the full stats are the signal that wins at 3k (see the
+  lean-deck negative result; reverted). Deck cost is operator-count-bound, so the
+  real lever for 6k is *graduated fidelity* (recent ops full, old ops summarized),
+  not blanket trimming.
+- **Shipped default: heavy-deck compress.** Best operating point on this workload:
+  a tight (~3k) trajectory window.
 
 ## Design under test
 
@@ -140,6 +145,35 @@ much longer, isolated, low-concurrency recovery pass. Recommendation: re-run
 gpt-5-mini **sequentially (no `--parallel`), one SUT at a time**, if a clean
 cross-model number is needed.
 
+## Lean-deck iteration (negative result — reverted)
+
+Hypothesis: the wide-table deck bloat (§ above) is what erodes compress at 6k, so
+capping the deck's per-column stats (top-12 columns) and row peek (5 rows) should
+recover it. Implemented, ran the 3k/6k compress pair with the lean deck, recovered
+to 103/104:
+
+| Config | Overall | Pass | environment | vs its sliding |
+|---|---|---|---|---|
+| 3k compress **heavy** | **62.7%** | 60 | 64.0% | **+4.4** (60 vs 56) |
+| 3k compress **lean** | 60.2% | 56 | 43.7% | tie (A-only 10 / B-only 10) |
+| 6k compress **heavy** | 59.1% | 56 | 40.3% | −1.4 |
+| 6k compress **lean** | 58.9% | 56 | 57.0% | −3 (56 vs 59) |
+
+**The lean deck made compress worse, not better.** At 3k it dropped 62.7→60.2 and
+*lost* its win over sliding (down to a dead tie). At 6k it improved the wide-table
+`environment` workload (40.3→57.0 — confirming wide-table stats *were* noisy there)
+but that gain was cancelled by regressions elsewhere; overall stayed flat and still
+below sliding. Verdict: **the deck's full per-column stats are doing real work** —
+they are the signal that lets compress beat sliding at a tight window, and trimming
+them to save tokens costs more accuracy than it saves. The lean-deck code change was
+**reverted**; the heavy (full-stats) deck is the shipped default.
+
+Deeper takeaway: the deck's cost is dominated by *operator count*, not per-operator
+verbosity (a 17-operator wide-table DAG overflows a 6k budget even lean). A uniform
+column cap is the wrong knob. If 6k-compress is to be improved, the lever is
+*graduated fidelity* — full stats for the most recent K operators, one-line
+schema-only summaries for older ones — not blanket trimming.
+
 ## Conclusions
 
 1. **Ship compress with a tight window.** In the regime a context limit exists
@@ -153,15 +187,24 @@ cross-model number is needed.
 
 ## Next parameters to try
 
-1. **Lean deck (highest priority).** Cap the deck's per-column stats to the
-   top-K columns (e.g. 8–12) and/or drop `data_hints` from the deck; keep the
-   ratio-sampled row peek small. Target: deck ≤ the raw trajectory it replaces on
-   wide tables. Re-run the 6k pair — expectation: compress recovers at 6k.
-2. **gpt-5-mini cross-model pass.** Repeat the 3k/6k × compress/sliding sweep on
-   gpt-5-mini to check the result generalizes (and mini hangs less, so cleaner
-   data).
-3. **Deck sample ratio sweep.** 0.0 (stats only) vs 0.10 vs 0.25 — quantify how
-   much the row peek is worth against its token cost.
+1. **Ship heavy-deck compress at a tight window (~3k).** This is the validated
+   winner — no further tuning needed to realize the gain.
+2. **Graduated-fidelity deck (the real lever for 6k).** Since deck cost is
+   operator-count-bound, not per-op-verbosity-bound, give the most recent K
+   operators full stats and older ones a one-line schema-only summary. This bounds
+   the deck by K (not by DAG size) while keeping the recent frontier rich —
+   unlike the blanket column cap, which threw away useful signal (see the
+   negative result above).
+3. **Window sweep at finer granularity (2k / 4k / 5k).** 3k wins and 6k ties;
+   locate the crossover where compress's advantage peaks.
+4. **gpt-5-mini, re-run cleanly.** The concurrent `--parallel` pass hung on ~40%
+   of tasks (the hard ones). Re-run sequentially, one SUT at a time, for a clean
+   cross-model number.
+
+## Tried and rejected
+
+- **Lean deck (top-12 stats cols + 5 rows):** made compress *worse* at 3k
+  (62.7→60.2) — the full stats are the signal. Reverted. See the lean-deck section.
 
 ## Reproduce
 
