@@ -1218,79 +1218,6 @@ class DataProcessor(Runnable, Stoppable):
                 return lines[i:], i + 1
         return lines, 0
 
-    # Code-elision tuning knobs. Below this many lines we never elide
-    # (showing the whole function is cheaper and clearer). Above it we
-    # show the first PREFIX_LINES, a marker_window of ±MARKER_RADIUS
-    # lines around the failing line, and the last SUFFIX_LINES — joined
-    # into contiguous ranges with `…` between non-adjacent ones. With a
-    # 200-line function and a mid-function marker, this caps the body
-    # at roughly PREFIX + 2*MARKER_RADIUS+1 + SUFFIX ≈ 24 code lines.
-    _FULL_BLOCK_THRESHOLD = 20
-    _PREFIX_LINES = 5
-    _MARKER_RADIUS = 4
-    _SUFFIX_LINES = 10
-    _NO_MARKER_PREFIX_LINES = 10
-    _NO_MARKER_SUFFIX_LINES = 10
-
-    @staticmethod
-    def _format_code_with_marker(lines: "list[str]", error_line: int) -> str:
-        """
-        Render `lines` with line numbers (starting at 1), marking
-        `error_line` (1-based index into `lines`) with a `>` arrow so the
-        failing line is obvious.
-
-        For functions longer than `_FULL_BLOCK_THRESHOLD` the body is
-        elided: we always keep the first `_PREFIX_LINES`, the last
-        `_SUFFIX_LINES`, and (when a marker is set) `_MARKER_RADIUS`
-        lines on either side of the marker. The kept indices are
-        collapsed into contiguous ranges and rendered with `…` between
-        non-adjacent ranges, so small functions just get the full view
-        and big ones get a bounded summary that always includes the
-        failing line + the function signature + the return statement.
-
-        `error_line` ≤ 0 (or out of range) means "no specific failing
-        line is known" — the marker is suppressed and the no-marker
-        prefix/suffix rule applies.
-        """
-        if not lines:
-            return ""
-        n = len(lines)
-        width = len(str(n))
-        has_marker = error_line is not None and 1 <= error_line <= n
-
-        # Short functions: show everything, no elision.
-        if n <= DataProcessor._FULL_BLOCK_THRESHOLD:
-            kept = set(range(1, n + 1))
-        else:
-            kept: set = set()
-            if has_marker:
-                for i in range(1, min(DataProcessor._PREFIX_LINES, n) + 1):
-                    kept.add(i)
-                lo = max(1, error_line - DataProcessor._MARKER_RADIUS)
-                hi = min(n, error_line + DataProcessor._MARKER_RADIUS)
-                for i in range(lo, hi + 1):
-                    kept.add(i)
-                for i in range(max(1, n - DataProcessor._SUFFIX_LINES + 1), n + 1):
-                    kept.add(i)
-            else:
-                for i in range(1, min(DataProcessor._NO_MARKER_PREFIX_LINES, n) + 1):
-                    kept.add(i)
-                for i in range(max(1, n - DataProcessor._NO_MARKER_SUFFIX_LINES + 1), n + 1):
-                    kept.add(i)
-
-        rendered: List[str] = []
-        ellipsis_row = f"  {' ' * width}   …"
-        prev = 0
-        for i in range(1, n + 1):
-            if i not in kept:
-                continue
-            if prev > 0 and i > prev + 1:
-                rendered.append(ellipsis_row)
-            marker = ">" if has_marker and i == error_line else " "
-            rendered.append(f"{marker} {i:>{width}} | {lines[i - 1]}")
-            prev = i
-        return "\n".join(rendered)
-
     def _report_exception(self, exc_info: ExceptionInfo):
         tb = traceback.extract_tb(exc_info[2])
         exception_type = type(exc_info[1]).__name__
@@ -1347,56 +1274,27 @@ class DataProcessor(Runnable, Stoppable):
             module_name, _ = os.path.splitext(base_name)
             source = f"{module_name}:{func_name}:{line_number}"
             title = f"{exception_type}: {_clip(exception_msg, 400)}"
-            # Best-effort: recover the running operator's UDF source via
-            # the executor module that ExecutorManager registered. Even
-            # without a traceback frame in user code, we can still show
-            # *what code was running* — invaluable for diagnosing
-            # post-UDF framework errors (the climateMeasurements
-            # `Unmatched type for field ...` case).
-            full_source = self._read_running_operator_source()
 
-        # Build the message. Two-layer format — the multi-frame
-        # traceback is intentionally omitted; the exception's top-level
-        # summary plus the operator's full source is what the agent
-        # needs. Two best-effort layers:
-        #   1. the exception line itself,
-        #   2. the operator's UDF code, always included when we can
-        #      recover it:
-        #        - if a user-UDF frame was on the traceback, annotate
-        #          the failing line with `>` and prefix with
-        #          `at line N in <func>`,
-        #        - otherwise show the code unmarked under a neutral
-        #          header — we don't claim where the failure originated.
+        # Build the message. The multi-frame traceback is intentionally
+        # omitted, and — matching the pre-refactor behavior — the operator's
+        # SOURCE CODE is NOT echoed into the error message either: the
+        # agent-service renders the errored operator's code in the assembled
+        # context (it owns the code via operatorProperties), so repeating it
+        # here would double the token cost of every error. What the agent
+        # needs from the engine is the exception line plus the user-code
+        # line pointer:
+        #   1. the exception type + middle-clipped message,
+        #   2. `at line N in <func>` when a user-UDF frame was on the
+        #      traceback (the failing line's TEXT is already in the title).
         parts: List[str] = [f"{exception_type}: {_clip_middle(exception_msg, 400, 300)}"]
 
-        if full_source is not None:
+        if full_source is not None and udf_frame is not None:
             user_lines, offset = self._slice_user_code(full_source)
-            if udf_frame is not None and user_lines:
+            if user_lines:
                 error_line_in_slice = (
                     udf_frame.lineno - offset + 1 if offset > 0 else udf_frame.lineno
                 )
-                annotated = self._format_code_with_marker(
-                    user_lines, error_line_in_slice
-                )
                 parts.append(f"  at line {error_line_in_slice} in `{udf_frame.name}`")
-                parts.append("")
-                parts.append("Operator code:")
-                parts.append(annotated)
-            elif user_lines:
-                # No UDF frame → no specific line to mark. Show the
-                # operator's code without a `>` under a neutral header
-                # that doesn't speculate about where the failure came
-                # from — the exception type+message above already
-                # carries that signal.
-                annotated = self._format_code_with_marker(
-                    user_lines, error_line=-1
-                )
-                parts.append("")
-                parts.append(
-                    "An execution error happened while running the operator. "
-                    "The operator's code was:"
-                )
-                parts.append(annotated)
 
         message = "\n".join(parts)
 
@@ -1441,9 +1339,11 @@ class DataProcessor(Runnable, Stoppable):
     ) -> None:
         """
         Error reporting for hand-written operators (e.g. PythonUDFV2): emit the
-        complete multi-frame Python traceback as the message, followed by the
-        operator's source (unmarked). No user-relative line locating — the user
-        owns the whole operator class, so the raw stack is the faithful signal.
+        complete multi-frame Python traceback as the message. No user-relative
+        line locating — the user owns the whole operator class, so the raw
+        stack is the faithful signal. The operator's SOURCE is intentionally
+        not echoed (the agent-service renders errored operators' code in the
+        assembled context from operatorProperties).
         """
         if tb:
             filename, line_number, func_name, _ = tb[-1]
@@ -1454,15 +1354,7 @@ class DataProcessor(Runnable, Stoppable):
             source = ""
         title = f"{exception_type}: {clip(exception_msg, 400)}"
 
-        parts: List[str] = ["".join(traceback.format_exception(*exc_info)).rstrip()]
-        full_source = self._read_running_operator_source()
-        if full_source is not None:
-            user_lines, _ = self._slice_user_code(full_source)
-            if user_lines:
-                parts.append("")
-                parts.append("Operator code:")
-                parts.append(self._format_code_with_marker(user_lines, error_line=-1))
-        message = "\n".join(parts)
+        message = "".join(traceback.format_exception(*exc_info)).rstrip()
 
         self._context.console_message_manager.put_message(
             ConsoleMessage(
@@ -1474,32 +1366,6 @@ class DataProcessor(Runnable, Stoppable):
                 message=message,
             )
         )
-
-    def _read_running_operator_source(self) -> Optional[str]:
-        """
-        Recover the source of the currently running operator's UDF when
-        no UDF frame is present in the traceback (e.g. an exception
-        raised in framework code after the operator's `def load()` /
-        `def process()` returned).
-
-        ExecutorManager stores the dynamic module name it imported the
-        user code under (e.g. `udf-v3`). We look the module up in
-        `sys.modules` and read its `__file__`.
-        """
-        try:
-            exec_mgr = getattr(self._context, "executor_manager", None)
-            module_name = getattr(exec_mgr, "operator_module_name", None) if exec_mgr else None
-            if not module_name:
-                return None
-            mod = sys.modules.get(module_name)
-            if mod is None:
-                return None
-            mod_file = getattr(mod, "__file__", None)
-            if not mod_file:
-                return None
-            return self._read_udf_source(mod_file)
-        except Exception:
-            return None
 
     def stop(self):
         self._running.clear()

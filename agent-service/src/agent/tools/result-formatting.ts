@@ -113,7 +113,15 @@ export function formatOperatorResult(
   options: FormatOperatorResultOptions = {}
 ): string {
   if (opInfo.error) {
-    return `[ERROR] ${opInfo.error}`;
+    // Old-style error rendering: the ENGINE error message carries only the
+    // exception + user-code line pointer (the worker no longer echoes source);
+    // the operator's code is appended HERE, from the DAG's own
+    // operatorProperties — so the agent still sees exactly what code failed,
+    // without the engine duplicating it into every error payload.
+    const op = workflowState.getOperator(operatorId);
+    const code = String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+    const codeBlock = code ? `\nOperator code:\n${code}` : "";
+    return `[ERROR] ${opInfo.error}${codeBlock}`;
   }
 
   if (!opInfo.result || !Array.isArray(opInfo.result)) {
