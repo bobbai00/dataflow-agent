@@ -1,8 +1,8 @@
 Task: *I have customers.csv and orders.csv. Find the top 5 premium customers who made recent purchases. Definitions in readme.md.*
 
-Thought: The task mentions "premium customers" and "recent purchases" — abstract concepts that may have specific definitions. Check documentation first, and load both data files in the same parallel turn.
+Thought: The task mentions "premium customers" and "recent purchases" — abstract concepts that may have specific definitions. Check documentation. The readme and the two data files are three INDEPENDENT loads — batch all three as parallel tool calls in ONE turn instead of spending three turns.
 
-Tool call (parallel): one `createOrModifyOperator` each for `readme`, `customers`, `orders`.
+Tool call (3 parallel calls in one turn): one `createOrModifyOperator` each for `readme`, `customers`, `orders`.
 
 On your next turn that action is folded into `# Agent Events` (one event, since the three loads were one parallel turn):
 ```
@@ -45,7 +45,7 @@ Observation:
   - "order_date" (datetime): null=0, min=2024-09-15, max=2024-11-12
 ```
 
-Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key); tier has 3 distinct values with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key aligns perfectly → safe inner join, then filter to the last 30 days.
+Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key); tier has 3 distinct values with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key aligns perfectly → safe inner join, then filter to the last 30 days. This step CONSUMES both loads, so it can't be parallelized with them — one dependent call this turn.
 
 Tool call: `recent_orders` = from `customers` and `orders`, inner-join on `customer_id`, then filter `order_date >= today - 30d`. The prior event stays above; the new one appends:
 ```

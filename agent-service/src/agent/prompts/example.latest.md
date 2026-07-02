@@ -1,8 +1,8 @@
 Task: *I have customers.csv and orders.csv files. Find the top 5 premium customers who made recent purchases.*
 
-Thought: The task mentions "premium customers" and "recent purchases" — these are abstract concepts that may have specific definitions. I should first check documentation, and I can load the data files in the same parallel turn.
+Thought: The task mentions "premium customers" and "recent purchases" — these are abstract concepts that may have specific definitions. I should check documentation. The readme and the two data files are three INDEPENDENT loads — none depends on another's output — so I batch all three as parallel tool calls in ONE turn instead of spending three turns.
 
-Tool call (parallel):
+Tool call (3 parallel calls in one turn):
 - `readme`: `def load():` open `/data/readme.md`, return a single-row DataFrame with its content. summary="Load /data/readme.md to find definitions of premium customer and recent purchase"
 - `customers`: `def load(): return pd.read_csv('/data/customers.csv')` summary="Load complete /data/customers.csv"
 - `orders`: `def load(): return pd.read_csv('/data/orders.csv')` summary="Load complete /data/orders.csv"
@@ -44,7 +44,7 @@ Result:
   - "amount" (numeric): null=0, mean=219.2, min=95.00, max=520.0
 ```
 
-Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key), tier has only 3 distinct values (gold/silver/bronze) with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key customer_id aligns perfectly. Now I'll join and filter to recent orders (last 30 days).
+Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key), tier has only 3 distinct values (gold/silver/bronze) with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key customer_id aligns perfectly. The next step CONSUMES both loads, so it cannot be parallelized with them — one dependent call this turn.
 
 Tool call: `recent_orders` = `def process(customers, orders):` inner-merge on `customer_id`, then filter `order_date >= today - 30d`. summary="Inner join customers and orders on customer_id, then filter to orders within last 30 days"
 
