@@ -57,6 +57,19 @@ export interface TaskDataFile {
 export interface DatasetAdapter {
   readonly name: string;
 
+  /**
+   * If set, the source root must contain this manifest file before any backend
+   * work begins (FeTaQA → "manifest.jsonl"). When omitted, the source root only
+   * needs to exist (KramaBench → a directory of self-contained task folders).
+   */
+  readonly manifestName?: string;
+
+  /**
+   * Optional absolute default for the source root, used when `--data-root` is
+   * not passed. Falls back to `<DATA_ROOT>/<name>` when omitted.
+   */
+  readonly defaultSourceDir?: string;
+
   /** Yield Tasks one at a time. `limit`/`offset` let callers paginate. */
   load(opts: AdapterLoadOptions): AsyncIterable<Task>;
 

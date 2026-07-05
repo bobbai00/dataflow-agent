@@ -1,0 +1,417 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/**
+ * THE SUMMARIZE PARAMETER SPACE.
+ *
+ * `summarize(input, params)` is the single centralized context renderer; this
+ * module defines its tunable parameter schema. The legacy LATEST / DELTA
+ * context modes are nothing special here — they are two named PRESETS (two
+ * points in this space), produced by `mapLegacyToParams` from the agent's
+ * settings. A future tuner emits a `SummarizeParams` object instead of
+ * choosing between hardcoded modes.
+ *
+ * Design invariants:
+ *  - ORTHOGONALITY: every combination of parameters is valid and renderable.
+ *    Where two knobs would duplicate the same bytes (e.g. an interleaved
+ *    trajectory already carries per-event results, and per-operator result
+ *    HISTORY would repeat them), the renderer resolves it with a documented
+ *    precedence rule instead of making the combination illegal:
+ *      * `operators.*.result.history` and `operators.*.property.codeHistory`
+ *        render ONLY when `trajectory.events === "none"` — an interleaved
+ *        trajectory is itself the history.
+ *  - Per-operator granularity: `operators.defaults` applies to every operator;
+ *    `operators.overrides[opId]` deep-merges on top for that operator.
+ *  - The schema is zod: it validates knob values coming over the API and is
+ *    the future tool `inputSchema` for a model-driven summarize() call.
+ */
+
+import { z } from "zod";
+import { AgentMode, ContextMode } from "../../../types/agent";
+import type { AssembleContextOptions } from "../../util/context-utils";
+import { levelsToFlags } from "../decorate/registry";
+import type { DecorateLevel } from "../decorate/types";
+
+/* ============================================================================
+ *  Column-level (result → per-column annotations)
+ * ========================================================================= */
+
+/** Metric families filterable from the worker's per-column stats string
+ *  (`(<type>): null=N, mean=…, min=…, max=…, distinct=…, top_10={…}` /
+ *  bool `true/false` counts / list `items_*` shape). */
+export const COLUMN_METRICS = ["null", "mean", "min", "max", "distinct", "top", "true", "false", "items"] as const;
+export type ColumnMetric = (typeof COLUMN_METRICS)[number];
+
+export const ColumnParamsSchema = z.object({
+  /** Compact `Schema:` line — full column inventory (name [+ type]). */
+  schema: z.boolean().default(false),
+  /** Include the `(type)` tag on the Schema line's columns. */
+  schemaTypes: z.boolean().default(true),
+  /** Full per-column `Column Schema and stats:` block (worker-published). */
+  stats: z.boolean().default(false),
+  /** Which stat metrics to keep; "all" ⇒ the worker string verbatim. */
+  statsMetrics: z.union([z.literal("all"), z.array(z.enum(COLUMN_METRICS))]).default("all"),
+  /** `Format hints:` line — numbers wearing punctuation (currency/percent/…). */
+  valueFormatHints: z.boolean().default(false),
+  /** `Data hints:` structural profile (grain/key, partitions, dirty-load). */
+  structuralHints: z.boolean().default(false),
+  /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
+  coercionAlerts: z.boolean().default(false),
+  /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
+   *  are mostly numeric, surfacing the contaminant tokens that forced the
+   *  string dtype (the "str-typed but samples look like digits" signal). */
+  dtypeAnomaly: z.boolean().default(false),
+});
+export type ColumnParams = z.infer<typeof ColumnParamsSchema>;
+
+/* ============================================================================
+ *  Tuple-level (result → row-sample shaping + sample-derived hints)
+ * ========================================================================= */
+
+export const TupleParamsSchema = z.object({
+  /** Cap the TSV sample at first ⌈n/2⌉ + last ⌊n/2⌋ rows. 0 ⇒ uncapped. */
+  sampleRows: z.number().int().min(0).default(0),
+  /** Sample-based duplicate row / duplicate column detection (service-side). */
+  duplicates: z.boolean().default(false),
+  /** Sample-based candidate functional dependencies between columns. */
+  fdHints: z.boolean().default(false),
+});
+export type TupleParams = z.infer<typeof TupleParamsSchema>;
+
+/* ============================================================================
+ *  Result rendering (one version of one operator's result)
+ * ========================================================================= */
+
+export const ResultRenderSchema = z.object({
+  /** omit ⇒ no Result block; shape ⇒ row/col counts only; sample ⇒ TSV table. */
+  detail: z.enum(["omit", "shape", "sample"]).default("sample"),
+  tuple: TupleParamsSchema.default({}),
+  column: ColumnParamsSchema.default({}),
+});
+export type ResultRender = z.infer<typeof ResultRenderSchema>;
+
+/* ============================================================================
+ *  Per-operator params (defaults + overrides)
+ * ========================================================================= */
+
+export const PropertyParamsSchema = z.object({
+  /** Render non-code `operatorProperties` as a `Properties:` line. (Python
+   *  code operators always strip the code blob from Properties.) */
+  includeProperties: z.boolean().default(true),
+  /** Render the operator's CURRENT code as a `Code:` block. Off by default —
+   *  errors already carry the code inline; this is the opt-in for healthy ops. */
+  includeCode: z.boolean().default(false),
+  /** How many PRIOR code versions to render (newest-first), with the event
+   *  index each was submitted at. 0 ⇒ none. Ignored when the trajectory is
+   *  interleaved (events already carry submissions). */
+  codeHistory: z.number().int().min(0).default(0),
+});
+export type PropertyParams = z.infer<typeof PropertyParamsSchema>;
+
+export const ResultHistorySchema = z.object({
+  /** How many PRIOR result versions to render (newest-first). 0 ⇒ none.
+   *  Ignored when the trajectory is interleaved. */
+  lastK: z.number().int().min(0).default(0),
+  /** Render profile for each historical version (typically cheaper than
+   *  `latest` — e.g. detail:"shape" or a small sample + stats). */
+  render: ResultRenderSchema.default({ detail: "shape" }),
+});
+export type ResultHistory = z.infer<typeof ResultHistorySchema>;
+
+export const OperatorParamsSchema = z.object({
+  property: PropertyParamsSchema.default({}),
+  result: z
+    .object({
+      latest: ResultRenderSchema.default({}),
+      history: ResultHistorySchema.default({}),
+    })
+    .default({}),
+});
+export type OperatorParams = z.infer<typeof OperatorParamsSchema>;
+
+/** Deep-partial override for one operator (explicit, not z.deepPartial —
+ *  keeps the shape reviewable and avoids the deprecated helper). */
+export const OperatorParamsOverrideSchema = z.object({
+  property: PropertyParamsSchema.partial().optional(),
+  result: z
+    .object({
+      latest: z
+        .object({
+          detail: z.enum(["omit", "shape", "sample"]).optional(),
+          tuple: TupleParamsSchema.partial().optional(),
+          column: ColumnParamsSchema.partial().optional(),
+        })
+        .optional(),
+      history: z
+        .object({
+          lastK: z.number().int().min(0).optional(),
+          render: z
+            .object({
+              detail: z.enum(["omit", "shape", "sample"]).optional(),
+              tuple: TupleParamsSchema.partial().optional(),
+              column: ColumnParamsSchema.partial().optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+export type OperatorParamsOverride = z.infer<typeof OperatorParamsOverrideSchema>;
+
+/* ============================================================================
+ *  Trajectory / flow / top-level
+ * ========================================================================= */
+
+export const TrajectoryParamsSchema = z.object({
+  /** "none" ⇒ no events section (the legacy LATEST shape); "interleaved" ⇒
+   *  every event as Thought/Action[/Observation] in order (the legacy DELTA
+   *  shape). */
+  events: z.enum(["none", "interleaved"]).default("none"),
+  /** Per-event delta Observations under each interleaved event. "none" keeps
+   *  Thought/Action only. */
+  observations: z.enum(["delta", "none"]).default("delta"),
+  /** Thought-replay block: the last K agent events as thought + compressed
+   *  actions (`# Reasoning`), plus per-operator `Last edited:` back-pointers.
+   *  0 ⇒ off. Renders only when events === "none" (interleaved events already
+   *  show thoughts inline). */
+  reasoningReplayK: z.number().int().min(0).default(0),
+  /** `# Agent Turns`: the full Thought/Action trajectory section on top of the
+   *  current-snapshot core (fuller alternative to reasoningReplayK). Renders
+   *  only when events === "none". */
+  agentTurns: z.boolean().default(false),
+  /** Token budget for the assembled context. 0 ⇒ unbounded. When exceeded and
+   *  events are interleaved, compaction fires per `compaction`. */
+  windowTokens: z.number().int().min(0).default(0),
+  /** sliding: evict oldest whole events; compress: fold oldest events into a
+   *  `# Dataflow (compacted)` stats deck, raw delta resumes after it. */
+  compaction: z.enum(["sliding", "compress"]).default("compress"),
+  /** compress-deck row-sample fraction (clamped to [3, sampleRows||20]/op). */
+  deckSampleRatio: z.number().min(0).max(1).default(0.1),
+});
+export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
+
+export const FlowParamsSchema = z.object({
+  /** Remediation hint on a failed DataLoading op (exception-class keyed). */
+  loaderHints: z.boolean().default(false),
+  /** Cardinality alarms: empty output / fan-out explosion / empty load. */
+  cardinalityAlarms: z.boolean().default(false),
+  /** On an errored process op: upstream input schema + sample rows (or a
+   *  pointer to the upstream's Result when it is already rendered). */
+  errorContext: z.boolean().default(false),
+  /** Dead/disconnected loader detection (typed-DAG reachability). */
+  graphAudit: z.boolean().default(false),
+  /** Degenerate-join telemetry (near-zero key match, m:n fan-out). */
+  joinAlarms: z.boolean().default(false),
+  /** Fold per-operator attempt/error history into errored operators' blocks +
+   *  a root-cause-ordered pointer index in the flow section. */
+  errorReflection: z.boolean().default(false),
+  /** Consecutive same-op edits before the folded history shows. */
+  errorReflectionThreshold: z.number().int().min(1).default(3),
+  /** `Attempt reflection:` block on heavily-edited operators. */
+  attemptReflection: z.boolean().default(false),
+});
+export type FlowParams = z.infer<typeof FlowParamsSchema>;
+
+export const SummarizeParamsSchema = z.object({
+  trajectory: TrajectoryParamsSchema.default({}),
+  /** Render the `# Current Dataflow` snapshot section (every operator's block).
+   *  The legacy DELTA shape sets this false — state lives inline in the
+   *  interleaved observations. */
+  currentSnapshot: z.boolean().default(true),
+  /** Attach compiler-derived input/output schemas + compilation errors to the
+   *  current snapshot's operator blocks (needs a compilationResult input;
+   *  legacy: GENERAL mode only). */
+  compiledSchemas: z.boolean().default(false),
+  flow: FlowParamsSchema.default({}),
+  operators: z
+    .object({
+      defaults: OperatorParamsSchema.default({}),
+      overrides: z.record(z.string(), OperatorParamsOverrideSchema).default({}),
+    })
+    .default({}),
+  /** Per-cell char cap reused for the surfaced print-output block. 0 ⇒ none. */
+  maxCellChars: z.number().int().min(0).default(0),
+});
+export type SummarizeParams = z.infer<typeof SummarizeParamsSchema>;
+
+/** Parse/validate an untyped params object (e.g. from the API), filling
+ *  defaults. Throws ZodError on invalid values. */
+export function parseSummarizeParams(raw: unknown): SummarizeParams {
+  return SummarizeParamsSchema.parse(raw ?? {});
+}
+
+/** A deep-partial of SummarizeParams, for API callers that tweak a few knobs
+ *  on top of the agent's settings-derived params. */
+export const SummarizeParamsPatchSchema = z.object({
+  trajectory: TrajectoryParamsSchema.partial().optional(),
+  currentSnapshot: z.boolean().optional(),
+  compiledSchemas: z.boolean().optional(),
+  flow: FlowParamsSchema.partial().optional(),
+  operators: z
+    .object({
+      defaults: OperatorParamsOverrideSchema.optional(),
+      overrides: z.record(z.string(), OperatorParamsOverrideSchema).optional(),
+    })
+    .optional(),
+  maxCellChars: z.number().int().min(0).optional(),
+});
+export type SummarizeParamsPatch = z.infer<typeof SummarizeParamsPatchSchema>;
+
+/**
+ * Apply a deep-partial patch (e.g. the agent's `summarizeParams` setting) on
+ * top of fully-resolved params, re-validating the result. This is how the API
+ * / a tuner tweaks individual knobs without restating the whole object.
+ */
+export function applySummarizeParamsPatch(base: SummarizeParams, patch: SummarizeParamsPatch): SummarizeParams {
+  return SummarizeParamsSchema.parse(deepMerge(base, patch));
+}
+
+/* ============================================================================
+ *  Deep-merge (defaults ⊕ override) — the per-operator resolution
+ * ========================================================================= */
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Structural deep-merge: `patch` wins; objects merge recursively; arrays and
+ *  scalars replace. Never mutates its inputs. */
+export function deepMerge<T>(base: T, patch: unknown): T {
+  if (!isPlainObject(base) || !isPlainObject(patch)) {
+    return (patch === undefined ? base : (patch as T)) as T;
+  }
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k], v) : v;
+  }
+  return out as T;
+}
+
+/** Resolve the effective per-operator params: defaults ⊕ overrides[opId]. */
+export function resolveOperatorParams(params: SummarizeParams, opId: string): OperatorParams {
+  const override = params.operators.overrides[opId];
+  if (!override) return params.operators.defaults;
+  return deepMerge(params.operators.defaults, override);
+}
+
+/* ============================================================================
+ *  Legacy mapping — the two presets as points in the space
+ * ========================================================================= */
+
+const clampLevel = (n: number | undefined): DecorateLevel =>
+  Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel;
+
+/**
+ * Map the legacy `(ContextMode, AssembleContextOptions)` pair into the
+ * summarize parameter space. This is the single source of truth for what the
+ * legacy knobs MEAN: LATEST and DELTA come out as two presets; every other
+ * legacy flag lands on exactly one parameter. Round-trip guarantee: rendering
+ * with the mapped params is byte-identical to the legacy render (enforced by
+ * the golden characterization tests).
+ */
+export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOptions): SummarizeParams {
+  // DECORATE levels expand to rung flags exactly as assembleContext did;
+  // explicitly-set booleans are preserved (levels only OR rungs on).
+  const expanded: Record<string, boolean> = {};
+  if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
+    Object.assign(expanded, levelsToFlags(clampLevel(options.flowLevel), clampLevel(options.dataLevel)));
+  }
+  const flag = (name: keyof AssembleContextOptions & string): boolean =>
+    (options[name] as boolean | undefined) || expanded[name] === true;
+
+  const isLatest = mode === ContextMode.LATEST;
+
+  return SummarizeParamsSchema.parse({
+    trajectory: {
+      events: isLatest ? "none" : "interleaved",
+      observations: "delta",
+      reasoningReplayK: options.thoughtReplay ? (options.thoughtReplayK ?? 10) : 0,
+      agentTurns: options.agentTurns ?? false,
+      windowTokens: options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : 0,
+      compaction: options.compactionStrategy ?? "compress",
+      deckSampleRatio: options.deckSampleRatio ?? 0.1,
+    },
+    currentSnapshot: isLatest,
+    compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    flow: {
+      loaderHints: flag("loaderHint"),
+      cardinalityAlarms: flag("lineageStats"),
+      errorContext: flag("lineageErrorContext"),
+      graphAudit: flag("graphAudit"),
+      joinAlarms: flag("joinTelemetry"),
+      errorReflection: options.errorReflection ?? false,
+      errorReflectionThreshold: options.errorReflectionThreshold ?? 3,
+      attemptReflection: options.attemptReflection ?? false,
+    },
+    operators: {
+      defaults: {
+        property: {
+          includeProperties: options.includeOperatorProperties !== false,
+          includeCode: false,
+          codeHistory: 0,
+        },
+        result: {
+          latest: {
+            detail: "sample",
+            tuple: { sampleRows: options.maxResultRows ?? 0, duplicates: false, fdHints: false },
+            column: {
+              schema: flag("schemaInResult"),
+              schemaTypes: true,
+              stats: flag("columnStats"),
+              statsMetrics: "all",
+              valueFormatHints: flag("valueFormatFlags"),
+              structuralHints: flag("tableStructureHint"),
+              coercionAlerts: flag("coercionTelemetry"),
+            },
+          },
+          history: { lastK: 0, render: { detail: "shape" } },
+        },
+      },
+      overrides: {},
+    },
+    maxCellChars: options.maxOperatorResultCellCharLimit ?? 0,
+  });
+}
+
+/** The legacy LATEST context mode as a point in the parameter space, at the
+ *  server's default agent settings (thoughtReplay on, K=10, properties on,
+ *  2000-char print cap). */
+export function latestPreset(): SummarizeParams {
+  return mapLegacyToParams(ContextMode.LATEST, {
+    compilationResult: null,
+    agentMode: AgentMode.CODE,
+    includeOperatorProperties: true,
+    thoughtReplay: true,
+    thoughtReplayK: 10,
+    maxOperatorResultCellCharLimit: 2000,
+  });
+}
+
+/** The legacy DELTA context mode as a point in the parameter space, at the
+ *  server's default agent settings. */
+export function deltaPreset(): SummarizeParams {
+  return mapLegacyToParams(ContextMode.DELTA, {
+    compilationResult: null,
+    agentMode: AgentMode.CODE,
+    includeOperatorProperties: true,
+    maxOperatorResultCellCharLimit: 2000,
+  });
+}

@@ -48,6 +48,13 @@ import {
   DEFAULT_REFLECTION_THRESHOLD,
   type ErrorReflectionEntry,
 } from "../context/select/reinjection/error-reflection";
+// summarize() is the centralized renderer; assembleContext delegates to it.
+// The import is circular (summarize calls back into renderContextCore below)
+// but strictly call-time — both modules only reference each other inside
+// function bodies, so ESM hoisting resolves it.
+import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParamsPatch } from "../context/summarize/params";
+import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
+import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -210,6 +217,26 @@ export interface AssembleContextOptions {
    *  behavior, no expansion. */
   flowLevel?: number;
   dataLevel?: number;
+  /** Internal (summarize): resolver of per-operator render extras — detail
+   *  level, per-op column/tuple params, code + result history. Present only
+   *  when the summarize params use a capability beyond the legacy surface;
+   *  absent ⇒ pure legacy rendering (parity path). Not honored inside the
+   *  window-compaction phase profiles (deck/suffix), which own their render
+   *  economics. */
+  opExtras?: (opId: string) => OperatorRenderExtras | undefined;
+  /** Internal (summarize): render interleaved events Thought/Action-only
+   *  (no per-event delta Observations). */
+  omitObservations?: boolean;
+  /** Internal (summarize): append a `# Current Dataflow` section after an
+   *  interleaved trajectory (a combination the legacy modes never had). */
+  appendCurrentSnapshot?: boolean;
+  /** Internal (summarize): skip the `# Current Dataflow` section in the
+   *  no-events layout. */
+  omitCurrentSnapshot?: boolean;
+  /** Deep-partial summarize-params patch (the agent's `summarizeParams`
+   *  setting), applied on top of the settings-derived params. This is the
+   *  API-reachable door into the full summarize parameter space. */
+  summarizePatch?: SummarizeParamsPatch;
 }
 
 /**
@@ -288,6 +315,37 @@ export function assembleContext(
   mode: ContextMode,
   options: AssembleContextOptions
 ): ModelMessage[] {
+  // The legacy entry point is now a thin preset shim over summarize(): the
+  // (mode, options) pair maps to a point in the summarize parameter space
+  // (LATEST / DELTA are just two presets), and summarize() calls back into
+  // renderContextCore below. Byte-parity with the pre-refactor renderer is
+  // enforced by the golden characterization tests.
+  const params = mapLegacyToParams(mode, options);
+  const effective = options.summarizePatch ? applySummarizeParamsPatch(params, options.summarizePatch) : params;
+  const result = summarize(
+    {
+      visibleSteps,
+      workflowState,
+      snapshotStorage,
+      compilationResult: options.compilationResult ?? null,
+    },
+    effective
+  );
+  return result.messages;
+}
+
+/**
+ * The mode-dispatched render core shared by every caller. Only summarize()
+ * should call this — external callers go through assembleContext (legacy
+ * signature) or summarize() (parameterized).
+ */
+export function renderContextCore(
+  visibleSteps: ReActStep[],
+  workflowState: WorkflowState,
+  snapshotStorage: WorkflowSnapshotStorage,
+  mode: ContextMode,
+  options: AssembleContextOptions
+): string {
   // DECORATE levels → render flags (claude/CONTEXT-DESIGN.md §5). When the
   // caller supplies ordinal facet levels, expand them through the rung catalog
   // and OR the resulting rung flags onto `options`. Levels only turn rungs ON;
@@ -403,7 +461,7 @@ export function assembleContext(
     "built context"
   );
 
-  return [{ role: "user", content }];
+  return content;
 }
 
 /* ============================================================================
@@ -443,7 +501,7 @@ function isInitStep(step: ReActStep): boolean {
   return step.toolCalls[0].toolName === "initialize";
 }
 
-interface BuiltPath {
+export interface BuiltPath {
   /** Visible events in chronological order. The init step (Event 0) is
    *  filtered out here, so `eventIndex` numbers start at 1. */
   path: PathNode[];
@@ -470,7 +528,7 @@ export const __forTesting = {
   findLatestUserStepInPath,
 };
 
-function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
+export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
   let initSnapshot: SnapshotData | undefined;
   const remaining: ReActStep[] = [];
   for (const step of visibleSteps) {
@@ -664,6 +722,9 @@ function assembleBudgetedContext(
     lineageStats: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
+    // Compaction phase profiles own the render economics — per-op extras
+    // (detail levels, history, metric filters) apply to unbudgeted paths only.
+    opExtras: undefined,
   };
 
   // Phase A: lossless raw delta. If it fits the window, send it untouched (the
@@ -763,7 +824,8 @@ function renderCompressed(
   }
 
   // Deck: the folded prefix, as statistics + sampled rows (deckOptions turns the
-  // stats family ON — the inverse of the schema-only suffix).
+  // stats family ON — the inverse of the schema-only suffix). Per-op extras are
+  // stripped: the compaction phases own their render economics.
   const deckOptions: AssembleContextOptions = {
     ...options,
     columnStats: true,
@@ -771,6 +833,7 @@ function renderCompressed(
     thoughtReplay: false,
     errorReflection: false,
     attemptReflection: false,
+    opExtras: undefined,
   };
   const deck = serializeSnapshotCompact(boundarySnap, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
@@ -785,7 +848,15 @@ function renderCompressed(
   // prev-snapshot to the boundary so the first surviving event diffs against the
   // deck (not the empty init). No omitted-marker — the deck stands in its place.
   const suffix: AssembleContextOptions = { ...suffixOptions, keepFromEventIndex: keepFrom, omittedEventsCount: 0 };
-  const events = renderAgentEvents(tasks, workflowState, suffix, boundarySnap, latestUserStepId, createFlagsByStep);
+  const events = renderAgentEvents(
+    tasks,
+    workflowState,
+    suffix,
+    boundarySnap,
+    latestUserStepId,
+    createFlagsByStep,
+    options.omitObservations === true
+  );
   if (events && events !== "(no agent actions yet)") {
     sections.push("# Agent Events (since the compacted snapshot above)");
     sections.push("");
@@ -831,7 +902,15 @@ function renderDeltaTruncated(
   const renderKeeping = (cutoff: number | undefined, reseed: SnapshotData | undefined, omitted: number): string => {
     options.keepFromEventIndex = cutoff;
     options.omittedEventsCount = omitted;
-    return renderInterleaved(tasks, workflowState, options, reseed, latestUserContent, latestUserStepId, createFlagsByStep);
+    return renderInterleaved(
+      tasks,
+      workflowState,
+      options,
+      reseed,
+      latestUserContent,
+      latestUserStepId,
+      createFlagsByStep
+    );
   };
 
   // Lossless first (keep every event) — preserves the cache-stable prefix while
@@ -942,12 +1021,34 @@ function renderInterleaved(
 
   // For Delta: each event as a Thought/Action/Observation body, diffed against
   // a rolling previous snapshot (seeded by the hidden init snapshot).
-  sections.push(renderAgentEvents(tasks, workflowState, options, initSnapshot, latestUserStepId, createFlagsByStep));
+  sections.push(
+    renderAgentEvents(
+      tasks,
+      workflowState,
+      options,
+      initSnapshot,
+      latestUserStepId,
+      createFlagsByStep,
+      options.omitObservations === true
+    )
+  );
   sections.push("");
+
+  const leaf = lastSnapshotOf(tasks);
+
+  // summarize(): an interleaved trajectory may additionally carry the full
+  // current-snapshot section (a combination the legacy modes never had).
+  if (options.appendCurrentSnapshot && leaf) {
+    const dag = serializeSnapshotFull(leaf, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
+    if (dag) {
+      sections.push("# Current Dataflow");
+      sections.push(dag);
+      sections.push("");
+    }
+  }
 
   // FLOW section over the leaf snapshot (composable with delta too — placed
   // last, after the event/snapshot trajectory). Empty ⇒ omitted.
-  const leaf = lastSnapshotOf(tasks);
   if (leaf) {
     const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
     if (flow) {
@@ -1002,11 +1103,14 @@ function renderLatest(
 
   // 2. # Current Dataflow — the leaf snapshot of the path. Latest mode
   //    is defined as a single point on the snapshot tree, so no events
-  //    are rendered above this.
-  const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
-  if (dag) {
-    sections.push("# Current Dataflow");
-    sections.push(dag);
+  //    are rendered above this. summarize() can omit it (currentSnapshot
+  //    param) — e.g. a pure-trajectory context.
+  if (!options.omitCurrentSnapshot) {
+    const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
+    if (dag) {
+      sections.push("# Current Dataflow");
+      sections.push(dag);
+    }
   }
 
   // 3. # Operators needing attention — the FLOW section. A consolidated,
@@ -1224,10 +1328,19 @@ function serializeTaskBody(
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
         obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        // summarize(): per-op extras apply to the observation render too —
+        // detail "omit" keeps the verb line but drops the result body.
+        const ex = options.opExtras?.(op.operatorID);
+        if (ex?.detail === "omit") continue;
         const info = node.snapshot.results.get(op.operatorID)?.info;
         const resultText = info
-          ? renderRawResult(op.operatorID, info, workflowState, options, (id: string) =>
-              outputColsFromSnapshot(node.snapshot, id)
+          ? renderRawResult(
+              op.operatorID,
+              info,
+              workflowState,
+              options,
+              (id: string) => outputColsFromSnapshot(node.snapshot, id),
+              ex
             )
           : "(not executed)";
         const rlines = resultText.split("\n");
@@ -1351,15 +1464,11 @@ function renderRawResult(
   info: Parameters<typeof formatOperatorResult>[1],
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  resolveInputColumns?: (upstreamOpId: string) => number | undefined
+  resolveInputColumns?: (upstreamOpId: string) => number | undefined,
+  ex?: OperatorRenderExtras
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
-    schemaInResult: options.schemaInResult,
-    columnStats: options.columnStats,
-    tableStructureHint: options.tableStructureHint,
-    valueFormatFlags: options.valueFormatFlags,
-    coercionTelemetry: options.coercionTelemetry,
-    maxResultRows: options.maxResultRows,
+    ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
     resolveInputColumns,
   });
   const text = raw.trim();
@@ -1387,7 +1496,11 @@ function stringifyOutput(output: unknown): string {
  * stays a compression (a 50k-row table can't dump thousands of rows). Errored /
  * empty operators have no rows to sample ⇒ the floor of 3 (harmless).
  */
-export function deckRowCap(info: OperatorInfo | undefined, ratio: number | undefined, maxRows: number | undefined): number {
+export function deckRowCap(
+  info: OperatorInfo | undefined,
+  ratio: number | undefined,
+  maxRows: number | undefined
+): number {
   const rows =
     info?.totalRowCount ?? info?.outputTuples ?? (Array.isArray(info?.result) ? (info!.result as unknown[]).length : 0);
   const hardCap = maxRows && maxRows > 0 ? maxRows : 20;
@@ -1425,7 +1538,9 @@ function serializeSnapshotCompact(
       ...options,
       maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
     };
-    lines.push(serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel));
+    lines.push(
+      serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel)
+    );
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -1509,6 +1624,45 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
  *  Per-operator serialization
  * ========================================================================= */
 
+/** The legacy (global-flag) result-format options — shared by the LATEST
+ *  operator block and the DELTA observation render. */
+function legacyFormatOptions(options: AssembleContextOptions): FormatOperatorResultOptions {
+  return {
+    schemaInResult: options.schemaInResult,
+    columnStats: options.columnStats,
+    valueFormatFlags: options.valueFormatFlags,
+    coercionTelemetry: options.coercionTelemetry,
+    maxResultRows: options.maxResultRows,
+    tableStructureHint: options.tableStructureHint,
+  };
+}
+
+/**
+ * summarize(): map one operator's resolved render extras onto the
+ * result-format options. The effective row cap is the tighter of the per-op
+ * sample size and any global cap (the global one exists so compaction decks
+ * stay a compression even under per-op params).
+ */
+function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextOptions): FormatOperatorResultOptions {
+  const exRows = ex.tuple.sampleRows;
+  const globalRows = options.maxResultRows ?? 0;
+  const sampleRows = exRows > 0 && globalRows > 0 ? Math.min(exRows, globalRows) : exRows || globalRows;
+  return {
+    detail: ex.detail === "shape" ? "shape" : undefined,
+    schemaInResult: ex.column.schema,
+    schemaTypes: ex.column.schemaTypes,
+    columnStats: ex.column.stats,
+    statsMetrics: ex.column.statsMetrics,
+    valueFormatFlags: ex.column.valueFormatHints,
+    coercionTelemetry: ex.column.coercionAlerts,
+    tableStructureHint: ex.column.structuralHints,
+    maxResultRows: sampleRows,
+    sampleDuplicates: ex.tuple.duplicates,
+    sampleFdHints: ex.tuple.fdHints,
+    dtypeAnomaly: ex.column.dtypeAnomaly,
+  };
+}
+
 /**
  * Stage-aware loader-remediation hint (plan4, goal.md lever D / Direction-1).
  * Maps the exception CLASS parsed from a load-stage operator's error string to
@@ -1533,9 +1687,8 @@ export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 function outputColsFromSnapshot(snapshot: SnapshotData | undefined, opId: string): number | undefined {
   const r = snapshot?.results.get(opId)?.info?.result;
   if (!Array.isArray(r) || !r[0] || typeof r[0] !== "object") return undefined;
-  return Object.keys(r[0] as Record<string, unknown>).filter(
-    k => k !== "__row_index__" && k !== "__is_visualization__"
-  ).length;
+  return Object.keys(r[0] as Record<string, unknown>).filter(k => k !== "__row_index__" && k !== "__is_visualization__")
+    .length;
 }
 
 /**
@@ -1587,19 +1740,19 @@ function serializeOperatorFull(
   operatorLevel: number
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
-  const execText = info
-    ? formatOperatorResult(op.operatorID, info, workflowState, {
-        schemaInResult: options.schemaInResult,
-        columnStats: options.columnStats,
-        valueFormatFlags: options.valueFormatFlags,
-        coercionTelemetry: options.coercionTelemetry,
-        maxResultRows: options.maxResultRows,
-        tableStructureHint: options.tableStructureHint,
-        // LATEST renders a single consolidated `Inputs:` (with counts) at the
-        // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
-        inputsInResult: false,
-      })
-    : undefined;
+  // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
+  // history). Absent on the legacy path — rendering is then byte-identical to
+  // the pre-summarize assembler.
+  const ex = options.opExtras?.(op.operatorID);
+  const execText =
+    info && ex?.detail !== "omit"
+      ? formatOperatorResult(op.operatorID, info, workflowState, {
+          ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
+          // LATEST renders a single consolidated `Inputs:` (with counts) at the
+          // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
+          inputsInResult: false,
+        })
+      : undefined;
 
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:
@@ -1634,7 +1787,7 @@ function serializeOperatorFull(
   // Python code operators (whose `code` is stripped — see CODE_OPERATOR_TYPES)
   // and only when the toggle is on (default) and there is at least one
   // property to show. Empty-property operators render nothing.
-  const includeProps = options.includeOperatorProperties !== false;
+  const includeProps = ex ? ex.includeProperties : options.includeOperatorProperties !== false;
   if (
     includeProps &&
     !CODE_OPERATOR_TYPES.has(op.operatorType) &&
@@ -1642,6 +1795,16 @@ function serializeOperatorFull(
     Object.keys(op.operatorProperties).length > 0
   ) {
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
+  }
+
+  // summarize(): opt-in current-code block. Errors already embed the code in
+  // the [ERROR] result render, so only healthy operators get it here.
+  if (ex?.includeCode && !info?.error) {
+    const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+    if (code) {
+      lines.push("Code:");
+      for (const l of code.split("\n")) lines.push("  " + l);
+    }
   }
 
   // Schemas only on the current (last) snapshot — compilation only runs
@@ -1708,6 +1871,42 @@ function serializeOperatorFull(
         "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"
       );
       for (const l of text.split("\n")) lines.push("  " + l);
+    }
+  }
+
+  // summarize(): per-operator HISTORY sections (only without an interleaved
+  // trajectory — see the precedence rule in params.ts). Code versions carry
+  // the event index each was submitted at; result versions render per their
+  // (typically cheaper) history render profile. Historical ERROR versions
+  // render first-line-only: echoing the current code under an old error would
+  // misattribute it (the code that produced it is in the code history).
+  if (ex && (ex.codeHistory.length > 0 || ex.resultHistory.length > 0)) {
+    for (const cv of ex.codeHistory) {
+      lines.push(`Code @ step ${cv.eventIndex}${cv.status === "rejected" ? " (rejected)" : ""}:`);
+      for (const l of cv.code.split("\n")) lines.push("  " + l);
+    }
+    for (const rv of ex.resultHistory) {
+      lines.push(`Result @ step ${rv.version.eventIndex}:`);
+      if (rv.version.info.error) {
+        lines.push(`  [ERROR] ${rv.version.info.error.split("\n")[0]}`);
+      } else {
+        const t = formatOperatorResult(op.operatorID, rv.version.info, workflowState, {
+          detail: rv.render.detail === "shape" ? "shape" : undefined,
+          maxResultRows: rv.render.tuple.sampleRows,
+          sampleDuplicates: rv.render.tuple.duplicates,
+          sampleFdHints: rv.render.tuple.fdHints,
+          schemaInResult: rv.render.column.schema,
+          schemaTypes: rv.render.column.schemaTypes,
+          columnStats: rv.render.column.stats,
+          statsMetrics: rv.render.column.statsMetrics,
+          valueFormatFlags: rv.render.column.valueFormatHints,
+          coercionTelemetry: rv.render.column.coercionAlerts,
+          tableStructureHint: rv.render.column.structuralHints,
+          dtypeAnomaly: rv.render.column.dtypeAnomaly,
+          inputsInResult: false,
+        });
+        for (const l of t.split("\n")) lines.push("  " + l);
+      }
     }
   }
 

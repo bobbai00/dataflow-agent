@@ -49,6 +49,7 @@ import {
   type TraceRecord,
 } from "./protocol";
 import { FetaqaAdapter } from "./adapters/fetaqa";
+import { KramabenchAdapter } from "./adapters/kramabench";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -70,6 +71,7 @@ interface CliArgs {
   limit: number;
   offset: number;
   outputDir: string;
+  dataRoot?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -80,8 +82,9 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--limit") args.limit = Number(argv[++i]);
     else if (a === "--offset") args.offset = Number(argv[++i]);
     else if (a === "--output") args.outputDir = argv[++i];
+    else if (a === "--data-root") args.dataRoot = argv[++i];
     else if (a === "--help" || a === "-h") {
-      console.log("Usage: bun run benchmark/llm-training-data-generation/run.ts [--source fetaqa] [--limit N] [--offset N] [--output PATH]");
+      console.log("Usage: bun run benchmark/llm-training-data-generation/run.ts [--source fetaqa|kramabench] [--limit N] [--offset N] [--output PATH] [--data-root PATH]");
       process.exit(0);
     }
   }
@@ -90,6 +93,7 @@ function parseArgs(argv: string[]): CliArgs {
     limit: Number.isFinite(args.limit) ? (args.limit as number) : 10,
     offset: Number.isFinite(args.offset) ? (args.offset as number) : 0,
     outputDir: args.outputDir ?? OUTPUT_ROOT,
+    dataRoot: args.dataRoot,
   };
 }
 
@@ -97,6 +101,8 @@ function getAdapter(name: string): DatasetAdapter {
   switch (name.toLowerCase()) {
     case "fetaqa":
       return new FetaqaAdapter();
+    case "kramabench":
+      return new KramabenchAdapter();
     default:
       throw new Error(`Unknown source adapter: ${name}`);
   }
@@ -361,14 +367,25 @@ async function main(): Promise<void> {
   log(`source=${args.source} limit=${args.limit} offset=${args.offset}`);
 
   const adapter = getAdapter(args.source);
-  const sourceRoot = path.join(DATA_ROOT, adapter.name);
+  const sourceRoot = args.dataRoot ?? adapter.defaultSourceDir ?? path.join(DATA_ROOT, adapter.name);
 
-  // Sanity check: source folder must exist before we touch backend services.
-  try {
-    await fs.access(path.join(sourceRoot, "manifest.jsonl"));
-  } catch {
-    throw new Error(`No manifest.jsonl under ${sourceRoot}. Run the dataset prep script first.`);
+  // Sanity check before we touch backend services. Manifest-based sources
+  // (FeTaQA) require their manifest file; directory-based sources (KramaBench)
+  // only need the source root to exist.
+  if (adapter.manifestName) {
+    try {
+      await fs.access(path.join(sourceRoot, adapter.manifestName));
+    } catch {
+      throw new Error(`No ${adapter.manifestName} under ${sourceRoot}. Run the dataset prep script first.`);
+    }
+  } else {
+    try {
+      await fs.access(sourceRoot);
+    } catch {
+      throw new Error(`Source root does not exist: ${sourceRoot} (pass --data-root).`);
+    }
   }
+  log(`source root: ${sourceRoot}`);
 
   const runId = String(Date.now());
   const startedAt = new Date().toISOString();

@@ -41,11 +41,15 @@ export interface ContextAssemblerInput {
 }
 
 /**
- * Synchronous renderer that converts the agent's current state into the
- * message array the driver should send on the wire. Bound at agent
- * construction; travels paired with the driver.
+ * Renderer that converts the agent's current state into the message array the
+ * driver should send on the wire. Bound at agent construction; travels paired
+ * with the driver. May be async: the LLM context-tuner assembler awaits a
+ * teacher-model call, while the rule/legacy assemblers stay synchronous. The
+ * agent awaits the result on the (async) prepareStep path; the synchronous
+ * `getNextStepContext` preview returns the last rendered content when the
+ * assembler is async (it cannot await).
  */
-export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[];
+export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[] | Promise<ModelMessage[]>;
 
 /**
  * Per-step callback the driver invokes after each model turn. Matches the

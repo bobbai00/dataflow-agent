@@ -17,6 +17,10 @@
  * under the License.
  */
 
+import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
+import type { SelectorConfig } from "../agent/context/selector/selector";
+import type { TunerConfig } from "../agent/context/tuner/tuner";
+
 export enum AgentState {
   UNAVAILABLE = "UNAVAILABLE",
   AVAILABLE = "AVAILABLE",
@@ -258,6 +262,39 @@ export interface AgentSettings {
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
   toolDialect: LocalToolDialect;
+  /**
+   * Deep-partial patch over the summarize() parameter space
+   * (context/summarize/params.ts), applied on top of the params derived from
+   * the settings above (contextMode → preset, flowLevel/dataLevel → rungs, …).
+   * The door into every summarize knob the flat settings don't expose:
+   * per-operator overrides, code/result history, detail levels, metric
+   * subsets, sample-based tuple hints. Validated against
+   * SummarizeParamsPatchSchema at the API boundary. Undefined ⇒ no patch.
+   */
+  summarizeParams?: SummarizeParamsPatch;
+  /**
+   * When set, the per-step SELECTOR policy (context/selector) chooses the
+   * summarize() params from the live dossier — the "context tuner" running
+   * end-to-end. Overrides the flat contextMode/knob surface. The value is the
+   * trainable `SelectorConfig` action vector. Undefined ⇒ selector off (use the
+   * legacy contextMode path). See docs/summarize-tuning-intuitions.md.
+   */
+  selectorConfig?: SelectorConfig;
+  /**
+   * Expose the read-only `inspectResult` PULL tool to the model (Direction B).
+   * Lets the agent re-inspect an existing operator's cached result at more
+   * detail on demand instead of re-loading. Off by default. Every call is also
+   * a supervised label for training the push selector (pull-to-push).
+   */
+  enableInspectTool: boolean;
+  /**
+   * When set, an LLM "teacher" (context tuner) is consulted each step: it reads
+   * a cheap pipeline manifest and returns per-operator context detail levels
+   * (context/tuner). Overrides the selector/contextMode paths. The value names
+   * the teacher model + render sizes. Undefined ⇒ tuner off. See
+   * docs/selector-architecture.md.
+   */
+  tunerConfig?: TunerConfig;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -310,6 +347,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   valueFormat: false,
   dataHints: false,
   toolDialect: "qwen-xml",
+  enableInspectTool: false,
 };
 
 /**
@@ -396,6 +434,14 @@ export interface AgentSettingsApi {
   valueFormat?: boolean;
   dataHints?: boolean;
   toolDialect?: LocalToolDialect;
+  /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
+  summarizeParams?: SummarizeParamsPatch;
+  /** Trainable selector action vector (see AgentSettings.selectorConfig). */
+  selectorConfig?: SelectorConfig;
+  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  enableInspectTool?: boolean;
+  /** LLM context-tuner config (see AgentSettings.tunerConfig). */
+  tunerConfig?: TunerConfig;
 }
 
 export interface AgentInfo {
@@ -452,4 +498,12 @@ export interface UpdateAgentSettingsRequest {
   valueFormat?: boolean;
   dataHints?: boolean;
   toolDialect?: LocalToolDialect;
+  /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
+  summarizeParams?: SummarizeParamsPatch;
+  /** Trainable selector action vector (see AgentSettings.selectorConfig). */
+  selectorConfig?: SelectorConfig;
+  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  enableInspectTool?: boolean;
+  /** LLM context-tuner config (see AgentSettings.tunerConfig). */
+  tunerConfig?: TunerConfig;
 }

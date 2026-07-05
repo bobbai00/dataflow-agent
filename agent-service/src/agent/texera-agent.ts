@@ -24,7 +24,18 @@ import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
-import type { AgentDelegateConfig, AgentSettings, CompactionStrategy, LocalToolDialect, ReActStep, TokenUsage, UserInfo } from "../types/agent";
+import type {
+  AgentDelegateConfig,
+  AgentSettings,
+  CompactionStrategy,
+  LocalToolDialect,
+  ReActStep,
+  TokenUsage,
+  UserInfo,
+} from "../types/agent";
+import type { SummarizeParamsPatch } from "./context/summarize/params";
+import type { SelectorConfig } from "./context/selector/selector";
+import type { TunerConfig } from "./context/tuner/tuner";
 import type { OperatorInfo } from "../types/execution";
 import {
   AgentMode,
@@ -78,6 +89,7 @@ import {
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
+import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -201,13 +213,20 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
-  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string) | undefined;
+  private readonly systemPromptBuilder:
+    | ((dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string)
+    | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
+
+  /** Content string last produced by the (possibly-async) context assembler on
+   *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
+   *  return a value even when the assembler is async (the LLM tuner). */
+  private lastRenderedContext: string | undefined = undefined;
 
   private delegateConfig?: {
     userToken: string;
@@ -420,13 +439,16 @@ export class TexeraAgent {
     // so inject it only when the window is on AND the strategy is compress. Sliding
     // produces a self-describing `(… omitted …)` marker, not a deck, so it gets no
     // section (describing a deck it never renders would be its own drift).
-    const compactionEnabled =
-      this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
+    const compactionEnabled = this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
       // distribution — and the tool-call dialect the parser expects.
-      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, this.settings.contextMode, compactionEnabled);
+      this.systemPrompt = this.systemPromptBuilder(
+        this.settings.toolDialect,
+        this.settings.contextMode,
+        compactionEnabled
+      );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -485,6 +507,16 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
+    }
+
+    // Opt-in read-only PULL tool (Direction B): lets the model re-inspect an
+    // existing operator's cached result at more detail on demand. Reads the
+    // result at the current HEAD; never mutates the DAG or re-executes.
+    if (this.settings.enableInspectTool) {
+      tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
+        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
+        workflowState: this.workflowState,
+      });
     }
 
     // When parallel tool calls are enabled the model can emit N tool calls in
@@ -744,6 +776,10 @@ export class TexeraAgent {
     dataHints?: boolean;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
+    summarizeParams?: SummarizeParamsPatch | null;
+    selectorConfig?: SelectorConfig | null;
+    enableInspectTool?: boolean;
+    tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
 
@@ -877,6 +913,26 @@ export class TexeraAgent {
       this.settings.attemptReflection = updates.attemptReflection;
       // Pure render-time toggle — injects an `Attempt reflection:` block on
       // heavily-edited operators. Read at the next assembleContext.
+    }
+    if (updates.summarizeParams !== undefined) {
+      // Pure render-time patch over the summarize() parameter space; applied
+      // on the next context assembly. `null` clears a previously-set patch.
+      this.settings.summarizeParams = updates.summarizeParams ?? undefined;
+    }
+    if (updates.selectorConfig !== undefined) {
+      // Pure render-time: switches the assembler onto the per-step selector
+      // policy. `null` turns the selector off (back to the contextMode path).
+      this.settings.selectorConfig = updates.selectorConfig ?? undefined;
+    }
+    if (updates.enableInspectTool !== undefined) {
+      // Adds/removes the read-only inspectResult tool from the model's tool set
+      // (createTools() below reads this and rebuilds).
+      this.settings.enableInspectTool = updates.enableInspectTool;
+    }
+    if (updates.tunerConfig !== undefined) {
+      // Pure render-time: switches the assembler onto the LLM context-tuner
+      // path. `null` turns it off. The assembler reads this per-call.
+      this.settings.tunerConfig = updates.tunerConfig ?? undefined;
     }
     if (updates.toolDialect !== undefined && updates.toolDialect !== this.settings.toolDialect) {
       this.settings.toolDialect = updates.toolDialect;
@@ -1041,7 +1097,9 @@ export class TexeraAgent {
           }
 
           const visibleSteps = this.getVisibleReActSteps();
-          const processed = this.contextAssembler({
+          // The assembler may be async (LLM context tuner). Await it here on the
+          // prepareStep path; cache the rendered content for the sync preview.
+          const processed = await this.contextAssembler({
             visibleSteps,
             workflowState: this.workflowState,
             snapshotStorage: this.snapshotStorage,
@@ -1049,6 +1107,8 @@ export class TexeraAgent {
             compilationResult,
           });
           lastPreparedMessages = processed;
+          const firstContent = processed[0]?.content;
+          this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
           return { messages: processed };
         },
         onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
@@ -1199,6 +1259,9 @@ export class TexeraAgent {
       settings: this.settings,
       compilationResult: null,
     });
+    // An async assembler (LLM tuner) can't be awaited in this sync preview —
+    // return the content last rendered on the prepareStep path.
+    if (processed instanceof Promise) return this.lastRenderedContext ?? "";
     const first = processed[0];
     if (!first) return "";
     return typeof first.content === "string" ? first.content : JSON.stringify(first.content);

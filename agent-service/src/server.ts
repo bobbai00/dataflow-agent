@@ -31,6 +31,12 @@ import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver"
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { assembleContext } from "./agent/util/context-utils";
+import { SummarizeParamsPatchSchema, type SummarizeParamsPatch } from "./agent/context/summarize/params";
+import { buildDossier } from "./agent/context/summarize/dossier";
+import { summarize as summarizeContext } from "./agent/context/summarize/summarize";
+import { selectParams, SelectorConfigSchema, type SelectorConfig } from "./agent/context/selector/selector";
+import { LLMContextTuner, type TunerConfig } from "./agent/context/tuner/tuner";
+import type { OpenAIProvider } from "@ai-sdk/openai";
 import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
 import { buildLocalReactSystemPrompt } from "./agent/prompts";
 import { dashboardPlugin } from "./dashboard/static";
@@ -59,15 +65,60 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
   return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
 }
 
-function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
+/** Latest user-role message content along the visible path — the task text the
+ *  tuner reasons about. */
+function latestTaskText(visibleSteps: { role: string; content?: string }[]): string {
+  for (let i = visibleSteps.length - 1; i >= 0; i--) {
+    if (visibleSteps[i].role === "user" && visibleSteps[i].content) return visibleSteps[i].content as string;
+  }
+  return "";
+}
+
+function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
+  // One tuner per agent, built lazily and reused (it accumulates teacher-token
+  // usage). Rebuilt if the teacher model id changes.
+  let tuner: LLMContextTuner | undefined;
+  let tunerModelId: string | undefined;
+  const getTuner = (cfg: TunerConfig): LLMContextTuner => {
+    if (!tuner || tunerModelId !== cfg.model) {
+      tuner = new LLMContextTuner(openai.chat(cfg.model), cfg);
+      tunerModelId = cfg.model;
+    }
+    return tuner;
+  };
+
   // The rich SDK context (`# User Task` / `# Current Dataflow` + decoration
   // rungs). Controlled by the SELECT mode (settings.contextMode), the two
   // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
   // into the individual decoration rungs via the catalog), plus the substrate /
   // select / prior knobs below. The per-rung decoration booleans are NOT a
   // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings, compilationResult }) =>
-    assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+  const sdkContext: ContextAssembler = async ({
+    visibleSteps,
+    workflowState,
+    snapshotStorage,
+    settings,
+    compilationResult,
+  }) => {
+    // Context policy precedence: LLM tuner > rule selector > legacy contextMode.
+    // Tuner path (opt-in): a teacher LLM chooses per-operator detail from a
+    // cheap manifest each step. Async; falls back to the rule selector inside
+    // tune() on any failure.
+    if (settings.tunerConfig) {
+      const dossier = buildDossier(visibleSteps, snapshotStorage);
+      const { params } = await getTuner(settings.tunerConfig).tune(dossier, latestTaskText(visibleSteps));
+      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+        .messages;
+    }
+    // Selector path (opt-in): the per-step RULE policy chooses summarize()
+    // params from the live dossier. The dossier is built once and reused.
+    if (settings.selectorConfig) {
+      const dossier = buildDossier(visibleSteps, snapshotStorage);
+      const params = selectParams(dossier, settings.selectorConfig);
+      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+        .messages;
+    }
+    return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
       compilationResult,
       agentMode: settings.agentMode,
       includeOperatorProperties: settings.includeOperatorProperties,
@@ -88,7 +139,11 @@ function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
       tableStructureHint: settings.dataHints,
+      // Deep-partial patch over the summarize() parameter space — the
+      // API-reachable door into every knob the flat settings don't expose.
+      summarizePatch: settings.summarizeParams,
     });
+  };
 
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
@@ -136,7 +191,7 @@ async function createAgentInstance(
   const model = openai.chat(modelType);
   const driver: LLMDriver =
     driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
-  const contextAssembler = buildContextAssembler(driverKind);
+  const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
     driver,
@@ -195,6 +250,10 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     valueFormat: agentSettings.valueFormat,
     dataHints: agentSettings.dataHints,
     toolDialect: agentSettings.toolDialect,
+    summarizeParams: agentSettings.summarizeParams,
+    selectorConfig: agentSettings.selectorConfig,
+    enableInspectTool: agentSettings.enableInspectTool,
+    tunerConfig: agentSettings.tunerConfig,
   };
 
   const delegateConfig = agent.getDelegateConfig();
@@ -235,6 +294,46 @@ const ERROR_STATUS: Record<string, number> = {
   "modelType is required": 400,
 };
 
+/** Validate an incoming `summarizeParams` patch at the API boundary so bad
+ *  knob values 400 at settings time instead of blowing up mid-turn. */
+function parseSummarizePatch(raw: unknown): SummarizeParamsPatch | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null; // explicit clear
+  const parsed = SummarizeParamsPatchSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid summarizeParams: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+    );
+  }
+  return parsed.data;
+}
+
+/** Validate an incoming `selectorConfig` (the trainable action vector) at the
+ *  API boundary. Fills defaults; `null` turns the selector off. */
+function parseSelectorConfigInput(raw: unknown): SelectorConfig | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null; // explicit off
+  const parsed = SelectorConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid selectorConfig: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+    );
+  }
+  return parsed.data;
+}
+
+/** Validate an incoming `tunerConfig` (the LLM context-tuner settings). `null`
+ *  turns the tuner off. Requires a non-empty `model`. */
+function parseTunerConfigInput(raw: unknown): TunerConfig | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== "object" || raw === null || typeof (raw as any).model !== "string" || !(raw as any).model) {
+    throw new Error("Invalid tunerConfig: `model` (string) is required");
+  }
+  const r = raw as any;
+  return { model: r.model, sampleRows: r.sampleRows, richRows: r.richRows };
+}
+
 const agentsRouter = new Elysia({ prefix: "/agents" })
   // Error handler must live on the same Elysia instance whose routes throw, or
   // its scope will not see the errors. Elysia 1.x defaults to local scoping for
@@ -246,6 +345,15 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     if (code === "VALIDATION" || code === "PARSE") {
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
+    }
+    // zod-level summarizeParams / selectorConfig validation failures are client errors too.
+    if (
+      errorMessage.startsWith("Invalid summarizeParams") ||
+      errorMessage.startsWith("Invalid selectorConfig") ||
+      errorMessage.startsWith("Invalid tunerConfig")
+    ) {
+      set.status = 400;
+      return { error: errorMessage };
     }
     set.status = ERROR_STATUS[errorMessage] ?? 500;
     return { error: errorMessage || "Internal server error" };
@@ -327,6 +435,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           valueFormat: settings.valueFormat,
           dataHints: settings.dataHints,
           toolDialect: settings.toolDialect,
+          summarizeParams: parseSummarizePatch(settings.summarizeParams),
+          selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+          enableInspectTool: (settings as any).enableInspectTool,
+          tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
 
@@ -373,6 +485,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             valueFormat: t.Optional(t.Boolean()),
             dataHints: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
+            // Deep-partial summarize() params patch; zod-validated in-handler
+            // (the shape is too rich for a TypeBox mirror to earn its keep).
+            summarizeParams: t.Optional(t.Any()),
+            selectorConfig: t.Optional(t.Any()),
+            enableInspectTool: t.Optional(t.Boolean()),
+            tunerConfig: t.Optional(t.Any()),
           })
         ),
       }),
@@ -642,6 +760,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         parallelToolCalls: settings.parallelToolCalls,
         includeOperatorProperties: settings.includeOperatorProperties,
         thoughtReplay: settings.thoughtReplay,
+        // These four were accepted by the body schema but silently dropped
+        // before the summarize() refactor — forward them like the create path.
+        agentTurns: settings.agentTurns,
+        contextWindowTokens: settings.contextWindowTokens,
+        compactionStrategy: settings.compactionStrategy,
+        deckSampleRatio: settings.deckSampleRatio,
         errorReflection: settings.errorReflection,
         errorReflectionThreshold: settings.errorReflectionThreshold,
         thoughtReplayK: settings.thoughtReplayK,
@@ -654,6 +778,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         valueFormat: settings.valueFormat,
         dataHints: settings.dataHints,
         toolDialect: settings.toolDialect,
+        summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
+        selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+        enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
+        tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
 
       // Settings can change context assembly (agentMode flips schema gating,
@@ -723,6 +851,14 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         valueFormat: t.Optional(t.Boolean()),
         dataHints: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
+        // Deep-partial summarize() params patch; zod-validated in-handler.
+        // Pass null to clear a previously-set patch.
+        summarizeParams: t.Optional(t.Any()),
+        // Selector action vector; zod-validated in-handler. null turns it off.
+        selectorConfig: t.Optional(t.Any()),
+        enableInspectTool: t.Optional(t.Boolean()),
+        // LLM context-tuner config; validated in-handler. null turns it off.
+        tunerConfig: t.Optional(t.Any()),
       }),
     }
   );

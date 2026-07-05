@@ -52,6 +52,7 @@ interface FetaqaManifestRow {
 
 export class FetaqaAdapter implements DatasetAdapter {
   readonly name = "fetaqa";
+  readonly manifestName = "manifest.jsonl";
 
   async *load(opts: AdapterLoadOptions): AsyncIterable<Task> {
     const manifestPath = path.join(opts.rootDir, "manifest.jsonl");

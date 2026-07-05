@@ -21,15 +21,24 @@ import type { OperatorInfo } from "../../../../types/execution";
 import { RESERVED_STATS_KEYS } from "./reserved-keys";
 
 /**
- * Data-L1 (pre-emptive). A compact, COMPLETE `Schema:` line —
- * `name (type), name (type), …` for every output column. Names + types come
- * from `opInfo.columnStats` (whose display strings begin with a `(<type>)` tag,
- * computed for EVERY column so the list is complete even for wide tables the
- * TSV/stats previews truncate). Falls back to result-row headers (names only)
- * when columnStats is absent. Intentionally NOT column-truncated — its whole
- * value is the full column inventory. Returns undefined when no columns known.
+ * Wide-table cap for the schema line. A `shape`-detail render of a very wide
+ * table (e.g. biomedical clinical = 179 cols) still emits a full column
+ * inventory — ~3k chars re-rendered every step (docs/context-param-case-studies
+ * Case 3). Cap the enumerated columns; the count still reports the true total,
+ * so nothing is silently lost. Matches the TSV/stats renderers' 50-col cap.
  */
-export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
+const MAX_SCHEMA_COLUMNS = 50;
+
+/**
+ * Data-L1 (pre-emptive). A compact `Schema:` line — `name (type), …`. Names +
+ * types come from `opInfo.columnStats` (whose display strings begin with a
+ * `(<type>)` tag, computed for EVERY column), falling back to result-row headers
+ * (names only). For very wide tables the enumeration is capped at
+ * `MAX_SCHEMA_COLUMNS` (first half + last half, mirroring the TSV renderer) with
+ * a `(showing N of M cols)` header so the total is never hidden. Returns
+ * undefined when no columns are known.
+ */
+export function formatSchemaLine(opInfo: OperatorInfo, includeTypes = true): string | undefined {
   const stats = opInfo.columnStats ?? {};
   const statCols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   let cols: string[];
@@ -42,11 +51,23 @@ export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
         ? Object.keys(result[0]).filter(k => k !== "__row_index__" && k !== "__is_visualization__")
         : [];
   }
-  if (cols.length === 0) return undefined;
-  const parts = cols.map(col => {
-    const s = stats[col];
+  const total = cols.length;
+  if (total === 0) return undefined;
+
+  const render = (name: string): string => {
+    if (!includeTypes) return name;
+    const s = stats[name];
     const m = typeof s === "string" ? /^\(([^)]+)\)/.exec(s.trim()) : null;
-    return m ? `${col} (${m[1]})` : col;
-  });
-  return `Schema (${cols.length} cols): ${parts.join(", ")}`;
+    return m ? `${name} (${m[1]})` : name;
+  };
+
+  // Wide: first ⌈N/2⌉ + last ⌊N/2⌋ columns, joined by `…`, so both ends of the
+  // inventory stay visible. Narrow: the full list (byte-identical to before).
+  if (total > MAX_SCHEMA_COLUMNS) {
+    const left = Math.ceil(MAX_SCHEMA_COLUMNS / 2);
+    const right = Math.floor(MAX_SCHEMA_COLUMNS / 2);
+    const parts = [...cols.slice(0, left).map(render), "…", ...cols.slice(-right).map(render)];
+    return `Schema (showing ${MAX_SCHEMA_COLUMNS} of ${total} cols): ${parts.join(", ")}`;
+  }
+  return `Schema (${total} cols): ${cols.map(render).join(", ")}`;
 }

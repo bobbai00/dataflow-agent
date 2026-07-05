@@ -38,7 +38,10 @@ const MAX_STATS_COLUMNS = 50;
  * telemetry) are dropped — they render via their own rungs. Returns undefined
  * when the operator published no real-column stats.
  */
-export function formatColumnStats(opInfo: OperatorInfo): string | undefined {
+export function formatColumnStats(
+  opInfo: OperatorInfo,
+  metrics: "all" | readonly string[] = "all"
+): string | undefined {
   const stats = opInfo.columnStats;
   if (!stats) return undefined;
   const cols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
@@ -46,10 +49,61 @@ export function formatColumnStats(opInfo: OperatorInfo): string | undefined {
   const shown = cols.slice(0, MAX_STATS_COLUMNS);
   const lines = shown.map(c => {
     const v = stats[c];
-    return typeof v === "string" && v.length > 0 ? `- "${c}" ${v}` : `- "${c}"`;
+    const display = typeof v === "string" && v.length > 0 ? filterStatsLine(v, metrics) : undefined;
+    return display ? `- "${c}" ${display}` : `- "${c}"`;
   });
   if (cols.length > MAX_STATS_COLUMNS) {
     lines.push(`- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
   }
   return ["Column Schema and stats:", ...lines].join("\n");
+}
+
+/**
+ * Filter one worker stats line (`(<type>): k=v, k=v, top_10={…}`) down to the
+ * requested metric families. The worker owns the format; this parse is
+ * best-effort — on any shape it doesn't recognize it returns the line
+ * verbatim rather than dropping information.
+ *
+ * Family of a `k=v` segment = the key up to the first `_` group suffix:
+ * `top_5` / `top_10` → "top"; `items_min|max|mean` → "items"; everything else
+ * is its literal key (`null`, `mean`, `min`, `max`, `distinct`, `true`,
+ * `false`). Unrecognized families (e.g. the `format=` tag) are always kept —
+ * they are rare, cheap, and load-bearing for other rungs.
+ */
+export function filterStatsLine(line: string, metrics: "all" | readonly string[]): string {
+  if (metrics === "all") return line;
+  const m = /^(\([^)]*\)):?\s*(.*)$/.exec(line.trim());
+  if (!m) return line;
+  const typeTag = m[1];
+  const body = m[2];
+  if (!body) return typeTag;
+  const segments = splitTopLevel(body);
+  const known = new Set(["null", "mean", "min", "max", "distinct", "top", "true", "false", "items"]);
+  const wanted = new Set(metrics);
+  const kept = segments.filter(seg => {
+    const key = seg.split("=")[0]?.trim() ?? "";
+    const family = key.startsWith("top_") ? "top" : key.startsWith("items_") ? "items" : key;
+    if (!known.has(family)) return true; // unknown families always kept
+    return wanted.has(family as never);
+  });
+  return kept.length > 0 ? `${typeTag}: ${kept.join(", ")}` : typeTag;
+}
+
+/** Split `a=1, b=2, top_10={x=1, y=2}` on top-level commas (brace-aware). */
+function splitTopLevel(body: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of body) {
+    if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
 }

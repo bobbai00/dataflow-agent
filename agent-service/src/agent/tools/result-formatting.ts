@@ -23,16 +23,14 @@ import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
-import {
-  RESERVED_STATS_KEYS,
-  COERCION_TELEMETRY_KEY,
-} from "../context/decorate/data/reserved-keys";
+import { RESERVED_STATS_KEYS, COERCION_TELEMETRY_KEY } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
 import { formatColumnStats } from "../context/decorate/data/column-stats";
 import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { formatLineage } from "../context/decorate/flow/cardinality";
+import { formatSampleDuplicates, formatSampleFds, formatDtypeAnomaly } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
@@ -95,8 +93,24 @@ export interface FormatOperatorResultOptions {
    *  duplication. DELTA leaves it true (it has no operator-block level).
    *  Undefined ⇒ true. */
   inputsInResult?: boolean;
+  /** summarize() detail level for the result body:
+   *   - "sample" (default / legacy): the TSV row sample renders.
+   *   - "shape": counts + column annotations only — no TSV rows. On an error
+   *     result, only the first error line renders (no traceback/code echo).
+   *  ("omit" is handled by the operator serializer — no Result block at all.) */
+  detail?: "shape" | "sample";
+  /** Metric families to keep in the `Column Schema and stats:` block
+   *  ("all" / undefined ⇒ worker strings verbatim). */
+  statsMetrics?: "all" | readonly string[];
+  /** Include `(type)` tags on the Schema line (default true). */
+  schemaTypes?: boolean;
+  /** Sample-based duplicate rows / identical-column detection line. */
+  sampleDuplicates?: boolean;
+  /** Sample-based candidate functional-dependency line. */
+  sampleFdHints?: boolean;
+  /** Sample-based `Type anomaly:` line — text columns that are mostly numeric. */
+  dtypeAnomaly?: boolean;
 }
-
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
  *  re-echoed every turn. Cap both the TSV preview and the stats block at
@@ -112,6 +126,11 @@ export function formatOperatorResult(
   workflowState: WorkflowState,
   options: FormatOperatorResultOptions = {}
 ): string {
+  if (opInfo.error && options.detail === "shape") {
+    // Shape-level error render: the first line carries the exception; the
+    // traceback + code echo are the "sample-level" detail.
+    return `[ERROR] ${opInfo.error.split("\n")[0]}`;
+  }
   if (opInfo.error) {
     // Old-style error rendering: the ENGINE error message carries only the
     // exception + user-code line pointer (the worker no longer echoes source);
@@ -159,37 +178,59 @@ export function formatOperatorResult(
   if (cap > 0 && sampleRows.length > cap) {
     const head = Math.ceil(cap / 2);
     const tail = Math.floor(cap / 2);
-    sampleRows = tail > 0
-      ? [...sampleRows.slice(0, head), ...sampleRows.slice(sampleRows.length - tail)]
-      : sampleRows.slice(0, head);
+    sampleRows =
+      tail > 0
+        ? [...sampleRows.slice(0, head), ...sampleRows.slice(sampleRows.length - tail)]
+        : sampleRows.slice(0, head);
   }
-  const dataString = jsonToTableFormat(sampleRows);
+  // detail:"shape" (summarize) drops the TSV body — counts + annotations only.
+  const dataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
 
   const metadataLines = [
-    formatInputOutputMetadata(workflowState, operatorId, opInfo, columns, options.inputsInResult !== false, options.resolveInputColumns),
-    columnsTruncated ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)` : "",
+    formatInputOutputMetadata(
+      workflowState,
+      operatorId,
+      opInfo,
+      columns,
+      options.inputsInResult !== false,
+      options.resolveInputColumns
+    ),
+    columnsTruncated && options.detail !== "shape"
+      ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)`
+      : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo) : undefined;
-  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo) : undefined;
+  const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
+  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo, options.statsMetrics ?? "all") : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
+  // Sample-based tuple-level profiling (summarize params; explicitly labeled
+  // sample-based — computed over the sampled rows this service holds).
+  const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
+  const fdLine = options.sampleFdHints ? formatSampleFds(serializableArray) : undefined;
+  const dtypeLine = options.dtypeAnomaly ? formatDtypeAnomaly(serializableArray) : undefined;
   // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
   // then the data-derived annotations that DESCRIBE the table (schema / column
   // schema+stats / format & structure hints), so annotations read AFTER the data
   // they refer to. Flow rungs live in context-utils' "Operators needing
   // attention" section; result-formatting owns only the data facet + TSV.
-  return [...metadataLines, dataString, schemaLine, colStatsBlock, formatHints, coercionLine, tableHintsLine]
+  return [
+    ...metadataLines,
+    dataString,
+    schemaLine,
+    colStatsBlock,
+    formatHints,
+    coercionLine,
+    tableHintsLine,
+    dtypeLine,
+    dupLine,
+    fdLine,
+  ]
     .filter(Boolean)
     .join("\n");
 }
-
-
-
-
-
 
 function formatInputOutputMetadata(
   workflowState: WorkflowState,
@@ -225,7 +266,8 @@ function formatInputOutputMetadata(
       const rowsPart = typeof p.rows === "number" ? `${p.rows} rows` : undefined;
       // Input column count isn't in the engine's port metrics — resolve it from
       // the upstream operator's output column count.
-      const cols = typeof p.columns === "number" ? p.columns : upstreamId ? resolveInputColumns?.(upstreamId) : undefined;
+      const cols =
+        typeof p.columns === "number" ? p.columns : upstreamId ? resolveInputColumns?.(upstreamId) : undefined;
       const colsPart = typeof cols === "number" ? `${cols} cols` : undefined;
       const shape = [rowsPart, colsPart].filter(Boolean).join(", ");
       return shape ? `${name} (${shape})` : name;

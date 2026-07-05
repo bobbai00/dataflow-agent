@@ -146,11 +146,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
   };
 
   test("does not truncate at 50 columns or fewer (the threshold itself is the boundary)", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 1, result: [makeWideRow(50)] }),
-      EMPTY_STATE
-    );
+    const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 1, result: [makeWideRow(50)] }), EMPTY_STATE);
     expect(out).toContain("Output Table: 1 rows, 50 cols");
     expect(out).not.toContain("showing first");
     // every column header is present
@@ -158,11 +154,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
   });
 
   test("with >50 columns: keeps first 25 + last 25, drops middle, surfaces truncation notice", () => {
-    const out = formatOperatorResult(
-      "op1",
-      makeOpInfo({ outputTuples: 1, result: [makeWideRow(200)] }),
-      EMPTY_STATE
-    );
+    const out = formatOperatorResult("op1", makeOpInfo({ outputTuples: 1, result: [makeWideRow(200)] }), EMPTY_STATE);
     // The shape line reports the TRUE total — not the rendered subset.
     expect(out).toContain("Output Table: 1 rows, 200 cols");
     // The truncation banner appears as its own metadata line.
@@ -182,9 +174,7 @@ describe("formatOperatorResult - wide-table column cap", () => {
     expect(dataLine).toBeDefined();
     expect(dataLine!.split("\t")).toContain("...");
   });
-
 });
-
 
 describe("formatOperatorResult - input port metadata", () => {
   test("omits input metadata when inputPortShapes is missing", () => {
@@ -391,7 +381,6 @@ describe("jsonToTableFormat - row index gaps", () => {
   });
 });
 
-
 describe("formatSchemaLine — compact typed schema (lever E)", () => {
   test("builds 'name (type)' for every column from columnStats type tags", () => {
     const info = makeOpInfo({
@@ -406,7 +395,9 @@ describe("formatSchemaLine — compact typed schema (lever E)", () => {
     expect(line).toBe("Schema (3 cols): id (numeric), name (str), amount (numeric)");
   });
 
-  test("lists ALL columns even when wide (no 50-col truncation)", () => {
+  test("caps very wide tables at 50 cols with a truthful total (Phase 1)", () => {
+    // Wide schema lines (e.g. biomedical 179-col) re-render ~3k chars every step
+    // for no accuracy benefit — cap the enumeration but never hide the true count.
     const stats: Record<string, string> = {};
     const row: Record<string, any> = { __row_index__: 0 };
     for (let i = 0; i < 80; i++) {
@@ -414,9 +405,11 @@ describe("formatSchemaLine — compact typed schema (lever E)", () => {
       row[`c${i}`] = i;
     }
     const line = formatSchemaLine(makeOpInfo({ result: [row], columnStats: stats }))!;
-    expect(line.startsWith("Schema (80 cols): ")).toBe(true);
-    expect(line).toContain("c0 (numeric)");
-    expect(line).toContain("c79 (numeric)"); // middle/last columns are NOT dropped
+    expect(line.startsWith("Schema (showing 50 of 80 cols): ")).toBe(true);
+    expect(line).toContain("c0 (numeric)"); // first end kept
+    expect(line).toContain("c79 (numeric)"); // last end kept
+    expect(line).toContain("…"); // elision marker
+    expect(line).not.toContain("c40 (numeric)"); // a middle column is dropped
   });
 
   test("falls back to result headers (names only) when columnStats is absent", () => {
