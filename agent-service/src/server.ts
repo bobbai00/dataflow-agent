@@ -30,11 +30,19 @@ import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
+import { readFileSync } from "fs";
 import { assembleContext } from "./agent/util/context-utils";
 import { SummarizeParamsPatchSchema, type SummarizeParamsPatch } from "./agent/context/summarize/params";
 import { buildDossier } from "./agent/context/summarize/dossier";
 import { summarize as summarizeContext } from "./agent/context/summarize/summarize";
 import { selectParams, SelectorConfigSchema, type SelectorConfig } from "./agent/context/selector/selector";
+import {
+  learnedSelectParams,
+  buildUtilityModel,
+  LearnedConfigSchema,
+  type LearnedConfig,
+  type UtilityModel,
+} from "./agent/context/learned";
 import { LLMContextTuner, type TunerConfig } from "./agent/context/tuner/tuner";
 import type { OpenAIProvider } from "@ai-sdk/openai";
 import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
@@ -74,6 +82,23 @@ function latestTaskText(visibleSteps: { role: string; content?: string }[]): str
   return "";
 }
 
+/** The bundled learned utility model (context/learned/model.json), loaded once.
+ *  `null` when absent/invalid — callers then fall through to the rule selector. */
+let _learnedModel: UtilityModel | null | undefined;
+function getLearnedModel(): UtilityModel | null {
+  if (_learnedModel !== undefined) return _learnedModel;
+  try {
+    const p = new URL("./agent/context/learned/model.json", import.meta.url);
+    const raw = readFileSync(p, "utf8");
+    _learnedModel = buildUtilityModel(JSON.parse(raw));
+    console.log(`  learned model loaded: ${(_learnedModel.meta as any)?.rows ?? "?"} rows, cvAUC ${(_learnedModel.meta as any)?.cvAucAll ?? "?"}`);
+  } catch (e) {
+    console.warn(`  learned model NOT loaded (${e instanceof Error ? e.message : String(e)}) — learnedConfig will fall back`);
+    _learnedModel = null;
+  }
+  return _learnedModel;
+}
+
 function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
   // One tuner per agent, built lazily and reused (it accumulates teacher-token
   // usage). Rebuilt if the teacher model id changes.
@@ -100,7 +125,20 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     settings,
     compilationResult,
   }) => {
-    // Context policy precedence: LLM tuner > rule selector > legacy contextMode.
+    // Context policy precedence: learned model > LLM tuner > rule selector >
+    // legacy contextMode.
+    // Learned path (opt-in): the trained utility model scores each operator and
+    // a budget knapsack assigns representation levels (omit≺shape≺sample+stats).
+    if (settings.learnedConfig) {
+      const model = getLearnedModel();
+      if (model) {
+        const dossier = buildDossier(visibleSteps, snapshotStorage);
+        const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
+        return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+          .messages;
+      }
+      // No bundled model → fall through to the rule selector / legacy path.
+    }
     // Tuner path (opt-in): a teacher LLM chooses per-operator detail from a
     // cheap manifest each step. Async; falls back to the rule selector inside
     // tune() on any failure.
@@ -252,6 +290,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
+    learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
     tunerConfig: agentSettings.tunerConfig,
   };
@@ -334,6 +373,20 @@ function parseTunerConfigInput(raw: unknown): TunerConfig | null | undefined {
   return { model: r.model, sampleRows: r.sampleRows, richRows: r.richRows };
 }
 
+/** Validate an incoming `learnedConfig` (the learned-selector settings). `null`
+ *  turns it off. */
+function parseLearnedConfigInput(raw: unknown): LearnedConfig | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const parsed = LearnedConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Invalid learnedConfig: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+    );
+  }
+  return parsed.data;
+}
+
 const agentsRouter = new Elysia({ prefix: "/agents" })
   // Error handler must live on the same Elysia instance whose routes throw, or
   // its scope will not see the errors. Elysia 1.x defaults to local scoping for
@@ -350,6 +403,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     if (
       errorMessage.startsWith("Invalid summarizeParams") ||
       errorMessage.startsWith("Invalid selectorConfig") ||
+      errorMessage.startsWith("Invalid learnedConfig") ||
       errorMessage.startsWith("Invalid tunerConfig")
     ) {
       set.status = 400;
@@ -437,6 +491,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           toolDialect: settings.toolDialect,
           summarizeParams: parseSummarizePatch(settings.summarizeParams),
           selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+          learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
           enableInspectTool: (settings as any).enableInspectTool,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -489,6 +544,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             // (the shape is too rich for a TypeBox mirror to earn its keep).
             summarizeParams: t.Optional(t.Any()),
             selectorConfig: t.Optional(t.Any()),
+            learnedConfig: t.Optional(t.Any()),
             enableInspectTool: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
@@ -780,6 +836,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+        learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
@@ -856,6 +913,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         summarizeParams: t.Optional(t.Any()),
         // Selector action vector; zod-validated in-handler. null turns it off.
         selectorConfig: t.Optional(t.Any()),
+        // Learned-selector config; validated in-handler. null turns it off.
+        learnedConfig: t.Optional(t.Any()),
         enableInspectTool: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),

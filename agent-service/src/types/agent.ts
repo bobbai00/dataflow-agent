@@ -19,6 +19,7 @@
 
 import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
+import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
 
 export enum AgentState {
@@ -281,6 +282,15 @@ export interface AgentSettings {
    */
   selectorConfig?: SelectorConfig;
   /**
+   * When set, the LEARNED utility model (context/learned/model.json) scores each
+   * operator and a budget knapsack assigns representation levels
+   * (omit≺shape≺sample+stats) — the trained counterpart of selectorConfig.
+   * Highest precedence in the assembler. The value is the `LearnedConfig`
+   * (token budget + protect/stats flags). Undefined ⇒ off. Falls back to the
+   * selector/legacy path if no model is bundled. See docs/learned-context-selection.md.
+   */
+  learnedConfig?: LearnedConfig;
+  /**
    * Expose the read-only `inspectResult` PULL tool to the model (Direction B).
    * Lets the agent re-inspect an existing operator's cached result at more
    * detail on demand instead of re-loading. Off by default. Every call is also
@@ -438,6 +448,8 @@ export interface AgentSettingsApi {
   summarizeParams?: SummarizeParamsPatch;
   /** Trainable selector action vector (see AgentSettings.selectorConfig). */
   selectorConfig?: SelectorConfig;
+  /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
+  learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
@@ -502,6 +514,8 @@ export interface UpdateAgentSettingsRequest {
   summarizeParams?: SummarizeParamsPatch;
   /** Trainable selector action vector (see AgentSettings.selectorConfig). */
   selectorConfig?: SelectorConfig;
+  /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
+  learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */

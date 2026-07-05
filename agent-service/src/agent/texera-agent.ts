@@ -35,6 +35,7 @@ import type {
 } from "../types/agent";
 import type { SummarizeParamsPatch } from "./context/summarize/params";
 import type { SelectorConfig } from "./context/selector/selector";
+import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
 import type { OperatorInfo } from "../types/execution";
 import {
@@ -778,6 +779,7 @@ export class TexeraAgent {
     toolDialect?: LocalToolDialect;
     summarizeParams?: SummarizeParamsPatch | null;
     selectorConfig?: SelectorConfig | null;
+    learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -923,6 +925,11 @@ export class TexeraAgent {
       // Pure render-time: switches the assembler onto the per-step selector
       // policy. `null` turns the selector off (back to the contextMode path).
       this.settings.selectorConfig = updates.selectorConfig ?? undefined;
+    }
+    if (updates.learnedConfig !== undefined) {
+      // Pure render-time: switches the assembler onto the learned utility model.
+      // `null` turns it off (back to selector/contextMode). Read per-call.
+      this.settings.learnedConfig = updates.learnedConfig ?? undefined;
     }
     if (updates.enableInspectTool !== undefined) {
       // Adds/removes the read-only inspectResult tool from the model's tool set

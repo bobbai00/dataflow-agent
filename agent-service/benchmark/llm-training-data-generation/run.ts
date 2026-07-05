@@ -212,7 +212,11 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
     );
     resources.workflowWid = wid;
 
-    const settingsHints = adapter.defaultAgentSettings?.() ?? {};
+    // TEXERA_SETTINGS_JSON lets an A/B harness inject an arm's settings
+    // (e.g. {"learnedConfig":{"budgetTokens":4000}} or {"selectorConfig":{}})
+    // over the adapter defaults without a bespoke runner.
+    const extraSettings = process.env.TEXERA_SETTINGS_JSON ? JSON.parse(process.env.TEXERA_SETTINGS_JSON) : {};
+    const settingsHints = { ...(adapter.defaultAgentSettings?.() ?? {}), ...extraSettings };
     log(`task ${task.id}: creating agent (model=${MODEL_TYPE}, mode=${settingsHints.agentMode ?? "default"})`);
     const agentInfo = await createAgent({
       modelType: MODEL_TYPE,
@@ -408,9 +412,17 @@ async function main(): Promise<void> {
     cuid = cu.computingUnit.cuid;
     log(`  cuid=${cuid}`);
 
+    // TEXERA_TASK_IDS (comma-separated) selects specific tasks by id across the
+    // whole set — for domain-spread A/B subsets. Overrides limit/offset paging.
+    const taskIdFilter = process.env.TEXERA_TASK_IDS
+      ? new Set(process.env.TEXERA_TASK_IDS.split(",").map(s => s.trim()).filter(Boolean))
+      : null;
+    const effectiveLimit = taskIdFilter ? 100000 : args.limit;
+
     let processed = 0;
-    for await (const task of adapter.load({ rootDir: sourceRoot, limit: args.limit, offset: args.offset })) {
-      log(`---- [${processed + 1}/${args.limit}] ${task.id} ----`);
+    for await (const task of adapter.load({ rootDir: sourceRoot, limit: effectiveLimit, offset: args.offset })) {
+      if (taskIdFilter && !taskIdFilter.has(task.id)) continue;
+      log(`---- [${processed + 1}/${taskIdFilter ? taskIdFilter.size : args.limit}] ${task.id} ----`);
       const record = await processTask({
         token,
         ownerEmail,
