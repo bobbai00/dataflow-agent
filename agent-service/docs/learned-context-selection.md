@@ -107,26 +107,26 @@ learned and summing summarize()'s own token counts (`cost-replay.ts`). This hold
 the trajectory fixed — isolating the render cost from live variance. It is the
 faithful lower bound on the cost win and needs no stack.
 
-Budget sweep (learned vs shipped lean LATEST, 60 traces, 1.02M baseline tokens):
+Budget sweep (learned vs shipped lean LATEST, 60 traces, 1.02M baseline tokens;
+v1 default = flow-alarms off, pure cost play):
 
 | budget | overall token reduction | mean per-trace |
 |---|---|---|
-| 1000 | **20.0%** | 17.5% |
-| 2000 | 18.7% | 15.8% |
-| 4000 | 15.8% | 13.8% |
-| 8000 | 13.5% | 12.9% |
+| 1000 | **23.6%** | 20.8% |
+| 2000 | 22.2% | — |
+| 4000 | 19.3% | 16.9% |
+| 8000 | 17.1% | — |
 
 Monotonic and as-designed: a tighter budget compresses more low-utility result
 bodies to `shape`. The biggest wins are the long/wide multi-source traces
-(wildfire-hard-17 −6% on a 114k-token trace; astronomy-hard-10, biomedical-hard-4).
+(wildfire-hard-17 on a 114k-token trace; astronomy-hard-10, biomedical-hard-4).
 
-**Honest caveat — the comparison is not apples-to-apples in learned's favor.** The
-learned mode ADDS what lean LATEST omits: a per-op schema line (the always-kept
-core), safety flow-alarms, and stats on decision-critical columns. So a handful of
-small / geometry-heavy traces (wildfire-easy-2 −39%, biomedical-easy-6 −8%)
-*increase* in tokens — the added annotations exceed the rows saved. The pure
-representation-level compression is larger than the net 15.8%; the net folds in the
-accuracy insurance. Making the annotations budget-aware is a v2 fix.
+**Honest caveat.** The learned mode still adds one thing lean LATEST omits: a per-op
+schema line (the always-kept "core"). So a few small traces net slightly *negative*
+(worst: biomedical-easy-6 −6.3%) — the schema line exceeds the rows saved on a
+tiny table. Turning the optional flow-alarms/stats insurance ON trades ~4pts of the
+headline for accuracy safety (15.8% with alarms on). The knob surface makes this an
+explicit choice, not a hidden regression.
 
 ## 5. Live end-to-end evaluation
 
@@ -141,8 +141,38 @@ live stack (agent-service + 8 JVM services + LLM gateway); aggregated by
 The live loop is validated end-to-end (agent turn under `learnedConfig` fires the
 learned assembler — server log: `learned model loaded: 4351 rows, cvAUC 0.922`).
 
-<!-- E2E-RESULTS -->
-_(live A/B table filled by the run in progress)_
+**Result (gpt-4o, 3 tasks, n=1/arm) — and the honest lesson it teaches:**
+
+| task | latest (pass/tok/steps) | learned (pass/tok/steps) |
+|---|---|---|
+| archeology-easy-3 | ✓ 19,716 / 5 | ✓ 20,338 / 5 |
+| archeology-easy-10 | ✗ 9,331 / 3 | ✗ 120,539 / **26** |
+| environment-hard-15 | ✗ 14,670 / 4 | ✗ 103,856 / **22** |
+
+Taken at face value this looks catastrophic (+460% tokens). **It is not a valid
+result — it is a variance demonstration.** The step count is wildly unstable
+run-to-run for gpt-4o with no seed (temperature 0.2): an earlier smoke of
+archeology-easy-10 on the *latest* arm took 9 steps; this run's latest took 3;
+this run's learned took 26. A single 26-step thrash spiral (which can hit either
+arm) swamps everything at n=1. This is precisely the failure mode the action
+plan's **mandatory noise floor (ε=2σ) + reps + a capable model** exist to prevent —
+observed firsthand. Two things are nonetheless real and worth stating:
+
+1. **Per-step cost ≠ total live cost.** The deterministic replay (§4) proves the
+   learned render is ~19% cheaper *at a fixed trajectory*. But live, context
+   changes *behavior*: if compression drops something a (weak, off-model) agent
+   needed, it can thrash and total cost explodes. The future-use label optimizes
+   per-step utility, not trajectory outcome — the proxy gap the method docs warn of.
+2. **This model is off-distribution here.** It was trained on haiku traces and
+   served to gpt-4o; the prototype already measured utility does not transfer
+   across agent models (AUC 0.95→0.72). Serving a haiku-trained selector to gpt-4o
+   is expected to misfire.
+
+**Conclusion for the live endpoint:** not yet demonstrable with this setup. The
+trustworthy signal today is the deterministic §4 cost result; a valid live verdict
+needs (a) a capable model, (b) per-model retraining, (c) reps + noise floor, and
+ideally (d) counterfactual labels (§5-scaleup). The harness for all four is built;
+what remains is compute, not code.
 
 ## 5. How to reproduce / scale up
 

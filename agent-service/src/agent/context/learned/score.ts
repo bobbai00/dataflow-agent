@@ -57,6 +57,10 @@ export const LearnedConfigSchema = z.object({
   /** Add column.stats on decision-critical columns (low-card categoricals /
    *  numeric-as-text) — cheap accuracy insurance. Default true. */
   addStats: z.boolean().optional(),
+  /** Add safety flow-alarms (loader hints / cardinality / error context) — extra
+   *  insurance LATEST omits. Off by default so v1 is a pure cost play (these can
+   *  make small tables larger than they save). */
+  flowAlarms: z.boolean().optional(),
   /** Utility below which a (non-protected) op is dropped to `omit` rather than
    *  `shape`. Default 0 (never omit live ops — shape is the floor). */
   omitBelowUtility: z.number().optional(),
@@ -185,8 +189,9 @@ export function learnedSelectParams(
     trajectory: { events: "none" },
     currentSnapshot: true,
     compiledSchemas: false,
-    // insurance flow alarms are cheap and orthogonal; keep the safe ones on.
-    flow: { loaderHints: true, cardinalityAlarms: true, errorContext: true },
+    // Safety flow-alarms are opt-in (config.flowAlarms) — on small tables they can
+    // cost more than the rows the knapsack saves. v1 default = pure cost play.
+    flow: config.flowAlarms ? { loaderHints: true, cardinalityAlarms: true, errorContext: true } : {},
     operators: {
       // Default = cheapest legible: shape + schema. Overrides lift chosen ops.
       defaults: { result: { latest: { detail: "shape", column: { schema: true } } } },
