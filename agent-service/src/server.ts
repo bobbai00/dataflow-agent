@@ -174,6 +174,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       compactKeepLastSteps: settings.compactKeepLastSteps,
+      showCompactMeter: settings.enableCompactTool,
       attemptReflection: settings.attemptReflection,
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,

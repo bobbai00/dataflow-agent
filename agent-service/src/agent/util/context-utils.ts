@@ -102,6 +102,10 @@ export interface AssembleContextOptions {
    *  `compactContext` mark (in addition to everything after it). 0 ⇒ fold through
    *  the mark. Only consulted when a mark is present in the visible path. */
   compactKeepLastSteps?: number;
+  /** Show the context-budget meter line at the top of DELTA context (the
+   *  observable signal that lets the agent decide when to call compactContext).
+   *  Enabled when the compact tool is on. */
+  showCompactMeter?: boolean;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -473,6 +477,19 @@ export function renderContextCore(
     }
   }
 
+  // Context-budget meter (POC): the observable signal that lets the agent decide
+  // when to call compactContext. Prepended to DELTA context only (LATEST has no
+  // growing trajectory to fold). Static soft target.
+  if (mode === ContextMode.DELTA && options.showCompactMeter) {
+    const used = estimateTokens(content);
+    const target = COMPACT_SOFT_TARGET_TOKENS;
+    const over = used > target;
+    const meter = over
+      ? `> Context budget: ~${Math.round(used / 1000)}k tokens used / soft target ${Math.round(target / 1000)}k — OVER. If earlier steps are settled (sources loaded and consumed, or a fix has landed) and you are NOT mid-debugging an erroring operator, call compactContext at your next natural boundary to fold earlier history.`
+      : `> Context budget: ~${Math.round(used / 1000)}k tokens used / soft target ${Math.round(target / 1000)}k — within target.`;
+    content = `${meter}\n\n${content}`;
+  }
+
   log.debug(
     {
       mode,
@@ -722,6 +739,11 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  * from the current window; because a linear trajectory only grows, the chosen
  * boundary advances monotonically without any persisted state.
  */
+/** Soft context-budget target (POC) shown by the compaction meter. Static
+ *  constant; chosen so multi-source / multi-step DELTA runs cross it mid-trajectory
+ *  (traces run 10-40k), giving the agent a signal to compact at a natural boundary. */
+const COMPACT_SOFT_TARGET_TOKENS = 4000;
+
 /** The eventIndex of the newest `compactContext` tool call in the visible path,
  *  or undefined if the agent never compacted. That mark is the fold boundary. */
 function newestCompactMarkEventIndex(tasks: TaskGroup[]): number | undefined {

@@ -204,6 +204,12 @@ export const TrajectoryParamsSchema = z.object({
   compaction: z.enum(["sliding", "compress"]).default("compress"),
   /** compress-deck row-sample fraction (clamped to [3, sampleRows||20]/op). */
   deckSampleRatio: z.number().min(0).max(1).default(0.1),
+  /** Agent-triggered compaction (POC): raw agent events kept before the newest
+   *  compactContext mark. 0 ⇒ fold through the mark. */
+  compactKeepLastSteps: z.number().int().min(0).default(0),
+  /** Show the context-budget meter atop DELTA context (the observable signal for
+   *  the agent's compactContext decision). */
+  showCompactMeter: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -348,6 +354,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       windowTokens: options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : 0,
       compaction: options.compactionStrategy ?? "compress",
       deckSampleRatio: options.deckSampleRatio ?? 0.1,
+      compactKeepLastSteps: options.compactKeepLastSteps ?? 0,
+      showCompactMeter: options.showCompactMeter ?? false,
     },
     currentSnapshot: isLatest,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,

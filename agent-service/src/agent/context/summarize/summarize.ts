@@ -146,6 +146,8 @@ export function paramsToRenderOptions(
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,
     deckSampleRatio: params.trajectory.deckSampleRatio,
+    compactKeepLastSteps: params.trajectory.compactKeepLastSteps,
+    showCompactMeter: params.trajectory.showCompactMeter,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,
