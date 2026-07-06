@@ -216,6 +216,13 @@ export interface AssembleContextOptions {
    *  attempt-reflection render — LATEST shows no history, so it's reconstructed
    *  from `visibleSteps`. */
   editCountsByOp?: Map<string, number>;
+  /** DELTA `Inputs:` line (structure-consistent with LATEST). The leaf snapshot
+   *  supplies the current DAG adjacency (single source of truth via
+   *  formatOperatorAdjacency); the map gives each op's last-edit eventIndex so the
+   *  line renders once, on the op's most-recent edit, reflecting the latest wiring.
+   *  Set by renderAgentEvents; read in the DELTA observation. */
+  deltaInputsLeaf?: SnapshotData;
+  deltaLastEditByOp?: Map<string, number>;
   /** DECORATE ordinal levels (claude/CONTEXT-DESIGN.md §5). When set (>=0), the
    *  flow/data facet level expands — via the rung catalog (context/decorate/
    *  registry.levelsToFlags) — into the individual render flags above, OR-ing
@@ -1097,6 +1104,27 @@ function renderAgentEvents(
   omitObservation = false
 ): string {
   const bodies: string[] = [];
+  // DELTA `Inputs:` line: the leaf snapshot is the single source of DAG
+  // adjacency (matches LATEST); each op's last-edit event is where the line
+  // renders (once, on its most-recent edit, so it sits with the op's latest
+  // code and reflects the current wiring). Only the observation path (DELTA)
+  // consumes these; LATEST's # Agent Turns uses omitObservation.
+  if (!omitObservation) {
+    options.deltaInputsLeaf = lastSnapshotOf(tasks);
+    const lastEdit = new Map<string, number>();
+    for (const task of tasks) {
+      for (const node of task.nodes) {
+        if (node.step.role !== "agent") continue;
+        for (const tc of node.step.toolCalls ?? []) {
+          const opId = (tc.input as Record<string, unknown> | undefined)?.operatorId;
+          if (typeof opId === "string" && opId && tc.toolName !== "deleteOperator") {
+            lastEdit.set(opId, node.eventIndex);
+          }
+        }
+      }
+    }
+    options.deltaLastEditByOp = lastEdit;
+  }
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
   for (const task of tasks) {
     const body = serializeTaskBody(
@@ -1458,6 +1486,18 @@ function serializeTaskBody(
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
         obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        // `Inputs:` line — structure-consistent with LATEST. Rendered once, on
+        // the op's most-recent edit, from the LEAF snapshot's DAG (current
+        // wiring), via the same formatOperatorAdjacency LATEST uses. Skipped for
+        // ops no longer in the leaf (deleted/never-landed).
+        const leaf = options.deltaInputsLeaf;
+        if (leaf && options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex) {
+          const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
+          if (leafOp) {
+            const leafInfo = leaf.results.get(op.operatorID)?.info;
+            for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf)) obs.push(`  ${l}`);
+          }
+        }
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);

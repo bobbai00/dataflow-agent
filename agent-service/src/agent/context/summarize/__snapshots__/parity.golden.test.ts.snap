@@ -633,6 +633,7 @@ Action:
 Observation:
 
 - operator by_region updated
+  Inputs: sales (4 cols)
   result:
     [ERROR] KeyError: 'region' at line 2 of your code
     Traceback (most recent call last):
@@ -642,6 +643,7 @@ Observation:
         df = sales.copy()
         return df.groupby('region')['amount'].sum().reset_index()
 - operator report added
+  Inputs: by_region
   result: (not executed)
 
 ## Agent Event 8
@@ -783,6 +785,7 @@ Action:
 Observation:
 
 - operator by_region updated
+  Inputs: sales (4 cols)
   result:
     [ERROR] KeyError: 'region' at line 2 of your code
     Traceback (most recent call last):
@@ -792,6 +795,7 @@ Observation:
         df = sales.copy()
         return df.groupby('region')['amount'].sum().reset_index()
 - operator report added
+  Inputs: by_region
   result: (not executed)
 
 ## Agent Event 8
@@ -846,6 +850,7 @@ Action:
 Observation:
 
 - operator by_region updated
+  Inputs: sales (4 cols)
   result:
     [ERROR] KeyError: 'region' at line 2 of your code
     Traceback (most recent call last):
@@ -855,6 +860,7 @@ Observation:
         df = sales.copy()
         return df.groupby('region')['amount'].sum().reset_index()
 - operator report added
+  Inputs: by_region
   result: (not executed)
 
 ## Agent Event 8

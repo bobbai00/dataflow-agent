@@ -336,27 +336,30 @@ describe("assembleContext — Delta", () => {
     expect(after3).not.toContain("- operator existing");
   });
 
-  test("delta Observation: structural decorations (Links / Inputs / Used by / Summary) are LATEST-only", () => {
+  test("delta Observation: Inputs is shown (structure-consistent with LATEST); Links/Used by/Summary stay LATEST-only", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
-    // Operator-block structural decorations are LATEST's view, never in DELTA.
+    // Inputs (DAG adjacency from the LEAF snapshot) now renders in DELTA too, on
+    // the op's most-recent edit — filt consumes src. Same formatter as LATEST.
+    expect(after3).toContain("Inputs: src");
+    // The other operator-block structural decorations remain LATEST's view only.
     expect(after3).not.toContain("#### Links");
-    expect(after3).not.toContain("Inputs:");
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
-    // At data_level 0 (default opts) there is also no data-facet decoration.
+    // At data_level 0 (default opts) there is still no data-facet decoration.
     expect(after3).not.toContain("Schema (");
   });
 
-  test("delta Observation honors dataLevel — Schema line is symmetric with LATEST", () => {
+  test("delta Observation honors dataLevel — Schema line + Inputs symmetric with LATEST", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, dataLevel: 1 }));
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
     // data_level >= 1 ⇒ the Δ result carries the same Schema line LATEST renders.
     expect(after3).toContain("Schema (");
-    // …but the structural decorations remain LATEST-only (not part of the data facet).
-    expect(after3).not.toContain("Inputs:");
+    // …and Inputs is symmetric with LATEST now too.
+    expect(after3).toContain("Inputs: src");
+    // Used by / Summary remain LATEST-only (not part of the data facet).
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
   });
