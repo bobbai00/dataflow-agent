@@ -91,3 +91,41 @@ setting is globally optimal** — each helps on some tasks/modes and hurts on ot
 the parameters interact with agent behavior (thrash, exploration). This is the empirical
 case for an **adaptive / learned compaction policy** (choose *when* to compact and *what
 fidelity* to keep per state) rather than any fixed configuration.
+
+## Where the code-agent wins and dataflow can't (deep trace analysis)
+
+Cases where BOTH code-agent arms (2k & 5k) are right AND all 4 dataflow configs are
+wrong (robust; not variance): **astronomy-hard-9, environment-hard-11, legal-hard-15**.
+(Weaker, one code arm only: archeology-easy-11, archeology-hard-7.)
+
+1. **legal-hard-15 — cross-file dedup discovered empirically.** "Total identity-theft
+   reports from cross-state MSAs 2024." Gold 243,377; code 243,377; dataflow 593,524
+   (D5k) / 1,124,157 (L5k) ≈ 2.4×/4.6×. Data = 52 per-state CSVs; a cross-state MSA
+   (e.g. "Columbus, GA-AL") appears in EVERY state file it touches. The code agent's
+   run→inspect loop saw the same metro across files and DEDUPED; the dataflow pipeline
+   (`msa_files→msa_all→msa_clean→cross_state_2024_total`) correctly pattern-matched
+   `, ST1-ST2` but never deduped → summed each ~2.4×. Not a paradigm limit — the REPL
+   surfaced the duplication; declarative build-and-sum didn't.
+2. **astronomy-hard-9 — heavy monolithic time-series.** "Best lag 0-48h maximizing r²
+   between TLE-derived drag and OMNI AP index." Gold 24; code 24; dataflow produced NO
+   output (empty dir — errored/timed out) in all 4. TLE parse → SMA-change → hourly
+   round → align → 49-lag sweep → r². The DAG paradigm couldn't converge it; monolithic
+   code did.
+3. **environment-hard-11 — dirty multi-header file.** "Avg rainfall day-before failed
+   Pleasure Bay samples." Gold 0.37; code 0.37; dataflow 0.40. Combined multi-header
+   datasheet; the dataflow agent re-built `pbci_tidy` twice (header confusion) → off;
+   the code agent's iterative inspection parsed it right.
+
+**Common thread:** the code agent's tight write→run→inspect→adjust REPL (a) empirically
+discovers data quirks (cross-file dup, multi-header) and corrects mid-solve, and (b)
+expresses monolithic numerical pipelines (lag sweep) that are awkward as an operator DAG
+and where the dataflow agent times out. The dataflow agent build-and-commits from its
+plan; a missed empirical quirk gets baked in.
+
+**Proportion / honest framing:** this is 3(-5)/104 tasks. In aggregate the dataflow agent
+is BETTER — Delta-5k 69.7% vs code 65.7%, ~30% cheaper, ~1.6× better acc/$ (dataflow
+context ~86% prompt-cached; code burns ~3× output tokens). So: operator paradigm wins the
+median task + efficiency; code agent wins a specific tail (empirical-dedup / heavy-time-
+series / dirty-multi-header). Actionable: dataflow closes most of the gap with (i) an
+empirical dedup/inspection habit on multi-file loads and (ii) a code-escape hatch for
+heavy numerical/time-series tasks.
