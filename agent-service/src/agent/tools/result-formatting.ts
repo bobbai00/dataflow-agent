@@ -30,7 +30,12 @@ import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { formatLineage } from "../context/decorate/flow/cardinality";
-import { formatSampleDuplicates, formatSampleFds, formatDtypeAnomaly } from "../context/summarize/sample-profile";
+import {
+  formatSampleDuplicates,
+  formatSampleFds,
+  formatDtypeAnomaly,
+  formatEmbeddedDupHeader,
+} from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
@@ -206,6 +211,10 @@ export function formatOperatorResult(
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
+  // Embedded-duplicate-header trap (environment-hard-11): structural signal,
+  // rides the tableStructureHint knob; sample-based, fires only on dirty loads
+  // whose candidate header row repeats names.
+  const embeddedDupLine = options.tableStructureHint ? formatEmbeddedDupHeader(serializableArray) : undefined;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
@@ -224,6 +233,7 @@ export function formatOperatorResult(
     formatHints,
     coercionLine,
     tableHintsLine,
+    embeddedDupLine,
     dtypeLine,
     dupLine,
     fdLine,

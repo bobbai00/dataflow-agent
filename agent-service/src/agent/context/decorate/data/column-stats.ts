@@ -46,16 +46,67 @@ export function formatColumnStats(
   if (!stats) return undefined;
   const cols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   if (cols.length === 0) return undefined;
+  const rows = opInfo.totalRowCount ?? opInfo.outputTuples ?? 0;
+  const alarms: string[] = [];
   const shown = cols.slice(0, MAX_STATS_COLUMNS);
   const lines = shown.map(c => {
     const v = stats[c];
-    const display = typeof v === "string" && v.length > 0 ? filterStatsLine(v, metrics) : undefined;
+    let display = typeof v === "string" && v.length > 0 ? filterStatsLine(v, metrics) : undefined;
+    // Near-key duplicate signal (legal-hard-15 lesson): `distinct=401` on 452
+    // rows is a passive cue the model must do arithmetic on — and the sample
+    // can never show far-apart duplicates (head/tail of a concatenated table).
+    // Make it active: append the precomputed dup_rows, and raise an explicit
+    // alarm for MOSTLY-unique string columns (the "should this be unique?"
+    // shape — entity names/ids duplicated across concatenated files).
+    // Categoricals (low uniqueness) are untouched; display-format columns
+    // (`format=` tag, e.g. currency strings) are excluded from the alarm.
+    if (display && rows > 0) {
+      const nk = nearKeyDuplicates(display, rows);
+      if (nk) {
+        display = `${display}, dup_rows=${nk.dup}`;
+        if (nk.alarm) {
+          alarms.push(
+            `⚠ near-key duplicates: "${c}" — ${nk.dup} of ${nk.nonNull} non-null rows are duplicates ` +
+              `(distinct=${nk.distinct}); if values should be unique (e.g. entities across concatenated files), ` +
+              `dedupe before counting/aggregating.`
+          );
+        }
+      }
+    }
     return display ? `- "${c}" ${display}` : `- "${c}"`;
   });
   if (cols.length > MAX_STATS_COLUMNS) {
     lines.push(`- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
   }
-  return ["Column Schema and stats:", ...lines].join("\n");
+  return ["Column Schema and stats:", ...lines, ...alarms].join("\n");
+}
+
+/** Uniqueness ratio thresholds: dup_rows is appended at ≥0.5 (mostly-unique);
+ *  the alarm fires at ≥0.7 (near-key). Both require dup > 0. */
+const DUP_ANNOTATE_RATIO = 0.5;
+const DUP_ALARM_RATIO = 0.7;
+
+/** Parse a (str) column's stats display for the near-key-duplicates signal.
+ *  Returns undefined for non-string columns, fully-unique columns, categoricals
+ *  (low uniqueness), or unparseable lines. `alarm` additionally requires the
+ *  near-key ratio and no `format=` display tag. */
+function nearKeyDuplicates(
+  display: string,
+  rows: number
+): { dup: number; nonNull: number; distinct: number; alarm: boolean } | undefined {
+  if (!/^\(str\)/.test(display.trim())) return undefined;
+  const dm = /(?:^|[,\s])distinct=(\d+)/.exec(display);
+  if (!dm) return undefined;
+  const distinct = Number(dm[1]);
+  const nm = /(?:^|[,\s])null=(\d+)/.exec(display);
+  const nulls = nm ? Number(nm[1]) : 0;
+  const nonNull = rows - nulls;
+  if (nonNull <= 0 || distinct <= 0 || distinct >= nonNull) return undefined;
+  const ratio = distinct / nonNull;
+  if (ratio < DUP_ANNOTATE_RATIO) return undefined;
+  const dup = nonNull - distinct;
+  const alarm = ratio >= DUP_ALARM_RATIO && !/\bformat=/.test(display);
+  return { dup, nonNull, distinct, alarm };
 }
 
 /**

@@ -211,3 +211,48 @@ export function formatSampleFds(rows: Record<string, any>[] | undefined): string
   if (fds.length === 0) return undefined;
   return `Sample FDs (over ${rows.length} sampled rows, approximate): ${fds.join("; ")}`;
 }
+
+/**
+ * `Embedded header:` warning — a DIRTY load (generic `Unnamed:`/numeric headers)
+ * whose early sample rows contain a row of short header-like strings with
+ * REPEATED values (e.g. `Tag, Enterococcus, Tag, Enterococcus, Tag,
+ * Enterococcus` under a merged super-header of sampling locations). This is the
+ * environment-hard-11 trap: the agent re-headers from that row, then a lazy
+ * `columns.duplicated()` dedup silently drops all but the first of each
+ * repeated name — discarding distinct locations. Name the trap explicitly at
+ * the moment the raw table is first read. Returns undefined when headers look
+ * real or no early row repeats header-like values (the common case).
+ */
+export function formatEmbeddedDupHeader(rows: Record<string, any>[] | undefined): string | undefined {
+  if (!rows || rows.length < 3) return undefined;
+  const cols = visibleColumns(rows);
+  if (cols.length < 3) return undefined;
+  // Only dirty loads: most headers generic (Unnamed: N, bare indices).
+  const generic = cols.filter(c => /^Unnamed/i.test(c) || /^\d+$/.test(c)).length;
+  if (generic < Math.ceil(cols.length * 0.5)) return undefined;
+
+  const HEADERISH = (v: unknown): v is string =>
+    typeof v === "string" && v.length > 0 && v.length <= 40 && !/^\d+(\.\d+)?$/.test(v.trim());
+
+  for (let r = 0; r < Math.min(rows.length, 4); r++) {
+    const vals = cols.map(c => rows[r][c]).filter(v => v !== null && v !== undefined && v !== "");
+    const headerish = vals.filter(HEADERISH).map(v => (v as string).trim());
+    // A candidate header row: mostly header-like strings…
+    if (headerish.length < Math.max(3, Math.ceil(vals.length * 0.6))) continue;
+    // …with repeated names.
+    const counts = new Map<string, number>();
+    for (const h of headerish) counts.set(h, (counts.get(h) ?? 0) + 1);
+    const dups = [...counts.entries()].filter(([, n]) => n >= 2);
+    if (dups.length === 0) continue;
+    const listed = dups
+      .slice(0, MAX_LISTED)
+      .map(([name, n]) => `\`${name}\` ×${n}`)
+      .join(", ");
+    return (
+      `Embedded header ⚠: row ${r} looks like the real header and contains DUPLICATE names (${listed}) — ` +
+      `likely one group per super-header section (see the row above it). When re-headering, disambiguate ` +
+      `(e.g. suffix by section) — dropping duplicate-named columns silently discards distinct data.`
+    );
+  }
+  return undefined;
+}
