@@ -12,15 +12,15 @@ Accuracy recap: **Delta-5k 69.7% > Delta-2k 65.2% > Latest-5k 64.8% > Latest-2k 
 ## Part A — the compaction PARAMETER (5k vs 2k)
 
 ### Accuracy flips
-| case | task | gold | 2k | 5k | note |
+| case | task | gold | 2k | 5k | note (verified from traces) |
 |---|---|---|---|---|---|
-| a | environment-hard-7 | 10.87 | 0.11 ✗ | 10.87 ✓ | 2k truncated the result → wrong by ~100×. **Replicates in BOTH latest & delta** (robust parameter effect). |
-| c (vice-a) | astronomy-easy-5 | 2 | 2 ✓ | 0 ✗ | D2k right, D5k empty(0). Single-cell (L5k+D2k right) → run-variance on a known-flaky task. |
+| a | environment-hard-7 | 10.87 | 0.11 ✗ | 10.87 ✓ | **CORRECTED after tracing: units artifact, not data loss.** D5k = `15.12%−4.25% = 10.87` (pct points); D2k computed the *same numbers* but reported `0.11` (raw proportion). Richer 5k result cued the % scale. Replicates in both modes, but it's a representation effect. |
+| c (vice-a) | astronomy-easy-5 | 2 | 2 ✓ | 0 ✗ | D2k right, D5k empty(0) — the skyfield swallowed-exception pattern. Single-cell (L5k+D2k right) → run-variance, the honest non-example. |
 
 ### Token efficiency (both right) — the key insight
 | case | task (delta) | 2k | 5k | |
 |---|---|---|---|---|
-| e | wildfire-easy-1 | 15 steps / 146k tok | **9 steps / 62k tok** | 2k truncation → reload/re-inspect thrash → 2.4× tokens for the SAME answer. |
+| e | wildfire-easy-1 | 15 steps / 146k tok | **9 steps / 62k tok** | 2k truncation → **traced**: agent re-edited the `monthly_stats` op **8×** and spawned a duplicate `_fixed` op (4 ops, 13 calls) to recover what it couldn't see; 5k used 2 ops / 7 calls. Same answer, 2.4× tokens. The cleanest mechanism-confirmed case. |
 | g (vice-e) | wildfire-easy-2 | **5 steps / 35k** | 8 steps / 78k | when 2k fits, it's genuinely leaner; 5k just adds cost. |
 
 **e vs g = the parameter story:** 2k is cheaper *when it fits*, more expensive *when it
