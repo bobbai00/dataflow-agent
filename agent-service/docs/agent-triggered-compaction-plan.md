@@ -179,6 +179,35 @@ Ranked (from the synthesis; evidence in the trace corpus):
   distinct delimiter/header hypothesis; pure token-math over-triggers. The *later*
   sources-consumed point (step 24, after files load) is the safer trigger.
 
+## 5b. POC results (built + tested)
+
+A minimal POC is implemented and merged: the `compactContext` marker tool
+(read-only), the DELTA-assembler fold reusing `renderCompressed` at the agent's
+mark (static params from settings — the model chooses only WHEN), and the context
+meter (`> Context budget: ~Nk / target 4k`). What we learned:
+
+- **Mechanism works.** Deterministic: injecting a mark at step 20/35 of
+  legal-easy-19 folds 31,155 → 18,745 tok (−39.8%), deck + suffix intact, byte-deck
+  identical to the shipped rolling compressor. Live: on environment-hard-15 the
+  context grew 4.7k→10.3k, the agent compacted at step 14, and step 15 dropped to
+  9.8k (growth reversed).
+- **Without a signal, the agent does not self-compact: 0/3** tasks called it
+  (gpt-5.2, DELTA, tool + description only) — the predicted 6%-delete-rate
+  behaviour. The tool being available was verified (settings echo).
+- **With the meter, it fires — and correctly: 1/3.** environment-hard-15 called it
+  once at step 14 with a textbook reason ("sources loaded + consumed; ranking
+  computed; no active debugging") — exactly the intended trigger — and still passed
+  (1.0). The two non-firing tasks were short (8, 13 steps), where compaction is
+  genuinely unneeded (tail mechanism). (legal-easy-19 failed that run with 0
+  compact calls — trajectory variance, not compaction-caused.)
+
+**Verdict:** the agent *can* call compaction properly when given an observable
+signal, the fold executes live without hurting accuracy, and short tasks correctly
+abstain. The meter is necessary (0→1 firing). Live savings were modest here (~5%)
+because gpt-5.2 runs short/clean; the large wins are in the thrash tail (§1:
+70% event-log, ~43k tok/trace) — the next test is a genuinely long trajectory
+(or a lower meter target) + the smoke-then-grid below.
+
 ## 6. Implementation phases
 
 - **Phase A — fold-mark plumbing (2–3d):** mark = a `compactContext` call in the
