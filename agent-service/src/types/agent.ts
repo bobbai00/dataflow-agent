@@ -298,6 +298,19 @@ export interface AgentSettings {
    */
   enableInspectTool: boolean;
   /**
+   * Expose the `compactContext` tool (agent-triggered compaction POC). When the
+   * agent calls it, the DELTA assembler folds the trajectory up to that mark into
+   * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
+   * LATEST — nothing to fold). Off by default. See docs/agent-triggered-compaction-plan.md.
+   */
+  enableCompactTool: boolean;
+  /**
+   * Static fold parameter (POC): how many of the most recent agent events to keep
+   * raw BEFORE the compaction mark (in addition to everything after it). 0 ⇒ fold
+   * everything through the mark. A constant, not model-chosen.
+   */
+  compactKeepLastSteps: number;
+  /**
    * When set, an LLM "teacher" (context tuner) is consulted each step: it reads
    * a cheap pipeline manifest and returns per-operator context detail levels
    * (context/tuner). Overrides the selector/contextMode paths. The value names
@@ -358,6 +371,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataHints: false,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
+  enableCompactTool: false,
+  compactKeepLastSteps: 0,
 };
 
 /**
@@ -452,6 +467,10 @@ export interface AgentSettingsApi {
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
+  /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
+  enableCompactTool?: boolean;
+  /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
+  compactKeepLastSteps?: number;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
 }
@@ -518,6 +537,10 @@ export interface UpdateAgentSettingsRequest {
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
+  /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
+  enableCompactTool?: boolean;
+  /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
+  compactKeepLastSteps?: number;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
 }

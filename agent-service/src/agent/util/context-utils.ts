@@ -98,6 +98,10 @@ export interface AssembleContextOptions {
    *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
    *  Undefined ⇒ 0.10. */
   deckSampleRatio?: number;
+  /** Agent-triggered compaction (POC): raw agent events to keep BEFORE the newest
+   *  `compactContext` mark (in addition to everything after it). 0 ⇒ fold through
+   *  the mark. Only consulted when a mark is present in the visible path. */
+  compactKeepLastSteps?: number;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -397,6 +401,25 @@ export function renderContextCore(
   let content: string;
   switch (mode) {
     case ContextMode.DELTA: {
+      // Agent-triggered compaction (POC): if the agent called `compactContext`,
+      // fold the trajectory up to the newest such mark into a compress deck +
+      // raw suffix, using STATIC params (compactKeepLastSteps). This takes
+      // precedence over the token-window rolling compaction.
+      const markEventIndex = newestCompactMarkEventIndex(tasks);
+      if (markEventIndex !== undefined) {
+        content = renderAgentCompacted(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep,
+          markEventIndex,
+          Math.max(0, options.compactKeepLastSteps ?? 0)
+        );
+        break;
+      }
       const windowTokens =
         options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
       // Unbounded window (0/unset) ⇒ legacy lossless delta (respects the data
@@ -699,6 +722,91 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  * from the current window; because a linear trajectory only grows, the chosen
  * boundary advances monotonically without any persisted state.
  */
+/** The eventIndex of the newest `compactContext` tool call in the visible path,
+ *  or undefined if the agent never compacted. That mark is the fold boundary. */
+function newestCompactMarkEventIndex(tasks: TaskGroup[]): number | undefined {
+  let mark: number | undefined;
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent") continue;
+      const calls = node.step.toolCalls ?? [];
+      if (calls.some(c => (c as any).toolName === "compactContext")) {
+        if (mark === undefined || node.eventIndex > mark) mark = node.eventIndex;
+      }
+    }
+  }
+  return mark;
+}
+
+/**
+ * Agent-triggered compaction render (POC). Fold every snapshot-bearing event up
+ * to the compaction mark (minus `keepLastSteps` recent ones) into a compress
+ * deck, keep the rest raw. Reuses the exact boundary/keepFrom selection as the
+ * token-window compaction, so the deck is byte-identical to what the rolling
+ * compressor produces at the same boundary — only the TRIGGER differs (agent
+ * action vs token overflow).
+ */
+function renderAgentCompacted(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  markEventIndex: number,
+  keepLastSteps: number
+): string {
+  const suffixOptions: AssembleContextOptions = {
+    ...options,
+    schemaInResult: true,
+    columnStats: false,
+    tableStructureHint: false,
+    valueFormatFlags: false,
+    coercionTelemetry: false,
+    lineageStats: false,
+    keepFromEventIndex: undefined,
+    omittedEventsCount: 0,
+    opExtras: undefined,
+  };
+
+  // Snapshot-bearing agent events, oldest→newest (the fold candidates).
+  const evs: { idx: number; snap: SnapshotData }[] = [];
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
+    }
+  }
+  // Fold count d = snapshot-events at/before the mark, minus the kept recent ones.
+  const atOrBeforeMark = evs.filter(e => e.idx <= markEventIndex).length;
+  const d = Math.min(evs.length, Math.max(1, atOrBeforeMark - keepLastSteps));
+  if (evs.length <= 1 || d <= 0) {
+    // Nothing meaningful to fold → lossless delta.
+    return renderInterleaved(
+      tasks,
+      workflowState,
+      suffixOptions,
+      initSnapshot,
+      latestUserContent,
+      latestUserStepId,
+      createFlagsByStep
+    );
+  }
+  const boundarySnap = evs[d - 1].snap;
+  const keepFrom = d < evs.length ? evs[d].idx : evs[d - 1].idx + 1;
+  return renderCompressed(
+    tasks,
+    workflowState,
+    options,
+    suffixOptions,
+    boundarySnap,
+    keepFrom,
+    latestUserContent,
+    latestUserStepId,
+    createFlagsByStep
+  );
+}
+
 function assembleBudgetedContext(
   tasks: TaskGroup[],
   workflowState: WorkflowState,

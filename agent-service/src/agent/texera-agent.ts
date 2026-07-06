@@ -91,6 +91,7 @@ import {
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
+import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -520,6 +521,12 @@ export class TexeraAgent {
       });
     }
 
+    // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
+    // folds the trajectory up to the newest call into a compact deck. Read-only.
+    if (this.settings.enableCompactTool) {
+      tools[TOOL_NAME_COMPACT_CONTEXT] = createCompactContextTool();
+    }
+
     // When parallel tool calls are enabled the model can emit N tool calls in
     // one assistant turn; wrap each tool's `execute` so all calls in that
     // turn land in one batch and run sequentially in dependency order. With
@@ -781,6 +788,8 @@ export class TexeraAgent {
     selectorConfig?: SelectorConfig | null;
     learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
+    enableCompactTool?: boolean;
+    compactKeepLastSteps?: number;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -935,6 +944,13 @@ export class TexeraAgent {
       // Adds/removes the read-only inspectResult tool from the model's tool set
       // (createTools() below reads this and rebuilds).
       this.settings.enableInspectTool = updates.enableInspectTool;
+    }
+    if (updates.enableCompactTool !== undefined) {
+      // Adds/removes the compactContext marker tool (createTools() rebuilds).
+      this.settings.enableCompactTool = updates.enableCompactTool;
+    }
+    if (updates.compactKeepLastSteps !== undefined) {
+      this.settings.compactKeepLastSteps = updates.compactKeepLastSteps;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner

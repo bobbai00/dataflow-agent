@@ -173,6 +173,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+      compactKeepLastSteps: settings.compactKeepLastSteps,
       attemptReflection: settings.attemptReflection,
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
@@ -292,6 +293,8 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     selectorConfig: agentSettings.selectorConfig,
     learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
+    enableCompactTool: agentSettings.enableCompactTool,
+    compactKeepLastSteps: agentSettings.compactKeepLastSteps,
     tunerConfig: agentSettings.tunerConfig,
   };
 
@@ -493,6 +496,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
           learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
           enableInspectTool: (settings as any).enableInspectTool,
+          enableCompactTool: (settings as any).enableCompactTool,
+          compactKeepLastSteps: (settings as any).compactKeepLastSteps,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -546,6 +551,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             selectorConfig: t.Optional(t.Any()),
             learnedConfig: t.Optional(t.Any()),
             enableInspectTool: t.Optional(t.Boolean()),
+            enableCompactTool: t.Optional(t.Boolean()),
+            compactKeepLastSteps: t.Optional(t.Number()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -838,6 +845,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
         learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
+        enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
+        compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
 
@@ -916,6 +925,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         // Learned-selector config; validated in-handler. null turns it off.
         learnedConfig: t.Optional(t.Any()),
         enableInspectTool: t.Optional(t.Boolean()),
+        enableCompactTool: t.Optional(t.Boolean()),
+        compactKeepLastSteps: t.Optional(t.Number()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
       }),
