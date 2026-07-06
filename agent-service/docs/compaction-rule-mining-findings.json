@@ -1,0 +1,762 @@
+{
+  "domainFindings": [
+    {
+      "domain": "archeology",
+      "representativeCases": [
+        {
+          "traceId": "archeology-easy-6",
+          "nSteps": 4,
+          "triggerStepIndex": 3,
+          "triggerReason": "Optimal (k=2) and sources-consumed boundary (k=2) COINCIDE here: loadCities (44,691-row worldcities.csv) has just gained its first downstream consumer, filterSouthernWestern, so allSourcesConsumed=true and nFoldable=1 (consumed-source). One action step (the top-population sort) still remains AFTER this boundary, so folding here actually pays off (unlike the two 3-step traces). This is the only archeology trace with a non-terminal compaction opportunity.",
+          "tokensSavedCumulative": 385,
+          "whatFolded": "Deck folds the init+load+filter event-log span (foldEventLog=218 tok, Lever A) into a frozen LATEST deck and trims the settled loadCities result body from full 44,691 rows to schema/shape (trimSettled=167 tok, Lever B; reason consumed-source). 385 tok = ~28% of finalDeltaTok 1375. filterSouthernWestern and the pending sort are appended raw after the deck.",
+          "safety": "safe",
+          "narrative": "Agent loaded worldcities.csv (loadCities, 44,691 cities), then at this step created filterSouthernWestern (lat<0 & lng<0); next step it sorts the filtered 4,095 cities by population to reach Sao Paulo. The full city table is a plain full-table load now consumed by the filter; the agent never re-reads all 44k raw rows verbatim, only the filtered downstream. Population NaNs are handled by a later dropna, but that is inferable from column stats, not raw rows."
+        },
+        {
+          "traceId": "archeology-easy-10",
+          "nSteps": 3,
+          "triggerStepIndex": 2,
+          "triggerReason": "Divergence case: sources-consumed boundary (k=2) lands on the TERMINAL action step (avgPopulationByCountry created, source consumed, allSourcesConsumed=true) where cumulative benefit = 0 (no downstream step to amortize the fold). The optimizer therefore retreats to k=1 (right after the loadWorldCities load) with only 59 tok cumulative. So the heuristic fires exactly one step too late here, onto the last step.",
+          "tokensSavedCumulative": 59,
+          "whatFolded": "At optimal k=1 the deck folds only the tiny init+load event-log span (foldEventLog=28 tok) plus a 31-tok shaping of the just-loaded source; no operator is consumed yet. The much larger fold available at the sources-consumed boundary (foldEventLog=324 + trim loadWorldCities to shape 193 = 517 tok) is worthless because it is the terminal step (cumulative 0).",
+          "safety": "risky",
+          "narrative": "Agent had just loaded worldcities.csv (loadWorldCities) and had not yet written the groupby-country mean. Compacting at this optimal point folds/shapes the source BEFORE its consumer is authored — the raw sample (country/population columns) is still the agent's only reference for writing the very next operator. Low value (59 tok) and mild risk; the genuinely safe boundary (post-consumption) is the terminal step and pays nothing."
+        },
+        {
+          "traceId": "archeology-easy-3",
+          "nSteps": 3,
+          "triggerStepIndex": 2,
+          "triggerReason": "Same divergence as easy-10: sources-consumed boundary (k=2) is the TERMINAL step (one step adds filterGreece+parseRanks+calculateAverageRank at once; nFoldable=2 = consumed-source loadRomanCities + settled-interior filterGreece) with cumulative 0. Optimal retreats to k=1 (just after loadRomanCities) at 36 tok cumulative. Aggravated by a value-quirk column.",
+          "tokensSavedCumulative": 36,
+          "whatFolded": "At optimal k=1 the deck folds init+load event log (foldEventLog=29) plus minimal 7-tok shaping. At the terminal sources-consumed boundary a large fold exists (foldEventLog=497 + trimSettled=230, folding loadRomanCities to shape and settled filterGreece) but yields 0 cumulative since nothing follows.",
+          "safety": "risky",
+          "narrative": "Agent loaded roman_cities.csv (1,388 rows), then in a single later step built filter-Greece -> parse 'Barrington Atlas Rank' ('4 or 5' -> 4.5) -> average (answer 3.1333). Compacting at the optimal k=1 point (before the parser is written) would trim away the raw quirky rank strings that the agent must SEE to author the split-on-'or' parser. This is the value-quirk hazard: trimming a source's raw rows before its quirk-handling consumer exists risks the wrong parser and wrong answer."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Gate compaction on BOTH signals: (a) every source operator has a healthy downstream consumer, AND (b) at least one action step still remains after the boundary. Never fire on the terminal action step.",
+          "rationale": "In archeology-easy-10 and archeology-easy-3 the sources-consumed boundary IS the last action step, so folding there saves 517 and 727 per-step tokens but 0 cumulative — pure waste. The extra 'downstream step remains' clause is what separates the paying fold (easy-6: 385 cumulative) from the useless ones.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "When a source gains its first consumer AND a downstream action step is still pending, compact immediately at that consumed-source boundary.",
+          "rationale": "archeology-easy-6: optimal and sources-consumed coincide at stepIndex 3 (filter consumes the 44,691-row loadCities, sort still pending), folding 385 tok / ~28% of the 1375-tok final DELTA with no accuracy cost — a plain full-table load whose schema the agent already knows.",
+          "tracesSupporting": 1
+        },
+        {
+          "rule": "Do NOT compact merely because a source was loaded; the load-but-not-yet-consumed step is not a safe boundary.",
+          "rationale": "The 'optimal' k=1 points in easy-10 (59 tok) and easy-3 (36 tok) sit right after the load, before the consumer is authored; savings are trivial and the raw sample is still working memory for writing the next operator (acutely so for easy-3's '4 or 5' quirk). Consumption, not loading, is the safe gate.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Skip compaction entirely on short single-source traces (<=3 action steps).",
+          "rationale": "For 3-action archeology traces every candidate boundary is either pre-consumption (risky, ~36-59 tok) or terminal (0 cumulative). Compaction ROI is only realized once a trace has >=4 action steps with a consumed source and remaining work (easy-6).",
+          "tracesSupporting": 2
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "fullSampleRecords",
+          "effect": "Turning off full sample rows for the frozen deck is the biggest Lever-B win: it trims the settled source body to shape (e.g. easy-6 loadCities 44,691 rows -> schema/shape saved trimSettled=167 tok of the 385). SAFE for plain consumed loads whose schema the agent knows. HIGH accuracy risk if applied to a value-quirk source before its parser exists (easy-3 'Barrington Atlas Rank' '4 or 5') — dropping the raw sample removes the evidence needed to write the next operator. Keep ON until the quirk-handling consumer is authored, then turn OFF."
+        },
+        {
+          "param": "statsOn",
+          "effect": "Per-column stats (nulls/min/max) are a cheap middle ground: keeping stats ON while fullSampleRecords is OFF preserves decision-relevant facts (e.g. easy-6/easy-10 population NaN counts driving dropna/notna) at a fraction of full-row cost, with negligible next-action risk. Recommended default for settled sources."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Dropping operator code bodies for settled-interior ops (easy-3 filterGreece, flagged settled-interior) is part of the Lever-A event-log fold and is low-risk once the op is consumed. Keep the LATEST op's code ON so the agent can still verify/derive the final answer; omitting only settled interior code yields modest savings with near-zero accuracy impact."
+        },
+        {
+          "param": "keepLastSteps",
+          "effect": "Dominant token lever (Lever A folds ~70%; foldEventLog was 42.3% / 35.3% / 35.7% of final DELTA across the three traces). keepLastSteps=1 maximizes savings and is SAFE here because all three traces are clean single-pass runs (errors=0, no retries) — recent steps carry no failed-attempt working memory. Raise keepLastSteps only in traces with active error/retry loops, which archeology did not exhibit."
+        }
+      ],
+      "risks": [
+        "Short-trace zero-payoff: 2 of 3 archeology traces are 3-action, single-CSV tasks where the sources-consumed boundary lands on the terminal step (easy-10 cumulative 0 despite 517 per-step; easy-3 cumulative 0 despite 727). Firing compaction here spends a fold for no benefit — always require a remaining downstream step.",
+        "Value-quirk source rows as working memory: easy-3's 'Barrington Atlas Rank' contains '4 or 5' strings; trimming/folding the loadRomanCities raw sample BEFORE the parseRanks operator is written would strip the exact values the agent needs to author the 'or'-splitting parser, risking a wrong 3.1333. Never trim a source until its quirk-handling consumer exists.",
+        "Single-source premature fold: with only one CSV feeding the whole pipeline, folding it right after load (the 'optimal k=1' point in the 3-step traces) is premature — schema and sample are still in active use for writing the immediate next operator. Consumption is the safe gate, not step count or a mere load event.",
+        "NaN-handling inference: population NaNs (easy-6/easy-10, handled via dropna/notna) are recoverable from column stats, so shape+stats folding is safe there — but this only holds because the transformation is a standard null filter; do not generalize shape-only folding to columns whose specific raw values drive branching logic.",
+        "Answer-row protection: these traces keep the terminal operator (Sao Paulo / Singapore / 3.1333) small and read by the verify step, so folding never threatened the answer; the general hazard remains — never fold the operator holding not-yet-consumed answer rows."
+      ]
+    },
+    {
+      "domain": "astronomy",
+      "representativeCases": [
+        {
+          "traceId": "astronomy-easy-5",
+          "nSteps": 47,
+          "triggerStepIndex": 27,
+          "triggerReason": "Token-optimal by cumulative savings: compacting at k=27 folds the largest event-log span (20,809 tok = 92% of the step's 22,573-tok delta) before the deck settles; earlier folds save less total, later folds miss steps. Optimal (k=27) lands 15 steps AFTER the sources-consumed boundary (k=12) because the long skyfield thrash only accretes foldable deleted operators later.",
+          "tokensSavedCumulative": 413896,
+          "whatFolded": "Folds the ai0-ai27 event log (Lever A, ~20.8k tok, 92% of step cost). Operators shaped/omitted by Lever B (only ~975 tok, deck 1764->789): loadTLE (consumed-source, 951 fixed-width TLE rows -> shape), 6 DELETED dead operators, 1 settled epoch-conversion op. The still-erroring calculateAltitudes stays as latest deck result, but the skyfield API failed-attempt REASONING (from_line/frame_xyz_au/utc() dead-ends) is dropped.",
+          "safety": "risky",
+          "narrative": "Q: count satellite 48445 major altitude changes (>1000m/12h) in 2024 from TLE via skyfield itrf_xyz (answer 2). loadTLE succeeds by ai=12; then ai=13-41 is a ~30-step thrash debugging calculateAltitudes returning 0 rows through skyfield API variants (EarthSatellite.from_line, Geocentric.frame_xyz_au, utc()). optK=27 sits mid-thrash ('calculateAltitudes returning 0 rows... let me debug'). The pipeline only works at ai=42-45. Folding at k=27 is token-optimal but risks re-trying dead API forms because the failed-attempt log IS the working memory; the safe fold point is ai=42-43 once altitude calc succeeds."
+        },
+        {
+          "traceId": "astronomy-hard-10",
+          "nSteps": 22,
+          "triggerStepIndex": 12,
+          "triggerReason": "Token-optimal: k=12 folds a 19,251-tok event log (88% of the 21,988-tok step delta) covering three loaders plus the early SP3 and altitude-change debugging. sourcesConsumedBoundary NEVER fired (scK=None) because loadSwarmSp3 stayed broken/empty and never gained a healthy downstream consumer, so a sources-consumed trigger would leave all ~179k tok un-compacted.",
+          "tokensSavedCumulative": 179136,
+          "whatFolded": "Folds ai0-ai12 event log (Lever A, 19,251 tok = 88%). Lever B (only 653 tok, deck 2737->2084) shapes 3 consumed-source loaders (OMNI2 1441 rows, Sat_Density 4330 rows, Swarm SP3) + 1 deleted op. Drops the SP3 date-pattern / column-quirk discovery reasoning and the 'only 8 points not hourly' debugging thread.",
+          "safety": "risky",
+          "narrative": "Q: correlate OMNI2/Sat_Density/SP3 space-weather vars vs Swarm-A hourly altitude change, Oct 1-10 2018 (answer ['Proton_flux_>30_Mev',-0.193]). ai=2-9 debug empty SP3 parse (date patterns, missing Timestamp col); ai=10-18 debug computeHourlyAltitudeChange yielding 8 daily points instead of hourly. optK=12 is mid-thrash while the agent is still column-inspecting the value-quirk SP3 load AND fixing the altitude op. Folding here drops the SP3 quirk the agent is actively reading; OMNI2/Sat_Density are safe to shape but SP3 is not. Safe fold point is ai=18-19, post-thrash, once prepared hourly frames (240 rows) exist and before the merge/correlate."
+        },
+        {
+          "traceId": "astronomy-easy-1",
+          "nSteps": 13,
+          "triggerStepIndex": 8,
+          "triggerReason": "Token-optimal despite nFoldable=0: at k=8 NO operator is foldable (no consumed-source/deleted/settled reasons), yet folding the event log (7,781 tok = 75% of the 10,432-tok step) is the max-cumulative choice. Savings are pure Lever A. sourcesConsumedBoundary never fired (scK=None) - the file-parse operators never registered a clean healthy-consumer boundary.",
+          "tokensSavedCumulative": 33688,
+          "whatFolded": "Folds ai0-ai8 event log (Lever A, 7,781 tok, 75%): the NOAA file metadata-header parsing and forecast extraction (25/20/12 for Mar 10-12). Lever B contributes almost nothing (nFoldable=0, trimSettled 641). The extracted forecast + observed values persist in the deck's latest per-op results.",
+          "safety": "safe",
+          "narrative": "Q: MAE of NOAA SWPC 3-day AP forecast from Mar 9 2025 vs observed Mar 10-12 (answer 15). ai=1-7 parse metadata-header forecast files (parallel 4-tool calls) and extract forecast 25/20/12; by ai=8 forecast is settled and observed extraction is underway; MAE computed ai=12-13. Compacting at k=8 is a pure event-log fold with no risky operator trimming; the small numeric values needed downstream are preserved in the deck, so accuracy risk is low - main residual risk is folding the forecast-vs-observed day-alignment reasoning before MAE is computed."
+        },
+        {
+          "traceId": "astronomy-easy-2",
+          "nSteps": 4,
+          "triggerStepIndex": 2,
+          "triggerReason": "Clean coincidence: optimalCompaction.k == sourcesConsumedBoundary.k == 2. Both source loaders are consumed and the pipeline is linear, so the sources-consumed heuristic lands exactly on the token-optimal point.",
+          "tokensSavedCumulative": 783,
+          "whatFolded": "Folds ai0-ai2 event log (Lever A 469 tok, 37%) plus both consumed-source loaders shaped to schema (Lever B 314 tok, 25% - the most balanced A/B split of the four). Deck 790->476. Only peak-density and ratio computation remain after the fold.",
+          "safety": "safe",
+          "narrative": "Q: ratio of Swarm-A peak atmospheric mass density Mar 14-17 2014 vs Jul 18-21 2018 (answer 7.52). ai=1 loads both density files; ai=2 both loaded, about to compute per-period peaks; ai=3 computes ratio. Textbook clean sources-consumed boundary: both loaders settled/consumed, deck keeps latest results, only 2 deterministic compute steps remain. Folding here drops nothing the agent still needs verbatim - safe and the small savings reflect a short trace."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Compact at the sources-consumed boundary ONLY when the pipeline is linear/healthy - every loader has produced a non-empty result that a downstream op has read. Then SC coincides with the token-optimal point.",
+          "rationale": "astronomy-easy-2 has optK==scK==2: both density loaders consumed, deck keeps latest results, only deterministic peak+ratio compute remain; nothing needed verbatim is folded. This is the clean case the SC heuristic was designed for.",
+          "tracesSupporting": 1
+        },
+        {
+          "rule": "Do NOT compact mid-thrash: if the most recent action's active operator is erroring or returning 0/empty rows AND recent steps are repeated debug attempts on the SAME operator, defer compaction until that operator settles (produces a non-empty result). Prefer the post-thrash boundary.",
+          "rationale": "Both large traces put the token-optimal point inside a debugging thrash: astronomy-easy-5 k=27 during the ~30-step skyfield API thrash (folds the from_line/frame_xyz_au/utc dead-end reasoning; safe fold is ai=42-43 once calculateAltitudes works), and astronomy-hard-10 k=12 while SP3 columns are still being inspected (safe fold is ai=18-19 post-thrash). Folding the failed-attempt log risks re-trying dead approaches.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Add a token/step-budget FALLBACK trigger independent of the sources-consumed boundary, e.g. force-consider compaction every ~10 action steps or above ~15k accumulated delta tokens.",
+          "rationale": "The SC boundary never fired (scK=None) in astronomy-hard-10 (~179k tok) and astronomy-easy-1 (~34k tok) because a loader stayed broken (SP3) or parse-ops never registered a clean healthy-consumer boundary. Relying solely on SC would never compact these despite the largest costs.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "When you do compact, retain the last K raw steps (keepLastSteps) covering the active operator's recent attempts so failed-API-form working memory survives the fold; only fully fold the event log for spans older than the current debugging thread.",
+          "rationale": "In astronomy-easy-5 and astronomy-hard-10 the risk is entirely in Lever A folding the recent failed-attempt reasoning; a nonzero keepLastSteps recovers the token savings on older steps while preserving the thrash memory the agent still needs.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Separate an always-safe partial compaction (Lever B on DELETED and consumed stable loaders) from the risky event-log fold (Lever A). Trim deleted/settled operator bodies eagerly at any step; gate the event-log fold on the thrash/boundary rules above.",
+          "rationale": "astronomy-easy-5 k=27 has 6 deleted dead operators + a consumed loadTLE that are safe to shape at any time, but the value there (975 tok, 4%) is dwarfed by the risky event-log fold (20,809 tok, 92%). Decoupling lets you bank safe savings without triggering the risky fold prematurely.",
+          "tracesSupporting": 3
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "keepLastSteps",
+          "effect": "The dominant safety lever for astronomy. Higher value retains the recent failed-attempt log (skyfield API dead-ends in easy-5, SP3 quirk discovery in hard-10), sharply cutting next-action accuracy risk during thrashes, at the cost of leaving those steps' tokens un-folded. Because Lever A (event-log fold) is 88-92% of step cost in the long traces, even keeping the last 3-5 steps still banks most savings. Set it low only on settled/linear pipelines (easy-2)."
+        },
+        {
+          "param": "fullSampleRecords",
+          "effect": "Turning OFF (shape-only) is the trim behind Lever B and is cheap, but on value-quirk loads it is risky WHILE the parser is unsettled: TLE fixed-width 69-char rows (easy-5) and SP3 date-pattern/odd-column files (hard-10) are still being read row-by-row at their optimal fold steps, so dropping sample rows early removes the quirk the agent needs. Keep full samples for a loader until its downstream consumer is non-empty, then drop to shape."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Operator code bodies (long skyfield/pandas ops) are large. Dropping code of SETTLED ops saves a lot with near-zero risk; dropping code of the ACTIVELY-erroring op is high risk because the failing code is exactly what the agent is iterating on (easy-5 calculateAltitudes, hard-10 computeHourlyAltitudeChange). Gate codeOn per-operator on settled-vs-erroring, not globally."
+        },
+        {
+          "param": "statsOn",
+          "effect": "Lowest-stakes lever here. Per-column stats on settled loaders (OMNI2 1441, Sat_Density 4330, TLE 951 rows) are small relative to full rows, so turning them OFF for folded/settled ops yields modest savings with negligible accuracy risk - the agent rarely re-derives column stats of a settled load. Safe to disable on any consumed-source operator."
+        }
+      ],
+      "risks": [
+        "skyfield/TLE API-debugging thrash: the token-optimal compaction point lands mid-thrash (astronomy-easy-5 k=27, ~22.6k tok/step, 15 steps past the sources-consumed boundary). Folding Lever A there drops the failed-attempt reasoning (EarthSatellite.from_line, Geocentric.frame_xyz_au, utc() misuse) and the agent may re-try already-dead API forms.",
+        "Value-quirk fixed-width/format loads: TLE 69-char lines (easy-5) and SP3 date-pattern files with non-standard columns (hard-10) are still being read at their optimal fold step; trimming their raw sample rows (fullSampleRecords off) before the parser settles removes the exact quirk being debugged.",
+        "Broken source loader defeats the sources-consumed heuristic: when a loader stays empty/broken (SP3 in hard-10) the SC boundary never fires (scK=None), so an SC-only trigger would leave ~179k tokens (hard-10) or ~34k (easy-1) un-compacted - a step/token fallback is mandatory.",
+        "Lever A dominance means the risk is unavoidable via trimming alone: the event-log fold is 75-92% of per-step cost in the three larger traces while settled-op trimming (Lever B) is only 3-6%, so meaningful compaction MUST fold the log - precisely where thrash working memory lives.",
+        "Small numeric answers are safe but their alignment/units reasoning is not: forecast/observed values (25/20/12 in easy-1) and per-period peaks (easy-2) survive in the deck's latest per-op results, but folding the forecast-vs-observed day-alignment or unit-conversion reasoning before the final MAE/ratio compute can inject subtle numeric errors."
+      ]
+    },
+    {
+      "domain": "biomedical",
+      "representativeCases": [
+        {
+          "traceId": "biomedical-hard-4",
+          "nSteps": 22,
+          "triggerStepIndex": 13,
+          "triggerReason": "Token-optimal point: perStep saving 11395 tok (foldEventLog 11087 + trimSettled 308, 88% of context is event log) multiplied by 8 remaining steps = 91160 cumulative, the largest opportunity in the domain. It is optimal because this is the longest trajectory, so folding the fat event log early benefits the most downstream steps.",
+          "tokensSavedCumulative": 91160,
+          "whatFolded": "Lever A folds event-log raw steps 0-13 (~11087 tok: the empty A-Variants peptide search + first two loader-fix attempts). Lever B trims only 1 consumed-source op (~308 tok). The two actively-retried loaders loadMmc4NovelSplice/loadMmc4AltSplice stay full (not settled).",
+          "safety": "risky",
+          "narrative": "At raw step 14 the agent is mid retry-loop: filterPeptide returned EMPTY on the A-Variants sheet, and steps 12/13/14 all re-modify the same two Excel loaders (loadMmc4NovelSplice/AltSplice) trying different sheet/header params; only at step 15-16 does it find the peptide in the C-Alternate-Splice sheet. Compacting here drops the record of which sheets/params already failed -> risks re-searching them. sourcesConsumedBoundary is null (heuristic never fires), so a pure-heuristic agent forfeits all 91160 tok."
+        },
+        {
+          "traceId": "biomedical-hard-1",
+          "nSteps": 11,
+          "triggerStepIndex": 7,
+          "triggerReason": "perStep 4602 tok (foldEventLog 3975 + trimSettled 627, 72.9% event log) x 3 remaining steps = 13806 cumulative. Optimal because it is the earliest step where enough event log has accreted that folding still pays off over 3 more steps.",
+          "tokensSavedCumulative": 13806,
+          "whatFolded": "Lever A folds event-log raw steps 0-7 (~3975 tok: initial 3 loaders + first extract attempts). Lever B trims 2 deleted ops + 2 no-consumer op bodies (~627 tok). loadMetadata (actively erroring, type mismatch) stays full.",
+          "safety": "risky",
+          "narrative": "At raw step 8 the agent reports loadMetadata failing on a dtype mismatch and extractPLK1/extractCHEK2S163 returning no results, and it re-modifies loadMetadata again -> which it keeps re-editing at steps 9 and 10 (4 variants total). The recent failed loadMetadata code is working memory; folding the event log drops the trail of tried read_excel configs, risking a repeat. The current error result stays visible in the deck, but the fix-attempt history does not."
+        },
+        {
+          "traceId": "biomedical-hard-3",
+          "nSteps": 11,
+          "triggerStepIndex": 8,
+          "triggerReason": "perStep 6820 tok (foldEventLog 5795 + trimSettled 1025, 78.8% event log) x 2 remaining steps = 13640 cumulative. Optimal despite only 2 remaining steps because both loaders are now consumed-source, giving an unusually large per-step Lever-B trim (1025).",
+          "tokensSavedCumulative": 13640,
+          "whatFolded": "Lever A folds event-log raw steps 0-8 (~5795 tok). Lever B would trim 2 consumed-source loaders (loadMmc1, loadMmc7Data) + 1 deleted + 1 no-consumer (~1025 tok) -- but trimming the two loaders to schema is the unsafe part; the safe variant keeps them full (fullSampleRecords on).",
+          "safety": "safe",
+          "narrative": "At raw step 9 the agent has just discovered an ID-mismatch (findLowestAppZ yields 'S019' but loadMmc1 uses 'C3L-00006'/Proteomics_Participant_ID) and spins up debugPatientIds/examineDataStructure to derive the mapping across steps 9-11. Lever A alone is SAFE here (settled loaders' latest results, incl. the ID values, are kept in the deck). It becomes RISKY only if Lever B trims the two loader bodies to schema, destroying the exact ID strings the next actions must read."
+        },
+        {
+          "traceId": "biomedical-hard-8",
+          "nSteps": 7,
+          "triggerStepIndex": 3,
+          "triggerReason": "perStep 1411 tok (foldEventLog 1220 + trimSettled 191, 69.1% event log) x 3 remaining steps = 4233 cumulative. Token-optimal lands this early purely because remaining-step count dominates the small per-step saving -- and at this step nFoldable=0 (no operator is settled yet).",
+          "tokensSavedCumulative": 4233,
+          "whatFolded": "Lever A folds event-log raw steps 0-3 (~1220 tok: initial 3 loaders + one MMC1 re-load). Lever B contributes ~191 tok of residual trimming; no operator is classified foldable (nFoldable=0), so nothing substantive is shaped/omitted at the operator level.",
+          "safety": "risky",
+          "narrative": "At raw step 4 the agent is still adding loaders (loadMMC1Meta, loadFDADrugs); the very next step 5 says 'issues with the Excel file loading... investigate the structure' and re-fixes both. Nothing is settled (nFoldable=0) and the loads are actively being debugged, so folding freezes a premature 'loading in progress' narrative for a small (1411/step) win -- classic case of the math favoring compaction before the data is even loaded."
+        },
+        {
+          "traceId": "biomedical-easy-6",
+          "nSteps": 5,
+          "triggerStepIndex": 3,
+          "triggerReason": "perStep 985 tok x 1 remaining step = 985 cumulative. This is the ONLY biomedical trace where the static sourcesConsumedBoundary (k=3) exactly equals the optimal -- a clean load->consume->answer path with a single settled source.",
+          "tokensSavedCumulative": 985,
+          "whatFolded": "Lever A folds event-log raw steps 0-3; a single consumed-source loader is shaped by Lever B (foldEventLogPct 56.4, the lowest, so the event log is a smaller share here).",
+          "safety": "safe",
+          "narrative": "Brief (non-top-4): the easy FIGO-stage-by-age question loads one table, consumes it, answers. No debugging, one source cleanly consumed -> the sources-consumed heuristic and the token-optimal point coincide, and compacting is safe. This is the counterexample that shows why the heuristic works on easy trajectories and fails (null) on all four hard ones."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Do NOT wait for the static 'all sources consumed' boundary -- it never fires on hard biomedical traces. Instead trigger Lever A (fold event log) on an event-log-size threshold combined with settledness of the operators the NEXT action will not touch.",
+          "rationale": "sourcesConsumedBoundary is null for all 4 hard traces (biomedical-hard-1/3/4/8); only easy-6 reaches it. A heuristic-only agent forfeits up to 91160 tok (hard-4). Under-compaction, not over-compaction, is the dominant failure mode in this domain.",
+          "tracesSupporting": 5
+        },
+        {
+          "rule": "Fold the event log (Lever A, ~70-88% of context here) aggressively once loaders are consumed-source, but gate Lever B (trim loader result bodies to schema) on whether the agent is still doing row-level value inspection or key joins.",
+          "rationale": "In biomedical-hard-3 (step 8/9) Lever A is safe because the settled loaders' latest results -- including ID values -- stay in the deck, but Lever B would strip the exact 'S019'/'C3L-00006' strings the next join needs. foldEventLog dwarfs trimSettled (5795 vs 1025), so most savings come from Lever A anyway.",
+          "tracesSupporting": 1
+        },
+        {
+          "rule": "Never compact while an operator is inside an active retry/debug loop; wait until the retried operator produces a non-error, downstream-consumed result, and keep a keepLastSteps window covering the loop.",
+          "rationale": "biomedical-hard-4 (loaders re-modified at steps 12/13/14 during a multi-sheet peptide search), hard-1 (loadMetadata re-edited across steps 7-10), and hard-8 (loads still failing at step 5) all reach their token-optimal point mid-thrash; the failed-attempt history is working memory whose loss risks repeated attempts.",
+          "tracesSupporting": 3
+        },
+        {
+          "rule": "Prefer a step where nFoldable>0 (loaders at least consumed) over the raw token-optimal step; the true optimum often precedes settledness by 1-3 steps.",
+          "rationale": "biomedical-hard-8's optimum is at nFoldable=0 (nothing loaded yet); on easy-6 the optimum and settledness coincide (k=3). Compacting at the first nFoldable>0 step trades a small token amount for a large drop in accuracy risk.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "When a filter/join returns EMPTY and triggers exploratory branching, delay compaction until that exploration resolves.",
+          "rationale": "biomedical-hard-4's filterPeptide empty-result kicks off a sheet-by-sheet search (steps 11-16); the 'empty + branches already tried' is working memory, and folding it risks re-checking already-eliminated sheets.",
+          "tracesSupporting": 1
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "keepLastSteps",
+          "effect": "The primary safety knob for the dominant Lever A. Each extra kept step costs ~1000-1500 tok of un-folded event log (hard-4 event log grows ~1450 tok/step: 9643->11087->12544->14044 across steps 13-16), but a window covering the active retry loop is what makes early compaction safe in the debug-heavy hard traces (hard-1, hard-4). Too small a window during a retry loop -> repeated failed attempts (accuracy risk); too large -> forfeits most of the 70-88% event-log saving."
+        },
+        {
+          "param": "fullSampleRecords",
+          "effect": "This is Lever B for loaders (the trimSettled saving: hard-3 1025, hard-1 627, hard-4 308 tok, ~4-12% of context). Turning it OFF (trim to shape/schema) is safe for settled loaders whose values are no longer read, but HIGH accuracy risk for value-quirk loads under active row-level inspection -- e.g. hard-3's ID-mapping fix and hard-4's cross-sheet peptide search both need the literal cell values. Keep ON for any loader the next action will read row-wise."
+        },
+        {
+          "param": "statsOn",
+          "effect": "Cheap middle ground: column min/max/null stats are enough for aggregation-consumers (hard-3's findLowestAppZ needs the min of APP_Z_score) at near-zero token cost, so keeping statsOn while dropping fullSampleRecords preserves distributional facts. But stats are INSUFFICIENT for row-level lookups/joins (the ID-string mapping in hard-3), so it does not remove the fullSampleRecords risk for join/lookup steps."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Biomedical loaders get re-edited many times before settling (hard-4: 3x on two loaders; hard-1: 4x on loadMetadata; hard-8 re-loads MMC1). Keeping codeOn for ACTIVELY-edited operators preserves which read_excel sheet/header configs already failed, preventing repeats; dropping codeOn for settled operators is safe and low-risk. Effect: tie codeOn to 'is this operator still being edited' rather than folding all code uniformly."
+        }
+      ],
+      "risks": [
+        "The mathematically-optimal token point (perStep x remaining-steps) systematically lands BEFORE operators settle -- hard-8's optimum is at nFoldable=0 (data not even loaded) -- so chasing max token savings compacts mid-debug and drops working memory.",
+        "Multi-sheet Excel loaders (mmc1/mmc4/mmc6 .xlsx) are re-edited repeatedly for sheet/header/dtype params before settling (hard-4, hard-1, hard-8); compacting mid-thrash erases the record of which configs already failed, causing repeated failed read_excel attempts.",
+        "Cross-table ID/key mismatches (hard-3: 'S019' idx vs 'C3L-00006' Proteomics_Participant_ID) require reading raw ID VALUES from two loaders to derive a mapping; Lever B / fullSampleRecords-off destroys the exact strings needed, breaking the join.",
+        "The static sources-consumed heuristic never fires on hard biomedical traces (sourcesConsumedBoundary null in 4/4 hard) because loaders never reach clean 'healthy consumer' status amid the thrash -- under-compaction forfeits up to 91160 tok (hard-4). The real hazard is compacting too LATE (or never), not too early.",
+        "Empty filter/join results drive exploratory branching (hard-4 peptide search across sheets); folding the 'empty + sheets-tried' history risks re-exploring eliminated branches.",
+        "Lever A preserves the latest per-op result (including the current error) but NOT the sequence of prior fix attempts; in a 4-attempt debug loop (hard-1 loadMetadata) that sequence is the working memory, so 'error is still visible' is not sufficient to make compaction safe."
+      ]
+    },
+    {
+      "domain": "environment",
+      "representativeCases": [
+        {
+          "traceId": "environment-hard-9",
+          "nSteps": 17,
+          "triggerStepIndex": 9,
+          "triggerReason": "Optimal fires at k=9 purely because event-log growth already dominates: foldEventLog=32322 tok vs a trim of only 1190 tok (deckHeavy 4442 -> deckLean 3252). This is the peak-cost environment trace (cumulative 234584). Notably sourcesConsumedBoundary=None here (the DAG never reaches an all-healthy-consumer state), so the static heuristic NEVER fires and would leave the entire 59600 tok on the table.",
+          "tokensSavedCumulative": 234584,
+          "whatFolded": "Folds the k1-k9 event-log span (~32.3k tok): eight near-identical restatements of the same 7-operator fix batch (processPleasureBay + 4 zero-row beach processors + combinedResults + finalAnswer) plus their 'Operator modified' acks. Lever B additionally shapes 3 consumed loaders + 7 no-consumer interior ops (~1.2k). The LATEST deck retains the current DAG with live per-op errors.",
+          "safety": "risky",
+          "narrative": "From k5-k11 the agent is stuck re-emitting createOrModifyOperator on the SAME 7 ops with an essentially unchanged diagnosis ('processPleasureBay AttributeError .str; processMalibu/Carson/Wollaston/Constitution 0 results; combinedResults/finalAnswer empty'). The folded span holds the just-submitted (and failing) code bodies for operators that are actively erroring - that code is working memory for not re-trying the same fix."
+        },
+        {
+          "traceId": "environment-hard-14",
+          "nSteps": 21,
+          "triggerStepIndex": 10,
+          "triggerReason": "Optimal AND sourcesConsumedBoundary coincide at k=10: all 7 loaders (3 waterBody + 4 precip) now have a downstream consumer, and event-log fold (foldEventLog=17713) dwarfs the trim (1058). cumulative=187710.",
+          "tokensSavedCumulative": 187710,
+          "whatFolded": "Folds k1-k10 event log (~17.7k tok), which includes ~4 consecutive failed precipProcessed attempts (empty-DataFrame / missing-column groupby). Lever B shapes 7 consumed loaders + 1 settled interior op (~1.1k). deckHeavy 2478 -> deckLean 1420.",
+          "safety": "risky",
+          "narrative": "precipProcessed is in an active error/retry loop from k6 through k16 (returns empty every time, agent keeps rewriting it). The 7 loaders are 'consumed' only by this broken op, so the sources-consumed trigger is false-safe. Folding at k=10 discards the last ~3 failed precipProcessed code variants the agent still needs to avoid repeating."
+        },
+        {
+          "traceId": "environment-hard-11",
+          "nSteps": 23,
+          "triggerStepIndex": 14,
+          "triggerReason": "Optimal waits until k=14 - 5 steps AFTER sourcesConsumedBoundary (k=9). The single value-quirk load (loadBeachData, a multi-header CSV reparsed 9 times, k1-k9) only becomes safe to fold once the column-identification explorers (inspectColumns/loadRawData/inspectRawHeader) have been created and DELETED, so 'deleted' dead weight accumulates (foldReasons deleted:2 at k=13-14).",
+          "tokensSavedCumulative": 34752,
+          "whatFolded": "Folds k1-k14 event log (~3.8k tok): the 9 loadBeachData reparse attempts + the created-then-deleted column explorers. Lever B shapes 1 consumed source + 2 deleted ops (582 tok; deckHeavy 1334 -> deckLean 752).",
+          "safety": "safe",
+          "narrative": "Complex Boston beach datasheet with metadata header rows and multiple beach columns; the agent reparses loadBeachData 9x, then explores which columns map to Pleasure Bay, then deletes the scratch explorers. At k=14 the load schema and column mapping are settled and explorers are gone -> safe. But compacting at the earlier sources-consumed k=9 would be RISKY: the raw sample rows of the value-quirk load are still being read to pick the right Enterococcus columns."
+        },
+        {
+          "traceId": "environment-hard-12",
+          "nSteps": 7,
+          "triggerStepIndex": 4,
+          "triggerReason": "Optimal at k=4 (sourcesConsumedBoundary k=3, ~equal cost: 19872 vs 19827). k=4 is the load->transform boundary: all 8 beach CSV loads are consumed by clean ops AND the 4 clean ops that returned empty rows have just been fixed. foldReasons: consumed-source:8.",
+          "tokensSavedCumulative": 19872,
+          "whatFolded": "Folds k1-k4 (8 parallel CSV loads + the clean/parse batch, foldEventLog=9310). Lever B shapes 8 consumed loaders (626 tok; deckHeavy 3054 -> deckLean 2428; final-deck trim gap grows to 1493 on these wide tables).",
+          "safety": "safe",
+          "narrative": "Cleanest happy path of the four: load 8 beaches, clean each (fixing 4 empty ones at k=4), then combineAllBeaches -> filterNoRainfall -> filterFailedStandard -> countFailedByBeach. At k=4 the raw wide load bodies are no longer needed - downstream needs only the cleaned schema - so folding is safe. sources-consumed k=3 is one step premature (4 clean ops still empty; their fix at k=4 benefits from seeing the empty-result diagnosis)."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Compact only when every source/loader has a HEALTHY downstream consumer (consumer result is non-error and non-empty), not merely any consumer.",
+          "rationale": "In hard-14 the sources-consumed heuristic fires at k=10 while the sole consumer precipProcessed is erroring/empty (and keeps erroring to k16); hard-9 never reaches an all-healthy state (sourcesConsumedBoundary=None) yet is the max-savings trace. Requiring a real downstream result turns the false-safe trigger into a true settle signal.",
+          "tracesSupporting": 3
+        },
+        {
+          "rule": "Do NOT compact while any operator is in an active error/retry loop: an op whose latest result isError-or-empty AND was modified within the last ~3 steps means its recently submitted (failed) code is live working memory.",
+          "rationale": "hard-9 (7-op batch re-modified k5-k11) and hard-14 (precipProcessed rewritten k6-k16) both have their math-optimal trigger landing INSIDE the loop; folding there drops the tried-and-failed code and invites repeating it.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "For value-quirk / multi-row-header loads, defer compaction until schema/column identification is finished - signalled by scratch inspector ops being created and then deleted - rather than at first successful load.",
+          "rationale": "hard-11 optimal is k=14, five steps after the load first loads cleanly (sources-consumed k=9); the raw rows stay working memory until the Enterococcus columns are pinned and the explorers deleted.",
+          "tracesSupporting": 1
+        },
+        {
+          "rule": "In fan-in clean/parse-then-combine pipelines, compact at the load->transform boundary once the parallel clean batch is all healthy and about to fan into the combiner.",
+          "rationale": "hard-12 optimal k=4 is exactly the point where 8 consumed loaders + a fixed clean batch precede combineAllBeaches; the raw load bodies are dead once the cleaned schema exists. hard-9's intended shape is the same fan-in (combinedResults, 8 ports).",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "When compacting during any residual thrash, keep the last K raw steps unfolded rather than a full fold, so the most recent failed attempt survives even if the trigger fired slightly early.",
+          "rationale": "The two highest-cost traces (hard-9, hard-14) are thrash-heavy; the event log is low information-density (repeated restatements) but the last failed code block is uniquely valuable, so a partial fold captures ~all savings at far lower risk. Also covers the many small environment traces (hard-13/10, easy-5/2/1, hard-7/20/15, all cumulative <=17510) that are short happy-paths where a conservative partial fold costs almost nothing.",
+          "tracesSupporting": 2
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "keepLastSteps",
+          "effect": "Dominant lever - it governs the ~70% Lever-A event-log fold (foldEventLog=32322 in hard-9 k9, 17713 in hard-14 k10, 9310 in hard-12 k4). Setting it low maximizes token savings but, in the debug-loop traces (hard-9/hard-14), risks dropping the just-submitted failing code for an actively-erroring op = high next-action risk (re-trying the same fix). Setting it generous (keep last 2-3 raw steps) preserves the last failed attempt and cuts risk sharply while still recovering nearly all savings, since the earlier folded steps are near-identical restatements."
+        },
+        {
+          "param": "fullSampleRecords",
+          "effect": "Largest Lever-B win on these wide multi-site beach tables: dropping sample rows drives the deckHeavy->deckLean gap of ~1.2-1.5k tok (hard-12 final 3785->2292; hard-9 3794->2581). Safe for settled/consumed loaders (hard-12 k4), but risky (a) for value-quirk loads still under column inspection (hard-11 before k14, where the raw rows disambiguate columns) and (b) for the final-answer op whose rows ARE the deliverable list of beaches (hard-9 finalAnswer)."
+        },
+        {
+          "param": "statsOn",
+          "effect": "Keeping schema+column stats while dropping values is the low-risk half of Lever B: retains the column names/dtypes downstream planning needs at modest cost, and is near-safe for settled-interior ops (settled-interior fold reasons appear in hard-9 and hard-14). Turning it off saves little extra but removes the cue the agent uses to write consistent downstream transforms."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Dropping code of settled/consumed ops yields modest savings and is safe for consumed loaders (hard-12 8 loaders). Hazardous for (a) actively-erroring ops - their code is the working memory being iterated (hard-9 7-op batch, hard-14 precipProcessed) - and (b) upstream transforms whose not-yet-written downstream (e.g. an 8-port combiner) must stay schema-consistent; folding that code away blocks reconciliation."
+        }
+      ],
+      "risks": [
+        "Water-quality beach tasks use wide multi-site tables with quirky multi-row headers; the raw sample rows themselves are the schema-disambiguation signal. Trimming them (fullSampleRecords off) before column identification settles drops working memory (hard-11: loadBeachData reparsed 9x, columns pinned only by k14).",
+        "These traces debug-loop heavily and the math-optimal, max-savings trigger lands INSIDE the loop - hard-9 (7 ops re-modified k5-k11, cumulative 234584) and hard-14 (precipProcessed rewritten k6-k16, cumulative 187710). The biggest-savings environment traces are precisely the riskiest to fold, because folding discards the recent failed code.",
+        "The sources-consumed heuristic fires on ANY downstream consumer, including a broken/empty one (hard-14: 7 loaders 'consumed' by an erroring precipProcessed), producing a false-safe trigger; and it can also mis-fire the other direction, never firing at all on thrash traces (hard-9/hard-10 sourcesConsumedBoundary=None), leaving all savings unrealized.",
+        "The final-answer operator's rows (the deliverable, e.g. ['Pleasure Bay','Castle Island','City Point']) may be unconsumed working memory right up to the last step; trimming its body risks losing the answer before it is read (hard-9 finalAnswer, k16-k18).",
+        "Fan-in combiners (combinedResults / combineAllBeaches with 8 input ports) re-derive from upstream clean-op schemas; folding upstream clean-op code while the combiner is still erroring leaves the agent unable to reconcile the 8 input schemas."
+      ]
+    },
+    {
+      "domain": "legal",
+      "representativeCases": [
+        {
+          "traceId": "legal-easy-19",
+          "nSteps": 33,
+          "triggerStepIndex": 21,
+          "triggerReason": "Optimal fold point (k=21) sits exactly one step before the agent self-initiates a mass teardown: at step 22 it deletes 12 dead-end exploratory operators. That deletion is ground-truth proof the entire event-log span 2-20 is abandoned working memory. Event log is already ~83% of the step-21 context (fold=13,781 of 16,651 tok) and grows to 95.3% by step 33.",
+          "tokensSavedCumulative": 184085,
+          "whatFolded": "Folds the raw event log for steps ~2-20: 13 throwaway loader/parser ops (inspectData, viewAllRows, readRawCsv, readRawFile, parseRawFile, readCompleteFile, extractRanges, parseCompleteData, readAndParseFraudData, ...) each re-rendered every step. Lever A (fold event log) does the work; the LATEST deck (deckHeavy=2,870) retains loadFraudData + readCompleteFile CURRENT results (the raw CSV rows the agent scans). Lever B trim-to-shape deliberately NOT applied to those raw-row loaders. 12 ops become delete-foldable at k+1.",
+          "safety": "safe",
+          "narrative": "Agent is answering a proportion query over a messy CSN CSV whose display keeps truncating; it spawns ~13 competing loader/parser operators trying to see all rows, then at step 22 recognizes the mess and bulk-deletes 12 of them, keeping only loadFraudData + readCompleteFile before building calculateProportion."
+        },
+        {
+          "traceId": "legal-hard-30",
+          "nSteps": 16,
+          "triggerStepIndex": 9,
+          "triggerReason": "By k=9 the full multi-file pipeline is assembled and has produced its answer: both glob loaders are consumed, 5 interior ops (clean/filter x2, join, compare) are settled, 7 of 9 ops foldable, allSourcesConsumed=true. nOps stays frozen at 9 with identical foldReasons through step 16 — everything after k=9 is just re-editing the verifyResult sink. Fold everything upstream.",
+          "tokensSavedCumulative": 48588,
+          "whatFolded": "Folds event-log steps 2-8 (~5,763 tok): the two glob loaders shaped as consumed-source, the 5 clean/filter/join/compare interior ops shaped as settled-interior; deckHeavy=2,111 keeps compareTheftVsFraud's live result (empty=>'No'). Only verifyResult stays in the raw tail. Higher trim yield here (1,171 tok) than single-file traces because the multi-branch pipeline has more settled interior ops.",
+          "safety": "safe",
+          "narrative": "Multi-file task globbing MSA fraud vs identity-theft CSVs: agent loads, cleans, filters both branches, joins, compares (0 rows => 'No' by step 8), then spends steps 9-16 rewriting verifyResult 7 times to render the Yes/No while the pipeline structure never changes."
+        },
+        {
+          "traceId": "legal-easy-27",
+          "nSteps": 27,
+          "triggerStepIndex": 16,
+          "triggerReason": "k=16 is a branch-abandonment pivot: the agent stops editing loadCSNData (14 failed header-fix attempts, steps 2-15) and creates a fresh inspectRawData op. Event log is ~79% of context (fold=5,556 of 7,000). No operator is technically settled yet (nFoldable=0, sources never register as consumed until the final step) so a settled-only heuristic would refuse — but Lever A can still fold the abandoned-loader narrative.",
+          "tokensSavedCumulative": 68760,
+          "whatFolded": "Folds event-log steps 2-15: 14 near-duplicate loadCSNData header/skiprows attempts. deckHeavy=1,444 keeps only loadCSNData's current (still-broken) result. Nothing shaped as settled/consumed. The pivotal insight (row-0 title, row-1 real headers) is not discovered until step 26, so the folded span carries the failed-config trail.",
+          "safety": "risky",
+          "narrative": "Agent fights a CSN state-categories CSV whose real headers are in row 1 with footer rows; it rewrites loadCSNData ~13 times, pivots to inspectRawData at step 16, keeps failing 10 more steps, and only at step 26 reads the raw structure and fixes the loader. Folding the failed-attempt log at the pivot risks re-treading header offsets it already ruled out."
+        },
+        {
+          "traceId": "legal-easy-25",
+          "nSteps": 21,
+          "triggerStepIndex": 11,
+          "triggerReason": "Cost-optimal (fold=3,433, ~73% of the step-11 context) but lands deep inside a 17-step single-loader error-retry loop: steps 2-18 all modify loadMilitaryFraudData (nOps=1 throughout, 2 hard syntax errors at steps 13/17), with no consumer until step 19. The sources-consumed heuristic correctly defers to k=18, 7 steps later.",
+          "tokensSavedCumulative": 41445,
+          "whatFolded": "Folds event-log steps 2-10: ~9 loadMilitaryFraudData header/footer attempts. deckHeavy=1,243 keeps only the loader's current still-broken result; nothing consumed/settled to shape. The folded span IS the record of which skiprows/header combos already failed.",
+          "safety": "risky",
+          "narrative": "Single-file military fraud-loss query where the CSV has a title row 0, headers in row 1, and a source-citation footer; the agent spends 17 straight steps retuning one loader before cleaning and computing the median at steps 19-21. Compacting at k=11 discards live working memory (tried-and-failed parse configs) mid-loop."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Compact at a self-initiated teardown / branch-abandonment boundary: when the agent's next action is (or just was) a bulk deleteOperator, or it pivots from editing op A to creating a fresh op B for the same subgoal, fold the event-log span leading up to it.",
+          "rationale": "The teardown is ground truth that the preceding span is dead. legal-easy-19 optimal k=21 sits exactly one step before a 12-op mass-delete; legal-easy-27 optimal k=16 is the pivot from loadCSNData to inspectRawData. These are the safest and highest-yield fold points.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Compact when the DAG is structurally frozen and the only churn is the sink: once nOps stops changing, all sources have healthy consumers, and interior ops are settled, fold everything upstream of the terminal operator being polished.",
+          "rationale": "legal-hard-30 froze at nOps=9 from k=9 through step 16 with identical foldReasons while only verifyResult was re-edited; folding there saved 48,588 tok with zero risk. This also covers the ~13 short clean legal traces (legal-easy-3/5/9/10/11/12/13, legal-hard-6/8/17, etc.) where optimal==sources-consumed exactly.",
+          "tracesSupporting": 14
+        },
+        {
+          "rule": "Trigger on fold-pressure (event-log share of context), NOT on 'sources consumed', for long traces: fire when the re-rendered event log exceeds ~75-80% of step context.",
+          "rationale": "Lever A (event log) is 84-95% of final context in all four top traces, and the sources-consumed boundary is unreliable on thrash: it fired 18 steps early (legal-easy-19: 3 vs 21), 5 early (legal-hard-30: 4 vs 9), 7 late (legal-easy-25: 18 vs 11), 6 late (legal-easy-26: 16 vs 10), or never (legal-easy-27). The general '~1 step late' rule only holds for short clean traces.",
+          "tracesSupporting": 4
+        },
+        {
+          "rule": "Defer folding while an operator is in an active error-retry loop; wait until the loop resolves (op stabilizes, gets a consumer, or is deleted), OR keep the last K raw steps if folding anyway.",
+          "rationale": "legal-easy-25 (k=11 inside a 17-step loader loop) and legal-easy-27 (k=16 with loadCSNData still failing) are the two RISKY cases: recent failed attempts are the working memory that prevents re-treading. legal-easy-19 was safe precisely because its loop resolved via the delete at k+1.",
+          "tracesSupporting": 2
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "keepLastSteps",
+          "effect": "The primary safety knob. In the RISKY cases (legal-easy-25, legal-easy-27) keeping the last ~3-5 raw steps preserves the trail of already-failed header/skiprows configs at low marginal cost (each step ~300-750 fold tok), preventing re-tread. In the SAFE cases (legal-easy-19 post-delete, legal-hard-30) keepLastSteps can be 0-1 because the tail is just sink-polishing — every extra kept step is pure cost (~700-1,600 tok/step) with no accuracy benefit."
+        },
+        {
+          "param": "fullSampleRecords",
+          "effect": "Highest-leverage accuracy risk in legal. EVERY legal CSN source is a value-quirk load (title row 0, real headers row 1, footer citation rows, truncated wide tables). Turning full rows off (Lever B, ~2-10% saving; up to 1,171 tok in legal-hard-30) strips the raw rows the agent is actively scanning to locate the answer row ('$1-$500', 'Median Fraud Loss', 'rows 7-32'). Keep ON for active/unsettled loaders (legal-easy-19/25/27); safe to turn OFF only for settled downstream transforms (clean/filter/join in legal-hard-30)."
+        },
+        {
+          "param": "statsOn",
+          "effect": "Cheap and low-risk; keep on. Per-column dtype/min/max/null stats are small and directly support the numeric-exact answers in this domain (proportion 0.523 in legal-easy-19, median loss in legal-easy-25, count 27 in legal-easy-27). Negligible token cost, meaningful verification value."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Retaining code for every op is the biggest wasted spend in legal thrash traces (legal-easy-19 carried 13-17 near-duplicate loader bodies pre-delete). Set codeOn=settled-only: drop code for consumed/settled ops (agent references their results, not code) to reclaim a large chunk of deck; keep code for the actively-edited op only, which lives in the live event-log tail anyway. Low accuracy risk, high token saving on thrash."
+        }
+      ],
+      "risks": [
+        "Value-quirk loaders dominate legal: all CSN CSVs have title/header/footer irregularities and truncated wide tables. Trimming a loader to schema/shape (Lever B / fullSampleRecords off) drops the exact raw rows the agent is reading to find the answer (legal-easy-19 '$1-$500', legal-easy-25 'Median Fraud Loss', legal-easy-27 'Prizes/Sweepstakes'). Fold the event log (Lever A) but keep unsettled loaders value-rich.",
+        "Single-loader error-retry loops (legal-easy-25: 17 steps on one op; legal-easy-27: ~14 attempts) make the failed-attempt sequence itself the working memory. Folding mid-loop to a LATEST deck keeps only the current broken result and erases which header/skiprows combos already failed, inviting the agent to re-try them and lengthen the loop.",
+        "The sources-consumed static heuristic is unsafe as a sole trigger in legal thrash traces: it fired 18 steps early, 5 early, 6-7 late, or never across the top-5 long traces. Early firing (legal-easy-19 k=3, legal-hard-30 k=4) would freeze a half-built pipeline; late/never firing (legal-easy-25, legal-easy-27) leaves 60-90k tok of foldable log unclaimed.",
+        "Mass-delete churn: folding at legal-easy-19 k=21 freezes a 14-op deck that is immediately stale when 12 ops are deleted at k+1. The frozen deck must re-derive the DAG from current state (LATEST does) so stale/deleted ops do not linger and confuse subsequent reasoning.",
+        "Small numeric/string-exact answers (0.523, 27, 'U.S. Space Force', 'No') are produced in the terminal op late in the trace. Over-eager keepLastSteps=0 combined with sink-result trimming could fold away the just-computed answer row before the agent reads it — protect the live tail, only fold the settled upstream."
+      ]
+    },
+    {
+      "domain": "wildfire",
+      "representativeCases": [
+        {
+          "traceId": "wildfire-hard-17",
+          "nSteps": 36,
+          "triggerStepIndex": 23,
+          "triggerReason": "Token-savings peak. Task = avg elevation of RAWS stations for fire monitoring (ans 4830.9). All 3 sources consumed since step 10 (allSourcesConsumed=True), so the trajectory since then is a THRASH loop: steps 13-35 re-derive the same settled fact ~20 times ('wildfire station IDs 20k-45k don't match RAWS IDs 16-19M, let me reconsider'). By step 23 that redundant reasoning is 28968 foldable event-log tok = 88% of the 32864-tok step; folding it saves 32345/step x 13 remaining = 388140. SCB fired way back at step 9 (during an interior-op error repair, not a settled point), capturing only 52% of that.",
+          "tokensSavedCumulative": 388140,
+          "whatFolded": "Folds event-log span steps ~1-23 (data exploration + ~10 repeated 'reconsider the ID match' turns) into a LATEST deck. foldReasons at 23 = {consumed-source:3, deleted:1}: the 3 CSV sources trimmed to schema/shape, the errored/deleted op omitted; latest per-op results (incl. the DAG-visible ID-range facts) kept as raw tail.",
+          "safety": "safe",
+          "narrative": "Agent loaded 3 CSVs early, then got stuck from step 13 onward trying to join two incompatible station-ID systems, restating the same 'IDs don't match' conclusion nearly every step. At step 23 it is still mid-loop ('Looking at this workflow... don't match... Let me reconsider'). Folding is safe: the folded span is pure redundant re-derivation of a fact that survives in the DAG deck; the only caveat is the enumerated failed join strategies (last-5-digits->8 matches, WX ID, Station ID) which should be preserved as a negative-results note to avoid re-trying them."
+        },
+        {
+          "traceId": "wildfire-hard-21",
+          "nSteps": 24,
+          "triggerStepIndex": 15,
+          "triggerReason": "Token-savings peak inside a missing-file loop. Task = top-3 states by residential property-value loss 2005-2010 (ans CA/WA/ID). One declared source, ZHVI.csv, does not exist on disk; steps 3-21 re-discover 'ZHVI.csv doesn't exist' ~15 times while hunting alternatives. By step 15 that redundant span is 16584 foldable tok = 83% of the 19912-tok step; fold saves 19415/step x 8 remaining = 155320. SCB is None for this trace: 'all sources consumed' NEVER becomes true because ZHVI is never loaded, so a sources-consumed heuristic would never compact despite the longest redundant loop.",
+          "tokensSavedCumulative": 155320,
+          "whatFolded": "Folds event-log steps ~1-15 (load attempts + repeated 'ZHVI missing' re-derivations). foldReasons at 15 = {consumed-source:1}: only the NOAA source that actually loaded is trimmed to shape; the missing ZHVI 'source' has no body. Latest results and the (not-yet-made) pivot to NOAA property columns are kept in the tail.",
+          "safety": "safe",
+          "narrative": "Agent repeatedly re-confirms the ZHVI.csv file is absent, then pivots (steps 16-21) to NOAA's own prim/comm_threatened_aggregate columns, filters 2005-2010, aggregates by state. At step 15 it is still restating the settled 'file missing' negative. Folding is safe: that negative is a one-line fact, not verbatim working memory; the useful discovery (which NOAA columns proxy property value) happens later and lands in the DAG deck. Only requirement: the 'ZHVI absent -> use NOAA columns' decision must not be folded away or the agent could restart the file hunt."
+        },
+        {
+          "traceId": "wildfire-hard-20",
+          "nSteps": 25,
+          "triggerStepIndex": 16,
+          "triggerReason": "Token-math peak, but mid-wrangle. Task = % of 2008 wildfires accounting for >=90% of residential houses damaged (ans 0.0465). Both sources consumed by step 5 (SCB fired at step 4). Steps 5-19 are a value-quirk fight: the variable-descriptions output is TRUNCATED, so the agent spawns ~14 throwaway 'print full untruncated descriptions' operators to find the residential column. At step 16 that span is 14861 foldable tok = 82% of the 18056-tok step; fold saves 17383/step x 8 = 139064. SCB (step 4) captured only 24% of that.",
+          "tokensSavedCumulative": 139064,
+          "whatFolded": "Folds event-log steps ~1-16 of variable-description exploration. foldReasons at 16 = {consumed-source:2}: both CSVs to shape. Note the ~17 throwaway description-dumping operators do NOT become foldable/deleted until step 22 (foldReasons jumps to deleted:17), so a step-16 fold either keeps them live (less savings) or risks dropping partial reads still being scanned.",
+          "safety": "risky",
+          "narrative": "The agent is actively scanning raw variable-description rows to map 'residential houses damaged' -> a column, and that identification is NOT resolved until step 21 (prim_threatened_aggregate). At step 16 the raw description text and the incremental partial reads are still working memory. An event-log fold is only borderline-safe; TRIMMING the variabledescrip source body to shape (Lever B) or folding the exploratory operators' outputs would drop the exact rows the agent is still reading, risking loss of the column mapping. Safer boundary is step ~22 after the mapping settles and the throwaway ops are deleted."
+        },
+        {
+          "traceId": "wildfire-hard-7",
+          "nSteps": 28,
+          "triggerStepIndex": 15,
+          "triggerReason": "Token-math peak that falls INSIDE an active loader-error burst. Task = most anomalous geographic-area/year by Z-score of acres burned (ans Northwest, 2020). Steps 2-22 are a CSV parsing fight on 2 NIFC files (parsed as single column / wrong delimiter / malformed multi-row headers / duplicated names). nOps stays at 2 the whole time (agent re-edits the SAME 2 loaders), so nFoldable=0 and foldReasons={} through step 22 - NOTHING settles. At step 15 fold is 5592 tok = 81% of the 6861-tok step (savings 6796/step x 12 = 81552), but it is pure event-log with no settled material.",
+          "tokensSavedCumulative": 81552,
+          "whatFolded": "Would fold event-log steps ~1-15 of loader parse-retries. foldReasons at 15 = {} and nFoldable=0: no consumed source, no deleted op, no settled interior - the only thing folded is the raw record of ~13 failed delimiter/header hypotheses. Sources are still erroring, so the LATEST deck would carry broken loader results.",
+          "safety": "risky",
+          "narrative": "At step 15 both source loaders are still failing; each prior step encodes a distinct parsing hypothesis already tried (skip-bad-lines, alt delimiter, header handling). These failed attempts ARE the working memory. The pure token math names step 15 optimal, but folding it erases the failure trail and risks the agent re-cycling loader configs it already ruled out. Here the SCB heuristic (step 24, when both files finally load cleanly at step 23) is actually the SAFER trigger - compaction should wait until sources are healthy, i.e. no earlier than step 25."
+        }
+      ],
+      "whenToTriggerRules": [
+        {
+          "rule": "Compact when the agent enters a THRASH loop that re-derives an already-settled conclusion: the same fact restated >=3 consecutive steps, no new operators added, and no error being actively repaired. Fold the event log (Lever A) but keep latest per-op results.",
+          "rationale": "This is where the dominant event-log cost concentrates and folding is safe because the conclusion persists in the DAG deck. wildfire-hard-17 steps 13-35 restate 'IDs 20k-45k != RAWS 16-19M' ~20x (fold=28968 tok/88% at k=23); wildfire-hard-21 steps 3-21 restate 'ZHVI.csv missing' ~15x (fold=16584/83% at k=15). Both are the two largest optimal savings in the domain (388140, 155320).",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Do NOT compact while any source LOADER is in an error/parse-fight state (sources not yet healthy, nFoldable=0, foldReasons empty). Defer until the loaders produce clean results and a downstream consumer is healthy.",
+          "rationale": "During a parse fight every step is a distinct still-relevant hypothesis; folding erases the failure trail and invites re-trying ruled-out configs. wildfire-hard-7's token-optimal k=15 sits mid-fight (nFoldable=0, 2 loaders erroring); the SAFE point is step 25 after sources load at step 23. Same pattern in wildfire-hard-20's early truncation phase (steps 5-19).",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Prefer compacting AFTER the resolving step of a wrangling burst, not during it: wait until the target column/join/parse is fixed, at which point the exploratory operators become foldable or get deleted.",
+          "rationale": "wildfire-hard-20 spawns ~17 throwaway description-dumping ops that only turn foldable at step 22 (foldReasons deleted:17); the column mapping (prim_threatened_aggregate) isn't resolved until step 21, so the token-optimal k=16 is premature and risks dropping rows still being read. Post-resolution folds are both larger and safe.",
+          "tracesSupporting": 2
+        },
+        {
+          "rule": "Gate the trigger on accumulated foldable event-log mass x remaining steps (fold ~= 70-88% of a large context here), NOT on the sources-consumed boundary alone. Treat SCB as a lower bound, not the trigger.",
+          "rationale": "In wildfire the SCB heuristic is badly mistimed: it fired 14 steps early in hard-17 (captures 52% of optimal), 12 steps early in hard-20 (24%), NEVER in hard-21 (0%, a declared source was missing), and only in hard-7 was it usefully late/safe (47%). Firing on SCB alone forfeits 48-100% of achievable savings on 3 of the top 4 traces.",
+          "tracesSupporting": 4
+        },
+        {
+          "rule": "Value-quirk / metadata-read guard: if the current sub-goal is 'identify a column or field by scanning raw metadata rows' and that mapping is unresolved, defer compaction; if you must compact, force fullSampleRecords+statsOn so the raw rows and ranges survive.",
+          "rationale": "wildfire-hard-20 reads truncated variable-description rows to map 'residential damaged' -> column (unresolved until step 21); wildfire-hard-17 reads raw ID ranges to reason about the join. Folding/trimming those source bodies at the token-optimal step drops the exact content still under active comparison.",
+          "tracesSupporting": 2
+        }
+      ],
+      "paramEffectObservations": [
+        {
+          "param": "statsOn",
+          "effect": "Cheapest safety lever for wildfire join/range reasoning. Cost: a few tok/op. Risk reduction: high - the load-bearing fact in hard-17 is min/max ranges (wildfire 20k-45k vs RAWS 16-19M) and in hard-20 the 2008 filter counts; with statsOn those survive the fold so a mid-thrash compaction stays safe. statsOff makes even a 'settled' fold risky because the agent re-loads to re-derive ranges and the thrash resumes."
+        },
+        {
+          "param": "fullSampleRecords",
+          "effect": "High token cost (raw rows dominate a source body), pays for itself only on value-quirk/metadata-read loads. Keep TRUE for the source still being scanned (hard-20 variable-descriptions, hard-17 elevation rows) - dropping it there loses the column/value the agent is mid-comparison on. Set FALSE for settled numeric sources (hard-21 NOAA after pivot, hard-7 after loaders fixed) where shape-only is sufficient; blanket-TRUE wastes ~large tok with no accuracy gain."
+        },
+        {
+          "param": "codeOn",
+          "effect": "Essential during code-trial-and-error loops, wasteful otherwise. In hard-7 the loader CODE (delimiter/header configs tried) IS the working memory; codeOn=TRUE preserves which configs failed and prevents re-cycling if you must compact mid-parse - but costs the full operator bodies. For settled/consumed ops (all 4 traces post-resolution) codeOn=FALSE is a safe cheap trim with no next-action impact."
+        },
+        {
+          "param": "keepLastSteps",
+          "effect": "The primary dial to convert a RISKY compaction into a SAFE one, with a direct cost/risk tradeoff. Setting keepLastSteps to cover the last ~3-5 attempts of an active burst preserves recent failed hypotheses (hard-7 parse retries, hard-20 truncation attempts) while still folding the old redundant span - most of the ~80% event-log savings is retained. Too small a keepLastSteps mid-fight drops live working memory (re-try risk); too large forfeits savings on the long redundant tail of thrash traces like hard-17."
+        }
+      ],
+      "risks": [
+        "ID-join reconciliation (wildfire-hard-17): folding a thrash loop erases the enumerated failed join strategies (last-5-digits->8 matches, WX ID, Station ID). The re-derived 'IDs don't match' fact is redundant, but the list of ruled-out joins is real negative knowledge; drop it and the agent re-tries them. Preserve a failed-attempts note or keep statsOn ranges.",
+        "Missing declared source (wildfire-hard-21): the sources-consumed heuristic NEVER fires because ZHVI.csv never loads, so an SCB-gated agent would never compact the longest redundant loop in the domain. Conversely, if forced to compact, the 'ZHVI absent -> substitute NOAA property columns' pivot decision must survive the fold or the agent restarts the file hunt.",
+        "Value-quirk / truncated metadata (wildfire-hard-20): trimming source bodies to shape (Lever B) or folding exploratory reads before the column mapping is resolved (step 21) drops the raw description rows the agent is still scanning to map question terms->columns (residential -> prim_threatened_aggregate). The ~17 throwaway dumping ops only become safely foldable at step 22.",
+        "Active loader/parse error burst (wildfire-hard-7): the token-optimal step (k=15) lands mid-fight with nFoldable=0 and foldReasons={}; the entire event log is trial-and-error working memory (delimiter/header hypotheses) and the LATEST deck would carry broken loader results. Pure token math over-triggers here - never compact while sources are unhealthy.",
+        "SCB unreliability across wildfire: firing on sources-consumed alone mis-times compaction in 3 of the top 4 traces - 14/12 steps early (hard-17/hard-20, capturing only 52%/24% of optimal), never (hard-21, 0%), and only safely-late in hard-7 (47%). The domain's realized savings concentrate in a few long thrash/error traces (top4 optimal 388k/155k/139k/82k), so mistiming them is the whole cost.",
+        "Short-trace over-eagerness: the remaining 14 wildfire traces have small optimal savings (81552 down to 90; several under 5k). Compacting them adds a fold-boundary and reload risk for little token gain, so a trigger must also gate on a minimum accumulated event-log mass, not fire on every trajectory."
+      ]
+    }
+  ],
+  "synthesis": {
+    "headline": "Compaction value is overwhelmingly the event-log fold (Lever A ≈ 70.5% of context; trim-settled only ≈ 9.9%), and ≈ 43k tok/trace of savings concentrates in the 17-47-step thrash tail — but that is exactly where the token-optimal point lands INSIDE a loop whose failed-attempt memory must survive. The right trigger keys on fold-pressure and loop-type (redundant re-derivation of a settled fact = fold aggressively; active error-retry on an unsettled op = defer or keep a window), NOT on the \"sources-consumed\" boundary, which fires early, late, or never on thrash (unreliable in ~13 of the high-cost traces despite 47/60 overall). Regardless of params the deck must always keep the LATEST per-op result deck, unread answer rows, the active-loop failed-attempt trail, and value-quirk raw rows — with keepLastSteps as the auto-tuned safety knob.",
+    "topCasesAcrossDomains": [
+      {
+        "traceId": "wildfire-hard-17",
+        "domain": "wildfire",
+        "triggerStepIndex": 23,
+        "tokensSavedCumulative": 388140,
+        "oneLineWhy": "Biggest SAFE saver: ~20-step thrash re-deriving one settled fact ('station IDs 20k-45k != RAWS 16-19M'); event log is 88% of the step and the conclusion persists in the DAG deck, so folding it is pure redundant re-derivation — only caveat is preserving the enumerated ruled-out join strategies.",
+        "safety": "safe"
+      },
+      {
+        "traceId": "legal-easy-19",
+        "domain": "legal",
+        "triggerStepIndex": 21,
+        "tokensSavedCumulative": 184085,
+        "oneLineWhy": "Cleanest SAFE high-yield boundary: optimal fold sits one step before a self-initiated 12-op mass-delete — ground-truth proof the whole steps-2-20 span (13 throwaway parser ops) is abandoned working memory; event log is 83% of context.",
+        "safety": "safe"
+      },
+      {
+        "traceId": "astronomy-easy-5",
+        "domain": "astronomy",
+        "triggerStepIndex": 27,
+        "tokensSavedCumulative": 413896,
+        "oneLineWhy": "Largest raw opportunity but RISKY: token-optimal k=27 lands mid-way through a ~30-step skyfield API thrash (from_line/frame_xyz_au/utc dead-ends); Lever A (92% of step) would fold the failed-attempt reasoning that IS the working memory — safe point is ai=42-43 once calculateAltitudes works.",
+        "safety": "risky"
+      },
+      {
+        "traceId": "environment-hard-9",
+        "domain": "environment",
+        "triggerStepIndex": 9,
+        "tokensSavedCumulative": 234584,
+        "oneLineWhy": "RISKY + SCB-never-fires: agent re-emits the same failing 7-op fix batch k5-k11 with an unchanged diagnosis; the folded span holds just-submitted still-erroring code, and sourcesConsumedBoundary=None so an SC-only agent would forfeit all 59.6k/step of foldable log.",
+        "safety": "risky"
+      },
+      {
+        "traceId": "biomedical-hard-4",
+        "domain": "biomedical",
+        "triggerStepIndex": 13,
+        "tokensSavedCumulative": 91160,
+        "oneLineWhy": "Under-compaction hazard made RISKY: SCB is null (heuristic never fires, forfeits 91k) yet the token-optimal step is mid retry-loop — loaders re-modified steps 12/13/14 during a cross-sheet peptide search; folding drops the record of which sheets/params already failed EMPTY.",
+        "safety": "risky"
+      },
+      {
+        "traceId": "wildfire-hard-21",
+        "domain": "wildfire",
+        "triggerStepIndex": 15,
+        "tokensSavedCumulative": 155320,
+        "oneLineWhy": "SAFE despite SCB never firing: declared source ZHVI.csv doesn't exist, so 'all sources consumed' is never true; agent restates 'file missing' ~15x — a one-line settled negative safe to fold, provided the 'ZHVI absent -> use NOAA columns' pivot decision survives.",
+        "safety": "safe"
+      },
+      {
+        "traceId": "legal-hard-30",
+        "domain": "legal",
+        "triggerStepIndex": 9,
+        "tokensSavedCumulative": 48588,
+        "oneLineWhy": "SAFE DAG-frozen sink-polish: nOps frozen at 9 with identical foldReasons from k=9 to step 16 while only verifyResult is re-edited 7x; both loaders consumed, 5 interior ops settled — fold everything upstream of the terminal op with zero risk.",
+        "safety": "safe"
+      },
+      {
+        "traceId": "wildfire-hard-7",
+        "domain": "wildfire",
+        "triggerStepIndex": 15,
+        "tokensSavedCumulative": 81552,
+        "oneLineWhy": "RISKY parse-fight where pure token math over-triggers: nFoldable=0, foldReasons={}, both CSV loaders still erroring; every step is a distinct still-relevant delimiter/header hypothesis and the LATEST deck would carry broken results — here the later SCB (step 24, after files load) is the SAFER trigger.",
+        "safety": "risky"
+      },
+      {
+        "traceId": "biomedical-hard-3",
+        "domain": "biomedical",
+        "triggerStepIndex": 8,
+        "tokensSavedCumulative": 13640,
+        "oneLineWhy": "The Lever-A-safe / Lever-B-risky split in one case: folding the event log is safe (settled loaders' latest results incl. the ID values stay in the deck), but trimming those two loader bodies to schema would destroy the exact 'S019'/'C3L-00006' strings the next join must read.",
+        "safety": "safe"
+      }
+    ],
+    "whenToTriggerRules": [
+      {
+        "rule": "Trigger on fold-pressure (fire when the re-rendered event log exceeds ~75-80% of step context) and accumulated foldable-mass x remaining-steps; treat the 'sources-consumed' boundary as a lower bound, never as the trigger.",
+        "evidence": "Lever A is 70.5% of context on average and 84-95% of final context in the top legal/wildfire/astronomy traces; the SC boundary fired 18/14/12 steps early (legal-easy-19, wildfire-hard-17/20), 6-7 late (legal-easy-25/26), or never (biomedical 4/4 hard, environment-hard-9, wildfire-hard-21, astronomy-hard-10), forfeiting 48-100% of achievable savings on 3 of the top 4 wildfire traces.",
+        "priority": "high"
+      },
+      {
+        "rule": "Do NOT fold while any operator is in an ACTIVE error/retry loop — latest result isError-or-empty AND the op was modified within the last ~3 steps. Defer until it produces a non-error, downstream-consumed result, or fold anyway only with a keepLastSteps window covering the whole loop.",
+        "evidence": "The token-optimal point lands mid-loop in astronomy-easy-5 (skyfield API thrash), biomedical-hard-1/4/8 (Excel loaders re-edited 3-4x), environment-hard-9/14 (7-op batch / precipProcessed rewritten), legal-easy-25/27 (17-step and 14-attempt loader loops), and wildfire-hard-7 (nFoldable=0, both loaders erroring) — in each the failed-attempt code IS the working memory and folding invites re-trying ruled-out configs.",
+        "priority": "high"
+      },
+      {
+        "rule": "DO fold aggressively when the agent is in a THRASH loop that merely re-derives an ALREADY-SETTLED conclusion: the same fact restated >=3 consecutive steps, no new operators added, and no error being actively repaired. Keep the LATEST per-op results; the conclusion persists in the DAG deck.",
+        "evidence": "The two largest SAFE savings in the corpus are exactly this shape — wildfire-hard-17 (388,140 tok; 'IDs don't match' restated ~20x, fold=88%) and wildfire-hard-21 (155,320 tok; 'ZHVI missing' restated ~15x, fold=83%); distinguishing this from the active-error loop (rule 2) is the core safe/risky boundary.",
+        "priority": "high"
+      },
+      {
+        "rule": "Compact at a self-initiated teardown / branch-abandonment boundary: when the next action is (or just was) a bulk deleteOperator, or the agent pivots from editing op A to creating a fresh op B for the same subgoal. This is ground-truth proof the preceding span is dead — the safest, highest-yield fold point.",
+        "evidence": "legal-easy-19 optimal k=21 sits one step before a 12-op mass-delete (184,085 tok); legal-easy-27 k=16 is the pivot from loadCSNData to inspectRawData; environment-hard-11 folds after scratch column-explorers are created-then-deleted; wildfire-hard-20's ~17 throwaway ops only become safely foldable when deleted at step 22.",
+        "priority": "high"
+      },
+      {
+        "rule": "When the DAG is structurally frozen and only the sink/terminal operator is being polished (nOps stable, every source has a healthy consumer, interior ops settled), fold everything upstream of the terminal op.",
+        "evidence": "legal-hard-30 froze at nOps=9 from k=9 through step 16 with identical foldReasons while only verifyResult was re-edited 7x (48,588 tok, zero risk); also covers ~14 short clean legal traces plus astronomy-easy-2 and biomedical-easy-6 where optimal==sources-consumed.",
+        "priority": "medium"
+      },
+      {
+        "rule": "Count a source as 'consumed' only when its consumer's latest result is non-error AND non-empty (a HEALTHY consumer), not merely any downstream edge. Consumption, not a mere load event, is the gate.",
+        "evidence": "environment-hard-14's SC fired at k=10 while the sole consumer precipProcessed was erroring/empty (and kept erroring to k16) — a false-safe trigger; archeology's premature k=1 folds (36-59 tok) sit right after load, before the consumer is authored, with the raw sample still working memory.",
+        "priority": "medium"
+      },
+      {
+        "rule": "Defer while the current sub-goal is identifying a column/parser/join-key by scanning raw rows and that mapping is unresolved; the raw rows are active working memory. If you must compact, force fullSampleRecords + statsOn so the rows and ranges survive.",
+        "evidence": "archeology-easy-3 ('4 or 5' Barrington Atlas Rank parser), biomedical-hard-3 (ID map 'S019' vs 'C3L-00006'), environment-hard-11 (multi-header beach columns pinned only by k14), legal CSN loaders (title/header/footer quirks), wildfire-hard-20 (truncated variable-descriptions, mapping resolved only at step 21), astronomy TLE/SP3 fixed-width/date-pattern loads.",
+        "priority": "medium"
+      },
+      {
+        "rule": "Add a step/token-budget FALLBACK trigger independent of the sources-consumed boundary — force-consider compaction every ~10 action steps or above ~15k accumulated delta tokens.",
+        "evidence": "SC never fired in biomedical (4/4 hard, up to 91k forfeited), astronomy-hard-10 (~179k) and easy-1 (~34k), environment-hard-9, and wildfire-hard-21 because a loader stayed broken/missing or parse-ops never registered a clean healthy consumer; without a fallback these highest-cost traces are never compacted.",
+        "priority": "low"
+      },
+      {
+        "rule": "Gate on a minimum accumulated event-log mass / trace length; skip short single-source traces (<=3-4 action steps) where every candidate boundary is pre-consumption (risky, tiny) or terminal (0 cumulative benefit).",
+        "evidence": "Corpus fact: savings concentrate in the 17-47-step tail and short runs save little; archeology's 3-action traces put the SC boundary on the terminal step (easy-10/easy-3 cumulative 0 despite 517/727 per-step), and ~14 short wildfire traces save <5k, several under 90 tok.",
+        "priority": "low"
+      }
+    ],
+    "whatSurvivesRules": [
+      {
+        "rule": "Always retain the LATEST per-operator result deck (current DAG state, each op's most recent result including live errors), re-derived from current state so deleted/stale ops don't linger.",
+        "rationale": "This is precisely what makes the dominant Lever A fold safe: biomedical-hard-3's event-log fold is safe only because the settled loaders' latest results (incl. ID values) stay in the deck, and wildfire-hard-17's re-derived fact survives as a DAG-visible result. legal-easy-19's post-mass-delete deck must rebuild the DAG so the 12 deleted ops don't confuse later reasoning."
+      },
+      {
+        "rule": "Never trim or fold away the answer/deliverable rows of a terminal operator that has not yet been read/consumed by a verify step; protect the answer-holder op regardless of params.",
+        "rationale": "environment-hard-9's finalAnswer holds the deliverable beach list (['Pleasure Bay','Castle Island','City Point']) as unconsumed working memory to step 18; archeology keeps the Sao Paulo/Singapore/3.1333 terminal small and read by verify. Trimming these loses the answer before it is read."
+      },
+      {
+        "rule": "Preserve the failed-attempt trail of any operator currently in an active error/retry loop (via a keepLastSteps window). 'The current error is still visible' is NOT sufficient — the SEQUENCE of prior fix attempts is the working memory.",
+        "rationale": "biomedical-hard-1 re-edits loadMetadata across 4 variants (steps 7-10), legal-easy-25 spends 17 steps on one loader, astronomy-easy-5 cycles skyfield API forms — Lever A preserves only the latest result, not the tried-and-failed configs, so folding invites repeating them and lengthening the loop."
+      },
+      {
+        "rule": "When folding a thrash or error span, carry forward a compact negative-results note of the enumerated ruled-out strategies rather than dropping them entirely.",
+        "rationale": "wildfire-hard-17's redundant 'IDs don't match' is safe to fold but the list of failed join keys (last-5-digits->8 matches, WX ID, Station ID) is real negative knowledge; wildfire-hard-21 must keep the 'ZHVI absent -> substitute NOAA property columns' pivot or the agent restarts the file hunt; wildfire-hard-7's tried delimiter/header configs likewise."
+      },
+      {
+        "rule": "Keep the raw sample rows of any value-quirk source until its quirk-handling consumer (parser / join / column-mapping op) has been authored and settled.",
+        "rationale": "archeology-easy-3 needs the raw '4 or 5' strings to write the split-on-'or' parser; biomedical-hard-3 needs literal ID strings for the join; legal CSN loaders' answer rows ('$1-$500','Median Fraud Loss') are scanned directly; astronomy TLE 69-char / SP3 date-pattern rows are read row-by-row while the parser is unsettled."
+      },
+      {
+        "rule": "Keep decision-relevant column stats/ranges (null counts, min/max, ID ranges, distinct-value/group-by keys) that load-bearing reasoning depends on — they are cheap and often the actual working memory.",
+        "rationale": "wildfire-hard-17's join reasoning hinges on min/max ID ranges (20k-45k vs 16-19M); archeology's dropna/notna is driven by population NaN counts; biomedical-hard-3's findLowestAppZ needs the APP_Z_score min. These survive shape-only folds at negligible cost and prevent re-loading to re-derive them."
+      }
+    ],
+    "paramAccuracyRules": [
+      {
+        "param": "keepLastSteps",
+        "guidance": "The dominant safety knob because it governs how much of the 70-95% event-log fold is retained. Auto-set it to cover the entire active error/retry loop (typically last ~3-5 steps) in debug-heavy traces; set it to 0-1 on settled, DAG-frozen, or post-teardown traces (legal-easy-19 post-delete, legal-hard-30, astronomy-easy-2). Because the earlier folded steps are near-identical restatements, keeping the last 3-5 still banks most savings. Too small mid-loop drops live failed-attempt memory (re-try risk); too large forfeits the redundant-tail savings on thrash traces like wildfire-hard-17."
+      },
+      {
+        "param": "fullSampleRecords",
+        "guidance": "This is the trim-settled lever (~9.9% of context) and the highest-leverage accuracy risk. OFF (shape/schema only) is safe for settled/consumed loaders whose values are no longer read, but HIGH risk for value-quirk loads under row-level inspection, for any join/lookup/parser-authoring step, and for the answer-holder op whose rows are the deliverable. Keep ON until the quirk-handling consumer is authored and settled (archeology-easy-3, biomedical-hard-3, legal CSN, astronomy TLE/SP3, wildfire-hard-20), then turn OFF."
+      },
+      {
+        "param": "statsOn",
+        "guidance": "Cheap, low-risk, keep ON as the default for settled sources. Per-column null/min/max stats preserve decision-relevant facts (archeology NaN-driven dropna, biomedical min-driven argmin, wildfire join-range reasoning) at a fraction of full-row cost with negligible next-action risk. It does NOT substitute for fullSampleRecords on row-level lookups/joins, so keeping stats on does not remove the fullSampleRecords risk for value-quirk parsing."
+      },
+      {
+        "param": "codeOn",
+        "guidance": "Set per-operator on a settled-vs-actively-edited basis, never globally. Drop code for settled/consumed ops — a large safe saving in thrash traces where duplicate loader bodies pile up (legal carried 13-17 near-duplicate loader bodies; biomedical re-edits loaders 3-4x). Keep code ON for the actively-edited/erroring op, whose tried-and-failed read_excel/delimiter/header configs are the working memory being iterated (astronomy calculateAltitudes, environment precipProcessed, wildfire-hard-7 loaders). Also keep the LATEST op's code so the final answer can be verified."
+      },
+      {
+        "param": "cardinalityOn",
+        "guidance": "A cheap stats-family signal (distinct-value counts); treat like statsOn — keep ON for settled sources at negligible cost. It is especially useful for join-key and group-by fan-out planning (wildfire ID-join reconciliation, biomedical group-by aggregations) and helps the agent avoid re-loading to re-derive key uniqueness. Turning it off saves little; like statsOn it is insufficient alone to replace raw rows for value-quirk parsing, so it does not lift the fullSampleRecords guard."
+      }
+    ],
+    "toolDesignRecommendations": [
+      "Decouple two operations: an always-safe partial trim (Lever B applied only to DELETED ops, consumed-stable loaders, and settled-interior ops) that may run at any step, separated from the gated event-log fold (Lever A). This lets the tool bank the ~4-10% safe savings continuously without triggering the risky 70-95% fold prematurely (astronomy explicitly showed Lever B = 3-6% is safe any time while Lever A = 88-92% must be gated).",
+      "Classify each operator into {consumed-source-stable, deleted, settled-interior, actively-edited-or-erroring, answer-holder, value-quirk-unsettled} and apply Lever B only to the safe classes; hard-block trimming of answer-holder and value-quirk-unsettled ops regardless of caller params.",
+      "Expose trigger signals in the inputSchema beyond sources-consumed: event-log share of context (fire ~75-80%), foldable-mass x remaining-steps, and a step/token fallback (~10 steps or ~15k accumulated delta tokens). Represent the sources-consumed boundary only as a lower-bound flag, not the primary trigger.",
+      "Make keepLastSteps default to auto: detect the active error/retry loop boundary (latest result isError/empty AND op modified within the last N steps) and retain the whole loop, rather than accepting a fixed number blindly; still allow an explicit override.",
+      "Add a loop-type detector that distinguishes 'redundant re-derivation of an already-settled fact' (fold aggressively, small keepLastSteps) from 'active error-retry on an unsettled op' (defer or wide keepLastSteps). Signals: was a new operator added? is an error being actively repaired? is the same conclusion text restated with no DAG change?",
+      "On any thrash/error-span fold, emit a compact negative-results note summarizing enumerated ruled-out strategies (failed join keys, missing-file substitution pivots, delimiter/header configs tried) so that knowledge survives the fold.",
+      "Guarantee the frozen deck re-derives the DAG from current state (idempotent LATEST), so a subsequent bulk delete (legal-easy-19: 12 ops) does not leave stale/deleted ops lingering to confuse later reasoning.",
+      "Enforce a minimum-mass / minimum-length gate: skip compaction on short traces (<=3-4 action steps) or below a minimum accumulated event-log mass, where ROI is ~0 (archeology terminal boundary) or the reload/fold overhead outweighs the gain (14 short wildfire traces).",
+      "Redefine the 'consumed' predicate the tool trusts: a source counts as consumed only when its consumer's latest result is non-error and non-empty (a healthy consumer), to eliminate the false-safe trigger seen in environment-hard-14.",
+      "Provide a per-operator param resolution path (statsOn/cardinalityOn/fullSampleRecords/codeOn resolved by operator class) rather than one global setting, since the safe setting differs between the actively-edited op and settled loaders within the same step."
+    ]
+  }
+}
