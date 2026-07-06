@@ -123,4 +123,31 @@ describe("embedded duplicate header signal (environment-hard-11 shape)", () => {
     ];
     expect(formatEmbeddedDupHeader(noDup)).toBeUndefined();
   });
+
+  test("ADVERSARIAL: silent on a text data row with repeated categorical values (type-contrast vote)", () => {
+    // The false-positive shape the naive version fired on: a dirty load whose
+    // DATA rows are text-heavy with duplicates ("Boston, Boston, West, West").
+    // Type contrast kills it: the body below those cells is MORE text, not
+    // typed values — so the row loses the header vote.
+    const H3 = ["Unnamed: 0", "Unnamed: 1", "Unnamed: 2", "Unnamed: 3", "Unnamed: 4"];
+    const r = (vals: (string | null)[]) => Object.fromEntries(H3.map((h, i) => [h, vals[i]]));
+    const catData = [
+      r(["Boston", "Boston", "West", "West", "alpha"]),
+      r(["NYC", "NYC", "East", "East", "beta"]),
+      r(["Boston", "Chicago", "West", "North", "gamma"]),
+      r(["Miami", "Miami", "South", "South", "delta"]),
+    ];
+    expect(formatEmbeddedDupHeader(catData)).toBeUndefined();
+  });
+
+  test("scan stops at the first data-like row — later text rows can't fire", () => {
+    const H4 = ["Unnamed: 0", "Unnamed: 1", "Unnamed: 2", "Unnamed: 3"];
+    const r = (vals: (string | number | null)[]) => Object.fromEntries(H4.map((h, i) => [h, vals[i]]));
+    const dataFirst = [
+      r([1, 2.5, 3, 4]), // data starts at row 0
+      r(["Tag", "Tag", "Enterococcus", "Enterococcus"]), // text row AFTER data — not a header
+      r([5, 6.5, 7, 8]),
+    ];
+    expect(formatEmbeddedDupHeader(dataFirst)).toBeUndefined();
+  });
 });

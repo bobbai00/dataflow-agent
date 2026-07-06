@@ -214,14 +214,22 @@ export function formatSampleFds(rows: Record<string, any>[] | undefined): string
 
 /**
  * `Embedded header:` warning — a DIRTY load (generic `Unnamed:`/numeric headers)
- * whose early sample rows contain a row of short header-like strings with
- * REPEATED values (e.g. `Tag, Enterococcus, Tag, Enterococcus, Tag,
- * Enterococcus` under a merged super-header of sampling locations). This is the
- * environment-hard-11 trap: the agent re-headers from that row, then a lazy
- * `columns.duplicated()` dedup silently drops all but the first of each
- * repeated name — discarding distinct locations. Name the trap explicitly at
- * the moment the raw table is first read. Returns undefined when headers look
- * real or no early row repeats header-like values (the common case).
+ * whose early sample rows contain the REAL header row with REPEATED names
+ * (e.g. `Tag, Enterococcus, Tag, Enterococcus, Tag, Enterococcus` under a
+ * merged super-header of sampling locations). This is the environment-hard-11
+ * trap: the agent re-headers from that row, then a lazy `columns.duplicated()`
+ * dedup silently drops all but the first of each repeated name — discarding
+ * distinct locations. Name the trap explicitly when the raw table is first read.
+ *
+ * Header-ness is NOT shape-matched ("short strings") — that misfires on
+ * text-heavy data rows. It uses the standard `csv.Sniffer.has_header` evidence:
+ * **type contrast** — a real header's string cells sit on top of columns whose
+ * body values are typed (numeric); a text data row sits on top of more text.
+ * A candidate row must win the per-column type-contrast vote (≥40% of its
+ * header-like columns have predominantly numeric bodies below it), including at
+ * least one of the DUPLICATED names. Scanning stops at the first data-like row
+ * (majority numeric) — a header precedes data by definition. Returns undefined
+ * when headers look real or no candidate survives (the common case).
  */
 export function formatEmbeddedDupHeader(rows: Record<string, any>[] | undefined): string | undefined {
   if (!rows || rows.length < 3) return undefined;
@@ -233,25 +241,51 @@ export function formatEmbeddedDupHeader(rows: Record<string, any>[] | undefined)
 
   const HEADERISH = (v: unknown): v is string =>
     typeof v === "string" && v.length > 0 && v.length <= 40 && !/^\d+(\.\d+)?$/.test(v.trim());
+  const NUMERICISH = (v: unknown): boolean => {
+    if (typeof v === "number") return Number.isFinite(v);
+    if (typeof v !== "string") return false;
+    const s = v.trim().replace(/[%$,]/g, "");
+    return s !== "" && !Number.isNaN(Number(s));
+  };
+  const present = (v: unknown) => v !== null && v !== undefined && v !== "";
 
   for (let r = 0; r < Math.min(rows.length, 4); r++) {
-    const vals = cols.map(c => rows[r][c]).filter(v => v !== null && v !== undefined && v !== "");
-    const headerish = vals.filter(HEADERISH).map(v => (v as string).trim());
-    // A candidate header row: mostly header-like strings…
-    if (headerish.length < Math.max(3, Math.ceil(vals.length * 0.6))) continue;
-    // …with repeated names.
-    const counts = new Map<string, number>();
-    for (const h of headerish) counts.set(h, (counts.get(h) ?? 0) + 1);
-    const dups = [...counts.entries()].filter(([, n]) => n >= 2);
+    const entries = cols.map(c => ({ c, v: rows[r][c] })).filter(e => present(e.v));
+    if (entries.length === 0) continue;
+    // Data started (majority numeric row) before any embedded header → stop:
+    // a header precedes data by definition.
+    if (entries.filter(e => NUMERICISH(e.v)).length >= Math.ceil(entries.length * 0.5)) break;
+    const headerish = entries.filter(e => HEADERISH(e.v));
+    if (headerish.length < Math.max(3, Math.ceil(entries.length * 0.6))) continue;
+    // Repeated names among the header-like cells.
+    const counts = new Map<string, string[]>(); // name -> columns carrying it
+    for (const e of headerish) {
+      const name = (e.v as string).trim();
+      (counts.get(name) ?? counts.set(name, []).get(name)!).push(e.c);
+    }
+    const dups = [...counts.entries()].filter(([, cs]) => cs.length >= 2);
     if (dups.length === 0) continue;
+    // csv.Sniffer-style type contrast: for each header-like column, do the
+    // sampled body values BELOW this row look predominantly numeric? A text
+    // data row (e.g. repeated city names) fails this vote — its body is text.
+    const body = rows.slice(r + 1, r + 9);
+    const votes = (c: string): boolean => {
+      const below = body.map(row => row[c]).filter(present);
+      if (below.length === 0) return false;
+      return below.filter(NUMERICISH).length >= Math.ceil(below.length * 0.6);
+    };
+    const voting = headerish.filter(e => votes(e.c));
+    if (voting.length < Math.ceil(headerish.length * 0.4)) continue;
+    if (!dups.some(([, cs]) => cs.some(votes))) continue; // a DUPLICATED name must show contrast
     const listed = dups
       .slice(0, MAX_LISTED)
-      .map(([name, n]) => `\`${name}\` ×${n}`)
+      .map(([name, cs]) => `\`${name}\` ×${cs.length}`)
       .join(", ");
     return (
-      `Embedded header ⚠: row ${r} looks like the real header and contains DUPLICATE names (${listed}) — ` +
-      `likely one group per super-header section (see the row above it). When re-headering, disambiguate ` +
-      `(e.g. suffix by section) — dropping duplicate-named columns silently discards distinct data.`
+      `Embedded header ⚠: row ${r} looks like the real header (its labels sit on typed value columns) and ` +
+      `contains DUPLICATE names (${listed}) — likely one group per super-header section (see the row above it). ` +
+      `When re-headering, disambiguate (e.g. suffix by section) — dropping duplicate-named columns silently ` +
+      `discards distinct data.`
     );
   }
   return undefined;
