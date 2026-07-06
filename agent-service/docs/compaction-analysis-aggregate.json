@@ -1,0 +1,1377 @@
+[
+  {
+    "traceId": "archeology-easy-10",
+    "domain": "archeology",
+    "nSteps": 3,
+    "finalDeltaTok": 919,
+    "finalDeckHeavy": 595,
+    "finalDeckLean": 402,
+    "finalFoldEventLogPct": 35.3,
+    "finalTrimSettledPct": 21,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 1,
+      "perStep": 59,
+      "cumulative": 59
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 517,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "archeology-easy-3",
+    "domain": "archeology",
+    "nSteps": 3,
+    "finalDeltaTok": 1392,
+    "finalDeckHeavy": 895,
+    "finalDeckLean": 665,
+    "finalFoldEventLogPct": 35.7,
+    "finalTrimSettledPct": 16.5,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 1,
+      "perStep": 36,
+      "cumulative": 36
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 727,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "archeology-easy-6",
+    "domain": "archeology",
+    "nSteps": 4,
+    "finalDeltaTok": 1375,
+    "finalDeckHeavy": 793,
+    "finalDeckLean": 590,
+    "finalFoldEventLogPct": 42.3,
+    "finalTrimSettledPct": 14.8,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 385,
+      "cumulative": 385
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 385,
+      "cumulative": 385
+    }
+  },
+  {
+    "traceId": "astronomy-easy-1",
+    "domain": "astronomy",
+    "nSteps": 13,
+    "finalDeltaTok": 17619,
+    "finalDeckHeavy": 3067,
+    "finalDeckLean": 2281,
+    "finalFoldEventLogPct": 82.6,
+    "finalTrimSettledPct": 4.5,
+    "finalFoldable": {
+      "consumed-source": 4
+    },
+    "optimalCompaction": {
+      "k": 8,
+      "perStep": 8422,
+      "cumulative": 33688
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "astronomy-easy-2",
+    "domain": "astronomy",
+    "nSteps": 4,
+    "finalDeltaTok": 1808,
+    "finalDeckHeavy": 897,
+    "finalDeckLean": 547,
+    "finalFoldEventLogPct": 50.4,
+    "finalTrimSettledPct": 19.4,
+    "finalFoldable": {
+      "consumed-source": 2
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 783,
+      "cumulative": 783
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 783,
+      "cumulative": 783
+    }
+  },
+  {
+    "traceId": "astronomy-easy-5",
+    "domain": "astronomy",
+    "nSteps": 47,
+    "finalDeltaTok": 44496,
+    "finalDeckHeavy": 2434,
+    "finalDeckLean": 1132,
+    "finalFoldEventLogPct": 94.5,
+    "finalTrimSettledPct": 2.9,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "deleted": 11,
+      "settled-interior": 5
+    },
+    "optimalCompaction": {
+      "k": 27,
+      "perStep": 21784,
+      "cumulative": 413896
+    },
+    "sourcesConsumedBoundary": {
+      "k": 12,
+      "perStep": 5879,
+      "cumulative": 199886
+    }
+  },
+  {
+    "traceId": "astronomy-hard-10",
+    "domain": "astronomy",
+    "nSteps": 22,
+    "finalDeltaTok": 44249,
+    "finalDeckHeavy": 4245,
+    "finalDeckLean": 2779,
+    "finalFoldEventLogPct": 90.4,
+    "finalTrimSettledPct": 3.3,
+    "finalFoldable": {
+      "consumed-source": 3,
+      "deleted": 1,
+      "settled-interior": 7
+    },
+    "optimalCompaction": {
+      "k": 12,
+      "perStep": 19904,
+      "cumulative": 179136
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "biomedical-easy-6",
+    "domain": "biomedical",
+    "nSteps": 5,
+    "finalDeltaTok": 3487,
+    "finalDeckHeavy": 1520,
+    "finalDeckLean": 1350,
+    "finalFoldEventLogPct": 56.4,
+    "finalTrimSettledPct": 4.9,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 985,
+      "cumulative": 985
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 985,
+      "cumulative": 985
+    }
+  },
+  {
+    "traceId": "biomedical-hard-1",
+    "domain": "biomedical",
+    "nSteps": 11,
+    "finalDeltaTok": 11275,
+    "finalDeckHeavy": 3058,
+    "finalDeckLean": 1694,
+    "finalFoldEventLogPct": 72.9,
+    "finalTrimSettledPct": 12.1,
+    "finalFoldable": {
+      "deleted": 2,
+      "consumed-source": 3,
+      "settled-interior": 5
+    },
+    "optimalCompaction": {
+      "k": 7,
+      "perStep": 4602,
+      "cumulative": 13806
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "biomedical-hard-3",
+    "domain": "biomedical",
+    "nSteps": 11,
+    "finalDeltaTok": 11923,
+    "finalDeckHeavy": 2533,
+    "finalDeckLean": 1709,
+    "finalFoldEventLogPct": 78.8,
+    "finalTrimSettledPct": 6.9,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "deleted": 1
+    },
+    "optimalCompaction": {
+      "k": 8,
+      "perStep": 6820,
+      "cumulative": 13640
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "biomedical-hard-4",
+    "domain": "biomedical",
+    "nSteps": 22,
+    "finalDeltaTok": 29154,
+    "finalDeckHeavy": 3509,
+    "finalDeckLean": 2320,
+    "finalFoldEventLogPct": 88,
+    "finalTrimSettledPct": 4.1,
+    "finalFoldable": {
+      "consumed-source": 4,
+      "settled-interior": 3
+    },
+    "optimalCompaction": {
+      "k": 13,
+      "perStep": 11395,
+      "cumulative": 91160
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "biomedical-hard-8",
+    "domain": "biomedical",
+    "nSteps": 7,
+    "finalDeltaTok": 6011,
+    "finalDeckHeavy": 1857,
+    "finalDeckLean": 1207,
+    "finalFoldEventLogPct": 69.1,
+    "finalTrimSettledPct": 10.8,
+    "finalFoldable": {
+      "consumed-source": 3
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1411,
+      "cumulative": 4233
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "environment-easy-1",
+    "domain": "environment",
+    "nSteps": 5,
+    "finalDeltaTok": 2389,
+    "finalDeckHeavy": 1006,
+    "finalDeckLean": 763,
+    "finalFoldEventLogPct": 57.9,
+    "finalTrimSettledPct": 10.2,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 601,
+      "cumulative": 1202
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 601,
+      "cumulative": 1202
+    }
+  },
+  {
+    "traceId": "environment-easy-2",
+    "domain": "environment",
+    "nSteps": 8,
+    "finalDeltaTok": 4083,
+    "finalDeckHeavy": 1702,
+    "finalDeckLean": 1235,
+    "finalFoldEventLogPct": 58.3,
+    "finalTrimSettledPct": 11.4,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 5,
+      "perStep": 1524,
+      "cumulative": 3048
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 613,
+      "cumulative": 2452
+    }
+  },
+  {
+    "traceId": "environment-easy-5",
+    "domain": "environment",
+    "nSteps": 6,
+    "finalDeltaTok": 6132,
+    "finalDeckHeavy": 1633,
+    "finalDeckLean": 983,
+    "finalFoldEventLogPct": 73.4,
+    "finalTrimSettledPct": 10.6,
+    "finalFoldable": {
+      "consumed-source": 4
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 2903,
+      "cumulative": 5806
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 1617,
+      "cumulative": 4851
+    }
+  },
+  {
+    "traceId": "environment-hard-10",
+    "domain": "environment",
+    "nSteps": 11,
+    "finalDeltaTok": 11442,
+    "finalDeckHeavy": 2533,
+    "finalDeckLean": 2052,
+    "finalFoldEventLogPct": 77.9,
+    "finalTrimSettledPct": 4.2,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "deleted": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 7,
+      "perStep": 5510,
+      "cumulative": 16530
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "environment-hard-11",
+    "domain": "environment",
+    "nSteps": 23,
+    "finalDeltaTok": 10775,
+    "finalDeckHeavy": 1269,
+    "finalDeckLean": 584,
+    "finalFoldEventLogPct": 88.2,
+    "finalTrimSettledPct": 6.4,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "deleted": 8
+    },
+    "optimalCompaction": {
+      "k": 14,
+      "perStep": 4344,
+      "cumulative": 34752
+    },
+    "sourcesConsumedBoundary": {
+      "k": 9,
+      "perStep": 2194,
+      "cumulative": 28522
+    }
+  },
+  {
+    "traceId": "environment-hard-12",
+    "domain": "environment",
+    "nSteps": 7,
+    "finalDeltaTok": 16986,
+    "finalDeckHeavy": 3785,
+    "finalDeckLean": 2292,
+    "finalFoldEventLogPct": 77.7,
+    "finalTrimSettledPct": 8.8,
+    "finalFoldable": {
+      "consumed-source": 8,
+      "settled-interior": 9
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 9936,
+      "cumulative": 19872
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 6609,
+      "cumulative": 19827
+    }
+  },
+  {
+    "traceId": "environment-hard-13",
+    "domain": "environment",
+    "nSteps": 13,
+    "finalDeltaTok": 7557,
+    "finalDeckHeavy": 1606,
+    "finalDeckLean": 828,
+    "finalFoldEventLogPct": 78.7,
+    "finalTrimSettledPct": 10.3,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "deleted": 1,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 7,
+      "perStep": 3502,
+      "cumulative": 17510
+    },
+    "sourcesConsumedBoundary": {
+      "k": 5,
+      "perStep": 1837,
+      "cumulative": 12859
+    }
+  },
+  {
+    "traceId": "environment-hard-14",
+    "domain": "environment",
+    "nSteps": 21,
+    "finalDeltaTok": 40271,
+    "finalDeckHeavy": 3628,
+    "finalDeckLean": 2436,
+    "finalFoldEventLogPct": 91,
+    "finalTrimSettledPct": 3,
+    "finalFoldable": {
+      "consumed-source": 7,
+      "settled-interior": 4
+    },
+    "optimalCompaction": {
+      "k": 10,
+      "perStep": 18771,
+      "cumulative": 187710
+    },
+    "sourcesConsumedBoundary": {
+      "k": 10,
+      "perStep": 18771,
+      "cumulative": 187710
+    }
+  },
+  {
+    "traceId": "environment-hard-15",
+    "domain": "environment",
+    "nSteps": 4,
+    "finalDeltaTok": 2376,
+    "finalDeckHeavy": 1234,
+    "finalDeckLean": 955,
+    "finalFoldEventLogPct": 48.1,
+    "finalTrimSettledPct": 11.7,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 587,
+      "cumulative": 587
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 587,
+      "cumulative": 587
+    }
+  },
+  {
+    "traceId": "environment-hard-20",
+    "domain": "environment",
+    "nSteps": 5,
+    "finalDeltaTok": 5399,
+    "finalDeckHeavy": 2312,
+    "finalDeckLean": 1567,
+    "finalFoldEventLogPct": 57.2,
+    "finalTrimSettledPct": 13.8,
+    "finalFoldable": {
+      "deleted": 1,
+      "consumed-source": 5,
+      "settled-interior": 3
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 2308,
+      "cumulative": 2308
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 3832,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "environment-hard-7",
+    "domain": "environment",
+    "nSteps": 7,
+    "finalDeltaTok": 6016,
+    "finalDeckHeavy": 2060,
+    "finalDeckLean": 1389,
+    "finalFoldEventLogPct": 65.8,
+    "finalTrimSettledPct": 11.2,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 5
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 1746,
+      "cumulative": 3492
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 545,
+      "cumulative": 2180
+    }
+  },
+  {
+    "traceId": "environment-hard-9",
+    "domain": "environment",
+    "nSteps": 17,
+    "finalDeltaTok": 59600,
+    "finalDeckHeavy": 3794,
+    "finalDeckLean": 2581,
+    "finalFoldEventLogPct": 93.6,
+    "finalTrimSettledPct": 2,
+    "finalFoldable": {
+      "consumed-source": 8,
+      "settled-interior": 8
+    },
+    "optimalCompaction": {
+      "k": 9,
+      "perStep": 33512,
+      "cumulative": 234584
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "legal-easy-10",
+    "domain": "legal",
+    "nSteps": 8,
+    "finalDeltaTok": 4498,
+    "finalDeckHeavy": 1260,
+    "finalDeckLean": 684,
+    "finalFoldEventLogPct": 72,
+    "finalTrimSettledPct": 12.8,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1586,
+      "cumulative": 6344
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 1586,
+      "cumulative": 6344
+    }
+  },
+  {
+    "traceId": "legal-easy-11",
+    "domain": "legal",
+    "nSteps": 5,
+    "finalDeltaTok": 2505,
+    "finalDeckHeavy": 798,
+    "finalDeckLean": 537,
+    "finalFoldEventLogPct": 68.1,
+    "finalTrimSettledPct": 10.4,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1559,
+      "cumulative": 1559
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 1559,
+      "cumulative": 1559
+    }
+  },
+  {
+    "traceId": "legal-easy-12",
+    "domain": "legal",
+    "nSteps": 5,
+    "finalDeltaTok": 1771,
+    "finalDeckHeavy": 783,
+    "finalDeckLean": 545,
+    "finalFoldEventLogPct": 55.8,
+    "finalTrimSettledPct": 13.4,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 778,
+      "cumulative": 778
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 778,
+      "cumulative": 778
+    }
+  },
+  {
+    "traceId": "legal-easy-13",
+    "domain": "legal",
+    "nSteps": 5,
+    "finalDeltaTok": 1656,
+    "finalDeckHeavy": 759,
+    "finalDeckLean": 518,
+    "finalFoldEventLogPct": 54.2,
+    "finalTrimSettledPct": 14.6,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 725,
+      "cumulative": 725
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 725,
+      "cumulative": 725
+    }
+  },
+  {
+    "traceId": "legal-easy-19",
+    "domain": "legal",
+    "nSteps": 33,
+    "finalDeltaTok": 30958,
+    "finalDeckHeavy": 1442,
+    "finalDeckLean": 835,
+    "finalFoldEventLogPct": 95.3,
+    "finalTrimSettledPct": 2,
+    "finalFoldable": {
+      "deleted": 13
+    },
+    "optimalCompaction": {
+      "k": 21,
+      "perStep": 16735,
+      "cumulative": 184085
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 630,
+      "cumulative": 18270
+    }
+  },
+  {
+    "traceId": "legal-easy-20",
+    "domain": "legal",
+    "nSteps": 3,
+    "finalDeltaTok": 987,
+    "finalDeckHeavy": 547,
+    "finalDeckLean": 379,
+    "finalFoldEventLogPct": 44.6,
+    "finalTrimSettledPct": 17,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 1,
+      "perStep": 81,
+      "cumulative": 81
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 608,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "legal-easy-25",
+    "domain": "legal",
+    "nSteps": 21,
+    "finalDeltaTok": 9091,
+    "finalDeckHeavy": 1482,
+    "finalDeckLean": 824,
+    "finalFoldEventLogPct": 83.7,
+    "finalTrimSettledPct": 7.2,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 11,
+      "perStep": 4605,
+      "cumulative": 41445
+    },
+    "sourcesConsumedBoundary": {
+      "k": 18,
+      "perStep": 7412,
+      "cumulative": 14824
+    }
+  },
+  {
+    "traceId": "legal-easy-26",
+    "domain": "legal",
+    "nSteps": 19,
+    "finalDeltaTok": 6869,
+    "finalDeckHeavy": 1283,
+    "finalDeckLean": 550,
+    "finalFoldEventLogPct": 81.3,
+    "finalTrimSettledPct": 10.7,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 10,
+      "perStep": 3101,
+      "cumulative": 24808
+    },
+    "sourcesConsumedBoundary": {
+      "k": 16,
+      "perStep": 5375,
+      "cumulative": 10750
+    }
+  },
+  {
+    "traceId": "legal-easy-27",
+    "domain": "legal",
+    "nSteps": 27,
+    "finalDeltaTok": 14929,
+    "finalDeckHeavy": 1331,
+    "finalDeckLean": 656,
+    "finalFoldEventLogPct": 91.1,
+    "finalTrimSettledPct": 4.5,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 16,
+      "perStep": 6876,
+      "cumulative": 68760
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "legal-easy-3",
+    "domain": "legal",
+    "nSteps": 6,
+    "finalDeltaTok": 3761,
+    "finalDeckHeavy": 867,
+    "finalDeckLean": 542,
+    "finalFoldEventLogPct": 76.9,
+    "finalTrimSettledPct": 8.6,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1669,
+      "cumulative": 3338
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 1669,
+      "cumulative": 3338
+    }
+  },
+  {
+    "traceId": "legal-easy-5",
+    "domain": "legal",
+    "nSteps": 6,
+    "finalDeltaTok": 2522,
+    "finalDeckHeavy": 894,
+    "finalDeckLean": 543,
+    "finalFoldEventLogPct": 64.6,
+    "finalTrimSettledPct": 13.9,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 1581,
+      "cumulative": 1581
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1581,
+      "cumulative": 1581
+    }
+  },
+  {
+    "traceId": "legal-easy-9",
+    "domain": "legal",
+    "nSteps": 6,
+    "finalDeltaTok": 2808,
+    "finalDeckHeavy": 1039,
+    "finalDeckLean": 680,
+    "finalFoldEventLogPct": 63,
+    "finalTrimSettledPct": 12.8,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1183,
+      "cumulative": 2366
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 1183,
+      "cumulative": 2366
+    }
+  },
+  {
+    "traceId": "legal-hard-17",
+    "domain": "legal",
+    "nSteps": 7,
+    "finalDeltaTok": 3757,
+    "finalDeckHeavy": 1290,
+    "finalDeckLean": 783,
+    "finalFoldEventLogPct": 65.7,
+    "finalTrimSettledPct": 13.5,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 1604,
+      "cumulative": 3208
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1604,
+      "cumulative": 3208
+    }
+  },
+  {
+    "traceId": "legal-hard-23",
+    "domain": "legal",
+    "nSteps": 5,
+    "finalDeltaTok": 2779,
+    "finalDeckHeavy": 1171,
+    "finalDeckLean": 783,
+    "finalFoldEventLogPct": 57.9,
+    "finalTrimSettledPct": 14,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1074,
+      "cumulative": 1074
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1996,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "legal-hard-30",
+    "domain": "legal",
+    "nSteps": 16,
+    "finalDeltaTok": 15939,
+    "finalDeckHeavy": 2201,
+    "finalDeckLean": 947,
+    "finalFoldEventLogPct": 86.2,
+    "finalTrimSettledPct": 7.9,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 5
+    },
+    "optimalCompaction": {
+      "k": 9,
+      "perStep": 8098,
+      "cumulative": 48588
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 2344,
+      "cumulative": 25784
+    }
+  },
+  {
+    "traceId": "legal-hard-6",
+    "domain": "legal",
+    "nSteps": 5,
+    "finalDeltaTok": 2493,
+    "finalDeckHeavy": 791,
+    "finalDeckLean": 528,
+    "finalFoldEventLogPct": 68.3,
+    "finalTrimSettledPct": 10.5,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 516,
+      "cumulative": 1032
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 516,
+      "cumulative": 1032
+    }
+  },
+  {
+    "traceId": "legal-hard-7",
+    "domain": "legal",
+    "nSteps": 11,
+    "finalDeltaTok": 7593,
+    "finalDeckHeavy": 1338,
+    "finalDeckLean": 738,
+    "finalFoldEventLogPct": 82.4,
+    "finalTrimSettledPct": 7.9,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 6,
+      "perStep": 2265,
+      "cumulative": 9060
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "legal-hard-8",
+    "domain": "legal",
+    "nSteps": 9,
+    "finalDeltaTok": 7806,
+    "finalDeckHeavy": 1679,
+    "finalDeckLean": 888,
+    "finalFoldEventLogPct": 78.5,
+    "finalTrimSettledPct": 10.1,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 5,
+      "perStep": 4102,
+      "cumulative": 12306
+    },
+    "sourcesConsumedBoundary": {
+      "k": 5,
+      "perStep": 4102,
+      "cumulative": 12306
+    }
+  },
+  {
+    "traceId": "wildfire-easy-1",
+    "domain": "wildfire",
+    "nSteps": 6,
+    "finalDeltaTok": 2230,
+    "finalDeckHeavy": 944,
+    "finalDeckLean": 581,
+    "finalFoldEventLogPct": 57.7,
+    "finalTrimSettledPct": 16.3,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 729,
+      "cumulative": 1458
+    },
+    "sourcesConsumedBoundary": {
+      "k": 3,
+      "perStep": 729,
+      "cumulative": 1458
+    }
+  },
+  {
+    "traceId": "wildfire-easy-13",
+    "domain": "wildfire",
+    "nSteps": 3,
+    "finalDeltaTok": 743,
+    "finalDeckHeavy": 519,
+    "finalDeckLean": 351,
+    "finalFoldEventLogPct": 30.1,
+    "finalTrimSettledPct": 22.6,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 1,
+      "perStep": 90,
+      "cumulative": 90
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 392,
+      "cumulative": 0
+    }
+  },
+  {
+    "traceId": "wildfire-easy-15",
+    "domain": "wildfire",
+    "nSteps": 7,
+    "finalDeltaTok": 4725,
+    "finalDeckHeavy": 1630,
+    "finalDeckLean": 1267,
+    "finalFoldEventLogPct": 65.5,
+    "finalTrimSettledPct": 7.7,
+    "finalFoldable": {
+      "consumed-source": 2
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 1810,
+      "cumulative": 3620
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1810,
+      "cumulative": 3620
+    }
+  },
+  {
+    "traceId": "wildfire-easy-2",
+    "domain": "wildfire",
+    "nSteps": 9,
+    "finalDeltaTok": 15379,
+    "finalDeckHeavy": 1789,
+    "finalDeckLean": 763,
+    "finalFoldEventLogPct": 88.4,
+    "finalTrimSettledPct": 6.7,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 6,
+      "perStep": 12069,
+      "cumulative": 24138
+    },
+    "sourcesConsumedBoundary": {
+      "k": 7,
+      "perStep": 13460,
+      "cumulative": 13460
+    }
+  },
+  {
+    "traceId": "wildfire-easy-3",
+    "domain": "wildfire",
+    "nSteps": 11,
+    "finalDeltaTok": 13672,
+    "finalDeckHeavy": 2075,
+    "finalDeckLean": 856,
+    "finalFoldEventLogPct": 84.8,
+    "finalTrimSettledPct": 8.9,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 5,
+      "perStep": 5759,
+      "cumulative": 28795
+    },
+    "sourcesConsumedBoundary": {
+      "k": 8,
+      "perStep": 10350,
+      "cumulative": 20700
+    }
+  },
+  {
+    "traceId": "wildfire-easy-8",
+    "domain": "wildfire",
+    "nSteps": 17,
+    "finalDeltaTok": 11225,
+    "finalDeckHeavy": 1523,
+    "finalDeckLean": 719,
+    "finalFoldEventLogPct": 86.4,
+    "finalTrimSettledPct": 7.2,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1,
+      "deleted": 2
+    },
+    "optimalCompaction": {
+      "k": 10,
+      "perStep": 6430,
+      "cumulative": 38580
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 393,
+      "cumulative": 5502
+    }
+  },
+  {
+    "traceId": "wildfire-hard-10",
+    "domain": "wildfire",
+    "nSteps": 4,
+    "finalDeltaTok": 2606,
+    "finalDeckHeavy": 1262,
+    "finalDeckLean": 933,
+    "finalFoldEventLogPct": 51.6,
+    "finalTrimSettledPct": 12.6,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 715,
+      "cumulative": 715
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "wildfire-hard-11",
+    "domain": "wildfire",
+    "nSteps": 4,
+    "finalDeltaTok": 1178,
+    "finalDeckHeavy": 674,
+    "finalDeckLean": 464,
+    "finalFoldEventLogPct": 42.8,
+    "finalTrimSettledPct": 17.8,
+    "finalFoldable": {
+      "consumed-source": 1
+    },
+    "optimalCompaction": {
+      "k": 2,
+      "perStep": 342,
+      "cumulative": 342
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 342,
+      "cumulative": 342
+    }
+  },
+  {
+    "traceId": "wildfire-hard-12",
+    "domain": "wildfire",
+    "nSteps": 7,
+    "finalDeltaTok": 5970,
+    "finalDeckHeavy": 1289,
+    "finalDeckLean": 767,
+    "finalFoldEventLogPct": 78.4,
+    "finalTrimSettledPct": 8.7,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 2712,
+      "cumulative": 5424
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 697,
+      "cumulative": 2788
+    }
+  },
+  {
+    "traceId": "wildfire-hard-14",
+    "domain": "wildfire",
+    "nSteps": 5,
+    "finalDeltaTok": 3527,
+    "finalDeckHeavy": 1532,
+    "finalDeckLean": 1285,
+    "finalFoldEventLogPct": 56.6,
+    "finalTrimSettledPct": 7,
+    "finalFoldable": {
+      "consumed-source": 2
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1398,
+      "cumulative": 1398
+    },
+    "sourcesConsumedBoundary": {
+      "k": 2,
+      "perStep": 506,
+      "cumulative": 1012
+    }
+  },
+  {
+    "traceId": "wildfire-hard-16",
+    "domain": "wildfire",
+    "nSteps": 7,
+    "finalDeltaTok": 5341,
+    "finalDeckHeavy": 1713,
+    "finalDeckLean": 1174,
+    "finalFoldEventLogPct": 67.9,
+    "finalTrimSettledPct": 10.1,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1389,
+      "cumulative": 4167
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "wildfire-hard-17",
+    "domain": "wildfire",
+    "nSteps": 36,
+    "finalDeltaTok": 74540,
+    "finalDeckHeavy": 5631,
+    "finalDeckLean": 4922,
+    "finalFoldEventLogPct": 92.4,
+    "finalTrimSettledPct": 1,
+    "finalFoldable": {
+      "consumed-source": 3,
+      "deleted": 1,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 23,
+      "perStep": 32345,
+      "cumulative": 388140
+    },
+    "sourcesConsumedBoundary": {
+      "k": 9,
+      "perStep": 7779,
+      "cumulative": 202254
+    }
+  },
+  {
+    "traceId": "wildfire-hard-20",
+    "domain": "wildfire",
+    "nSteps": 25,
+    "finalDeltaTok": 35497,
+    "finalDeckHeavy": 2411,
+    "finalDeckLean": 1516,
+    "finalFoldEventLogPct": 93.2,
+    "finalTrimSettledPct": 2.5,
+    "finalFoldable": {
+      "consumed-source": 1,
+      "deleted": 17,
+      "settled-interior": 3
+    },
+    "optimalCompaction": {
+      "k": 16,
+      "perStep": 17383,
+      "cumulative": 139064
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1690,
+      "cumulative": 33800
+    }
+  },
+  {
+    "traceId": "wildfire-hard-21",
+    "domain": "wildfire",
+    "nSteps": 24,
+    "finalDeltaTok": 42576,
+    "finalDeckHeavy": 4280,
+    "finalDeckLean": 3587,
+    "finalFoldEventLogPct": 89.9,
+    "finalTrimSettledPct": 1.6,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 15,
+      "perStep": 19415,
+      "cumulative": 155320
+    },
+    "sourcesConsumedBoundary": null
+  },
+  {
+    "traceId": "wildfire-hard-4",
+    "domain": "wildfire",
+    "nSteps": 15,
+    "finalDeltaTok": 10015,
+    "finalDeckHeavy": 1977,
+    "finalDeckLean": 1014,
+    "finalFoldEventLogPct": 80.3,
+    "finalTrimSettledPct": 9.6,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 3,
+      "deleted": 1
+    },
+    "optimalCompaction": {
+      "k": 9,
+      "perStep": 4589,
+      "cumulative": 22945
+    },
+    "sourcesConsumedBoundary": {
+      "k": 8,
+      "perStep": 3628,
+      "cumulative": 21768
+    }
+  },
+  {
+    "traceId": "wildfire-hard-5",
+    "domain": "wildfire",
+    "nSteps": 6,
+    "finalDeltaTok": 3571,
+    "finalDeckHeavy": 1438,
+    "finalDeckLean": 829,
+    "finalFoldEventLogPct": 59.7,
+    "finalTrimSettledPct": 17.1,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 2
+    },
+    "optimalCompaction": {
+      "k": 3,
+      "perStep": 1101,
+      "cumulative": 2202
+    },
+    "sourcesConsumedBoundary": {
+      "k": 4,
+      "perStep": 1822,
+      "cumulative": 1822
+    }
+  },
+  {
+    "traceId": "wildfire-hard-6",
+    "domain": "wildfire",
+    "nSteps": 8,
+    "finalDeltaTok": 4702,
+    "finalDeckHeavy": 1607,
+    "finalDeckLean": 968,
+    "finalFoldEventLogPct": 65.8,
+    "finalTrimSettledPct": 13.6,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 1
+    },
+    "optimalCompaction": {
+      "k": 4,
+      "perStep": 1364,
+      "cumulative": 4092
+    },
+    "sourcesConsumedBoundary": {
+      "k": 6,
+      "perStep": 2954,
+      "cumulative": 2954
+    }
+  },
+  {
+    "traceId": "wildfire-hard-7",
+    "domain": "wildfire",
+    "nSteps": 28,
+    "finalDeltaTok": 16437,
+    "finalDeckHeavy": 2222,
+    "finalDeckLean": 1156,
+    "finalFoldEventLogPct": 86.5,
+    "finalTrimSettledPct": 6.5,
+    "finalFoldable": {
+      "consumed-source": 2,
+      "settled-interior": 3
+    },
+    "optimalCompaction": {
+      "k": 15,
+      "perStep": 6796,
+      "cumulative": 81552
+    },
+    "sourcesConsumedBoundary": {
+      "k": 24,
+      "perStep": 12732,
+      "cumulative": 38196
+    }
+  }
+]
