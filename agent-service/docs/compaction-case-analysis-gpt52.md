@@ -173,3 +173,42 @@ and it says the pitfalls guidance is worth ~+7 pts at 5k, ~0 at 2k. Per-case, th
 duplicate-columns bullet plausibly landed (env-hard-11); the dedupe and units
 bullets did not demonstrably flip their target tasks. Prompt guidance helps in
 aggregate but is not a targeted cure for specific diagnosed failures.
+
+## Post-v2 case studies (guided code agent + updated prompt + isolated recovery)
+
+### 1. Code vs dataflow — the v1 "paradigm gap" evaporated
+- **ZERO tasks now where both code arms beat all 6 dataflow arms** (v1 had 3). All three
+  v1 mechanisms got solved by dataflow: env-hard-11 (3 arms), legal-hard-15 (D5kSch),
+  astronomy-hard-9 (L5k/L5kSch, once isolation let it run).
+- **2 robust dataflow-wins** (all 6 dataflow right, both code arms wrong):
+  `astronomy-easy-5` — dataflow 2✓ (6 steps); both code arms answer 0✗ — the code agent
+  returns the empty-result/swallowed-exception answer, the SAME pathology dataflow showed
+  in v1. `environment-hard-19` — delta 4 steps False✓; code 11 steps True✗.
+- Read: neither paradigm holds a structural edge on this benchmark; run-quality and
+  recovery rounds dominate. (Fairness: dataflow had 1 extra recovery round.)
+
+### 2. LATEST parameters
+- **Char limit (5k vs 2k, stats on)**: 5 flips each way now — balanced, not "5k wins".
+  5k-side keeps env-hard-7 (units) + env-hard-11/13; 2k-side gained a cluster:
+  legal-easy-19, legal-hard-22, biomedical-easy-9, environment-hard-8.
+- **Stats vs schema-only (at 5k)**: schema-only right where stats wrong on 6 tasks —
+  nearly the SAME cluster as the 2k-wins (legal-easy-19, legal-hard-22, biomedical-easy-9,
+  environment-hard-8 + astronomy-hard-7, environment-hard-17); stats wins only 3.
+  **A replicated "leaner LATEST is more accurate" cluster** across two orthogonal knobs.
+- Flagship mechanism `legal-easy-19` (proportion $1–$500, gold 0.523): L5k-stats → 0.199 ✗
+  while L2k, L5kSch, AND D5k → 0.523 ✓. The stats block on the ragged multi-block CSV
+  misleads latest into summing the wrong sub-block; leaner views (or the trajectory) get it.
+- **Cost (both-right, n=47): schema-only cheaper on 33/47.** `wildfire-easy-2`:
+  stats 159.5k tok vs schema-only 68.8k — same answer, stats block costs 2.3×.
+
+### 3. DELTA vs LATEST (5k, stats on)
+- Flips: D5k wins 6 (legal-easy-19, legal-hard-1, legal-hard-22, biomedical-easy-9,
+  biomedical-hard-7, environment-hard-8) vs L5k wins 3 (astronomy-hard-9,
+  biomedical-easy-2, environment-hard-10). Delta's wins overlap the "stats-misleads-
+  latest" cluster — the trajectory rescues what the snapshot+stats view fumbles.
+- **Cost (both-right, n=47): DEAD EVEN — delta cheaper on 24, latest on 23.**
+  `wildfire-easy-2`: delta 78k vs latest 160k (latest re-render bloat).
+  `environment-hard-13`: latest 5 steps/33k vs delta 10 steps/91k, both right (delta's
+  trajectory dragged exploration). Neither mode dominates cost; whichever avoids the
+  task's failure mode (re-render bloat vs trajectory thrash) wins — task-dependent,
+  the adaptive-policy argument again.
