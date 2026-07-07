@@ -51,6 +51,7 @@ import {
 // but strictly call-time — both modules only reference each other inside
 // function bodies, so ESM hoisting resolves it.
 import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParamsPatch } from "../context/summarize/params";
+import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
@@ -110,6 +111,18 @@ export interface AssembleContextOptions {
    *  token window. Deterministic on trajectory shape (see staticCompactionFoldMark).
    *  Ignored in LATEST mode and when an agent `compactContext` mark is present. */
   staticCompaction?: boolean;
+  /** Which static rule when `staticCompaction` is on. "editConvergence" (default)
+   *  folds at the frontier operator's active-edit-run boundary (monotone, cache-
+   *  friendly); "token" is the older size-triggered rule (kept for A/B). */
+  compactionRule?: "editConvergence" | "token";
+  /** Monotone high-water clamp for the edit-convergence fold boundary — it never
+   *  retreats below this. 0/undefined ⇒ rely on the pure formula (monotone for the
+   *  append-only single-op-per-event case). */
+  compactBoundaryFloor?: number;
+  /** Override the compacted-deck header (settled-framed wording); generic default. */
+  compactDeckHeader?: string;
+  /** Override the raw-suffix header; generic default. */
+  compactSuffixHeader?: string;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -427,11 +440,13 @@ export function renderContextCore(
         );
         break;
       }
-      // Static compaction rule (DELTA-only, behind the staticCompaction flag):
-      // a deterministic TOKEN trigger folds older events into the deck once the
-      // rendered event log is large enough — no agent mark, no token budget.
-      // Render lossless first to measure the true event-log size, then decide.
-      // Reuses the deck+raw-suffix renderer of the agent-triggered path.
+      // Static compaction rule (DELTA-only, behind the staticCompaction flag).
+      // Two rules selectable via options.compactionRule (default editConvergence):
+      //  - "editConvergence" (default): fold at the boundary of the frontier
+      //    operator's active edit run — settled operators (edit run ended) fold
+      //    into the deck, the operator you are still correcting stays raw. The
+      //    boundary is monotone (stable while you edit one op → cache-friendly).
+      //  - "token": the older size trigger (kept for A/B; see staticCompactionFoldMark).
       if (options.staticCompaction) {
         const lossless = renderInterleaved(
           tasks,
@@ -442,20 +457,39 @@ export function renderContextCore(
           latestUserStepId,
           createFlagsByStep
         );
-        const foldMark = staticCompactionFoldMark(tasks, estimateTokens(lossless));
+        const est = estimateTokens(lossless);
+        const useToken = options.compactionRule === "token";
+        let foldMark: number | undefined;
+        let keepLast = STATIC_COMPACT_KEEP_LAST;
+        let compactOptions = options;
+        if (useToken) {
+          foldMark = staticCompactionFoldMark(tasks, est);
+        } else {
+          const dossier = buildDossier(visibleSteps, snapshotStorage);
+          foldMark = editConvergenceFoldMark(dossier, est, { boundaryFloor: options.compactBoundaryFloor });
+          keepLast = 0; // the boundary already excludes the active frontier run
+          // Settled-framed headers: the deck is the CURRENT state of finished
+          // operators, not stale/partial history.
+          compactOptions = {
+            ...options,
+            compactDeckHeader:
+              "# Current Dataflow (settled operators — finished work at its current, final state; results shown as statistics + sampled rows)",
+            compactSuffixHeader: "# Agent Events (your in-progress work since the settled snapshot above)",
+          };
+        }
         content =
           foldMark === undefined
             ? lossless
             : renderAgentCompacted(
                 tasks,
                 workflowState,
-                options,
+                compactOptions,
                 initSnapshot,
                 latestUserContent,
                 latestUserStepId,
                 createFlagsByStep,
                 foldMark,
-                STATIC_COMPACT_KEEP_LAST
+                keepLast
               );
         break;
       }
@@ -821,6 +855,75 @@ function staticCompactionFoldMark(tasks: TaskGroup[], estTokens: number): number
   return snapEvents[snapEvents.length - 1].idx;
 }
 
+// Edit-convergence rule: fold at the boundary of the frontier operator's active
+// consecutive edit run. Settled operators (edit run ended — you built them, moved
+// on, and have not edited them since) fold into the deck at their final state;
+// the operator you are still correcting, and its whole current run, stay raw.
+// The boundary = runStart − 1 (runStart = where the frontier op's trailing run
+// began) is MONOTONE on the append-only trajectory: stable while you keep editing
+// one op (deck byte-identical → prompt cache hits), advancing by exactly one
+// operator's history only when you switch operators. This is the fix for the
+// token rule's per-turn boundary slide that busted the cache (v3, +22% cost).
+const EDIT_CONV_MIN_SETTLED = 1;
+const EDIT_CONV_MIN_TOKENS = 3500;
+
+/** Fold boundary (an eventIndex) for the edit-convergence rule, or undefined when
+ *  the rule says "don't compact" (too small, too few settled ops, or nothing
+ *  before the active run). Pure function of the dossier + a token floor. */
+function editConvergenceFoldMark(
+  dossier: Dossier,
+  estTokens: number,
+  opts: { minSettled?: number; minTokens?: number; boundaryFloor?: number } = {}
+): number | undefined {
+  const minSettled = opts.minSettled ?? EDIT_CONV_MIN_SETTLED;
+  const minTokens = opts.minTokens ?? EDIT_CONV_MIN_TOKENS;
+  if (estTokens < minTokens) return undefined; // floor: not worth deck overhead
+
+  // STEP 1 — global edit list: every code submission (create + modify, incl.
+  // rejected — a rejected edit still means the op is being actively worked).
+  const eventOps = new Map<number, Set<string>>();
+  for (const [opId, d] of dossier.operators) {
+    for (const cv of d.codeVersions) {
+      let s = eventOps.get(cv.eventIndex);
+      if (!s) eventOps.set(cv.eventIndex, (s = new Set()));
+      s.add(opId);
+    }
+  }
+  if (eventOps.size === 0) return undefined;
+  const evIdx = [...eventOps.keys()].sort((a, b) => a - b);
+
+  // STEP 2 — frontier op (the single actively-worked op = whoever was edited at
+  // the last edit-event; tie-break to the errored op, else stable last id).
+  const maxE = evIdx[evIdx.length - 1];
+  const atMax = [...(eventOps.get(maxE) as Set<string>)].sort();
+  const leaf = dossier.leafSnapshot;
+  const frontierOp = atMax.find(op => leaf.results.get(op)?.info?.error) ?? atMax[atMax.length - 1];
+
+  // STEP 3 — the frontier op's TRAILING consecutive edit run: walk edit-events
+  // backward while they still touch the frontier op; stop at the first that
+  // doesn't (an earlier, now-settled operator).
+  let runStart = maxE;
+  for (let i = evIdx.length - 2; i >= 0; i--) {
+    if (eventOps.get(evIdx[i])?.has(frontierOp)) runStart = evIdx[i];
+    else break;
+  }
+
+  // STEP 4 — boundary: everything strictly before the active run folds.
+  let boundary = runStart - 1;
+  if (boundary < 1) return undefined;
+
+  // STEP 5 — guard: enough operators have actually settled to be worth a deck.
+  let settled = 0;
+  for (const d of dossier.operators.values()) {
+    const lastEdit = d.codeVersions.reduce((m, cv) => Math.max(m, cv.eventIndex), 0);
+    if (d.currentPredicate && lastEdit < runStart) settled++;
+  }
+  if (settled < minSettled) return undefined;
+
+  // STEP 6 — monotone clamp (never retreat below the session high-water mark).
+  return Math.max(boundary, opts.boundaryFloor ?? 0);
+}
+
 /** True if any operator in the snapshot is currently in an errored state. */
 function snapshotHasErroredOperator(snap: SnapshotData): boolean {
   for (const [, rv] of snap.results) {
@@ -1051,7 +1154,8 @@ function renderCompressed(
   const deck = serializeSnapshotCompact(boundarySnap, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
     sections.push(
-      "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
+      options.compactDeckHeader ??
+        "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
     );
     sections.push(deck);
     sections.push("");
@@ -1071,7 +1175,7 @@ function renderCompressed(
     options.omitObservations === true
   );
   if (events && events !== "(no agent actions yet)") {
-    sections.push("# Agent Events (since the compacted snapshot above)");
+    sections.push(options.compactSuffixHeader ?? "# Agent Events (since the compacted snapshot above)");
     sections.push("");
     sections.push(events);
     sections.push("");

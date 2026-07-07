@@ -149,6 +149,8 @@ export function paramsToRenderOptions(
     compactKeepLastSteps: params.trajectory.compactKeepLastSteps,
     showCompactMeter: params.trajectory.showCompactMeter,
     staticCompaction: params.trajectory.staticCompaction,
+    compactionRule: params.trajectory.compactionRule,
+    compactBoundaryFloor: params.trajectory.compactBoundaryFloor,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,

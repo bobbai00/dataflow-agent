@@ -441,7 +441,9 @@ export class TexeraAgent {
     // so inject it only when the window is on AND the strategy is compress. Sliding
     // produces a self-describing `(… omitted …)` marker, not a deck, so it gets no
     // section (describing a deck it never renders would be its own drift).
-    const compactionEnabled = this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
+    const compactionEnabled =
+      (this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress") ||
+      this.settings.staticCompaction === true;
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training

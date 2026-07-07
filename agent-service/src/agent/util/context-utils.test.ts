@@ -596,11 +596,12 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
  *  Trigger: > 5 snapshot-bearing agent events; keep last 3 raw; skip mid-error.
  * ========================================================================= */
 
-describe("assembleContext — staticCompaction rule (DELTA)", () => {
-  // N snapshot-bearing agent events on a single growing chain. `padChars` pads
-  // each thought so the rendered lossless event log clears (or stays under) the
-  // 3,500-token trigger; the last op is errored iff `lastErrored`.
-  function nEventScenario(n: number, padChars = 0, lastErrored = false) {
+describe("assembleContext — staticCompaction editConvergence rule (DELTA)", () => {
+  // Build one edit event per entry in `opsPerEvent` (the operatorId edited that
+  // step). Repeating an id = editing the SAME operator again (a longer active
+  // run). `padChars` pads each thought to clear/stay-under the 3,500-token floor;
+  // `errorLeafOp` marks that op errored in the leaf snapshot.
+  function scenario(opsPerEvent: string[], padChars = 0, errorLeafOp?: string) {
     const filler = padChars > 0 ? " " + "x".repeat(padChars) : "";
     const steps: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
       {
@@ -611,72 +612,112 @@ describe("assembleContext — staticCompaction rule (DELTA)", () => {
       { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
     ];
     let parent = "u";
-    for (let i = 1; i <= n; i++) {
+    opsPerEvent.forEach((op, i) => {
+      const s = i + 1;
       steps.push({
-        id: `t${i}`, stepId: i, role: "agent", messageId: "m", parentId: parent,
-        isBegin: i === 1, content: `step ${i}${filler}`,
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${i}`, input: { operatorId: `op${i}` } }],
-        toolResults: [{ toolCallId: `c${i}`, output: "ok", isError: false }],
+        id: `t${s}`, stepId: s, role: "agent", messageId: "m", parentId: parent,
+        isBegin: s === 1, content: `step ${s} on ${op}${filler}`,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${s}`, input: { operatorId: op } }],
+        toolResults: [{ toolCallId: `c${s}`, output: "ok", isError: false }],
       });
-      parent = `t${i}`;
-    }
+      parent = `t${s}`;
+    });
     const sc = buildScenario(steps);
-    const ids: string[] = [];
-    for (let i = 1; i <= n; i++) {
-      ids.push(`op${i}`);
-      sc.storage.createSnapshot(`t${i}`, makeWorkflow([...ids]));
-      const err = lastErrored && i === n ? "KeyError: 'x'" : undefined;
-      sc.storage.setOperatorResult(`t${i}`, `op${i}`, makeInfo(`op${i}`, 100 - i, err));
-    }
+    const seen: string[] = [];
+    opsPerEvent.forEach((op, i) => {
+      const s = i + 1;
+      if (!seen.includes(op)) seen.push(op);
+      sc.storage.createSnapshot(`t${s}`, makeWorkflow([...seen]));
+      const isLast = i === opsPerEvent.length - 1;
+      const err = errorLeafOp && op === errorLeafOp && isLast ? "KeyError: 'x'" : undefined;
+      sc.storage.setOperatorResult(`t${s}`, op, makeInfo(op, 100 - i, err));
+    });
     return sc;
   }
+  const deckOf = (c: string) => c.split("# Agent Events")[0]; // the folded prefix
+  const BIG = 2500; // ~2.5k chars/event clears the 3,500-tok floor across ≥2 events
 
-  // ~2.5k chars/event × 7 ≈ 17.5k chars ≈ 4.4k tok — clears the 3,500 floor.
-  const BIG = 2500;
-
-  test("large event log (>= 3500 tok): folds older events into the compacted deck", () => {
-    const sc = nEventScenario(7, BIG);
+  test("folds settled operators; the frontier op stays raw (settled-framed header)", () => {
+    // op1..op6 each edited once, then op7 is the frontier → op1..op6 settled.
+    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
-    expect(c).toContain("# Dataflow (compacted");
-    // keep-last-2 raw: the newest ops survive as raw delta after the deck.
-    expect(c).toContain("# Agent Events (since the compacted snapshot above)");
-    expect(c).toContain("op7");
+    expect(c).toContain("# Current Dataflow (settled operators");
+    expect(c).toContain("# Agent Events (your in-progress work since the settled snapshot above)");
+    expect(c).toContain("op7"); // frontier op present raw in the suffix
   });
 
-  test("small event log (< 3500 tok): no compaction even with many steps", () => {
-    // 8 events but tiny content → well under the token floor (guards the
-    // biomedical-hard-7 failure mode: don't fold a short, evidence-dense trace).
-    const sc = nEventScenario(8, 0);
+  test("FROZEN boundary: extra edits to the SAME frontier op leave the deck byte-identical", () => {
+    // Two trajectories: same 5 settled ops, then the frontier op edited 1× vs 3×.
+    const base = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG);
+    const more = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op6", "op6"], BIG);
+    const cBase = content(
+      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+    );
+    const cMore = content(
+      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+    );
+    expect(cBase).toContain("# Current Dataflow (settled operators");
+    // The compacted prefix (deck) is identical — cache-friendly; only the raw
+    // suffix grows with the extra op6 attempts.
+    expect(deckOf(cMore)).toBe(deckOf(cBase));
+  });
+
+  test("boundary ADVANCES when the agent switches to a new operator", () => {
+    const before = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG); // frontier op6
+    const after = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG); // frontier op7 → op6 settles
+    const cBefore = content(
+      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+    );
+    const cAfter = content(
+      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+    );
+    // op6 was raw (frontier) before; after switching to op7 it joins the deck.
+    expect(deckOf(cBefore)).not.toContain("op6");
+    expect(deckOf(cAfter)).toContain("op6");
+  });
+
+  test("errored frontier op still compacts, and stays RAW in the suffix (no lossless revert)", () => {
+    // op7 is the frontier and errored — the settled prefix still folds; the
+    // errored op is debuggable in the raw suffix.
+    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG, "op7");
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
-    expect(c).not.toContain("# Dataflow (compacted");
+    expect(c).toContain("# Current Dataflow (settled operators");
+    expect(c.split("# Agent Events")[1]).toContain("op7");
   });
 
-  test("safety guard: mid-error-recovery (newest op errored) → no compaction even if large", () => {
-    const sc = nEventScenario(7, BIG, /* lastErrored */ true);
+  test("below the token floor: no compaction (short evidence-dense trace protected)", () => {
+    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], 0);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
-    expect(c).not.toContain("# Dataflow (compacted");
+    expect(c).not.toContain("# Current Dataflow (settled operators");
   });
 
-  test("flag off: large event log stays lossless (no compaction)", () => {
-    const sc = nEventScenario(7, BIG);
-    const c = content(
+  test("flag off: stays lossless; LATEST ignores the flag", () => {
+    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
+    const off = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: false })
     );
-    expect(c).not.toContain("# Dataflow (compacted");
-  });
-
-  test("LATEST mode ignores the flag (no trajectory, no deck)", () => {
-    const sc = nEventScenario(7, BIG);
-    const c = content(
+    const latest = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.LATEST, { ...opts, staticCompaction: true })
     );
-    expect(c).not.toContain("# Dataflow (compacted");
+    expect(off).not.toContain("# Current Dataflow (settled operators");
+    expect(latest).not.toContain("# Current Dataflow (settled operators");
+  });
+
+  test("token rule still selectable via compactionRule='token' (A/B)", () => {
+    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
+    const c = content(
+      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
+        ...opts, staticCompaction: true, compactionRule: "token",
+      })
+    );
+    // token rule uses the generic (non-settled) header
+    expect(c).toContain("# Dataflow (compacted");
   });
 });
 

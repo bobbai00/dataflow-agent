@@ -212,6 +212,10 @@ export const TrajectoryParamsSchema = z.object({
   /** Static compaction rule (DELTA-only): auto-fold settled older events into the
    *  deck once the trajectory passes a static trigger, keeping the last K raw. */
   staticCompaction: z.boolean().default(false),
+  /** Which static rule: "editConvergence" (default) or "token". */
+  compactionRule: z.enum(["editConvergence", "token"]).default("editConvergence"),
+  /** Monotone fold-boundary high-water clamp for editConvergence. */
+  compactBoundaryFloor: z.number().int().min(0).default(0),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -357,6 +361,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       compactKeepLastSteps: options.compactKeepLastSteps ?? 0,
       showCompactMeter: options.showCompactMeter ?? false,
       staticCompaction: options.staticCompaction ?? false,
+      compactionRule: options.compactionRule ?? "editConvergence",
+      compactBoundaryFloor: options.compactBoundaryFloor ?? 0,
     },
     currentSnapshot: isLatest,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
