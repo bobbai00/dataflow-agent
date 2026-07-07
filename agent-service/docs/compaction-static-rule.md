@@ -29,24 +29,49 @@ compact `# Dataflow (compacted)` deck recovers the tail cost with no loss the ag
 can act on. Short tasks (≤5 steps) show no such tail and folding there only risks
 dropping still-relevant context — hence a trigger.
 
-## The rule
+## The rule — a TOKEN trigger, not a step count
+
+The 14-task trace analysis (workflow `wf_59287b8c`) was decisive that the trigger
+must be the **rendered event-log token count, not step count**. Two reasons a
+step-count trigger is wrong:
+
+- **It misfires.** `biomedical-hard-7` is 6 steps but only ~1.1k tokens; its
+  step-3 single-column sheet stats are the exact evidence that makes DELTA answer
+  16 (not 15). A `>5 steps` rule would fold that block and flip the answer back to
+  wrong. Accuracy regression.
+- **It misses.** The biggest savers are *short*: `environment-hard-8` (5 steps,
+  ~9.4k saved) and `environment-hard-15` (~6k) — a step gate set high enough to
+  skip biomedical-hard-7 also skips these.
+
+The token distribution has a **clean gap**: traces that must NOT fold peak at
+~2.18k rendered tokens; genuine savers start at ~3.55k. So the trigger is a token
+floor at **3,500**, which sits in the gap (~1.3k margin) and captures ~95% of the
+savable tokens (~74k of 78k across the sample).
 
 Behind the `staticCompaction` flag (DELTA mode only; ignored in LATEST and when an
 explicit agent `compactContext` mark is present):
 
-- **TRIGGER** — compact once the trajectory has **> 5** snapshot-bearing agent
-  events. Below that the log is small and the tail benefit is nil.
-- **KEEP** — keep the last **3** steps raw (the recent working set); fold
-  everything older into the compact deck.
+- **TRIGGER** — compact once the rendered lossless DELTA event log is **≥ 3,500
+  tokens**. Self-guards short fast-converging traces (they never reach it).
+- **KEEP** — keep the last **2** steps raw (recent working set); fold everything
+  older into the compact deck.
 - **GUARD** — do **not** compact while mid-error-recovery: if the newest agent
   step left any operator in an errored state, the agent is actively debugging and
   needs its recent raw attempts, so the rule holds off until the error clears.
 
-Constants: `STATIC_COMPACT_TRIGGER_STEPS = 5`, `STATIC_COMPACT_KEEP_LAST = 3`
-(`context-utils.ts`). Mechanism reuses the existing deck+raw-suffix renderer
-(`renderAgentCompacted` / `renderCompressed`) — the static rule only computes the
-fold boundary from trajectory shape (`staticCompactionFoldMark`) instead of from an
-agent mark or a token window.
+Constants: `STATIC_COMPACT_TRIGGER_TOKENS = 3500`, `STATIC_COMPACT_KEEP_LAST = 2`
+(`context-utils.ts`). Mechanism renders the lossless delta once to measure it,
+then — if over the floor and past the guards — reuses the existing deck+raw-suffix
+renderer (`renderAgentCompacted` / `renderCompressed`); `staticCompactionFoldMark`
+only computes the fold boundary. Recomputed each turn (monotonic).
+
+**Expected on the analysis sample:** fires on 9/14 traces, 8 realize savings
+(~74k tokens total; biggest legal-hard-1 ~30k, biomedical-hard-1 ~16k,
+environment-hard-8 ~9.4k), skips all 4 must-not-fire traces incl. the sole
+accuracy-critical one. Known caveats: the sliding recompute busts the prompt-cache
+prefix each turn (dollar savings trail raw-token savings, since 73–91% of input is
+cached), and the 3,500 floor is tuned to KramaBench + gpt-5.2 with the current deck
+verbosity — re-tune if the deck rendering changes.
 
 ## Wiring
 

@@ -428,25 +428,36 @@ export function renderContextCore(
         break;
       }
       // Static compaction rule (DELTA-only, behind the staticCompaction flag):
-      // a deterministic trigger on trajectory shape folds older events into the
-      // deck automatically — no agent mark, no token window. Reuses the same
-      // deck+raw-suffix renderer as the agent-triggered path.
+      // a deterministic TOKEN trigger folds older events into the deck once the
+      // rendered event log is large enough — no agent mark, no token budget.
+      // Render lossless first to measure the true event-log size, then decide.
+      // Reuses the deck+raw-suffix renderer of the agent-triggered path.
       if (options.staticCompaction) {
-        const foldMark = staticCompactionFoldMark(tasks);
-        if (foldMark !== undefined) {
-          content = renderAgentCompacted(
-            tasks,
-            workflowState,
-            options,
-            initSnapshot,
-            latestUserContent,
-            latestUserStepId,
-            createFlagsByStep,
-            foldMark,
-            STATIC_COMPACT_KEEP_LAST
-          );
-          break;
-        }
+        const lossless = renderInterleaved(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep
+        );
+        const foldMark = staticCompactionFoldMark(tasks, estimateTokens(lossless));
+        content =
+          foldMark === undefined
+            ? lossless
+            : renderAgentCompacted(
+                tasks,
+                workflowState,
+                options,
+                initSnapshot,
+                latestUserContent,
+                latestUserStepId,
+                createFlagsByStep,
+                foldMark,
+                STATIC_COMPACT_KEEP_LAST
+              );
+        break;
       }
       const windowTokens =
         options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
@@ -770,36 +781,38 @@ const COMPACT_SOFT_TARGET_TOKENS = 4000;
 
 // ── Static compaction rule (DELTA-only) ────────────────────────────────────
 // Ad-hoc-but-deterministic trigger derived from the Latest-vs-Delta 5K trace
-// analysis (docs/compaction-static-rule.md): DELTA's event log grows ~linearly
-// with steps, and by the mid-trajectory the earliest steps (source loads +
-// their consumed inspection scaffolds, resolved error attempts) are settled —
-// their facts already flow downstream into the kept snapshots. Folding them into
-// the compact deck once the trajectory is long enough recovers the tail cost
-// with no loss the agent can act on. Constants are intentionally simple.
+// analysis (docs/compaction-static-rule.md). The decisive signal is the RENDERED
+// DELTA event-log size, not step count: the analysis found a clean gap — traces
+// that must NOT fold peak at ~2.18k tokens; genuine savers start at ~3.55k — and
+// that a step-count trigger both misfires (biomedical-hard-7: 6 steps / ~1.1k
+// tokens, where folding its single-column stats flips 16→15) and misses 5-step
+// savers (environment-hard-8 ~9.4k, environment-hard-15 ~6k). So the trigger is a
+// token floor at 3,500, which also self-guards short fast-converging traces.
 //
-//   TRIGGER : compact once the trajectory has > STATIC_COMPACT_TRIGGER_STEPS
-//             snapshot-bearing agent events.
+//   TRIGGER : rendered lossless event log ≥ STATIC_COMPACT_TRIGGER_TOKENS.
 //   KEEP    : keep the last STATIC_COMPACT_KEEP_LAST steps raw (recent working
 //             set), fold everything older into the `# Dataflow (compacted)` deck.
 //   GUARD   : do NOT compact while mid-error-recovery — if the newest agent
 //             step left an operator in an errored state, the agent is actively
 //             debugging it and needs the recent raw attempts, so we hold off.
-const STATIC_COMPACT_TRIGGER_STEPS = 5;
-const STATIC_COMPACT_KEEP_LAST = 3;
+const STATIC_COMPACT_TRIGGER_TOKENS = 3500;
+const STATIC_COMPACT_KEEP_LAST = 2;
 
 /** Fold boundary for the static compaction rule, or undefined when the rule
- *  says "don't compact yet" (trajectory too short, or mid-error-recovery).
+ *  says "don't compact yet" (event log below the token floor, too few events, or
+ *  mid-error-recovery). `estTokens` is the estimate of the lossless DELTA render.
  *  Returns the newest snapshot-bearing event index so `renderAgentCompacted`
  *  folds all but the last STATIC_COMPACT_KEEP_LAST steps. */
-function staticCompactionFoldMark(tasks: TaskGroup[]): number | undefined {
+function staticCompactionFoldMark(tasks: TaskGroup[], estTokens: number): number | undefined {
+  // Trigger: the rendered event log must be large enough to be worth folding.
+  if (estTokens < STATIC_COMPACT_TRIGGER_TOKENS) return undefined;
   const snapEvents: { idx: number; snap: SnapshotData }[] = [];
   for (const task of tasks) {
     for (const node of task.nodes) {
       if (node.step.role === "agent" && node.snapshot) snapEvents.push({ idx: node.eventIndex, snap: node.snapshot });
     }
   }
-  // Trigger: enough trajectory to be worth folding, with room to keep K raw.
-  if (snapEvents.length <= STATIC_COMPACT_TRIGGER_STEPS) return undefined;
+  // Need more events than we keep raw, else there is nothing to fold.
   if (snapEvents.length <= STATIC_COMPACT_KEEP_LAST + 1) return undefined;
   // Safety guard: skip while mid-error-recovery (newest snapshot has an errored
   // operator) — the agent needs its recent raw attempts to debug.

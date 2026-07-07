@@ -597,9 +597,11 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
  * ========================================================================= */
 
 describe("assembleContext — staticCompaction rule (DELTA)", () => {
-  // N snapshot-bearing agent events on a single growing chain; the last op is
-  // errored iff `lastErrored`.
-  function nEventScenario(n: number, lastErrored = false) {
+  // N snapshot-bearing agent events on a single growing chain. `padChars` pads
+  // each thought so the rendered lossless event log clears (or stays under) the
+  // 3,500-token trigger; the last op is errored iff `lastErrored`.
+  function nEventScenario(n: number, padChars = 0, lastErrored = false) {
+    const filler = padChars > 0 ? " " + "x".repeat(padChars) : "";
     const steps: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
       {
         id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
@@ -612,7 +614,7 @@ describe("assembleContext — staticCompaction rule (DELTA)", () => {
     for (let i = 1; i <= n; i++) {
       steps.push({
         id: `t${i}`, stepId: i, role: "agent", messageId: "m", parentId: parent,
-        isBegin: i === 1, content: `step ${i}`,
+        isBegin: i === 1, content: `step ${i}${filler}`,
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${i}`, input: { operatorId: `op${i}` } }],
         toolResults: [{ toolCallId: `c${i}`, output: "ok", isError: false }],
       });
@@ -629,35 +631,40 @@ describe("assembleContext — staticCompaction rule (DELTA)", () => {
     return sc;
   }
 
-  test("long trajectory (>5 events): folds older events into the compacted deck", () => {
-    const sc = nEventScenario(7);
+  // ~2.5k chars/event × 7 ≈ 17.5k chars ≈ 4.4k tok — clears the 3,500 floor.
+  const BIG = 2500;
+
+  test("large event log (>= 3500 tok): folds older events into the compacted deck", () => {
+    const sc = nEventScenario(7, BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
     expect(c).toContain("# Dataflow (compacted");
-    // keep-last-3 raw: the newest ops survive as raw delta after the deck.
+    // keep-last-2 raw: the newest ops survive as raw delta after the deck.
     expect(c).toContain("# Agent Events (since the compacted snapshot above)");
     expect(c).toContain("op7");
   });
 
-  test("short trajectory (<= 5 events): no compaction (trigger not met)", () => {
-    const sc = nEventScenario(4);
+  test("small event log (< 3500 tok): no compaction even with many steps", () => {
+    // 8 events but tiny content → well under the token floor (guards the
+    // biomedical-hard-7 failure mode: don't fold a short, evidence-dense trace).
+    const sc = nEventScenario(8, 0);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
     expect(c).not.toContain("# Dataflow (compacted");
   });
 
-  test("safety guard: mid-error-recovery (newest op errored) → no compaction even if long", () => {
-    const sc = nEventScenario(7, /* lastErrored */ true);
+  test("safety guard: mid-error-recovery (newest op errored) → no compaction even if large", () => {
+    const sc = nEventScenario(7, BIG, /* lastErrored */ true);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
     );
     expect(c).not.toContain("# Dataflow (compacted");
   });
 
-  test("flag off: long trajectory stays lossless (no compaction)", () => {
-    const sc = nEventScenario(7);
+  test("flag off: large event log stays lossless (no compaction)", () => {
+    const sc = nEventScenario(7, BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: false })
     );
@@ -665,7 +672,7 @@ describe("assembleContext — staticCompaction rule (DELTA)", () => {
   });
 
   test("LATEST mode ignores the flag (no trajectory, no deck)", () => {
-    const sc = nEventScenario(7);
+    const sc = nEventScenario(7, BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.LATEST, { ...opts, staticCompaction: true })
     );
