@@ -257,3 +257,40 @@ waste) — but mid-run compaction and fine param twiddling have ≈zero addition
 accuracy headroom on this benchmark's failures. This replicates the 60-trace haiku
 finding ("context is a cost lever; accuracy ceiling ~1 task") on fresh gpt-5.2 data
 across 6 configs.
+
+## v3 results (2026-07-07): data_level=2, 10K, static-compaction A/B, code-agent 10K
+
+Oracle-mode accuracy (/74 truth-subset; note the string-approx metric has ±1-2 task
+LLM-judge variance, so treat small absolute gaps cautiously — the compaction A/B is
+paired and robust):
+
+| SUT | acc (/74) | $/task | cache% |
+|---|---|---|---|
+| Delta5k baseline (d1, flag off) | 74.3% | $0.054 | 82% |
+| **Delta5k + static COMPACT** | **68.9%** | **$0.066** | **73%** |
+| Latest10k + d2 | 71.6% | $0.061 | 80% |
+| Delta10k + d2 | 67.6% | $0.061 | 76% |
+| CodeAgent 10k guided | 66.2% | $0.063 | 78% |
+
+**1. Static compaction A/B — BACKFIRED (headline).** Paired on 104 tasks: −4 accuracy
+(broke 6 incl. legal-hard-1 — the analysis's top "safe fold" — env-hard-7/8,
+legal-hard-8/22, env-easy-6; fixed 2), and +22% cost. Mechanism: DELTA is 82%
+prompt-cached; folding rewrites the cached prefix every turn (cache 82%→73%), so raw
+tokens stay flat but billed cost rises, while the fold perturbs downstream reasoning.
+The static token-savings estimate (~74k, ~0 risk) was a counterfactual that assumed a
+fixed trajectory and uncached billing — both false live. **Lesson: compaction on a
+prompt-cached agent is counterproductive; the cache already compacts for free.**
+See compaction-static-rule.md for the full A/B table.
+
+**2. data_level=2 recovery (Output Table profile).** Ran the d1 5K failures at d2:
+LATEST recovered 2/22 (legal-easy-19, legal-hard-22), DELTA recovered 1/19
+(legal-hard-15 — the `duplicate rows:` fact drove the dedup, the intended mechanism).
+Modest but real; the profile helps a few dedup/units cases, no free lunch.
+
+**3. 10K + d2 did not help.** Latest10k+d2 (71.6%) and Delta10k+d2 (67.6%) are at or
+below the 5K d1 baseline (~74%) and cost more ($0.061 vs $0.054) — a bigger result
+window + structural profile bought nothing here (consistent with the earlier
+leaner-LATEST finding: more context ≠ more accuracy).
+
+**4. CodeAgent 10k guided: 66.2% / $0.063** — in line with the 5k guided arm; the
+larger stdout cap didn't move it.

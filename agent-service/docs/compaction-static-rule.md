@@ -65,7 +65,42 @@ then — if over the floor and past the guards — reuses the existing deck+raw-
 renderer (`renderAgentCompacted` / `renderCompressed`); `staticCompactionFoldMark`
 only computes the fold boundary. Recomputed each turn (monotonic).
 
-**Expected on the analysis sample:** fires on 9/14 traces, 8 realize savings
+## EMPIRICAL VERDICT (v3 A/B, 2026-07-07) — the rule BACKFIRED
+
+Ran `DataflowSystemGPT52DeltaStats5kCompact` (this rule ON) vs the identical
+`DataflowSystemGPT52DeltaStats5k` baseline (flag OFF), full 104-task run + recovery,
+paired comparison. **Compaction made things worse on BOTH axes:**
+
+| metric | baseline (flag off) | +COMPACT | Δ |
+|---|---|---|---|
+| accuracy (oracle /74) | 55 (74.3%) | 51 (68.9%) | **−4** (broke 6, fixed 2) |
+| cost / task | $0.054 | $0.066 | **+22%** |
+| prompt-cache hit | 82% | 73% | **−9 pts** |
+| raw input tokens | 7.08M | 7.05M | ~flat |
+
+**Why the static analysis over-promised (~74k saved, ~0 risk) and live reality is the
+opposite:** the analysis was a *static counterfactual* — it measured what raw tokens
+*could* be folded assuming (a) the trajectory stays fixed and (b) tokens are billed
+uncached. Both are false live:
+1. **Folding changes agent behavior.** With settled history folded to a deck the agent
+   made different (worse) decisions on 6 tasks — legal-hard-1 (the analysis's #1
+   "safe 30k fold") flipped right→wrong, plus environment-hard-7/8, legal-hard-8/22,
+   environment-easy-6. You cannot fold "settled" context without perturbing the
+   downstream reasoning that depended on it being verbatim.
+2. **The prompt cache already does compaction's job for free.** 82% of DELTA input is
+   cached (cached tokens ≈ 10% the price). Folding *rewrites the event-log prefix every
+   turn*, invalidating the KV cache (hit 82%→73%) — so raw tokens stay flat while the
+   *billed* (uncached) share grows, driving cost **+22%**. Compaction fights the cache.
+
+**Conclusion: on a heavily prompt-cached DELTA agent, this static compaction rule is
+counterproductive** — it neither saves cost nor holds accuracy. The flag + mechanism
+are retained (off by default) as a validated negative result and reusable substrate;
+the paired numbers are the deliverable. The section below is the pre-run *prediction*,
+preserved to show exactly where the static estimate diverged from live behavior.
+
+---
+
+**[SUPERSEDED PREDICTION]** Expected on the analysis sample: fires on 9/14 traces, 8 realize savings
 (~74k tokens total; biggest legal-hard-1 ~30k, biomedical-hard-1 ~16k,
 environment-hard-8 ~9.4k), skips all 4 must-not-fire traces incl. the sole
 accuracy-critical one. Known caveats: the sliding recompute busts the prompt-cache
