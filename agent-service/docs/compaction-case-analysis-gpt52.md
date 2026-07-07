@@ -212,3 +212,48 @@ aggregate but is not a targeted cure for specific diagnosed failures.
   trajectory dragged exploration). Neither mode dominates cost; whichever avoids the
   task's failure mode (re-render bloat vs trajectory thrash) wins — task-dependent,
   the adaptive-policy argument again.
+
+## Failure autopsy — would on-demand compaction / param tuning fix the failures?
+
+Deep autopsy of all 21 scored dataflow failures (15 core = fail in all 6 configs; 6
+mode-sensitive), agents reproducing gold computations from the raw data to pin root
+causes. Deterministic profile first: mode-sensitive failures run ~2× median tokens
+(77–96k vs 43–48k); core failures include the 26-step/260–500k tail — but median
+failure is 6 steps, i.e. most failures are NOT thrash.
+
+**Taxonomy (n=21):** data-intrinsic 12 · action-reasoning 5 · scoring-artifact 2 ·
+context-render 1 · infra-hang 1. Thrash flagged on 7/21.
+
+**Lever verdicts (strict, evidence-cited):**
+- **On-demand compaction: 0/21 flips (yes 0, plausibly 0).** The "thrash → compaction
+  helps" intuition is directly falsified: all 7 thrash cases are within-task churn
+  (wrong globs, misleading loader hint, messy Excel headers, engine '(not executed)',
+  filter re-edits) — folding old trajectory removes none of the root causes. Counter-
+  evidence: in environment-hard-10 the FAILING delta arms had the SHORTEST contexts
+  (13.8k chars, 4 steps). Compaction stays a COST/robustness lever, not accuracy.
+- **Param tuning: 1 yes + 2 plausibly, 18 no — and ~0 headroom beyond the oracle.**
+  The confirmed case: astronomy-hard-9 — the deciding 'ap-index' spec line sits at
+  char ~8.8k of omni2.text, outside BOTH the 2k and 5k windows (raise char limit on
+  long text-spec loads). Plausible: legal-hard-1 (2k truncation churn), biomedical-
+  hard-7 (header-is-a-value hint). All 3 are already solved by some existing config,
+  so per-state tuning mainly makes wins robust across configs rather than unlocking
+  new tasks.
+- **Where flexibility DOES pay for accuracy: per-task CONFIG SELECTION.** The oracle
+  that picks the best existing fixed config per task = +6 exact-solve tasks (+5.8 pts)
+  over the best single arm — that is real, measured headroom, and choosing
+  latest-vs-delta / stats-vs-schema per task IS parameter flexibility at task grain.
+
+**The hard core (15/21) needs non-context fixes:** benchmark bugs (legal-easy-21's
+gold parser drops the first data row; legal-hard-24's gold strips a comma the prompt
+required — 2 free tasks benchmark-side), question disambiguation (the unguessable
+year=1950−Age_ky.1.round(0)*1000 mapping drives 3 archeology-hard fails; capital-tier
+definition; Euclidean-vs-box '0.1 degrees'), infra (gpt-5.x pre-step hang; engine
+'(not executed)'; NRLMSISE-00 absent), and agent verification behaviors for the 5
+action-reasoning cases (dedup checks, exact-name checks) — policy, not rendering.
+
+**Bottom line:** flexibility helps accuracy at TASK grain (config selection, +5.8pts
+oracle) and helps COST at state grain (19–40% render savings, the 2.3× stats-block
+waste) — but mid-run compaction and fine param twiddling have ≈zero additional
+accuracy headroom on this benchmark's failures. This replicates the 60-trace haiku
+finding ("context is a cost lever; accuracy ceiling ~1 task") on fresh gpt-5.2 data
+across 6 configs.
