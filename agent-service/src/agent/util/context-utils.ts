@@ -967,13 +967,15 @@ function renderAgentCompacted(
   markEventIndex: number,
   keepLastSteps: number
 ): string {
+  // The raw suffix is the ACTIVE working set (the operator the agent is still
+  // deciding on) — render it at the SAME data fidelity as lossless DELTA, so the
+  // stats that drive decisions (distinct / duplicate_values / Output Table
+  // profile) are present on the op being acted upon. Only the folded DECK is
+  // summarized; stripping stats from the live suffix was hiding exactly the
+  // dedup/grain signal the agent needs (legal-hard-1 diagnosis).
   const suffixOptions: AssembleContextOptions = {
     ...options,
     schemaInResult: true,
-    columnStats: false,
-    tableStructureHint: false,
-    valueFormatFlags: false,
-    coercionTelemetry: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
     opExtras: undefined,
