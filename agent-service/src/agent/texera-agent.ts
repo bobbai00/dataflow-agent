@@ -790,6 +790,7 @@ export class TexeraAgent {
     enableInspectTool?: boolean;
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
+    staticCompaction?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -951,6 +952,9 @@ export class TexeraAgent {
     }
     if (updates.compactKeepLastSteps !== undefined) {
       this.settings.compactKeepLastSteps = updates.compactKeepLastSteps;
+    }
+    if (updates.staticCompaction !== undefined) {
+      this.settings.staticCompaction = updates.staticCompaction;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner

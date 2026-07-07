@@ -175,6 +175,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       compactKeepLastSteps: settings.compactKeepLastSteps,
       showCompactMeter: settings.enableCompactTool,
+      staticCompaction: settings.staticCompaction,
       attemptReflection: settings.attemptReflection,
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
@@ -296,6 +297,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     enableInspectTool: agentSettings.enableInspectTool,
     enableCompactTool: agentSettings.enableCompactTool,
     compactKeepLastSteps: agentSettings.compactKeepLastSteps,
+    staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
   };
 
@@ -499,6 +501,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           enableInspectTool: (settings as any).enableInspectTool,
           enableCompactTool: (settings as any).enableCompactTool,
           compactKeepLastSteps: (settings as any).compactKeepLastSteps,
+          staticCompaction: (settings as any).staticCompaction,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -554,6 +557,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableInspectTool: t.Optional(t.Boolean()),
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
+            staticCompaction: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),

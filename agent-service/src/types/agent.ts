@@ -311,6 +311,13 @@ export interface AgentSettings {
    */
   compactKeepLastSteps: number;
   /**
+   * Static compaction rule (DELTA-only). When true, the assembler automatically
+   * folds settled older events into the compact deck once the trajectory grows
+   * past a static trigger, keeping the last K steps raw — a deterministic
+   * demonstration that compaction pays off, with no agent involvement.
+   */
+  staticCompaction: boolean;
+  /**
    * When set, an LLM "teacher" (context tuner) is consulted each step: it reads
    * a cheap pipeline manifest and returns per-operator context detail levels
    * (context/tuner). Overrides the selector/contextMode paths. The value names
@@ -373,6 +380,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableInspectTool: false,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
+  staticCompaction: false,
 };
 
 /**
@@ -471,6 +479,8 @@ export interface AgentSettingsApi {
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
   compactKeepLastSteps?: number;
+  /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
+  staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
 }
@@ -541,6 +551,8 @@ export interface UpdateAgentSettingsRequest {
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
   compactKeepLastSteps?: number;
+  /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
+  staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
 }

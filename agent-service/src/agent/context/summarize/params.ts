@@ -209,6 +209,9 @@ export const TrajectoryParamsSchema = z.object({
   /** Show the context-budget meter atop DELTA context (the observable signal for
    *  the agent's compactContext decision). */
   showCompactMeter: z.boolean().default(false),
+  /** Static compaction rule (DELTA-only): auto-fold settled older events into the
+   *  deck once the trajectory passes a static trigger, keeping the last K raw. */
+  staticCompaction: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -353,6 +356,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       deckSampleRatio: options.deckSampleRatio ?? 0.1,
       compactKeepLastSteps: options.compactKeepLastSteps ?? 0,
       showCompactMeter: options.showCompactMeter ?? false,
+      staticCompaction: options.staticCompaction ?? false,
     },
     currentSnapshot: isLatest,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,

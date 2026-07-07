@@ -104,6 +104,12 @@ export interface AssembleContextOptions {
    *  observable signal that lets the agent decide when to call compactContext).
    *  Enabled when the compact tool is on. */
   showCompactMeter?: boolean;
+  /** Static compaction rule (DELTA-only). When true, the assembler AUTOMATICALLY
+   *  folds older events into the compact deck once the trajectory grows past a
+   *  static trigger, keeping the last K steps raw — no agent involvement, no
+   *  token window. Deterministic on trajectory shape (see staticCompactionFoldMark).
+   *  Ignored in LATEST mode and when an agent `compactContext` mark is present. */
+  staticCompaction?: boolean;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -420,6 +426,27 @@ export function renderContextCore(
           Math.max(0, options.compactKeepLastSteps ?? 0)
         );
         break;
+      }
+      // Static compaction rule (DELTA-only, behind the staticCompaction flag):
+      // a deterministic trigger on trajectory shape folds older events into the
+      // deck automatically — no agent mark, no token window. Reuses the same
+      // deck+raw-suffix renderer as the agent-triggered path.
+      if (options.staticCompaction) {
+        const foldMark = staticCompactionFoldMark(tasks);
+        if (foldMark !== undefined) {
+          content = renderAgentCompacted(
+            tasks,
+            workflowState,
+            options,
+            initSnapshot,
+            latestUserContent,
+            latestUserStepId,
+            createFlagsByStep,
+            foldMark,
+            STATIC_COMPACT_KEEP_LAST
+          );
+          break;
+        }
       }
       const windowTokens =
         options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
@@ -740,6 +767,54 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
  *  constant; chosen so multi-source / multi-step DELTA runs cross it mid-trajectory
  *  (traces run 10-40k), giving the agent a signal to compact at a natural boundary. */
 const COMPACT_SOFT_TARGET_TOKENS = 4000;
+
+// ── Static compaction rule (DELTA-only) ────────────────────────────────────
+// Ad-hoc-but-deterministic trigger derived from the Latest-vs-Delta 5K trace
+// analysis (docs/compaction-static-rule.md): DELTA's event log grows ~linearly
+// with steps, and by the mid-trajectory the earliest steps (source loads +
+// their consumed inspection scaffolds, resolved error attempts) are settled —
+// their facts already flow downstream into the kept snapshots. Folding them into
+// the compact deck once the trajectory is long enough recovers the tail cost
+// with no loss the agent can act on. Constants are intentionally simple.
+//
+//   TRIGGER : compact once the trajectory has > STATIC_COMPACT_TRIGGER_STEPS
+//             snapshot-bearing agent events.
+//   KEEP    : keep the last STATIC_COMPACT_KEEP_LAST steps raw (recent working
+//             set), fold everything older into the `# Dataflow (compacted)` deck.
+//   GUARD   : do NOT compact while mid-error-recovery — if the newest agent
+//             step left an operator in an errored state, the agent is actively
+//             debugging it and needs the recent raw attempts, so we hold off.
+const STATIC_COMPACT_TRIGGER_STEPS = 5;
+const STATIC_COMPACT_KEEP_LAST = 3;
+
+/** Fold boundary for the static compaction rule, or undefined when the rule
+ *  says "don't compact yet" (trajectory too short, or mid-error-recovery).
+ *  Returns the newest snapshot-bearing event index so `renderAgentCompacted`
+ *  folds all but the last STATIC_COMPACT_KEEP_LAST steps. */
+function staticCompactionFoldMark(tasks: TaskGroup[]): number | undefined {
+  const snapEvents: { idx: number; snap: SnapshotData }[] = [];
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role === "agent" && node.snapshot) snapEvents.push({ idx: node.eventIndex, snap: node.snapshot });
+    }
+  }
+  // Trigger: enough trajectory to be worth folding, with room to keep K raw.
+  if (snapEvents.length <= STATIC_COMPACT_TRIGGER_STEPS) return undefined;
+  if (snapEvents.length <= STATIC_COMPACT_KEEP_LAST + 1) return undefined;
+  // Safety guard: skip while mid-error-recovery (newest snapshot has an errored
+  // operator) — the agent needs its recent raw attempts to debug.
+  const newest = snapEvents[snapEvents.length - 1].snap;
+  if (snapshotHasErroredOperator(newest)) return undefined;
+  return snapEvents[snapEvents.length - 1].idx;
+}
+
+/** True if any operator in the snapshot is currently in an errored state. */
+function snapshotHasErroredOperator(snap: SnapshotData): boolean {
+  for (const [, rv] of snap.results) {
+    if (rv?.info?.error) return true;
+  }
+  return false;
+}
 
 /** The eventIndex of the newest `compactContext` tool call in the visible path,
  *  or undefined if the agent never compacted. That mark is the fold boundary. */

@@ -148,6 +148,7 @@ export function paramsToRenderOptions(
     deckSampleRatio: params.trajectory.deckSampleRatio,
     compactKeepLastSteps: params.trajectory.compactKeepLastSteps,
     showCompactMeter: params.trajectory.showCompactMeter,
+    staticCompaction: params.trajectory.staticCompaction,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,
