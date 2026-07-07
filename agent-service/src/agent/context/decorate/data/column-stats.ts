@@ -55,7 +55,8 @@ export function formatColumnStats(
     // Near-key duplicate signal (legal-hard-15 lesson): `distinct=401` on 452
     // rows is a passive cue the model must do arithmetic on — and the sample
     // can never show far-apart duplicates (head/tail of a concatenated table).
-    // Make it active: append the precomputed dup_rows, and raise an explicit
+    // Make it active: append the precomputed duplicate_values count (surplus
+    // value occurrences in this column = nonNull − distinct), and raise an explicit
     // alarm for MOSTLY-unique string columns (the "should this be unique?"
     // shape — entity names/ids duplicated across concatenated files).
     // Categoricals (low uniqueness) are untouched; display-format columns
@@ -63,10 +64,10 @@ export function formatColumnStats(
     if (display && rows > 0) {
       const nk = nearKeyDuplicates(display, rows);
       if (nk) {
-        display = `${display}, dup_rows=${nk.dup}`;
+        display = `${display}, duplicate_values=${nk.dup}`;
         if (nk.alarm) {
           alarms.push(
-            `⚠ near-key duplicates: "${c}" — ${nk.dup} of ${nk.nonNull} non-null rows are duplicates ` +
+            `⚠ near-key duplicates: "${c}" — ${nk.dup} of ${nk.nonNull} non-null values in this column are repeats ` +
               `(distinct=${nk.distinct}); if values should be unique (e.g. entities across concatenated files), ` +
               `dedupe before counting/aggregating.`
           );
@@ -81,7 +82,7 @@ export function formatColumnStats(
   return ["Column Schema and stats:", ...lines, ...alarms].join("\n");
 }
 
-/** Uniqueness ratio thresholds: dup_rows is appended at ≥0.5 (mostly-unique);
+/** Uniqueness ratio thresholds: duplicate_values is appended at ≥0.5 (mostly-unique);
  *  the alarm fires at ≥0.7 (near-key). Both require dup > 0. */
 const DUP_ANNOTATE_RATIO = 0.5;
 const DUP_ALARM_RATIO = 0.7;

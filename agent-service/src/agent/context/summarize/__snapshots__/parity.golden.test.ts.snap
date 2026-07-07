@@ -470,7 +470,7 @@ Result:
   Column Schema and stats:
   - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}
   - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
-  - "price_display" (str): null=0, distinct=890, format=currency, dup_rows=110
+  - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
   - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
   Format hints: "price_display" currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them
   Data hints:
@@ -903,7 +903,7 @@ Result:
   Column Schema and stats:
   - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}
   - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
-  - "price_display" (str): null=0, distinct=890, format=currency, dup_rows=110
+  - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
   - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
 
 ### Operator \`orphan_load\` (DataLoading)
