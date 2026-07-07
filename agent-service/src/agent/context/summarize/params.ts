@@ -216,14 +216,12 @@ export const FlowParamsSchema = z.object({
   /** Remediation hint on a failed DataLoading op (exception-class keyed). */
   loaderHints: z.boolean().default(false),
   /** Cardinality alarms: empty output / fan-out explosion / empty load. */
-  cardinalityAlarms: z.boolean().default(false),
   /** On an errored process op: upstream input schema + sample rows (or a
    *  pointer to the upstream's Result when it is already rendered). */
   errorContext: z.boolean().default(false),
   /** Dead/disconnected loader detection (typed-DAG reachability). */
   graphAudit: z.boolean().default(false),
   /** Degenerate-join telemetry (near-zero key match, m:n fan-out). */
-  joinAlarms: z.boolean().default(false),
   /** Fold per-operator attempt/error history into errored operators' blocks +
    *  a root-cause-ordered pointer index in the flow section. */
   errorReflection: z.boolean().default(false),
@@ -360,10 +358,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
     flow: {
       loaderHints: flag("loaderHint"),
-      cardinalityAlarms: flag("lineageStats"),
       errorContext: flag("lineageErrorContext"),
       graphAudit: flag("graphAudit"),
-      joinAlarms: flag("joinTelemetry"),
       errorReflection: options.errorReflection ?? false,
       errorReflectionThreshold: options.errorReflectionThreshold ?? 3,
       attemptReflection: options.attemptReflection ?? false,

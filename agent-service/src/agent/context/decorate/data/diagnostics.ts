@@ -18,7 +18,6 @@
  */
 
 import type { OperatorInfo } from "../../../../types/execution";
-import { JOIN_TELEMETRY_KEY } from "./reserved-keys";
 
 /**
  * Worker-published operator-level diagnostics (post-hoc). The amber worker ships
@@ -38,6 +37,3 @@ export function formatReservedDiag(opInfo: OperatorInfo, key: string): string | 
   return v.split(" || ").map(s => s.trim()).filter(Boolean).join("\n");
 }
 
-export function formatJoinTelemetry(opInfo: OperatorInfo): string | undefined {
-  return formatReservedDiag(opInfo, JOIN_TELEMETRY_KEY);
-}

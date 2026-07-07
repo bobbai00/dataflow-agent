@@ -28,8 +28,7 @@ import { formatSchemaLine } from "../context/decorate/data/schema";
 import { formatColumnStats } from "../context/decorate/data/column-stats";
 import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
-import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
-import { formatLineage } from "../context/decorate/flow/cardinality";
+import { formatReservedDiag } from "../context/decorate/data/diagnostics";
 import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
@@ -39,9 +38,7 @@ export {
   formatSchemaLine,
   formatColumnStats,
   formatValueFormatHints,
-  formatLineage,
   formatTableHints,
-  formatJoinTelemetry,
   formatReservedDiag,
 };
 

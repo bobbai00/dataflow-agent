@@ -335,11 +335,6 @@ class DataProcessor(Runnable, Stoppable):
         try:
             executor = self._context.executor_manager.executor
             port_id = self._context.tuple_processing_manager.get_input_port_id()
-            # Lever 2: transparently instrument pandas merge for multi-table
-            # operators only (the join-capable ones), to keep the monkeypatch
-            # blast radius tight. The wrapper is fully guarded; it can never
-            # break the user's merge.
-            joined = self._maybe_install_join_telemetry(executor)
             # Lever 4: instrument to_numeric/to_datetime coerce for every
             # operator — coercion dataloss can happen in any UDF (load or
             # process). Guarded; can never break the user's conversion.
@@ -363,12 +358,6 @@ class DataProcessor(Runnable, Stoppable):
             # sees its own code + line, not engine internals.
             self._report_exception(exc_info)
         finally:
-            if joined:
-                try:
-                    from core.util import join_telemetry
-                    join_telemetry.uninstall()
-                except Exception:
-                    pass
             if coerced:
                 try:
                     from core.util import coercion_telemetry
@@ -376,22 +365,6 @@ class DataProcessor(Runnable, Stoppable):
                 except Exception:
                     pass
             self._switch_context()
-
-    @staticmethod
-    def _maybe_install_join_telemetry(executor) -> bool:
-        """Install the transparent merge instrumentation (lever 2) ONLY for
-        multi-table operators — the only ones that join two input frames. Keeps
-        the global pandas.merge monkeypatch off every loader / single-table op.
-        Returns True iff installed (so `_executor_session` uninstalls)."""
-        try:
-            from pytexera.udf.udf_multi_table_operator import UDFMultiTableOperator
-            from core.util import join_telemetry
-        except Exception:
-            return False
-        if not isinstance(executor, UDFMultiTableOperator):
-            return False
-        join_telemetry.install()
-        return True
 
     @staticmethod
     def _install_coercion_telemetry() -> bool:
@@ -667,17 +640,6 @@ class DataProcessor(Runnable, Stoppable):
         for i, col_name in enumerate(deduped_columns):
             col = df.iloc[:, i]
             stats[col_name] = self._compute_column_stats(col)
-        # Lever 2: attach any degenerate-join diagnostics captured by the merge
-        # instrumentation during this operator's execution, under a reserved
-        # key (the agent-service strips it from the schema/stats render and
-        # surfaces it via the gated `joinTelemetry` line).
-        try:
-            from core.util import join_telemetry
-            diags = join_telemetry.drain()
-            if diags:
-                stats["__join_telemetry__"] = " || ".join(diags)
-        except Exception:
-            pass
         # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
         try:
             from core.util import coercion_telemetry

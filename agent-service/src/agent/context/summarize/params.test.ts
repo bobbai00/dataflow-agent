@@ -122,7 +122,7 @@ describe("mapLegacyToParams — the presets", () => {
       dataLevel: 1,
     });
     expect(p.flow.loaderHints).toBe(true); // flow L1
-    expect(p.flow.cardinalityAlarms).toBe(true); // flow L2
+    expect(p.flow.errorContext).toBe(true); // flow L2 (error-context)
     expect(p.flow.graphAudit).toBe(false); // flow L3 not reached
     expect(p.operators.defaults.result.latest.column.schema).toBe(true); // data L1
     expect(p.operators.defaults.result.latest.column.structuralHints).toBe(false); // data L2 not reached

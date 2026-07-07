@@ -110,8 +110,8 @@ describe("selectParams — per-operator allocation", () => {
   });
 
   test("flow insurance is on and error-reflection fires under thrash", () => {
-    expect(params.flow.cardinalityAlarms).toBe(true);
     expect(params.flow.errorContext).toBe(true);
+    expect(params.flow.loaderHints).toBe(true);
     expect(params.flow.errorReflection).toBe(true);
   });
 });
@@ -125,10 +125,10 @@ describe("SelectorConfig knobs move the policy", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ thrashHistoryThreshold: 10 }));
     expect(resolveOperatorParams(p, "by_region").property.codeHistory).toBe(0);
   });
-  test("insurance=false drops the alarm rungs", () => {
+  test("insurance=false drops the flow rungs", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ insurance: false }));
-    expect(p.flow.cardinalityAlarms).toBe(false);
-    expect(p.flow.joinAlarms).toBe(false);
+    expect(p.flow.loaderHints).toBeFalsy();
+    expect(p.flow.errorContext).toBeFalsy();
   });
   test("frontierSampleRows flows through to the frontier op", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ frontierSampleRows: 3 }));

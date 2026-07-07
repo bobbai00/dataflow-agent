@@ -20,7 +20,7 @@
 import type { OperatorDecorator, OperatorDecorateCtx } from "../decorator";
 
 /**
- * Flow-L2 (pre-emptive). On a load-stage operator (`DataLoading`) that errored,
+ * Flow-L1 (pre-emptive). On a load-stage operator (`DataLoading`) that errored,
  * append a `Loader hint:` remediation line keyed solely on the exception class
  * parsed from the error string. Current snapshot only (inject-once — avoids
  * repeating across FULL-mode history). The dataflow-specific delivery a
@@ -49,7 +49,7 @@ export function formatLoaderHint(errorText: string): string | undefined {
 export const loaderRemediation: OperatorDecorator = {
   id: "flow.loader_remediation",
   facet: "flow",
-  level: 2,
+  level: 1,
   mode: "preemptive",
   placement: "in-result",
   applies(ctx: OperatorDecorateCtx): boolean {

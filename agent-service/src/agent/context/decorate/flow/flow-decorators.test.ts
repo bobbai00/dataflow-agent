@@ -111,9 +111,9 @@ describe("loader-remediation decorator", () => {
     expect(out.join(" ")).toContain("EXACT file path");
   });
 
-  test("descriptor placement is flow L2 preemptive in-result", () => {
+  test("descriptor placement is flow L1 preemptive in-result", () => {
     expect(loaderRemediation.facet).toBe("flow");
-    expect(loaderRemediation.level).toBe(2);
+    expect(loaderRemediation.level).toBe(1);
     expect(loaderRemediation.mode).toBe("preemptive");
     expect(loaderRemediation.placement).toBe("in-result");
   });

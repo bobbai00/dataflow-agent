@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { formatLoaderHint } from "./util/context-utils";
-import { formatValueFormatHints, formatLineage, formatJoinTelemetry } from "./tools/result-formatting";
+import { formatValueFormatHints } from "./tools/result-formatting";
 
 describe("formatValueFormatHints (value-format flags)", () => {
   // The backend (data_processor._detect_numeric_format) does detection over the
@@ -36,54 +36,6 @@ describe("formatValueFormatHints (value-format flags)", () => {
     expect(formatValueFormatHints(mk({ city: '(str): null=0, distinct=2, top_5={"East"=1, "West"=1}' }))).toBeUndefined();
     expect(formatValueFormatHints(mk({ x: "(numeric): null=0, mean=1.5, min=1, max=2" }))).toBeUndefined();
     expect(formatValueFormatHints(mk({}))).toBeUndefined();
-  });
-});
-
-describe("formatLineage (lever 1: cardinality ALARM, alarm-only emission)", () => {
-  const mk = (out: number, inRows: number[]) =>
-    ({ totalRowCount: out, inputPortShapes: inRows.map((rows, portIndex) => ({ portIndex, rows, columns: 3 })) } as any);
-  test("normal shrink → NO line (alarm-only)", () => {
-    expect(formatLineage(mk(200, [1000]))).toBeUndefined();
-  });
-  test("empty output → EMPTY alarm", () => {
-    const h = formatLineage(mk(0, [1000]));
-    expect(h!).toContain("EMPTY output");
-    expect(h!).toContain("⚠");
-  });
-  test("fan-out explosion → EXPLODED alarm", () => {
-    const h = formatLineage(mk(5000, [100]));
-    expect(h!).toContain("EXPLODED");
-    expect(h!).toContain("⚠");
-  });
-  test("2x concat does NOT alarm", () => {
-    expect(formatLineage(mk(2000, [1000, 1000]))).toBeUndefined();
-  });
-  test("source: empty load alarms, non-empty load is silent", () => {
-    expect(formatLineage(mk(500, []))).toBeUndefined();
-    expect(formatLineage(mk(0, []))!).toContain("⚠");
-  });
-  test("aggregation to 1 row does NOT alarm (legit shrink)", () => {
-    expect(formatLineage(mk(1, [50000]))).toBeUndefined();
-  });
-  test("no output count → undefined", () => {
-    expect(formatLineage({ inputPortShapes: [{ portIndex: 0, rows: 5, columns: 2 }] } as any)).toBeUndefined();
-  });
-});
-
-describe("formatJoinTelemetry (lever 2: degenerate-join surfacing)", () => {
-  const mk = (cs: Record<string, string>) => ({ columnStats: cs } as any);
-  test("renders the worker's join diagnostic from the reserved key", () => {
-    const h = formatJoinTelemetry(mk({ state: "(str): null=0", __join_telemetry__: "Join check ⚠ on state: 5×3 → 0% matched; left-only ['CA']; right-only ['California']" }));
-    expect(h!).toContain("Join check ⚠");
-    expect(h!).toContain("left-only");
-  });
-  test("multiple diagnostics ' || '-joined render one per line", () => {
-    const h = formatJoinTelemetry(mk({ __join_telemetry__: "Join check ⚠ A || Join check ⚠ B" }));
-    expect(h!.split("\n").length).toBe(2);
-  });
-  test("no reserved key → undefined", () => {
-    expect(formatJoinTelemetry(mk({ state: "(str): null=0" }))).toBeUndefined();
-    expect(formatJoinTelemetry({} as any)).toBeUndefined();
   });
 });
 

@@ -53,14 +53,6 @@ export const RUNGS: readonly RungDescriptor[] = [
     note: "on a failed DataLoading op, remediation keyed on the exception class (converge)",
   },
   {
-    id: "flow.cardinality",
-    facet: "flow",
-    level: 2,
-    mode: "posthoc",
-    flag: "lineageStats",
-    note: "per-op rows in→out, kept %, + empty/fan-out alarm",
-  },
-  {
     id: "flow.error_context",
     facet: "flow",
     level: 2,
@@ -75,14 +67,6 @@ export const RUNGS: readonly RungDescriptor[] = [
     mode: "posthoc",
     flag: "graphAudit",
     note: "dead/disconnected DataLoading op via typed-DAG reachability",
-  },
-  {
-    id: "flow.join_telemetry",
-    facet: "flow",
-    level: 3,
-    mode: "posthoc",
-    flag: "joinTelemetry",
-    note: "degenerate-join detection (near-zero key match / m:n fan-out)",
   },
 
   // ---- DATA facet ----
@@ -149,6 +133,6 @@ export function flagToLevel(facet: DecorateFacet, flag: string): DecorateLevel |
 // runOperatorDecorators) was removed when the FLOW facet moved out of
 // per-operator annotation into the consolidated "Operators needing attention"
 // section (context-utils.buildFlowSection). The pure flow renderers
-// (formatLoaderHint, buildLineageErrorContext, formatLineage, formatJoinTelemetry)
-// are now called directly by that section. DATA-facet rungs remain inline via
-// result-formatting (formatOperatorResult).
+// (formatLoaderHint, buildLineageErrorContext) are now called directly by that
+// section. DATA-facet rungs remain inline via result-formatting
+// (formatOperatorResult).

@@ -20,10 +20,13 @@
 /**
  * Reserved `columnStats` keys the amber worker uses to ship operator-level
  * diagnostics (not real columns — filtered from schema/stats rendering). The
- * worker is the single producer (see data_processor.py, join_telemetry.py,
- * coercion_telemetry.py); the data-facet decorators are the consumers.
+ * worker is the single producer (see data_processor.py, coercion_telemetry.py);
+ * the data-facet decorators are the consumers.
  */
-export const JOIN_TELEMETRY_KEY = "__join_telemetry__";
 export const COERCION_TELEMETRY_KEY = "__coercion_telemetry__";
 export const TABLE_HINTS_KEY = "__table_hints__";
-export const RESERVED_STATS_KEYS = new Set([JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY]);
+// `__join_telemetry__` is a RETIRED producer key (the join-telemetry lever was
+// removed). Kept in the filter set as a bare literal so any stale / old-deploy
+// stats that still carry it are dropped from the schema render instead of
+// leaking as a fake column — defensive hygiene, not a live signal.
+export const RESERVED_STATS_KEYS = new Set(["__join_telemetry__", COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY]);

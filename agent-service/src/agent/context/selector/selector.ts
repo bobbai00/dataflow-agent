@@ -191,9 +191,7 @@ export function selectParams(dossier: Dossier, config: SelectorConfig = DEFAULT_
   const flow = config.insurance
     ? {
         loaderHints: true,
-        cardinalityAlarms: true,
         errorContext: true,
-        joinAlarms: true,
         errorReflection: feats.trajectory.anyThrashing,
       }
     : { errorReflection: feats.trajectory.anyThrashing };

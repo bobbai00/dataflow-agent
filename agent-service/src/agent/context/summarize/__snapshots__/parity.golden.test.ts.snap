@@ -352,11 +352,7 @@ Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)
 
 # Operators needing attention (fix in this order)
 
-### \`sales\` (DataLoading)
-Join check ⚠: 0.2% of \`sales\` keys matched \`lookup\` — near-zero key overlap; check join key columns and dtypes
-
 ### \`orphan_load\` (DataLoading)
-Lineage ⚠: loaded 0 rows — check the file path/glob and parse options (wrong delimiter, header, or all rows skipped)
 Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it.
 
 ### \`by_region\` (DataProcessing)

@@ -34,13 +34,11 @@ import { formatOperatorResult } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
-import { formatLineage } from "../context/decorate/flow/cardinality";
 import {
   buildLineageErrorContext,
   lineageErrorPointer,
   upstreamInputSchema,
 } from "../context/decorate/flow/error-context";
-import { formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import {
   buildErrorReflection,
@@ -139,18 +137,10 @@ export interface AssembleContextOptions {
   valueFormatFlags?: boolean;
   /** When true, each operator result gets a `Lineage:` line: input→output row
    *  counts (kept %) plus a conservative alarm on empty-output / fan-out
-   *  explosion. Derived from carried row counts; targets silent-cardinality
-   *  wrong-answers and the cost spiral tail. Off by default. */
-  lineageStats?: boolean;
   /** #28: on an errored (non-loader) operator, render its direct upstream inputs'
    *  schema + a few sample rows so the model fixes against real consumed data,
    *  not guessed columns. Render-time only. Default false. */
   lineageErrorContext?: boolean;
-  /** When true, surface a `Join check ⚠` line for any degenerate merge the
-   *  worker flagged (near-zero key match with an unmatched-key sample, or a
-   *  many-to-many fan-out). Read from the reserved `__join_telemetry__` entry on
-   *  columnStats. Alarm-only. Off by default. */
-  joinTelemetry?: boolean;
   /** When true, a `DataLoading` operator whose output reaches NO downstream
    *  operator (a dead/forgotten load — pure typed-DAG reachability) gets a
    *  `Graph check ⚠` line telling the agent to wire it in or drop it. Current
@@ -793,7 +783,6 @@ function renderAgentCompacted(
     tableStructureHint: false,
     valueFormatFlags: false,
     coercionTelemetry: false,
-    lineageStats: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
     opExtras: undefined,
@@ -856,7 +845,6 @@ function assembleBudgetedContext(
     tableStructureHint: false,
     valueFormatFlags: false,
     coercionTelemetry: false,
-    lineageStats: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
     // Compaction phase profiles own the render economics — per-op extras
@@ -1299,9 +1287,7 @@ function renderLatest(
  *                              them); in LATEST, where every operator's Result is
  *                              already rendered, just a pointer to the upstream's
  *                              Result (no duplication).
- *   L2 lineageStats          — empty-output / fan-out cardinality alarms
  *   L3 graphAudit            — dead/disconnected loaders
- *   L3 joinTelemetry         — degenerate-join telemetry
  */
 function buildFlowSection(
   snapshot: SnapshotData,
@@ -1311,10 +1297,8 @@ function buildFlowSection(
 ): string | undefined {
   const anyFlow =
     options.loaderHint ||
-    options.lineageStats ||
     options.lineageErrorContext ||
     options.graphAudit ||
-    options.joinTelemetry ||
     options.errorReflection;
   if (!anyFlow) return undefined;
 
@@ -1357,14 +1341,6 @@ function buildFlowSection(
         lines.push(`blocked — upstream ${noun} ${roots.map(id => `\`${id}\``).join(", ")} errored; fix those first`);
       }
     } else {
-      if (options.lineageStats) {
-        const alarm = formatLineage(info);
-        if (alarm) lines.push(alarm);
-      }
-      if (options.joinTelemetry) {
-        const jt = formatJoinTelemetry(info);
-        if (jt) lines.push(...jt.split("\n"));
-      }
     }
 
     // Dead-loader audit (L3) — independent of execution state.

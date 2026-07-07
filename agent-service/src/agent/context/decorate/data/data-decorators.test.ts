@@ -22,8 +22,8 @@ import type { OperatorInfo } from "../../../../types/execution";
 import { formatSchemaLine } from "./schema";
 import { formatTableHints } from "./structural-profile";
 import { formatValueFormatHints } from "./value-format";
-import { formatReservedDiag, formatJoinTelemetry } from "./diagnostics";
-import { JOIN_TELEMETRY_KEY, COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY, RESERVED_STATS_KEYS } from "./reserved-keys";
+import { formatReservedDiag } from "./diagnostics";
+import { COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY, RESERVED_STATS_KEYS } from "./reserved-keys";
 
 const mk = (columnStats: Record<string, string>, extra: Partial<OperatorInfo> = {}): OperatorInfo =>
   ({ columnStats, ...extra }) as unknown as OperatorInfo;
@@ -86,19 +86,14 @@ describe("reserved diagnostics", () => {
   test("formatReservedDiag splits ' || ' into lines", () => {
     expect(formatReservedDiag(mk({ [COERCION_TELEMETRY_KEY]: "a || b" }), COERCION_TELEMETRY_KEY)).toBe("a\nb");
   });
-  test("formatJoinTelemetry reads the join key", () => {
-    expect(formatJoinTelemetry(mk({ [JOIN_TELEMETRY_KEY]: "Join check ⚠ on state: 0% matched" }))).toContain("Join check");
-  });
   test("undefined when absent / empty", () => {
-    expect(formatJoinTelemetry(mk({}))).toBeUndefined();
     expect(formatReservedDiag(mk({ [COERCION_TELEMETRY_KEY]: "" }), COERCION_TELEMETRY_KEY)).toBeUndefined();
   });
 });
 
 /* ---- reserved keys ----------------------------------------------------- */
 describe("reserved keys", () => {
-  test("the three diagnostic keys are reserved", () => {
-    expect(RESERVED_STATS_KEYS.has(JOIN_TELEMETRY_KEY)).toBe(true);
+  test("the diagnostic keys are reserved", () => {
     expect(RESERVED_STATS_KEYS.has(COERCION_TELEMETRY_KEY)).toBe(true);
     expect(RESERVED_STATS_KEYS.has(TABLE_HINTS_KEY)).toBe(true);
     expect(RESERVED_STATS_KEYS.has("real_column")).toBe(false);

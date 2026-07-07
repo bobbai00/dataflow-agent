@@ -1380,7 +1380,6 @@ describe("assembleContext — DECORATE levels", () => {
       assembleContext(B.steps, B.workflowState, B.storage, ContextMode.LATEST, {
         ...opts,
         loaderHint: true,
-        lineageStats: true,
         lineageErrorContext: true,
         schemaInResult: true,
         tableStructureHint: true,
@@ -1503,7 +1502,6 @@ describe("assembleContext — operator DECORATE rungs (integration)", () => {
       assembleContext(a.steps, a.workflowState, a.storage, ContextMode.LATEST, {
         ...opts,
         loaderHint: true,
-        lineageStats: true,
         lineageErrorContext: true,
       })
     );
