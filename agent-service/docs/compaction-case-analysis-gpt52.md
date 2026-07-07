@@ -129,3 +129,47 @@ median task + efficiency; code agent wins a specific tail (empirical-dedup / hea
 series / dirty-multi-header). Actionable: dataflow closes most of the gap with (i) an
 empirical dedup/inspection habit on multi-file loads and (ii) a code-escape hatch for
 heavy numerical/time-series tasks.
+
+## Rerun v2 — updated prompts (canonical pitfalls) + guided code agent
+
+Setup: canonical 7-bullet data-pitfalls set live in the dataflow code-mode prompt
+(service restarted) and in the code agent's CUSTOM_INSTRUCTIONS; two NEW guided
+code-agent SUTs (Chars{2k,5k}Guided, full fresh 104-task runs); dataflow arms got
+one `rerun-failed --isolate` pass under the new prompt (monotonic best-of).
+
+| SUT | before | after v2 |
+|---|---|---|
+| Latest-5k schema-only | 68.2 | **75.6** ← leader |
+| Delta-5k stats-on | 69.7 | 75.2 |
+| Latest-5k stats-on | 64.8 | 72.2 |
+| Latest-2k stats-on | 60.7 | 71.1 |
+| CodeAgent-5k **Guided** | (new) | 71.0 (unguided 64.0) |
+| Delta-5k schema-only | 62.9 | 71.0 |
+| Delta-2k stats-on | 65.2 | 68.1 |
+| CodeAgent-2k **Guided** | (new) | 67.0 (unguided 65.7) |
+
+**Guided-vs-unguided code agent (the clean comparison — same tasks, fresh runs):**
+at 5k the guidance is worth **+7.0 pts** (64.0→71.0; +9 tasks fixed, −2 broken) at
+LOWER cost ($0.057 vs $0.063/task; 12.1 vs 9.8 acc/$) — more steps (7.3 vs 6.1) but
+fewer output tokens and better cache reuse. At 2k it's ~flat (+1.3; +1/−5 flips) —
+guidance doesn't compensate for a tight preview.
+
+**Targeted case checks (did the bullets fix the diagnosed failures?):**
+- environment-hard-11 (dup column names): FIXED in L5k, D5k, L5kSch (was 0 in all
+  4 dataflow arms). Consistent with the new bullet, though retry randomness
+  contributes — cannot cleanly attribute on n=1.
+- legal-hard-15 (dedupe-concat): still 0 in all 4 stats arms; flipped only in
+  D5kSch — and the guided code agent BROKE it at 5k (unguided had it right).
+  Verdict: the dedupe bullet did NOT reliably rescue this; flips look noise-driven.
+- environment-hard-7 (units): 5k arms right, 2k arms still wrong — unchanged; the
+  units bullet didn't rescue the truncated-view arms.
+- astronomy-hard-9..12: now attempted everywhere (isolation fixed the group-kill);
+  hard-9 right in L5k/L5kSch + all code arms; hard-11/12 wrong everywhere
+  (genuinely hard); hard-10 still unscored in all arms.
+
+**Honest read:** the dataflow gains conflate the new prompt with one extra
+monotonic recovery round — the guided-vs-unguided code agent is the clean signal,
+and it says the pitfalls guidance is worth ~+7 pts at 5k, ~0 at 2k. Per-case, the
+duplicate-columns bullet plausibly landed (env-hard-11); the dedupe and units
+bullets did not demonstrably flip their target tasks. Prompt guidance helps in
+aggregate but is not a targeted cure for specific diagnosed failures.
