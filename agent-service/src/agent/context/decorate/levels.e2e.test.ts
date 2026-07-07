@@ -61,7 +61,8 @@ function richInfo(opId: string): OperatorInfo {
     columnStats: {
       amt: "(str): null=0, distinct=2, format=currency",
       region: "(str): null=0, distinct=2",
-      __table_hints__: "key: idx (one row per key) || partition: region{East:1, West:1} [binary]",
+      __table_hints__:
+        '"idx" is unique across all 2 rows -- a row identifier || subset axes: "region" has 2 values (East: 1, West: 1) -- filter first if the question scopes a subset',
     },
   } as unknown as OperatorInfo;
 }
@@ -114,7 +115,7 @@ describe("DECORATE level matrix (e2e via assembleContext)", () => {
     const c = render({ dataLevel: 2 });
     expect(c).toContain("Schema (");
     expect(c).toContain("Data hints:");
-    expect(c).toContain("partition: region");
+    expect(c).toContain('subset axes: "region"');
     expect(c).not.toContain("Format hints:");
   });
 

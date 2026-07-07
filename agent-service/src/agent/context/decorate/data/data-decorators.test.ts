@@ -50,8 +50,15 @@ describe("formatSchemaLine", () => {
 /* ---- structural profile (data L2 — the win) ---------------------------- */
 describe("formatTableHints", () => {
   test("splits worker hints into a Data hints block", () => {
-    const s = formatTableHints(mk({ [TABLE_HINTS_KEY]: "grain: key=idx || partition: Case_excluded{No:144, Yes:9}" }));
-    expect(s).toBe("Data hints:\n- grain: key=idx\n- partition: Case_excluded{No:144, Yes:9}");
+    const s = formatTableHints(
+      mk({
+        [TABLE_HINTS_KEY]:
+          '"idx" is unique across all 153 rows -- a row identifier || subset axes: "Case_excluded" has 2 values (No: 144, Yes: 9) -- filter first if the question scopes a subset',
+      })
+    );
+    expect(s).toBe(
+      'Data hints:\n- "idx" is unique across all 153 rows -- a row identifier\n- subset axes: "Case_excluded" has 2 values (No: 144, Yes: 9) -- filter first if the question scopes a subset'
+    );
   });
   test("undefined when no hint published", () => {
     expect(formatTableHints(mk({ a: "(numeric): null=0" }))).toBeUndefined();

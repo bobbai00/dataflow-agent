@@ -936,7 +936,9 @@ class DataProcessor(Runnable, Stoppable):
 
           - empty regions  -> .dropna(how='all')         (#25)
           - duplicate rows -> .drop_duplicates()          (#25)
-          - candidate key  -> table grain (one row per key)            (#26)
+          - candidate key  -> observed row identifier (100% unique col) (#26)
+          - near-key col   -> text col with uniqueness in [0.5,1): entity-ish
+                              but repeated (concat shape) -> dedupe/group first
           - group columns  -> rows-per-group (group before aggregating) (#26)
           - partition cols -> low-cardinality value distribution = a    (#27)
                               subset/gate axis the agent often omits
@@ -1009,13 +1011,15 @@ class DataProcessor(Runnable, Stoppable):
             pass
 
         keys: list = []
+        near_keys: list = []
         groups: list = []
         partitions: list = []
         for col_name in df.columns:
             if _is_placeholder(col_name):
                 continue
             try:
-                nn = df[col_name].dropna()
+                col = df[col_name]
+                nn = col.dropna()
                 if len(nn) == 0:
                     continue
                 nu = int(nn.nunique())
@@ -1025,30 +1029,59 @@ class DataProcessor(Runnable, Stoppable):
             if len(disp) > 24:
                 disp = disp[:23] + "…"
             if nu == len(nn) and nu == n_rows and n_rows >= 8:
-                keys.append(disp)
+                # A float measure column is trivially all-unique — that is not a
+                # row identifier. Only int/text columns qualify.
+                try:
+                    if not pandas.api.types.is_float_dtype(col):
+                        keys.append(f'"{disp}" is unique across all {n_rows} rows')
+                        continue
+                except Exception:
+                    pass
+                continue
+            # Near-key band (text columns, uniqueness in [0.5, 1)): looks like an
+            # entity identifier but has repeats — the concat-of-per-group-files
+            # shape where naive per-entity counts/sums double-count. Neither the
+            # key rung (needs 100% unique) nor the groups rung (needs >=2 rows
+            # per value) covers this band, so name it explicitly.
+            try:
+                is_texty = pandas.api.types.is_object_dtype(col) or pandas.api.types.is_string_dtype(col)
+            except Exception:
+                is_texty = False
+            if is_texty and n_rows >= 8 and nu < len(nn) and nu / len(nn) >= 0.5:
+                near_keys.append(
+                    f'"{disp}" is NOT unique: {nu} distinct in {len(nn)} non-null values '
+                    f'({len(nn) - nu} repeats) -- if the question counts or sums per {disp}, '
+                    f'dedupe or group by "{disp}" first'
+                )
                 continue
             if 2 <= nu <= card_max:
                 try:
                     vc = nn.value_counts()
-                    top = ", ".join(f"{k}:{int(v)}" for k, v in list(vc.items())[:4])
-                    flag = " [binary]" if nu == 2 else ""
-                    partitions.append(f"{disp}{{{top}}}{flag}")
+                    top = ", ".join(f"{k}: {int(v)}" for k, v in list(vc.items())[:4])
+                    partitions.append(f'"{disp}" has {nu} values ({top})')
                 except Exception:
                     pass
             elif n_rows >= 8 and nu >= 2 and nu < n_rows and n_rows / nu >= 2 and nu <= max(card_max, n_rows // 5):
-                groups.append(f"{disp}~{n_rows / nu:.0f}/grp")
+                groups.append(f'"{disp}": {nu} distinct values, ~{n_rows / nu:.0f} rows per value')
 
         if keys:
-            hints.append("key: " + " | ".join(keys[:3]) + " (one row per key)")
+            suffix = (
+                " -- a row identifier"
+                if len(keys) == 1
+                else " -- each column identifies a row on its own (independent candidates, not a composite)"
+            )
+            hints.append("; ".join(keys[:3]) + suffix)
+        for nk_line in near_keys[:2]:
+            hints.append(nk_line)
         if groups:
             hints.append(
-                "groups: " + ", ".join(groups[:4])
-                + " (group before per-group aggregation; row count != group count)"
+                "grouping axes: " + "; ".join(groups[:4])
+                + " -- group before per-value aggregation (row count != group count)"
             )
         if partitions:
             hints.append(
-                "partition: " + " | ".join(partitions[:5])
-                + " (subset/gate axis -- filter if the question scopes a subset)"
+                "subset axes: " + "; ".join(partitions[:5])
+                + " -- filter first if the question scopes a subset"
             )
         return hints
 
