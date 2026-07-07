@@ -251,8 +251,8 @@ export interface AgentSettings {
    *  can also enable it at L3). Off by default. */
   valueFormat: boolean;
   /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
-   *  append the `Data hints:` structural-profile block (grain/key, partition
-   *  columns, dirty-load). Independent of `dataLevel` (which can also enable it
+   *  append the `Output Table profile:` block (all-null rows/cols, duplicate rows,
+   *  unnamed columns). Independent of `dataLevel` (which can also enable it
    *  at L2). Off by default. */
   dataHints: boolean;
   /**

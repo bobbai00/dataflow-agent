@@ -61,8 +61,7 @@ function richInfo(opId: string): OperatorInfo {
     columnStats: {
       amt: "(str): null=0, distinct=2, format=currency",
       region: "(str): null=0, distinct=2",
-      __table_hints__:
-        '"idx" is unique across all 2 rows -- a row identifier || subset axes: "region" has 2 values (East: 1, West: 1) -- filter first if the question scopes a subset',
+      __table_hints__: 'duplicate rows: 1 of 2 (50%) || empty columns: ["notes"] are entirely null',
     },
   } as unknown as OperatorInfo;
 }
@@ -100,29 +99,29 @@ describe("DECORATE level matrix (e2e via assembleContext)", () => {
   test("data L0: no schema, no structural hints, no value-format", () => {
     const c = render({ dataLevel: 0, flowLevel: 0 });
     expect(c).not.toContain("Schema (");
-    expect(c).not.toContain("Data hints:");
+    expect(c).not.toContain('Output Table profile:');
     expect(c).not.toContain("Format hints:");
   });
 
   test("data L1: schema appears; structural + value-format still absent", () => {
     const c = render({ dataLevel: 1 });
     expect(c).toContain("Schema (");
-    expect(c).not.toContain("Data hints:");
+    expect(c).not.toContain('Output Table profile:');
     expect(c).not.toContain("Format hints:");
   });
 
   test("data L2: schema + structural profile (the win); value-format still absent", () => {
     const c = render({ dataLevel: 2 });
     expect(c).toContain("Schema (");
-    expect(c).toContain("Data hints:");
-    expect(c).toContain('subset axes: "region"');
+    expect(c).toContain('Output Table profile:');
+    expect(c).toContain('empty columns: ["notes"]');
     expect(c).not.toContain("Format hints:");
   });
 
   test("data L3: adds value-format on top of L2", () => {
     const c = render({ dataLevel: 3 });
     expect(c).toContain("Schema (");
-    expect(c).toContain("Data hints:");
+    expect(c).toContain('Output Table profile:');
     expect(c).toContain("Format hints:");
     expect(c).toContain("strip $");
   });
@@ -133,8 +132,8 @@ describe("DECORATE level matrix (e2e via assembleContext)", () => {
     const l3 = render({ dataLevel: 3 });
     // every marker present at Lk is present at L(k+1)
     expect(l1.includes("Schema (")).toBe(true);
-    expect(l2.includes("Schema (") && l2.includes("Data hints:")).toBe(true);
-    expect(l3.includes("Schema (") && l3.includes("Data hints:") && l3.includes("Format hints:")).toBe(true);
+    expect(l2.includes("Schema (") && l2.includes('Output Table profile:')).toBe(true);
+    expect(l3.includes("Schema (") && l3.includes('Output Table profile:') && l3.includes("Format hints:")).toBe(true);
   });
 
   test("header-resolution hint renders through the structural-profile rung (data L2)", () => {
@@ -146,7 +145,7 @@ describe("DECORATE level matrix (e2e via assembleContext)", () => {
     storage.setOperatorResult("t1", "p", info);
     const msgs = assembleContext(steps, ws, storage, ContextMode.LATEST, { ...opts, dataLevel: 2 });
     const c = typeof msgs[0]?.content === "string" ? (msgs[0].content as string) : "";
-    expect(c).toContain("Data hints:");
+    expect(c).toContain('Output Table profile:');
     expect(c).toContain("header: 2 of 5 columns are unnamed/placeholder");
   });
 

@@ -320,7 +320,7 @@ Result:
   Schema (4 cols): region (str), amount (numeric), price_display (str), date (datetime)
   Format hints: "price_display" currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them
   to_numeric(errors='coerce') on \`amount\` NULLed 12/1000 values — sample: ['N/A', 'n.a.', '—']
-  Data hints:
+  Output Table profile:
   - grain: one row per (order_id)
   - partition candidates: region (4 values)
   - dirty-load: 2 duplicate rows
@@ -473,7 +473,7 @@ Result:
   - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
   - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
   Format hints: "price_display" currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them
-  Data hints:
+  Output Table profile:
   - grain: one row per (order_id)
   - partition candidates: region (4 values)
   - dirty-load: 2 duplicate rows

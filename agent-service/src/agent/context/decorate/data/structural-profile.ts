@@ -22,7 +22,7 @@ import { TABLE_HINTS_KEY } from "./reserved-keys";
 
 /**
  * Data-L2 (#25/#26/#27, pre-emptive) — THE accuracy win of the campaign.
- * Render a `Data hints:` block from the reserved `__table_hints__` entry the
+ * Render an `Output Table profile:` block from the reserved `__table_hints__` entry the
  * worker publishes on `columnStats`: table grain/key, low-cardinality
  * partition/gate columns, dirty-load (empty rows/cols + duplicates), computed
  * name-agnostically over the WHOLE DataFrame (see data_processor.
@@ -35,5 +35,5 @@ export function formatTableHints(opInfo: OperatorInfo): string | undefined {
   if (!v || typeof v !== "string" || v.length === 0) return undefined;
   const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
   if (parts.length === 0) return undefined;
-  return ["Data hints:", ...parts.map(p => `- ${p}`)].join("\n");
+  return ["Output Table profile:", ...parts.map(p => `- ${p}`)].join("\n");
 }

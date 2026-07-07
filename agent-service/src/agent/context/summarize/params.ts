@@ -69,7 +69,7 @@ export const ColumnParamsSchema = z.object({
   statsMetrics: z.union([z.literal("all"), z.array(z.enum(COLUMN_METRICS))]).default("all"),
   /** `Format hints:` line — numbers wearing punctuation (currency/percent/…). */
   valueFormatHints: z.boolean().default(false),
-  /** `Data hints:` structural profile (grain/key, partitions, dirty-load). */
+  /** `Output Table profile:` exact load-quality facts (all-null rows/cols, duplicate rows, unnamed headers). */
   structuralHints: z.boolean().default(false),
   /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
   coercionAlerts: z.boolean().default(false),

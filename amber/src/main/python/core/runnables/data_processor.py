@@ -956,24 +956,20 @@ class DataProcessor(Runnable, Stoppable):
         try:
             isna = df.isna()
             er = int(isna.all(axis=1).sum())
-            ec = int(isna.all(axis=0).sum())
-            parts = []
+            null_cols = [str(c) for c in df.columns[isna.all(axis=0)]]
             if er:
-                parts.append(f"{er} all-null row(s)")
-            if ec:
-                parts.append(f"{ec} all-null col(s)")
-            if parts:
-                hints.append("empty: " + ", ".join(parts) + " -> consider dropna(how='all')")
+                hints.append(f"empty rows: {er} of {n_rows} rows are entirely null")
+            if null_cols:
+                shown_cols = ", ".join(f'"{c}"' for c in null_cols[:8])
+                more = f" (+{len(null_cols) - 8} more)" if len(null_cols) > 8 else ""
+                hints.append(f"empty columns: [{shown_cols}]{more} are entirely null")
         except Exception:
             pass
 
         try:
             dups = int(df.duplicated().sum())
             if dups:
-                hints.append(
-                    f"duplicates: {dups} fully-duplicate row(s) ({dups / n_rows:.0%}) "
-                    "-> consider drop_duplicates() before aggregating"
-                )
+                hints.append(f"duplicate rows: {dups} of {n_rows} ({dups / n_rows:.0%})")
         except Exception:
             pass
 
@@ -993,10 +989,10 @@ class DataProcessor(Runnable, Stoppable):
             n_cols = df.shape[1]
             n_placeholder = sum(1 for c in df.columns if _is_placeholder(c))
             if n_cols > 0 and 0 < n_placeholder < n_cols:
+                ph = [str(c) for c in df.columns if _is_placeholder(c)]
+                shown_ph = ", ".join(f'"{c}"' for c in ph[:6])
                 hints.append(
-                    f"header: {n_placeholder} of {n_cols} columns are unnamed/placeholder "
-                    "(Unnamed:N) -> the header is likely unresolved; re-read with header=/skiprows= "
-                    "so the real column names load, then index by name"
+                    f"headers: {n_placeholder} of {n_cols} columns are unnamed ({shown_ph})"
                 )
         except Exception:
             pass

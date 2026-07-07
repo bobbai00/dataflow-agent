@@ -49,15 +49,15 @@ describe("formatSchemaLine", () => {
 
 /* ---- structural profile (data L2 — the win) ---------------------------- */
 describe("formatTableHints", () => {
-  test("splits worker hints into a Data hints block", () => {
+  test("splits worker hints into an Output Table profile block", () => {
     const s = formatTableHints(
       mk({
         [TABLE_HINTS_KEY]:
-          '"idx" is unique across all 153 rows -- a row identifier || subset axes: "Case_excluded" has 2 values (No: 144, Yes: 9) -- filter first if the question scopes a subset',
+          'duplicate rows: 34 of 153 (22%) || headers: 2 of 12 columns are unnamed ("Unnamed: 3", "Unnamed: 7")',
       })
     );
     expect(s).toBe(
-      'Data hints:\n- "idx" is unique across all 153 rows -- a row identifier\n- subset axes: "Case_excluded" has 2 values (No: 144, Yes: 9) -- filter first if the question scopes a subset'
+      'Output Table profile:\n- duplicate rows: 34 of 153 (22%)\n- headers: 2 of 12 columns are unnamed ("Unnamed: 3", "Unnamed: 7")'
     );
   });
   test("undefined when no hint published", () => {
