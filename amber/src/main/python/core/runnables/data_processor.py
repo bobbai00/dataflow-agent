@@ -934,20 +934,16 @@ class DataProcessor(Runnable, Stoppable):
         literals -- the same property that made ``_detect_numeric_format`` work
         where post-hoc surfacing levers did not.
 
-          - empty regions  -> .dropna(how='all')         (#25)
-          - duplicate rows -> .drop_duplicates()          (#25)
-          - candidate key  -> observed row identifier (100% unique col) (#26)
-          - near-key col   -> text col with uniqueness in [0.5,1): entity-ish
-                              but repeated (concat shape) -> dedupe/group first
-          - group columns  -> rows-per-group (group before aggregating) (#26)
-          - partition cols -> low-cardinality value distribution = a    (#27)
-                              subset/gate axis the agent often omits
+        RAW FACTS ONLY (no classification bands, no semantic labels — per
+        review, banded key/partition/group labeling was hand-authored judgment
+        and was removed; per-column cardinality facts live in the columnStats
+        block instead, and what to DO with them is the prompt's/model's call):
+          - empty regions  -> exact all-null row/col counts (#25)
+          - duplicate rows -> exact df.duplicated() count, shown when > 0 (#25)
+          - unresolved header -> Unnamed:N placeholder count (pandas contract)
 
-        Columns whose name is blank or matches pandas' ``Unnamed: N``
-        placeholder are skipped for grain/partition: their presence signals an
-        unresolved header (skiprows/header=), which makes per-column cardinality
-        meaningless until the header is fixed -- surfacing them would be noise
-        (the false-positive class noted in PROBE-FINDINGS.md).
+        Blank / ``Unnamed: N`` column names signal an unresolved header
+        (skiprows/header=) and are surfaced via the header hint below.
         """
         try:
             n_rows = len(df)
@@ -956,33 +952,28 @@ class DataProcessor(Runnable, Stoppable):
         except Exception:
             return []
         hints: list = []
-        card_max = 10
 
         try:
             isna = df.isna()
             er = int(isna.all(axis=1).sum())
             ec = int(isna.all(axis=0).sum())
-            sparse = int((isna.mean(axis=0) > 0.95).sum()) - ec
             parts = []
             if er:
                 parts.append(f"{er} all-null row(s)")
             if ec:
                 parts.append(f"{ec} all-null col(s)")
-            if sparse > 0:
-                parts.append(f"{sparse} >=95%-null col(s)")
             if parts:
                 hints.append("empty: " + ", ".join(parts) + " -> consider dropna(how='all')")
         except Exception:
             pass
 
         try:
-            if n_rows >= 4:
-                dups = int(df.duplicated().sum())
-                if dups and dups / n_rows >= 0.01:
-                    hints.append(
-                        f"duplicates: {dups} fully-duplicate row(s) ({dups / n_rows:.0%}) "
-                        "-> consider drop_duplicates() before aggregating"
-                    )
+            dups = int(df.duplicated().sum())
+            if dups:
+                hints.append(
+                    f"duplicates: {dups} fully-duplicate row(s) ({dups / n_rows:.0%}) "
+                    "-> consider drop_duplicates() before aggregating"
+                )
         except Exception:
             pass
 
@@ -1010,79 +1001,6 @@ class DataProcessor(Runnable, Stoppable):
         except Exception:
             pass
 
-        keys: list = []
-        near_keys: list = []
-        groups: list = []
-        partitions: list = []
-        for col_name in df.columns:
-            if _is_placeholder(col_name):
-                continue
-            try:
-                col = df[col_name]
-                nn = col.dropna()
-                if len(nn) == 0:
-                    continue
-                nu = int(nn.nunique())
-            except Exception:
-                continue
-            disp = str(col_name)
-            if len(disp) > 24:
-                disp = disp[:23] + "…"
-            if nu == len(nn) and nu == n_rows and n_rows >= 8:
-                # A float measure column is trivially all-unique — that is not a
-                # row identifier. Only int/text columns qualify.
-                try:
-                    if not pandas.api.types.is_float_dtype(col):
-                        keys.append(f'"{disp}" is unique across all {n_rows} rows')
-                        continue
-                except Exception:
-                    pass
-                continue
-            # Near-key band (text columns, uniqueness in [0.5, 1)): looks like an
-            # entity identifier but has repeats — the concat-of-per-group-files
-            # shape where naive per-entity counts/sums double-count. Neither the
-            # key rung (needs 100% unique) nor the groups rung (needs >=2 rows
-            # per value) covers this band, so name it explicitly.
-            try:
-                is_texty = pandas.api.types.is_object_dtype(col) or pandas.api.types.is_string_dtype(col)
-            except Exception:
-                is_texty = False
-            if is_texty and n_rows >= 8 and nu < len(nn) and nu / len(nn) >= 0.5:
-                near_keys.append(
-                    f'"{disp}" is NOT unique: {nu} distinct in {len(nn)} non-null values '
-                    f'({len(nn) - nu} repeats) -- if the question counts or sums per {disp}, '
-                    f'dedupe or group by "{disp}" first'
-                )
-                continue
-            if 2 <= nu <= card_max:
-                try:
-                    vc = nn.value_counts()
-                    top = ", ".join(f"{k}: {int(v)}" for k, v in list(vc.items())[:4])
-                    partitions.append(f'"{disp}" has {nu} values ({top})')
-                except Exception:
-                    pass
-            elif n_rows >= 8 and nu >= 2 and nu < n_rows and n_rows / nu >= 2 and nu <= max(card_max, n_rows // 5):
-                groups.append(f'"{disp}": {nu} distinct values, ~{n_rows / nu:.0f} rows per value')
-
-        if keys:
-            suffix = (
-                " -- a row identifier"
-                if len(keys) == 1
-                else " -- each column identifies a row on its own (independent candidates, not a composite)"
-            )
-            hints.append("; ".join(keys[:3]) + suffix)
-        for nk_line in near_keys[:2]:
-            hints.append(nk_line)
-        if groups:
-            hints.append(
-                "grouping axes: " + "; ".join(groups[:4])
-                + " -- group before per-value aggregation (row count != group count)"
-            )
-        if partitions:
-            hints.append(
-                "subset axes: " + "; ".join(partitions[:5])
-                + " -- filter first if the question scopes a subset"
-            )
         return hints
 
     @staticmethod

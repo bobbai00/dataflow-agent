@@ -151,7 +151,6 @@ export function createInspectResultTool(deps: InspectResultDeps) {
           maxResultRows: args.maxRows ?? 30,
           schemaInResult: true,
           columnStats: args.stats === true,
-          dtypeAnomaly: true,
           inputsInResult: false,
         });
         const header =

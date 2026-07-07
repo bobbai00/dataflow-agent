@@ -76,7 +76,6 @@ export const ColumnParamsSchema = z.object({
   /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
    *  are mostly numeric, surfacing the contaminant tokens that forced the
    *  string dtype (the "str-typed but samples look like digits" signal). */
-  dtypeAnomaly: z.boolean().default(false),
 });
 export type ColumnParams = z.infer<typeof ColumnParamsSchema>;
 

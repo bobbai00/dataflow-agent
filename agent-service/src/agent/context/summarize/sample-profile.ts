@@ -112,50 +112,6 @@ function looksNumeric(s: string): boolean {
   return Number.isFinite(Number(cleaned));
 }
 
-/**
- * `Type anomaly:` line — columns rendered as TEXT whose values are mostly (but
- * not entirely) numeric. This is the "loaded as string but the samples look
- * like digits" signal: a handful of contaminant cells (`N/A`, `—`, a footnote,
- * `"12 or 14"`) force pandas to type an otherwise-numeric column as `object`,
- * and the fix is to see EXACTLY those non-numeric tokens — not more random
- * rows. For each qualifying column we report the numeric fraction and a few of
- * the offending non-numeric values (the surgical version of "reload with more
- * samples"). Returns undefined when no column qualifies (the common case, so
- * the knob is usually free).
- *
- * Gate: a column qualifies when its sampled cells are predominantly strings
- * (so it really did load as text), ≥ `MIN_NUMERIC_FRAC` of the non-empty
- * strings parse as numeric, and at least one does NOT (the contaminant). A
- * 100%-numeric-text column is pure numbers-as-text — that is `valueFormatHints`'
- * job (worker-published `format=` tags), so we don't double-report it here.
- */
-const MIN_NUMERIC_FRAC = 0.6;
-
-export function formatDtypeAnomaly(rows: Record<string, any>[] | undefined): string | undefined {
-  if (!rows || rows.length < 2) return undefined;
-  const cols = visibleColumns(rows);
-  if (cols.length === 0) return undefined;
-
-  const clauses: string[] = [];
-  for (const c of cols.slice(0, MAX_PROFILE_COLUMNS)) {
-    const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined && v !== "");
-    if (vals.length < 2) continue;
-    const strs = vals.filter(v => typeof v === "string") as string[];
-    // Predominantly string-typed cells (a genuinely numeric column arrives as
-    // JS numbers, not strings, so it never trips this).
-    if (strs.length < vals.length * 0.8) continue;
-    const numeric = strs.filter(looksNumeric);
-    const frac = numeric.length / strs.length;
-    if (frac < MIN_NUMERIC_FRAC || frac >= 1) continue; // not mostly-numeric, or fully numeric (→ valueFormat)
-    const offenders = Array.from(new Set(strs.filter(s => !looksNumeric(s)))).slice(0, 5);
-    clauses.push(
-      `\`${c}\` is text but ${Math.round(frac * 100)}% numeric — non-numeric values: [${offenders.map(o => JSON.stringify(o)).join(", ")}]`
-    );
-    if (clauses.length >= MAX_LISTED) break;
-  }
-  if (clauses.length === 0) return undefined;
-  return `Type anomaly (sample-based): ${clauses.join("; ")}`;
-}
 
 /**
  * `Sample FDs:` line — candidate functional dependencies `A → B` that hold on

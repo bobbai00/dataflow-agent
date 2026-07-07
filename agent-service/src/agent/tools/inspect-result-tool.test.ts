@@ -93,12 +93,6 @@ describe("inspectResult tool", () => {
     expect(out).toContain("Schema (1 cols): region");
   });
 
-  test("dtype anomaly surfaces automatically on a numeric-as-text column", async () => {
-    const t = toolFor({ sales: SALES });
-    const out: string = await (t as any).execute({ operatorId: "sales" });
-    expect(out).toContain("Type anomaly");
-    expect(out).toContain("`amount` is text but");
-  });
 
   test("missing operator → [ERROR] result, no throw", async () => {
     const t = toolFor({});

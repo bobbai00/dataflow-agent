@@ -132,8 +132,9 @@ function hasLowCardCategorical(info: OperatorInfo | undefined, maxDistinct: numb
   return false;
 }
 
-/** Sample-based: a text column that is mostly-but-not-entirely numeric. Mirrors
- *  formatDtypeAnomaly's gate so the feature and the rendered hint agree. */
+/** Sample-based: a text column that is mostly-but-not-entirely numeric. A
+ *  selector INPUT feature only — the corresponding rendered hint (dtypeAnomaly)
+ *  was removed per the raw-facts-only decision. */
 function hasNumericAsText(info: OperatorInfo | undefined): boolean {
   const rows = info?.result;
   if (!Array.isArray(rows) || rows.length < 2) return false;

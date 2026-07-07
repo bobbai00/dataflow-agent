@@ -97,7 +97,6 @@ function overlayDataShape(col: Record<string, unknown>, f: OperatorFeatures): Re
   if (f.categoricalLowCard) col.stats = true;
   if (f.numericAsText) {
     col.valueFormatHints = true;
-    col.dtypeAnomaly = true;
   }
   return col;
 }

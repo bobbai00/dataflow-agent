@@ -468,7 +468,7 @@ Result:
   998	West	7.75	$7.75	2023-12-28
   999	East	130.4	$130.40	2023-12-28
   Column Schema and stats:
-  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}
+  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}, duplicate_values=996
   - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
   - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
   - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
@@ -901,7 +901,7 @@ Result:
   999	East	130.4	$130.40	2023-12-28
   Schema (4 cols): region (str), amount (numeric), price_display (str), date (datetime)
   Column Schema and stats:
-  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}
+  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}, duplicate_values=996
   - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
   - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
   - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28

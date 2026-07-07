@@ -182,7 +182,6 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.property.includeCode || d.property.codeHistory > 0) return true;
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
-  if (d.result.latest.column.dtypeAnomaly) return true;
   if (d.result.latest.column.statsMetrics !== "all") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
   if (d.result.history.lastK > 0) return true;

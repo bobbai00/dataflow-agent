@@ -1,20 +1,8 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * duplicate_values: exact per-column arithmetic (nonNull − distinct) appended to
+ * a (str) column's stats line whenever it is > 0 — presence, not a threshold
+ * band, and no alarms (raw-facts-only contract: judgment lives in the prompt/
+ * model, not the renderer). Shapes reconstruct legal-hard-15's real data.
  */
 
 /**
@@ -34,7 +22,7 @@ function info(partial: Partial<OperatorInfo>): OperatorInfo {
   return { state: "Completed", inputTuples: 0, outputTuples: 0, resultMode: "table", ...partial } as OperatorInfo;
 }
 
-describe("near-key duplicate signal (legal-hard-15 shape)", () => {
+describe("duplicate_values (exact, presence-only)", () => {
   const msaClean = info({
     totalRowCount: 452,
     outputTuples: 452,
@@ -45,32 +33,32 @@ describe("near-key duplicate signal (legal-hard-15 shape)", () => {
     },
   });
 
-  test("appends duplicate_values and raises the near-key alarm on the real msa_clean shape", () => {
+  test("appends duplicate_values on the real msa_clean shape (no alarm — raw facts only)", () => {
     const block = formatColumnStats(msaClean)!;
     expect(block).toContain('"metropolitan_area" (str): null=0, distinct=401, duplicate_values=51');
-    expect(block).toContain('⚠ near-key duplicates: "metropolitan_area" — 51 of 452 non-null values in this column are repeats');
-    expect(block).toContain("dedupe before counting/aggregating");
+    expect(block).not.toContain("⚠");
+    // the "source_path" categorical (52 distinct / 452 rows) gets the same exact fact
+    expect(block).toContain('"source_path" (str): null=0, distinct=52, duplicate_values=400');
   });
 
-  test("categoricals (low uniqueness) are untouched — no spam", () => {
+  test("categoricals get the same exact fact — uniform, no special-casing", () => {
     const cat = info({
       totalRowCount: 63160,
       columnStats: { Violation: "(str): null=0, distinct=4, top_5={No=44000, Yes=2000}" },
     });
     const block = formatColumnStats(cat)!;
-    expect(block).toContain('"Violation" (str): null=0, distinct=4, top_5={No=44000, Yes=2000}');
-    expect(block).not.toContain("duplicate_values");
-    expect(block).not.toContain("near-key");
+    expect(block).toContain('"Violation" (str): null=0, distinct=4, top_5={No=44000, Yes=2000}, duplicate_values=63156');
+    expect(block).not.toContain("⚠");
   });
 
-  test("display-format columns get duplicate_values but NOT the alarm", () => {
+  test("display-format columns get duplicate_values like any other (str) column", () => {
     const fmt = info({
       totalRowCount: 1000,
       columnStats: { price_display: "(str): null=0, distinct=890, format=currency" },
     });
     const block = formatColumnStats(fmt)!;
     expect(block).toContain("duplicate_values=110");
-    expect(block).not.toContain("near-key");
+    expect(block).not.toContain("⚠");
   });
 
   test("fully-unique columns are untouched", () => {

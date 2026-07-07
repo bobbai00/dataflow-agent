@@ -106,7 +106,7 @@ function detailToOverride(
           latest: {
             detail: "sample",
             tuple: { sampleRows: cfg.richRows },
-            column: { schema: true, stats: true, structuralHints: true, valueFormatHints: true, dtypeAnomaly: true },
+            column: { schema: true, stats: true, structuralHints: true, valueFormatHints: true },
           },
         },
       };

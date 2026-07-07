@@ -30,7 +30,7 @@ import { formatTableHints } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag, formatJoinTelemetry } from "../context/decorate/data/diagnostics";
 import { formatLineage } from "../context/decorate/flow/cardinality";
-import { formatSampleDuplicates, formatSampleFds, formatDtypeAnomaly } from "../context/summarize/sample-profile";
+import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
@@ -109,7 +109,6 @@ export interface FormatOperatorResultOptions {
   /** Sample-based candidate functional-dependency line. */
   sampleFdHints?: boolean;
   /** Sample-based `Type anomaly:` line — text columns that are mostly numeric. */
-  dtypeAnomaly?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -210,7 +209,6 @@ export function formatOperatorResult(
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
   const fdLine = options.sampleFdHints ? formatSampleFds(serializableArray) : undefined;
-  const dtypeLine = options.dtypeAnomaly ? formatDtypeAnomaly(serializableArray) : undefined;
   // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
   // then the data-derived annotations that DESCRIBE the table (schema / column
   // schema+stats / format & structure hints), so annotations read AFTER the data
@@ -224,7 +222,6 @@ export function formatOperatorResult(
     formatHints,
     coercionLine,
     tableHintsLine,
-    dtypeLine,
     dupLine,
     fdLine,
   ]

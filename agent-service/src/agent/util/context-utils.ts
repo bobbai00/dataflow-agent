@@ -1829,7 +1829,6 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     maxResultRows: sampleRows,
     sampleDuplicates: ex.tuple.duplicates,
     sampleFdHints: ex.tuple.fdHints,
-    dtypeAnomaly: ex.column.dtypeAnomaly,
   };
 }
 
@@ -2072,7 +2071,6 @@ function serializeOperatorFull(
           valueFormatFlags: rv.render.column.valueFormatHints,
           coercionTelemetry: rv.render.column.coercionAlerts,
           tableStructureHint: rv.render.column.structuralHints,
-          dtypeAnomaly: rv.render.column.dtypeAnomaly,
           inputsInResult: false,
         });
         for (const l of t.split("\n")) lines.push("  " + l);
