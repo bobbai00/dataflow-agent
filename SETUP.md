@@ -85,6 +85,7 @@ sbt's per-checkout project lock means only **one** sbt build runs at a time from
 checkout. To run all 8 services concurrently, use the single background launcher:
 
 ```bash
+GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true \
 sbt --no-colors -Dsbt.supershell=false --batch \
   'compile' \
   'ConfigService/bgRun' \
@@ -104,6 +105,11 @@ sbt --no-colors -Dsbt.supershell=false --batch \
 The trailing `bgWaitFor` lines keep the sbt process alive; kill it to stop every
 forked service. Tail `logs/sbt-services.log`; the stack is ready when ports
 `9094 9096 9092 8888 9090 8085 8080` are all listening.
+
+`GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true` is required for agent-service and
+KramaBench runs that call the LLM through AccessControlService. Without it,
+`POST /api/chat/completions` returns `403 {"error": "Copilot feature is disabled"}`
+and the benchmark trace usually ends immediately with `Error: Forbidden`.
 
 Or run one service per terminal:
 
@@ -171,6 +177,71 @@ bun run e2e:errors   # runtime-error reporting format
 ```
 
 A green run ends with `E2E pipeline finished successfully.`
+
+### KramaBench one-task validation
+
+Use this when validating the full native stack that KramaBench drives:
+
+```bash
+# 1. Confirm JVM services, agent-service, and LiteLLM are listening.
+ss -ltnp | rg ':8080|:8085|:8888|:9090|:9092|:9094|:9096|:3001|:4000'
+
+# 2. Health checks.
+for u in \
+  http://localhost:9094/api/healthcheck \
+  http://localhost:9096/api/healthcheck \
+  http://localhost:9092/api/healthcheck \
+  http://localhost:8888/api/healthcheck \
+  http://localhost:9090/api/healthcheck \
+  http://localhost:8085/api/execution/health \
+  http://localhost:8080/api/healthcheck \
+  http://localhost:3001/api/healthcheck; do
+  printf '%s ' "$u"; curl -fsS "$u"; printf '\n'
+done
+
+# 3. Smoke-test the LLM proxy through AccessControlService using the same
+# login path as KramaBench.
+TOKEN=$(
+  curl -fsS -X POST http://localhost:8080/api/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"username":"texera","password":"texera"}' |
+    python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])'
+)
+curl -fsS -X POST http://localhost:9096/api/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.2","messages":[{"role":"user","content":"Say pong."}],"max_tokens":16}'
+
+# 4. Run one benchmark task.
+cd ../Kramabench
+python3 kb.py tasks \
+  --sut DataflowSystemGPT52DeltaStats5k \
+  --ids "archeology-easy-10" \
+  --isolate \
+  --watchdog-min 5
+```
+
+Expected single-task sanity result:
+
+| Artifact | Expected |
+|---|---|
+| Task answer | `Singapore` |
+| Per-task score | `100.0` |
+| Trace path | `../Kramabench/system_scratch/DataflowSystemGPT52DeltaStats5k/archeology-easy-10/react_steps.json` |
+| Task log | `../Kramabench/logs/kb-tasks-*/archeology-easy-10.log` |
+
+The partial-run re-evaluation rebuilds the whole workload cache from every
+per-task scratch answer, so its aggregate workload score can reflect older
+scratch files. For a stack sanity check, trust the fresh task log plus
+`system_scratch/.../answer.json`, `stats.json`, and `evaluation.json`.
+
+A healthy trace for `archeology-easy-10` has four steps:
+
+1. User task prompt.
+2. `createOrModifyOperator` for `worldcities`, loading
+   `data/archeology/input/worldcities.csv`.
+3. `createOrModifyOperator` for `country_avg_pop`, linked from `worldcities`.
+4. `Final Answer: Singapore`.
 
 ## 7. Stop
 

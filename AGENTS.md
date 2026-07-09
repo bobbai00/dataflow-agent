@@ -35,6 +35,7 @@ engine, an Angular UI, and the agent service. JVM modules wired in
 | Issue templates | [bug](.github/ISSUE_TEMPLATE/bug-template.yaml) / [task](.github/ISSUE_TEMPLATE/task-template.yaml) / [feature](.github/ISSUE_TEMPLATE/feature-template.yaml) |
 | License-header coverage; vendored `workflow-operator` | [.licenserc.yaml](.licenserc.yaml); [project/AddMetaInfLicenseFiles.scala](project/AddMetaInfLicenseFiles.scala) |
 | Local single-node / k8s deploy | [single-node](bin/single-node/README.md), [k8s](bin/k8s/README.md) |
+| Native full-stack launch/stop + KramaBench one-task validation | [SETUP.md](SETUP.md) |
 
 If a topic is above, **read that file** instead of asking here.
 
@@ -379,6 +380,12 @@ code-operator authoring, execution); state is in `workflow-state.ts` /
 `workflow-result-state.ts`; `AgentMode` selects between system prompts in
 `prompts.ts`. **Do not import frontend or amber code from `agent-service/`** —
 it's a separate process boundary.
+
+For native full-stack validation with KramaBench, follow
+[`SETUP.md`](SETUP.md). The JVM services must be launched with
+`GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true`; otherwise AccessControlService
+returns `403 {"error": "Copilot feature is disabled"}` for `/api/chat/*`, and
+the agent trace ends before tool use.
 
 ### Python runtime layout
 
