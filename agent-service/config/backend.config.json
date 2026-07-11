@@ -8,7 +8,7 @@
     "models": {
       "description": "LiteLLM Models Service (for AI model listing and chat)",
       "target": "http://localhost:9096",
-      "endpoints": ["/api/models", "/api/chat/completion"]
+      "endpoints": ["/api/models", "/api/chat/completions"]
     },
     "compile": {
       "description": "Workflow Compiling Service",

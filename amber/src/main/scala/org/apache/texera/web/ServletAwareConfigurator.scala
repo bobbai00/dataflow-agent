@@ -42,6 +42,14 @@ import scala.jdk.CollectionConverters.{ListHasAsScala, _}
   */
 class ServletAwareConfigurator extends ServerEndpointConfig.Configurator with LazyLogging {
 
+  private def userWithBasicFields(userId: Int, userName: String, userEmail: String): User = {
+    val user = new User()
+    user.setUid(userId)
+    user.setName(userName)
+    user.setEmail(userEmail)
+    user
+  }
+
   override def modifyHandshake(
       config: ServerEndpointConfig,
       request: HandshakeRequest,
@@ -69,20 +77,7 @@ class ServletAwareConfigurator extends ServerEndpointConfig.Configurator with La
 
         config.getUserProperties.put(
           classOf[User].getName,
-          new User(
-            userId,
-            userName,
-            userEmail,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null
-          )
+          userWithBasicFields(userId, userName, userEmail)
         )
         logger.debug(s"User created from headers: ID=$userId, Name=$userName")
       } else {
@@ -101,19 +96,10 @@ class ServletAwareConfigurator extends ServerEndpointConfig.Configurator with La
             val claims = jwtConsumer.process(token).getJwtClaims
             config.getUserProperties.put(
               classOf[User].getName,
-              new User(
+              userWithBasicFields(
                 claims.getClaimValue("userId").asInstanceOf[Long].toInt,
                 claims.getSubject,
-                String.valueOf(claims.getClaimValue("email").asInstanceOf[String]),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
+                String.valueOf(claims.getClaimValue("email").asInstanceOf[String])
               )
             )
           })

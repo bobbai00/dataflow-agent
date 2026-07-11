@@ -117,7 +117,7 @@ lazy val WorkflowExecutionService = (project in file("amber"))
     // Java 17+ compatibility: Apache Arrow requires reflective access to java.nio internals
     // See: https://arrow.apache.org/docs/java/install.html
     Universal / javaOptions ++= Seq(
-      "--add-opens=java.base/java.nio=ALL-UNNAMED"
+      "-J--add-opens=java.base/java.nio=ALL-UNNAMED"
     )
   )
   .configs(Test)

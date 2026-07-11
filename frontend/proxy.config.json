@@ -10,12 +10,12 @@
     "secure": false,
     "changeOrigin": true
   },
-"/api/models": {
+  "/api/models": {
     "target": "http://localhost:9096",
     "secure": false,
     "changeOrigin": true
   },
-  "/api/chat/completion": {
+  "/api/chat/completions": {
     "target": "http://localhost:9096",
     "secure": false,
     "changeOrigin": true

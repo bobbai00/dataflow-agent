@@ -1,0 +1,1783 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+COMPOSE_FILE="$SCRIPT_DIR/local-dev.compose.yml"
+PROJECT_NAME="${BOBFLOW_LOCAL_DEV_PROJECT:-bobflow-local-dev}"
+STATE_DIR="${BOBFLOW_LOCAL_DEV_STATE_DIR:-/tmp/bobflow-local-dev}"
+
+POSTGRES_PORT=5432
+MINIO_PORT=9000
+LAKEFS_PORT=8000
+LITELLM_PORT=4000
+CONFIG_SERVICE_PORT=9094
+ACCESS_CONTROL_PORT=9096
+FILE_SERVICE_PORT=9092
+WORKFLOW_COMPILING_SERVICE_PORT=9090
+COMPUTING_UNIT_MANAGING_PORT=8888
+TEXERA_WEB_PORT=8080
+COMPUTING_UNIT_MASTER_PORT=8085
+AGENT_SERVICE_PORT=3001
+RTC_PORT=1234
+FRONTEND_PORT=4200
+PYTHON_ENV_DIR="$REPO_ROOT/.venv"
+PYTHON_EXECUTABLE="$PYTHON_ENV_DIR/bin/python"
+CONFIG_SERVICE_PID_FILE="$STATE_DIR/config-service.pid"
+CONFIG_SERVICE_LOG_FILE="$STATE_DIR/config-service.log"
+ACCESS_CONTROL_PID_FILE="$STATE_DIR/access-control-service.pid"
+ACCESS_CONTROL_LOG_FILE="$STATE_DIR/access-control-service.log"
+FILE_SERVICE_PID_FILE="$STATE_DIR/file-service.pid"
+FILE_SERVICE_LOG_FILE="$STATE_DIR/file-service.log"
+WORKFLOW_COMPILING_SERVICE_PID_FILE="$STATE_DIR/workflow-compiling-service.pid"
+WORKFLOW_COMPILING_SERVICE_LOG_FILE="$STATE_DIR/workflow-compiling-service.log"
+COMPUTING_UNIT_MANAGING_PID_FILE="$STATE_DIR/computing-unit-managing-service.pid"
+COMPUTING_UNIT_MANAGING_LOG_FILE="$STATE_DIR/computing-unit-managing-service.log"
+TEXERA_WEB_PID_FILE="$STATE_DIR/texera-web.pid"
+TEXERA_WEB_LOG_FILE="$STATE_DIR/texera-web.log"
+COMPUTING_UNIT_MASTER_PID_FILE="$STATE_DIR/computing-unit-master.pid"
+COMPUTING_UNIT_MASTER_LOG_FILE="$STATE_DIR/computing-unit-master.log"
+AGENT_SERVICE_PID_FILE="$STATE_DIR/agent-service.pid"
+AGENT_SERVICE_LOG_FILE="$STATE_DIR/agent-service.log"
+RTC_PID_FILE="$STATE_DIR/rtc.pid"
+RTC_LOG_FILE="$STATE_DIR/rtc.log"
+FRONTEND_PID_FILE="$STATE_DIR/frontend.pid"
+FRONTEND_LOG_FILE="$STATE_DIR/frontend.log"
+
+STORAGE_JDBC_URL='jdbc:postgresql://localhost:5432/texera_db?currentSchema=texera_db,public'
+STORAGE_JDBC_USERNAME=texera
+STORAGE_JDBC_PASSWORD=password
+STORAGE_S3_ENDPOINT="http://localhost:${MINIO_PORT}"
+STORAGE_S3_AUTH_USERNAME=texera_minio
+STORAGE_S3_AUTH_PASSWORD=password
+STORAGE_S3_REGION=us-west-2
+STORAGE_LAKEFS_ENDPOINT="http://localhost:${LAKEFS_PORT}/api/v1"
+STORAGE_LAKEFS_AUTH_USERNAME=AKIAIOSFOLKFSSAMPLES
+STORAGE_LAKEFS_AUTH_PASSWORD='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+STORAGE_LAKEFS_AUTH_API_SECRET=random_string_for_lakefs
+STORAGE_LAKEFS_BLOCK_STORAGE_TYPE=s3
+STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME=texera-dataset
+STORAGE_ICEBERG_CATALOG_TYPE=postgres
+STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="localhost:${POSTGRES_PORT}/texera_iceberg_catalog"
+STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME=texera
+STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD=password
+TEXERA_DASHBOARD_SERVICE_ENDPOINT="http://localhost:${TEXERA_WEB_PORT}"
+WORKFLOW_COMPILING_SERVICE_ENDPOINT="http://localhost:${WORKFLOW_COMPILING_SERVICE_PORT}"
+WORKFLOW_EXECUTION_SERVICE_ENDPOINT="http://localhost:${COMPUTING_UNIT_MASTER_PORT}"
+FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="http://localhost:${FILE_SERVICE_PORT}/api/dataset/presign-download"
+FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="http://localhost:${FILE_SERVICE_PORT}/api/dataset/did/upload"
+LITELLM_BASE_URL="http://localhost:${LITELLM_PORT}"
+LITELLM_MASTER_KEY=""
+LLM_ENDPOINT="http://localhost:${TEXERA_WEB_PORT}"
+LLM_API_KEY=dummy
+USER_SYS_ENABLED=true
+SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR=true
+MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB=64
+CONFIG_SERVICE_LAUNCHER=""
+ACCESS_CONTROL_LAUNCHER=""
+FILE_SERVICE_LAUNCHER=""
+WORKFLOW_COMPILING_SERVICE_LAUNCHER=""
+COMPUTING_UNIT_MANAGING_LAUNCHER=""
+TEXERA_WEB_LAUNCHER=""
+COMPUTING_UNIT_MASTER_LAUNCHER=""
+
+usage() {
+    cat >&2 <<EOF
+Usage:
+  bin/local-dev start
+  bin/local-dev stop
+
+Starts/stops the local Bobflow infrastructure stack:
+  postgres :$POSTGRES_PORT
+  minio    :$MINIO_PORT
+  lakefs   :$LAKEFS_PORT
+  litellm  :$LITELLM_PORT
+  config   :$CONFIG_SERVICE_PORT
+  access   :$ACCESS_CONTROL_PORT
+  file     :$FILE_SERVICE_PORT
+  compile  :$WORKFLOW_COMPILING_SERVICE_PORT
+  compute  :$COMPUTING_UNIT_MANAGING_PORT
+  texera   :$TEXERA_WEB_PORT
+  master   :$COMPUTING_UNIT_MASTER_PORT
+  agent    :$AGENT_SERVICE_PORT
+  rtc      :$RTC_PORT
+  frontend :$FRONTEND_PORT
+EOF
+}
+
+log() {
+    printf '%s\n' "$*"
+}
+
+err() {
+    printf 'error: %s\n' "$*" >&2
+}
+
+compose() {
+    docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
+}
+
+require_command() {
+    local cmd="$1"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        err "required command not found: $cmd"
+        exit 1
+    fi
+}
+
+port_pid() {
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1 || true
+}
+
+require_free_ports() {
+    local occupied=()
+    local port pid process
+
+    for port in "$POSTGRES_PORT" "$MINIO_PORT" "$LAKEFS_PORT" "$LITELLM_PORT" "$CONFIG_SERVICE_PORT" "$ACCESS_CONTROL_PORT" "$FILE_SERVICE_PORT" "$WORKFLOW_COMPILING_SERVICE_PORT" "$COMPUTING_UNIT_MANAGING_PORT" "$TEXERA_WEB_PORT" "$COMPUTING_UNIT_MASTER_PORT" "$AGENT_SERVICE_PORT" "$RTC_PORT" "$FRONTEND_PORT"; do
+        pid="$(port_pid "$port")"
+        if [[ -n "$pid" ]]; then
+            process="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+            occupied+=(":$port pid=$pid ${process:-unknown}")
+        fi
+    done
+
+    if (( ${#occupied[@]} > 0 )); then
+        err "refusing to start because required default ports are already occupied"
+        printf '  %s\n' "${occupied[@]}" >&2
+        printf 'Stop the process using those ports, or run `bin/local-dev stop` if this stack is already running.\n' >&2
+        exit 1
+    fi
+}
+
+require_anthropic_key() {
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+        err "ANTHROPIC_API_KEY must be set to a non-empty value before starting"
+        printf 'For local debugging, you can run: ANTHROPIC_API_KEY=dummy bin/local-dev start\n' >&2
+        exit 1
+    fi
+}
+
+wait_for_postgres() {
+    local timeout="${1:-90}"
+    local i=0
+
+    while (( i < timeout )); do
+        if compose exec -T postgres pg_isready -U texera -d texera_db -q >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    err "postgres did not become ready within ${timeout}s"
+    return 1
+}
+
+wait_for_http() {
+    local name="$1"
+    local url="$2"
+    local timeout="${3:-90}"
+    local i=0
+
+    while (( i < timeout )); do
+        if curl -fsS "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    err "$name did not become healthy at $url within ${timeout}s"
+    return 1
+}
+
+wait_for_port() {
+    local name="$1"
+    local port="$2"
+    local timeout="${3:-90}"
+    local i=0
+
+    while (( i < timeout )); do
+        if [[ -n "$(port_pid "$port")" ]]; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+
+    err "$name did not listen on port $port within ${timeout}s"
+    return 1
+}
+
+psql_value() {
+    compose exec -T postgres psql -U texera -d postgres -tAc "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+ensure_database_file() {
+    local database="$1"
+    local sql_file="$2"
+
+    if [[ "$(psql_value "SELECT 1 FROM pg_database WHERE datname='${database}'")" == "1" ]]; then
+        return 0
+    fi
+
+    log "postgres: applying $sql_file"
+    compose exec -T postgres psql -U texera -f "/docker-entrypoint-initdb.d/$sql_file" >/dev/null
+}
+
+ensure_texera_schema() {
+    local has_user_table
+
+    ensure_database_file "texera_db" "texera_ddl.sql"
+
+    has_user_table="$(
+        compose exec -T postgres psql -U texera -d texera_db -tAc \
+            "SELECT to_regclass('texera_db.\"user\"') IS NOT NULL" 2>/dev/null | tr -d '[:space:]'
+    )"
+
+    if [[ "$has_user_table" != "t" ]]; then
+        log "postgres: applying texera_ddl.sql"
+        compose exec -T postgres psql -U texera -f /docker-entrypoint-initdb.d/texera_ddl.sql >/dev/null
+    fi
+}
+
+ensure_postgres_databases() {
+    ensure_texera_schema
+    ensure_database_file "texera_lakefs" "texera_lakefs.sql"
+    ensure_database_file "texera_iceberg_catalog" "iceberg_postgres_catalog.sql"
+}
+
+verify_postgres_access() {
+    local db
+    db="$(compose exec -T postgres psql -U texera -d texera_db -tAc 'SELECT current_database()' 2>/dev/null | tr -d '[:space:]')"
+    if [[ "$db" != "texera_db" ]]; then
+        err "postgres verification failed"
+        return 1
+    fi
+}
+
+config_service_zip() {
+    if [[ -d "$REPO_ROOT/config-service/target/universal" ]]; then
+        find "$REPO_ROOT/config-service/target/universal" -maxdepth 1 -type f -name 'config-service-*.zip' | sort | tail -1
+    fi
+}
+
+config_service_launcher() {
+    if [[ -d "$STATE_DIR" ]]; then
+        find "$STATE_DIR" -maxdepth 3 -path '*/bin/config-service' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_config_service_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(config_service_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        CONFIG_SERVICE_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(config_service_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "config-service: building distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              sbt "ConfigService/dist"
+        )
+        zip="$(config_service_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "config-service distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "config-service: extracting distribution"
+    rm -rf "$STATE_DIR"/config-service-*
+    unzip -q -o "$zip" -d "$STATE_DIR"
+
+    launcher="$(config_service_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "config-service launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    CONFIG_SERVICE_LAUNCHER="$launcher"
+}
+
+python_bin() {
+    if [[ -x "$PYTHON_EXECUTABLE" ]]; then
+        printf '%s\n' "$PYTHON_EXECUTABLE"
+    fi
+}
+
+python_setup_command() {
+    printf '%s\n' 'uv sync --locked --python 3.12 --extra dev --extra kramabench --no-install-project'
+}
+
+verify_python_environment() {
+    local python
+    local uv_check_output
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "Python environment not found at $PYTHON_ENV_DIR"
+        printf 'Create it from the repository root with:\n  %s\n' "$(python_setup_command)" >&2
+        exit 1
+    fi
+
+    if ! "$python" <<'PY'
+import importlib
+import sys
+
+if sys.version_info[:2] != (3, 12):
+    raise SystemExit(
+        f"expected Python 3.12, found {sys.version.split()[0]} at {sys.executable}"
+    )
+
+if sys.prefix == sys.base_prefix:
+    raise SystemExit(f"expected a virtual environment, found system Python at {sys.executable}")
+
+required_modules = (
+    "betterproto",
+    "loguru",
+    "numpy",
+    "overrides",
+    "pandas",
+    "pyarrow",
+    "requests",
+)
+missing_modules = []
+for module in required_modules:
+    try:
+        importlib.import_module(module)
+    except ImportError:
+        missing_modules.append(module)
+
+if missing_modules:
+    raise SystemExit("missing required Python modules: " + ", ".join(missing_modules))
+PY
+    then
+        err "Python environment validation failed"
+        printf 'Rebuild it from the repository root with:\n  %s\n' "$(python_setup_command)" >&2
+        exit 1
+    fi
+
+    if ! uv_check_output="$(
+        cd "$REPO_ROOT"
+        uv sync --check --locked --python "$python" --extra dev --extra kramabench --no-install-project 2>&1
+    )"; then
+        printf '%s\n' "$uv_check_output" >&2
+        err "Python environment is not synchronized with uv.lock"
+        printf 'Synchronize it from the repository root with:\n  %s\n' "$(python_setup_command)" >&2
+        exit 1
+    fi
+
+    log "python: $($python -c 'import platform; print(platform.python_version())') ($python)"
+}
+
+start_config_service() {
+    local python
+    local config_listener_pid
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_config_service_distribution
+
+    log "starting config-service"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      CONFIG_SERVICE_LAUNCHER="$CONFIG_SERVICE_LAUNCHER" \
+      CONFIG_SERVICE_LOG_FILE="$CONFIG_SERVICE_LOG_FILE" \
+      "$python" <<'PY' >"$CONFIG_SERVICE_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["CONFIG_SERVICE_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["CONFIG_SERVICE_LAUNCHER"]],
+    cwd=os.environ["TEXERA_HOME"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for config-service"
+    if ! wait_for_http "config-service" "http://localhost:${CONFIG_SERVICE_PORT}/api/healthcheck" 120; then
+        printf 'config-service log: %s\n' "$CONFIG_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+
+    config_listener_pid="$(port_pid "$CONFIG_SERVICE_PORT")"
+    if [[ -z "$config_listener_pid" ]]; then
+        err "config-service reported ready but no process is listening on port $CONFIG_SERVICE_PORT"
+        printf 'config-service log: %s\n' "$CONFIG_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$config_listener_pid" >"$CONFIG_SERVICE_PID_FILE"
+
+    if ! curl -fsS "http://localhost:${CONFIG_SERVICE_PORT}/api/config/gui" >/dev/null; then
+        err "config-service did not serve /api/config/gui"
+        printf 'config-service log: %s\n' "$CONFIG_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+    if ! curl -fsS "http://localhost:${CONFIG_SERVICE_PORT}/api/config/user-system" >/dev/null; then
+        err "config-service did not serve /api/config/user-system"
+        printf 'config-service log: %s\n' "$CONFIG_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+}
+
+stop_config_service() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$CONFIG_SERVICE_PID_FILE" ]]; then
+        pid="$(cat "$CONFIG_SERVICE_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping config-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$CONFIG_SERVICE_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$CONFIG_SERVICE_PID_FILE"
+}
+
+access_control_zip() {
+    if [[ -d "$REPO_ROOT/access-control-service/target/universal" ]]; then
+        find "$REPO_ROOT/access-control-service/target/universal" -maxdepth 1 -type f -name 'access-control-service-*.zip' | sort | tail -1
+    fi
+}
+
+access_control_launcher() {
+    if [[ -d "$STATE_DIR" ]]; then
+        find "$STATE_DIR" -maxdepth 3 -path '*/bin/access-control-service' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_access_control_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(access_control_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        ACCESS_CONTROL_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(access_control_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "access-control-service: building distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              LITELLM_BASE_URL="$LITELLM_BASE_URL" \
+              LITELLM_MASTER_KEY="$LITELLM_MASTER_KEY" \
+              sbt "AccessControlService/dist"
+        )
+        zip="$(access_control_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "access-control-service distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "access-control-service: extracting distribution"
+    rm -rf "$STATE_DIR"/access-control-service-*
+    unzip -q -o "$zip" -d "$STATE_DIR"
+
+    launcher="$(access_control_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "access-control-service launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    ACCESS_CONTROL_LAUNCHER="$launcher"
+}
+
+start_access_control() {
+    local python
+    local access_control_listener_pid
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_access_control_distribution
+
+    log "starting access-control-service"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      LITELLM_BASE_URL="$LITELLM_BASE_URL" \
+      LITELLM_MASTER_KEY="$LITELLM_MASTER_KEY" \
+      ACCESS_CONTROL_LAUNCHER="$ACCESS_CONTROL_LAUNCHER" \
+      ACCESS_CONTROL_LOG_FILE="$ACCESS_CONTROL_LOG_FILE" \
+      "$python" <<'PY' >"$ACCESS_CONTROL_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["ACCESS_CONTROL_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["ACCESS_CONTROL_LAUNCHER"]],
+    cwd=os.environ["TEXERA_HOME"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for access-control-service"
+    if ! wait_for_http "access-control-service" "http://localhost:${ACCESS_CONTROL_PORT}/api/healthcheck" 120; then
+        printf 'access-control-service log: %s\n' "$ACCESS_CONTROL_LOG_FILE" >&2
+        return 1
+    fi
+
+    access_control_listener_pid="$(port_pid "$ACCESS_CONTROL_PORT")"
+    if [[ -z "$access_control_listener_pid" ]]; then
+        err "access-control-service reported ready but no process is listening on port $ACCESS_CONTROL_PORT"
+        printf 'access-control-service log: %s\n' "$ACCESS_CONTROL_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$access_control_listener_pid" >"$ACCESS_CONTROL_PID_FILE"
+
+    if ! curl -fsS "http://localhost:${ACCESS_CONTROL_PORT}/api/models" >/dev/null; then
+        err "access-control-service could not route /api/models to LiteLLM at $LITELLM_BASE_URL"
+        printf 'access-control-service log: %s\n' "$ACCESS_CONTROL_LOG_FILE" >&2
+        return 1
+    fi
+}
+
+stop_access_control() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$ACCESS_CONTROL_PID_FILE" ]]; then
+        pid="$(cat "$ACCESS_CONTROL_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping access-control-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$ACCESS_CONTROL_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$ACCESS_CONTROL_PID_FILE"
+}
+
+file_service_zip() {
+    if [[ -d "$REPO_ROOT/file-service/target/universal" ]]; then
+        find "$REPO_ROOT/file-service/target/universal" -maxdepth 1 -type f -name 'file-service-*.zip' | sort | tail -1
+    fi
+}
+
+file_service_launcher() {
+    if [[ -d "$STATE_DIR" ]]; then
+        find "$STATE_DIR" -maxdepth 3 -path '*/bin/file-service' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_file_service_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(file_service_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        FILE_SERVICE_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(file_service_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "file-service: building distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              STORAGE_S3_ENDPOINT="$STORAGE_S3_ENDPOINT" \
+              STORAGE_S3_AUTH_USERNAME="$STORAGE_S3_AUTH_USERNAME" \
+              STORAGE_S3_AUTH_PASSWORD="$STORAGE_S3_AUTH_PASSWORD" \
+              STORAGE_S3_REGION="$STORAGE_S3_REGION" \
+              STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+              STORAGE_LAKEFS_AUTH_USERNAME="$STORAGE_LAKEFS_AUTH_USERNAME" \
+              STORAGE_LAKEFS_AUTH_PASSWORD="$STORAGE_LAKEFS_AUTH_PASSWORD" \
+              STORAGE_LAKEFS_AUTH_API_SECRET="$STORAGE_LAKEFS_AUTH_API_SECRET" \
+              STORAGE_LAKEFS_BLOCK_STORAGE_TYPE="$STORAGE_LAKEFS_BLOCK_STORAGE_TYPE" \
+              STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME="$STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME" \
+              sbt "FileService/dist"
+        )
+        zip="$(file_service_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "file-service distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "file-service: extracting distribution"
+    rm -rf "$STATE_DIR"/file-service-*
+    unzip -q -o "$zip" -d "$STATE_DIR"
+
+    launcher="$(file_service_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "file-service launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    FILE_SERVICE_LAUNCHER="$launcher"
+}
+
+start_file_service() {
+    local python
+    local file_service_listener_pid
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_file_service_distribution
+
+    log "starting file-service"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      STORAGE_S3_ENDPOINT="$STORAGE_S3_ENDPOINT" \
+      STORAGE_S3_AUTH_USERNAME="$STORAGE_S3_AUTH_USERNAME" \
+      STORAGE_S3_AUTH_PASSWORD="$STORAGE_S3_AUTH_PASSWORD" \
+      STORAGE_S3_REGION="$STORAGE_S3_REGION" \
+      STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+      STORAGE_LAKEFS_AUTH_USERNAME="$STORAGE_LAKEFS_AUTH_USERNAME" \
+      STORAGE_LAKEFS_AUTH_PASSWORD="$STORAGE_LAKEFS_AUTH_PASSWORD" \
+      STORAGE_LAKEFS_AUTH_API_SECRET="$STORAGE_LAKEFS_AUTH_API_SECRET" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_TYPE="$STORAGE_LAKEFS_BLOCK_STORAGE_TYPE" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME="$STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME" \
+      FILE_SERVICE_LAUNCHER="$FILE_SERVICE_LAUNCHER" \
+      FILE_SERVICE_LOG_FILE="$FILE_SERVICE_LOG_FILE" \
+      "$python" <<'PY' >"$FILE_SERVICE_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["FILE_SERVICE_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["FILE_SERVICE_LAUNCHER"]],
+    cwd=os.environ["TEXERA_HOME"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for file-service"
+    if ! wait_for_http "file-service" "http://localhost:${FILE_SERVICE_PORT}/api/healthcheck" 120; then
+        printf 'file-service log: %s\n' "$FILE_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+
+    file_service_listener_pid="$(port_pid "$FILE_SERVICE_PORT")"
+    if [[ -z "$file_service_listener_pid" ]]; then
+        err "file-service reported ready but no process is listening on port $FILE_SERVICE_PORT"
+        printf 'file-service log: %s\n' "$FILE_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$file_service_listener_pid" >"$FILE_SERVICE_PID_FILE"
+}
+
+stop_file_service() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$FILE_SERVICE_PID_FILE" ]]; then
+        pid="$(cat "$FILE_SERVICE_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping file-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$FILE_SERVICE_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$FILE_SERVICE_PID_FILE"
+}
+
+workflow_compiling_service_zip() {
+    if [[ -d "$REPO_ROOT/workflow-compiling-service/target/universal" ]]; then
+        find "$REPO_ROOT/workflow-compiling-service/target/universal" -maxdepth 1 -type f -name 'workflow-compiling-service-*.zip' | sort | tail -1
+    fi
+}
+
+workflow_compiling_service_launcher() {
+    if [[ -d "$STATE_DIR" ]]; then
+        find "$STATE_DIR" -maxdepth 3 -path '*/bin/workflow-compiling-service' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_workflow_compiling_service_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(workflow_compiling_service_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        WORKFLOW_COMPILING_SERVICE_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(workflow_compiling_service_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "workflow-compiling-service: building distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              sbt "WorkflowCompilingService/dist"
+        )
+        zip="$(workflow_compiling_service_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "workflow-compiling-service distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "workflow-compiling-service: extracting distribution"
+    rm -rf "$STATE_DIR"/workflow-compiling-service-*
+    unzip -q -o "$zip" -d "$STATE_DIR"
+
+    launcher="$(workflow_compiling_service_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "workflow-compiling-service launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    WORKFLOW_COMPILING_SERVICE_LAUNCHER="$launcher"
+}
+
+start_workflow_compiling_service() {
+    local python
+    local workflow_compiling_listener_pid
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_workflow_compiling_service_distribution
+
+    log "starting workflow-compiling-service"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      WORKFLOW_COMPILING_SERVICE_LAUNCHER="$WORKFLOW_COMPILING_SERVICE_LAUNCHER" \
+      WORKFLOW_COMPILING_SERVICE_LOG_FILE="$WORKFLOW_COMPILING_SERVICE_LOG_FILE" \
+      "$python" <<'PY' >"$WORKFLOW_COMPILING_SERVICE_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["WORKFLOW_COMPILING_SERVICE_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["WORKFLOW_COMPILING_SERVICE_LAUNCHER"]],
+    cwd=os.environ["TEXERA_HOME"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for workflow-compiling-service"
+    if ! wait_for_http "workflow-compiling-service" "http://localhost:${WORKFLOW_COMPILING_SERVICE_PORT}/api/healthcheck" 120; then
+        printf 'workflow-compiling-service log: %s\n' "$WORKFLOW_COMPILING_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+
+    workflow_compiling_listener_pid="$(port_pid "$WORKFLOW_COMPILING_SERVICE_PORT")"
+    if [[ -z "$workflow_compiling_listener_pid" ]]; then
+        err "workflow-compiling-service reported ready but no process is listening on port $WORKFLOW_COMPILING_SERVICE_PORT"
+        printf 'workflow-compiling-service log: %s\n' "$WORKFLOW_COMPILING_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$workflow_compiling_listener_pid" >"$WORKFLOW_COMPILING_SERVICE_PID_FILE"
+}
+
+stop_workflow_compiling_service() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$WORKFLOW_COMPILING_SERVICE_PID_FILE" ]]; then
+        pid="$(cat "$WORKFLOW_COMPILING_SERVICE_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping workflow-compiling-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$WORKFLOW_COMPILING_SERVICE_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$WORKFLOW_COMPILING_SERVICE_PID_FILE"
+}
+
+computing_unit_managing_zip() {
+    if [[ -d "$REPO_ROOT/computing-unit-managing-service/target/universal" ]]; then
+        find "$REPO_ROOT/computing-unit-managing-service/target/universal" -maxdepth 1 -type f -name 'computing-unit-managing-service-*.zip' | sort | tail -1
+    fi
+}
+
+computing_unit_managing_launcher() {
+    if [[ -d "$STATE_DIR" ]]; then
+        find "$STATE_DIR" -maxdepth 3 -path '*/bin/computing-unit-managing-service' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_computing_unit_managing_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(computing_unit_managing_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        COMPUTING_UNIT_MANAGING_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(computing_unit_managing_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "computing-unit-managing-service: building distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              STORAGE_ICEBERG_CATALOG_TYPE="$STORAGE_ICEBERG_CATALOG_TYPE" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="$STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME="$STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD="$STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD" \
+              STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+              FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="$FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT" \
+              FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="$FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT" \
+              USER_SYS_ENABLED="$USER_SYS_ENABLED" \
+              SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR="$SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR" \
+              MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB="$MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB" \
+              sbt "ComputingUnitManagingService/dist"
+        )
+        zip="$(computing_unit_managing_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "computing-unit-managing-service distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "computing-unit-managing-service: extracting distribution"
+    rm -rf "$STATE_DIR"/computing-unit-managing-service-*
+    unzip -q -o "$zip" -d "$STATE_DIR"
+
+    launcher="$(computing_unit_managing_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "computing-unit-managing-service launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    COMPUTING_UNIT_MANAGING_LAUNCHER="$launcher"
+}
+
+start_computing_unit_managing() {
+    local python
+    local computing_unit_managing_listener_pid
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_computing_unit_managing_distribution
+
+    log "starting computing-unit-managing-service"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      STORAGE_ICEBERG_CATALOG_TYPE="$STORAGE_ICEBERG_CATALOG_TYPE" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="$STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME="$STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD="$STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD" \
+      STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+      FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="$FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT" \
+      FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="$FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT" \
+      USER_SYS_ENABLED="$USER_SYS_ENABLED" \
+      SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR="$SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR" \
+      MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB="$MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB" \
+      COMPUTING_UNIT_MANAGING_LAUNCHER="$COMPUTING_UNIT_MANAGING_LAUNCHER" \
+      COMPUTING_UNIT_MANAGING_LOG_FILE="$COMPUTING_UNIT_MANAGING_LOG_FILE" \
+      "$python" <<'PY' >"$COMPUTING_UNIT_MANAGING_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["COMPUTING_UNIT_MANAGING_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["COMPUTING_UNIT_MANAGING_LAUNCHER"]],
+    cwd=os.environ["TEXERA_HOME"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for computing-unit-managing-service"
+    if ! wait_for_http "computing-unit-managing-service" "http://localhost:${COMPUTING_UNIT_MANAGING_PORT}/api/healthcheck" 120; then
+        printf 'computing-unit-managing-service log: %s\n' "$COMPUTING_UNIT_MANAGING_LOG_FILE" >&2
+        return 1
+    fi
+
+    computing_unit_managing_listener_pid="$(port_pid "$COMPUTING_UNIT_MANAGING_PORT")"
+    if [[ -z "$computing_unit_managing_listener_pid" ]]; then
+        err "computing-unit-managing-service reported ready but no process is listening on port $COMPUTING_UNIT_MANAGING_PORT"
+        printf 'computing-unit-managing-service log: %s\n' "$COMPUTING_UNIT_MANAGING_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$computing_unit_managing_listener_pid" >"$COMPUTING_UNIT_MANAGING_PID_FILE"
+}
+
+stop_computing_unit_managing() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$COMPUTING_UNIT_MANAGING_PID_FILE" ]]; then
+        pid="$(cat "$COMPUTING_UNIT_MANAGING_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping computing-unit-managing-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$COMPUTING_UNIT_MANAGING_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$COMPUTING_UNIT_MANAGING_PID_FILE"
+}
+
+texera_web_zip() {
+    if [[ -d "$REPO_ROOT/amber/target/universal" ]]; then
+        find "$REPO_ROOT/amber/target/universal" -maxdepth 1 -type f -name 'amber-*.zip' | sort | tail -1
+    fi
+}
+
+texera_web_launcher() {
+    if [[ -d "$REPO_ROOT/amber/target" ]]; then
+        find "$REPO_ROOT/amber/target" -maxdepth 3 -path '*/bin/texera-web-application' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_texera_web_distribution() {
+    local launcher
+    local zip
+
+    launcher="$(texera_web_launcher)"
+    if [[ -n "$launcher" && -x "$launcher" ]]; then
+        TEXERA_WEB_LAUNCHER="$launcher"
+        return 0
+    fi
+
+    zip="$(texera_web_zip)"
+    if [[ -z "$zip" ]]; then
+        require_command sbt
+        log "texera-web: building WorkflowExecutionService distribution"
+        (
+            cd "$REPO_ROOT"
+            STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+              STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+              STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+              STORAGE_S3_ENDPOINT="$STORAGE_S3_ENDPOINT" \
+              STORAGE_S3_AUTH_USERNAME="$STORAGE_S3_AUTH_USERNAME" \
+              STORAGE_S3_AUTH_PASSWORD="$STORAGE_S3_AUTH_PASSWORD" \
+              STORAGE_S3_REGION="$STORAGE_S3_REGION" \
+              STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+              STORAGE_LAKEFS_AUTH_USERNAME="$STORAGE_LAKEFS_AUTH_USERNAME" \
+              STORAGE_LAKEFS_AUTH_PASSWORD="$STORAGE_LAKEFS_AUTH_PASSWORD" \
+              STORAGE_LAKEFS_AUTH_API_SECRET="$STORAGE_LAKEFS_AUTH_API_SECRET" \
+              STORAGE_ICEBERG_CATALOG_TYPE="$STORAGE_ICEBERG_CATALOG_TYPE" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="$STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME="$STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME" \
+              STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD="$STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD" \
+              sbt "WorkflowExecutionService/dist"
+        )
+        zip="$(texera_web_zip)"
+    fi
+
+    if [[ -z "$zip" ]]; then
+        err "texera-web distribution zip was not produced"
+        return 1
+    fi
+
+    require_command unzip
+    log "texera-web: extracting distribution"
+    rm -rf "$REPO_ROOT/amber/target"/amber-*
+    unzip -q -o "$zip" -d "$REPO_ROOT/amber/target"
+
+    launcher="$(texera_web_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "texera-web launcher was not found after extracting $zip"
+        return 1
+    fi
+
+    TEXERA_WEB_LAUNCHER="$launcher"
+}
+
+start_texera_web() {
+    local python
+    local texera_web_listener_pid
+    local udf_python_path
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+    udf_python_path="$(python_bin)"
+
+    mkdir -p "$STATE_DIR"
+    ensure_texera_web_distribution
+
+    log "starting texera-web"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      STORAGE_S3_ENDPOINT="$STORAGE_S3_ENDPOINT" \
+      STORAGE_S3_AUTH_USERNAME="$STORAGE_S3_AUTH_USERNAME" \
+      STORAGE_S3_AUTH_PASSWORD="$STORAGE_S3_AUTH_PASSWORD" \
+      STORAGE_S3_REGION="$STORAGE_S3_REGION" \
+      STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+      STORAGE_LAKEFS_AUTH_USERNAME="$STORAGE_LAKEFS_AUTH_USERNAME" \
+      STORAGE_LAKEFS_AUTH_PASSWORD="$STORAGE_LAKEFS_AUTH_PASSWORD" \
+      STORAGE_LAKEFS_AUTH_API_SECRET="$STORAGE_LAKEFS_AUTH_API_SECRET" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_TYPE="$STORAGE_LAKEFS_BLOCK_STORAGE_TYPE" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME="$STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME" \
+      STORAGE_ICEBERG_CATALOG_TYPE="$STORAGE_ICEBERG_CATALOG_TYPE" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="$STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME="$STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD="$STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD" \
+      TEXERA_DASHBOARD_SERVICE_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
+      WORKFLOW_COMPILING_SERVICE_ENDPOINT="$WORKFLOW_COMPILING_SERVICE_ENDPOINT" \
+      WORKFLOW_EXECUTION_SERVICE_ENDPOINT="$WORKFLOW_EXECUTION_SERVICE_ENDPOINT" \
+      FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="$FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT" \
+      FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="$FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT" \
+      LITELLM_BASE_URL="$LITELLM_BASE_URL" \
+      LITELLM_MASTER_KEY="$LITELLM_MASTER_KEY" \
+      LLM_ENDPOINT="$LLM_ENDPOINT" \
+      LLM_API_KEY="$LLM_API_KEY" \
+      UDF_PYTHON_PATH="$udf_python_path" \
+      TEXERA_WEB_LAUNCHER="$TEXERA_WEB_LAUNCHER" \
+      TEXERA_WEB_LOG_FILE="$TEXERA_WEB_LOG_FILE" \
+      "$python" <<'PY' >"$TEXERA_WEB_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["TEXERA_WEB_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["TEXERA_WEB_LAUNCHER"]],
+    cwd=os.path.join(os.environ["TEXERA_HOME"], "amber"),
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for texera-web"
+    if ! wait_for_http "texera-web" "http://localhost:${TEXERA_WEB_PORT}/api/healthcheck" 180; then
+        printf 'texera-web log: %s\n' "$TEXERA_WEB_LOG_FILE" >&2
+        return 1
+    fi
+
+    texera_web_listener_pid="$(port_pid "$TEXERA_WEB_PORT")"
+    if [[ -z "$texera_web_listener_pid" ]]; then
+        err "texera-web reported ready but no process is listening on port $TEXERA_WEB_PORT"
+        printf 'texera-web log: %s\n' "$TEXERA_WEB_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$texera_web_listener_pid" >"$TEXERA_WEB_PID_FILE"
+}
+
+stop_texera_web() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$TEXERA_WEB_PID_FILE" ]]; then
+        pid="$(cat "$TEXERA_WEB_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping texera-web"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$TEXERA_WEB_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$TEXERA_WEB_PID_FILE"
+}
+
+computing_unit_master_launcher() {
+    if [[ -d "$REPO_ROOT/amber/target" ]]; then
+        find "$REPO_ROOT/amber/target" -maxdepth 3 -path '*/bin/computing-unit-master' -type f -perm -111 | sort | head -1
+    fi
+}
+
+ensure_computing_unit_master_distribution() {
+    local launcher
+
+    ensure_texera_web_distribution
+
+    launcher="$(computing_unit_master_launcher)"
+    if [[ -z "$launcher" || ! -x "$launcher" ]]; then
+        err "computing-unit-master launcher was not found in the Amber distribution"
+        return 1
+    fi
+
+    COMPUTING_UNIT_MASTER_LAUNCHER="$launcher"
+}
+
+start_computing_unit_master() {
+    local python
+    local computing_unit_master_listener_pid
+    local udf_python_path
+
+    python="$(python_bin)"
+    if [[ -z "$python" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+    udf_python_path="$(python_bin)"
+
+    mkdir -p "$STATE_DIR"
+    ensure_computing_unit_master_distribution
+
+    log "starting computing-unit-master"
+    TEXERA_HOME="$REPO_ROOT" \
+      STORAGE_JDBC_URL="$STORAGE_JDBC_URL" \
+      STORAGE_JDBC_USERNAME="$STORAGE_JDBC_USERNAME" \
+      STORAGE_JDBC_PASSWORD="$STORAGE_JDBC_PASSWORD" \
+      STORAGE_S3_ENDPOINT="$STORAGE_S3_ENDPOINT" \
+      STORAGE_S3_AUTH_USERNAME="$STORAGE_S3_AUTH_USERNAME" \
+      STORAGE_S3_AUTH_PASSWORD="$STORAGE_S3_AUTH_PASSWORD" \
+      STORAGE_S3_REGION="$STORAGE_S3_REGION" \
+      STORAGE_LAKEFS_ENDPOINT="$STORAGE_LAKEFS_ENDPOINT" \
+      STORAGE_LAKEFS_AUTH_USERNAME="$STORAGE_LAKEFS_AUTH_USERNAME" \
+      STORAGE_LAKEFS_AUTH_PASSWORD="$STORAGE_LAKEFS_AUTH_PASSWORD" \
+      STORAGE_LAKEFS_AUTH_API_SECRET="$STORAGE_LAKEFS_AUTH_API_SECRET" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_TYPE="$STORAGE_LAKEFS_BLOCK_STORAGE_TYPE" \
+      STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME="$STORAGE_LAKEFS_BLOCK_STORAGE_BUCKET_NAME" \
+      STORAGE_ICEBERG_CATALOG_TYPE="$STORAGE_ICEBERG_CATALOG_TYPE" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME="$STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME="$STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME" \
+      STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD="$STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD" \
+      TEXERA_DASHBOARD_SERVICE_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
+      WORKFLOW_COMPILING_SERVICE_ENDPOINT="$WORKFLOW_COMPILING_SERVICE_ENDPOINT" \
+      WORKFLOW_EXECUTION_SERVICE_ENDPOINT="$WORKFLOW_EXECUTION_SERVICE_ENDPOINT" \
+      FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="$FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT" \
+      FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="$FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT" \
+      USER_SYS_ENABLED="$USER_SYS_ENABLED" \
+      SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR="$SCHEDULE_GENERATOR_ENABLE_COST_BASED_SCHEDULE_GENERATOR" \
+      MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB="$MAX_WORKFLOW_WEBSOCKET_REQUEST_PAYLOAD_SIZE_KB" \
+      UDF_PYTHON_PATH="$udf_python_path" \
+      COMPUTING_UNIT_MASTER_LAUNCHER="$COMPUTING_UNIT_MASTER_LAUNCHER" \
+      COMPUTING_UNIT_MASTER_LOG_FILE="$COMPUTING_UNIT_MASTER_LOG_FILE" \
+      "$python" <<'PY' >"$COMPUTING_UNIT_MASTER_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["COMPUTING_UNIT_MASTER_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    [os.environ["COMPUTING_UNIT_MASTER_LAUNCHER"]],
+    cwd=os.path.join(os.environ["TEXERA_HOME"], "amber"),
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for computing-unit-master"
+    if ! wait_for_port "computing-unit-master" "$COMPUTING_UNIT_MASTER_PORT" 120; then
+        printf 'computing-unit-master log: %s\n' "$COMPUTING_UNIT_MASTER_LOG_FILE" >&2
+        return 1
+    fi
+
+    computing_unit_master_listener_pid="$(port_pid "$COMPUTING_UNIT_MASTER_PORT")"
+    if [[ -z "$computing_unit_master_listener_pid" ]]; then
+        err "computing-unit-master reported ready but no process is listening on port $COMPUTING_UNIT_MASTER_PORT"
+        printf 'computing-unit-master log: %s\n' "$COMPUTING_UNIT_MASTER_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$computing_unit_master_listener_pid" >"$COMPUTING_UNIT_MASTER_PID_FILE"
+}
+
+stop_computing_unit_master() {
+    local pid=""
+    local port_pid_value
+
+    if [[ -f "$COMPUTING_UNIT_MASTER_PID_FILE" ]]; then
+        pid="$(cat "$COMPUTING_UNIT_MASTER_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping computing-unit-master"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    port_pid_value="$(port_pid "$COMPUTING_UNIT_MASTER_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$COMPUTING_UNIT_MASTER_PID_FILE"
+}
+
+ensure_frontend_dependencies() {
+    if [[ -d "$REPO_ROOT/frontend/node_modules" ]]; then
+        return 0
+    fi
+
+    require_command yarn
+    log "frontend: installing dependencies"
+    (cd "$REPO_ROOT/frontend" && yarn install)
+}
+
+ensure_agent_service_dependencies() {
+    if [[ -d "$REPO_ROOT/agent-service/node_modules" ]]; then
+        return 0
+    fi
+
+    require_command bun
+    log "agent-service: installing dependencies"
+    (cd "$REPO_ROOT/agent-service" && bun install)
+}
+
+start_agent_service() {
+    local python_bin
+    python_bin="$(python_bin)"
+    if [[ -z "$python_bin" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_agent_service_dependencies
+
+    log "starting agent-service"
+    AGENT_SERVICE_CWD="$REPO_ROOT/agent-service" \
+      AGENT_SERVICE_LOG_FILE="$AGENT_SERVICE_LOG_FILE" \
+      PORT="$AGENT_SERVICE_PORT" \
+      LLM_API_KEY="$LLM_API_KEY" \
+      API_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
+      OPERATOR_METADATA_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
+      MODELS_ENDPOINT="http://localhost:${ACCESS_CONTROL_PORT}" \
+      COMPILE_ENDPOINT="$WORKFLOW_COMPILING_SERVICE_ENDPOINT" \
+      EXECUTION_ENDPOINT="$WORKFLOW_EXECUTION_SERVICE_ENDPOINT" \
+      WS_ENDPOINT="ws://localhost:${COMPUTING_UNIT_MASTER_PORT}" \
+      DATASET_ENDPOINT="http://localhost:${FILE_SERVICE_PORT}" \
+      COMPUTING_ENDPOINT="http://localhost:${COMPUTING_UNIT_MANAGING_PORT}" \
+      CONFIG_ENDPOINT="http://localhost:${CONFIG_SERVICE_PORT}" \
+      "$python_bin" <<'PY' >"$AGENT_SERVICE_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["AGENT_SERVICE_LOG_FILE"], "ab", buffering=0)
+process = subprocess.Popen(
+    ["bun", "run", "dev"],
+    cwd=os.environ["AGENT_SERVICE_CWD"],
+    env=os.environ.copy(),
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for agent-service"
+    if ! wait_for_http "agent-service" "http://localhost:${AGENT_SERVICE_PORT}/health" 120; then
+        printf 'agent-service log: %s\n' "$AGENT_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+
+    local agent_service_listener_pid
+    agent_service_listener_pid="$(port_pid "$AGENT_SERVICE_PORT")"
+    if [[ -z "$agent_service_listener_pid" ]]; then
+        err "agent-service reported ready but no process is listening on port $AGENT_SERVICE_PORT"
+        printf 'agent-service log: %s\n' "$AGENT_SERVICE_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$agent_service_listener_pid" >"$AGENT_SERVICE_PID_FILE"
+}
+
+stop_agent_service() {
+    local pid=""
+
+    if [[ -f "$AGENT_SERVICE_PID_FILE" ]]; then
+        pid="$(cat "$AGENT_SERVICE_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping agent-service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    local port_pid_value
+    port_pid_value="$(port_pid "$AGENT_SERVICE_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$AGENT_SERVICE_PID_FILE"
+}
+
+start_rtc_service() {
+    local python_bin
+    python_bin="$(python_bin)"
+    if [[ -z "$python_bin" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR/yjs"
+    ensure_frontend_dependencies
+
+    log "starting rtc websocket service"
+    RTC_CWD="$REPO_ROOT/frontend" \
+      RTC_LOG_FILE="$RTC_LOG_FILE" \
+      RTC_PORT="$RTC_PORT" \
+      RTC_STATE_DIR="$STATE_DIR/yjs" \
+      "$python_bin" <<'PY' >"$RTC_PID_FILE"
+import os
+import subprocess
+
+stdin = open(os.devnull, "rb")
+log = open(os.environ["RTC_LOG_FILE"], "ab", buffering=0)
+env = os.environ.copy()
+env["HOST"] = "localhost"
+env["PORT"] = os.environ["RTC_PORT"]
+env["YPERSISTENCE"] = os.environ["RTC_STATE_DIR"]
+process = subprocess.Popen(
+    ["./node_modules/.bin/y-websocket"],
+    cwd=os.environ["RTC_CWD"],
+    env=env,
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for rtc websocket service"
+    if ! wait_for_port "rtc websocket service" "$RTC_PORT" 60; then
+        printf 'rtc websocket service log: %s\n' "$RTC_LOG_FILE" >&2
+        return 1
+    fi
+
+    local rtc_listener_pid
+    rtc_listener_pid="$(port_pid "$RTC_PORT")"
+    if [[ -z "$rtc_listener_pid" ]]; then
+        err "rtc websocket service reported ready but no process is listening on port $RTC_PORT"
+        printf 'rtc websocket service log: %s\n' "$RTC_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$rtc_listener_pid" >"$RTC_PID_FILE"
+}
+
+stop_rtc_service() {
+    local pid=""
+
+    if [[ -f "$RTC_PID_FILE" ]]; then
+        pid="$(cat "$RTC_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping rtc websocket service"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    local port_pid_value
+    port_pid_value="$(port_pid "$RTC_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$RTC_PID_FILE"
+}
+
+start_frontend() {
+    local python_bin
+    python_bin="$(python_bin)"
+    if [[ -z "$python_bin" ]]; then
+        err "required command not found: python3"
+        exit 1
+    fi
+
+    mkdir -p "$STATE_DIR"
+    ensure_frontend_dependencies
+
+    log "starting frontend"
+    FRONTEND_CWD="$REPO_ROOT/frontend" \
+      FRONTEND_LOG_FILE="$FRONTEND_LOG_FILE" \
+      FRONTEND_PORT="$FRONTEND_PORT" \
+      "$python_bin" <<'PY' >"$FRONTEND_PID_FILE"
+import os
+import subprocess
+
+cwd = os.environ["FRONTEND_CWD"]
+log_path = os.environ["FRONTEND_LOG_FILE"]
+port = os.environ["FRONTEND_PORT"]
+
+stdin = open(os.devnull, "rb")
+log = open(log_path, "ab", buffering=0)
+process = subprocess.Popen(
+    ["./node_modules/.bin/ng", "serve", "--host", "localhost", "--port", port],
+    cwd=cwd,
+    stdin=stdin,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+)
+print(process.pid)
+PY
+
+    log "waiting for frontend"
+    if ! wait_for_http "frontend" "http://localhost:${FRONTEND_PORT}" 180; then
+        printf 'frontend log: %s\n' "$FRONTEND_LOG_FILE" >&2
+        return 1
+    fi
+
+    local frontend_listener_pid
+    frontend_listener_pid="$(port_pid "$FRONTEND_PORT")"
+    if [[ -z "$frontend_listener_pid" ]]; then
+        err "frontend reported ready but no process is listening on port $FRONTEND_PORT"
+        printf 'frontend log: %s\n' "$FRONTEND_LOG_FILE" >&2
+        return 1
+    fi
+    printf '%s\n' "$frontend_listener_pid" >"$FRONTEND_PID_FILE"
+
+    sleep 5
+    if [[ -z "$(port_pid "$FRONTEND_PORT")" ]]; then
+        err "frontend exited after initial startup"
+        printf 'frontend log: %s\n' "$FRONTEND_LOG_FILE" >&2
+        return 1
+    fi
+}
+
+stop_frontend() {
+    local pid=""
+
+    if [[ -f "$FRONTEND_PID_FILE" ]]; then
+        pid="$(cat "$FRONTEND_PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        log "stopping frontend"
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while (( i < 30 )) && kill -0 "$pid" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    local port_pid_value
+    port_pid_value="$(port_pid "$FRONTEND_PORT")"
+    if [[ -n "$port_pid_value" ]]; then
+        kill "$port_pid_value" 2>/dev/null || true
+    fi
+
+    rm -f "$FRONTEND_PID_FILE"
+}
+
+start_stack() {
+    require_command docker
+    require_command lsof
+    require_command ps
+    require_command curl
+    require_command uv
+    verify_python_environment
+    require_anthropic_key
+    require_free_ports
+
+    if [[ ! -f "$COMPOSE_FILE" ]]; then
+        err "compose file not found: $COMPOSE_FILE"
+        exit 1
+    fi
+
+    log "starting postgres and minio"
+    compose up -d postgres minio
+
+    log "waiting for postgres"
+    wait_for_postgres 120
+
+    log "ensuring postgres databases"
+    ensure_postgres_databases
+
+    log "waiting for minio"
+    wait_for_http "minio" "http://localhost:${MINIO_PORT}/minio/health/ready" 120
+
+    log "starting lakefs and litellm"
+    compose up -d lakefs litellm
+
+    log "waiting for lakefs"
+    wait_for_http "lakefs" "http://localhost:${LAKEFS_PORT}/api/v1/healthcheck" 120
+
+    log "waiting for litellm"
+    wait_for_http "litellm" "http://localhost:${LITELLM_PORT}/health/liveliness" 120
+
+    log "verifying postgres access"
+    verify_postgres_access
+
+    start_config_service
+    start_access_control
+    start_file_service
+    start_workflow_compiling_service
+    start_texera_web
+    start_computing_unit_master
+    start_computing_unit_managing
+    start_agent_service
+    start_rtc_service
+    start_frontend
+
+    log "local dev stack is running"
+    log "  postgres: postgresql://texera:password@localhost:${POSTGRES_PORT}/texera_db"
+    log "  minio:    http://localhost:${MINIO_PORT} (texera_minio / password)"
+    log "  lakefs:   http://localhost:${LAKEFS_PORT} (AKIAIOSFOLKFSSAMPLES / wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY)"
+    log "  litellm:  http://localhost:${LITELLM_PORT}"
+    log "  config:   http://localhost:${CONFIG_SERVICE_PORT} (log: $CONFIG_SERVICE_LOG_FILE)"
+    log "  access:   http://localhost:${ACCESS_CONTROL_PORT} (log: $ACCESS_CONTROL_LOG_FILE)"
+    log "  file:     http://localhost:${FILE_SERVICE_PORT} (log: $FILE_SERVICE_LOG_FILE)"
+    log "  compile:  http://localhost:${WORKFLOW_COMPILING_SERVICE_PORT} (log: $WORKFLOW_COMPILING_SERVICE_LOG_FILE)"
+    log "  compute:  http://localhost:${COMPUTING_UNIT_MANAGING_PORT} (log: $COMPUTING_UNIT_MANAGING_LOG_FILE)"
+    log "  texera:   http://localhost:${TEXERA_WEB_PORT} (log: $TEXERA_WEB_LOG_FILE)"
+    log "  master:   http://localhost:${COMPUTING_UNIT_MASTER_PORT} (log: $COMPUTING_UNIT_MASTER_LOG_FILE)"
+    log "  agent:    http://localhost:${AGENT_SERVICE_PORT} (log: $AGENT_SERVICE_LOG_FILE)"
+    log "  rtc:      ws://localhost:${RTC_PORT} (log: $RTC_LOG_FILE)"
+    log "  frontend: http://localhost:${FRONTEND_PORT} (log: $FRONTEND_LOG_FILE)"
+}
+
+stop_stack() {
+    require_command docker
+    if [[ ! -f "$COMPOSE_FILE" ]]; then
+        err "compose file not found: $COMPOSE_FILE"
+        exit 1
+    fi
+
+    stop_frontend
+    stop_rtc_service
+    stop_agent_service
+    stop_computing_unit_managing
+    stop_computing_unit_master
+    stop_texera_web
+    stop_workflow_compiling_service
+    stop_file_service
+    stop_access_control
+    stop_config_service
+    compose down
+    log "local dev stack stopped"
+}
+
+case "${1:-}" in
+    start)
+        shift
+        if (( $# > 0 )); then
+            usage
+            exit 2
+        fi
+        start_stack
+        ;;
+    stop)
+        shift
+        if (( $# > 0 )); then
+            usage
+            exit 2
+        fi
+        stop_stack
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac

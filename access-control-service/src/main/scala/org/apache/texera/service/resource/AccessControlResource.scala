@@ -213,7 +213,7 @@ class LiteLLMProxyResource extends LazyLogging {
 
   private val client: Client = ClientBuilder.newClient()
   private val litellmBaseUrl: String = LLMConfig.baseUrl
-  private val litellmApiKey: String = LLMConfig.masterKey
+  private val litellmApiKey: String = LLMConfig.masterKey.trim
 
   @POST
   @Path("/{path:.*}")
@@ -237,10 +237,12 @@ class LiteLLMProxyResource extends LazyLogging {
     logger.info(s"Proxying POST request to LiteLLM: $targetUrl")
 
     try {
-      val requestBuilder = client
+      val baseRequest = client
         .target(targetUrl)
         .request(MediaType.APPLICATION_JSON)
-        .header("Authorization", s"Bearer $litellmApiKey")
+      val requestBuilder =
+        if (litellmApiKey.nonEmpty) baseRequest.header("Authorization", s"Bearer $litellmApiKey")
+        else baseRequest
 
       // Forward other relevant headers from the original request
       headers.getRequestHeaders.asScala.foreach {
@@ -284,7 +286,7 @@ class LiteLLMModelsResource extends LazyLogging {
 
   private val client: Client = ClientBuilder.newClient()
   private val litellmBaseUrl: String = LLMConfig.baseUrl
-  private val litellmApiKey: String = LLMConfig.masterKey
+  private val litellmApiKey: String = LLMConfig.masterKey.trim
 
   @GET
   def getModels: Response = {
@@ -300,11 +302,14 @@ class LiteLLMModelsResource extends LazyLogging {
     logger.info(s"Fetching models from LiteLLM: $targetUrl")
 
     try {
-      val response = client
+      val baseRequest = client
         .target(targetUrl)
         .request(MediaType.APPLICATION_JSON)
-        .header("Authorization", s"Bearer $litellmApiKey")
-        .get()
+      val requestBuilder =
+        if (litellmApiKey.nonEmpty) baseRequest.header("Authorization", s"Bearer $litellmApiKey")
+        else baseRequest
+
+      val response = requestBuilder.get()
 
       // Build response with same status and body from LiteLLM
       val responseBody = response.readEntity(classOf[String])
