@@ -56,6 +56,15 @@ const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
 // fold into a `# Dataflow (compacted)` stats deck. When the window is off the
 // deck never appears, so the section is omitted to avoid dead tokens.
 const COMPACTION_FRAGMENT: string = rd("compaction.delta.md");
+const INSPECT_FRAGMENT: string = rd("inspect.md");
+const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
+/** Example variants demonstrating render prefs + investigation-operator
+ *  cleanup, selected only when the feature is enabled so control arms keep a
+ *  byte-identical prompt. */
+const RENDER_PREFS_EXAMPLE_FRAGMENTS: Record<string, string> = {
+  latest: rd("example.latest.render-prefs.md"),
+  delta: rd("example.delta.render-prefs.md"),
+};
 
 // ============================================================================
 // Shared sections
@@ -329,13 +338,20 @@ function buildAllowedOperatorSchemas(
  */
 export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
-  compactionEnabled = false
+  compactionEnabled = false,
+  inspectEnabled = false,
+  renderPrefsEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
+  const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
+  const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
+  const example = renderPrefsEnabled ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key] : EXAMPLE_FRAGMENTS[key];
   return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", CONTEXT_FORMAT_FRAGMENTS[key])
     .replace("{{COMPACTION}}", compaction)
-    .replace("{{EXAMPLE}}", EXAMPLE_FRAGMENTS[key])
+    .replace("{{INSPECT}}", inspect)
+    .replace("{{RENDER_PREFS}}", renderPrefs)
+    .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");
 }
 

@@ -34,13 +34,7 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export {
-  formatSchemaLine,
-  formatColumnStats,
-  formatValueFormatHints,
-  formatTableHints,
-  formatReservedDiag,
-};
+export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatReservedDiag };
 
 export interface FormatOperatorResultOptions {
   /** When true, prepend a compact `Schema:` line listing every output column
@@ -115,6 +109,16 @@ export interface FormatOperatorResultOptions {
  *  knows the view is truncated. Defaults chosen to keep an 8-turn run on
  *  a 300-column table well under 100k input tokens. */
 const MAX_DISPLAYED_COLUMNS = 50;
+const CELL_TRUNCATION_MARKER = "...[truncated]...";
+
+function containsCellTruncation(value: unknown): boolean {
+  if (typeof value === "string") return value.includes(CELL_TRUNCATION_MARKER);
+  if (Array.isArray(value)) return value.some(containsCellTruncation);
+  if (value !== null && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).some(containsCellTruncation);
+  }
+  return false;
+}
 
 export function formatOperatorResult(
   operatorId: string,
@@ -182,6 +186,26 @@ export function formatOperatorResult(
   // detail:"shape" (summarize) drops the TSV body — counts + annotations only.
   const dataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
 
+  // A complete table with fewer than five rows is already its own exact
+  // summary. Repeating mean/min/max/top-k stats adds tokens without revealing
+  // anything beyond the visible rows. Keep stats whenever completeness is not
+  // provable: backend truncation, renderer row sampling, wide-column sampling,
+  // or shape-only rendering all hide data the stats may still summarize.
+  const totalRows = opInfo.totalRowCount ?? opInfo.outputTuples;
+  const allRowsHeld = totalRows >= 0 && serializableArray.length === totalRows;
+  const rendererTruncatedRows = sampleRows.length < serializableArray.length;
+  const cellsTruncated = serializableArray.some(containsCellTruncation);
+  const completeSmallTableVisible =
+    opInfo.resultMode === "table" &&
+    !isViz &&
+    options.detail !== "shape" &&
+    totalRows < 5 &&
+    allRowsHeld &&
+    opInfo.truncated === false &&
+    !rendererTruncatedRows &&
+    !columnsTruncated &&
+    !cellsTruncated;
+
   const metadataLines = [
     formatInputOutputMetadata(
       workflowState,
@@ -198,7 +222,10 @@ export function formatOperatorResult(
   ].filter(Boolean);
 
   const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
-  const colStatsBlock = options.columnStats ? formatColumnStats(opInfo, options.statsMetrics ?? "all") : undefined;
+  const colStatsBlock =
+    options.columnStats && !completeSmallTableVisible
+      ? formatColumnStats(opInfo, options.statsMetrics ?? "all")
+      : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;

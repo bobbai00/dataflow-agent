@@ -146,6 +146,61 @@ describe(`POST ${API}/agents`, () => {
     const res = await createAgent({ modelType: undefined, name: "no-model" });
     expect(res.status).toBe(400);
   });
+
+  test("validates and preserves the frontier decay experiment config", async () => {
+    const res = await createAgent({
+      settings: {
+        frontierDecayConfig: {
+          sampleRows: 3,
+          minStepsSinceEdit: 2,
+          minConsumerStepsSinceEdit: 1,
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = await readJson<{ settings: { frontierDecayConfig: Record<string, number> } }>(res);
+    expect(body.settings.frontierDecayConfig).toEqual({
+      sampleRows: 3,
+      minStepsSinceEdit: 2,
+      minConsumerStepsSinceEdit: 1,
+      minConsumerStepsSinceHealthy: 1,
+    });
+  });
+
+  test("rejects an unsafe frontier decay config", async () => {
+    const res = await createAgent({ settings: { frontierDecayConfig: { sampleRows: 0 } } });
+    expect(res.status).toBe(400);
+    const body = await readJson<{ error: string }>(res);
+    expect(body.error).toContain("Invalid frontierDecayConfig");
+  });
+
+  test("validates and preserves the fold-resolved-revisions config (rank 3)", async () => {
+    const res = await createAgent({ settings: { foldResolvedRevisionsConfig: {} } });
+    expect(res.status).toBe(200);
+    const body = await readJson<{ settings: { foldResolvedRevisionsConfig: Record<string, number> } }>(res);
+    expect(body.settings.foldResolvedRevisionsConfig).toEqual({ graceEvents: 1 });
+  });
+
+  test("rejects an invalid fold-resolved-revisions config", async () => {
+    const res = await createAgent({ settings: { foldResolvedRevisionsConfig: { graceEvents: -1 } } });
+    expect(res.status).toBe(400);
+    const body = await readJson<{ error: string }>(res);
+    expect(body.error).toContain("Invalid foldResolvedRevisionsConfig");
+  });
+
+  test("validates and preserves the probe-retirement config (rank 4)", async () => {
+    const res = await createAgent({ settings: { probeRetirementConfig: { minStepsSinceEdit: 3 } } });
+    expect(res.status).toBe(200);
+    const body = await readJson<{ settings: { probeRetirementConfig: Record<string, number> } }>(res);
+    expect(body.settings.probeRetirementConfig).toEqual({ minStepsSinceEdit: 3, minValueLength: 4 });
+  });
+
+  test("rejects an invalid probe-retirement config", async () => {
+    const res = await createAgent({ settings: { probeRetirementConfig: { minValueLength: 0 } } });
+    expect(res.status).toBe(400);
+    const body = await readJson<{ error: string }>(res);
+    expect(body.error).toContain("Invalid probeRetirementConfig");
+  });
 });
 
 describe(`GET ${API}/agents`, () => {
@@ -247,5 +302,26 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     );
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
+  });
+
+  test("updates and clears frontier decay independently of other settings", async () => {
+    const created = await readJson<{ id: string }>(await createAgent());
+
+    const enabled = await patchJson(`${API}/agents/${created.id}/settings`, {
+      frontierDecayConfig: { sampleRows: 2 },
+    });
+    expect(enabled.status).toBe(200);
+    const enabledBody = await readJson<{ frontierDecayConfig: Record<string, number> }>(enabled);
+    expect(enabledBody.frontierDecayConfig).toEqual({
+      sampleRows: 2,
+      minStepsSinceEdit: 1,
+      minConsumerStepsSinceEdit: 1,
+      minConsumerStepsSinceHealthy: 1,
+    });
+
+    const cleared = await patchJson(`${API}/agents/${created.id}/settings`, { frontierDecayConfig: null });
+    expect(cleared.status).toBe(200);
+    const clearedBody = await readJson<{ frontierDecayConfig?: unknown }>(cleared);
+    expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
 });

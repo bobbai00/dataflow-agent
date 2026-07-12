@@ -136,6 +136,186 @@ describe("formatOperatorResult - table shape and metadata", () => {
   });
 });
 
+describe("formatOperatorResult - small complete table stats", () => {
+  const stats = { value: "(numeric): null=0, mean=2.5, min=1, max=4" };
+  const rows = [1, 2, 3, 4].map((value, index) => ({ __row_index__: index, value }));
+
+  test("suppresses stats when all rows of a table smaller than five are visible", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("3\t4");
+    expect(out).not.toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats at the five-row boundary", () => {
+    const fiveRows = [...rows, { __row_index__: 4, value: 5 }];
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 5, totalRowCount: 5, result: fiveRows, truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when the backend result is truncated", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows.slice(0, 2), truncated: true, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when the backend does not prove the result is complete", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: undefined, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when the renderer samples away rows", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true, maxResultRows: 2 }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats for non-table result modes", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 4,
+        totalRowCount: 4,
+        resultMode: "scalar",
+        result: rows,
+        truncated: false,
+        columnStats: stats,
+      }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when held rows disagree with the reported total", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 3, totalRowCount: 3, result: rows, truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when a visible cell was truncated independently", () => {
+    const truncatedRows = [{ __row_index__: 0, value: { nested: "prefix...[truncated]...suffix" } }, ...rows.slice(1)];
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 4,
+        totalRowCount: 4,
+        result: truncatedRows,
+        truncated: false,
+        columnStats: stats,
+      }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when visualization payload cells are hidden", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 1,
+        totalRowCount: 1,
+        result: [
+          {
+            __row_index__: 0,
+            __is_visualization__: true,
+            "html-content": "<div>hidden</div>",
+            label: "chart",
+          },
+        ],
+        truncated: false,
+        columnStats: { label: "(string): null=0, distinct=1" },
+      }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("<skipped: visualization content>");
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when shape-only detail hides every row", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 4, totalRowCount: 4, result: rows, truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true, detail: "shape" }
+    );
+
+    expect(out).not.toContain("3\t4");
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("keeps stats when wide-table rendering hides columns", () => {
+    const wideRow: Record<string, number> = { __row_index__: 0 };
+    for (let index = 0; index < 51; index++) wideRow[`column_${index}`] = index;
+
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 1,
+        totalRowCount: 1,
+        result: [wideRow],
+        truncated: false,
+        columnStats: stats,
+      }),
+      EMPTY_STATE,
+      { columnStats: true }
+    );
+
+    expect(out).toContain("showing first 25 and last 25 of 51 columns");
+    expect(out).toContain("Column Schema and stats:");
+  });
+
+  test("suppresses stats for a complete empty table while retaining its typed schema", () => {
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({ outputTuples: 0, totalRowCount: 0, result: [], truncated: false, columnStats: stats }),
+      EMPTY_STATE,
+      { columnStats: true, schemaInResult: true }
+    );
+
+    expect(out).toContain("Output Table: 0 rows, 0 cols");
+    expect(out).toContain("Schema (1 cols): value (numeric)");
+    expect(out).not.toContain("Column Schema and stats:");
+  });
+});
+
 describe("formatOperatorResult - wide-table column cap", () => {
   // Build a single row with N columns; values are the column names so we
   // can assert exactly which ones are kept vs dropped.

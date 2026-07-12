@@ -102,6 +102,10 @@ export const ResultRenderSchema = z.object({
   detail: z.enum(["omit", "shape", "sample"]).default("sample"),
   tuple: TupleParamsSchema.default({}),
   column: ColumnParamsSchema.default({}),
+  /** Rank-4 probe retirement: when set, the Result body renders as this
+   *  compact extracted fact (plus the Schema line when on) instead of the
+   *  table/stats — set per-operator by applyProbeRetirement. */
+  retirementFact: z.string().optional(),
 });
 export type ResultRender = z.infer<typeof ResultRenderSchema>;
 
@@ -155,6 +159,7 @@ export const OperatorParamsOverrideSchema = z.object({
           detail: z.enum(["omit", "shape", "sample"]).optional(),
           tuple: TupleParamsSchema.partial().optional(),
           column: ColumnParamsSchema.partial().optional(),
+          retirementFact: z.string().optional(),
         })
         .optional(),
       history: z
@@ -216,6 +221,16 @@ export const TrajectoryParamsSchema = z.object({
   compactionRule: z.enum(["editConvergence", "token"]).default("editConvergence"),
   /** Monotone fold-boundary high-water clamp for editConvergence. */
   compactBoundaryFloor: z.number().int().min(0).default(0),
+  /** Fold resolved operator revisions (DELTA-only; rank-3 static rule): once a
+   *  later revision has executed successfully and been consumed healthily
+   *  (+ grace), prior revisions' code/result payloads render as one-line
+   *  resolution facts. */
+  foldResolvedRevisions: z.boolean().default(false),
+  /** Write-time render prefs (agent-declared outputSummary/showOutputStatistics
+   *  on createOrModifyOperator). Enables the event-scoped DELTA application. */
+  renderPrefs: z.boolean().default(false),
+  /** Grace (events) after the resolution before prior revisions fold. */
+  foldGraceEvents: z.number().int().min(0).default(1),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -363,6 +378,9 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       staticCompaction: options.staticCompaction ?? false,
       compactionRule: options.compactionRule ?? "editConvergence",
       compactBoundaryFloor: options.compactBoundaryFloor ?? 0,
+      foldResolvedRevisions: options.foldResolvedRevisions ?? false,
+      foldGraceEvents: options.foldGraceEvents ?? 1,
+      renderPrefs: options.renderPrefsEnabled ?? false,
     },
     currentSnapshot: isLatest,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,

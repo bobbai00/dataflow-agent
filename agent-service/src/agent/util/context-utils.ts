@@ -30,7 +30,7 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
-import { formatOperatorResult } from "../tools/result-formatting";
+import { formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
@@ -51,6 +51,8 @@ import {
 // but strictly call-time — both modules only reference each other inside
 // function bodies, so ESM hoisting resolves it.
 import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParamsPatch } from "../context/summarize/params";
+import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context/select/revision-folds";
+import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
 import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
@@ -123,6 +125,26 @@ export interface AssembleContextOptions {
   compactDeckHeader?: string;
   /** Override the raw-suffix header; generic default. */
   compactSuffixHeader?: string;
+  /** Fold resolved operator revisions (DELTA-only; the rank-3 static rule from
+   *  the Delta-vs-Latest cost audit). Once a later revision of an operator has
+   *  executed successfully and its sole consumer has consumed it healthily
+   *  (+ `foldGraceEvents`), the prior revisions' Action `code:` blocks and
+   *  Observation result payloads render as one-line resolution facts. Latching
+   *  (historical-facts predicate) — folds never un-fold. */
+  foldResolvedRevisions?: boolean;
+  /** Internal (computed): the `# Inspections` section re-rendering the agent's
+   *  inspectResult pulls so they persist across steps. Undefined ⇒ no pulls. */
+  inspectionsRendered?: string;
+  /** Grace (events) after the resolution before prior revisions fold. Default 1. */
+  foldGraceEvents?: number;
+  /** Internal (computed): per-event per-operator revision-fold facts. */
+  revisionFolds?: RevisionFolds;
+  /** Agent-declared result-view prefs (write-time render knobs). Enables the
+   *  DELTA event-scoped application; the LATEST path applies them as
+   *  summarize() overrides in the server assembler. */
+  renderPrefsEnabled?: boolean;
+  /** Internal (computed): per-operator pref ranges for DELTA event scoping. */
+  renderPrefRanges?: Map<string, RenderPrefRange[]>;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -421,6 +443,26 @@ export function renderContextCore(
   let content: string;
   switch (mode) {
     case ContextMode.DELTA: {
+      // On-demand pulls persist in DELTA too (appended by renderInterleaved;
+      // the interleaved events carry the CALL but drop the tool output).
+      options.inspectionsRendered = buildInspectionsSection(path);
+      // Write-time render prefs (DELTA): a landed version's prefs govern the
+      // observations rendered while it was active — historical ranges, so an
+      // old event's render never changes (append-only).
+      if (options.renderPrefsEnabled) {
+        const prefDossier = buildDossier(visibleSteps, snapshotStorage);
+        const ranges = buildRenderPrefRanges(prefDossier);
+        options.renderPrefRanges = ranges.size > 0 ? ranges : undefined;
+      }
+      // Fold resolved operator revisions (rank-3 static rule). Computed once
+      // per render from the dossier; consumed by serializeTurn (Action `code:`
+      // blocks) and the Observation loop in serializeTaskBody. Applies in every
+      // DELTA render path below (lossless, budgeted, and compacted suffixes).
+      if (options.foldResolvedRevisions) {
+        const dossier = buildDossier(visibleSteps, snapshotStorage);
+        const folds = computeRevisionFolds(dossier, { graceEvents: options.foldGraceEvents ?? 1 });
+        options.revisionFolds = hasNoFolds(folds) ? undefined : folds;
+      }
       // Agent-triggered compaction (POC): if the agent called `compactContext`,
       // fold the trajectory up to the newest such mark into a compress deck +
       // raw suffix, using STATIC params (compactKeepLastSteps). This takes
@@ -523,6 +565,9 @@ export function renderContextCore(
       break;
     }
     case ContextMode.LATEST: {
+      // On-demand pulls persist across steps via the tail `# Inspections`
+      // section (undefined when the agent never called inspectResult).
+      options.inspectionsRendered = buildInspectionsSection(path);
       // Latest = user task + the leaf snapshot. Optionally (agentTurns) also
       // prepend the full Thought/Action/Observation trajectory as a
       // `# Agent Turns` section — the same per-event bodies DELTA renders, on
@@ -1397,6 +1442,13 @@ function renderInterleaved(
     }
   }
 
+  // Inspections tail (see renderLatest): the interleaved events show the
+  // inspectResult CALLS but not their outputs — this re-renders the pulls.
+  if (options.inspectionsRendered) {
+    sections.push("");
+    sections.push(options.inspectionsRendered);
+  }
+
   return sections.join("\n").trimEnd();
 }
 
@@ -1461,6 +1513,17 @@ function renderLatest(
   if (flow) {
     sections.push("");
     sections.push(flow);
+  }
+
+  // 4. # Inspections — the agent's on-demand inspectResult pulls, re-rendered
+  //    verbatim so a pull stays visible on later steps (prepareStep REPLACES
+  //    the wire messages each step; without this the tool's output would
+  //    vanish after one step). Tail position: the section only ever appends /
+  //    trims at the prompt's suffix, where cache invalidation is cheapest.
+  //    Absent when the agent never pulled — byte-parity for tool-less arms.
+  if (options.inspectionsRendered) {
+    sections.push("");
+    sections.push(options.inspectionsRendered);
   }
   return sections.join("\n").trimEnd();
 }
@@ -1608,7 +1671,7 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node));
+    lines.push(serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex)));
     lines.push("");
 
     if (node.snapshot && !omitObservation) {
@@ -1668,17 +1731,39 @@ function serializeTaskBody(
             for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf)) obs.push(`  ${l}`);
           }
         }
+        // Revision fold (rank-3): a result earned under a superseded revision
+        // renders as its one-line resolution fact instead of the payload.
+        const foldFact = options.revisionFolds?.observations.get(node.eventIndex)?.get(op.operatorID);
+        if (foldFact) {
+          obs.push(`  result: ${foldFact}`);
+          continue;
+        }
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);
         if (ex?.detail === "omit") continue;
+        // Write-time render prefs (DELTA event scoping): lower this event's
+        // render per the version active at the event. Legacy formatter path
+        // only (`!ex`), never-raise semantics.
+        let renderOptions = options;
+        if (!ex && options.renderPrefRanges) {
+          const pref = renderPrefsAt(options.renderPrefRanges, op.operatorID, node.eventIndex);
+          if (pref) {
+            renderOptions = { ...options };
+            if (pref.outputSummary === "minimal") {
+              const baseRows = options.maxResultRows ?? 0;
+              renderOptions.maxResultRows = baseRows > 0 ? Math.min(baseRows, 3) : 3;
+            }
+            if (pref.showOutputStatistics === false) renderOptions.columnStats = false;
+          }
+        }
         const info = node.snapshot.results.get(op.operatorID)?.info;
         const resultText = info
           ? renderRawResult(
               op.operatorID,
               info,
               workflowState,
-              options,
+              renderOptions,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
               ex
             )
@@ -1709,6 +1794,63 @@ function serializeTaskBody(
  *  Turn rendering (shared)
  * ========================================================================= */
 
+/** How many inspectResult pulls stay rendered verbatim; older ones collapse
+ *  to a one-line note. Tail-of-prompt section, so trimming is cache-cheap. */
+const INSPECTIONS_KEEP_LAST = 8;
+
+/**
+ * Build the `# Inspections` section from the path: every inspectResult tool
+ * call paired with its output, event-ordered. The wire messages are REPLACED
+ * each step (prepareStep), so without this re-render a pull's output would be
+ * visible for a single step only. Returns undefined when the agent never
+ * pulled — tool-less arms render byte-identically.
+ */
+function buildInspectionsSection(path: PathNode[]): string | undefined {
+  interface Pull {
+    eventIndex: number;
+    operatorId: string;
+    argsSummary: string;
+    output: string;
+  }
+  const pulls: Pull[] = [];
+  for (const node of path) {
+    const step = node.step;
+    if (step.role !== "agent") continue;
+    const calls = step.toolCalls ?? [];
+    const results = step.toolResults ?? [];
+    calls.forEach((tc, i) => {
+      if (tc.toolName !== "inspectResult") return;
+      const inp = (tc.input ?? {}) as Record<string, unknown>;
+      const parts: string[] = [];
+      if (typeof inp.maxRows === "number") parts.push(`maxRows=${inp.maxRows}`);
+      if (Array.isArray(inp.columns) && inp.columns.length > 0) parts.push(`columns=[${inp.columns.join(", ")}]`);
+      if (inp.stats === true) parts.push("stats");
+      if (typeof inp.where === "string" && inp.where) parts.push(`where=${inp.where}`);
+      pulls.push({
+        eventIndex: node.eventIndex,
+        operatorId: typeof inp.operatorId === "string" ? inp.operatorId : "?",
+        argsSummary: parts.join(", "),
+        output: stringifyOutput(results[i]?.output).trimEnd(),
+      });
+    });
+  }
+  if (pulls.length === 0) return undefined;
+
+  const lines: string[] = ["# Inspections (your on-demand inspectResult pulls)", ""];
+  const omitted = Math.max(0, pulls.length - INSPECTIONS_KEEP_LAST);
+  if (omitted > 0) {
+    lines.push(`(… ${omitted} earlier inspection${omitted === 1 ? "" : "s"} omitted …)`);
+    lines.push("");
+  }
+  for (const pull of pulls.slice(-INSPECTIONS_KEEP_LAST)) {
+    lines.push(`## Inspection @ Event ${pull.eventIndex} — \`${pull.operatorId}\`${pull.argsSummary ? ` (${pull.argsSummary})` : ""}`);
+    lines.push("");
+    lines.push(pull.output.length > 0 ? pull.output : "(empty output)");
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
 /** Inline render of an older user-role step inside `# Agent Events`.
  *  Emits H2 `## User Event N` to nest under the H1 wrapper. The latest
  *  user step is never rendered here — it lives in the top-level
@@ -1730,7 +1872,7 @@ function serializeUserEventInline(node: PathNode): string {
  * model emitted. The execution outcome is rendered separately as the caller's
  * `Observation:` block.
  */
-function serializeTurn(node: PathNode): string {
+function serializeTurn(node: PathNode, revisionFolds?: Map<string, string>): string {
   const step = node.step;
   const lines: string[] = [];
   lines.push(`## Agent Event ${node.eventIndex}`);
@@ -1741,12 +1883,16 @@ function serializeTurn(node: PathNode): string {
   }
 
   // Action: the tool call(s) the model issued, in standard tool-call form via
-  // renderToolCall (tool name + `key: value` params + `code` block). Lossless.
-  // The execution OUTCOME is rendered separately as the `Observation:` block.
+  // renderToolCall (tool name + `key: value` params + `code` block). Lossless —
+  // except a createOrModifyOperator whose revision was later RESOLVED (rank-3
+  // fold): its `code:` block renders as the one-line resolution fact instead.
   if (step.toolCalls && step.toolCalls.length > 0) {
     lines.push("Action:");
     for (const tc of step.toolCalls) {
-      for (const l of renderToolCall(tc)) lines.push(l);
+      const inp = tc.input as Record<string, unknown> | undefined;
+      const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
+      const foldFact = opId && tc.toolName === "createOrModifyOperator" ? revisionFolds?.get(opId) : undefined;
+      for (const l of renderToolCall(tc, foldFact)) lines.push(l);
     }
     lines.push("");
   }
@@ -1773,7 +1919,7 @@ function conciseOutcome(output: unknown): string {
  * block already carries them). Non-`code` string values are whitespace-collapsed
  * onto a single `key: value` line; non-strings are JSON-encoded.
  */
-function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
+function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?: string): string[] {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
@@ -1782,8 +1928,14 @@ function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
     lines.push(`    ${k}: ${val}`);
   }
   if (typeof inp.code === "string" && inp.code.length > 0) {
-    lines.push("    code:");
-    for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
+    // Rank-3 fold: a superseded revision's code body renders as its one-line
+    // resolution fact (the summary param above still names what it tried).
+    if (codeFoldFact) {
+      lines.push(`    code: ${codeFoldFact}`);
+    } else {
+      lines.push("    code:");
+      for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
+    }
   }
   return lines;
 }
@@ -2083,15 +2235,20 @@ function serializeOperatorFull(
   // history). Absent on the legacy path — rendering is then byte-identical to
   // the pre-summarize assembler.
   const ex = options.opExtras?.(op.operatorID);
-  const execText =
-    info && ex?.detail !== "omit"
-      ? formatOperatorResult(op.operatorID, info, workflowState, {
-          ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
-          // LATEST renders a single consolidated `Inputs:` (with counts) at the
-          // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
-          inputsInResult: false,
-        })
-      : undefined;
+  let execText: string | undefined;
+  if (info && !info.error && ex?.retirementFact) {
+    // Rank-4 probe retirement: the Result body is the compact extracted fact
+    // (plus the Schema line when on) — the table/stats are omitted.
+    const schemaLine = ex.column.schema ? formatSchemaLine(info, ex.column.schemaTypes !== false) : undefined;
+    execText = [schemaLine, ex.retirementFact].filter(Boolean).join("\n");
+  } else if (info && ex?.detail !== "omit") {
+    execText = formatOperatorResult(op.operatorID, info, workflowState, {
+      ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
+      // LATEST renders a single consolidated `Inputs:` (with counts) at the
+      // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
+      inputsInResult: false,
+    });
+  }
 
   // No status label in the header. Execution state is conveyed by the Result
   // section itself:

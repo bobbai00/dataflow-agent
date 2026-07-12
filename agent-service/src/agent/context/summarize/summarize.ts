@@ -80,6 +80,9 @@ export interface OperatorRenderExtras {
   codeHistory: CodeVersion[];
   /** Prior result versions to render, newest-first (latest excluded). */
   resultHistory: Array<{ version: ResultVersion; render: ResultRender }>;
+  /** Rank-4 probe retirement: renders as the Result body (plus the Schema line
+   *  when on) instead of the table/stats. */
+  retirementFact?: string;
 }
 
 export interface SummarizeSection {
@@ -151,6 +154,9 @@ export function paramsToRenderOptions(
     staticCompaction: params.trajectory.staticCompaction,
     compactionRule: params.trajectory.compactionRule,
     compactBoundaryFloor: params.trajectory.compactBoundaryFloor,
+    foldResolvedRevisions: params.trajectory.foldResolvedRevisions,
+    foldGraceEvents: params.trajectory.foldGraceEvents,
+    renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,
@@ -230,6 +236,7 @@ function resolveExtras(
     includeCode: op.property.includeCode,
     codeHistory,
     resultHistory,
+    retirementFact: op.result.latest.retirementFact,
   };
 }
 

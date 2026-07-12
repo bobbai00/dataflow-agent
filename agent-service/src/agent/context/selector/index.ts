@@ -28,3 +28,7 @@ export {
 export type { SelectorConfig } from "./selector";
 export { extractFeatures } from "./features";
 export type { OperatorFeatures, TrajectoryFeatures, SelectorFeatures, OperatorRole } from "./features";
+export { FrontierDecayConfigSchema, applyFrontierDecay, parseFrontierDecayConfig } from "./frontier-decay";
+export type { FrontierDecayConfig } from "./frontier-decay";
+export { ProbeRetirementConfigSchema, applyProbeRetirement, parseProbeRetirementConfig } from "./probe-retirement";
+export type { ProbeRetirementConfig } from "./probe-retirement";

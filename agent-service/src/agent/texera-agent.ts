@@ -35,6 +35,9 @@ import type {
 } from "../types/agent";
 import type { SummarizeParamsPatch } from "./context/summarize/params";
 import type { SelectorConfig } from "./context/selector/selector";
+import type { FrontierDecayConfig } from "./context/selector/frontier-decay";
+import type { ProbeRetirementConfig } from "./context/selector/probe-retirement";
+import type { FoldResolvedRevisionsConfig } from "./context/select/revision-folds";
 import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
 import type { OperatorInfo } from "../types/execution";
@@ -456,7 +459,12 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
-      this.systemPrompt = buildCodeModeSystemPrompt(this.settings.contextMode, compactionEnabled);
+      this.systemPrompt = buildCodeModeSystemPrompt(
+        this.settings.contextMode,
+        compactionEnabled,
+        this.settings.enableInspectTool === true,
+        this.settings.enableRenderPrefs === true
+      );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
     // not just the instruction (which got poor .copy() adherence). Off by default.
@@ -506,7 +514,8 @@ export class TexeraAgent {
         this.workflowState,
         operatorSchemas,
         context,
-        this.settings.maxOperatorEdits
+        this.settings.maxOperatorEdits,
+        this.settings.enableRenderPrefs === true
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -576,7 +585,9 @@ export class TexeraAgent {
       [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
         this.workflowState,
         operatorSchemas,
-        context
+        context,
+        0,
+        this.settings.enableRenderPrefs === true
       ),
     };
   }
@@ -788,8 +799,12 @@ export class TexeraAgent {
     toolDialect?: LocalToolDialect;
     summarizeParams?: SummarizeParamsPatch | null;
     selectorConfig?: SelectorConfig | null;
+    frontierDecayConfig?: FrontierDecayConfig | null;
+    foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
+    probeRetirementConfig?: ProbeRetirementConfig | null;
     learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
+    enableRenderPrefs?: boolean;
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
@@ -938,6 +953,18 @@ export class TexeraAgent {
       // policy. `null` turns the selector off (back to the contextMode path).
       this.settings.selectorConfig = updates.selectorConfig ?? undefined;
     }
+    if (updates.frontierDecayConfig !== undefined) {
+      // Pure render-time overlay on the legacy context preset. `null` clears it.
+      this.settings.frontierDecayConfig = updates.frontierDecayConfig ?? undefined;
+    }
+    if (updates.foldResolvedRevisionsConfig !== undefined) {
+      // Pure render-time (DELTA): fold resolved revisions. `null` clears it.
+      this.settings.foldResolvedRevisionsConfig = updates.foldResolvedRevisionsConfig ?? undefined;
+    }
+    if (updates.probeRetirementConfig !== undefined) {
+      // Pure render-time (LATEST): probe-retirement overlay. `null` clears it.
+      this.settings.probeRetirementConfig = updates.probeRetirementConfig ?? undefined;
+    }
     if (updates.learnedConfig !== undefined) {
       // Pure render-time: switches the assembler onto the learned utility model.
       // `null` turns it off (back to selector/contextMode). Read per-call.
@@ -945,8 +972,17 @@ export class TexeraAgent {
     }
     if (updates.enableInspectTool !== undefined) {
       // Adds/removes the read-only inspectResult tool from the model's tool set
-      // (createTools() below reads this and rebuilds).
+      // (createTools() below reads this and rebuilds). The code-mode prompt
+      // carries a matching `## On-demand result inspection` section.
       this.settings.enableInspectTool = updates.enableInspectTool;
+      promptNeedsRebuild = true;
+    }
+    if (updates.enableRenderPrefs !== undefined) {
+      // Write-time render prefs: gates the createOrModifyOperator params (tools
+      // rebuilt below), the prompt section + example variant (rebuilt here),
+      // and the render application (read by the assembler per call).
+      this.settings.enableRenderPrefs = updates.enableRenderPrefs;
+      promptNeedsRebuild = true;
     }
     if (updates.enableCompactTool !== undefined) {
       // Adds/removes the compactContext marker tool (createTools() rebuilds).

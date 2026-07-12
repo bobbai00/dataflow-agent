@@ -19,6 +19,9 @@
 
 import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
+import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
+import type { ProbeRetirementConfig } from "../agent/context/selector/probe-retirement";
+import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
 
@@ -281,6 +284,14 @@ export interface AgentSettings {
    * legacy contextMode path). See docs/summarize-tuning-intuitions.md.
    */
   selectorConfig?: SelectorConfig;
+  /** Conservative base-preserving decay for settled single-consumer results. */
+  frontierDecayConfig?: FrontierDecayConfig;
+  /** Rank-3 static rule (DELTA-only): fold resolved operator revisions into
+   *  one-line resolution facts. */
+  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
+  /** Rank-4 static rule (LATEST): retire superseded isolated probes to a
+   *  compact extracted fact once their discovery is encoded downstream. */
+  probeRetirementConfig?: ProbeRetirementConfig;
   /**
    * When set, the LEARNED utility model (context/learned/model.json) scores each
    * operator and a budget knapsack assigns representation levels
@@ -297,6 +308,14 @@ export interface AgentSettings {
    * a supervised label for training the push selector (pull-to-push).
    */
   enableInspectTool: boolean;
+  /**
+   * Write-time render prefs: `createOrModifyOperator` accepts optional
+   * `outputSummary` ("minimal"|"standard") and `showOutputStatistics` (bool)
+   * controlling how much of the op's result is RENDERED (view-only — the full
+   * output is always computed and flows downstream). Gates the tool params,
+   * the prompt section, and the render application. Off by default.
+   */
+  enableRenderPrefs: boolean;
   /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
@@ -378,6 +397,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataHints: false,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
+  enableRenderPrefs: false,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,
@@ -471,10 +491,18 @@ export interface AgentSettingsApi {
   summarizeParams?: SummarizeParamsPatch;
   /** Trainable selector action vector (see AgentSettings.selectorConfig). */
   selectorConfig?: SelectorConfig;
+  /** Settled-result decay overlay (see AgentSettings.frontierDecayConfig). */
+  frontierDecayConfig?: FrontierDecayConfig;
+  /** Fold resolved revisions (see AgentSettings.foldResolvedRevisionsConfig). */
+  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
+  /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
+  probeRetirementConfig?: ProbeRetirementConfig;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
+  /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
+  enableRenderPrefs?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
@@ -543,10 +571,18 @@ export interface UpdateAgentSettingsRequest {
   summarizeParams?: SummarizeParamsPatch;
   /** Trainable selector action vector (see AgentSettings.selectorConfig). */
   selectorConfig?: SelectorConfig;
+  /** Settled-result decay overlay (see AgentSettings.frontierDecayConfig). */
+  frontierDecayConfig?: FrontierDecayConfig | null;
+  /** Fold resolved revisions (see AgentSettings.foldResolvedRevisionsConfig). */
+  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
+  /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
+  probeRetirementConfig?: ProbeRetirementConfig | null;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
   enableInspectTool?: boolean;
+  /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
+  enableRenderPrefs?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */

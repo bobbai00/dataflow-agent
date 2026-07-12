@@ -31,11 +31,31 @@ import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver"
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
-import { assembleContext } from "./agent/util/context-utils";
-import { SummarizeParamsPatchSchema, type SummarizeParamsPatch } from "./agent/context/summarize/params";
+import { assembleContext, type AssembleContextOptions } from "./agent/util/context-utils";
+import {
+  applySummarizeParamsPatch,
+  mapLegacyToParams,
+  SummarizeParamsPatchSchema,
+  type SummarizeParamsPatch,
+} from "./agent/context/summarize/params";
 import { buildDossier } from "./agent/context/summarize/dossier";
 import { summarize as summarizeContext } from "./agent/context/summarize/summarize";
 import { selectParams, SelectorConfigSchema, type SelectorConfig } from "./agent/context/selector/selector";
+import {
+  applyFrontierDecay,
+  FrontierDecayConfigSchema,
+  type FrontierDecayConfig,
+} from "./agent/context/selector/frontier-decay";
+import {
+  applyProbeRetirement,
+  ProbeRetirementConfigSchema,
+  type ProbeRetirementConfig,
+} from "./agent/context/selector/probe-retirement";
+import {
+  FoldResolvedRevisionsConfigSchema,
+  type FoldResolvedRevisionsConfig,
+} from "./agent/context/select/revision-folds";
+import { applyRenderPrefs } from "./agent/context/selector/render-prefs";
 import {
   learnedSelectParams,
   buildUtilityModel,
@@ -91,9 +111,13 @@ function getLearnedModel(): UtilityModel | null {
     const p = new URL("./agent/context/learned/model.json", import.meta.url);
     const raw = readFileSync(p, "utf8");
     _learnedModel = buildUtilityModel(JSON.parse(raw));
-    console.log(`  learned model loaded: ${(_learnedModel.meta as any)?.rows ?? "?"} rows, cvAUC ${(_learnedModel.meta as any)?.cvAucAll ?? "?"}`);
+    console.log(
+      `  learned model loaded: ${(_learnedModel.meta as any)?.rows ?? "?"} rows, cvAUC ${(_learnedModel.meta as any)?.cvAucAll ?? "?"}`
+    );
   } catch (e) {
-    console.warn(`  learned model NOT loaded (${e instanceof Error ? e.message : String(e)}) — learnedConfig will fall back`);
+    console.warn(
+      `  learned model NOT loaded (${e instanceof Error ? e.message : String(e)}) — learnedConfig will fall back`
+    );
     _learnedModel = null;
   }
   return _learnedModel;
@@ -125,8 +149,40 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     settings,
     compilationResult,
   }) => {
+    const legacyOptions: AssembleContextOptions = {
+      compilationResult,
+      agentMode: settings.agentMode,
+      includeOperatorProperties: settings.includeOperatorProperties,
+      flowLevel: settings.flowLevel,
+      dataLevel: settings.dataLevel,
+      thoughtReplay: settings.thoughtReplay,
+      agentTurns: settings.agentTurns,
+      contextWindowTokens: settings.contextWindowTokens,
+      compactionStrategy: settings.compactionStrategy,
+      deckSampleRatio: settings.deckSampleRatio,
+      errorReflection: settings.errorReflection,
+      errorReflectionThreshold: settings.errorReflectionThreshold,
+      thoughtReplayK: settings.thoughtReplayK,
+      fewShotPrompt: settings.fewShotPrompt,
+      maxResultRows: settings.maxResultRows,
+      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+      compactKeepLastSteps: settings.compactKeepLastSteps,
+      showCompactMeter: settings.enableCompactTool,
+      staticCompaction: settings.staticCompaction,
+      attemptReflection: settings.attemptReflection,
+      columnStats: settings.columnStats,
+      valueFormatFlags: settings.valueFormat,
+      tableStructureHint: settings.dataHints,
+      // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
+      foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
+      foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
+      // Write-time render prefs (DELTA event scoping; LATEST goes via overlay).
+      renderPrefsEnabled: settings.enableRenderPrefs ? true : undefined,
+      summarizePatch: settings.summarizeParams,
+    };
+
     // Context policy precedence: learned model > LLM tuner > rule selector >
-    // legacy contextMode.
+    // base-preserving frontier decay > legacy contextMode.
     // Learned path (opt-in): the trained utility model scores each operator and
     // a budget knapsack assigns representation levels (omit≺shape≺sample+stats).
     if (settings.learnedConfig) {
@@ -156,34 +212,32 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
     }
-    return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-      compilationResult,
-      agentMode: settings.agentMode,
-      includeOperatorProperties: settings.includeOperatorProperties,
-      flowLevel: settings.flowLevel,
-      dataLevel: settings.dataLevel,
-      thoughtReplay: settings.thoughtReplay,
-      agentTurns: settings.agentTurns,
-      contextWindowTokens: settings.contextWindowTokens,
-      compactionStrategy: settings.compactionStrategy,
-      deckSampleRatio: settings.deckSampleRatio,
-      errorReflection: settings.errorReflection,
-      errorReflectionThreshold: settings.errorReflectionThreshold,
-      thoughtReplayK: settings.thoughtReplayK,
-      fewShotPrompt: settings.fewShotPrompt,
-      maxResultRows: settings.maxResultRows,
-      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-      compactKeepLastSteps: settings.compactKeepLastSteps,
-      showCompactMeter: settings.enableCompactTool,
-      staticCompaction: settings.staticCompaction,
-      attemptReflection: settings.attemptReflection,
-      columnStats: settings.columnStats,
-      valueFormatFlags: settings.valueFormat,
-      tableStructureHint: settings.dataHints,
-      // Deep-partial patch over the summarize() parameter space — the
-      // API-reachable door into every knob the flat settings don't expose.
-      summarizePatch: settings.summarizeParams,
-    });
+    // BASE-PRESERVING OVERLAYS — the orthogonality contract: each overlay
+    // (1) is independently flag-gated, (2) only LOWERS detail relative to the
+    // base params (never raises), and (3) returns the base unchanged when its
+    // preconditions don't hold (e.g. wrong context mode) or nothing qualifies.
+    // They therefore compose in any order; the fixed order below is kept for
+    // reproducibility: frontierDecay -> probeRetirement -> renderPrefs.
+    // Flag-off arms bypass this branch entirely (byte-parity with legacy),
+    // enforced by orthogonality.test.ts.
+    if (settings.frontierDecayConfig || settings.probeRetirementConfig || settings.enableRenderPrefs) {
+      const dossier = buildDossier(visibleSteps, snapshotStorage);
+      const legacyParams = mapLegacyToParams(settings.contextMode, legacyOptions);
+      const baseParams = settings.summarizeParams
+        ? applySummarizeParamsPatch(legacyParams, settings.summarizeParams)
+        : legacyParams;
+      let params = baseParams;
+      if (settings.frontierDecayConfig) params = applyFrontierDecay(params, dossier, settings.frontierDecayConfig);
+      if (settings.probeRetirementConfig) {
+        params = applyProbeRetirement(params, dossier, settings.probeRetirementConfig);
+      }
+      // Write-time render prefs: latest landed version's outputSummary /
+      // showOutputStatistics -> per-op overrides (LATEST snapshot render).
+      if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
+      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+        .messages;
+    }
+    return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
   };
 
   if (kind === "local-react") {
@@ -293,8 +347,12 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
+    frontierDecayConfig: agentSettings.frontierDecayConfig,
+    foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
+    probeRetirementConfig: agentSettings.probeRetirementConfig,
     learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
+    enableRenderPrefs: agentSettings.enableRenderPrefs,
     enableCompactTool: agentSettings.enableCompactTool,
     compactKeepLastSteps: agentSettings.compactKeepLastSteps,
     staticCompaction: agentSettings.staticCompaction,
@@ -353,19 +411,39 @@ function parseSummarizePatch(raw: unknown): SummarizeParamsPatch | null | undefi
   return parsed.data;
 }
 
-/** Validate an incoming `selectorConfig` (the trainable action vector) at the
- *  API boundary. Fills defaults; `null` turns the selector off. */
-function parseSelectorConfigInput(raw: unknown): SelectorConfig | null | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null) return null; // explicit off
-  const parsed = SelectorConfigSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `Invalid selectorConfig: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
-    );
-  }
-  return parsed.data;
+/**
+ * Generic validator for the optional experiment-config settings. One contract
+ * for all: `undefined` = leave unchanged, `null` = turn the feature off,
+ * object = zod-validate, filling defaults (failures throw `Invalid <name>: …`,
+ * mapped to HTTP 400 by the handlers).
+ */
+function makeConfigParser<T>(name: string, schema: { safeParse: (raw: unknown) => any }) {
+  return (raw: unknown): T | null | undefined => {
+    if (raw === undefined) return undefined;
+    if (raw === null) return null;
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid ${name}: ${parsed.error.issues.map((i: any) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+      );
+    }
+    return parsed.data as T;
+  };
 }
+
+const parseSelectorConfigInput = makeConfigParser<SelectorConfig>("selectorConfig", SelectorConfigSchema);
+const parseFrontierDecayConfigInput = makeConfigParser<FrontierDecayConfig>(
+  "frontierDecayConfig",
+  FrontierDecayConfigSchema
+);
+const parseFoldResolvedRevisionsConfigInput = makeConfigParser<FoldResolvedRevisionsConfig>(
+  "foldResolvedRevisionsConfig",
+  FoldResolvedRevisionsConfigSchema
+);
+const parseProbeRetirementConfigInput = makeConfigParser<ProbeRetirementConfig>(
+  "probeRetirementConfig",
+  ProbeRetirementConfigSchema
+);
 
 /** Validate an incoming `tunerConfig` (the LLM context-tuner settings). `null`
  *  turns the tuner off. Requires a non-empty `model`. */
@@ -405,10 +483,13 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
     }
-    // zod-level summarizeParams / selectorConfig validation failures are client errors too.
+    // Zod-level context-policy validation failures are client errors too.
     if (
       errorMessage.startsWith("Invalid summarizeParams") ||
       errorMessage.startsWith("Invalid selectorConfig") ||
+      errorMessage.startsWith("Invalid frontierDecayConfig") ||
+      errorMessage.startsWith("Invalid foldResolvedRevisionsConfig") ||
+      errorMessage.startsWith("Invalid probeRetirementConfig") ||
       errorMessage.startsWith("Invalid learnedConfig") ||
       errorMessage.startsWith("Invalid tunerConfig")
     ) {
@@ -497,8 +578,14 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           toolDialect: settings.toolDialect,
           summarizeParams: parseSummarizePatch(settings.summarizeParams),
           selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+          frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+          foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
+            (settings as any).foldResolvedRevisionsConfig
+          ),
+          probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
           learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
           enableInspectTool: (settings as any).enableInspectTool,
+          enableRenderPrefs: (settings as any).enableRenderPrefs,
           enableCompactTool: (settings as any).enableCompactTool,
           compactKeepLastSteps: (settings as any).compactKeepLastSteps,
           staticCompaction: (settings as any).staticCompaction,
@@ -553,8 +640,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             // (the shape is too rich for a TypeBox mirror to earn its keep).
             summarizeParams: t.Optional(t.Any()),
             selectorConfig: t.Optional(t.Any()),
+            frontierDecayConfig: t.Optional(t.Any()),
+            foldResolvedRevisionsConfig: t.Optional(t.Any()),
+            probeRetirementConfig: t.Optional(t.Any()),
             learnedConfig: t.Optional(t.Any()),
             enableInspectTool: t.Optional(t.Boolean()),
+            enableRenderPrefs: t.Optional(t.Boolean()),
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
@@ -792,6 +883,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       agentMode: agentSettings.agentMode,
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
+      frontierDecayConfig: agentSettings.frontierDecayConfig,
+      foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
+      probeRetirementConfig: agentSettings.probeRetirementConfig,
     };
   })
 
@@ -848,8 +942,14 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+        frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+        foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
+          (settings as any).foldResolvedRevisionsConfig
+        ),
+        probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
         learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
+        enableRenderPrefs: (settings as any).enableRenderPrefs,
         enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
@@ -888,6 +988,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         valueFormat: agentSettings.valueFormat,
         dataHints: agentSettings.dataHints,
         toolDialect: agentSettings.toolDialect,
+        frontierDecayConfig: agentSettings.frontierDecayConfig,
+        foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
+        probeRetirementConfig: agentSettings.probeRetirementConfig,
       };
     },
     {
@@ -927,9 +1030,16 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         summarizeParams: t.Optional(t.Any()),
         // Selector action vector; zod-validated in-handler. null turns it off.
         selectorConfig: t.Optional(t.Any()),
+        // Conservative settled-result overlay; zod-validated in-handler.
+        frontierDecayConfig: t.Optional(t.Any()),
+        // Rank-3 fold-resolved-revisions rule; zod-validated in-handler.
+        foldResolvedRevisionsConfig: t.Optional(t.Any()),
+        // Rank-4 probe-retirement overlay; zod-validated in-handler.
+        probeRetirementConfig: t.Optional(t.Any()),
         // Learned-selector config; validated in-handler. null turns it off.
         learnedConfig: t.Optional(t.Any()),
         enableInspectTool: t.Optional(t.Boolean()),
+        enableRenderPrefs: t.Optional(t.Boolean()),
         enableCompactTool: t.Optional(t.Boolean()),
         compactKeepLastSteps: t.Optional(t.Number()),
         // LLM context-tuner config; validated in-handler. null turns it off.

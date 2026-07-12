@@ -610,7 +610,8 @@ export function createCreateOrModifyOperatorTool(
   workflowState: WorkflowState,
   operatorSchemas: Map<string, any>,
   context?: ToolContext,
-  maxOperatorEdits = 0
+  maxOperatorEdits = 0,
+  renderPrefsEnabled = false
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -654,21 +655,50 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
   def process(customers) -> pd.DataFrame:
       return customers[customers['age'] > 18]
   # Creates link: customers-->filteredCustomers`,
-    inputSchema: z.object({
-      operatorId: z
-        .string()
-        .describe("Unique operator name (valid Python variable). Other operators reference this as input parameter."),
-      code: z.string().describe("Python function: def load() or def process(...)"),
-      summary: z
-        .string()
-        .describe(
-          "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
-            "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
-            'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
-            "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
-        ),
-    }),
-    execute: async (args: { operatorId: string; code: string; summary?: string }) => {
+    inputSchema: (() => {
+      const baseShape = {
+        operatorId: z
+          .string()
+          .describe("Unique operator name (valid Python variable). Other operators reference this as input parameter."),
+        code: z.string().describe("Python function: def load() or def process(...)"),
+        summary: z
+          .string()
+          .describe(
+            "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
+              "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
+              'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
+              "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
+          ),
+      };
+      const richSchema = z.object({
+        ...baseShape,
+        outputSummary: z
+          .enum(["minimal", "standard"])
+          .optional()
+          .describe(
+            "How much of this operator's OUTPUT TABLE is shown to you in context: 'minimal' = a few rows, " +
+              "'standard' (default) = the normal view. View-only — the operator always computes its full output " +
+              "and downstream operators always receive the complete data. Applies to this version until the next edit."
+          ),
+        showOutputStatistics: z
+          .boolean()
+          .optional()
+          .describe(
+            "Whether the per-column statistics block of this operator's output is shown to you. View-only; " +
+              "defaults to the session default. Applies to this version until the next edit."
+          ),
+      });
+      // Control arms (flag off) must not even SEE the pref params — swap in the
+      // base schema; the runtime args type is the rich one (fields just absent).
+      return (renderPrefsEnabled ? richSchema : z.object(baseShape)) as typeof richSchema;
+    })(),
+    execute: async (args: {
+      operatorId: string;
+      code: string;
+      summary?: string;
+      outputSummary?: "minimal" | "standard";
+      showOutputStatistics?: boolean;
+    }) => {
       try {
         const { operatorId, code, summary } = args;
 
