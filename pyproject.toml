@@ -138,6 +138,9 @@ lakeqa = [
     "openai>=1.40",
     "python-dotenv>=1.0",
     "requests>=2.31",
+    # The LakeQA adapter (Kramabench/lakeqa/run_lakeqa.py) imports the
+    # KramaBench systems package, whose benchmark.llm_tools init pulls ollama.
+    "ollama>=0.3",
 ]
 
 [tool.setuptools]
