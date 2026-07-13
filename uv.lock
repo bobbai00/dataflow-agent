@@ -5903,6 +5903,11 @@ kramabench = [
     { name = "unidecode" },
     { name = "untruncate-json" },
 ]
+lakeqa = [
+    { name = "openai" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -5931,6 +5936,7 @@ requires-dist = [
     { name = "nltk", marker = "extra == 'eval'", specifier = "==3.9.1" },
     { name = "nltk", marker = "extra == 'kramabench'", specifier = "==3.9.1" },
     { name = "numpy", specifier = "==2.1.0" },
+    { name = "openai", marker = "extra == 'lakeqa'", specifier = ">=1.40" },
     { name = "openpyxl", specifier = "==3.1.5" },
     { name = "overrides", specifier = "==7.4.0" },
     { name = "pampy", specifier = "==0.3.0" },
@@ -5955,10 +5961,12 @@ requires-dist = [
     { name = "pytest-timeout", marker = "extra == 'dev'", specifier = "==2.2.0" },
     { name = "python-dateutil", specifier = "==2.8.2" },
     { name = "python-dotenv", marker = "extra == 'kramabench'", specifier = "==1.2.0" },
+    { name = "python-dotenv", marker = "extra == 'lakeqa'", specifier = ">=1.0" },
     { name = "python-lsp-server", extras = ["all"], specifier = "==1.12.0" },
     { name = "rank-bm25", marker = "extra == 'kramabench'", specifier = "==0.2.2" },
     { name = "rapidfuzz", marker = "extra == 'kramabench'", specifier = "==3.13.0" },
     { name = "readerwriterlock", specifier = "==1.0.9" },
+    { name = "requests", marker = "extra == 'lakeqa'", specifier = ">=2.31" },
     { name = "rouge-score", marker = "extra == 'eval'", specifier = "==0.1.2" },
     { name = "rouge-score", marker = "extra == 'kramabench'", specifier = "==0.1.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.7" },
@@ -5987,7 +5995,7 @@ requires-dist = [
     { name = "wordcloud", specifier = "==1.9.3" },
     { name = "ydata-profiling" },
 ]
-provides-extras = ["dev", "kramabench", "eval"]
+provides-extras = ["dev", "kramabench", "eval", "lakeqa"]
 
 [[package]]
 name = "textdistance"

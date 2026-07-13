@@ -131,6 +131,14 @@ eval = [
     "rouge-score==0.1.2",
     "nltk==3.9.1",
 ]
+lakeqa = [
+    # LakeQA benchmark (evaluation/requirements.txt of the LakeQA repo);
+    # boto3 + pandas are already base deps. openai powers their LLMFactory
+    # judge; requests/dotenv the runner utilities.
+    "openai>=1.40",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+]
 
 [tool.setuptools]
 packages = []
