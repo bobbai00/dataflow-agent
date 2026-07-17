@@ -1,11 +1,11 @@
 Task: *I have customers.csv and orders.csv files. Find the top 5 premium customers who made recent purchases.*
 
-Thought: The task mentions "premium customers" and "recent purchases" — these are abstract concepts that may have specific definitions. I should check documentation. The readme and the two data files are three INDEPENDENT loads — none depends on another's output — so I batch all three as parallel tool calls in ONE turn instead of spending three turns.
+Thought: The task mentions "premium customers" and "recent purchases" — these are abstract concepts that may have specific definitions. I should check documentation. The two CSVs' structure is unverified — probe their raw text before writing loaders. The readme and the two raw previews are three INDEPENDENT calls — none depends on another's output — so I batch all three as parallel tool calls in ONE turn.
 
 Tool call (3 parallel calls in one turn):
 - `readme`: `def load():` open `/data/readme.md`, return a single-row DataFrame with its content. summary="Load /data/readme.md to find definitions of premium customer and recent purchase"
-- `customers`: `def load(): return pd.read_csv('/data/customers.csv')` summary="Load complete /data/customers.csv"
-- `orders`: `def load(): return pd.read_csv('/data/orders.csv')` summary="Load complete /data/orders.csv"
+- `raw_customers`: `def load():` open `/data/customers.csv` as plain text, return the first ~5 and ~5 mid-file lines as one-column rows. summary="Raw text preview of customers.csv (head + middle) to verify structure before loading"
+- `raw_orders`: same for `/data/orders.csv`. summary="Raw text preview of orders.csv (head + middle) to verify structure before loading"
 
 Observation — `# Current Dataflow`:
 ```
@@ -16,8 +16,38 @@ Result:
   	content
   0	Premium customer: total historical spending >= $1000. Recent purchase: orders placed within last 30 days.
 
+### Operator `raw_customers` (DataLoading)
+Summary: Raw text preview of customers.csv (head + middle) to verify structure before loading
+Result:
+  Output Table: 10 rows, 1 cols
+  	line
+  0	customer_id,name,email,signup_date,tier
+  1	C001,Alice,alice@example.com,2023-01-15,gold
+  ...
+
+### Operator `raw_orders` (DataLoading)
+Summary: Raw text preview of orders.csv (head + middle) to verify structure before loading
+Result:
+  Output Table: 10 rows, 1 cols
+  	line
+  0	# Export generated 2024-11-12 — internal use only
+  1	order_id,customer_id,amount,order_date
+  2	O001,C001,250.00,2024-11-05
+  ...
+```
+
+Thought: Previews verified the structure: customers.csv is a clean comma CSV with the header on line 0; orders.csv has a metadata banner ABOVE its header — a naive load would eat `order_id,...` as data, so it needs explicit `skiprows=1`. The previews have served their purpose — delete them in the SAME batch as the loads (deletes are fenced to run after creates, so the batch is safe).
+
+Tool call (4 parallel calls in one turn):
+- `customers`: `def load(): return pd.read_csv('/data/customers.csv', sep=',', header=0)` summary="Load customers.csv (clean comma CSV, header row 0 — verified by raw preview)"
+- `orders`: `def load(): return pd.read_csv('/data/orders.csv', sep=',', skiprows=1)` summary="Load orders.csv skipping the 1 metadata banner line above the header (verified by raw preview)"
+- `deleteOperator raw_customers`
+- `deleteOperator raw_orders`
+
+Observation — `# Current Dataflow` (previews gone, loads present):
+```
 ### Operator `customers` (DataLoading)
-Summary: Load complete /data/customers.csv
+Summary: Load customers.csv (clean comma CSV, header row 0 — verified by raw preview)
 Result:
   Output Table: 10000 rows, 5 cols
   	customer_id	name	email	signup_date	tier
@@ -31,7 +61,7 @@ Result:
   - "signup_date" (datetime): null=0, min=2023-01-15, max=2024-06-30
 
 ### Operator `orders` (DataLoading)
-Summary: Load complete /data/orders.csv
+Summary: Load orders.csv skipping the 1 metadata banner line above the header (verified by raw preview)
 Result:
   Output Table: 50000 rows, 4 cols
   	order_id	customer_id	amount	order_date
@@ -44,7 +74,7 @@ Result:
   - "amount" (numeric): null=0, mean=219.2, min=95.00, max=520.0
 ```
 
-Thought: Stats look clean — customers has 10,000 distinct customer_ids (all unique, valid join key), tier has only 3 distinct values (gold/silver/bronze) with gold most common. Orders has 10,000 distinct customer_ids matching customers, amount ranges $95–$520 with no nulls, order_date spans Sep–Nov 2024. Join key customer_id aligns perfectly. The next step CONSUMES both loads, so it cannot be parallelized with them — one dependent call this turn.
+Thought: Parse verified — row counts plausible (10,000 customers, 50,000 orders), headers are real column names, value ranges make sense (amount $95–$520, dates Sep–Nov 2024). Join-key check: `customer_id` has null=0 and distinct=10000 on BOTH tables — real overlap, safe key. The next step CONSUMES both loads, so it cannot be parallelized with them — one dependent call this turn.
 
 Tool call: `recent_orders` = `def process(customers, orders):` inner-merge on `customer_id`, then filter `order_date >= today - 30d`. summary="Inner join customers and orders on customer_id, then filter to orders within last 30 days"
 
