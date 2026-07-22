@@ -220,13 +220,26 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     // reproducibility: frontierDecay -> probeRetirement -> renderPrefs.
     // Flag-off arms bypass this branch entirely (byte-parity with legacy),
     // enforced by orthogonality.test.ts.
-    if (settings.frontierDecayConfig || settings.probeRetirementConfig || settings.enableRenderPrefs) {
+    if (
+      settings.frontierDecayConfig ||
+      settings.probeRetirementConfig ||
+      settings.enableRenderPrefs ||
+      (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST)
+    ) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       const legacyParams = mapLegacyToParams(settings.contextMode, legacyOptions);
       const baseParams = settings.summarizeParams
         ? applySummarizeParamsPatch(legacyParams, settings.summarizeParams)
         : legacyParams;
       let params = baseParams;
+      // Code-in-snapshot (LATEST-only): render every operator's current code as a
+      // `Code:` block. DELTA already carries code inline per event, so it is
+      // gated off above and never reaches this patch.
+      if (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST) {
+        params = applySummarizeParamsPatch(params, {
+          operators: { defaults: { property: { includeCode: true } } },
+        });
+      }
       if (settings.frontierDecayConfig) params = applyFrontierDecay(params, dossier, settings.frontierDecayConfig);
       if (settings.probeRetirementConfig) {
         params = applyProbeRetirement(params, dossier, settings.probeRetirementConfig);
@@ -353,6 +366,7 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
     enableRenderPrefs: agentSettings.enableRenderPrefs,
+    enableCodeInSnapshot: agentSettings.enableCodeInSnapshot,
     enableCompactTool: agentSettings.enableCompactTool,
     compactKeepLastSteps: agentSettings.compactKeepLastSteps,
     staticCompaction: agentSettings.staticCompaction,
@@ -586,6 +600,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
           enableInspectTool: (settings as any).enableInspectTool,
           enableRenderPrefs: (settings as any).enableRenderPrefs,
+          enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
           enableCompactTool: (settings as any).enableCompactTool,
           compactKeepLastSteps: (settings as any).compactKeepLastSteps,
           staticCompaction: (settings as any).staticCompaction,
@@ -646,6 +661,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             learnedConfig: t.Optional(t.Any()),
             enableInspectTool: t.Optional(t.Boolean()),
             enableRenderPrefs: t.Optional(t.Boolean()),
+            enableCodeInSnapshot: t.Optional(t.Boolean()),
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),

@@ -463,7 +463,8 @@ export class TexeraAgent {
         this.settings.contextMode,
         compactionEnabled,
         this.settings.enableInspectTool === true,
-        this.settings.enableRenderPrefs === true
+        this.settings.enableRenderPrefs === true,
+        this.settings.enableCodeInSnapshot === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -515,7 +516,8 @@ export class TexeraAgent {
         operatorSchemas,
         context,
         this.settings.maxOperatorEdits,
-        this.settings.enableRenderPrefs === true
+        this.settings.enableRenderPrefs === true,
+        this.settings.enableCodeInSnapshot === true && this.settings.contextMode === ContextMode.LATEST
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -587,7 +589,8 @@ export class TexeraAgent {
         operatorSchemas,
         context,
         0,
-        this.settings.enableRenderPrefs === true
+        this.settings.enableRenderPrefs === true,
+        this.settings.enableCodeInSnapshot === true && this.settings.contextMode === ContextMode.LATEST
       ),
     };
   }
@@ -805,6 +808,7 @@ export class TexeraAgent {
     learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
     enableRenderPrefs?: boolean;
+    enableCodeInSnapshot?: boolean;
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
@@ -982,6 +986,13 @@ export class TexeraAgent {
       // rebuilt below), the prompt section + example variant (rebuilt here),
       // and the render application (read by the assembler per call).
       this.settings.enableRenderPrefs = updates.enableRenderPrefs;
+      promptNeedsRebuild = true;
+    }
+    if (updates.enableCodeInSnapshot !== undefined) {
+      // Code-in-snapshot: gates the tool summary description (tools rebuilt
+      // below), the prompt context-format + example variant (rebuilt here), and
+      // the includeCode render patch (read by the assembler per call, LATEST-only).
+      this.settings.enableCodeInSnapshot = updates.enableCodeInSnapshot;
       promptNeedsRebuild = true;
     }
     if (updates.enableCompactTool !== undefined) {

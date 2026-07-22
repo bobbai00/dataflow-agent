@@ -65,6 +65,12 @@ const RENDER_PREFS_EXAMPLE_FRAGMENTS: Record<string, string> = {
   latest: rd("example.latest.render-prefs.md"),
   delta: rd("example.delta.render-prefs.md"),
 };
+// Code-in-snapshot (LATEST-only): the snapshot now renders each operator's code,
+// so the context-format description and the worked example change (code blocks
+// shown; short summaries). Selected only when the flag is on, so control arms
+// keep a byte-identical prompt.
+const CONTEXT_FORMAT_CODE_LATEST: string = rd("context-format.latest.code.md");
+const EXAMPLE_CODE_LATEST: string = rd("example.latest.code.md");
 
 // ============================================================================
 // Shared sections
@@ -340,14 +346,22 @@ export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   compactionEnabled = false,
   inspectEnabled = false,
-  renderPrefsEnabled = false
+  renderPrefsEnabled = false,
+  codeInSnapshotEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
+  // Code-in-snapshot is LATEST-only (DELTA already shows code per event).
+  const codeInSnap = codeInSnapshotEnabled && key === "latest";
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
   const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
-  const example = renderPrefsEnabled ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key] : EXAMPLE_FRAGMENTS[key];
-  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", CONTEXT_FORMAT_FRAGMENTS[key])
+  const contextFormat = codeInSnap ? CONTEXT_FORMAT_CODE_LATEST : CONTEXT_FORMAT_FRAGMENTS[key];
+  const example = codeInSnap
+    ? EXAMPLE_CODE_LATEST
+    : renderPrefsEnabled
+      ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
+      : EXAMPLE_FRAGMENTS[key];
+  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", contextFormat)
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
     .replace("{{RENDER_PREFS}}", renderPrefs)

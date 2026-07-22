@@ -317,6 +317,14 @@ export interface AgentSettings {
    */
   enableRenderPrefs: boolean;
   /**
+   * Show each operator's CURRENT code as a `Code:` block in the LATEST snapshot,
+   * and tell the agent (tool-def + prompt + example) to write SHORT summaries
+   * since the code now carries the detail. LATEST-only (DELTA already renders
+   * code inline in each event). Off by default; when off, prompt/tool/render are
+   * byte-identical to legacy. Experiment: does seeing its own code help the agent?
+   */
+  enableCodeInSnapshot: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -398,6 +406,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,
+  enableCodeInSnapshot: false,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,
@@ -503,6 +512,8 @@ export interface AgentSettingsApi {
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
+  /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
+  enableCodeInSnapshot?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
@@ -583,6 +594,8 @@ export interface UpdateAgentSettingsRequest {
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
+  /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
+  enableCodeInSnapshot?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
