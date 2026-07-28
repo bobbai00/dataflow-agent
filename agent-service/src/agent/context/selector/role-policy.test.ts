@@ -134,4 +134,42 @@ describe("role policy (Rule A: rich source / lean interior)", () => {
     }
   });
 
+
+  test("REGRESSION: a source feeding the frontier still gets the rich treatment", () => {
+    // Short 2-op pipeline (load -> answer): features.ts labels the load
+    // "near-frontier" (role priority), NOT "source". An earlier role-keyed
+    // version was therefore a silent no-op on exactly this shape, which is the
+    // common case on this benchmark. Classify structurally via isSource.
+    const scenario = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m", content: "go" },
+      {
+        id: "a1", stepId: 1, role: "agent", messageId: "m", parentId: "u", content: "load",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "src" } }],
+        toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2", stepId: 2, role: "agent", messageId: "m", parentId: "a1", content: "answer",
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t2", input: { operatorId: "answer" } }],
+        toolResults: [{ toolCallId: "t2", output: "ok", isError: false }],
+      },
+    ]);
+    scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "src", type: "DataLoading" }]));
+    scenario.storage.setOperatorResult("a1", "src", makeInfo(100));
+    scenario.storage.createSnapshot("a2", makeWorkflow(
+      [{ id: "src", type: "DataLoading" }, { id: "answer", type: "DataProcessing", numInputPorts: 1 }],
+      [["src", "answer"]]
+    ));
+    scenario.storage.setOperatorResult("a2", "answer", makeInfo(1));
+    const dossier = buildDossier(scenario.steps, scenario.storage);
+
+    const feats = extractFeatures(dossier).operators;
+    // Precondition: the load is NOT labelled "source" here — that is the trap.
+    expect(feats.get("src")!.role).not.toBe("source");
+    expect(feats.get("src")!.isSource).toBe(true);
+
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig({ sourceSampleRows: 12 }));
+    const src = resolveOperatorParams(out, "src");
+    expect(src.result.latest.tuple.sampleRows).toBe(12);
+    expect(src.result.latest.column.stats).toBe(true);
+  });
 });

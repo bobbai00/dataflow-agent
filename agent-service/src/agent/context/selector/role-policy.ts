@@ -56,11 +56,11 @@ export function parseRolePolicyConfig(raw: unknown): RolePolicyConfig {
 }
 
 /**
- * Emit per-operator overrides keyed by the operator's structural ROLE
- * (features.role: "source" | "interior" | "frontier" | "near-frontier" |
- * "terminal"). Frontier/near-frontier operators are left at the baseline —
- * they are the agent's active working set and the decay/retirement rules
- * already own that region.
+ * Emit per-operator overrides:
+ *  - structural SOURCES (features.isSource) -> rich, regardless of their
+ *    frontier-relative role label;
+ *  - settled interior/terminal operators -> lean;
+ *  - everything else (the non-source active working set) -> untouched.
  */
 export function applyRolePolicy(
   base: SummarizeParams,
@@ -77,7 +77,14 @@ export function applyRolePolicy(
     const isLeanRole =
       feature.role === "interior" || (config.leanTerminal && feature.role === "terminal");
 
-    if (feature.role === "source") {
+    // Key the rich side on the STRUCTURAL `isSource` flag, not on role === "source".
+    // features.ts assigns roles by priority (frontier > near-frontier > terminal >
+    // source > interior), so a load feeding the frontier is labelled
+    // "near-frontier" and would never match role === "source". On this benchmark's
+    // short 2-5 operator pipelines that is the common case, which made an
+    // earlier role-keyed version a silent no-op. The raw-data boundary is a
+    // structural property; classify it structurally.
+    if (feature.isSource) {
       overrides[feature.operatorId] = {
         result: {
           latest: {
@@ -90,7 +97,7 @@ export function applyRolePolicy(
           },
         },
       };
-    } else if (isLeanRole) {
+    } else if (isLeanRole && feature.role !== "frontier") {
       overrides[feature.operatorId] = {
         result: {
           latest: {
@@ -101,7 +108,8 @@ export function applyRolePolicy(
         },
       };
     }
-    // frontier / near-frontier: untouched (active working set).
+    // non-source frontier / near-frontier: untouched (the agent's active working set;
+    // the decay + retirement rules already own that region).
   }
 
   if (Object.keys(overrides).length === 0) return base;
