@@ -39,6 +39,11 @@ export const RolePolicyConfigSchema = z.object({
   sourceSampleRows: z.number().int().min(0).default(12),
   /** Per-column stats block on SOURCE operators. */
   sourceStats: z.boolean().default(true),
+  /** Density of that stats block. "anomaly" renders only what the visible sample
+   *  does not already prove (drops null=0, collapses distinct to unique/constant,
+   *  suppresses the block on fully-visible tables and the Schema echo). Default
+   *  "full" keeps the legacy verbatim render so existing arms are unchanged. */
+  sourceStatsDensity: z.union([z.literal("full"), z.literal("anomaly")]).default("full"),
   /** Load-quality facts (dup rows, unnamed headers, all-null cols) on sources. */
   sourceStructuralHints: z.boolean().default(true),
   /** Row budget retained on INTERIOR operators (the lean side). */
@@ -92,6 +97,7 @@ export function applyRolePolicy(
             tuple: { sampleRows: config.sourceSampleRows },
             column: {
               stats: config.sourceStats,
+              statsDensity: config.sourceStatsDensity,
               structuralHints: config.sourceStructuralHints,
             },
           },

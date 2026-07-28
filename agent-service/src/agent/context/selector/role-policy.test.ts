@@ -173,3 +173,22 @@ describe("role policy (Rule A: rich source / lean interior)", () => {
     expect(src.result.latest.column.stats).toBe(true);
   });
 });
+
+describe("applyRolePolicy — sourceStatsDensity", () => {
+  test("default keeps full density on sources (existing arms unchanged)", () => {
+    const out = applyRolePolicy(latestBase(), chainDossier(), parseRolePolicyConfig({}));
+    const src = out.operators.overrides["src"];
+    expect(src?.result?.latest?.column?.stats).toBe(true);
+    expect(src?.result?.latest?.column?.statsDensity).toBe("full");
+  });
+
+  test("anomaly density propagates into the source override", () => {
+    const out = applyRolePolicy(latestBase(), chainDossier(), parseRolePolicyConfig({ sourceStatsDensity: "anomaly" }));
+    expect(out.operators.overrides["src"]?.result?.latest?.column?.statsDensity).toBe("anomaly");
+  });
+
+  test("stats can be switched off entirely (the A3 arm)", () => {
+    const out = applyRolePolicy(latestBase(), chainDossier(), parseRolePolicyConfig({ sourceStats: false }));
+    expect(out.operators.overrides["src"]?.result?.latest?.column?.stats).toBe(false);
+  });
+});
