@@ -32,3 +32,5 @@ export { FrontierDecayConfigSchema, applyFrontierDecay, parseFrontierDecayConfig
 export type { FrontierDecayConfig } from "./frontier-decay";
 export { ProbeRetirementConfigSchema, applyProbeRetirement, parseProbeRetirementConfig } from "./probe-retirement";
 export type { ProbeRetirementConfig } from "./probe-retirement";
+export { RolePolicyConfigSchema, applyRolePolicy, parseRolePolicyConfig } from "./role-policy";
+export type { RolePolicyConfig } from "./role-policy";

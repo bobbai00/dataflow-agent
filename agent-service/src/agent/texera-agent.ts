@@ -37,6 +37,7 @@ import type { SummarizeParamsPatch } from "./context/summarize/params";
 import type { SelectorConfig } from "./context/selector/selector";
 import type { FrontierDecayConfig } from "./context/selector/frontier-decay";
 import type { ProbeRetirementConfig } from "./context/selector/probe-retirement";
+import type { RolePolicyConfig } from "./context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "./context/select/revision-folds";
 import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
@@ -805,6 +806,7 @@ export class TexeraAgent {
     frontierDecayConfig?: FrontierDecayConfig | null;
     foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
     probeRetirementConfig?: ProbeRetirementConfig | null;
+    rolePolicyConfig?: RolePolicyConfig | null;
     learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
     enableRenderPrefs?: boolean;
@@ -968,6 +970,10 @@ export class TexeraAgent {
     if (updates.probeRetirementConfig !== undefined) {
       // Pure render-time (LATEST): probe-retirement overlay. `null` clears it.
       this.settings.probeRetirementConfig = updates.probeRetirementConfig ?? undefined;
+    }
+    if (updates.rolePolicyConfig !== undefined) {
+      // Pure render-time (LATEST): role-keyed render policy. `null` clears it.
+      this.settings.rolePolicyConfig = updates.rolePolicyConfig ?? undefined;
     }
     if (updates.learnedConfig !== undefined) {
       // Pure render-time: switches the assembler onto the learned utility model.

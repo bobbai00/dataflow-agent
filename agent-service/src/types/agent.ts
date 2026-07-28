@@ -21,6 +21,7 @@ import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
 import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
 import type { ProbeRetirementConfig } from "../agent/context/selector/probe-retirement";
+import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
@@ -292,6 +293,8 @@ export interface AgentSettings {
   /** Rank-4 static rule (LATEST): retire superseded isolated probes to a
    *  compact extracted fact once their discovery is encoded downstream. */
   probeRetirementConfig?: ProbeRetirementConfig;
+  /** RULE A: role-keyed render policy (rich source / lean interior). */
+  rolePolicyConfig?: RolePolicyConfig;
   /**
    * When set, the LEARNED utility model (context/learned/model.json) scores each
    * operator and a budget knapsack assigns representation levels
@@ -506,6 +509,8 @@ export interface AgentSettingsApi {
   foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
   /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
   probeRetirementConfig?: ProbeRetirementConfig;
+  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
+  rolePolicyConfig?: RolePolicyConfig;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
@@ -588,6 +593,8 @@ export interface UpdateAgentSettingsRequest {
   foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
   /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
   probeRetirementConfig?: ProbeRetirementConfig | null;
+  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
+  rolePolicyConfig?: RolePolicyConfig | null;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
