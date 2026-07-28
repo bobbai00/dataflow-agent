@@ -612,7 +612,10 @@ export function createCreateOrModifyOperatorTool(
   context?: ToolContext,
   maxOperatorEdits = 0,
   renderPrefsEnabled = false,
-  codeShownEnabled = false
+  // Code visible to the agent is the DEFAULT — true for every DELTA config
+  // (events carry `code:`) and for LATEST with code in the snapshot. Only pass
+  // false for the one code-blind case: LATEST with the snapshot flag off.
+  codeShownEnabled = true
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -665,13 +668,17 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         summary: z
           .string()
           .describe(
+            // DEFAULT: the agent can read its own code (DELTA events, or LATEST
+            // with code in the snapshot), so the summary carries lineage only,
+            // not logic — restating it duplicates what is already on screen.
             codeShownEnabled
-              ? // Code-in-snapshot: your code is rendered back to you in the snapshot,
-                // so the summary carries lineage only, not logic — keep it to ONE short line.
-                "One short line naming what this operator does at a glance — the subject and the gist only " +
+              ? "One short line naming what this operator does at a glance — the subject and the gist only " +
                   '(e.g. "Load orders.csv" or "Filter orders_clean to 2024, sum amount by customer_id"). ' +
-                  "Do NOT restate the detailed logic; your code is shown in the snapshot and carries the specifics."
-              : "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
+                  "Do NOT restate the detailed logic; your code is shown to you and carries the specifics."
+              : // Code-blind (LATEST without code in the snapshot): the summaries
+                // are the ONLY record of what each operator does, so they must
+                // carry the logic themselves.
+                "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
                   "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
                   'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
                   "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."

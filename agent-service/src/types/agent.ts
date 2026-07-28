@@ -409,7 +409,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,
-  enableCodeInSnapshot: false,
+  enableCodeInSnapshot: true,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,

@@ -488,6 +488,18 @@ export class TexeraAgent {
     };
   }
 
+  /**
+   * Whether the agent can read its own operator code in the context it is fed.
+   * True by default: DELTA replays `code:` on every agent event, and LATEST
+   * carries per-operator `Code:` blocks whenever the snapshot flag is on. The
+   * single code-blind configuration is LATEST with `enableCodeInSnapshot` off —
+   * there the summaries are the only record of what an operator does, so the
+   * tool asks for detailed ones instead.
+   */
+  private isCodeShownToAgent(): boolean {
+    return this.settings.contextMode === ContextMode.DELTA || this.settings.enableCodeInSnapshot === true;
+  }
+
   private createTools(): Record<string, any> {
     const operatorSchemas = new Map<string, any>();
     for (const type of Object.keys(this.metadataStore.getAllOperatorTypes())) {
@@ -518,7 +530,7 @@ export class TexeraAgent {
         context,
         this.settings.maxOperatorEdits,
         this.settings.enableRenderPrefs === true,
-        this.settings.enableCodeInSnapshot === true && this.settings.contextMode === ContextMode.LATEST
+        this.isCodeShownToAgent()
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -591,7 +603,7 @@ export class TexeraAgent {
         context,
         0,
         this.settings.enableRenderPrefs === true,
-        this.settings.enableCodeInSnapshot === true && this.settings.contextMode === ContextMode.LATEST
+        this.isCodeShownToAgent()
       ),
     };
   }
