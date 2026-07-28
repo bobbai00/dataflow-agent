@@ -67,6 +67,12 @@ export const ColumnParamsSchema = z.object({
   stats: z.boolean().default(false),
   /** Which stat metrics to keep; "all" ⇒ the worker string verbatim. */
   statsMetrics: z.union([z.literal("all"), z.array(z.enum(COLUMN_METRICS))]).default("all"),
+  /** Stats-block density. "full" (default) renders the worker's metrics verbatim
+   *  on every column. "anomaly" renders only what the visible sample does not
+   *  already prove: the block is dropped when every row is on screen, `null=0`
+   *  is suppressed, `distinct` collapses to `unique`/`constant`, and the
+   *  redundant `Schema (…)` echo is dropped. */
+  statsDensity: z.union([z.literal("full"), z.literal("anomaly")]).default("full"),
   /** `Format hints:` line — numbers wearing punctuation (currency/percent/…). */
   valueFormatHints: z.boolean().default(false),
   /** `Output Table profile:` exact load-quality facts (all-null rows/cols, duplicate rows, unnamed headers). */

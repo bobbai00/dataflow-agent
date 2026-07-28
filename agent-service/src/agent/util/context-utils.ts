@@ -167,6 +167,9 @@ export interface AssembleContextOptions {
    *  published by the worker. Standalone flag — independent of `dataLevel`, so
    *  it overlays on any data level. Off by default. */
   columnStats?: boolean;
+  /** Stats-block density forwarded to the result formatter ("full" default /
+   *  "anomaly" = only facts the visible sample does not already prove). */
+  statsDensity?: "full" | "anomaly";
   /** When true, a load-stage operator (`DataLoading`) that errored gets a
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
    *  the exception class parsed from the error string. Off by default. */
@@ -2145,6 +2148,7 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     schemaTypes: ex.column.schemaTypes,
     columnStats: ex.column.stats,
     statsMetrics: ex.column.statsMetrics,
+    statsDensity: ex.column.statsDensity,
     valueFormatFlags: ex.column.valueFormatHints,
     coercionTelemetry: ex.column.coercionAlerts,
     tableStructureHint: ex.column.structuralHints,
@@ -2395,6 +2399,7 @@ function serializeOperatorFull(
           schemaTypes: rv.render.column.schemaTypes,
           columnStats: rv.render.column.stats,
           statsMetrics: rv.render.column.statsMetrics,
+          statsDensity: rv.render.column.statsDensity,
           valueFormatFlags: rv.render.column.valueFormatHints,
           coercionTelemetry: rv.render.column.coercionAlerts,
           tableStructureHint: rv.render.column.structuralHints,

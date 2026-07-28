@@ -40,7 +40,8 @@ const MAX_STATS_COLUMNS = 50;
  */
 export function formatColumnStats(
   opInfo: OperatorInfo,
-  metrics: "all" | readonly string[] = "all"
+  metrics: "all" | readonly string[] = "all",
+  density: "full" | "anomaly" = "full"
 ): string | undefined {
   const stats = opInfo.columnStats;
   if (!stats) return undefined;
@@ -51,6 +52,7 @@ export function formatColumnStats(
   const lines = shown.map(c => {
     const v = stats[c];
     let display = typeof v === "string" && v.length > 0 ? filterStatsLine(v, metrics) : undefined;
+    if (display && density === "anomaly") display = densifyStatsLine(display, rows);
     // duplicate_values = nonNull − distinct: the exact count of surplus value
     // occurrences in this (str) column. Pre-computed arithmetic over numbers
     // already on the line — rendered whenever it is non-zero (presence, not a
@@ -68,6 +70,58 @@ export function formatColumnStats(
     lines.push(`- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
   }
   return ["Column Schema and stats:", ...lines].join("\n");
+}
+
+/**
+ * ANOMALY density — drop the segments whose value is the *default healthy state*
+ * of a column, keeping only what would surprise a reader.
+ *
+ * Motivation (measured over 299 rendered operator blocks / 1,767 column entries
+ * on the Rule A arms): `null=0` occupies 32.1% of all column entries and
+ * `distinct == rows` another 5.9%. Both announce the ABSENCE of a problem, which
+ * inverts the signal — a reader must scan every line to discover that no line
+ * mattered. Rendering only anomalies makes the *presence* of `null=` mean
+ * "this column has holes", which is the fact worth spending bytes on.
+ *
+ * Rewrites rather than deletions where the fact still matters but the number
+ * does not: an all-distinct column becomes `unique`, a single-valued one
+ * `constant` — both shorter than the `distinct=N` they replace AND stated in the
+ * vocabulary the agent would use to reason about them.
+ *
+ * Never empties a line: the `(type)` tag always survives.
+ */
+export function densifyStatsLine(display: string, rows: number): string {
+  const m = /^(\([^)]*\)):?\s*(.*)$/.exec(display.trim());
+  if (!m || !m[2]) return display;
+  const typeTag = m[1];
+  const segments = splitTopLevel(m[2]);
+  const nullSeg = segments.find(s => /^null=\d+$/.test(s));
+  const nulls = nullSeg ? Number(nullSeg.split("=")[1]) : 0;
+  const nonNull = rows > 0 ? rows - nulls : 0;
+
+  const kept: string[] = [];
+  for (const seg of segments) {
+    const [key, rawVal] = [seg.split("=")[0]?.trim() ?? "", seg.split("=").slice(1).join("=").trim()];
+    if (key === "null") {
+      if (nulls > 0) kept.push(seg); // holes are the anomaly; completeness is not
+      continue;
+    }
+    if (key === "distinct") {
+      const d = Number(rawVal);
+      if (!Number.isFinite(d)) {
+        kept.push(seg);
+      } else if (d === 1) {
+        kept.push("constant");
+      } else if (nonNull > 0 && d >= nonNull) {
+        kept.push("unique");
+      } else {
+        kept.push(seg);
+      }
+      continue;
+    }
+    kept.push(seg);
+  }
+  return kept.length > 0 ? `${typeTag}: ${kept.join(", ")}` : typeTag;
 }
 
 /** Parse a (str) column's stats display and compute duplicate_values =

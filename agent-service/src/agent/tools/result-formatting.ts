@@ -93,6 +93,13 @@ export interface FormatOperatorResultOptions {
   /** Metric families to keep in the `Column Schema and stats:` block
    *  ("all" / undefined ⇒ worker strings verbatim). */
   statsMetrics?: "all" | readonly string[];
+  /** How densely the stats block renders (default "full" = legacy verbatim):
+   *   - "full":    every metric the worker published, on every column.
+   *   - "anomaly": only facts the visible sample does not already prove —
+   *                suppresses the block outright when every row is on screen,
+   *                drops `null=0`, rewrites `distinct` to `unique`/`constant`,
+   *                and drops the `Schema (…)` echo the block subsumes. */
+  statsDensity?: "full" | "anomaly";
   /** Include `(type)` tags on the Schema line (default true). */
   schemaTypes?: boolean;
   /** Sample-based duplicate rows / identical-column detection line. */
@@ -195,16 +202,24 @@ export function formatOperatorResult(
   const allRowsHeld = totalRows >= 0 && serializableArray.length === totalRows;
   const rendererTruncatedRows = sampleRows.length < serializableArray.length;
   const cellsTruncated = serializableArray.some(containsCellTruncation);
-  const completeSmallTableVisible =
+  // The five structural conditions below already PROVE every value is on screen
+  // (nothing truncated at the backend, the renderer, the column axis, or the
+  // cell level, and the service holds exactly totalRows rows). Under "anomaly"
+  // density that proof is the whole test. The legacy `totalRows < 5` bound is
+  // kept for "full" so the default render stays byte-identical — it was measured
+  // to leave stats on 22.4% of blocks whose sample already showed every row
+  // (e.g. a 7-row table rendering `null=0, distinct=7` beneath all 7 values).
+  const provablyComplete =
     opInfo.resultMode === "table" &&
     !isViz &&
     options.detail !== "shape" &&
-    totalRows < 5 &&
     allRowsHeld &&
     opInfo.truncated === false &&
     !rendererTruncatedRows &&
     !columnsTruncated &&
     !cellsTruncated;
+  const completeSmallTableVisible =
+    provablyComplete && (options.statsDensity === "anomaly" || totalRows < 5);
 
   const metadataLines = [
     formatInputOutputMetadata(
@@ -221,10 +236,19 @@ export function formatOperatorResult(
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
   const colStatsBlock =
     options.columnStats && !completeSmallTableVisible
-      ? formatColumnStats(opInfo, options.statsMetrics ?? "all")
+      ? formatColumnStats(opInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
+      : undefined;
+  // `Schema (N cols): col (type), …` and the stats block both carry every
+  // column's name and type; when both render, the Schema line is a pure echo
+  // (measured: 91.6% of operator blocks carried one, 24,259 chars across the
+  // Rule A arms — the single largest waste class). Under "anomaly" density the
+  // stats block subsumes it.
+  const schemaEchoesStats = options.statsDensity === "anomaly" && colStatsBlock !== undefined;
+  const schemaLine =
+    options.schemaInResult && !schemaEchoesStats
+      ? formatSchemaLine(opInfo, options.schemaTypes !== false)
       : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;

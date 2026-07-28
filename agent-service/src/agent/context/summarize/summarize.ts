@@ -160,6 +160,7 @@ export function paramsToRenderOptions(
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,
+    statsDensity: col.statsDensity,
     loaderHint: params.flow.loaderHints,
     valueFormatFlags: col.valueFormatHints,
     lineageErrorContext: params.flow.errorContext,
@@ -190,6 +191,7 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
   if (d.result.latest.column.statsMetrics !== "all") return true;
+  if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
   if (d.result.history.lastK > 0) return true;
   return false;
