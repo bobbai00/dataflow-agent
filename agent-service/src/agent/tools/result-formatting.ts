@@ -218,8 +218,17 @@ export function formatOperatorResult(
     !rendererTruncatedRows &&
     !columnsTruncated &&
     !cellsTruncated;
-  const completeSmallTableVisible =
-    provablyComplete && (options.statsDensity === "anomaly" || totalRows < 5);
+  // Suppress the stats block whenever completeness is PROVEN, at any table size.
+  // The five conditions above establish that every cell of every row is on
+  // screen, so `null=`/`distinct=`/`min=`/`max=` are arithmetic over visible
+  // data — the block cannot carry a fact the sample does not already show. The
+  // previous `totalRows < 5` bound made this depend on size rather than proof
+  // and left the block on 22.4% of blocks whose sample was already complete
+  // (e.g. a 7-row table printing `null=0, distinct=7` beneath all seven values).
+  // This is the one lossless trim: A2 measured that trimming stats on
+  // INCOMPLETE tables costs exploration steps, but here there is nothing to
+  // explore.
+  const completeSmallTableVisible = provablyComplete;
 
   const metadataLines = [
     formatInputOutputMetadata(

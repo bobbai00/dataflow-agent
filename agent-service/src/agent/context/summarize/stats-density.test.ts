@@ -151,7 +151,10 @@ describe("summarize — statsDensity:anomaly at the render level", () => {
       operators: { defaults: { result: { latest: { column: { stats: true, statsDensity: "anomaly" } } } } },
     })).text;
 
-    expect(full).toContain("Column Schema and stats:");
+    // Suppression-on-proof is now the DEFAULT (not an anomaly-density feature),
+    // because it cannot lose a fact: all 7 rows are on screen. Both render paths
+    // therefore drop the block here; anomaly density owns the other three trims.
+    expect(full).not.toContain("Column Schema and stats:");
     expect(anomaly).not.toContain("Column Schema and stats:");
     // the data itself is untouched — only the redundant annotation left
     expect(anomaly).toContain("sheet_name");
@@ -176,5 +179,64 @@ describe("summarize — statsDensity:anomaly at the render level", () => {
       },
     });
     expect(() => summarize(richInput(), params)).not.toThrow();
+  });
+});
+
+describe("stats block bounds — column slicing and line clamp", () => {
+  const opInfo = (colCount: number, statLine = "(numeric): null=0, mean=1") =>
+    makeInfo(100, {
+      sampleRows: [Object.fromEntries(Array.from({ length: colCount }, (_, i) => [`c${i}`, i]))],
+      truncated: true, // keep completeness unproven so the block renders
+      columnStats: Object.fromEntries(Array.from({ length: colCount }, (_, i) => [`c${i}`, statLine])),
+    });
+
+  function render(info: ReturnType<typeof makeInfo>) {
+    const { steps, storage, workflowState } = buildScenario([{ id: "a1", stepId: 1, role: "agent" }]);
+    storage.createSnapshot("a1", makeWorkflow([{ id: "wide", type: "DataLoading" }]));
+    storage.setOperatorResult("a1", "wide", info);
+    return summarize(
+      { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null },
+      latestWith({ operators: { defaults: { result: { latest: { column: { stats: true } } } } } })
+    ).text;
+  }
+
+  test("60 columns: keeps BOTH ends (25 head + 25 tail), matching TSV/Schema", () => {
+    const text = render(opInfo(60));
+    expect(text).toContain('- "c0"');
+    expect(text).toContain('- "c24"'); // last of the head half
+    expect(text).toContain('- "c59"'); // last column survives
+    expect(text).toContain('- "c35"'); // first of the tail half
+    expect(text).not.toContain('- "c30"'); // middle is what gets dropped
+    expect(text).toContain("(10 more columns omitted)");
+  });
+
+  test("the omitted marker sits between the halves, preserving column order", () => {
+    const text = render(opInfo(60));
+    const head = text.indexOf('- "c24"');
+    const marker = text.indexOf("more columns omitted");
+    const tail = text.indexOf('- "c35"');
+    expect(head).toBeLessThan(marker);
+    expect(marker).toBeLessThan(tail);
+  });
+
+  test("<=50 columns renders every column with no marker (byte-identical path)", () => {
+    const text = render(opInfo(50));
+    expect(text).toContain('- "c0"');
+    expect(text).toContain('- "c49"');
+    expect(text).not.toContain("more columns omitted");
+  });
+
+  test("a long top_N line is clamped, and the core metrics survive the cut", () => {
+    const buckets = Array.from({ length: 5 }, (_, i) => `"${"data/very/long/path/file".repeat(3)}${i}.csv"=1`).join(", ");
+    const text = render(opInfo(1, `(str): null=3, distinct=5, top_5={${buckets}}`));
+    const line = text.split("\n").find(l => l.trim().startsWith('- "c0"'))!;
+    expect(line.length).toBeLessThanOrEqual(220); // 200 budget + the `- "c0" ` wrapper
+    expect(line).toContain("null=3"); // anomaly metric never sacrificed
+    expect(line).toContain("distinct=5");
+  });
+
+  test("a line already inside budget is untouched", () => {
+    const text = render(opInfo(1, "(numeric): null=0, mean=52.3, min=0.5, max=999.9"));
+    expect(text).toContain('- "c0" (numeric): null=0, mean=52.3, min=0.5, max=999.9');
   });
 });

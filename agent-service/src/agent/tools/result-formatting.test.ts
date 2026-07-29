@@ -152,13 +152,36 @@ describe("formatOperatorResult - small complete table stats", () => {
     expect(out).not.toContain("Column Schema and stats:");
   });
 
-  test("keeps stats at the five-row boundary", () => {
+  test("suppression is by PROOF, not table size — a fully visible 5-row table drops stats", () => {
+    // Was asserted the other way while a `totalRows < 5` bound gated the
+    // suppression. Size is not the question: with nothing truncated at the
+    // backend, renderer, column or cell level, every value is on screen and the
+    // stats block is arithmetic over data the agent can already read.
     const fiveRows = [...rows, { __row_index__: 4, value: 5 }];
     const out = formatOperatorResult(
       "op1",
       makeOpInfo({ outputTuples: 5, totalRowCount: 5, result: fiveRows, truncated: false, columnStats: stats }),
       EMPTY_STATE,
       { columnStats: true }
+    );
+
+    expect(out).not.toContain("Column Schema and stats:");
+    expect(out).toContain("value"); // the data itself is untouched
+  });
+
+  test("a table too large to fully render KEEPS stats (the load-bearing case)", () => {
+    // 40 rows held but the renderer shows 5 ⇒ completeness unproven ⇒ stats stay.
+    const out = formatOperatorResult(
+      "op1",
+      makeOpInfo({
+        outputTuples: 40,
+        totalRowCount: 40,
+        result: Array.from({ length: 40 }, (_, i) => ({ __row_index__: i, value: i })),
+        truncated: false,
+        columnStats: stats,
+      }),
+      EMPTY_STATE,
+      { columnStats: true, maxResultRows: 5 }
     );
 
     expect(out).toContain("Column Schema and stats:");
