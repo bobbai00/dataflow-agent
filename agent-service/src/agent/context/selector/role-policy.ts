@@ -65,6 +65,20 @@ export const RolePolicyConfigSchema = z.object({
    * than to the row cap or the stats block. This mode is the missing control.
    */
   hintsOnly: z.boolean().default(false),
+  /**
+   * CHAR-BUDGET mode (C9/C10). Per-operator `tuple.maxChars` keyed on the
+   * raw-data boundary: sources get `sourceMaxChars`, every NON-source operator
+   * gets `nonSourceMaxChars` and `nonSourceStats`. Unlike the rows/stats legs
+   * above this deliberately covers frontier and near-frontier operators too —
+   * the policy under test is "rich source, lean everything-downstream", not
+   * "lean settled interior".
+   *
+   * Set both to 0 to leave char budgets alone (the default), in which case this
+   * mode contributes nothing and the rows/stats legs behave as before.
+   */
+  sourceMaxChars: z.number().int().min(0).default(0),
+  nonSourceMaxChars: z.number().int().min(0).default(0),
+  nonSourceStats: z.boolean().default(false),
 });
 
 export type RolePolicyConfig = z.infer<typeof RolePolicyConfigSchema>;
@@ -85,13 +99,47 @@ export function applyRolePolicy(
   dossier: Dossier,
   config: RolePolicyConfig
 ): SummarizeParams {
-  // Per-operator policy only binds on a snapshot core.
-  if (base.trajectory.events !== "none" || !base.currentSnapshot) return base;
+  // The rows/stats/hints legs shape a snapshot core and cannot bind on an
+  // interleaved trajectory. The CHAR-BUDGET leg can: `opExtras` is installed
+  // regardless of context mode and the DELTA observation renderer routes through
+  // `extrasFormatOptions`, so a per-operator `tuple.maxChars` caps each event's
+  // render of that operator. C10 is exactly that arm, so let it through.
+  const charBudgetMode = config.sourceMaxChars > 0 || config.nonSourceMaxChars > 0;
+  if (!charBudgetMode && (base.trajectory.events !== "none" || !base.currentSnapshot)) return base;
 
   const features = extractFeatures(dossier);
   const overrides: Record<string, OperatorParamsOverride> = {};
 
   for (const feature of features.operators.values()) {
+    if (charBudgetMode) {
+      // One override per operator, keyed only on isSource — deliberately
+      // covering frontier/near-frontier too ("rich source, lean everything
+      // downstream", not "lean settled interior").
+      overrides[feature.operatorId] = feature.isSource
+        ? {
+            result: {
+              latest: {
+                detail: "sample",
+                tuple: { maxChars: config.sourceMaxChars },
+                column: {
+                  stats: config.sourceStats,
+                  statsDensity: config.sourceStatsDensity,
+                  structuralHints: config.sourceStructuralHints,
+                },
+              },
+            },
+          }
+        : {
+            result: {
+              latest: {
+                detail: "sample",
+                tuple: { maxChars: config.nonSourceMaxChars },
+                column: { stats: config.nonSourceStats },
+              },
+            },
+          };
+      continue;
+    }
     const isLeanRole =
       feature.role === "interior" || (config.leanTerminal && feature.role === "terminal");
 

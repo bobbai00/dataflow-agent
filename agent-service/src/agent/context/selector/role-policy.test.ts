@@ -224,3 +224,62 @@ describe("applyRolePolicy — hintsOnly isolation (A6)", () => {
     expect(Object.keys(out.operators.overrides)).toEqual(["src"]);
   });
 });
+
+describe("applyRolePolicy — char-budget mode (C9/C10)", () => {
+  const cfg = { sourceMaxChars: 5000, nonSourceMaxChars: 1000, sourceStats: true, nonSourceStats: false };
+
+  test("sources get the rich budget + stats; every non-source gets the lean budget + no stats", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig(cfg));
+    const roles = new Map([...extractFeatures(dossier).operators.values()].map(f => [f.operatorId, f]));
+    for (const [id, f] of roles) {
+      const o = out.operators.overrides[id];
+      expect(o).toBeDefined();
+      if (f.isSource) {
+        expect(o?.result?.latest?.tuple?.maxChars).toBe(5000);
+        expect(o?.result?.latest?.column?.stats).toBe(true);
+      } else {
+        expect(o?.result?.latest?.tuple?.maxChars).toBe(1000);
+        expect(o?.result?.latest?.column?.stats).toBe(false);
+      }
+    }
+  });
+
+  test("covers frontier/near-frontier too — every operator is assigned a budget", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig(cfg));
+    const all = [...extractFeatures(dossier).operators.values()].map(f => f.operatorId).sort();
+    expect(Object.keys(out.operators.overrides).sort()).toEqual(all);
+  });
+
+  test("both budgets 0 ⇒ mode inert, the rows/stats legs govern", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig({ sourceSampleRows: 12, interiorSampleRows: 3 }));
+    const src = out.operators.overrides["src"];
+    expect(src?.result?.latest?.tuple?.maxChars).toBeUndefined();
+    expect(src?.result?.latest?.tuple?.sampleRows).toBe(12);
+  });
+});
+
+describe("applyRolePolicy — char-budget mode binds on DELTA", () => {
+  test("an interleaved trajectory still receives per-operator budgets", () => {
+    const dossier = chainDossier();
+    const deltaBase = mapLegacyToParams(ContextMode.DELTA, {
+      compilationResult: null,
+      agentMode: AgentMode.CODE,
+      schemaInResult: true,
+      columnStats: true,
+    });
+    // the rows/stats legs must still no-op on DELTA...
+    const rowsLeg = applyRolePolicy(deltaBase, dossier, parseRolePolicyConfig({ sourceSampleRows: 12 }));
+    expect(Object.keys(rowsLeg.operators.overrides)).toHaveLength(0);
+    // ...while the char-budget leg binds
+    const charLeg = applyRolePolicy(
+      deltaBase,
+      dossier,
+      parseRolePolicyConfig({ sourceMaxChars: 5000, nonSourceMaxChars: 1000 })
+    );
+    expect(Object.keys(charLeg.operators.overrides).length).toBeGreaterThan(0);
+    expect(charLeg.operators.overrides["src"]?.result?.latest?.tuple?.maxChars).toBe(5000);
+  });
+});
