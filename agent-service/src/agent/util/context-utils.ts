@@ -2133,6 +2133,10 @@ function legacyFormatOptions(options: AssembleContextOptions): FormatOperatorRes
     coercionTelemetry: options.coercionTelemetry,
     maxResultRows: options.maxResultRows,
     tableStructureHint: options.tableStructureHint,
+    // A7: the legacy (no per-operator extras) path serves DELTA arms and any
+    // arm without overrides. Omitting this dropped the `Files read:` fact for
+    // every such arm even when stats implied it.
+    fileIoFacts: options.fileIoFacts,
   };
 }
 
