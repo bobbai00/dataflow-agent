@@ -169,6 +169,8 @@ export interface AssembleContextOptions {
   columnStats?: boolean;
   /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
   maxResultChars?: number;
+  /** A7: render the `Files read:` fact (independent of tableStructureHint). */
+  fileIoFacts?: boolean;
   /** Stats-block density forwarded to the result formatter ("full" default /
    *  "anomaly" = only facts the visible sample does not already prove). */
   statsDensity?: "full" | "anomaly";
@@ -2154,6 +2156,7 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     valueFormatFlags: ex.column.valueFormatHints,
     coercionTelemetry: ex.column.coercionAlerts,
     tableStructureHint: ex.column.structuralHints,
+    fileIoFacts: ex.column.fileIoFacts,
     maxResultRows: sampleRows,
     maxResultChars: ex.tuple.maxChars,
     sampleDuplicates: ex.tuple.duplicates,
@@ -2407,6 +2410,7 @@ function serializeOperatorFull(
           valueFormatFlags: rv.render.column.valueFormatHints,
           coercionTelemetry: rv.render.column.coercionAlerts,
           tableStructureHint: rv.render.column.structuralHints,
+          fileIoFacts: rv.render.column.fileIoFacts,
           inputsInResult: false,
         });
         for (const l of t.split("\n")) lines.push("  " + l);

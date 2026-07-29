@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatTableHints } from "./structural-profile";
+import { formatTableHints, formatFileIo } from "./structural-profile";
 import { formatColumnStats } from "./column-stats";
 import { RESERVED_STATS_KEYS, FILE_IO_KEY } from "./reserved-keys";
 import type { OperatorInfo } from "../../../../types/execution";
@@ -26,19 +26,23 @@ const info = (columnStats: Record<string, string>): OperatorInfo =>
   ({ columnStats, totalRowCount: 100, outputTuples: 100 } as unknown as OperatorInfo);
 
 describe("A7 __file_io__ — multi-file load provenance", () => {
-  test("renders the file list on the structural rung", () => {
-    const out = formatTableHints(info({ __file_io__: "files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]" }));
-    expect(out).toContain("Output Table profile:");
-    expect(out).toContain("- files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]");
+  test("renders on its OWN rung, not inside the structural profile", () => {
+    const out = formatFileIo(info({ __file_io__: "files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]" }));
+    expect(out).toBe("- files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]");
   });
 
-  test("the file fact precedes the table facts (read before result)", () => {
-    const out = formatTableHints(info({
-      __file_io__: "files read: 3 [a.csv, b.csv, c.csv]",
-      __table_hints__: "duplicate rows: 359 of 764 (47%) || empty rows: 156 of 764 rows are entirely null",
-    }))!;
-    expect(out.indexOf("files read")).toBeLessThan(out.indexOf("duplicate rows"));
-    expect(out.split("\n")).toHaveLength(4); // header + 1 file fact + 2 table facts
+  test("INDEPENDENT of structuralHints — a schema-only arm can carry it", () => {
+    // The two best arms on this benchmark (LATEST 5k+code, LATEST 1k+code) are
+    // schema-only. Coupling the IO fact to the stats rung locked them out.
+    const i = info({ __file_io__: "files read: 3 [a.csv, b.csv, c.csv]" });
+    expect(formatFileIo(i)).toContain("files read: 3");
+    expect(formatTableHints(i)).toBeUndefined(); // no table hints published
+  });
+
+  test("table hints render independently of the file fact", () => {
+    const i = info({ __table_hints__: "duplicate rows: 359 of 764 (47%)" });
+    expect(formatTableHints(i)).toBe("Output Table profile:\n- duplicate rows: 359 of 764 (47%)");
+    expect(formatFileIo(i)).toBeUndefined();
   });
 
   test("is NEVER rendered as a column — the key is reserved", () => {
@@ -52,9 +56,8 @@ describe("A7 __file_io__ — multi-file load provenance", () => {
     expect(block).not.toContain("files read");
   });
 
-  test("absent key leaves the render byte-identical to before A7", () => {
-    const withTable = formatTableHints(info({ __table_hints__: "duplicate rows: 2 of 10 (20%)" }));
-    expect(withTable).toBe("Output Table profile:\n- duplicate rows: 2 of 10 (20%)");
+  test("absent key ⇒ nothing rendered on either rung", () => {
+    expect(formatFileIo(info({ region: "(str): null=0" }))).toBeUndefined();
     expect(formatTableHints(info({ region: "(str): null=0" }))).toBeUndefined();
   });
 });

@@ -30,16 +30,26 @@ import { TABLE_HINTS_KEY, FILE_IO_KEY } from "./reserved-keys";
  * one indented line each under a header. Render-only. Returns undefined when no
  * hint was published.
  */
+/**
+ * A7 — multi-file load provenance, on its OWN rung.
+ *
+ * Deliberately independent of `structuralHints`: "which files did this operator
+ * read" is a fact about IO, not about column statistics, and coupling the two
+ * (an artifact of reusing formatTableHints) locked the fact out of every
+ * schema-only arm — including the two best-performing configs on this benchmark
+ * (LATEST 5k+code and LATEST 1k+code, neither of which carries stats/D2). The
+ * fact costs ~100 chars and is useful wherever a glob is used, so it gets its
+ * own gate.
+ */
+export function formatFileIo(opInfo: OperatorInfo): string | undefined {
+  const v = opInfo.columnStats?.[FILE_IO_KEY];
+  if (typeof v !== "string" || v.length === 0) return undefined;
+  const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.map(p => `- ${p}`).join("\n") : undefined;
+}
+
 export function formatTableHints(opInfo: OperatorInfo): string | undefined {
   const parts: string[] = [];
-  // A7 first: what the operator READ precedes what the result looks like. An
-  // agent that wrote glob.glob(...) otherwise never learns what it matched —
-  // the rendered result shows only the concatenated table. Fact only; the
-  // reserved key never renders as a column (see reserved-keys.ts).
-  const fio = opInfo.columnStats?.[FILE_IO_KEY];
-  if (typeof fio === "string" && fio.length > 0) {
-    parts.push(...fio.split(" || ").map(p => p.trim()).filter(Boolean));
-  }
   const v = opInfo.columnStats?.[TABLE_HINTS_KEY];
   if (typeof v === "string" && v.length > 0) {
     parts.push(...v.split(" || ").map(p => p.trim()).filter(Boolean));

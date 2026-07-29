@@ -77,6 +77,10 @@ export const ColumnParamsSchema = z.object({
   valueFormatHints: z.boolean().default(false),
   /** `Output Table profile:` exact load-quality facts (all-null rows/cols, duplicate rows, unnamed headers). */
   structuralHints: z.boolean().default(false),
+  /** A7: `Files read: N [names]` — the file list a multi-file loader actually
+   *  matched. Independent of `structuralHints` (IO fact, not a column stat), so
+   *  it can ride on schema-only arms too. */
+  fileIoFacts: z.boolean().default(false),
   /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
   coercionAlerts: z.boolean().default(false),
   /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values

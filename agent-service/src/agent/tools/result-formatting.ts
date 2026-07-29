@@ -26,7 +26,7 @@ import { getVisibleResultHeaders } from "./tools-utility";
 import { RESERVED_STATS_KEYS, COERCION_TELEMETRY_KEY } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
 import { formatColumnStats } from "../context/decorate/data/column-stats";
-import { formatTableHints } from "../context/decorate/data/structural-profile";
+import { formatTableHints, formatFileIo } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag } from "../context/decorate/data/diagnostics";
 import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
@@ -34,7 +34,7 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatReservedDiag };
+export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
 
 export interface FormatOperatorResultOptions {
   /** When true, prepend a compact `Schema:` line listing every output column
@@ -73,6 +73,9 @@ export interface FormatOperatorResultOptions {
    *  the reserved `__table_hints__` entry on columnStats; this side only renders.
    *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
   tableStructureHint?: boolean;
+  /** A7: render `Files read: N [names]` for multi-file loaders. Independent of
+   *  tableStructureHint so schema-only arms can carry it too. */
+  fileIoFacts?: boolean;
   /** Resolve an input's COLUMN count from its upstream operator's output. The
    *  engine's input port metrics carry only the row count (tuple count), so the
    *  caller (which has the snapshot) supplies this to fill in `M cols` on the
@@ -276,6 +279,8 @@ export function formatOperatorResult(
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
+  const fileIoBlock = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
+  const fileIoLine = fileIoBlock ? ["Files read:", fileIoBlock].join("\n") : undefined;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
@@ -292,6 +297,7 @@ export function formatOperatorResult(
     colStatsBlock,
     formatHints,
     coercionLine,
+    fileIoLine,
     tableHintsLine,
     dupLine,
     fdLine,
