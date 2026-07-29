@@ -90,6 +90,11 @@ export interface FormatOperatorResultOptions {
    *     result, only the first error line renders (no traceback/code echo).
    *  ("omit" is handled by the operator serializer — no Result block at all.) */
   detail?: "shape" | "sample";
+  /** Per-operator char budget for the rendered TSV body (summarize
+   *  `tuple.maxChars`); 0/undefined ⇒ uncapped. Distinct from the agent-level
+   *  `maxOperatorResultCharLimit`, which is one engine-side number for the whole
+   *  execution and cannot vary per operator. */
+  maxResultChars?: number;
   /** Metric families to keep in the `Column Schema and stats:` block
    *  ("all" / undefined ⇒ worker strings verbatim). */
   statsMetrics?: "all" | readonly string[];
@@ -191,7 +196,12 @@ export function formatOperatorResult(
         : sampleRows.slice(0, head);
   }
   // detail:"shape" (summarize) drops the TSV body — counts + annotations only.
-  const dataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
+  const rawDataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
+  // Per-operator render budget (summarize `tuple.maxChars`). Keeps the header
+  // plus as many head/tail rows as fit, mirroring the fetch-time safety net in
+  // workflow-execution-tools so both truncations produce the same shape.
+  const dataString = clampTableChars(rawDataString, options.maxResultChars ?? 0);
+  const dataStringTruncatedByBudget = dataString.length < rawDataString.length;
 
   // A complete table with fewer than five rows is already its own exact
   // summary. Repeating mean/min/max/top-k stats adds tokens without revealing
@@ -217,7 +227,11 @@ export function formatOperatorResult(
     opInfo.truncated === false &&
     !rendererTruncatedRows &&
     !columnsTruncated &&
-    !cellsTruncated;
+    !cellsTruncated &&
+    // A per-operator char budget that clipped rows also breaks the proof: the
+    // agent can no longer read every value off the sample, so the stats block
+    // becomes load-bearing again.
+    !dataStringTruncatedByBudget;
   // Suppress the stats block whenever completeness is PROVEN, at any table size.
   // The five conditions above establish that every cell of every row is on
   // screen, so `null=`/`distinct=`/`min=`/`max=` are arithmetic over visible
@@ -396,4 +410,39 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   }
 
   return [headerLine, ...formattedRows].join("\n");
+}
+
+/**
+ * Clamp a rendered TSV table to a char budget, keeping the header plus as many
+ * head + tail data rows as fit. Mirrors the fetch-time safety net in
+ * workflow-execution-tools so a per-operator budget and the engine-side budget
+ * produce the same shape. Returns the input unchanged when it already fits, when
+ * the budget is 0/absent, or when the table has no data rows to drop.
+ */
+export function clampTableChars(table: string, budget: number): string {
+  if (budget <= 0 || table.length <= budget) return table;
+  const lines = table.split("\n");
+  const header = lines[0] ?? "";
+  const rows = lines.slice(1);
+  if (rows.length === 0) return table;
+  const half = Math.floor((budget - (header.length + 1)) / 2);
+  if (half <= 0) return header;
+
+  const front: string[] = [];
+  let frontSize = 0;
+  for (const r of rows) {
+    const len = r.length + 1;
+    if (frontSize + len > half && front.length > 0) break;
+    front.push(r);
+    frontSize += len;
+  }
+  const back: string[] = [];
+  let backSize = 0;
+  for (let i = rows.length - 1; i >= front.length; i--) {
+    const len = rows[i]!.length + 1;
+    if (backSize + len > half && back.length > 0) break;
+    back.unshift(rows[i]!);
+    backSize += len;
+  }
+  return [header, ...front, ...back].join("\n");
 }

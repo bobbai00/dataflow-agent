@@ -92,6 +92,23 @@ export type ColumnParams = z.infer<typeof ColumnParamsSchema>;
 export const TupleParamsSchema = z.object({
   /** Cap the TSV sample at first ⌈n/2⌉ + last ⌊n/2⌋ rows. 0 ⇒ uncapped. */
   sampleRows: z.number().int().min(0).default(0),
+  /**
+   * PER-OPERATOR char budget for the rendered TSV body (first ⌈n/2⌉ + last ⌊n/2⌋
+   * rows that fit). 0 ⇒ no per-operator cap.
+   *
+   * Distinct from the agent-level `maxOperatorResultCharLimit`, which is a
+   * single number sent to the JVM inside the execute request (it bounds what the
+   * engine RETURNS, for every operator at once) and re-applied client-side as a
+   * fetch-time safety net. That knob cannot differ per operator, which made a
+   * "5k on sources, 1k on processing" policy inexpressible. This one is
+   * render-time and per-operator, so it composes with the override map and binds
+   * in BOTH context modes (`opExtras` is installed regardless of mode; in DELTA
+   * it caps each event's render of that operator rather than one snapshot block).
+   *
+   * Can only reduce below the engine-side budget — the render never has bytes the
+   * fetch did not return.
+   */
+  maxChars: z.number().int().min(0).default(0),
   /** Sample-based duplicate row / duplicate column detection (service-side). */
   duplicates: z.boolean().default(false),
   /** Sample-based candidate functional dependencies between columns. */

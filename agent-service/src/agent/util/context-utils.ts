@@ -167,6 +167,8 @@ export interface AssembleContextOptions {
    *  published by the worker. Standalone flag — independent of `dataLevel`, so
    *  it overlays on any data level. Off by default. */
   columnStats?: boolean;
+  /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
+  maxResultChars?: number;
   /** Stats-block density forwarded to the result formatter ("full" default /
    *  "anomaly" = only facts the visible sample does not already prove). */
   statsDensity?: "full" | "anomaly";
@@ -2153,6 +2155,7 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     coercionTelemetry: ex.column.coercionAlerts,
     tableStructureHint: ex.column.structuralHints,
     maxResultRows: sampleRows,
+    maxResultChars: ex.tuple.maxChars,
     sampleDuplicates: ex.tuple.duplicates,
     sampleFdHints: ex.tuple.fdHints,
   };
@@ -2393,6 +2396,7 @@ function serializeOperatorFull(
         const t = formatOperatorResult(op.operatorID, rv.version.info, workflowState, {
           detail: rv.render.detail === "shape" ? "shape" : undefined,
           maxResultRows: rv.render.tuple.sampleRows,
+          maxResultChars: rv.render.tuple.maxChars,
           sampleDuplicates: rv.render.tuple.duplicates,
           sampleFdHints: rv.render.tuple.fdHints,
           schemaInResult: rv.render.column.schema,

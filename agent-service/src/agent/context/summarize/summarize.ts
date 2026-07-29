@@ -167,6 +167,7 @@ export function paramsToRenderOptions(
     graphAudit: params.flow.graphAudit,
     coercionTelemetry: col.coercionAlerts,
     maxResultRows: d.result.latest.tuple.sampleRows,
+    maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
     tableStructureHint: col.structuralHints,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
@@ -190,6 +191,7 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.property.includeCode || d.property.codeHistory > 0) return true;
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
+  if (d.result.latest.tuple.maxChars > 0) return true;
   if (d.result.latest.column.statsMetrics !== "all") return true;
   if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
