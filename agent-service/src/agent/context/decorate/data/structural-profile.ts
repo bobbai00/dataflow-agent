@@ -18,7 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../../../types/execution";
-import { TABLE_HINTS_KEY } from "./reserved-keys";
+import { TABLE_HINTS_KEY, FILE_IO_KEY } from "./reserved-keys";
 
 /**
  * Data-L2 (#25/#26/#27, pre-emptive) — THE accuracy win of the campaign.
@@ -31,9 +31,19 @@ import { TABLE_HINTS_KEY } from "./reserved-keys";
  * hint was published.
  */
 export function formatTableHints(opInfo: OperatorInfo): string | undefined {
+  const parts: string[] = [];
+  // A7 first: what the operator READ precedes what the result looks like. An
+  // agent that wrote glob.glob(...) otherwise never learns what it matched —
+  // the rendered result shows only the concatenated table. Fact only; the
+  // reserved key never renders as a column (see reserved-keys.ts).
+  const fio = opInfo.columnStats?.[FILE_IO_KEY];
+  if (typeof fio === "string" && fio.length > 0) {
+    parts.push(...fio.split(" || ").map(p => p.trim()).filter(Boolean));
+  }
   const v = opInfo.columnStats?.[TABLE_HINTS_KEY];
-  if (!v || typeof v !== "string" || v.length === 0) return undefined;
-  const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
+  if (typeof v === "string" && v.length > 0) {
+    parts.push(...v.split(" || ").map(p => p.trim()).filter(Boolean));
+  }
   if (parts.length === 0) return undefined;
   return ["Output Table profile:", ...parts.map(p => `- ${p}`)].join("\n");
 }
