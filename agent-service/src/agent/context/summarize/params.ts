@@ -79,8 +79,14 @@ export const ColumnParamsSchema = z.object({
   structuralHints: z.boolean().default(false),
   /** A7: `Files read: N [names]` — the file list a multi-file loader actually
    *  matched. Independent of `structuralHints` (IO fact, not a column stat), so
-   *  it can ride on schema-only arms too. */
-  fileIoFacts: z.boolean().default(false),
+   *  it can ride on schema-only arms too.
+   *
+   *  COUPLED TO `stats`: when the stats block is on, this is on unless explicitly
+   *  set false (see resolveOperatorParams). "Stats on" therefore means the file
+   *  inventory is in context too — the fact is free-to-cheaper on every arm
+   *  measured (-11% cost at 5k, -6% at 1k) and worth +5.0pt where the sampling
+   *  budget is tight. Schema-only arms can still opt in by setting it directly. */
+  fileIoFacts: z.boolean().optional(),
   /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
   coercionAlerts: z.boolean().default(false),
   /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
@@ -360,8 +366,27 @@ export function deepMerge<T>(base: T, patch: unknown): T {
 /** Resolve the effective per-operator params: defaults ⊕ overrides[opId]. */
 export function resolveOperatorParams(params: SummarizeParams, opId: string): OperatorParams {
   const override = params.operators.overrides[opId];
-  if (!override) return params.operators.defaults;
-  return deepMerge(params.operators.defaults, override);
+  const resolved = override ? deepMerge(params.operators.defaults, override) : params.operators.defaults;
+  return withFileIoCoupling(resolved);
+}
+
+/**
+ * COUPLING: `stats on` implies the `Files read:` fact unless it was set
+ * explicitly. Rationale (measured, full 104 x 3 reps): the fact is free-to-cheaper
+ * on every arm (-11% cost at a 5k budget, -6% at 1k) and worth +5.0pt (3.3x SE,
+ * hard tasks +7.3) when the render budget is tight, so an operator rich enough to
+ * carry per-column stats should also say which files it read. `undefined` means
+ * "not specified" — an explicit `false` still wins, and schema-only operators can
+ * opt in by setting it `true`.
+ */
+function withFileIoCoupling(p: OperatorParams): OperatorParams {
+  const latest = p.result.latest;
+  if (latest.column.fileIoFacts !== undefined) return p;
+  if (!latest.column.stats) return p;
+  return {
+    ...p,
+    result: { ...p.result, latest: { ...latest, column: { ...latest.column, fileIoFacts: true } } },
+  };
 }
 
 /* ============================================================================

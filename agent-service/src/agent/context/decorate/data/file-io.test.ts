@@ -61,3 +61,40 @@ describe("A7 __file_io__ — multi-file load provenance", () => {
     expect(formatTableHints(info({ region: "(str): null=0" }))).toBeUndefined();
   });
 });
+
+describe("stats -> fileIoFacts coupling", () => {
+  const resolve = (patch: object) => {
+    const { latestPreset, parseSummarizeParams, resolveOperatorParams } = require("../../summarize/params");
+    const base = latestPreset();
+    const merge = (a: any, b: any): any => {
+      const o = { ...a };
+      for (const [k, v] of Object.entries(b ?? {})) o[k] = v && typeof v === "object" && !Array.isArray(v) ? merge(a?.[k] ?? {}, v) : v;
+      return o;
+    };
+    const p = parseSummarizeParams({
+      ...base,
+      operators: { defaults: merge(base.operators.defaults, (patch as any).defaults ?? {}), overrides: {} },
+    });
+    return resolveOperatorParams(p, "any-op").result.latest.column;
+  };
+
+  test("stats ON implies the file fact", () => {
+    expect(resolve({ defaults: { result: { latest: { column: { stats: true } } } } }).fileIoFacts).toBe(true);
+  });
+
+  test("stats OFF leaves it off", () => {
+    expect(resolve({ defaults: { result: { latest: { column: { stats: false } } } } }).fileIoFacts).toBeFalsy();
+  });
+
+  test("an explicit false still wins over the coupling", () => {
+    expect(
+      resolve({ defaults: { result: { latest: { column: { stats: true, fileIoFacts: false } } } } }).fileIoFacts
+    ).toBe(false);
+  });
+
+  test("a schema-only operator can still opt in explicitly", () => {
+    expect(
+      resolve({ defaults: { result: { latest: { column: { stats: false, fileIoFacts: true } } } } }).fileIoFacts
+    ).toBe(true);
+  });
+});

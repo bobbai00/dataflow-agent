@@ -141,6 +141,9 @@ export function paramsToRenderOptions(
 ): AssembleContextOptions {
   const d = params.operators.defaults;
   const col = d.result.latest.column;
+  // Same stats -> fileIoFacts coupling resolveOperatorParams applies, so the
+  // legacy/global render path (no per-operator overrides) behaves identically.
+  const fileIoFacts = col.fileIoFacts !== undefined ? col.fileIoFacts : col.stats;
   const interleaved = params.trajectory.events === "interleaved";
   return {
     compilationResult,
@@ -170,7 +173,7 @@ export function paramsToRenderOptions(
     maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
     tableStructureHint: col.structuralHints,
-    fileIoFacts: col.fileIoFacts,
+    fileIoFacts,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
     thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
     errorReflection: params.flow.errorReflection,
@@ -193,7 +196,7 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
   if (d.result.latest.tuple.maxChars > 0) return true;
-  if (d.result.latest.column.fileIoFacts) return true;
+  if (d.result.latest.column.fileIoFacts === true && !d.result.latest.column.stats) return true;
   if (d.result.latest.column.statsMetrics !== "all") return true;
   if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
