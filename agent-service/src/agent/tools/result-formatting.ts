@@ -279,8 +279,9 @@ export function formatOperatorResult(
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  const fileIoBlock = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
-  const fileIoLine = fileIoBlock ? ["Files read:", fileIoBlock].join("\n") : undefined;
+  // The worker's line already reads "files read: N [names]", so it is its own
+  // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
+  const fileIoLine = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;

@@ -28,14 +28,14 @@ const info = (columnStats: Record<string, string>): OperatorInfo =>
 describe("A7 __file_io__ — multi-file load provenance", () => {
   test("renders on its OWN rung, not inside the structural profile", () => {
     const out = formatFileIo(info({ __file_io__: "files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]" }));
-    expect(out).toBe("- files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]");
+    expect(out).toBe("Files read: 53 [ALABAMA.csv, ALASKA.csv, … (+51)]");
   });
 
   test("INDEPENDENT of structuralHints — a schema-only arm can carry it", () => {
     // The two best arms on this benchmark (LATEST 5k+code, LATEST 1k+code) are
     // schema-only. Coupling the IO fact to the stats rung locked them out.
     const i = info({ __file_io__: "files read: 3 [a.csv, b.csv, c.csv]" });
-    expect(formatFileIo(i)).toContain("files read: 3");
+    expect(formatFileIo(i)).toContain("Files read: 3");
     expect(formatTableHints(i)).toBeUndefined(); // no table hints published
   });
 

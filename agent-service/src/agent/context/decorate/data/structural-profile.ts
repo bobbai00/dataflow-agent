@@ -45,7 +45,8 @@ export function formatFileIo(opInfo: OperatorInfo): string | undefined {
   const v = opInfo.columnStats?.[FILE_IO_KEY];
   if (typeof v !== "string" || v.length === 0) return undefined;
   const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
-  return parts.length > 0 ? parts.map(p => `- ${p}`).join("\n") : undefined;
+  // Capitalised, self-heading, one line per fact — no wrapper needed.
+  return parts.length > 0 ? parts.map(p => `${p.charAt(0).toUpperCase()}${p.slice(1)}`).join("\n") : undefined;
 }
 
 export function formatTableHints(opInfo: OperatorInfo): string | undefined {
