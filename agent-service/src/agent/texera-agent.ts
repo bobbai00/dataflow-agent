@@ -465,7 +465,8 @@ export class TexeraAgent {
         compactionEnabled,
         this.settings.enableInspectTool === true,
         this.settings.enableRenderPrefs === true,
-        this.settings.enableCodeInSnapshot === true
+        this.settings.enableCodeInSnapshot === true,
+        this.settings.sourceProvenanceHint === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -823,6 +824,7 @@ export class TexeraAgent {
     enableInspectTool?: boolean;
     enableRenderPrefs?: boolean;
     enableCodeInSnapshot?: boolean;
+    sourceProvenanceHint?: boolean;
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
@@ -1011,6 +1013,11 @@ export class TexeraAgent {
       // below), the prompt context-format + example variant (rebuilt here), and
       // the includeCode render patch (read by the assembler per call, LATEST-only).
       this.settings.enableCodeInSnapshot = updates.enableCodeInSnapshot;
+      promptNeedsRebuild = true;
+    }
+    if (updates.sourceProvenanceHint !== undefined) {
+      // Provenance principle: one conditional bullet in the code-mode prompt.
+      this.settings.sourceProvenanceHint = updates.sourceProvenanceHint;
       promptNeedsRebuild = true;
     }
     if (updates.enableCompactTool !== undefined) {

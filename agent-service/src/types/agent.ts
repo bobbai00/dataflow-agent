@@ -328,6 +328,12 @@ export interface AgentSettings {
    */
   enableCodeInSnapshot: boolean;
   /**
+   * A4 arm: append the multi-file provenance principle to the code-mode system
+   * prompt (loaders reading multiple files must add a `__source_file` column).
+   * Off by default; when off the prompt is byte-identical to legacy.
+   */
+  sourceProvenanceHint: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -410,6 +416,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableInspectTool: false,
   enableRenderPrefs: false,
   enableCodeInSnapshot: true,
+  sourceProvenanceHint: false,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,
@@ -519,6 +526,8 @@ export interface AgentSettingsApi {
   enableRenderPrefs?: boolean;
   /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
   enableCodeInSnapshot?: boolean;
+  /** Append the multi-file provenance principle to the code-mode prompt (see AgentSettings.sourceProvenanceHint). */
+  sourceProvenanceHint?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
