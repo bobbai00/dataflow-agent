@@ -192,3 +192,35 @@ describe("applyRolePolicy — sourceStatsDensity", () => {
     expect(out.operators.overrides["src"]?.result?.latest?.column?.stats).toBe(false);
   });
 });
+
+describe("applyRolePolicy — hintsOnly isolation (A6)", () => {
+  test("emits ONLY structuralHints on sources; no rows, no stats, no interior trim", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig({ hintsOnly: true }));
+    const src = out.operators.overrides["src"];
+    expect(src?.result?.latest?.column?.structuralHints).toBe(true);
+    // every other dimension must be absent so the base preset governs it
+    expect(src?.result?.latest?.detail).toBeUndefined();
+    expect(src?.result?.latest?.tuple).toBeUndefined();
+    expect(src?.result?.latest?.column?.stats).toBeUndefined();
+  });
+
+  test("hintsOnly touches sources exclusively — interior/terminal get no override", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(latestBase(), dossier, parseRolePolicyConfig({ hintsOnly: true }));
+    expect(Object.keys(out.operators.overrides)).toEqual(["src"]);
+  });
+
+  test("hintsOnly ignores the rows/stats knobs even when they are set", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(
+      latestBase(),
+      dossier,
+      parseRolePolicyConfig({ hintsOnly: true, sourceSampleRows: 12, sourceStats: true, interiorSampleRows: 3 })
+    );
+    const src = out.operators.overrides["src"];
+    expect(src?.result?.latest?.tuple).toBeUndefined();
+    expect(src?.result?.latest?.column?.stats).toBeUndefined();
+    expect(Object.keys(out.operators.overrides)).toEqual(["src"]);
+  });
+});

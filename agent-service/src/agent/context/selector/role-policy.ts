@@ -52,6 +52,19 @@ export const RolePolicyConfigSchema = z.object({
   interiorStats: z.boolean().default(false),
   /** Render terminal/sink operators lean too (they hold the answer, usually 1x1). */
   leanTerminal: z.boolean().default(true),
+  /**
+   * ISOLATION MODE (A6). Emit ONLY `column.structuralHints` on sources and leave
+   * every other render dimension exactly as the control renders it — no row cap,
+   * no stats, no interior trim.
+   *
+   * Why this exists: A1 was described as a rows+stats policy, but it also flips
+   * `sourceStructuralHints`, and the `Output Table profile:` facts it unlocks
+   * (`duplicate rows: 359 of 764 (47%)`, `empty rows: 156 of 764`, unnamed
+   * headers) render in 62-64% of runs across EVERY A arm and in 0% of A0. That
+   * leg was never isolated, so any A1/A4 accuracy edge may belong to it rather
+   * than to the row cap or the stats block. This mode is the missing control.
+   */
+  hintsOnly: z.boolean().default(false),
 });
 
 export type RolePolicyConfig = z.infer<typeof RolePolicyConfigSchema>;
@@ -89,6 +102,14 @@ export function applyRolePolicy(
     // short 2-5 operator pipelines that is the common case, which made an
     // earlier role-keyed version a silent no-op. The raw-data boundary is a
     // structural property; classify it structurally.
+    if (config.hintsOnly) {
+      // Single-leg isolation: sources get the load-quality facts and nothing
+      // else; every other operator and dimension is left to the base preset.
+      if (feature.isSource) {
+        overrides[feature.operatorId] = { result: { latest: { column: { structuralHints: true } } } };
+      }
+      continue;
+    }
     if (feature.isSource) {
       overrides[feature.operatorId] = {
         result: {
