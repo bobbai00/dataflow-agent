@@ -348,12 +348,22 @@ function buildAllowedOperatorSchemas(
  * used only for the one configuration where the agent genuinely cannot see its
  * own code: LATEST with the snapshot flag off.
  */
+/** A4 arm (sourceProvenanceHint): multi-file loads must carry a `__source_file`
+ *  column. Grounded in the gold-solution trace dive (2026-07-28): per-file
+ *  identity is a load-time fact erased by concat — deriving it later from a
+ *  name-suffix regex was a 0%-pass failure mode on legal-hard-29 (n=26), while
+ *  file-derived grouping passed 88-100%. Rendered as one principle bullet,
+ *  directly after "Load all data before subsetting"; byte-identical when off. */
+const PROVENANCE_FRAGMENT =
+  "\n- **Multi-file loads must carry provenance**: when one loader reads MULTIPLE files (glob/listdir), add a `__source_file` column recording each row's file before concatenating (`df['__source_file'] = path`). Grouping identity often lives ONLY in the file name (one file per state/station/year) — a row's content cannot recover which file it came from after concat, and deriving that identity from a name-suffix regex instead of the file is a known failure mode. Downstream, group by `__source_file` (or a column derived from it) whenever the question asks per-<unit> and <unit> matches the file layout.";
+
 export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   compactionEnabled = false,
   inspectEnabled = false,
   renderPrefsEnabled = false,
-  codeInSnapshotEnabled = true
+  codeInSnapshotEnabled = true,
+  sourceProvenanceHint = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -379,6 +389,7 @@ export function buildCodeModeSystemPrompt(
         ? EXAMPLE_FRAGMENTS.latest
         : EXAMPLE_CODE_LATEST;
   return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", contextFormat)
+    .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
     .replace("{{RENDER_PREFS}}", renderPrefs)

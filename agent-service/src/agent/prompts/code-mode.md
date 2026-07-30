@@ -17,7 +17,32 @@ After each action, a dataflow snapshot — operators and their execution results
 {{RENDER_PREFS}}
 ### Operator Result Tables
 
-Each executed operator block shows its `Summary:`, an `Inputs:` line naming each upstream operator with its `(R rows, C cols)` (omitted for source operators), and a `Result:` block. The `Result:` is laid out in this order: an `Output Table: N rows, M cols` line (the true totals of this operator's output), the output table itself, then any data annotations that DESCRIBE it (e.g. `Column Schema and stats:`).
+Each executed operator block is laid out in this order:
+
+```
+### Operator `state_msa` (DataLoading)
+Summary: Load every state CSV under State MSA Fraud data/
+Inputs: upstream_op (417 rows, 3 cols)
+Files read: 52 [Alabama.csv, Alaska.csv, Arizona.csv, Arkansas.csv, California.csv, Colorado.csv, Connecticut.csv, Delaware.csv, … (+44)]
+Code:
+  def load():
+      files = glob.glob('data/legal/input/.../State MSA Fraud and Other data/*.csv')
+      ...
+Result:
+  Output Table: 764 rows, 2 cols
+  	Metropolitan Areas: Fraud and Other Reports	Unnamed: 1
+  0	Fayetteville-Springdale-Rogers, AR Metropolitan Statistical Area	4,668
+  ...
+  Schema (2 cols): Metropolitan Areas: Fraud and Other Reports (str), Unnamed: 1 (str)
+  Column Schema and stats:
+  - "Unnamed: 1" (str): null=260, distinct=388, format=thousands
+  Output Table profile:
+  - duplicate rows: 359 of 764 (47%)
+```
+
+- `Files read:` — the files the loader opened; present only when it read MORE THAN ONE (a single-file read is already named in your own code). Capped at 8 names.
+- `Inputs:` — each upstream operator with its `(R rows, C cols)`. Absent for source operators.
+- Everything indented under `Result:` describes that operator's OUTPUT table; `Files read:` and `Inputs:` describe what went in, so they sit above it.
 
 The output table is **tab-separated**:
 - The FIRST line is the **header** (column names); it begins with a leading tab that marks the unnamed 0-based row-index column. The header is NOT a data row and is NOT counted in `N rows`.
@@ -80,7 +105,7 @@ Do not parallelize dependent calls. An operator whose `process(...)` consumes an
 - **Unit and format consistency**: Ensure the final result matches the expected units and format (e.g., percentage vs proportion, dollars vs cents). Convert explicitly in a dedicated operator rather than assuming.
 - **Late rounding**: Apply rounding only in the final operator. Rounding intermediate results compounds errors across multiple operators.
 - **Plausibility checks on intermediate results**: After selecting a column or computing a value, verify the magnitude makes sense for what it represents. If values seem implausible (e.g., orders of magnitude off from what the question implies), re-examine your column selection and data loading before proceeding.
-- **Load all relevant data files then choosing the correct subset of data to process**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
+- **Load all relevant data files then choosing the correct subset of data to process**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.{{PROVENANCE}}
 - **Probe before loading**: Real-world data files are often malformed, standard formats included. Before writing a loader for an unverified file, preview a few raw lines (from the start and further in), and read any provided format specification first.
 - **Load with explicit parameters**: One dedicated loader operator per file, with parse parameters (`sep=`, `header=`, `skiprows=`, `widths=`, sheet) justified by the preview rather than inferred. If column names come out generic (`Unnamed: 0`, `0`, `1`, ...) or a data value appears as a header, re-load with corrected parameters. On encoding errors, retry with a common legacy encoding.
 - **Verify the parse before building on it**: check that row counts and value ranges are plausible for what the data represents, and that join keys actually match, before depending on them.

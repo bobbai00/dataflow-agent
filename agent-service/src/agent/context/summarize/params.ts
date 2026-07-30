@@ -67,10 +67,31 @@ export const ColumnParamsSchema = z.object({
   stats: z.boolean().default(false),
   /** Which stat metrics to keep; "all" ⇒ the worker string verbatim. */
   statsMetrics: z.union([z.literal("all"), z.array(z.enum(COLUMN_METRICS))]).default("all"),
+  /** Stats-block density. "full" (default) renders the worker's metrics verbatim
+   *  on every column. "anomaly" renders only what the visible sample does not
+   *  already prove: the block is dropped when every row is on screen, `null=0`
+   *  is suppressed, `distinct` collapses to `unique`/`constant`, and the
+   *  redundant `Schema (…)` echo is dropped. */
+  statsDensity: z.union([z.literal("full"), z.literal("anomaly")]).default("full"),
   /** `Format hints:` line — numbers wearing punctuation (currency/percent/…). */
   valueFormatHints: z.boolean().default(false),
   /** `Output Table profile:` exact load-quality facts (all-null rows/cols, duplicate rows, unnamed headers). */
   structuralHints: z.boolean().default(false),
+  /**
+   * A7: `Files read: N [names]` — the file inventory a multi-file loader actually
+   * matched. INDEPENDENT flag, ON by default.
+   *
+   * An agent that writes `glob.glob(...)` otherwise never learns what it matched:
+   * the rendered result shows only the concatenated table. Measured on KramaBench
+   * (full 104 x 3 reps, paired same-era controls): worth +5.0pt at 3.30x SE with
+   * hard tasks +7.3 when the render budget is tight, and free-to-cheaper on EVERY
+   * arm (-11% cost at 5k, -6% at 1k). It costs ~120 chars and only renders when
+   * >= 2 files were read, so default-on is the honest default.
+   *
+   * Not coupled to `stats`: which files an operator read is an IO fact, not a
+   * column statistic, and the two best configs measured carry no stats at all.
+   */
+  fileIoFacts: z.boolean().default(true),
   /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
   coercionAlerts: z.boolean().default(false),
   /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
@@ -86,6 +107,23 @@ export type ColumnParams = z.infer<typeof ColumnParamsSchema>;
 export const TupleParamsSchema = z.object({
   /** Cap the TSV sample at first ⌈n/2⌉ + last ⌊n/2⌋ rows. 0 ⇒ uncapped. */
   sampleRows: z.number().int().min(0).default(0),
+  /**
+   * PER-OPERATOR char budget for the rendered TSV body (first ⌈n/2⌉ + last ⌊n/2⌋
+   * rows that fit). 0 ⇒ no per-operator cap.
+   *
+   * Distinct from the agent-level `maxOperatorResultCharLimit`, which is a
+   * single number sent to the JVM inside the execute request (it bounds what the
+   * engine RETURNS, for every operator at once) and re-applied client-side as a
+   * fetch-time safety net. That knob cannot differ per operator, which made a
+   * "5k on sources, 1k on processing" policy inexpressible. This one is
+   * render-time and per-operator, so it composes with the override map and binds
+   * in BOTH context modes (`opExtras` is installed regardless of mode; in DELTA
+   * it caps each event's render of that operator rather than one snapshot block).
+   *
+   * Can only reduce below the engine-side budget — the render never has bytes the
+   * fetch did not return.
+   */
+  maxChars: z.number().int().min(0).default(0),
   /** Sample-based duplicate row / duplicate column detection (service-side). */
   duplicates: z.boolean().default(false),
   /** Sample-based candidate functional dependencies between columns. */
@@ -336,6 +374,7 @@ export function resolveOperatorParams(params: SummarizeParams, opId: string): Op
   if (!override) return params.operators.defaults;
   return deepMerge(params.operators.defaults, override);
 }
+
 
 /* ============================================================================
  *  Legacy mapping — the two presets as points in the space

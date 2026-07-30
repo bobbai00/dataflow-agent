@@ -25,6 +25,18 @@ import { RESERVED_STATS_KEYS } from "./reserved-keys";
 const MAX_STATS_COLUMNS = 50;
 
 /**
+ * Per-column line budget. The worker's display string is unbounded: a `top_N`
+ * histogram over long string values produces lines an order of magnitude past
+ * the norm (measured over 25,546 rendered column lines: mean 75, p99 168, MAX
+ * 802 — the worst being a `top_5` whose keys were full file paths). The cap
+ * bounds a shape that has no natural limit; it clips DECORATION (histogram
+ * buckets) before anything else, so `null` / `distinct` / `min` / `max` always
+ * survive. 0.50% of lines exceed it today, so this is tail insurance, not a
+ * token play.
+ */
+const MAX_STATS_LINE_CHARS = 200;
+
+/**
  * Standalone data rung (pre-emptive) — NOT on the ordinal data ladder; driven
  * by the independent `columnStats` flag so it composes on top of any
  * data_level. Re-renders the worker's per-column statistics as the
@@ -40,17 +52,29 @@ const MAX_STATS_COLUMNS = 50;
  */
 export function formatColumnStats(
   opInfo: OperatorInfo,
-  metrics: "all" | readonly string[] = "all"
+  metrics: "all" | readonly string[] = "all",
+  density: "full" | "anomaly" = "full"
 ): string | undefined {
   const stats = opInfo.columnStats;
   if (!stats) return undefined;
   const cols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   if (cols.length === 0) return undefined;
   const rows = opInfo.totalRowCount ?? opInfo.outputTuples ?? 0;
-  const shown = cols.slice(0, MAX_STATS_COLUMNS);
+  // Wide tables: keep BOTH ENDS of the column inventory, matching the TSV
+  // renderer (MAX_DISPLAYED_COLUMNS) and the Schema line (MAX_SCHEMA_COLUMNS),
+  // which both render first ⌈N/2⌉ + last ⌊N/2⌋. A head-only `slice(0, 50)` put
+  // this block out of phase with them: on a 60-column table the TSV and Schema
+  // showed cols 1-25 + 36-60 while stats described 1-50, so cols 51-60 were
+  // visible with no stats AND cols 26-35 carried stats for columns the agent
+  // could not see anywhere. Fires on 4.4% of tables (max width seen: 238).
+  const wide = cols.length > MAX_STATS_COLUMNS;
+  const left = wide ? Math.ceil(MAX_STATS_COLUMNS / 2) : cols.length;
+  const right = wide ? Math.floor(MAX_STATS_COLUMNS / 2) : 0;
+  const shown = wide ? [...cols.slice(0, left), ...cols.slice(-right)] : cols;
   const lines = shown.map(c => {
     const v = stats[c];
     let display = typeof v === "string" && v.length > 0 ? filterStatsLine(v, metrics) : undefined;
+    if (display && density === "anomaly") display = densifyStatsLine(display, rows);
     // duplicate_values = nonNull − distinct: the exact count of surplus value
     // occurrences in this (str) column. Pre-computed arithmetic over numbers
     // already on the line — rendered whenever it is non-zero (presence, not a
@@ -62,12 +86,106 @@ export function formatColumnStats(
         display = `${display}, duplicate_values=${dv.dup}`;
       }
     }
+    if (display) display = clampStatsLine(display);
     return display ? `- "${c}" ${display}` : `- "${c}"`;
   });
-  if (cols.length > MAX_STATS_COLUMNS) {
-    lines.push(`- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
+  if (wide) {
+    // Marker sits BETWEEN the two halves, so the rendered order matches the
+    // real column order (head … tail) instead of implying the tail is missing.
+    lines.splice(left, 0, `- … (${cols.length - MAX_STATS_COLUMNS} more columns omitted)`);
   }
   return ["Column Schema and stats:", ...lines].join("\n");
+}
+
+/**
+ * Bound one column line to MAX_STATS_LINE_CHARS, spending the cut on the least
+ * load-bearing content first:
+ *   1. `top_N={…}` histogram buckets — dropped from the tail (rarest first),
+ *      leaving `top_N={a=3, b=2, …+7 more}` so the shape is still legible;
+ *   2. if still over, the whole histogram segment goes;
+ *   3. only then a hard clip, which by construction can no longer eat the
+ *      `(type)` tag or the leading `null=`/`distinct=`/`min=`/`max=` metrics.
+ * Lines already inside budget are returned byte-identical.
+ */
+export function clampStatsLine(display: string, max = MAX_STATS_LINE_CHARS): string {
+  if (display.length <= max) return display;
+  const m = /^(\([^)]*\)):?\s*(.*)$/.exec(display.trim());
+  if (!m || !m[2]) return display.slice(0, max - 1) + "…";
+  const typeTag = m[1];
+  const segments = splitTopLevel(m[2]);
+  const isHist = (s: string) => /^(top_\d+|items_\w+)\s*=\s*[{[]/.test(s);
+  const rebuild = (segs: string[]) => `${typeTag}: ${segs.join(", ")}`;
+
+  // 1. shrink histogram buckets from the tail
+  let segs = segments.slice();
+  for (let i = 0; i < segs.length; i++) {
+    if (!isHist(segs[i]!)) continue;
+    const hm = /^(\w+)\s*=\s*[{[](.*)[}\]]$/.exec(segs[i]!);
+    if (!hm) continue;
+    const buckets = splitTopLevel(hm[2]!);
+    for (let keep = buckets.length - 1; keep >= 1; keep--) {
+      segs[i] = `${hm[1]}={${buckets.slice(0, keep).join(", ")}, …+${buckets.length - keep} more}`;
+      if (rebuild(segs).length <= max) return rebuild(segs);
+    }
+  }
+  // 2. drop histogram segments entirely
+  segs = segs.filter(s => !isHist(s));
+  if (rebuild(segs).length <= max) return rebuild(segs);
+  // 3. hard clip whatever remains
+  const out = rebuild(segs);
+  return out.slice(0, Math.max(typeTag.length, max - 1)) + "…";
+}
+
+/**
+ * ANOMALY density — drop the segments whose value is the *default healthy state*
+ * of a column, keeping only what would surprise a reader.
+ *
+ * Motivation (measured over 299 rendered operator blocks / 1,767 column entries
+ * on the Rule A arms): `null=0` occupies 32.1% of all column entries and
+ * `distinct == rows` another 5.9%. Both announce the ABSENCE of a problem, which
+ * inverts the signal — a reader must scan every line to discover that no line
+ * mattered. Rendering only anomalies makes the *presence* of `null=` mean
+ * "this column has holes", which is the fact worth spending bytes on.
+ *
+ * Rewrites rather than deletions where the fact still matters but the number
+ * does not: an all-distinct column becomes `unique`, a single-valued one
+ * `constant` — both shorter than the `distinct=N` they replace AND stated in the
+ * vocabulary the agent would use to reason about them.
+ *
+ * Never empties a line: the `(type)` tag always survives.
+ */
+export function densifyStatsLine(display: string, rows: number): string {
+  const m = /^(\([^)]*\)):?\s*(.*)$/.exec(display.trim());
+  if (!m || !m[2]) return display;
+  const typeTag = m[1];
+  const segments = splitTopLevel(m[2]);
+  const nullSeg = segments.find(s => /^null=\d+$/.test(s));
+  const nulls = nullSeg ? Number(nullSeg.split("=")[1]) : 0;
+  const nonNull = rows > 0 ? rows - nulls : 0;
+
+  const kept: string[] = [];
+  for (const seg of segments) {
+    const [key, rawVal] = [seg.split("=")[0]?.trim() ?? "", seg.split("=").slice(1).join("=").trim()];
+    if (key === "null") {
+      if (nulls > 0) kept.push(seg); // holes are the anomaly; completeness is not
+      continue;
+    }
+    if (key === "distinct") {
+      const d = Number(rawVal);
+      if (!Number.isFinite(d)) {
+        kept.push(seg);
+      } else if (d === 1) {
+        kept.push("constant");
+      } else if (nonNull > 0 && d >= nonNull) {
+        kept.push("unique");
+      } else {
+        kept.push(seg);
+      }
+      continue;
+    }
+    kept.push(seg);
+  }
+  return kept.length > 0 ? `${typeTag}: ${kept.join(", ")}` : typeTag;
 }
 
 /** Parse a (str) column's stats display and compute duplicate_values =

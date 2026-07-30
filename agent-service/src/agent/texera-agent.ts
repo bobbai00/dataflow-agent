@@ -37,6 +37,7 @@ import type { SummarizeParamsPatch } from "./context/summarize/params";
 import type { SelectorConfig } from "./context/selector/selector";
 import type { FrontierDecayConfig } from "./context/selector/frontier-decay";
 import type { ProbeRetirementConfig } from "./context/selector/probe-retirement";
+import type { RolePolicyConfig } from "./context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "./context/select/revision-folds";
 import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
@@ -464,7 +465,8 @@ export class TexeraAgent {
         compactionEnabled,
         this.settings.enableInspectTool === true,
         this.settings.enableRenderPrefs === true,
-        this.settings.enableCodeInSnapshot === true
+        this.settings.enableCodeInSnapshot === true,
+        this.settings.sourceProvenanceHint === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -817,10 +819,12 @@ export class TexeraAgent {
     frontierDecayConfig?: FrontierDecayConfig | null;
     foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
     probeRetirementConfig?: ProbeRetirementConfig | null;
+    rolePolicyConfig?: RolePolicyConfig | null;
     learnedConfig?: LearnedConfig | null;
     enableInspectTool?: boolean;
     enableRenderPrefs?: boolean;
     enableCodeInSnapshot?: boolean;
+    sourceProvenanceHint?: boolean;
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
@@ -981,6 +985,10 @@ export class TexeraAgent {
       // Pure render-time (LATEST): probe-retirement overlay. `null` clears it.
       this.settings.probeRetirementConfig = updates.probeRetirementConfig ?? undefined;
     }
+    if (updates.rolePolicyConfig !== undefined) {
+      // Pure render-time (LATEST): role-keyed render policy. `null` clears it.
+      this.settings.rolePolicyConfig = updates.rolePolicyConfig ?? undefined;
+    }
     if (updates.learnedConfig !== undefined) {
       // Pure render-time: switches the assembler onto the learned utility model.
       // `null` turns it off (back to selector/contextMode). Read per-call.
@@ -1005,6 +1013,11 @@ export class TexeraAgent {
       // below), the prompt context-format + example variant (rebuilt here), and
       // the includeCode render patch (read by the assembler per call, LATEST-only).
       this.settings.enableCodeInSnapshot = updates.enableCodeInSnapshot;
+      promptNeedsRebuild = true;
+    }
+    if (updates.sourceProvenanceHint !== undefined) {
+      // Provenance principle: one conditional bullet in the code-mode prompt.
+      this.settings.sourceProvenanceHint = updates.sourceProvenanceHint;
       promptNeedsRebuild = true;
     }
     if (updates.enableCompactTool !== undefined) {

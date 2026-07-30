@@ -21,6 +21,7 @@ import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
 import type { SelectorConfig } from "../agent/context/selector/selector";
 import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
 import type { ProbeRetirementConfig } from "../agent/context/selector/probe-retirement";
+import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
 import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
 import type { LearnedConfig } from "../agent/context/learned/score";
 import type { TunerConfig } from "../agent/context/tuner/tuner";
@@ -292,6 +293,8 @@ export interface AgentSettings {
   /** Rank-4 static rule (LATEST): retire superseded isolated probes to a
    *  compact extracted fact once their discovery is encoded downstream. */
   probeRetirementConfig?: ProbeRetirementConfig;
+  /** RULE A: role-keyed render policy (rich source / lean interior). */
+  rolePolicyConfig?: RolePolicyConfig;
   /**
    * When set, the LEARNED utility model (context/learned/model.json) scores each
    * operator and a budget knapsack assigns representation levels
@@ -324,6 +327,12 @@ export interface AgentSettings {
    * byte-identical to legacy. Experiment: does seeing its own code help the agent?
    */
   enableCodeInSnapshot: boolean;
+  /**
+   * A4 arm: append the multi-file provenance principle to the code-mode system
+   * prompt (loaders reading multiple files must add a `__source_file` column).
+   * Off by default; when off the prompt is byte-identical to legacy.
+   */
+  sourceProvenanceHint: boolean;
   /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
@@ -407,6 +416,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableInspectTool: false,
   enableRenderPrefs: false,
   enableCodeInSnapshot: true,
+  sourceProvenanceHint: false,
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,
@@ -506,6 +516,8 @@ export interface AgentSettingsApi {
   foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
   /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
   probeRetirementConfig?: ProbeRetirementConfig;
+  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
+  rolePolicyConfig?: RolePolicyConfig;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
@@ -514,6 +526,8 @@ export interface AgentSettingsApi {
   enableRenderPrefs?: boolean;
   /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
   enableCodeInSnapshot?: boolean;
+  /** Append the multi-file provenance principle to the code-mode prompt (see AgentSettings.sourceProvenanceHint). */
+  sourceProvenanceHint?: boolean;
   /** Expose the compactContext tool (see AgentSettings.enableCompactTool). */
   enableCompactTool?: boolean;
   /** Static fold param: raw events kept before the mark (see AgentSettings.compactKeepLastSteps). */
@@ -588,6 +602,8 @@ export interface UpdateAgentSettingsRequest {
   foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
   /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
   probeRetirementConfig?: ProbeRetirementConfig | null;
+  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
+  rolePolicyConfig?: RolePolicyConfig | null;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
   /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */

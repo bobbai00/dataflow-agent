@@ -52,6 +52,11 @@ import {
   type ProbeRetirementConfig,
 } from "./agent/context/selector/probe-retirement";
 import {
+  applyRolePolicy,
+  RolePolicyConfigSchema,
+  type RolePolicyConfig,
+} from "./agent/context/selector/role-policy";
+import {
   FoldResolvedRevisionsConfigSchema,
   type FoldResolvedRevisionsConfig,
 } from "./agent/context/select/revision-folds";
@@ -223,6 +228,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     if (
       settings.frontierDecayConfig ||
       settings.probeRetirementConfig ||
+      settings.rolePolicyConfig ||
       settings.enableRenderPrefs ||
       (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST)
     ) {
@@ -244,6 +250,8 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       if (settings.probeRetirementConfig) {
         params = applyProbeRetirement(params, dossier, settings.probeRetirementConfig);
       }
+      // RULE A: role-keyed render policy (rich source / lean interior).
+      if (settings.rolePolicyConfig) params = applyRolePolicy(params, dossier, settings.rolePolicyConfig);
       // Write-time render prefs: latest landed version's outputSummary /
       // showOutputStatistics -> per-op overrides (LATEST snapshot render).
       if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
@@ -363,10 +371,12 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     frontierDecayConfig: agentSettings.frontierDecayConfig,
     foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
     probeRetirementConfig: agentSettings.probeRetirementConfig,
+    rolePolicyConfig: agentSettings.rolePolicyConfig,
     learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
     enableRenderPrefs: agentSettings.enableRenderPrefs,
     enableCodeInSnapshot: agentSettings.enableCodeInSnapshot,
+    sourceProvenanceHint: agentSettings.sourceProvenanceHint,
     enableCompactTool: agentSettings.enableCompactTool,
     compactKeepLastSteps: agentSettings.compactKeepLastSteps,
     staticCompaction: agentSettings.staticCompaction,
@@ -454,6 +464,7 @@ const parseFoldResolvedRevisionsConfigInput = makeConfigParser<FoldResolvedRevis
   "foldResolvedRevisionsConfig",
   FoldResolvedRevisionsConfigSchema
 );
+const parseRolePolicyConfigInput = makeConfigParser<RolePolicyConfig>("rolePolicyConfig", RolePolicyConfigSchema);
 const parseProbeRetirementConfigInput = makeConfigParser<ProbeRetirementConfig>(
   "probeRetirementConfig",
   ProbeRetirementConfigSchema
@@ -504,6 +515,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       errorMessage.startsWith("Invalid frontierDecayConfig") ||
       errorMessage.startsWith("Invalid foldResolvedRevisionsConfig") ||
       errorMessage.startsWith("Invalid probeRetirementConfig") ||
+      errorMessage.startsWith("Invalid rolePolicyConfig") ||
       errorMessage.startsWith("Invalid learnedConfig") ||
       errorMessage.startsWith("Invalid tunerConfig")
     ) {
@@ -597,10 +609,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             (settings as any).foldResolvedRevisionsConfig
           ),
           probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+          rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
           learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
           enableInspectTool: (settings as any).enableInspectTool,
           enableRenderPrefs: (settings as any).enableRenderPrefs,
           enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
+          sourceProvenanceHint: (settings as any).sourceProvenanceHint,
           enableCompactTool: (settings as any).enableCompactTool,
           compactKeepLastSteps: (settings as any).compactKeepLastSteps,
           staticCompaction: (settings as any).staticCompaction,
@@ -658,10 +672,12 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             frontierDecayConfig: t.Optional(t.Any()),
             foldResolvedRevisionsConfig: t.Optional(t.Any()),
             probeRetirementConfig: t.Optional(t.Any()),
+            rolePolicyConfig: t.Optional(t.Any()),
             learnedConfig: t.Optional(t.Any()),
             enableInspectTool: t.Optional(t.Boolean()),
             enableRenderPrefs: t.Optional(t.Boolean()),
             enableCodeInSnapshot: t.Optional(t.Boolean()),
+            sourceProvenanceHint: t.Optional(t.Boolean()),
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
@@ -902,6 +918,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       frontierDecayConfig: agentSettings.frontierDecayConfig,
       foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
       probeRetirementConfig: agentSettings.probeRetirementConfig,
+      rolePolicyConfig: agentSettings.rolePolicyConfig,
     };
   })
 
@@ -963,9 +980,11 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           (settings as any).foldResolvedRevisionsConfig
         ),
         probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+        rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
         learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
         enableRenderPrefs: (settings as any).enableRenderPrefs,
+        sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
@@ -1007,6 +1026,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         frontierDecayConfig: agentSettings.frontierDecayConfig,
         foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
         probeRetirementConfig: agentSettings.probeRetirementConfig,
+        rolePolicyConfig: agentSettings.rolePolicyConfig,
+      sourceProvenanceHint: agentSettings.sourceProvenanceHint,
       };
     },
     {
@@ -1052,6 +1073,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         foldResolvedRevisionsConfig: t.Optional(t.Any()),
         // Rank-4 probe-retirement overlay; zod-validated in-handler.
         probeRetirementConfig: t.Optional(t.Any()),
+        rolePolicyConfig: t.Optional(t.Any()),
         // Learned-selector config; validated in-handler. null turns it off.
         learnedConfig: t.Optional(t.Any()),
         enableInspectTool: t.Optional(t.Boolean()),

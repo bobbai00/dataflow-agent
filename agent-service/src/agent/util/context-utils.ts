@@ -29,6 +29,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
+import { formatFileIo } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
@@ -167,6 +168,13 @@ export interface AssembleContextOptions {
    *  published by the worker. Standalone flag — independent of `dataLevel`, so
    *  it overlays on any data level. Off by default. */
   columnStats?: boolean;
+  /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
+  maxResultChars?: number;
+  /** A7: render the `Files read:` fact (independent of tableStructureHint). */
+  fileIoFacts?: boolean;
+  /** Stats-block density forwarded to the result formatter ("full" default /
+   *  "anomaly" = only facts the visible sample does not already prove). */
+  statsDensity?: "full" | "anomaly";
   /** When true, a load-stage operator (`DataLoading`) that errored gets a
    *  compact `Loader hint:` remediation line appended to its Result, keyed on
    *  the exception class parsed from the error string. Off by default. */
@@ -2126,6 +2134,10 @@ function legacyFormatOptions(options: AssembleContextOptions): FormatOperatorRes
     coercionTelemetry: options.coercionTelemetry,
     maxResultRows: options.maxResultRows,
     tableStructureHint: options.tableStructureHint,
+    // A7: the legacy (no per-operator extras) path serves DELTA arms and any
+    // arm without overrides. Omitting this dropped the `Files read:` fact for
+    // every such arm even when stats implied it.
+    fileIoFacts: options.fileIoFacts,
   };
 }
 
@@ -2145,10 +2157,13 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     schemaTypes: ex.column.schemaTypes,
     columnStats: ex.column.stats,
     statsMetrics: ex.column.statsMetrics,
+    statsDensity: ex.column.statsDensity,
     valueFormatFlags: ex.column.valueFormatHints,
     coercionTelemetry: ex.column.coercionAlerts,
     tableStructureHint: ex.column.structuralHints,
+    fileIoFacts: ex.column.fileIoFacts,
     maxResultRows: sampleRows,
+    maxResultChars: ex.tuple.maxChars,
     sampleDuplicates: ex.tuple.duplicates,
     sampleFdHints: ex.tuple.fdHints,
   };
@@ -2293,6 +2308,15 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
+  // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it IS the
+  // input, since loaders have no `Inputs:` line. Emitted here so both consumed
+  // facts sit TOGETHER, above `Code:` and above `Result:`; everything indented
+  // under `Result:` describes the output.
+  if (options.fileIoFacts && info) {
+    const fio = formatFileIo(info);
+    if (fio) lines.push(fio);
+  }
+
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
   if (ex?.includeCode && !info?.error) {
@@ -2389,15 +2413,18 @@ function serializeOperatorFull(
         const t = formatOperatorResult(op.operatorID, rv.version.info, workflowState, {
           detail: rv.render.detail === "shape" ? "shape" : undefined,
           maxResultRows: rv.render.tuple.sampleRows,
+          maxResultChars: rv.render.tuple.maxChars,
           sampleDuplicates: rv.render.tuple.duplicates,
           sampleFdHints: rv.render.tuple.fdHints,
           schemaInResult: rv.render.column.schema,
           schemaTypes: rv.render.column.schemaTypes,
           columnStats: rv.render.column.stats,
           statsMetrics: rv.render.column.statsMetrics,
+          statsDensity: rv.render.column.statsDensity,
           valueFormatFlags: rv.render.column.valueFormatHints,
           coercionTelemetry: rv.render.column.coercionAlerts,
           tableStructureHint: rv.render.column.structuralHints,
+          fileIoFacts: rv.render.column.fileIoFacts,
           inputsInResult: false,
         });
         for (const l of t.split("\n")) lines.push("  " + l);

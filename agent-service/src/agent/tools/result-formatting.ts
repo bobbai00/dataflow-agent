@@ -26,7 +26,7 @@ import { getVisibleResultHeaders } from "./tools-utility";
 import { RESERVED_STATS_KEYS, COERCION_TELEMETRY_KEY } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
 import { formatColumnStats } from "../context/decorate/data/column-stats";
-import { formatTableHints } from "../context/decorate/data/structural-profile";
+import { formatTableHints, formatFileIo } from "../context/decorate/data/structural-profile";
 import { formatValueFormatHints } from "../context/decorate/data/value-format";
 import { formatReservedDiag } from "../context/decorate/data/diagnostics";
 import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
@@ -34,7 +34,7 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatReservedDiag };
+export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
 
 export interface FormatOperatorResultOptions {
   /** When true, prepend a compact `Schema:` line listing every output column
@@ -73,6 +73,9 @@ export interface FormatOperatorResultOptions {
    *  the reserved `__table_hints__` entry on columnStats; this side only renders.
    *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
   tableStructureHint?: boolean;
+  /** A7: render `Files read: N [names]` for multi-file loaders. Independent of
+   *  tableStructureHint so schema-only arms can carry it too. */
+  fileIoFacts?: boolean;
   /** Resolve an input's COLUMN count from its upstream operator's output. The
    *  engine's input port metrics carry only the row count (tuple count), so the
    *  caller (which has the snapshot) supplies this to fill in `M cols` on the
@@ -90,9 +93,21 @@ export interface FormatOperatorResultOptions {
    *     result, only the first error line renders (no traceback/code echo).
    *  ("omit" is handled by the operator serializer — no Result block at all.) */
   detail?: "shape" | "sample";
+  /** Per-operator char budget for the rendered TSV body (summarize
+   *  `tuple.maxChars`); 0/undefined ⇒ uncapped. Distinct from the agent-level
+   *  `maxOperatorResultCharLimit`, which is one engine-side number for the whole
+   *  execution and cannot vary per operator. */
+  maxResultChars?: number;
   /** Metric families to keep in the `Column Schema and stats:` block
    *  ("all" / undefined ⇒ worker strings verbatim). */
   statsMetrics?: "all" | readonly string[];
+  /** How densely the stats block renders (default "full" = legacy verbatim):
+   *   - "full":    every metric the worker published, on every column.
+   *   - "anomaly": only facts the visible sample does not already prove —
+   *                suppresses the block outright when every row is on screen,
+   *                drops `null=0`, rewrites `distinct` to `unique`/`constant`,
+   *                and drops the `Schema (…)` echo the block subsumes. */
+  statsDensity?: "full" | "anomaly";
   /** Include `(type)` tags on the Schema line (default true). */
   schemaTypes?: boolean;
   /** Sample-based duplicate rows / identical-column detection line. */
@@ -184,7 +199,12 @@ export function formatOperatorResult(
         : sampleRows.slice(0, head);
   }
   // detail:"shape" (summarize) drops the TSV body — counts + annotations only.
-  const dataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
+  const rawDataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
+  // Per-operator render budget (summarize `tuple.maxChars`). Keeps the header
+  // plus as many head/tail rows as fit, mirroring the fetch-time safety net in
+  // workflow-execution-tools so both truncations produce the same shape.
+  const dataString = clampTableChars(rawDataString, options.maxResultChars ?? 0);
+  const dataStringTruncatedByBudget = dataString.length < rawDataString.length;
 
   // A complete table with fewer than five rows is already its own exact
   // summary. Repeating mean/min/max/top-k stats adds tokens without revealing
@@ -195,16 +215,37 @@ export function formatOperatorResult(
   const allRowsHeld = totalRows >= 0 && serializableArray.length === totalRows;
   const rendererTruncatedRows = sampleRows.length < serializableArray.length;
   const cellsTruncated = serializableArray.some(containsCellTruncation);
-  const completeSmallTableVisible =
+  // The five structural conditions below already PROVE every value is on screen
+  // (nothing truncated at the backend, the renderer, the column axis, or the
+  // cell level, and the service holds exactly totalRows rows). Under "anomaly"
+  // density that proof is the whole test. The legacy `totalRows < 5` bound is
+  // kept for "full" so the default render stays byte-identical — it was measured
+  // to leave stats on 22.4% of blocks whose sample already showed every row
+  // (e.g. a 7-row table rendering `null=0, distinct=7` beneath all 7 values).
+  const provablyComplete =
     opInfo.resultMode === "table" &&
     !isViz &&
     options.detail !== "shape" &&
-    totalRows < 5 &&
     allRowsHeld &&
     opInfo.truncated === false &&
     !rendererTruncatedRows &&
     !columnsTruncated &&
-    !cellsTruncated;
+    !cellsTruncated &&
+    // A per-operator char budget that clipped rows also breaks the proof: the
+    // agent can no longer read every value off the sample, so the stats block
+    // becomes load-bearing again.
+    !dataStringTruncatedByBudget;
+  // Suppress the stats block whenever completeness is PROVEN, at any table size.
+  // The five conditions above establish that every cell of every row is on
+  // screen, so `null=`/`distinct=`/`min=`/`max=` are arithmetic over visible
+  // data — the block cannot carry a fact the sample does not already show. The
+  // previous `totalRows < 5` bound made this depend on size rather than proof
+  // and left the block on 22.4% of blocks whose sample was already complete
+  // (e.g. a 7-row table printing `null=0, distinct=7` beneath all seven values).
+  // This is the one lossless trim: A2 measured that trimming stats on
+  // INCOMPLETE tables costs exploration steps, but here there is nothing to
+  // explore.
+  const completeSmallTableVisible = provablyComplete;
 
   const metadataLines = [
     formatInputOutputMetadata(
@@ -221,14 +262,30 @@ export function formatOperatorResult(
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const schemaLine = options.schemaInResult ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
   const colStatsBlock =
     options.columnStats && !completeSmallTableVisible
-      ? formatColumnStats(opInfo, options.statsMetrics ?? "all")
+      ? formatColumnStats(opInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
+      : undefined;
+  // `Schema (N cols): col (type), …` and the stats block both carry every
+  // column's name and type; when both render, the Schema line is a pure echo
+  // (measured: 91.6% of operator blocks carried one, 24,259 chars across the
+  // Rule A arms — the single largest waste class). Under "anomaly" density the
+  // stats block subsumes it.
+  const schemaEchoesStats = options.statsDensity === "anomaly" && colStatsBlock !== undefined;
+  const schemaLine =
+    options.schemaInResult && !schemaEchoesStats
+      ? formatSchemaLine(opInfo, options.schemaTypes !== false)
       : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
+  // The worker's line already reads "files read: N [names]", so it is its own
+  // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
+  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so the
+  // caller renders it OUTSIDE the Result block (parallel to it, next to `Inputs:`).
+  // It is deliberately not part of the joined body below.
+  const fileIoLine = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
+  void fileIoLine;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
@@ -363,4 +420,39 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   }
 
   return [headerLine, ...formattedRows].join("\n");
+}
+
+/**
+ * Clamp a rendered TSV table to a char budget, keeping the header plus as many
+ * head + tail data rows as fit. Mirrors the fetch-time safety net in
+ * workflow-execution-tools so a per-operator budget and the engine-side budget
+ * produce the same shape. Returns the input unchanged when it already fits, when
+ * the budget is 0/absent, or when the table has no data rows to drop.
+ */
+export function clampTableChars(table: string, budget: number): string {
+  if (budget <= 0 || table.length <= budget) return table;
+  const lines = table.split("\n");
+  const header = lines[0] ?? "";
+  const rows = lines.slice(1);
+  if (rows.length === 0) return table;
+  const half = Math.floor((budget - (header.length + 1)) / 2);
+  if (half <= 0) return header;
+
+  const front: string[] = [];
+  let frontSize = 0;
+  for (const r of rows) {
+    const len = r.length + 1;
+    if (frontSize + len > half && front.length > 0) break;
+    front.push(r);
+    frontSize += len;
+  }
+  const back: string[] = [];
+  let backSize = 0;
+  for (let i = rows.length - 1; i >= front.length; i--) {
+    const len = rows[i]!.length + 1;
+    if (backSize + len > half && back.length > 0) break;
+    back.unshift(rows[i]!);
+    backSize += len;
+  }
+  return [header, ...front, ...back].join("\n");
 }

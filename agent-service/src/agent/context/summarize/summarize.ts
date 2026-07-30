@@ -160,14 +160,17 @@ export function paramsToRenderOptions(
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     columnStats: col.stats,
+    statsDensity: col.statsDensity,
     loaderHint: params.flow.loaderHints,
     valueFormatFlags: col.valueFormatHints,
     lineageErrorContext: params.flow.errorContext,
     graphAudit: params.flow.graphAudit,
     coercionTelemetry: col.coercionAlerts,
     maxResultRows: d.result.latest.tuple.sampleRows,
+    maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
     tableStructureHint: col.structuralHints,
+    fileIoFacts: col.fileIoFacts,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
     thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
     errorReflection: params.flow.errorReflection,
@@ -189,7 +192,9 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.property.includeCode || d.property.codeHistory > 0) return true;
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
+  if (d.result.latest.tuple.maxChars > 0) return true;
   if (d.result.latest.column.statsMetrics !== "all") return true;
+  if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
   if (d.result.history.lastK > 0) return true;
   return false;

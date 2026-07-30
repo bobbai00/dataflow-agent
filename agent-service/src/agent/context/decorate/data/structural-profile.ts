@@ -18,7 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../../../types/execution";
-import { TABLE_HINTS_KEY } from "./reserved-keys";
+import { TABLE_HINTS_KEY, FILE_IO_KEY } from "./reserved-keys";
 
 /**
  * Data-L2 (#25/#26/#27, pre-emptive) — THE accuracy win of the campaign.
@@ -30,10 +30,31 @@ import { TABLE_HINTS_KEY } from "./reserved-keys";
  * one indented line each under a header. Render-only. Returns undefined when no
  * hint was published.
  */
-export function formatTableHints(opInfo: OperatorInfo): string | undefined {
-  const v = opInfo.columnStats?.[TABLE_HINTS_KEY];
-  if (!v || typeof v !== "string" || v.length === 0) return undefined;
+/**
+ * A7 — multi-file load provenance, on its OWN rung.
+ *
+ * Deliberately independent of `structuralHints`: "which files did this operator
+ * read" is a fact about IO, not about column statistics, and coupling the two
+ * (an artifact of reusing formatTableHints) locked the fact out of every
+ * schema-only arm — including the two best-performing configs on this benchmark
+ * (LATEST 5k+code and LATEST 1k+code, neither of which carries stats/D2). The
+ * fact costs ~100 chars and is useful wherever a glob is used, so it gets its
+ * own gate.
+ */
+export function formatFileIo(opInfo: OperatorInfo): string | undefined {
+  const v = opInfo.columnStats?.[FILE_IO_KEY];
+  if (typeof v !== "string" || v.length === 0) return undefined;
   const parts = v.split(" || ").map(p => p.trim()).filter(Boolean);
+  // Capitalised, self-heading, one line per fact — no wrapper needed.
+  return parts.length > 0 ? parts.map(p => `${p.charAt(0).toUpperCase()}${p.slice(1)}`).join("\n") : undefined;
+}
+
+export function formatTableHints(opInfo: OperatorInfo): string | undefined {
+  const parts: string[] = [];
+  const v = opInfo.columnStats?.[TABLE_HINTS_KEY];
+  if (typeof v === "string" && v.length > 0) {
+    parts.push(...v.split(" || ").map(p => p.trim()).filter(Boolean));
+  }
   if (parts.length === 0) return undefined;
   return ["Output Table profile:", ...parts.map(p => `- ${p}`)].join("\n");
 }
