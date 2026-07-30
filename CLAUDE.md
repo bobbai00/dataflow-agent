@@ -47,6 +47,11 @@ Run from the **repo root**. sbt's project lock means only one of these can be ru
 ### All 8 in one sbt session (concurrent via `bgRun`)
 
 ```bash
+# GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true is REQUIRED: gui.conf ships
+# `copilot-enabled = false`, and without the override every agent endpoint
+# returns 403 Forbidden (llm.conf documents this). Omitting it produces runs that
+# fail in ~0.5s with `Error: Forbidden` — see HANDOFF.md for the same recipe.
+GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true \
 sbt --no-colors -Dsbt.supershell=false --batch \
   'compile' \
   'ConfigService/bgRun' \
