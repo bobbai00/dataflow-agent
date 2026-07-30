@@ -17,7 +17,14 @@ After each action, a dataflow snapshot — operators and their execution results
 {{RENDER_PREFS}}
 ### Operator Result Tables
 
-Each executed operator block shows its `Summary:`, an `Inputs:` line naming each upstream operator with its `(R rows, C cols)` (omitted for source operators), and a `Result:` block. The `Result:` is laid out in this order: an `Output Table: N rows, M cols` line (the true totals of this operator's output), the output table itself, then any data annotations that DESCRIBE it (e.g. `Column Schema and stats:`).
+Each executed operator block is laid out in causal order — what it CONSUMED, then what it PRODUCED:
+
+- `Summary:` and `Code:` — what you asked it to do.
+- `Files read: N [names]` — the files this operator's loader actually opened, listed when it read MORE THAN ONE. This is what a `glob.glob(...)` really matched, which you cannot otherwise see: the table below is already concatenated, so nothing in it tells you which file a row came from, or whether the glob matched the files you expected. Absent for single-file reads (your own code already names that file).
+- `Inputs:` — each upstream operator with its `(R rows, C cols)`. Absent for source operators, which consume files rather than upstream tables.
+- `Result:` — what it produced: an `Output Table: N rows, M cols` line (the true totals), the output table itself, then the annotations that DESCRIBE that table (`Schema`, `Column Schema and stats:`, `Output Table profile:`).
+
+So facts about inputs sit ABOVE `Result:`; everything inside `Result:` describes the output.
 
 The output table is **tab-separated**:
 - The FIRST line is the **header** (column names); it begins with a leading tab that marks the unnamed 0-based row-index column. The header is NOT a data row and is NOT counted in `N rows`.

@@ -29,6 +29,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
+import { formatFileIo } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import { formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
@@ -2338,6 +2339,14 @@ function serializeOperatorFull(
       | WorkflowFatalError
       | undefined;
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
+  }
+
+  // A7: `Files read:` is a CONSUMED fact (for a loader it IS the input), so it
+  // renders PARALLEL to `Result:` alongside `Inputs:`, not inside the produced
+  // section. Order is causal: read -> in -> out.
+  if (options.fileIoFacts && info) {
+    const fio = formatFileIo(info);
+    if (fio) lines.push(fio);
   }
 
   if (execText) {

@@ -281,7 +281,11 @@ export function formatOperatorResult(
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
   // The worker's line already reads "files read: N [names]", so it is its own
   // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
+  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so the
+  // caller renders it OUTSIDE the Result block (parallel to it, next to `Inputs:`).
+  // It is deliberately not part of the joined body below.
   const fileIoLine = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
+  void fileIoLine;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
@@ -298,7 +302,6 @@ export function formatOperatorResult(
     colStatsBlock,
     formatHints,
     coercionLine,
-    fileIoLine,
     tableHintsLine,
     dupLine,
     fdLine,

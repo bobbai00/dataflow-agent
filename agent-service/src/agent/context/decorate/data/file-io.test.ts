@@ -96,3 +96,31 @@ describe("fileIoFacts is an independent flag, ON by default", () => {
     expect(resolve({ defaults: { result: { latest: { column: { fileIoFacts: false } } } } }).fileIoFacts).toBe(false);
   });
 });
+
+describe("Files read: renders PARALLEL to Result, not inside it", () => {
+  test("layout: the fact sits above `Result:` and is not indented into it", () => {
+    const { summarize } = require("../../summarize/summarize");
+    const { latestPreset, parseSummarizeParams } = require("../../summarize/params");
+    const { buildScenario, makeInfo, makeWorkflow } = require("../../summarize/fixtures");
+
+    const { steps, storage, workflowState } = buildScenario([{ id: "a1", stepId: 1, role: "agent" }]);
+    storage.createSnapshot("a1", makeWorkflow([{ id: "load", type: "DataLoading" }]));
+    storage.setOperatorResult("a1", "load", makeInfo(50, {
+      sampleRows: Array.from({ length: 6 }, (_, i) => ({ v: i })),
+      truncated: true,
+      columnStats: { v: "(numeric): null=0", __file_io__: "files read: 3 [a.csv, b.csv, c.csv]" },
+    }));
+    const text = summarize(
+      { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null },
+      parseSummarizeParams(latestPreset())
+    ).text;
+
+    const lines = text.split("\n");
+    const fi = lines.findIndex((l: string) => l.includes("Files read:"));
+    const ri = lines.findIndex((l: string) => l.trim() === "Result:");
+    expect(fi).toBeGreaterThan(-1);
+    expect(ri).toBeGreaterThan(-1);
+    expect(fi).toBeLessThan(ri);                      // consumed before produced
+    expect(lines[fi].startsWith(" ")).toBe(false);      // parallel, not nested
+  });
+});
