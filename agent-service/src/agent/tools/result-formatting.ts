@@ -488,6 +488,53 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
 }
 
 /**
+ * Clamp a rendered `Code:` block to a char budget, keeping whole lines from the
+ * HEAD and the TAIL and eliding the middle with a line-count marker.
+ *
+ * Head AND tail, not a prefix: the head carries the signature, imports and loads;
+ * the tail carries the return value, which is what a downstream operator's schema
+ * depends on. A prefix-only truncation would hide exactly the part that says what
+ * this operator produces.
+ *
+ * Sized for the measured distribution — per-operator code blocks run p50 286 B,
+ * p90 2,014 B, p99 6,081 B, max 16,400 B — so at a realistic budget most blocks
+ * return unchanged and only the long tail is touched.
+ */
+export function clampCodeChars(code: string, budget: number): string {
+  if (budget <= 0 || code.length <= budget) return code;
+  const lines = code.split("\n");
+  if (lines.length <= 2) return code.slice(0, budget);
+
+  const front: string[] = [];
+  const back: string[] = [];
+  // Reserve room for the marker so the result actually lands under budget.
+  const marker = (n: number) => `    # ... ${n} line${n === 1 ? "" : "s"} elided ...`;
+  let used = marker(lines.length).length + 1;
+  let i = 0;
+  let j = lines.length - 1;
+  // Alternate head/tail so both ends survive even at a tight budget; bias to the
+  // head on ties since it establishes what the function is.
+  while (i <= j) {
+    const takeFront = front.length <= back.length;
+    const idx = takeFront ? i : j;
+    const len = (lines[idx] ?? "").length + 1;
+    if (used + len > budget) break;
+    used += len;
+    if (takeFront) {
+      front.push(lines[idx]!);
+      i++;
+    } else {
+      back.unshift(lines[idx]!);
+      j--;
+    }
+  }
+  const elided = j - i + 1;
+  if (elided <= 0) return code;
+  if (front.length === 0 && back.length === 0) return code.slice(0, budget);
+  return [...front, marker(elided), ...back].join("\n");
+}
+
+/**
  * Clamp a rendered TSV table to a char budget, keeping the header plus as many
  * head + tail data rows as fit. Mirrors the fetch-time safety net in
  * workflow-execution-tools so a per-operator budget and the engine-side budget

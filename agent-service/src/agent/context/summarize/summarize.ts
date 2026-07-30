@@ -76,6 +76,8 @@ export interface OperatorRenderExtras {
   column: ColumnParams;
   includeProperties: boolean;
   includeCode: boolean;
+  /** Char budget for the `Code:` block; 0 ⇒ unlimited. */
+  codeMaxChars: number;
   /** Prior code versions to render, newest-first (current version excluded). */
   codeHistory: CodeVersion[];
   /** Prior result versions to render, newest-first (latest excluded). */
@@ -245,6 +247,7 @@ function resolveExtras(
     column: op.result.latest.column,
     includeProperties: op.property.includeProperties,
     includeCode: op.property.includeCode,
+    codeMaxChars: op.property.codeMaxChars,
     codeHistory,
     resultHistory,
     retirementFact: op.result.latest.retirementFact,

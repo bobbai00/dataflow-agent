@@ -164,6 +164,26 @@ export const PropertyParamsSchema = z.object({
    *  index each was submitted at. 0 ⇒ none. Ignored when the trajectory is
    *  interleaved (events already carry submissions). */
   codeHistory: z.number().int().min(0).default(0),
+  /**
+   * Character budget for the `Code:` block. 0 ⇒ unlimited (the legacy render).
+   *
+   * The counterpart to `tuple.maxChars` for tables. It exists because code was the
+   * one large render component under no budget at all: byte accounting over ~100
+   * traces/arm puts `Code:` at 27-39% of the rendered dataflow — the LARGEST single
+   * component at a 1k row budget — while `max_operator_result_char_limit` clamps
+   * table rows only.
+   *
+   * A CAP rather than a drop, because the size distribution is extremely
+   * long-tailed: per-operator blocks run p50 286 B, p90 2,014 B, p99 6,081 B, max
+   * 16,400 B. An 800 B cap removes ~49% of all code bytes while leaving 76.5% of
+   * blocks untouched. Dropping code by operator ROLE was tried first and barely
+   * binds — on these 2-5 operator pipelines `frontier` + `near-frontier` already
+   * covers nearly every operator, and a role-keyed drop left 4 of 5 blocks intact.
+   *
+   * Clamping keeps the HEAD and the TAIL and elides the middle: the head carries the
+   * signature and the loads, the tail carries the return value.
+   */
+  codeMaxChars: z.number().int().min(0).default(0),
 });
 export type PropertyParams = z.infer<typeof PropertyParamsSchema>;
 

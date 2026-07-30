@@ -32,6 +32,7 @@ import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
+  clampCodeChars,
   estimateTableChars,
   formatApproxChars,
   formatOperatorResult,
@@ -3363,7 +3364,7 @@ function serializeOperatorFull(
     const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     if (code) {
       lines.push("Code:");
-      for (const l of code.split("\n")) lines.push("  " + l);
+      for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
     }
   }
 

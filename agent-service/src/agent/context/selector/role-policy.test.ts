@@ -19,7 +19,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentMode, ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
-import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
+import { applySummarizeParamsPatch, mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
 import { buildScenario, makeInfo, makeWorkflow } from "../summarize/fixtures";
 import { extractFeatures } from "./features";
 import { applyRolePolicy, parseRolePolicyConfig } from "./role-policy";
@@ -281,5 +281,97 @@ describe("applyRolePolicy — char-budget mode binds on DELTA", () => {
     );
     expect(Object.keys(charLeg.operators.overrides).length).toBeGreaterThan(0);
     expect(charLeg.operators.overrides["src"]?.result?.latest?.tuple?.maxChars).toBe(5000);
+  });
+});
+
+/** `latestBase()` leaves `property.includeCode` at its `false` default; the real
+ *  code-on path is server.ts setting `defaults.property.includeCode = true` when
+ *  `enableCodeInSnapshot` is set. The code leg only ever SUBTRACTS code (it must
+ *  never force code on over a code-off arm), so its tests need that base. */
+function codeOnBase() {
+  return applySummarizeParamsPatch(latestBase(), {
+    operators: { defaults: { property: { includeCode: true } } },
+  });
+}
+
+describe("role policy — CODE budget leg (P-series)", () => {
+  /** `Code:` blocks are 27-39% of the rendered dataflow and no other knob touches
+   *  them; 73.4% of those bytes sit on operators the agent has already settled. */
+  test("settled operators lose their Code: block, the working set keeps it", () => {
+    const dossier = chainDossier();
+    const out = applyRolePolicy(
+      codeOnBase(),
+      dossier,
+      parseRolePolicyConfig({ codeBudget: true, codeKeepSources: false })
+    );
+    const feats = [...extractFeatures(dossier).operators.values()];
+    const roles = new Map(feats.map(f => [f.operatorId, f.role]));
+
+    // The fixture must actually contain both sides, or this test proves nothing.
+    expect([...roles.values()]).toContain("interior");
+    expect([...roles.values()]).toContain("frontier");
+
+    for (const [opId, role] of roles) {
+      const got = resolveOperatorParams(out, opId).property.includeCode;
+      const shouldKeep = role === "frontier" || role === "near-frontier";
+      expect(got).toBe(shouldKeep);
+    }
+  });
+
+  test("codeKeepSources retains load code even when the source is settled", () => {
+    const dossier = chainDossier();
+    const feats = [...extractFeatures(dossier).operators.values()];
+    const srcIds = feats.filter(f => f.isSource).map(f => f.operatorId);
+    expect(srcIds.length).toBeGreaterThan(0);
+
+    const kept = applyRolePolicy(
+      codeOnBase(),
+      dossier,
+      parseRolePolicyConfig({ codeBudget: true, codeKeepSources: true })
+    );
+    const dropped = applyRolePolicy(
+      codeOnBase(),
+      dossier,
+      parseRolePolicyConfig({ codeBudget: true, codeKeepSources: false })
+    );
+    for (const id of srcIds) {
+      expect(resolveOperatorParams(kept, id).property.includeCode).toBe(true);
+      // only meaningful for a source that is not also in the working set
+      const role = feats.find(f => f.operatorId === id)!.role;
+      if (role !== "frontier" && role !== "near-frontier") {
+        expect(resolveOperatorParams(dropped, id).property.includeCode).toBe(false);
+      }
+    }
+  });
+
+  /** Exclusivity is the whole point: an arm that claims to isolate code must not
+   *  quietly also be a rows+stats arm, since those legs' defaults are not neutral
+   *  (sourceSampleRows 12, sourceStats true). */
+  test("the code leg is EXCLUSIVE — it emits no rows/stats overrides", () => {
+    const dossier = chainDossier();
+    const base = codeOnBase();
+    const out = applyRolePolicy(
+      base,
+      dossier,
+      parseRolePolicyConfig({ codeBudget: true, sourceSampleRows: 12, interiorSampleRows: 3 })
+    );
+    for (const f of extractFeatures(dossier).operators.values()) {
+      const before = resolveOperatorParams(base, f.operatorId);
+      const after = resolveOperatorParams(out, f.operatorId);
+      expect(after.result.latest.tuple.sampleRows).toBe(before.result.latest.tuple.sampleRows);
+      expect(after.result.latest.column.stats).toBe(before.result.latest.column.stats);
+      expect(after.result.latest.detail).toBe(before.result.latest.detail);
+    }
+  });
+
+  test("codeBudget off changes nothing about includeCode", () => {
+    const dossier = chainDossier();
+    const base = codeOnBase();
+    const out = applyRolePolicy(base, dossier, parseRolePolicyConfig({ codeBudget: false }));
+    for (const f of extractFeatures(dossier).operators.values()) {
+      expect(resolveOperatorParams(out, f.operatorId).property.includeCode).toBe(
+        resolveOperatorParams(base, f.operatorId).property.includeCode
+      );
+    }
   });
 });
