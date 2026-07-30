@@ -339,6 +339,13 @@ class DataProcessor(Runnable, Stoppable):
             # operator — coercion dataloss can happen in any UDF (load or
             # process). Guarded; can never break the user's conversion.
             coerced = self._install_coercion_telemetry()
+            # A7: record which files this operator actually read (multi-file
+            # loads only). Guarded; never alters the read result.
+            try:
+                from core.util import file_io_telemetry
+                file_io_telemetry.install()
+            except Exception:
+                pass
             with replace_print(
                 self._context.worker_id,
                 self._context.console_message_manager.print_buf,
@@ -364,6 +371,11 @@ class DataProcessor(Runnable, Stoppable):
                     coercion_telemetry.uninstall()
                 except Exception:
                     pass
+            try:
+                from core.util import file_io_telemetry
+                file_io_telemetry.uninstall()
+            except Exception:
+                pass
             self._switch_context()
 
     @staticmethod
@@ -657,6 +669,18 @@ class DataProcessor(Runnable, Stoppable):
             table_hints = self._detect_table_structure(df)
             if table_hints:
                 stats["__table_hints__"] = " || ".join(table_hints)
+        except Exception:
+            pass
+        # A7: multi-file load provenance — the file list the agent's own glob
+        # matched, which the rendered result otherwise never shows. Fact only,
+        # no advice (see file_io_telemetry docstring). Reserved key: the
+        # agent-service strips it from schema/stats rendering and surfaces it on
+        # the structural-hints rung.
+        try:
+            from core.util import file_io_telemetry
+            fdiags = file_io_telemetry.drain()
+            if fdiags:
+                stats["__file_io__"] = " || ".join(fdiags)
         except Exception:
             pass
         self._context.statistics_manager.set_result_statistics(stats)
