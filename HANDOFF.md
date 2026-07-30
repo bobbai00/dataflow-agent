@@ -216,8 +216,24 @@ below after that, and restart the engine between pools rather than pushing P.**
 Note also that a pool's *log message* is not its concurrency: `orchestratorN6.sh` logged
 "P12" while the code ran `xargs -P 30`. Read the `xargs -P` line, not the banner.
 
-Ramping mid-run is free — the orchestrators skip already-scored pairs — but see 4.4 for how
-to stop a pool without shooting yourself.
+**Ramp a LIVE pool with SIGUSR1 — do not start a second worker.** GNU xargs raises its own
+parallelism by one per `SIGUSR1` (and lowers it per `SIGUSR2`), so a pool stuck behind slow
+tasks can be widened in place:
+
+```bash
+ps -eo pid=,etimes=,comm= | awk '$3=="xargs" && $2>300 {print $1}'   # comm, never args
+for i in $(seq 1 8); do kill -USR1 <PID>; sleep 0.3; done            # 16 -> 24
+```
+
+This is the fix for the task-major lockstep stall (4.2): when every slot is parked on the same
+slow task, extra slots let other tasks proceed. Verified live — distinct in-flight tasks went
+4 → 7 and throughput recovered immediately.
+
+Do NOT instead launch a second `xargs` over the same pending list. Resume-skip keys on
+`Total score` appearing in the pool log, which is only written when a run *finishes*, so two
+workers will both pick up the same unfinished task and their answers will overwrite each
+other. Ramping mid-run is otherwise free — the orchestrators skip already-scored pairs — but
+see 4.4 for how to stop a pool without shooting yourself.
 
 ### 4.2 Orchestrator pattern
 
@@ -251,6 +267,14 @@ that silently builds the confound into the design. Task-major makes consecutive 
 arms, so under `xargs -P` all arms advance in lockstep and engine age is held constant *by
 construction* instead of corrected for afterwards. Verify it took by watching the arm mix:
 `ps -eo args= | grep -oE 'sut [A-Za-z0-9]+' | sort | uniq -c` should show all arms at once.
+
+**It costs wall-clock, though — choose deliberately.** Arm-major smears the slow tasks across
+the whole run; task-major makes every arm hit the same slow task at the same moment, so
+throughput collapses to that task's latency and then recovers. On the layout pool, reaching
+the astronomy-hard cluster (`-7`, `-11`, `-8`, `-12`, several of them 900 s timeouts) dropped
+throughput from ~8/min to ~1/min for roughly 15 minutes with all 16 slots parked on 4 tasks.
+So: **task-major when arms are being compared to each other** (any A/B — the era control is
+worth it), **arm-major when arms are independent** and you just want them all finished.
 
 Gate a follow-on pool on a running one **by PID**, never by name:
 `while kill -0 "$GATE_PID" 2>/dev/null; do sleep 60; done`
