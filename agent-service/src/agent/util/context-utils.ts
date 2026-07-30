@@ -2308,6 +2308,15 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
+  // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it IS the
+  // input, since loaders have no `Inputs:` line. Emitted here so both consumed
+  // facts sit TOGETHER, above `Code:` and above `Result:`; everything indented
+  // under `Result:` describes the output.
+  if (options.fileIoFacts && info) {
+    const fio = formatFileIo(info);
+    if (fio) lines.push(fio);
+  }
+
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
   if (ex?.includeCode && !info?.error) {
@@ -2339,14 +2348,6 @@ function serializeOperatorFull(
       | WorkflowFatalError
       | undefined;
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
-  }
-
-  // A7: `Files read:` is a CONSUMED fact (for a loader it IS the input), so it
-  // renders PARALLEL to `Result:` alongside `Inputs:`, not inside the produced
-  // section. Order is causal: read -> in -> out.
-  if (options.fileIoFacts && info) {
-    const fio = formatFileIo(info);
-    if (fio) lines.push(fio);
   }
 
   if (execText) {

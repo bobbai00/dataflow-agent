@@ -22,12 +22,12 @@ Each executed operator block is laid out in this order:
 ```
 ### Operator `state_msa` (DataLoading)
 Summary: Load every state CSV under State MSA Fraud data/
+Inputs: upstream_op (417 rows, 3 cols)
+Files read: 52 [Alabama.csv, Alaska.csv, Arizona.csv, Arkansas.csv, California.csv, Colorado.csv, Connecticut.csv, Delaware.csv, … (+44)]
 Code:
   def load():
       files = glob.glob('data/legal/input/.../State MSA Fraud and Other data/*.csv')
       ...
-Files read: 52 [Alabama.csv, Alaska.csv, Arizona.csv, Arkansas.csv, California.csv, Colorado.csv, Connecticut.csv, Delaware.csv, … (+44)]
-Inputs: upstream_op (417 rows, 3 cols)
 Result:
   Output Table: 764 rows, 2 cols
   	Metropolitan Areas: Fraud and Other Reports	Unnamed: 1
