@@ -203,7 +203,18 @@ lsof -iTCP -sTCP:LISTEN -P -n | awk '$1=="java"||$1=="bun"{print}' ; sudo docker
 
 **The inherited "P6 causes instant-fails" note is STALE** — 0 instant-fails observed at P8,
 P12, P18, P30 and briefly ~P30+orphans. Full-104 × 9 arms (936 runs) completes in ~75–95 min
-at P30. Ramp freely; the ceiling is the LLM gateway, not this box.
+at P30.
+
+**But P is only safe relative to ENGINE AGE, and this table was measured on a fresh engine.**
+On 2026-07-30 a P20 repair pass against a **10-hour-old** engine killed it with
+`java.lang.OutOfMemoryError: unable to create native thread` — not RAM (9/62 GB free) and not
+`ulimit -u` (255692, 136 procs), but thread-stack allocation failing under accumulated JVM
+thread pressure. It took out ComputingUnitMaster + ComputingUnitWorker. The same P30 had run
+520 runs clean two hours earlier on the same engine. So: **P30 on an engine <4 h old, P16 or
+below after that, and restart the engine between pools rather than pushing P.**
+
+Note also that a pool's *log message* is not its concurrency: `orchestratorN6.sh` logged
+"P12" while the code ran `xargs -P 30`. Read the `xargs -P` line, not the banner.
 
 Ramping mid-run is free — the orchestrators skip already-scored pairs — but see 4.4 for how
 to stop a pool without shooting yourself.
@@ -214,7 +225,7 @@ Copy an existing `judgment_runs/mini_star/orchestrator*.sh`. The shape that work
 
 ```bash
 emit_pending(){                     # resume-safe: only unscored (arm,task) pairs
-  for A in "${ARMS[@]}"; do for T in "${TASKS[@]}"; do
+  for T in "${TASKS[@]}"; do for A in "${ARMS[@]}"; do   # TASK-major: see below
     grep -q 'Total score' "judgment_runs/mini_star/pool<TAG>_${A}__${T}.log" 2>/dev/null \
       || echo "$A ${T%%-*} $T"
   done; done
@@ -232,6 +243,14 @@ inside a compound command silently fails:
 printf '#!/bin/bash\nexec bash ~/Desktop/bobflow/Kramabench/judgment_runs/mini_star/orchestratorX.sh\n' > /tmp/launchX.sh
 chmod +x /tmp/launchX.sh && nohup setsid /tmp/launchX.sh > /tmp/orchX_boot.log 2>&1 < /dev/null &
 ```
+
+**Emit TASK-major (`for T; for A`), not arm-major.** Every orchestrator before
+`orchestratorLayout.sh` looped arm-major, which means arm 1 runs on a younger engine than the
+last arm — and engine age is worth ~2.3 pt (§4.6). For a pool comparing arms to each other
+that silently builds the confound into the design. Task-major makes consecutive lines alternate
+arms, so under `xargs -P` all arms advance in lockstep and engine age is held constant *by
+construction* instead of corrected for afterwards. Verify it took by watching the arm mix:
+`ps -eo args= | grep -oE 'sut [A-Za-z0-9]+' | sort | uniq -c` should show all arms at once.
 
 Gate a follow-on pool on a running one **by PID**, never by name:
 `while kill -0 "$GATE_PID" 2>/dev/null; do sleep 60; done`
@@ -271,16 +290,22 @@ Healthy: mean **~6 steps**, ≤3 % at the 25-step cap, ≤3 % empty, **100 % of 
 ### 4.4 Stopping a pool without shooting yourself
 
 ```bash
-# find the real processes: exact args match + age filter (excludes your own shell)
+# STEP 1 — LIST candidates. Never pipe straight into kill.
+ps -eo pid,etimes,comm --no-headers | awk '$3=="xargs" && $2>15 {print $1}'   # comm, not args
 ps -eo pid,etimes,args --no-headers | awk '$2>15 && /orchestratorX/ {print $1}'
-ps -eo pid,etimes,comm --no-headers | awk '$3=="xargs" && $2>15 {print $1}'
-# kill the XARGS *and* the orchestrator shell, together, by PID
+# STEP 2 — eyeball the list, then kill those literal numbers:
+kill 12345 12346 12347
 ```
 
-- **Never `grep`/`pkill` a pattern that appears in your own command line.** Did this three
-  times today; once it killed my own shell mid-command (exit 144), left the original
-  orchestrator falling through to its repair pass, and allowed a **duplicate orchestrator to
-  race the original** on the same task set.
+- **Never `grep`/`pkill` a pattern that appears in your own command line.** Did this **five**
+  times in one session. `pgrep -f 'xargs -P 20 -L 1'` matches the bash that is running that
+  very command, so it kills your own shell (exit 144) — which on one occasion left the original
+  orchestrator falling through to its repair pass and let a **duplicate orchestrator race the
+  original** on the same task set. Even the "safe" `awk '/orchestratorX/'` form above matches
+  your own shell if you type that name in the same command. **The only reliable pattern is:
+  list first, then kill literal PIDs.**
+- **`awk '$3=="xargs"'` on `comm` is safe; `$2>15` on `args` is not** — an `args` field can
+  contain the pattern you are testing for.
 - Killing only the orchestrator shell leaves `xargs` spawning at the old concurrency
   (this doubled concurrency to ~P30 unintentionally).
 - Orphaned in-flight evals finish on their own and are not replaced — fine to leave, unless
@@ -321,20 +346,48 @@ to the official OVERALL. Never self-invent a metric.
 | all-zero scores for one arm while a concurrent arm is fine | not infrastructure — check that arm's answers | — |
 | `(empty response)` mid-pool, gateway healthy | in-flight runs killed by an agent-service restart | never restart mid-pool; repair by `(empty response)` marker |
 | tasks always timing out (`astronomy-hard-11`, `biomedical-hard-1`) | genuine heavy-task tail vs `timeout 900`; wall-times p50 70 s / p95 372 s / max 842 s | pre-existing, fails uniformly across arms — leave it |
+| render silently changes mid-pool, no restart in the log | **`git commit`/`checkout` alone is enough** — agent-service runs `bun run --watch src/server.ts`, so any write to the checkout's `agent-service/` hot-reloads the live server in place (PID unchanged, so `ps` looks untouched) | never edit or merge into a checkout whose agent-service is serving a pool; §4.6 |
+| `Files read:` never appears though `fileIoFacts` is on | A7 needs **both halves**: the pandas-patching worker (`amber/.../file_io_telemetry.py`) *and* the renderer (`FILE_IO_KEY` in `RESERVED_STATS_KEYS`). Engine and agent-service launched from different checkouts can hold one each | launch both from one checkout; post-merge `main` has both. Reverse split leaks `__file_io__` as a fake data column |
 
 ### 4.8 Engine guards — check these FIRST, every cycle
 
 ```bash
-ps -eo args --no-headers | grep -c '[j]ava @'                 # must be 8
+# Count java by its REAL binary. A pattern match counts your own shell and LIES.
+n=0; for d in /proc/[0-9]*; do
+  case "$(readlink "$d/exe" 2>/dev/null)" in */java) n=$((n+1));; esac
+done; echo "java=$n"        # 9 = 8 services + the sbt launcher
 lsof -tiTCP:8085 -sTCP:LISTEN >/dev/null && echo up || echo DOWN
 free -g | awk 'NR==2{print $3"/"$2" GB"}'                     # collapse 35→9 GB = JVMs dying
 curl -s -m 8 -o /dev/null -w '%{http_code}\n' localhost:4000/health
 ```
 
+**The `grep -c '[j]ava @'` form that used to be here is what let the 2026-07-30 engine death
+run unnoticed for 20 minutes.** `pgrep -fc 'java @.*sbt-args'` (and any `-f`/args variant)
+matches *your own shell's command line*, because the pattern is in it. It reported **8 while
+only 6 JVMs were alive** — so the guard built to catch exactly this failure was blind to it.
+Count via `/proc/PID/exe`: a symlink to the real executable, which no command-line text can
+forge. `orchestratorLayout.sh` has a working version of this guard, including the pool-abort.
+
 The engine died once after ~27 h uptime under sustained load: **2 of 9 JVMs gone, `:8085`
 down, memory 35 → 9 GB**. Nothing else reported an error. Had these four lines been in the
 30-minute loop from the start it would have been caught hours earlier instead of costing a
 whole 936-run pool.
+
+Add one more line when a pool is live, because a *code* change can move the render without
+touching a process:
+
+```bash
+git -C <checkout-serving-the-pool> status --short   # must be clean of agent-service/
+```
+
+`bun run dev` is `bun run --watch src/server.ts`. Watch mode reloads on any write to the
+served tree, so committing, merging, or switching branches in that checkout silently changes
+the render for in-flight runs — with **no restart line in any log and the same PID**, which is
+strictly worse than a visible restart. Merging `feat/role-policy` into `main` on 2026-07-30
+hot-reloaded `:3001` mid-pool this way; it was harmless only because every arm in that pool
+pins `:3002` (`ROLE_POLICY_ENDPOINT`). Confirm which port the arm actually targets before
+assuming an edit is safe — read the SUT class, don't trust the `"http://localhost:3001"`
+default.
 
 Also beware false positives when grepping logs: `429` matches inside timing values like
 `0.0126545429…`, and a bare `grep -c error` matches benign field names such as
