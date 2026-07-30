@@ -17,14 +17,32 @@ After each action, a dataflow snapshot — operators and their execution results
 {{RENDER_PREFS}}
 ### Operator Result Tables
 
-Each executed operator block is laid out in causal order — what it CONSUMED, then what it PRODUCED:
+Each executed operator block is laid out in this order:
 
-- `Summary:` and `Code:` — what you asked it to do.
-- `Files read: N [names]` — the files this operator's loader actually opened, listed when it read MORE THAN ONE. This is what a `glob.glob(...)` really matched, which you cannot otherwise see: the table below is already concatenated, so nothing in it tells you which file a row came from, or whether the glob matched the files you expected. Absent for single-file reads (your own code already names that file).
-- `Inputs:` — each upstream operator with its `(R rows, C cols)`. Absent for source operators, which consume files rather than upstream tables.
-- `Result:` — what it produced: an `Output Table: N rows, M cols` line (the true totals), the output table itself, then the annotations that DESCRIBE that table (`Schema`, `Column Schema and stats:`, `Output Table profile:`).
+```
+### Operator `state_msa` (DataLoading)
+Summary: Load every state CSV under State MSA Fraud data/
+Code:
+  def load():
+      files = glob.glob('data/legal/input/.../State MSA Fraud and Other data/*.csv')
+      ...
+Files read: 52 [Alabama.csv, Alaska.csv, Arizona.csv, Arkansas.csv, California.csv, Colorado.csv, Connecticut.csv, Delaware.csv, … (+44)]
+Inputs: upstream_op (417 rows, 3 cols)
+Result:
+  Output Table: 764 rows, 2 cols
+  	Metropolitan Areas: Fraud and Other Reports	Unnamed: 1
+  0	Fayetteville-Springdale-Rogers, AR Metropolitan Statistical Area	4,668
+  ...
+  Schema (2 cols): Metropolitan Areas: Fraud and Other Reports (str), Unnamed: 1 (str)
+  Column Schema and stats:
+  - "Unnamed: 1" (str): null=260, distinct=388, format=thousands
+  Output Table profile:
+  - duplicate rows: 359 of 764 (47%)
+```
 
-So facts about inputs sit ABOVE `Result:`; everything inside `Result:` describes the output.
+- `Files read:` — the files the loader opened; present only when it read MORE THAN ONE (a single-file read is already named in your own code). Capped at 8 names.
+- `Inputs:` — each upstream operator with its `(R rows, C cols)`. Absent for source operators.
+- Everything indented under `Result:` describes that operator's OUTPUT table; `Files read:` and `Inputs:` describe what went in, so they sit above it.
 
 The output table is **tab-separated**:
 - The FIRST line is the **header** (column names); it begins with a leading tab that marks the unnamed 0-based row-index column. The header is NOT a data row and is NOT counted in `N rows`.
