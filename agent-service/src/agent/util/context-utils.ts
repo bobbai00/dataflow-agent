@@ -31,7 +31,7 @@ import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot
 import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
-import { formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
+import { formatOperatorResult, formatSchemaLine, clampCodeChars} from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
@@ -2323,7 +2323,7 @@ function serializeOperatorFull(
     const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     if (code) {
       lines.push("Code:");
-      for (const l of code.split("\n")) lines.push("  " + l);
+      for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
     }
   }
 
