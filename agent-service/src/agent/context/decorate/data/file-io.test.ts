@@ -62,7 +62,7 @@ describe("A7 __file_io__ — multi-file load provenance", () => {
   });
 });
 
-describe("stats -> fileIoFacts coupling", () => {
+describe("fileIoFacts is an independent flag, ON by default", () => {
   const resolve = (patch: object) => {
     const { latestPreset, parseSummarizeParams, resolveOperatorParams } = require("../../summarize/params");
     const base = latestPreset();
@@ -78,23 +78,21 @@ describe("stats -> fileIoFacts coupling", () => {
     return resolveOperatorParams(p, "any-op").result.latest.column;
   };
 
-  test("stats ON implies the file fact", () => {
+  test("ON by default — no config needed", () => {
+    expect(resolve({}).fileIoFacts).toBe(true);
+  });
+
+  test("independent of stats: on with stats OFF", () => {
+    // The two best configs measured (LATEST 5k+code, LATEST 1k+code) carry no
+    // stats at all; which files an operator read is an IO fact, not a column stat.
+    expect(resolve({ defaults: { result: { latest: { column: { stats: false } } } } }).fileIoFacts).toBe(true);
+  });
+
+  test("independent of stats: on with stats ON", () => {
     expect(resolve({ defaults: { result: { latest: { column: { stats: true } } } } }).fileIoFacts).toBe(true);
   });
 
-  test("stats OFF leaves it off", () => {
-    expect(resolve({ defaults: { result: { latest: { column: { stats: false } } } } }).fileIoFacts).toBeFalsy();
-  });
-
-  test("an explicit false still wins over the coupling", () => {
-    expect(
-      resolve({ defaults: { result: { latest: { column: { stats: true, fileIoFacts: false } } } } }).fileIoFacts
-    ).toBe(false);
-  });
-
-  test("a schema-only operator can still opt in explicitly", () => {
-    expect(
-      resolve({ defaults: { result: { latest: { column: { stats: false, fileIoFacts: true } } } } }).fileIoFacts
-    ).toBe(true);
+  test("explicitly disableable — the only way to get a no-fact control", () => {
+    expect(resolve({ defaults: { result: { latest: { column: { fileIoFacts: false } } } } }).fileIoFacts).toBe(false);
   });
 });
