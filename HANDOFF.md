@@ -418,6 +418,32 @@ Also beware false positives when grepping logs: `429` matches inside timing valu
 `errorReflection`. Both sent me chasing phantom rate-limits. Grep for the specific string
 (`RateLimitError`, `Forbidden`, `ECONNRESET`), not the number or the word.
 
+### 4.9 Automated recovery: what broke, and the four rules
+
+A memory watchdog (`memwatchQ.sh`) recycled a leaking engine correctly — 17 GB → 56 GB
+reclaimed, engine back with java=9 — and then destroyed the pool's bookkeeping anyway. Four
+rules came out of it, all now implemented in `orchestrator{P,Q}.sh` / `memwatch{,Q}.sh`:
+
+1. **Gate scoring on COMPLETENESS, never on a marker.** A relaunched instance reached the
+   reeval loop with ~29 of 104 answers per arm and scored them: `9.6%`, `12.5%`, written to
+   measures CSVs as though complete. Partial scores are worse than no scores because they look
+   like results. The orchestrator now refuses to reeval unless every arm has ≥100/104 answers.
+2. **Never trust a completion marker for monitoring.** The bogus `ALL DONE` above then made the
+   watchdog think the pool had finished, so it exited and disarmed itself. Monitor on
+   `min_answers` across arms instead.
+3. **A watchdog must confirm the old process is DEAD before relaunching.** Killing the
+   orchestrator's PIDs without verifying left a survivor that raced the replacement. The
+   relaunch path now polls `orch_pids()` and refuses to start a second instance rather than
+   race one.
+4. **Append to the progress log; never `: > "$PROG"`.** Truncating on start erased the previous
+   instance's audit trail, which is why the log showed 2 arms when 6 had been processed — and
+   made the incident much harder to reconstruct than it needed to be.
+
+**And: never edit a shell script while an instance is executing it.** Bash reads scripts
+incrementally by file offset, so an in-place edit can corrupt a running instance mid-loop. This
+was done live to `orchestratorQ.sh` and survived only because the script is small enough to
+have been fully parsed already. Copy to a new filename and launch that instead.
+
 ---
 
 ## 5. Current state at handoff (2026-07-29)
