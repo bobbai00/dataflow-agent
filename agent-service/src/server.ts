@@ -100,6 +100,23 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
+/** Operator ids touched by the turn in progress (the newest messageId group) —
+ *  the ones that render RICH under the turn-history index while everything
+ *  older renders as a one-line entry. */
+function currentTurnOperatorIds(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): string[] {
+  if (visibleSteps.length === 0) return [];
+  const lastMessageId = visibleSteps[visibleSteps.length - 1].messageId;
+  const ids = new Set<string>();
+  for (const step of visibleSteps) {
+    if (step.messageId !== lastMessageId) continue;
+    for (const call of step.toolCalls ?? []) {
+      const opId = call.input?.operatorId;
+      if (typeof opId === "string") ids.add(opId);
+    }
+  }
+  return [...ids];
+}
+
 function latestTaskText(visibleSteps: { role: string; content?: string }[]): string {
   for (let i = visibleSteps.length - 1; i >= 0; i--) {
     if (visibleSteps[i].role === "user" && visibleSteps[i].content) return visibleSteps[i].content as string;
@@ -233,6 +250,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       settings.probeRetirementConfig ||
       settings.rolePolicyConfig ||
       settings.enableRenderPrefs ||
+      settings.turnHistory === "index" ||
       (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST)
     ) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
@@ -248,6 +266,36 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
         params = applySummarizeParamsPatch(params, {
           operators: { defaults: { property: { includeCode: true } } },
         });
+      }
+      // Turn-history index: the snapshot is an INDEX, not the state dump. First
+      // attempt at cataloguing rendered every operator's code + result table in
+      // `# Current Dataflow` every step — at turn 30 of the 42-turn NFL task
+      // that was 323 operators = 438 KB of a 463 KB prompt, MORE expensive than
+      // the append-only baseline it replaced ($12.39 vs $9.99) and the live
+      // request buried under it (Initial-turn accuracy fell to 0%). So: every
+      // operator renders as summary + Schema line only; code and sample rows
+      // render ONLY for operators touched by the turn in progress; anything
+      // else is one recallState call away.
+      if (settings.turnHistory === "index") {
+        params = applySummarizeParamsPatch(params, {
+          operators: {
+            defaults: {
+              property: { includeCode: false },
+              result: { latest: { detail: "shape", column: { schema: true } } },
+            },
+          },
+        });
+        const frontier = currentTurnOperatorIds(visibleSteps);
+        if (frontier.length > 0) {
+          const overrides: Record<string, object> = {};
+          for (const id of frontier) {
+            overrides[id] = {
+              property: { includeCode: true },
+              result: { latest: { detail: "sample" } },
+            };
+          }
+          params = applySummarizeParamsPatch(params, { operators: { overrides } });
+        }
       }
       if (settings.frontierDecayConfig) params = applyFrontierDecay(params, dossier, settings.frontierDecayConfig);
       if (settings.probeRetirementConfig) {
