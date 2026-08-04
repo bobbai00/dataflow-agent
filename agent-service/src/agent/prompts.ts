@@ -341,26 +341,43 @@ function buildAllowedOperatorSchemas(
  * describes the `# Dataflow (compacted)` deck the agent will actually see once
  * its trajectory overflows the window. Off ⇒ the section is omitted (the deck
  * never renders, so describing it would be dead tokens).
+ *
+ * Showing the agent its own operator code is the DEFAULT. DELTA gets it for
+ * free (every event carries `code:`), and under LATEST it is the
+ * `enableCodeInSnapshot` default. The verbose no-code fragments are the swap,
+ * used only for the one configuration where the agent genuinely cannot see its
+ * own code: LATEST with the snapshot flag off.
  */
 export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   compactionEnabled = false,
   inspectEnabled = false,
   renderPrefsEnabled = false,
-  codeInSnapshotEnabled = false
+  codeInSnapshotEnabled = true
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
-  // Code-in-snapshot is LATEST-only (DELTA already shows code per event).
-  const codeInSnap = codeInSnapshotEnabled && key === "latest";
+  // The only code-blind configuration: LATEST without code in the snapshot.
+  // DELTA always shows code per event, so it is never code-blind.
+  const noCode = key === "latest" && !codeInSnapshotEnabled;
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
   const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
-  const contextFormat = codeInSnap ? CONTEXT_FORMAT_CODE_LATEST : CONTEXT_FORMAT_FRAGMENTS[key];
-  const example = codeInSnap
-    ? EXAMPLE_CODE_LATEST
-    : renderPrefsEnabled
-      ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
-      : EXAMPLE_FRAGMENTS[key];
+  // Context format tracks the LAYOUT the agent is fed, which is a separate axis
+  // from code visibility: DELTA is always `# Agent Events`, LATEST is
+  // `# Current Dataflow` with or without the per-operator Code: blocks.
+  const contextFormat =
+    key === "delta"
+      ? CONTEXT_FORMAT_FRAGMENTS.delta
+      : noCode
+        ? CONTEXT_FORMAT_FRAGMENTS.latest
+        : CONTEXT_FORMAT_CODE_LATEST;
+  const example = renderPrefsEnabled
+    ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
+    : key === "delta"
+      ? EXAMPLE_FRAGMENTS.delta
+      : noCode
+        ? EXAMPLE_FRAGMENTS.latest
+        : EXAMPLE_CODE_LATEST;
   return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", contextFormat)
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
