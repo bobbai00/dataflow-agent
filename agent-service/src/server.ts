@@ -287,7 +287,25 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
         });
         const frontier = currentTurnOperatorIds(visibleSteps);
         if (frontier.length > 0) {
+          // Value channel, lineage-graded. The binary touched-this-turn rule
+          // starved the values that this turn's formulas CONSUME: on the NFL
+          // task the model created per-row probe operators (weak_case_1..5)
+          // just to read its own report, and every score drifted. So the
+          // operators the frontier directly reads from render their samples
+          // too — values but not code, which stays a recallState pull.
+          const upstream = new Set<string>();
+          for (const link of workflowState.getWorkflowContent().links ?? []) {
+            const src = link?.source?.operatorID;
+            const dst = link?.target?.operatorID;
+            if (typeof src === "string" && typeof dst === "string" && frontier.includes(dst)) {
+              upstream.add(src);
+            }
+          }
           const overrides: Record<string, object> = {};
+          for (const id of upstream) {
+            if (frontier.includes(id)) continue;
+            overrides[id] = { result: { latest: { detail: "sample" } } };
+          }
           for (const id of frontier) {
             overrides[id] = {
               property: { includeCode: true },

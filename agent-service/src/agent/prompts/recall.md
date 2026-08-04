@@ -8,10 +8,14 @@ revise, or step back from any of them.
 Your context is kept deliberately small, and you are trusted to fetch what it
 omits:
 
+- `# Session Brief` is my first message, kept verbatim. Conventions stated there
+  (definitions, scales, rounding, tie-breaking, percentile rules) apply to EVERY
+  turn — re-read it before defining any formula.
 - `# Prior Turns` catalogues earlier turns — what was asked, which operators each
   touched, what you answered — instead of replaying them.
 - `# Current Dataflow` is an INDEX of your pipeline: every operator's summary and
-  schema, but code and sample rows only for the operators you touched this turn.
+  schema. Sample rows appear for the operators you touched this turn and for the
+  operators feeding them; code appears only for the ones you touched.
 
 Anything the index omits is one call away: the read-only `recallState` tool
 fetches it verbatim, and its output stays visible under `# Recalled State` for

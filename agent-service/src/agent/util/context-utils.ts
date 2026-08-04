@@ -811,7 +811,8 @@ function renderPriorTurnsIndex(prior: TaskGroup[]): string {
     }
 
     lines.push(`## Turn ${turnNo}`);
-    if (request) lines.push(`Request: ${requestGist(request, 260)}`);
+    if (turnNo === 1) lines.push("Request: (the Session Brief above, verbatim)");
+    else if (request) lines.push(`Request: ${requestGist(request, 260)}`);
     if (touched.length > 0) lines.push(`Operators: ${touched.join(", ")}`);
     if (answer) lines.push(`Answer: ${clip(answer, 260)}`);
     lines.push("");
@@ -1493,6 +1494,23 @@ function renderInterleaved(
   if (options.turnHistoryIndex && tasks.length > 1) {
     const prior = tasks.slice(0, -1);
     eventTasks = tasks.slice(-1);
+    // # Session Brief — the FIRST turn's request, verbatim and always visible.
+    // An opening request is not history: it is where a long collaboration sets
+    // its standing conventions, and those bind every later computation. On the
+    // NFL LongDS task the opening turn fixes the percentile convention
+    // (average-rank/n, lowest gets 1/n), rounding (unrounded until the end,
+    // report at 4 decimals) and tie-breaking; with the brief clipped to a
+    // catalogue line the model guessed a convention and every subsequent score
+    // drifted. Verbatim because paraphrasing a convention is the same cascade
+    // failure the catalogue exists to avoid. Also byte-stable across turns, so
+    // it sits harmlessly in the cacheable prefix.
+    const briefStep = prior[0]?.nodes.find(n => n.step.role === "user");
+    if (briefStep?.step.content) {
+      sections.push("# Session Brief (your first instructions — conventions here bind every turn)");
+      sections.push("");
+      sections.push(briefStep.step.content);
+      sections.push("");
+    }
     const index = renderPriorTurnsIndex(prior);
     if (index) {
       sections.push(index);
