@@ -57,6 +57,10 @@ const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
 // deck never appears, so the section is omitted to avoid dead tokens.
 const COMPACTION_FRAGMENT: string = rd("compaction.delta.md");
 const INSPECT_FRAGMENT: string = rd("inspect.md");
+/** Multi-turn state recall: describes the `# Prior Turns` catalogue and the
+ *  `recallState` pull tool. Selected only when the tool is enabled, so control
+ *  arms keep a byte-identical prompt. */
+const RECALL_FRAGMENT: string = rd("recall.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -363,7 +367,8 @@ export function buildCodeModeSystemPrompt(
   inspectEnabled = false,
   renderPrefsEnabled = false,
   codeInSnapshotEnabled = true,
-  sourceProvenanceHint = false
+  sourceProvenanceHint = false,
+  recallEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -371,6 +376,7 @@ export function buildCodeModeSystemPrompt(
   const noCode = key === "latest" && !codeInSnapshotEnabled;
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
   const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
+  const recall = recallEnabled ? `\n${RECALL_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is
@@ -392,6 +398,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
+    .replace("{{RECALL}}", recall)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");

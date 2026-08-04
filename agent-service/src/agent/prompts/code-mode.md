@@ -14,6 +14,7 @@ After each action, a dataflow snapshot — operators and their execution results
 {{CONTEXT_FORMAT}}
 {{COMPACTION}}
 {{INSPECT}}
+{{RECALL}}
 {{RENDER_PREFS}}
 ### Operator Result Tables
 

@@ -334,6 +334,42 @@ export interface AgentSettings {
    */
   sourceProvenanceHint: boolean;
   /**
+   * Where the `# User Task` block goes.
+   *
+   * "top" (default, legacy) puts the newest request first. That is fine for a
+   * single request but destroys prompt caching across turns in a multi-turn
+   * session: the request is the FIRST thing in the message, so every new turn
+   * changes byte 13 and invalidates the identical history below it. Measured on
+   * a 42-turn LongDS task: consecutive turns shared only 13 leading characters
+   * of a 233 KB prompt, and cache hits collapsed to the system prompt alone.
+   *
+   * "bottom" moves the request under the history, so the history is a stable
+   * prefix across turns and only the (small) tail changes. Also puts the live
+   * request closest to the generation point, which is where recency helps.
+   */
+  userTaskPlacement: "top" | "bottom";
+  /**
+   * How PRIOR turns of a multi-turn session are rendered (DELTA only; LATEST
+   * never rendered prior turns at all).
+   *
+   * - "full" (default, legacy): every event of every turn, verbatim and forever.
+   * - "index": prior turns collapse into a compact `# Prior Turns` catalogue —
+   *   one line per turn with its request, the operators it touched and the answer
+   *   it gave — while the CURRENT turn keeps its events raw. Details are then
+   *   pulled on demand with `recallState` (see enableRecallTool). This is the
+   *   turn-boundary reorganization: context is rebuilt once per turn (where the
+   *   cache boundary already falls) instead of growing without bound.
+   */
+  turnHistory: "full" | "index";
+  /**
+   * Expose the read-only `recallState` tool: lets the model fetch specific
+   * history it decides it needs for the current turn — a past turn's request and
+   * answer, an operator's code as of a past turn, an operator's revision
+   * history, or a result sample. Pairs with `turnHistory: "index"`: the index
+   * says what exists, the tool fetches what matters. Off by default.
+   */
+  enableRecallTool: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -420,6 +456,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableCompactTool: false,
   compactKeepLastSteps: 0,
   staticCompaction: false,
+  userTaskPlacement: "top",
+  turnHistory: "full",
+  enableRecallTool: false,
 };
 
 /**

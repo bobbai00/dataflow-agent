@@ -96,6 +96,7 @@ import {
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
+import { createRecallStateTool, TOOL_NAME_RECALL_STATE, type RecalledTurn } from "./tools/recall-state-tool";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -466,7 +467,8 @@ export class TexeraAgent {
         this.settings.enableInspectTool === true,
         this.settings.enableRenderPrefs === true,
         this.settings.enableCodeInSnapshot === true,
-        this.settings.sourceProvenanceHint === true
+        this.settings.sourceProvenanceHint === true,
+        this.settings.enableRecallTool === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -552,6 +554,20 @@ export class TexeraAgent {
     // folds the trajectory up to the newest call into a compact deck. Read-only.
     if (this.settings.enableCompactTool) {
       tools[TOOL_NAME_COMPACT_CONTEXT] = createCompactContextTool();
+    }
+
+    // Opt-in multi-turn state recall: the model fetches the specific earlier
+    // state this turn depends on, instead of the renderer pushing every turn
+    // forever. Pairs with `turnHistory: "index"`. Read-only.
+    if (this.settings.enableRecallTool) {
+      tools[TOOL_NAME_RECALL_STATE] = createRecallStateTool({
+        getTurns: () => this.buildTurnLog(),
+        // The messageId of the turn in progress: one user request per messageId,
+        // so this is what resets the per-turn recall budget.
+        getCurrentTurnKey: () => this.currentMessageId ?? "",
+        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
+        workflowState: this.workflowState,
+      });
     }
 
     // When parallel tool calls are enabled the model can emit N tool calls in
@@ -669,6 +685,66 @@ export class TexeraAgent {
     return this.getAncestorPath()
       .map(id => this.stepsById.get(id)!)
       .filter(Boolean);
+  }
+
+  /**
+   * The COMPLETED turns before the current one, for `recallState`.
+   *
+   * Turns are the `messageId` groups along the visible path (one user request per
+   * group), which is the same grouping the renderer's `# Prior Turns` catalogue
+   * numbers from — so a turn number the model reads in the prompt resolves here.
+   * The last group is the turn in progress and is excluded: its events are
+   * already rendered raw, and recalling the request you were just handed is
+   * pure waste.
+   *
+   * Each turn carries the workflow snapshot recorded at its final step, which is
+   * what makes "the code of operator X as of turn 12" answerable.
+   */
+  private buildTurnLog(): RecalledTurn[] {
+    // Drop the synthetic `initialize` bootstrap step exactly as the renderer's
+    // buildPath does. Without this the tool numbers turns one higher than the
+    // `# Prior Turns` catalogue the model is reading, so "turn 1" returns the
+    // bootstrap group with an empty request — which sent the model into a
+    // retrieval loop (44 recall calls in one turn, observed 2026-08-04).
+    const path = this.getVisibleReActSteps().filter(s => !TexeraAgent.isInitializationStep(s));
+    const groups: ReActStep[][] = [];
+    const indexByMessageId = new Map<string, number>();
+    for (const step of path) {
+      let idx = indexByMessageId.get(step.messageId);
+      if (idx === undefined) {
+        idx = groups.length;
+        indexByMessageId.set(step.messageId, idx);
+        groups.push([]);
+      }
+      groups[idx].push(step);
+    }
+    // Drop the in-progress turn.
+    const prior = groups.slice(0, -1);
+
+    return prior.map((steps, i) => {
+      const request = steps.find(s => s.role === "user")?.content ?? "";
+      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
+      const operators: string[] = [];
+      const seen = new Set<string>();
+      for (const step of steps) {
+        for (const call of step.toolCalls ?? []) {
+          const opId = (call.input as any)?.operatorId;
+          if (typeof opId !== "string" || seen.has(opId)) continue;
+          seen.add(opId);
+          operators.push(opId);
+        }
+      }
+      // Prefer the snapshot at the step that ended the turn; fall back to the
+      // newest snapshot-bearing step in the group.
+      let workflow;
+      for (const step of [...steps].reverse()) {
+        if (this.snapshotStorage.hasSnapshotFor(step.id)) {
+          workflow = this.snapshotStorage.getWorkflow(step.id);
+          break;
+        }
+      }
+      return { turn: i + 1, request, answer: endStep?.content, operators, workflow };
+    });
   }
 
   getAllSteps(): ReActStep[] {
@@ -828,6 +904,9 @@ export class TexeraAgent {
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
+    userTaskPlacement?: "top" | "bottom";
+    turnHistory?: "full" | "index";
+    enableRecallTool?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -1029,6 +1108,20 @@ export class TexeraAgent {
     }
     if (updates.staticCompaction !== undefined) {
       this.settings.staticCompaction = updates.staticCompaction;
+    }
+    if (updates.userTaskPlacement !== undefined) {
+      // Pure render-time: where the `# User Task` block goes.
+      this.settings.userTaskPlacement = updates.userTaskPlacement;
+    }
+    if (updates.turnHistory !== undefined) {
+      // Pure render-time: prior turns raw vs catalogued.
+      this.settings.turnHistory = updates.turnHistory;
+    }
+    if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
+      // Adds/removes the read-only recallState tool AND its prompt section, so
+      // the system prompt has to be rebuilt (same contract as inspect/compact).
+      this.settings.enableRecallTool = updates.enableRecallTool;
+      promptNeedsRebuild = true;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner

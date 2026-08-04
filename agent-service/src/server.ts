@@ -174,6 +174,9 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       compactKeepLastSteps: settings.compactKeepLastSteps,
       showCompactMeter: settings.enableCompactTool,
       staticCompaction: settings.staticCompaction,
+      // Multi-turn: request placement (cache) + prior-turn catalogue (pull).
+      userTaskPlacement: settings.userTaskPlacement,
+      turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
       attemptReflection: settings.attemptReflection,
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
@@ -618,6 +621,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           enableCompactTool: (settings as any).enableCompactTool,
           compactKeepLastSteps: (settings as any).compactKeepLastSteps,
           staticCompaction: (settings as any).staticCompaction,
+          userTaskPlacement: (settings as any).userTaskPlacement,
+          turnHistory: (settings as any).turnHistory,
+          enableRecallTool: (settings as any).enableRecallTool,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -681,6 +687,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
+      userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
+      turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
+      enableRecallTool: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),

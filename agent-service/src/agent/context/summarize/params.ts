@@ -269,6 +269,14 @@ export const TrajectoryParamsSchema = z.object({
   renderPrefs: z.boolean().default(false),
   /** Grace (events) after the resolution before prior revisions fold. */
   foldGraceEvents: z.number().int().min(0).default(1),
+  /** Where the `# User Task` block goes. "bottom" keeps the history a
+   *  byte-stable prefix across turns, which is what prompt caching matches on;
+   *  "top" is the legacy placement. */
+  userTaskPlacement: z.enum(["top", "bottom"]).default("top"),
+  /** Prior turns of a multi-turn session: "full" replays every event forever,
+   *  "index" collapses them into the `# Prior Turns` catalogue and keeps only the
+   *  current turn raw (details then pulled with `recallState`). */
+  priorTurns: z.enum(["full", "index"]).default("full"),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -419,6 +427,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       compactBoundaryFloor: options.compactBoundaryFloor ?? 0,
       foldResolvedRevisions: options.foldResolvedRevisions ?? false,
       foldGraceEvents: options.foldGraceEvents ?? 1,
+      userTaskPlacement: options.userTaskPlacement ?? "top",
+      priorTurns: options.turnHistoryIndex ? "index" : "full",
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
     currentSnapshot: isLatest,

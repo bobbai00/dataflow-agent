@@ -72,6 +72,13 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
+  /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
+   *  keeps the history a byte-stable prefix across turns, which is what prompt
+   *  caching matches on; see AgentSettings.userTaskPlacement. */
+  userTaskPlacement?: "top" | "bottom";
+  /** DELTA: collapse PRIOR turns into a compact `# Prior Turns` catalogue and
+   *  keep only the current turn's events raw. See AgentSettings.turnHistory. */
+  turnHistoryIndex?: boolean;
   /** LATEST only: when true, render the full Thought/Action/Observation
    *  trajectory as a `# Agent Turns` section (delta-style) on top of the
    *  latest-state core — the same per-event serializer DELTA uses. The block is
@@ -737,6 +744,78 @@ function groupIntoTasks(path: PathNode[]): TaskGroup[] {
   });
 }
 
+/** One line's worth of a long string, collapsed and clipped. */
+function clip(text: string | undefined, max: number): string {
+  if (!text) return "";
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max)}…`;
+}
+
+/**
+ * The ASK inside a turn's message.
+ *
+ * A harness typically front-loads the first turn with session setup (role, file
+ * inventory, output contract) and appends the actual request after it, so a
+ * head-clip of turn 1 yields boilerplate and none of the question. Anchor on the
+ * last `Question:` when there is one; the tail is what identifies the turn.
+ */
+function requestGist(text: string | undefined, max: number): string {
+  if (!text) return "";
+  const idx = text.lastIndexOf("Question:");
+  return clip(idx >= 0 ? text.slice(idx) : text, max);
+}
+
+/**
+ * Collapse prior turns into a catalogue: per turn, what was asked, which
+ * operators it touched, and what was answered.
+ *
+ * This is the push half of the turn-boundary reorganization. It is deliberately
+ * a CATALOGUE and not a summary: it names what exists so the model can decide
+ * what to pull with `recallState`, rather than paraphrasing content it might need
+ * verbatim (a wrong paraphrase of an earlier definition is exactly the cascade
+ * failure this is meant to prevent).
+ */
+function renderPriorTurnsIndex(prior: TaskGroup[]): string {
+  if (prior.length === 0) return "";
+  const lines: string[] = ["# Prior Turns", ""];
+  const isOne = prior.length === 1;
+  lines.push(
+    `The ${isOne ? "" : `${prior.length} `}earlier turn${isOne ? "" : "s"} of this session ` +
+      `${isOne ? "is" : "are"} catalogued below instead of replayed in full. Nothing is lost — use ` +
+      "`recallState` to fetch any of it verbatim (a turn's request or answer, an " +
+      "operator's code as of a turn, an operator's revision history, a result sample). " +
+      "Turn numbers here are the ones `recallState` expects."
+  );
+  lines.push("");
+
+  prior.forEach((task, i) => {
+    const turnNo = i + 1;
+    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
+    // The answer is the content of the step that ended the turn.
+    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
+
+    // Operator touches, in order, deduped by id with the first action kept.
+    const touched: string[] = [];
+    const seen = new Set<string>();
+    for (const node of task.nodes) {
+      for (const call of node.step.toolCalls ?? []) {
+        const opId = (call.input as any)?.operatorId;
+        if (typeof opId !== "string" || seen.has(opId)) continue;
+        seen.add(opId);
+        touched.push(opId);
+      }
+    }
+
+    lines.push(`## Turn ${turnNo}`);
+    if (request) lines.push(`Request: ${requestGist(request, 260)}`);
+    if (touched.length > 0) lines.push(`Operators: ${touched.join(", ")}`);
+    if (answer) lines.push(`Answer: ${clip(answer, 260)}`);
+    lines.push("");
+  });
+
+  return lines.join("\n").trimEnd();
+}
+
 /* ============================================================================
  *  Create / modify / delete flag computation
  *
@@ -1389,13 +1468,32 @@ function renderInterleaved(
   createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
   const sections: string[] = [];
+  const taskAtBottom = options.userTaskPlacement === "bottom";
 
-  // 1. # User Task
-  if (latestUserContent) {
+  // 1. # User Task — unless it was moved to the bottom, where it leaves the
+  // history as a byte-stable prefix across turns (cache) and sits closest to
+  // the generation point (recency).
+  if (latestUserContent && !taskAtBottom) {
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
     sections.push("");
+  }
+
+  // 1b. # Prior Turns — the turn-boundary reorganization. Earlier turns become a
+  // one-line-per-turn catalogue and only the CURRENT turn keeps its raw events;
+  // anything the catalogue elides is pulled back on demand with `recallState`.
+  // Splitting here (rather than inside renderAgentEvents) keeps the raw path
+  // untouched when the flag is off.
+  let eventTasks = tasks;
+  if (options.turnHistoryIndex && tasks.length > 1) {
+    const prior = tasks.slice(0, -1);
+    eventTasks = tasks.slice(-1);
+    const index = renderPriorTurnsIndex(prior);
+    if (index) {
+      sections.push(index);
+      sections.push("");
+    }
   }
 
   // 2. # Agent Events — every event in the path as a Thought / Action /
@@ -1416,7 +1514,7 @@ function renderInterleaved(
   // a rolling previous snapshot (seeded by the hidden init snapshot).
   sections.push(
     renderAgentEvents(
-      tasks,
+      eventTasks,
       workflowState,
       options,
       initSnapshot,
@@ -1455,6 +1553,15 @@ function renderInterleaved(
   if (options.inspectionsRendered) {
     sections.push("");
     sections.push(options.inspectionsRendered);
+  }
+
+  // 1-at-the-bottom: the request goes last so everything above it is a stable
+  // prefix across turns.
+  if (latestUserContent && taskAtBottom) {
+    sections.push("");
+    sections.push("# User Task");
+    sections.push("");
+    sections.push(latestUserContent);
   }
 
   return sections.join("\n").trimEnd();

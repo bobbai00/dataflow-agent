@@ -156,6 +156,8 @@ export function paramsToRenderOptions(
     compactBoundaryFloor: params.trajectory.compactBoundaryFloor,
     foldResolvedRevisions: params.trajectory.foldResolvedRevisions,
     foldGraceEvents: params.trajectory.foldGraceEvents,
+    userTaskPlacement: params.trajectory.userTaskPlacement,
+    turnHistoryIndex: params.trajectory.priorTurns === "index" ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
