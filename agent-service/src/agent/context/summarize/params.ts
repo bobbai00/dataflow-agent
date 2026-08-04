@@ -431,7 +431,15 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       priorTurns: options.turnHistoryIndex ? "index" : "full",
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
-    currentSnapshot: isLatest,
+    // DELTA normally has no `# Current Dataflow` section because state lives
+    // inline in the events' observations. Cataloguing prior turns removes those
+    // observations, so without this the model loses every schema and result it
+    // ever computed — measured: a 13 KB turn-20 prompt with zero result data, and
+    // accuracy 33.3% -> 11.1% concentrated entirely in the Initial/Update turns
+    // that need the CURRENT state (Rollback/Counterfactual were unaffected,
+    // because recallState covers old definitions). Cataloguing has to REPLACE the
+    // event log with the live snapshot, not delete state.
+    currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
     flow: {
       loaderHints: flag("loaderHint"),
