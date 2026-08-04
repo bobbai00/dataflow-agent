@@ -453,7 +453,13 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       defaults: {
         property: {
           includeProperties: options.includeOperatorProperties !== false,
-          includeCode: false,
+          // Same reasoning as `currentSnapshot` above: DELTA's event log is where
+          // an operator's code lives (79 `def process/load` blocks in a measured
+          // baseline prompt, versus ZERO once prior turns were catalogued), so
+          // cataloguing has to put the code in the snapshot or the agent goes
+          // code-blind about its own pipeline and has to recall it back one
+          // operator at a time.
+          includeCode: options.turnHistoryIndex === true,
           codeHistory: 0,
         },
         result: {
