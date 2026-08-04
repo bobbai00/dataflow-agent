@@ -79,6 +79,9 @@ export interface AssembleContextOptions {
   /** DELTA: collapse PRIOR turns into a compact `# Prior Turns` catalogue and
    *  keep only the current turn's events raw. See AgentSettings.turnHistory. */
   turnHistoryIndex?: boolean;
+  /** Internal: pre-rendered `# Recalled State` block (this turn's recallState
+   *  outputs), set by renderContextCore. */
+  recalledStateRendered?: string;
   /** LATEST only: when true, render the full Thought/Action/Observation
    *  trajectory as a `# Agent Turns` section (delta-style) on top of the
    *  latest-state core — the same per-event serializer DELTA uses. The block is
@@ -461,6 +464,7 @@ export function renderContextCore(
       // On-demand pulls persist in DELTA too (appended by renderInterleaved;
       // the interleaved events carry the CALL but drop the tool output).
       options.inspectionsRendered = buildInspectionsSection(path);
+      options.recalledStateRendered = buildRecalledStateSection(tasks);
       // Write-time render prefs (DELTA): a landed version's prefs govern the
       // observations rendered while it was active — historical ranges, so an
       // old event's render never changes (append-only).
@@ -1555,6 +1559,12 @@ function renderInterleaved(
     sections.push(options.inspectionsRendered);
   }
 
+  // Same for recallState: the events carry the CALL, this carries the answer.
+  if (options.recalledStateRendered) {
+    sections.push("");
+    sections.push(options.recalledStateRendered);
+  }
+
   // 1-at-the-bottom: the request goes last so everything above it is a stable
   // prefix across turns.
   if (latestUserContent && taskAtBottom) {
@@ -1964,6 +1974,44 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+/**
+ * Re-render this turn's `recallState` outputs.
+ *
+ * A tool's OUTPUT is not part of the re-rendered context — only the call is. For
+ * an operator write that is fine (the effect shows up in the snapshot), but for a
+ * read-only pull it means the answer evaporates on the next step, so the model
+ * asks again. Measured without this section: 98 recall calls in one turn, the
+ * same three turns fetched over and over, the whole 40-step budget gone and no
+ * answer produced. `inspectResult` needed the same treatment (`# Inspections`).
+ *
+ * Scoped to the CURRENT turn: recalled state is fetched to answer the request in
+ * front of the model, and keeping every turn's pulls forever would rebuild the
+ * unbounded history that cataloguing exists to avoid.
+ */
+function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
+  const current = tasks[tasks.length - 1];
+  if (!current) return undefined;
+  const blocks: string[] = [];
+  for (const node of current.nodes) {
+    const step = node.step;
+    if (step.role !== "agent") continue;
+    const calls = step.toolCalls ?? [];
+    const results = step.toolResults ?? [];
+    calls.forEach((tc, i) => {
+      if (tc.toolName !== "recallState") return;
+      const inp = (tc.input ?? {}) as Record<string, unknown>;
+      const args = Object.entries(inp)
+        .map(([k, v]) => `${k}=${String(v)}`)
+        .join(", ");
+      const out = stringifyOutput(results[i]?.output).trimEnd();
+      if (out.startsWith("[ERROR]")) return; // a rejected call teaches nothing worth re-reading
+      blocks.push(`## Recalled (${args})\n\n${out.length > 0 ? out : "(empty)"}`);
+    });
+  }
+  if (blocks.length === 0) return undefined;
+  return ["# Recalled State (your recallState pulls this turn)", "", ...blocks].join("\n").trimEnd();
 }
 
 /** Inline render of an older user-role step inside `# Agent Events`.
