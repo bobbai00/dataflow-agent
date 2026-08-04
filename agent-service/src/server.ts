@@ -304,7 +304,11 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           const overrides: Record<string, object> = {};
           for (const id of upstream) {
             if (frontier.includes(id)) continue;
-            overrides[id] = { result: { latest: { detail: "sample" } } };
+            // Code too, not just values: conventions live in implementations.
+            // NFL turn 2 re-implements turn 1's percentile helper wrongly even
+            // with the Session Brief pinned — the baseline model copies the
+            // helper from turn-1 code it can see; give the index the same out.
+            overrides[id] = { property: { includeCode: true }, result: { latest: { detail: "sample" } } };
           }
           for (const id of frontier) {
             overrides[id] = {
