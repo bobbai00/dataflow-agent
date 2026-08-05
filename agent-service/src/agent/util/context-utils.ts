@@ -82,6 +82,16 @@ export interface AssembleContextOptions {
   /** Internal: pre-rendered `# Recalled State` block (this turn's recallState
    *  outputs), set by renderContextCore. */
   recalledStateRendered?: string;
+  /** Structured-turn layout: drop each observation's RESULT body, keep its
+   *  `- operator X updated` verb line. Safe ONLY when the current dataflow is
+   *  rendered below it (the authoritative state); thinning without that removes
+   *  the state entirely — measured 33.3% -> 11.1%. */
+  thinObservations?: boolean;
+  /** Per-operator detail in each `# Catalog` turn entry: "ids" (id + verb),
+   *  "brief" (+ summary and shape, default), "schema" (+ column inventory).
+   *  Capped by design: a full snapshot per turn is O(turns x operators), which
+   *  was the $12.39 NFL blowup (323 operators re-rendered every step). */
+  catalogDetail?: "ids" | "brief" | "schema";
   /** LATEST only: when true, render the full Thought/Action/Observation
    *  trajectory as a `# Agent Turns` section (delta-style) on top of the
    *  latest-state core — the same per-event serializer DELTA uses. The block is
@@ -554,6 +564,23 @@ export function renderContextCore(
               );
         break;
       }
+      // Structured three-section layout (turnHistory: "index"). A dedicated
+      // renderer rather than a branch inside renderInterleaved, so every legacy
+      // DELTA arm stays byte-identical. It supersedes the Session Brief / Prior
+      // Turns block inside renderInterleaved, which index mode no longer reaches.
+      if (options.turnHistoryIndex) {
+        options.thinObservations = true;
+        content = renderStructuredTurn(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep
+        );
+        break;
+      }
       const windowTokens =
         options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
       // Unbounded window (0/unset) ⇒ legacy lossless delta (respects the data
@@ -766,7 +793,19 @@ function clip(text: string | undefined, max: number): string {
 function requestGist(text: string | undefined, max: number): string {
   if (!text) return "";
   const idx = text.lastIndexOf("Question:");
-  return clip(idx >= 0 ? text.slice(idx) : text, max);
+  let body = idx >= 0 ? text.slice(idx) : text;
+  // Stop at the paragraph break: a harness appends its answer-format contract
+  // after the question, and letting that eat the clip budget leaves an entry
+  // that says nothing about what the turn was for.
+  const para = body.indexOf("\n\n");
+  if (para > 40) body = body.slice(0, para);
+  return clip(body, max);
+}
+
+/** Strip a harness's final-answer marker so the catalogue shows the value. */
+function stripAnswerMarker(text: string): string {
+  const m = /(?:\*\*\s*)?final answer:\s*/i.exec(text);
+  return m ? text.slice(m.index + m[0].length).replace(/\*\*\s*$/, "") : text;
 }
 
 /**
@@ -1881,6 +1920,10 @@ function serializeTaskBody(
           obs.push(`  result: ${foldFact}`);
           continue;
         }
+        // Structured layout: the verb line is this event's news; the dataflow
+        // rendered below carries the state. Emitting the result here too is the
+        // duplication that makes "which copy is current?" ambiguous.
+        if (options.thinObservations) continue;
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);
@@ -2030,6 +2073,207 @@ function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
   }
   if (blocks.length === 0) return undefined;
   return ["# Recalled State (your recallState pulls this turn)", "", ...blocks].join("\n").trimEnd();
+}
+
+/**
+ * STRUCTURED TURN LAYOUT — three sections, exactly one of which changes.
+ *
+ *   # Session Brief   the opening request, verbatim. Never changes.
+ *   # Catalog         one append-only entry per FINISHED turn: what was asked,
+ *                     which operators it added / revised / deleted, what was
+ *                     answered. Grows by one entry per turn; earlier entries are
+ *                     byte-identical forever.
+ *   # Current Turn    the only volatile section: the live task, the steps taken
+ *                     so far, the state recalled so far, and the dataflow as it
+ *                     stands right now.
+ *
+ * Why this order. The dataflow mutates on every operator write, so anything
+ * rendered BEHIND it is invalidated on every write; putting it last leaves
+ * nothing behind it. And the two stable sections form a prefix that only ever
+ * grows at its tail, which is the shape prompt caching rewards. (On the
+ * Responses-API route gpt-5.6 requires, only exact repeats cache today — so this
+ * is a structural property we want, not a saving we can bank yet.)
+ *
+ * Why the catalogue carries VERBS. "which turn changed this operator" is the
+ * question every rollback and counterfactual turn asks. With `+ added` /
+ * `~ revised` / `- deleted` in the catalogue it is readable; without it the
+ * model must spend a `recallState` call to find out.
+ */
+function renderStructuredTurn(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>
+): string {
+  const sections: string[] = [];
+  const prior = tasks.slice(0, -1);
+  const current = tasks.slice(-1);
+
+  // ---- 1. Session Brief -----------------------------------------------------
+  // The opening request is not history: it is where a long collaboration fixes
+  // its conventions (scales, rounding, tie-breaking, percentile rules), and those
+  // bind every later computation. Verbatim, because paraphrasing a convention is
+  // the same cascade failure the catalogue exists to prevent.
+  const briefStep = (prior[0] ?? current[0])?.nodes.find(n => n.step.role === "user");
+  const briefIsCurrent = prior.length === 0;
+  if (briefStep?.step.content && !briefIsCurrent) {
+    sections.push("# Session Brief (my first instructions — the conventions here bind every turn)");
+    sections.push("");
+    sections.push(briefStep.step.content);
+    sections.push("");
+  }
+
+  // ---- 2. Catalog -----------------------------------------------------------
+  if (prior.length > 0) {
+    sections.push(renderCatalog(prior, options, createFlagsByStep));
+    sections.push("");
+  }
+
+  // ---- 3. Current Turn ------------------------------------------------------
+  sections.push("# Current Turn");
+  sections.push("");
+
+  if (latestUserContent) {
+    sections.push("## Task");
+    sections.push("");
+    sections.push(latestUserContent);
+    sections.push("");
+  }
+
+  // ORDER INSIDE THIS SECTION: by how often each block changes, least first, and
+  // the one that only ever APPENDS goes last. A change anywhere shifts every byte
+  // behind it, so the cheapest layout puts the immutable task first, then the
+  // dataflow (changes when an operator is written), then recalled state (changes
+  // only when a pull happens), and the step log last (pure append). Measured on
+  // the first ordering (steps before dataflow): every step broke the shared
+  // prefix at the append point, ~45%. This ordering leaves a step that writes no
+  // operator — a recall step, an answer step — with the whole prefix intact.
+  const leaf = lastSnapshotOf(tasks);
+  if (leaf) {
+    const dag = serializeSnapshotFull(leaf, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 3);
+    if (dag) {
+      sections.push("## Dataflow (current state — this is what exists now)");
+      sections.push(dag);
+      sections.push("");
+    }
+    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
+    if (flow) {
+      sections.push(flow);
+      sections.push("");
+    }
+  }
+
+  // The pull blocks are subsections of this section, not top-level ones.
+  const nest = (block: string) => block.replace(/^# /, "## ").replace(/\n## /g, "\n### ");
+  if (options.recalledStateRendered) {
+    sections.push(nest(options.recalledStateRendered));
+    sections.push("");
+  }
+  if (options.inspectionsRendered) {
+    sections.push(nest(options.inspectionsRendered));
+    sections.push("");
+  }
+
+  // Append-only, therefore last. Observations are thinned to their verb lines
+  // because the dataflow above is the authoritative state.
+  const steps = renderAgentEvents(
+    current,
+    workflowState,
+    options,
+    initSnapshot,
+    latestUserStepId,
+    createFlagsByStep,
+    options.omitObservations === true
+  );
+  if (steps.trim().length > 0) {
+    sections.push("## Steps this turn");
+    sections.push("");
+    sections.push(steps);
+  }
+
+  return sections.join("\n").trimEnd();
+}
+
+/** `# Catalog` — one append-only entry per finished turn. */
+function renderCatalog(
+  prior: TaskGroup[],
+  options: AssembleContextOptions,
+  createFlagsByStep: Map<string, Map<string, boolean>>
+): string {
+  const detail = options.catalogDetail ?? "brief";
+  const lines: string[] = ["# Catalog (every finished turn, in order)", ""];
+  lines.push(
+    "Each entry is what I asked, how the dataflow changed, and what you answered. " +
+      "The full text, the code and the numbers behind any entry are one `recallState` " +
+      "call away — these turn numbers are the ones it expects."
+  );
+  lines.push("");
+
+  prior.forEach((task, i) => {
+    const turnNo = i + 1;
+    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
+    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
+
+    lines.push(`## Turn ${turnNo}`);
+    if (turnNo === 1) lines.push("Asked: (the Session Brief above, verbatim)");
+    else if (request) lines.push(`Asked: ${requestGist(request, 260)}`);
+
+    // Operator diff for the turn, in the order the turn touched them. The verb
+    // comes from the same create-vs-modify walk the event renderer uses, so
+    // "revised" here and "revised" there cannot disagree.
+    const verbs = new Map<string, string>();
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent") continue;
+      const flags = createFlagsByStep.get(node.step.id);
+      for (const call of node.step.toolCalls ?? []) {
+        const opId = (call.input as any)?.operatorId;
+        if (typeof opId !== "string") continue;
+        if (call.toolName === "deleteOperator") {
+          verbs.set(opId, "deleted");
+        } else if (call.toolName === "createOrModifyOperator" || call.toolName === "addOperator" || call.toolName === "modifyOperator") {
+          // First touch in the turn decides added-vs-revised; a later edit in the
+          // same turn does not demote an operator this turn introduced.
+          if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
+          else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
+        }
+      }
+    }
+    if (verbs.size > 0) {
+      const leaf = lastSnapshotOf([task]);
+      // A throwaway probe created and deleted inside the same turn never existed
+      // at the turn's end; listing it is noise the reader has to discount.
+      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
+      for (const [opId, verb] of verbs) {
+        if (verb === "deleted" && !survives.has(opId)) continue;
+        const mark = verb === "added" ? "+" : verb === "revised" ? "~" : "-";
+        if (detail === "ids" || verb === "deleted") {
+          lines.push(`  ${mark} ${opId}`);
+          continue;
+        }
+        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
+        // The write tool stores the model's `summary` as the operator's display
+        // name (code-op-tools.ts:849), not under operatorProperties.
+        const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
+        const info = leaf?.results.get(opId)?.info;
+        const shape =
+          info && Array.isArray(info.result) && info.result.length > 0
+            ? `${info.totalRowCount ?? info.result.length} rows x ${Object.keys(info.result[0]).length} cols`
+            : undefined;
+        const head = [summary ? clip(summary, 110) : undefined, shape].filter(Boolean).join(" — ");
+        lines.push(`  ${mark} ${opId}${head ? `: ${head}` : ""}`);
+        if (detail === "schema" && info && Array.isArray(info.result) && info.result.length > 0) {
+          lines.push(`      cols: ${Object.keys(info.result[0]).join(", ")}`);
+        }
+      }
+    }
+    if (answer) lines.push(`Answered: ${clip(stripAnswerMarker(answer), 260)}`);
+    lines.push("");
+  });
+
+  return lines.join("\n").trimEnd();
 }
 
 /** Inline render of an older user-role step inside `# Agent Events`.
