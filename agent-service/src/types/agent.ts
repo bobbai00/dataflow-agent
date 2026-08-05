@@ -379,6 +379,22 @@ export interface AgentSettings {
   indexRichCode: number;
   indexRichTables: number;
   /**
+   * How many recent turns' operators keep a full index entry (summary + schema).
+   * Anything idle longer, and not feeding the current turn, collapses to a bare
+   * header line — still named and recallable, but no longer re-sent in detail.
+   * The index would otherwise grow with every operator ever created (737 by turn
+   * 30 on one task, 360 KB of a 559 KB prompt).
+   */
+  indexRecentTurns: number;
+  /**
+   * Whether the step log drops each observation's result body, keeping only its
+   * `- operator X updated` verb line. True (default) relies on the dataflow
+   * render above being the authoritative state. Exposed because it is the leading
+   * suspect for the accuracy gap against the flat prototype: with it on, the last
+   * thing the model reads before answering is content-free verb lines.
+   */
+  indexThinObservations: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -470,6 +486,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableRecallTool: false,
   indexRichCode: 6,
   indexRichTables: 12,
+  indexRecentTurns: 3,
+  indexThinObservations: false,
 };
 
 /**

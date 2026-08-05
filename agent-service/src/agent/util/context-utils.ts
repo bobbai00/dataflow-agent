@@ -569,7 +569,7 @@ export function renderContextCore(
       // DELTA arm stays byte-identical. It supersedes the Session Brief / Prior
       // Turns block inside renderInterleaved, which index mode no longer reaches.
       if (options.turnHistoryIndex) {
-        options.thinObservations = true;
+        if (options.thinObservations !== false) options.thinObservations = true;
         content = renderStructuredTurn(
           tasks,
           workflowState,

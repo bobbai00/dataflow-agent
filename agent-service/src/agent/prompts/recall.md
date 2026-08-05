@@ -22,6 +22,19 @@ fetches it verbatim, and its output stays visible under `# Recalled State` for
 the rest of the turn — you never need to fetch the same thing twice. It never
 runs or changes anything.
 
+## Answering
+
+Read the numbers you need off the results already rendered to you, and write the
+answer yourself in your reply. If a value is cut off, pull it with
+`recallState(what='result', operatorId=..., maxRows=...)`.
+
+Do NOT build operators whose only purpose is to produce, serialize or reformat the
+answer — no operator that returns a JSON string in a cell, and no chain of
+`*_answer` / `*_json` / `*_extract_N` operators. Operators are for computing
+analytical results; the answer text is yours to write. A pipeline built to format
+an answer costs a step per operator, and its output still has to be read back out
+of a table, which is what it was trying to avoid.
+
 Recall before you re-derive. If the request refers back to earlier work — restore,
 roll back, "the original", "as before", "compare with the earlier", or it names a
 definition, filter, metric or threshold you set previously — fetch the exact

@@ -100,6 +100,30 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
+/** Turn index (0-based) in which each operator was last touched. */
+function lastTouchTurnByOperator(
+  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
+): { lastTouch: Map<string, number>; turnCount: number } {
+  const order: string[] = [];
+  const seen = new Set<string>();
+  for (const step of visibleSteps) {
+    if (!seen.has(step.messageId)) {
+      seen.add(step.messageId);
+      order.push(step.messageId);
+    }
+  }
+  const turnOf = new Map(order.map((id, i) => [id, i]));
+  const lastTouch = new Map<string, number>();
+  for (const step of visibleSteps) {
+    const turn = turnOf.get(step.messageId) ?? 0;
+    for (const call of step.toolCalls ?? []) {
+      const opId = call.input?.operatorId;
+      if (typeof opId === "string") lastTouch.set(opId, turn);
+    }
+  }
+  return { lastTouch, turnCount: order.length };
+}
+
 /** Operator ids touched by the turn in progress (the newest messageId group) —
  *  the ones that render RICH under the turn-history index while everything
  *  older renders as a one-line entry. */
@@ -194,6 +218,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       // Multi-turn: request placement (cache) + prior-turn catalogue (pull).
       userTaskPlacement: settings.userTaskPlacement,
       turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
+      thinObservations: settings.indexThinObservations !== false ? undefined : false,
       attemptReflection: settings.attemptReflection,
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
@@ -309,20 +334,52 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
             seenUp.add(src);
             upstream.push(src);
           }
-          // currentTurnOperatorIds returns touch order, so reversing puts the
-          // operator the turn is working on right now first.
-          const ranked = [...[...frontier].reverse(), ...upstream.reverse()];
+          // The turn's OWN work is never capped. Capping it by recency created a
+          // feedback loop: on a long turn the operators created earliest fell out
+          // of the rich set, so the model could not see what it had just built,
+          // rebuilt it, and grew the turn further — 33 operator writes on a turn
+          // that needs 3, with recalls for invented operator names.
+          // Recency ranking (most recent first) decides which of them show CODE,
+          // and the table budget applies to their UPSTREAMS only.
+          const recentFirst = [...frontier].reverse();
           const overrides: Record<string, object> = {};
-          ranked.forEach((id, rank) => {
-            // Values first: knowing an upstream table's numbers matters more often
-            // than knowing how it was produced. Code is the expensive half and is
-            // what the model can most cheaply recall on demand.
-            if (rank >= TABLE_CAP) return;
-            const withCode = rank < CODE_CAP;
-            overrides[id] = withCode
-              ? { property: { includeCode: true }, result: { latest: { detail: "sample" } } }
-              : { result: { latest: { detail: "sample" } } };
+          recentFirst.forEach((id, rank) => {
+            // A generous per-operator char budget on the turn's own work. The
+            // global 1k cap truncated exactly the results the answer is read
+            // from, and the model's workaround was a chain of reformatting
+            // operators (223 such calls in 20 netflix turns, against 44 for the
+            // baseline). Bytes here are cheap next to a step: every extra step
+            // re-sends the whole prompt.
+            const rich = { result: { latest: { detail: "sample", tuple: { maxChars: 4000 } } } };
+            overrides[id] = rank < CODE_CAP ? { property: { includeCode: true }, ...rich } : rich;
           });
+          // Upstream inputs get VALUES as the budget allows — knowing an input
+          // table's numbers matters more often than knowing how it was produced,
+          // and code is the half the model can cheapest recall on demand.
+          upstream.reverse().slice(0, Math.max(0, TABLE_CAP)).forEach(id => {
+            overrides[id] = { result: { latest: { detail: "sample" } } };
+          });
+          // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
+          // index lists every operator ever built: on my_uber_drivers the model
+          // had created 737 by turn 30, and their index entries alone were 360 KB
+          // of a 559 KB prompt. So operators idle for more than `indexRecentTurns`
+          // turns — and not feeding this turn's work — collapse to a bare header
+          // line. They stay named (the model can still recall them by id) but stop
+          // paying for a summary and a schema on every step.
+          const RECENT_TURNS = settings.indexRecentTurns ?? 3;
+          const { lastTouch, turnCount } = lastTouchTurnByOperator(visibleSteps);
+          const keepDetailed = new Set<string>([...frontier, ...upstream]);
+          for (const [opId, turn] of lastTouch) {
+            if (turnCount - 1 - turn < RECENT_TURNS) keepDetailed.add(opId);
+          }
+          for (const op of workflowState.getWorkflowContent().operators ?? []) {
+            const id = (op as any)?.operatorID;
+            if (typeof id !== "string" || keepDetailed.has(id) || overrides[id]) continue;
+            overrides[id] = {
+              property: { includeProperties: false },
+              result: { latest: { detail: "omit" } },
+            };
+          }
           params = applySummarizeParamsPatch(params, { operators: { overrides } });
         }
       }
@@ -703,6 +760,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           enableRecallTool: (settings as any).enableRecallTool,
           indexRichCode: (settings as any).indexRichCode,
           indexRichTables: (settings as any).indexRichTables,
+          indexRecentTurns: (settings as any).indexRecentTurns,
+          indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -771,6 +830,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       enableRecallTool: t.Optional(t.Boolean()),
       indexRichCode: t.Optional(t.Number()),
       indexRichTables: t.Optional(t.Number()),
+      indexRecentTurns: t.Optional(t.Number()),
+      indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),

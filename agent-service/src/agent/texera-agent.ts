@@ -909,6 +909,8 @@ export class TexeraAgent {
     enableRecallTool?: boolean;
     indexRichCode?: number;
     indexRichTables?: number;
+    indexRecentTurns?: number;
+    indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -1121,6 +1123,8 @@ export class TexeraAgent {
     }
     if (updates.indexRichCode !== undefined) this.settings.indexRichCode = updates.indexRichCode;
     if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
+    if (updates.indexRecentTurns !== undefined) this.settings.indexRecentTurns = updates.indexRecentTurns;
+    if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
       // the system prompt has to be rebuilt (same contract as inspect/compact).
