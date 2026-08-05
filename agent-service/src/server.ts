@@ -287,35 +287,42 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
         });
         const frontier = currentTurnOperatorIds(visibleSteps);
         if (frontier.length > 0) {
+          // Caps on the rich set. Without them a heavy turn promotes most of the
+          // DAG: 58 code blocks and 134 tables at water-potability turn 30, 139 KB
+          // of a 196 KB prompt. Most-recent-first, because the operators a turn
+          // touched last are the ones it is still working on.
+          const CODE_CAP = settings.indexRichCode ?? 6;
+          const TABLE_CAP = settings.indexRichTables ?? 12;
           // Value channel, lineage-graded. The binary touched-this-turn rule
           // starved the values that this turn's formulas CONSUME: on the NFL
           // task the model created per-row probe operators (weak_case_1..5)
           // just to read its own report, and every score drifted. So the
           // operators the frontier directly reads from render their samples
           // too — values but not code, which stays a recallState pull.
-          const upstream = new Set<string>();
+          const upstream: string[] = [];
+          const seenUp = new Set<string>();
           for (const link of workflowState.getWorkflowContent().links ?? []) {
             const src = link?.source?.operatorID;
             const dst = link?.target?.operatorID;
-            if (typeof src === "string" && typeof dst === "string" && frontier.includes(dst)) {
-              upstream.add(src);
-            }
+            if (typeof src !== "string" || typeof dst !== "string") continue;
+            if (!frontier.includes(dst) || frontier.includes(src) || seenUp.has(src)) continue;
+            seenUp.add(src);
+            upstream.push(src);
           }
+          // currentTurnOperatorIds returns touch order, so reversing puts the
+          // operator the turn is working on right now first.
+          const ranked = [...[...frontier].reverse(), ...upstream.reverse()];
           const overrides: Record<string, object> = {};
-          for (const id of upstream) {
-            if (frontier.includes(id)) continue;
-            // Code too, not just values: conventions live in implementations.
-            // NFL turn 2 re-implements turn 1's percentile helper wrongly even
-            // with the Session Brief pinned — the baseline model copies the
-            // helper from turn-1 code it can see; give the index the same out.
-            overrides[id] = { property: { includeCode: true }, result: { latest: { detail: "sample" } } };
-          }
-          for (const id of frontier) {
-            overrides[id] = {
-              property: { includeCode: true },
-              result: { latest: { detail: "sample" } },
-            };
-          }
+          ranked.forEach((id, rank) => {
+            // Values first: knowing an upstream table's numbers matters more often
+            // than knowing how it was produced. Code is the expensive half and is
+            // what the model can most cheaply recall on demand.
+            if (rank >= TABLE_CAP) return;
+            const withCode = rank < CODE_CAP;
+            overrides[id] = withCode
+              ? { property: { includeCode: true }, result: { latest: { detail: "sample" } } }
+              : { result: { latest: { detail: "sample" } } };
+          });
           params = applySummarizeParamsPatch(params, { operators: { overrides } });
         }
       }
@@ -694,6 +701,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           userTaskPlacement: (settings as any).userTaskPlacement,
           turnHistory: (settings as any).turnHistory,
           enableRecallTool: (settings as any).enableRecallTool,
+          indexRichCode: (settings as any).indexRichCode,
+          indexRichTables: (settings as any).indexRichTables,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -760,6 +769,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
       turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
       enableRecallTool: t.Optional(t.Boolean()),
+      indexRichCode: t.Optional(t.Number()),
+      indexRichTables: t.Optional(t.Number()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),

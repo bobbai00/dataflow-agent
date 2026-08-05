@@ -907,6 +907,8 @@ export class TexeraAgent {
     userTaskPlacement?: "top" | "bottom";
     turnHistory?: "full" | "index";
     enableRecallTool?: boolean;
+    indexRichCode?: number;
+    indexRichTables?: number;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -1117,6 +1119,8 @@ export class TexeraAgent {
       // Pure render-time: prior turns raw vs catalogued.
       this.settings.turnHistory = updates.turnHistory;
     }
+    if (updates.indexRichCode !== undefined) this.settings.indexRichCode = updates.indexRichCode;
+    if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
       // the system prompt has to be rebuilt (same contract as inspect/compact).
