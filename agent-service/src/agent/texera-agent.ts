@@ -947,7 +947,7 @@ export class TexeraAgent {
     turnHistory?: "full" | "index";
     enableRecallTool?: boolean;
     indexRichTables?: number;
-    indexRecentTurns?: number;
+    indexDetailedOperators?: number;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1160,7 +1160,8 @@ export class TexeraAgent {
       this.settings.turnHistory = updates.turnHistory;
     }
     if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
-    if (updates.indexRecentTurns !== undefined) this.settings.indexRecentTurns = updates.indexRecentTurns;
+    if (updates.indexDetailedOperators !== undefined)
+      this.settings.indexDetailedOperators = updates.indexDetailedOperators;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so

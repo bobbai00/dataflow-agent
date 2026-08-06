@@ -101,6 +101,34 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
 /** Latest user-role message content along the visible path — the task text the
  *  tuner reasons about. */
 /** Turn index (0-based) in which each operator was last touched. */
+/**
+ * Which operators keep a FULL index entry (summary + schema) this step.
+ *
+ * The turn's own work and its direct inputs are unconditional — a turn that
+ * cannot see what it is editing rebuilds it, which is how operator counts reach
+ * the hundreds in the first place. Everything else is admitted
+ * most-recently-touched first until `cap` is reached; the remainder collapses to
+ * a bare header line, still named and still one `recallState` call away.
+ *
+ * Exported because this policy is where the 2026-08-06 accuracy regression
+ * lived, and a policy that can only be observed through a live benchmark run is
+ * a policy that gets its next bug the same expensive way.
+ */
+export function selectDetailedOperators(
+  frontier: string[],
+  upstream: string[],
+  lastTouch: Map<string, number>,
+  cap: number
+): Set<string> {
+  const keep = new Set<string>([...frontier, ...upstream]);
+  const byRecency = [...lastTouch.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [opId] of byRecency) {
+    if (keep.size >= cap) break;
+    keep.add(opId);
+  }
+  return keep;
+}
+
 function lastTouchTurnByOperator(
   visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
 ): { lastTouch: Map<string, number>; turnCount: number } {
@@ -366,16 +394,39 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
           // index lists every operator ever built: on my_uber_drivers the model
           // had created 737 by turn 30, and their index entries alone were 360 KB
-          // of a 559 KB prompt. So operators idle for more than `indexRecentTurns`
-          // turns — and not feeding this turn's work — collapse to a bare header
-          // line. They stay named (the model can still recall them by id) but stop
-          // paying for a summary and a schema on every step.
-          const RECENT_TURNS = settings.indexRecentTurns ?? 3;
-          const { lastTouch, turnCount } = lastTouchTurnByOperator(visibleSteps);
-          const keepDetailed = new Set<string>([...frontier, ...upstream]);
-          for (const [opId, turn] of lastTouch) {
-            if (turnCount - 1 - turn < RECENT_TURNS) keepDetailed.add(opId);
-          }
+          // of a 559 KB prompt. So operators outside this turn's work collapse to
+          // a bare header line — still named and recallable, but no longer paying
+          // for a summary and a schema on every step.
+          //
+          // WHAT SURVIVES IS A COUNT, NOT AN AGE. This was "touched within
+          // `indexRecentTurns` turns", and a turn count is the wrong control
+          // variable because it says nothing about how much state that admits —
+          // which is what the prompt actually pays for. Measured 2026-08-06,
+          // same-era, deepseek-v4-pro judge:
+          //
+          //   recentTurns=3   passnyc (31 ops) STARVED — from turn 5 the model saw
+          //                   4 result tables out of ~23 live operators, and
+          //                   accuracy fell 63.3% -> 40.0% against baseline.
+          //   recentTurns=12  passnyc 76.7%, water-potability 47.2%, energy 25.0%
+          //                   (baselines 63.3 / 41.7 / 16.7) — but nfl (277 ops)
+          //                   and uber (381 ops) FLOODED: context 360-600 kB and
+          //                   turn after turn burning the whole 40-step budget to
+          //                   produce an empty answer.
+          //
+          // Same constant, opposite failures, because 12 turns of a 31-operator
+          // task and 12 turns of a 381-operator task are not the same amount of
+          // context. So: keep the turn's own work unconditionally, then admit the
+          // most-recently-touched operators until a COUNT budget is spent. Small
+          // DAGs keep everything (no starvation); large ones keep a bounded, most
+          // relevant slice (no flood). Index entries are near-uniform in size, so
+          // a count is a good proxy for bytes and is far cheaper to compute.
+          const { lastTouch } = lastTouchTurnByOperator(visibleSteps);
+          const keepDetailed = selectDetailedOperators(
+            frontier,
+            upstream,
+            lastTouch,
+            settings.indexDetailedOperators ?? 40
+          );
           for (const op of workflowState.getWorkflowContent().operators ?? []) {
             const id = (op as any)?.operatorID;
             if (typeof id !== "string" || keepDetailed.has(id) || overrides[id]) continue;
@@ -763,7 +814,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           turnHistory: (settings as any).turnHistory,
           enableRecallTool: (settings as any).enableRecallTool,
           indexRichTables: (settings as any).indexRichTables,
-          indexRecentTurns: (settings as any).indexRecentTurns,
+          indexDetailedOperators: (settings as any).indexDetailedOperators,
           indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -832,7 +883,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
       enableRecallTool: t.Optional(t.Boolean()),
       indexRichTables: t.Optional(t.Number()),
-      indexRecentTurns: t.Optional(t.Number()),
+      indexDetailedOperators: t.Optional(t.Number()),
       indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })

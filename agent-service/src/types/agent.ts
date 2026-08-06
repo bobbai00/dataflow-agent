@@ -379,13 +379,21 @@ export interface AgentSettings {
    */
   indexRichTables: number;
   /**
-   * How many recent turns' operators keep a full index entry (summary + schema).
-   * Anything idle longer, and not feeding the current turn, collapses to a bare
-   * header line — still named and recallable, but no longer re-sent in detail.
-   * The index would otherwise grow with every operator ever created (737 by turn
-   * 30 on one task, 360 KB of a 559 KB prompt).
+   * How many operators keep a full index entry (summary + schema), beyond the
+   * ones this turn is working on, which are never evicted. Admitted
+   * most-recently-touched first; the rest collapse to a bare header line —
+   * still named and recallable, but no longer re-sent in detail. The index
+   * would otherwise grow with every operator ever created (737 by turn 30 on
+   * one task, 360 KB of a 559 KB prompt).
+   *
+   * This is a COUNT and not an age. It replaced `indexRecentTurns`, which was
+   * the same constant for a 31-operator task and a 381-operator one and so
+   * failed in both directions at once: at 3 turns passnyc could see 4 result
+   * tables out of ~23 live operators (63.3% -> 40.0%), and at 12 turns nfl and
+   * uber flooded to 360-600 kB and spent whole 40-step budgets returning
+   * nothing. A count bounds what the prompt actually pays for.
    */
-  indexRecentTurns: number;
+  indexDetailedOperators: number;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -485,7 +493,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   turnHistory: "full",
   enableRecallTool: false,
   indexRichTables: 12,
-  indexRecentTurns: 3,
+  indexDetailedOperators: 40,
   indexThinObservations: false,
 };
 
