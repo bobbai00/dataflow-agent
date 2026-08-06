@@ -312,11 +312,15 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
         });
         const frontier = currentTurnOperatorIds(visibleSteps);
         if (frontier.length > 0) {
-          // Caps on the rich set. Without them a heavy turn promotes most of the
-          // DAG: 58 code blocks and 134 tables at water-potability turn 30, 139 KB
-          // of a 196 KB prompt. Most-recent-first, because the operators a turn
-          // touched last are the ones it is still working on.
-          const CODE_CAP = settings.indexRichCode ?? 6;
+          // Cap on the UPSTREAM value channel only. There is deliberately no cap
+          // on code: an operator this turn is working on renders its code in
+          // full, however many of them there are. A partial view of the turn's
+          // own code is worse than useless — the model cannot tell whether the
+          // definition it needs is absent or merely not shown, so it rebuilds
+          // what it already has, which grows the turn and the operator count
+          // together. If a turn genuinely touches enough operators for this to
+          // hurt, the bug is the operator sprawl, and it is to be diagnosed
+          // where it happens rather than hidden here.
           const TABLE_CAP = settings.indexRichTables ?? 12;
           // Value channel, lineage-graded. The binary touched-this-turn rule
           // starved the values that this turn's formulas CONSUME: on the NFL
@@ -334,24 +338,24 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
             seenUp.add(src);
             upstream.push(src);
           }
-          // The turn's OWN work is never capped. Capping it by recency created a
-          // feedback loop: on a long turn the operators created earliest fell out
-          // of the rich set, so the model could not see what it had just built,
-          // rebuilt it, and grew the turn further — 33 operator writes on a turn
-          // that needs 3, with recalls for invented operator names.
-          // Recency ranking (most recent first) decides which of them show CODE,
-          // and the table budget applies to their UPSTREAMS only.
-          const recentFirst = [...frontier].reverse();
+          // The turn's OWN work is never capped, on either axis. Capping it by
+          // recency created a feedback loop: on a long turn the operators created
+          // earliest fell out of the rich set, so the model could not see what it
+          // had just built, rebuilt it, and grew the turn further — 33 operator
+          // writes on a turn that needs 3, with recalls for invented operator
+          // names. The table budget applies to their UPSTREAMS only.
           const overrides: Record<string, object> = {};
-          recentFirst.forEach((id, rank) => {
+          frontier.forEach(id => {
             // A generous per-operator char budget on the turn's own work. The
             // global 1k cap truncated exactly the results the answer is read
             // from, and the model's workaround was a chain of reformatting
             // operators (223 such calls in 20 netflix turns, against 44 for the
             // baseline). Bytes here are cheap next to a step: every extra step
             // re-sends the whole prompt.
-            const rich = { result: { latest: { detail: "sample", tuple: { maxChars: 4000 } } } };
-            overrides[id] = rank < CODE_CAP ? { property: { includeCode: true }, ...rich } : rich;
+            overrides[id] = {
+              property: { includeCode: true },
+              result: { latest: { detail: "sample", tuple: { maxChars: 4000 } } },
+            };
           });
           // Upstream inputs get VALUES as the budget allows — knowing an input
           // table's numbers matters more often than knowing how it was produced,
@@ -758,7 +762,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           userTaskPlacement: (settings as any).userTaskPlacement,
           turnHistory: (settings as any).turnHistory,
           enableRecallTool: (settings as any).enableRecallTool,
-          indexRichCode: (settings as any).indexRichCode,
           indexRichTables: (settings as any).indexRichTables,
           indexRecentTurns: (settings as any).indexRecentTurns,
           indexThinObservations: (settings as any).indexThinObservations,
@@ -828,7 +831,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
       turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
       enableRecallTool: t.Optional(t.Boolean()),
-      indexRichCode: t.Optional(t.Number()),
       indexRichTables: t.Optional(t.Number()),
       indexRecentTurns: t.Optional(t.Number()),
       indexThinObservations: t.Optional(t.Boolean()),

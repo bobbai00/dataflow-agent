@@ -825,9 +825,8 @@ function renderPriorTurnsIndex(prior: TaskGroup[]): string {
   lines.push(
     `The ${isOne ? "" : `${prior.length} `}earlier turn${isOne ? "" : "s"} of this session ` +
       `${isOne ? "is" : "are"} catalogued below instead of replayed in full. Nothing is lost — use ` +
-      "`recallState` to fetch any of it verbatim (a turn's request or answer, an " +
-      "operator's code as of a turn, an operator's revision history, a result sample). " +
-      "Turn numbers here are the ones `recallState` expects."
+      "`recallState` with a turn number to fetch that turn verbatim, together with the code and " +
+      "results of the operators it changed. Turn numbers here are the ones `recallState` expects."
   );
   lines.push("");
 
@@ -849,11 +848,17 @@ function renderPriorTurnsIndex(prior: TaskGroup[]): string {
       }
     }
 
+    // Turn 1 is entry 1, rendered exactly like every other turn.
     lines.push(`## Turn ${turnNo}`);
-    if (turnNo === 1) lines.push("Request: (the Session Brief above, verbatim)");
-    else if (request) lines.push(`Request: ${requestGist(request, 260)}`);
+    if (request) {
+      lines.push("Request:");
+      lines.push(request.trim());
+    }
     if (touched.length > 0) lines.push(`Operators: ${touched.join(", ")}`);
-    if (answer) lines.push(`Answer: ${clip(answer, 260)}`);
+    if (answer) {
+      lines.push("Answer:");
+      lines.push(clip(answer.trim(), CATALOG_ANSWER_CHARS));
+    }
     lines.push("");
   });
 
@@ -1533,23 +1538,12 @@ function renderInterleaved(
   if (options.turnHistoryIndex && tasks.length > 1) {
     const prior = tasks.slice(0, -1);
     eventTasks = tasks.slice(-1);
-    // # Session Brief — the FIRST turn's request, verbatim and always visible.
-    // An opening request is not history: it is where a long collaboration sets
-    // its standing conventions, and those bind every later computation. On the
-    // NFL LongDS task the opening turn fixes the percentile convention
-    // (average-rank/n, lowest gets 1/n), rounding (unrounded until the end,
-    // report at 4 decimals) and tie-breaking; with the brief clipped to a
-    // catalogue line the model guessed a convention and every subsequent score
-    // drifted. Verbatim because paraphrasing a convention is the same cascade
-    // failure the catalogue exists to avoid. Also byte-stable across turns, so
-    // it sits harmlessly in the cacheable prefix.
-    const briefStep = prior[0]?.nodes.find(n => n.step.role === "user");
-    if (briefStep?.step.content) {
-      sections.push("# Session Brief (your first instructions — conventions here bind every turn)");
-      sections.push("");
-      sections.push(briefStep.step.content);
-      sections.push("");
-    }
+    // No `# Session Brief`: turn 1 is an ordinary entry in the index below. The
+    // opening request is the first message of one conversation, not a preamble
+    // of a different kind, and giving it its own verbatim section while every
+    // later turn was clipped taught the model that only turn 1's conventions
+    // bind. See renderStructuredTurn's header — index mode uses that renderer;
+    // this path stays for the legacy budgeted/compaction callers.
     const index = renderPriorTurnsIndex(prior);
     if (index) {
       sections.push(index);
@@ -2076,9 +2070,8 @@ function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
 }
 
 /**
- * STRUCTURED TURN LAYOUT — three sections, exactly one of which changes.
+ * STRUCTURED TURN LAYOUT — two sections, exactly one of which changes.
  *
- *   # Session Brief   the opening request, verbatim. Never changes.
  *   # Catalog         one append-only entry per FINISHED turn: what was asked,
  *                     which operators it added / revised / deleted, what was
  *                     answered. Grows by one entry per turn; earlier entries are
@@ -2086,6 +2079,16 @@ function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
  *   # Current Turn    the only volatile section: the live task, the steps taken
  *                     so far, the state recalled so far, and the dataflow as it
  *                     stands right now.
+ *
+ * EVERY TURN IS THE SAME KIND OF THING. An earlier version lifted turn 1 out of
+ * the catalogue into its own `# Session Brief` block, on the theory that an
+ * opening request is "conventions" rather than history. It is not a separate
+ * kind of object — it is the first message of one conversation — and privileging
+ * it cost twice: the model treated later convention-setting turns as ordinary
+ * (they were clipped to a 260-char gist while turn 1 was verbatim), and the same
+ * text existed in two places with two different renderings. The session prompt
+ * already explains how a multi-turn session works, so the context can open
+ * directly on the catalogue. Turn 1 is catalogue entry 1.
  *
  * Why this order. The dataflow mutates on every operator write, so anything
  * rendered BEHIND it is invalidated on every write; putting it last leaves
@@ -2112,27 +2115,13 @@ function renderStructuredTurn(
   const prior = tasks.slice(0, -1);
   const current = tasks.slice(-1);
 
-  // ---- 1. Session Brief -----------------------------------------------------
-  // The opening request is not history: it is where a long collaboration fixes
-  // its conventions (scales, rounding, tie-breaking, percentile rules), and those
-  // bind every later computation. Verbatim, because paraphrasing a convention is
-  // the same cascade failure the catalogue exists to prevent.
-  const briefStep = (prior[0] ?? current[0])?.nodes.find(n => n.step.role === "user");
-  const briefIsCurrent = prior.length === 0;
-  if (briefStep?.step.content && !briefIsCurrent) {
-    sections.push("# Session Brief (my first instructions — the conventions here bind every turn)");
-    sections.push("");
-    sections.push(briefStep.step.content);
-    sections.push("");
-  }
-
-  // ---- 2. Catalog -----------------------------------------------------------
+  // ---- 1. Catalog -----------------------------------------------------------
   if (prior.length > 0) {
     sections.push(renderCatalog(prior, options, createFlagsByStep));
     sections.push("");
   }
 
-  // ---- 3. Current Turn ------------------------------------------------------
+  // ---- 2. Current Turn ------------------------------------------------------
   sections.push("# Current Turn");
   sections.push("");
 
@@ -2197,7 +2186,29 @@ function renderStructuredTurn(
   return sections.join("\n").trimEnd();
 }
 
-/** `# Catalog` — one append-only entry per finished turn. */
+/** Catalogue clip budgets.
+ *
+ *  Requests are not clipped at all. They are the cheapest thing in the prompt
+ *  (measured over the 8 LongDS tasks: mean 624 characters, so ~30 kB for the
+ *  whole 42-turn NFL task against a 400 kB+ prompt) and they are the one thing
+ *  a paraphrase cannot substitute for — a turn that fixes a convention (a
+ *  percentile rule, a rounding rule, a tie-break) states it once, and a clipped
+ *  restatement is how the convention silently drifts.
+ *
+ *  Answers are clipped only as a guard against a reply that never emitted the
+ *  final-answer marker, in which case the whole prose response lands here. The
+ *  previous 260 truncated 73% of real answers (mean payload 752, p95 1844) —
+ *  which meant the catalogue was lying to the model about its own prior results
+ *  on three turns in four.
+ */
+const CATALOG_ANSWER_CHARS = 2400;
+
+/** `# Catalog` — one append-only entry per finished turn.
+ *
+ *  Turn 1 is entry 1, rendered exactly like every other: the session is one
+ *  conversation, and the opening request is its first message, not a preamble
+ *  of a different kind.
+ */
 function renderCatalog(
   prior: TaskGroup[],
   options: AssembleContextOptions,
@@ -2207,7 +2218,7 @@ function renderCatalog(
   const lines: string[] = ["# Catalog (every finished turn, in order)", ""];
   lines.push(
     "Each entry is what I asked, how the dataflow changed, and what you answered. " +
-      "The full text, the code and the numbers behind any entry are one `recallState` " +
+      "The code and the numbers behind any entry are one `recallState` " +
       "call away — these turn numbers are the ones it expects."
   );
   lines.push("");
@@ -2218,8 +2229,10 @@ function renderCatalog(
     const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
 
     lines.push(`## Turn ${turnNo}`);
-    if (turnNo === 1) lines.push("Asked: (the Session Brief above, verbatim)");
-    else if (request) lines.push(`Asked: ${requestGist(request, 260)}`);
+    if (request) {
+      lines.push("Asked:");
+      lines.push(request.trim());
+    }
 
     // Operator diff for the turn, in the order the turn touched them. The verb
     // comes from the same create-vs-modify walk the event renderer uses, so
@@ -2269,7 +2282,10 @@ function renderCatalog(
         }
       }
     }
-    if (answer) lines.push(`Answered: ${clip(stripAnswerMarker(answer), 260)}`);
+    if (answer) {
+      lines.push("Answered:");
+      lines.push(clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS));
+    }
     lines.push("");
   });
 

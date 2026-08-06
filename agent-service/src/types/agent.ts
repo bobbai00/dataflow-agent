@@ -370,13 +370,13 @@ export interface AgentSettings {
    */
   enableRecallTool: boolean;
   /**
-   * Turn-index caps: how many operators may render their CODE, and how many may
-   * render SAMPLE ROWS, ranked most-recently-touched first. Everything past the
-   * cap stays a one-line index entry and is a `recallState` call away. Without
-   * caps a heavy turn promotes most of the DAG back into the prompt (measured:
-   * 58 code blocks / 134 tables, 139 KB of a 196 KB prompt).
+   * How many UPSTREAM operators of the current turn's work may render sample
+   * rows, ranked most-recently-touched first; the rest stay a one-line index
+   * entry and are a `recallState` call away. There is no matching cap on code:
+   * the operators a turn is working on always render their code in full, because
+   * a partial view of the turn's own definitions makes the model rebuild what it
+   * already has.
    */
-  indexRichCode: number;
   indexRichTables: number;
   /**
    * How many recent turns' operators keep a full index entry (summary + schema).
@@ -484,7 +484,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   userTaskPlacement: "top",
   turnHistory: "full",
   enableRecallTool: false,
-  indexRichCode: 6,
   indexRichTables: 12,
   indexRecentTurns: 3,
   indexThinObservations: false,

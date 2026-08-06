@@ -96,7 +96,12 @@ import {
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
-import { createRecallStateTool, TOOL_NAME_RECALL_STATE, type RecalledTurn } from "./tools/recall-state-tool";
+import {
+  createRecallStateTool,
+  TOOL_NAME_RECALL_STATE,
+  type RecalledTurn,
+  type RecallVerb,
+} from "./tools/recall-state-tool";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -565,7 +570,6 @@ export class TexeraAgent {
         // The messageId of the turn in progress: one user request per messageId,
         // so this is what resets the per-turn recall budget.
         getCurrentTurnKey: () => this.currentMessageId ?? "",
-        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
         workflowState: this.workflowState,
       });
     }
@@ -698,7 +702,16 @@ export class TexeraAgent {
    * pure waste.
    *
    * Each turn carries the workflow snapshot recorded at its final step, which is
-   * what makes "the code of operator X as of turn 12" answerable.
+   * what makes "the code of operator X as of turn 12" answerable, plus that
+   * snapshot's materialized results, which makes "and what did it compute then"
+   * answerable without reaching forward to HEAD (where the operator may since
+   * have been revised — reading today's numbers for an earlier turn's question
+   * is precisely the cascade error this tool exists to prevent).
+   *
+   * The per-operator VERB comes from diffing consecutive turn snapshots, so the
+   * "delta set" the tool reports is the real one: an id the turn wrote but left
+   * byte-identical still lists (the turn did work on it), while added / revised /
+   * deleted is decided by what actually changed in the DAG.
    */
   private buildTurnLog(): RecalledTurn[] {
     // Drop the synthetic `initialize` bootstrap step exactly as the renderer's
@@ -721,6 +734,16 @@ export class TexeraAgent {
     // Drop the in-progress turn.
     const prior = groups.slice(0, -1);
 
+    // The snapshot that ends each turn, resolved once so turn i can be diffed
+    // against turn i-1. `undefined` when the turn wrote nothing at all.
+    const endStepIdOf = (steps: ReActStep[]): string | undefined => {
+      for (const step of [...steps].reverse()) {
+        if (this.snapshotStorage.hasSnapshotFor(step.id)) return step.id;
+      }
+      return undefined;
+    };
+    const endStepIds = prior.map(endStepIdOf);
+
     return prior.map((steps, i) => {
       const request = steps.find(s => s.role === "user")?.content ?? "";
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
@@ -734,16 +757,32 @@ export class TexeraAgent {
           operators.push(opId);
         }
       }
+
       // Prefer the snapshot at the step that ended the turn; fall back to the
-      // newest snapshot-bearing step in the group.
-      let workflow;
-      for (const step of [...steps].reverse()) {
-        if (this.snapshotStorage.hasSnapshotFor(step.id)) {
-          workflow = this.snapshotStorage.getWorkflow(step.id);
+      // newest snapshot-bearing step in the group. A turn that wrote nothing
+      // inherits the previous turn's state, so walk back for its baseline too.
+      const endId = endStepIds[i];
+      const workflow = endId ? this.snapshotStorage.getWorkflow(endId) : undefined;
+      const results = endId ? this.snapshotStorage.getAllVisibleResults(endId) : undefined;
+
+      let beforeId: string | undefined;
+      for (let j = i - 1; j >= 0; j--) {
+        if (endStepIds[j]) {
+          beforeId = endStepIds[j];
           break;
         }
       }
-      return { turn: i + 1, request, answer: endStep?.content, operators, workflow };
+      const before = new Set(
+        (beforeId ? this.snapshotStorage.getWorkflow(beforeId).operators : []).map(o => o.operatorID)
+      );
+      const after = new Set((workflow?.operators ?? []).map(o => o.operatorID));
+      const verbs = new Map<string, RecallVerb>();
+      for (const opId of operators) {
+        if (!after.has(opId)) verbs.set(opId, "deleted");
+        else verbs.set(opId, before.has(opId) ? "revised" : "added");
+      }
+
+      return { turn: i + 1, request, answer: endStep?.content, operators, verbs, workflow, results };
     });
   }
 
@@ -907,7 +946,6 @@ export class TexeraAgent {
     userTaskPlacement?: "top" | "bottom";
     turnHistory?: "full" | "index";
     enableRecallTool?: boolean;
-    indexRichCode?: number;
     indexRichTables?: number;
     indexRecentTurns?: number;
     indexThinObservations?: boolean;
@@ -1121,7 +1159,6 @@ export class TexeraAgent {
       // Pure render-time: prior turns raw vs catalogued.
       this.settings.turnHistory = updates.turnHistory;
     }
-    if (updates.indexRichCode !== undefined) this.settings.indexRichCode = updates.indexRichCode;
     if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
     if (updates.indexRecentTurns !== undefined) this.settings.indexRecentTurns = updates.indexRecentTurns;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
