@@ -175,7 +175,9 @@ describe("# Catalog", () => {
     const text = render(scenario);
     const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
     expect(t1).toContain("later revised in turn 2");
-    expect(t1).toContain("resume from turn 1 for this version");
+    // Worded for recallState, which every index arm has — never for a tool the
+    // arm might lack.
+    expect(t1).toContain("recallState(turn: 1) has this version");
     // Turn 2 owns the current version, so it carries no such marker.
     const t2 = text.slice(text.indexOf("## Turn 2"), text.indexOf("# Current Turn"));
     expect(t2).not.toContain("later revised");

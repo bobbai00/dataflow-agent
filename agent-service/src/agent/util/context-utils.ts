@@ -2320,9 +2320,12 @@ function renderCatalog(
             : undefined;
         const head = [summary ? clip(summary, 110) : undefined, shape].filter(Boolean).join(" — ");
         const later = (revisedLater.get(opId) ?? []).filter(t => t > turnNo);
+        // Worded for the tool every index arm has: recallState. An arm without
+        // resumeFrom must never be pointed at it — a marker naming a missing
+        // tool is the same shape of trap as the resumeFrom turn-1 error loop.
         const changed =
           later.length > 0
-            ? `  [later revised in turn ${later.join(", ")} — resume from turn ${turnNo} for this version]`
+            ? `  [later revised in turn ${later.join(", ")} — recallState(turn: ${turnNo}) has this version]`
             : "";
         lines.push(`  ${mark} ${opId}${head ? `: ${head}` : ""}${changed}`);
         if (detail === "schema" && info && Array.isArray(info.result) && info.result.length > 0) {
