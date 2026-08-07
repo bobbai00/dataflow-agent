@@ -38,6 +38,13 @@ export interface ContextAssemblerInput {
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
   compilationResult: WorkflowCompilationResponse | null;
+  /** GLOBAL turn number per messageId (ask order over the whole session). The
+   *  branch is shorter than the session once a turn resumes from an earlier
+   *  one, so the renderer cannot derive these from `visibleSteps`. */
+  turnNumberByMessageId?: Map<string, number>;
+  /** Turns that exist but are not ancestors of HEAD — still listed, still
+   *  resumable. Empty for a session that never resumed. */
+  offBranchTurns?: Array<{ turn: number; request: string; answer?: string; operators: string[] }>;
 }
 
 /**

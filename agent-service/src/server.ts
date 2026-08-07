@@ -222,6 +222,8 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     snapshotStorage,
     settings,
     compilationResult,
+    turnNumberByMessageId,
+    offBranchTurns,
   }) => {
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
@@ -257,6 +259,10 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       // Write-time render prefs (DELTA event scoping; LATEST goes via overlay).
       renderPrefsEnabled: settings.enableRenderPrefs ? true : undefined,
       summarizePatch: settings.summarizeParams,
+      // Version-tree navigation: global turn numbers, and the turns a resume
+      // has branched away from (both empty on a single-branch session).
+      turnNumberByMessageId,
+      offBranchTurns,
     };
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
@@ -420,13 +426,17 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           // DAGs keep everything (no starvation); large ones keep a bounded, most
           // relevant slice (no flood). Index entries are near-uniform in size, so
           // a count is a good proxy for bytes and is far cheaper to compute.
+          // `indexDetailedOperators: 0` = no cap, which is the current default
+          // while `resumeFrom` is being evaluated on its own: resuming to an
+          // earlier base already bounds the DAG (measured 20-40% smaller mean,
+          // 30-50% smaller peak), and stacking the two would make it impossible
+          // to attribute a result to either.
           const { lastTouch } = lastTouchTurnByOperator(visibleSteps);
-          const keepDetailed = selectDetailedOperators(
-            frontier,
-            upstream,
-            lastTouch,
-            settings.indexDetailedOperators ?? 40
-          );
+          const cap = settings.indexDetailedOperators ?? 0;
+          const keepDetailed =
+            cap > 0
+              ? selectDetailedOperators(frontier, upstream, lastTouch, cap)
+              : new Set<string>([...frontier, ...upstream, ...lastTouch.keys()]);
           for (const op of workflowState.getWorkflowContent().operators ?? []) {
             const id = (op as any)?.operatorID;
             if (typeof id !== "string" || keepDetailed.has(id) || overrides[id]) continue;
@@ -815,6 +825,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           enableRecallTool: (settings as any).enableRecallTool,
           indexRichTables: (settings as any).indexRichTables,
           indexDetailedOperators: (settings as any).indexDetailedOperators,
+          enableResumeTool: (settings as any).enableResumeTool,
           indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -884,6 +895,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       enableRecallTool: t.Optional(t.Boolean()),
       indexRichTables: t.Optional(t.Number()),
       indexDetailedOperators: t.Optional(t.Number()),
+      enableResumeTool: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })

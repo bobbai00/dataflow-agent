@@ -395,6 +395,12 @@ export interface AgentSettings {
    */
   indexDetailedOperators: number;
   /**
+   * Expose `resumeFrom(turn)`: the model names the turn it builds on and the
+   * dataflow becomes that turn's state, instead of a recency rule choosing.
+   * Off by default — control arms keep a byte-identical prompt and tool set.
+   */
+  enableResumeTool: boolean;
+  /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
    * render above being the authoritative state. Exposed because it is the leading
@@ -493,7 +499,11 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   turnHistory: "full",
   enableRecallTool: false,
   indexRichTables: 12,
-  indexDetailedOperators: 40,
+  // 0 = no cap. The count cap is off while the version-tree model is being
+  // evaluated: resumeFrom bounds the DAG by choosing an earlier base, and the
+  // two mechanisms need measuring apart before they are stacked.
+  indexDetailedOperators: 0,
+  enableResumeTool: false,
   indexThinObservations: false,
 };
 

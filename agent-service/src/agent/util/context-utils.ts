@@ -92,6 +92,18 @@ export interface AssembleContextOptions {
    *  Capped by design: a full snapshot per turn is O(turns x operators), which
    *  was the $12.39 NFL blowup (323 operators re-rendered every step). */
   catalogDetail?: "ids" | "brief" | "schema";
+  /** GLOBAL turn number per messageId — the order turns were asked in over the
+   *  whole session, which is NOT the position on the current branch once a turn
+   *  has resumed from an earlier one. The catalogue must number by this, or
+   *  "Turn 5" in the prompt stops meaning turn 5 to `resumeFrom` /
+   *  `recallState`. Absent ⇒ fall back to branch position (single-branch
+   *  sessions, where the two agree). */
+  turnNumberByMessageId?: Map<string, number>;
+  /** Every turn of the session, including ones that are NOT on the current
+   *  branch, so the model can still see — and resume to — a turn it has
+   *  branched away from. Without this the catalogue shrinks after each resume
+   *  and the version tree becomes unnavigable. */
+  offBranchTurns?: Array<{ turn: number; request: string; answer?: string; operators: string[] }>;
   /** LATEST only: when true, render the full Thought/Action/Observation
    *  trajectory as a `# Agent Turns` section (delta-style) on top of the
    *  latest-state core — the same per-event serializer DELTA uses. The block is
@@ -2219,12 +2231,16 @@ function renderCatalog(
   lines.push(
     "Each entry is what I asked, how the dataflow changed, and what you answered. " +
       "The code and the numbers behind any entry are one `recallState` " +
-      "call away — these turn numbers are the ones it expects."
+      "call away, and any turn can be resumed from — these turn numbers are the " +
+      "ones both tools expect."
   );
   lines.push("");
 
   prior.forEach((task, i) => {
-    const turnNo = i + 1;
+    // Global turn number where the agent supplied one. Branch position (i + 1)
+    // is only correct for a session that never resumed.
+    const msgId = task.nodes[0]?.step.messageId;
+    const turnNo = (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? i + 1;
     const request = task.nodes.find(n => n.step.role === "user")?.step.content;
     const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
 
@@ -2288,6 +2304,32 @@ function renderCatalog(
     }
     lines.push("");
   });
+
+  // Turns that are no longer on this branch. They still happened, they are
+  // still resumable, and dropping them would make the version tree one-way:
+  // once you resume to turn 8, turns 9..20 would vanish and never come back.
+  const shown = new Set(
+    prior.map((t, i) => {
+      const m = t.nodes[0]?.step.messageId;
+      return (m ? options.turnNumberByMessageId?.get(m) : undefined) ?? i + 1;
+    })
+  );
+  const off = (options.offBranchTurns ?? []).filter(t => !shown.has(t.turn)).sort((a, b) => a.turn - b.turn);
+  if (off.length > 0) {
+    lines.push("## Turns not on your current branch");
+    lines.push(
+      "You resumed from an earlier turn, so these are not part of the dataflow you " +
+        "have now. They still exist and you can resume from any of them."
+    );
+    lines.push("");
+    for (const t of off) {
+      lines.push(`### Turn ${t.turn}`);
+      if (t.request) lines.push(`Asked: ${requestGist(t.request, 300)}`);
+      if (t.operators.length > 0) lines.push(`Operators: ${t.operators.join(", ")}`);
+      if (t.answer) lines.push(`Answered: ${clip(stripAnswerMarker(t.answer).trim(), 300)}`);
+      lines.push("");
+    }
+  }
 
   return lines.join("\n").trimEnd();
 }

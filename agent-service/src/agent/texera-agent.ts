@@ -102,6 +102,11 @@ import {
   type RecalledTurn,
   type RecallVerb,
 } from "./tools/recall-state-tool";
+import {
+  createResumeFromTool,
+  TOOL_NAME_RESUME_FROM,
+  WRITE_TOOL_NAMES,
+} from "./tools/resume-from-tool";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -574,6 +579,17 @@ export class TexeraAgent {
       });
     }
 
+    // Opt-in version-tree navigation: the model names the turn it builds on,
+    // instead of a recency heuristic choosing for it. Pairs with recallState —
+    // resumeFrom MOVES, recallState READS.
+    if (this.settings.enableResumeTool) {
+      tools[TOOL_NAME_RESUME_FROM] = createResumeFromTool({
+        resumeToTurn: (turn: number) => this.resumeToTurn(turn),
+        turnCount: () => this.turnOrder().length,
+        getCurrentTurnKey: () => this.currentMessageId ?? "",
+      });
+    }
+
     // When parallel tool calls are enabled the model can emit N tool calls in
     // one assistant turn; wrap each tool's `execute` so all calls in that
     // turn land in one batch and run sequentially in dependency order. With
@@ -713,6 +729,163 @@ export class TexeraAgent {
    * byte-identical still lists (the turn did work on it), while added / revised /
    * deleted is decided by what actually changed in the DAG.
    */
+  /**
+   * GLOBAL turn order: the messageIds of every turn ever asked, in the order
+   * they were asked, with the synthetic `initialize` bootstrap excluded.
+   *
+   * Numbering must not depend on the current branch. Once a turn resumes from
+   * an earlier one, the ancestor path is SHORTER than the session — turns on
+   * abandoned branches are no longer ancestors of HEAD — so numbering by path
+   * position would renumber everything, and "Turn 5" in the catalogue would
+   * stop meaning turn 5 to `resumeFrom` / `recallState`. `stepsById` is a Map,
+   * so its insertion order is creation order, which is exactly the ask order.
+   */
+  turnOrder(): string[] {
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const step of this.stepsById.values()) {
+      if (TexeraAgent.isInitializationStep(step)) continue;
+      if (seen.has(step.messageId)) continue;
+      seen.add(step.messageId);
+      order.push(step.messageId);
+    }
+    return order;
+  }
+
+  /** 1-based global turn number for a messageId, or undefined if unknown. */
+  turnNumberOf(messageId: string): number | undefined {
+    const i = this.turnOrder().indexOf(messageId);
+    return i < 0 ? undefined : i + 1;
+  }
+
+  /** messageId -> global turn number, for the renderer. */
+  turnNumberMap(): Map<string, number> {
+    const m = new Map<string, number>();
+    this.turnOrder().forEach((id, i) => m.set(id, i + 1));
+    return m;
+  }
+
+  /**
+   * Turns that happened but are NOT ancestors of HEAD — the branches left
+   * behind by a `resumeFrom`. They stay in the catalogue so the version tree
+   * is navigable in both directions; without them, resuming to turn 8 would
+   * hide turns 9..20 permanently.
+   */
+  offBranchTurns(
+    visibleSteps: ReActStep[]
+  ): Array<{ turn: number; request: string; answer?: string; operators: string[] }> {
+    const onBranch = new Set(visibleSteps.map(s => s.messageId));
+    const out: Array<{ turn: number; request: string; answer?: string; operators: string[] }> = [];
+    this.turnOrder().forEach((msgId, i) => {
+      if (onBranch.has(msgId)) return;
+      const steps = this.reActStepsByMessageId.get(msgId) ?? [];
+      const operators: string[] = [];
+      for (const step of steps) {
+        for (const call of step.toolCalls ?? []) {
+          const opId = (call.input as any)?.operatorId;
+          if (typeof opId === "string" && !operators.includes(opId)) operators.push(opId);
+        }
+      }
+      out.push({
+        turn: i + 1,
+        request: steps.find(s => s.role === "user")?.content ?? "",
+        answer: [...steps].reverse().find(s => s.role === "agent" && s.isEnd)?.content,
+        operators,
+      });
+    });
+    return out;
+  }
+
+  /**
+   * Move this turn's base to the end of an earlier turn (see resume-from-tool).
+   *
+   * The move is a RE-PARENT of the current turn's user step, not a mutation of
+   * history: the turn being left keeps all of its steps, and the snapshot
+   * storage resolves state through a live ancestor-path callback, so changing
+   * one parent link is enough to change which workflow and which results the
+   * renderer sees. Nothing is copied and nothing is deleted.
+   */
+  resumeToTurn(turn: number): { ok: boolean; message: string } {
+    const order = this.turnOrder();
+    const currentMsg = this.currentMessageId;
+    if (!currentMsg) return { ok: false, message: "No turn is in progress." };
+    const completed = order.filter(m => m !== currentMsg);
+
+    // THE FIRST TURN HAS NOTHING TO RESUME FROM, and this must not be an error.
+    // The prompt tells the model to resume before building, so on turn 1 it
+    // dutifully calls `resumeFrom(1)` — and an error there is a rejection with
+    // no alternative action, which the model answers by retrying verbatim.
+    // Measured: 35 identical failing calls on nfl turn 1, the whole 40-step
+    // budget spent, no answer. Same shape as the recall loops before it. So
+    // this succeeds and says what to do instead.
+    if (completed.length === 0) {
+      return {
+        ok: true,
+        message:
+          "This is the first turn of the session, so there is no earlier state to resume from — " +
+          "you are starting from an empty dataflow, which is correct. Build what the request needs. " +
+          "Do not call resumeFrom again this turn.",
+      };
+    }
+
+    const noRetry = " Do not call resumeFrom again this turn — pick a valid turn or proceed with the base you have.";
+    if (turn < 1 || turn > order.length) {
+      return {
+        ok: false,
+        message: `Turn ${turn} does not exist. Earlier turns are 1..${completed.length}.` + noRetry,
+      };
+    }
+    const targetMsg = order[turn - 1];
+    if (targetMsg === currentMsg) {
+      return {
+        ok: false,
+        message:
+          `Turn ${turn} is the turn you are on. Earlier turns are 1..${completed.length}; ` +
+          `to continue from where the last turn left off, resume from ${completed.length}.` +
+          noRetry,
+      };
+    }
+
+    // The uncommitted-changes guard. Moving now would strand this turn's own
+    // operators on a branch that is no longer an ancestor of HEAD.
+    const mine = this.reActStepsByMessageId.get(currentMsg) ?? [];
+    const built: string[] = [];
+    for (const step of mine) {
+      for (const call of step.toolCalls ?? []) {
+        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
+        const opId = (call.input as any)?.operatorId;
+        if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
+      }
+    }
+    if (built.length > 0) {
+      return {
+        ok: false,
+        message:
+          `Cannot change base now: this turn already built ${built.join(", ")}. ` +
+          "Resuming would strand that work on an abandoned branch. Continue from the base you have, " +
+          "or use `recallState` to READ an earlier turn without moving to it.",
+      };
+    }
+
+    const group = this.reActStepsByMessageId.get(targetMsg) ?? [];
+    const baseStepId = group[group.length - 1]?.id;
+    if (!baseStepId) return { ok: false, message: `Turn ${turn} recorded no steps to resume from.` };
+
+    const userStep = mine.find(s => s.role === "user");
+    if (!userStep) return { ok: false, message: "This turn has no request step to re-parent." };
+    userStep.parentId = baseStepId;
+    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(baseStepId));
+
+    const ops = (this.snapshotStorage.getWorkflow(baseStepId).operators ?? []).length;
+    return {
+      ok: true,
+      message:
+        `Resumed from turn ${turn}. The dataflow is now that turn's state: ${ops} operator(s). ` +
+        "Everything you build now branches from there. Every turn is still listed in the `# Catalog` " +
+        "and still resumable.",
+    };
+  }
+
   private buildTurnLog(): RecalledTurn[] {
     // Drop the synthetic `initialize` bootstrap step exactly as the renderer's
     // buildPath does. Without this the tool numbers turns one higher than the
@@ -782,7 +955,12 @@ export class TexeraAgent {
         else verbs.set(opId, before.has(opId) ? "revised" : "added");
       }
 
-      return { turn: i + 1, request, answer: endStep?.content, operators, verbs, workflow, results };
+      // GLOBAL turn number, not the position on this branch. After a resume the
+      // branch is shorter than the session, so `i + 1` would renumber turns and
+      // `recallState(turn: 5)` would stop meaning the catalogue's "Turn 5".
+      const msgId = steps[0]?.messageId;
+      const turnNo = (msgId ? this.turnNumberOf(msgId) : undefined) ?? i + 1;
+      return { turn: turnNo, request, answer: endStep?.content, operators, verbs, workflow, results };
     });
   }
 
@@ -948,6 +1126,7 @@ export class TexeraAgent {
     enableRecallTool?: boolean;
     indexRichTables?: number;
     indexDetailedOperators?: number;
+    enableResumeTool?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1162,6 +1341,7 @@ export class TexeraAgent {
     if (updates.indexRichTables !== undefined) this.settings.indexRichTables = updates.indexRichTables;
     if (updates.indexDetailedOperators !== undefined)
       this.settings.indexDetailedOperators = updates.indexDetailedOperators;
+    if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
@@ -1345,6 +1525,8 @@ export class TexeraAgent {
             snapshotStorage: this.snapshotStorage,
             settings: this.settings,
             compilationResult,
+            turnNumberByMessageId: this.turnNumberMap(),
+            offBranchTurns: this.offBranchTurns(visibleSteps),
           });
           lastPreparedMessages = processed;
           const firstContent = processed[0]?.content;
@@ -1498,6 +1680,8 @@ export class TexeraAgent {
       snapshotStorage: this.snapshotStorage,
       settings: this.settings,
       compilationResult: null,
+      turnNumberByMessageId: this.turnNumberMap(),
+      offBranchTurns: this.offBranchTurns(visibleSteps),
     });
     // An async assembler (LLM tuner) can't be awaited in this sync preview —
     // return the content last rendered on the prepareStep path.

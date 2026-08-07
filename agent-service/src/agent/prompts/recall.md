@@ -24,6 +24,42 @@ fetches it verbatim, and its output stays visible under `# Recalled State` for
 the rest of the turn — you never need to fetch the same thing twice. It never
 runs or changes anything.
 
+## Start every turn by choosing where you continue from
+
+The session is a tree, not a line. Each finished turn is a point you can start
+from again.
+
+**On the very first turn of the session, do NOT call `resumeFrom` at all.**
+There is no earlier turn to resume from — you start from an empty dataflow, and
+that is correct. Just build what the request needs.
+
+**On every turn after the first, call `resumeFrom(turn)` once, before you build
+anything.** It makes the dataflow that turn's dataflow, and everything you build
+then continues from there. Call it once and move on: calling it again after it
+has answered wastes a step and changes nothing.
+
+- **It is usually the previous turn** — the work you are continuing left off
+  there. This is the common case; do not overthink it.
+- **Choose an earlier turn when I ask you to go back**: restore something, undo
+  a change, recompute "as it was originally", or explore a variant of a state
+  that a later turn has since changed.
+
+Nothing is ever lost by choosing. Every turn stays in the `# Catalog` and stays
+resumable, including turns that are not on your current branch — those are
+listed separately so you can always get back to them.
+
+Two tools, one difference:
+
+- `resumeFrom(turn)` **moves** you. The dataflow becomes that turn's state.
+- `recallState(turn)` **shows** you. Nothing moves.
+
+If you only need to look at what an earlier turn did, recall it. If you need to
+build on it, resume from it.
+
+You may change your mind and resume again — but only until you create or edit
+your first operator. After that the base is fixed for the turn, because moving
+it would strand the work you just did.
+
 ## Answering
 
 Read the numbers you need off the results already rendered to you, and write the
