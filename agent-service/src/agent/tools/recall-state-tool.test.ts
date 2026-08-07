@@ -130,24 +130,24 @@ describe("recallState — the caller chooses the verbosity", () => {
     expect(out).toContain("Result (as of turn 2):");
     expect(out).toContain("player");
     expect(out).not.toContain("player_7");
-    expect(out).toContain("table bodies omitted (includeResults=false)");
+    expect(out).toContain("table bodies omitted (includeOutputTableSample=0)");
   });
 
-  test("includeResults=false + includeCode=false is the cheapest possible pull", async () => {
+  test("sample=0 + includeCode=false is the cheapest possible pull", async () => {
     const out = await run(makeTool(), { turn: 2, includeCode: false });
     expect(out).not.toContain(CODE_PCT);
     expect(out).toContain("code omitted (includeCode=false)");
   });
 
-  test("includeResults=true renders rows, bounded by maxResultChars", async () => {
-    const wide = await run(makeTool(), { turn: 2, includeResults: true, maxResultChars: 4000 });
-    const narrow = await run(makeTool(), { turn: 2, includeResults: true, maxResultChars: 200 });
+  test("a non-zero sample budget renders rows, bounded by that budget", async () => {
+    const wide = await run(makeTool(), { turn: 2, includeOutputTableSample: 4000 });
+    const narrow = await run(makeTool(), { turn: 2, includeOutputTableSample: 200 });
     expect(wide).toContain("player_0");
     expect(narrow.length).toBeLessThan(wide.length);
   });
 
-  test("an oversized maxResultChars is clamped, and the model is told", async () => {
-    const out = await run(makeTool(), { turn: 2, includeResults: true, maxResultChars: 500000 });
+  test("an oversized sample budget is clamped, and the model is told", async () => {
+    const out = await run(makeTool(), { turn: 2, includeOutputTableSample: 500000 });
     expect(out).toContain(`clamped to ${RECALL_RESULT_CHARS_MAX}`);
     expect(out.length).toBeLessThan(RECALL_RESULT_CHARS_MAX * 3);
   });

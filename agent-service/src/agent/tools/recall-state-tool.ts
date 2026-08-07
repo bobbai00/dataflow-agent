@@ -99,15 +99,14 @@ export interface RecalledTurn {
  */
 export const RECALL_CALLS_PER_TURN = 10;
 
-/** Default and hard ceiling for `maxResultChars`, per operator.
+/** Hard ceiling for `includeOutputTableSample`, per operator.
  *
- *  The ceiling is enforced here, not asked for in the prompt. A recalled block
- *  is re-rendered into `# Recalled State` for every remaining step of the turn,
- *  so an over-wide pull is not paid once — it is paid per step until the turn
- *  ends. A model that asks for 100000 characters of a wide table would spend
- *  more on one recall than on the rest of the turn combined.
+ *  Enforced here, not asked for in the prompt. A recalled block is re-rendered
+ *  into `# Recalled State` for every remaining step of the turn, so an
+ *  over-wide pull is not paid once — it is paid per step until the turn ends.
+ *  A model that asks for 100000 characters of a wide table would spend more on
+ *  one recall than on the rest of the turn combined.
  */
-export const RECALL_RESULT_CHARS_DEFAULT = 1200;
 export const RECALL_RESULT_CHARS_MAX = 4000;
 
 export interface RecallStateDeps {
@@ -133,7 +132,7 @@ const VERB_MARK: Record<RecallVerb, string> = { added: "+", revised: "~", delete
 /**
  * Build the read-only `recallState` tool.
  *
- * One address (`turn`) and four render switches. The switches exist because the
+ * One address (`turn`) and three render switches. The switches exist because the
  * right amount of detail is question-dependent: "which formula did I use" wants
  * code and no tables, "what were the numbers" wants a sample and no code, and
  * "why does this column look wrong" wants the statistics. A fixed policy is
@@ -164,11 +163,10 @@ export function createRecallStateTool(deps: RecallStateDeps) {
       "\n" +
       "ASK FOR THE LEAST THAT ANSWERS YOUR QUESTION. Everything you pull is re-sent to the model on EVERY remaining " +
       "step of this turn, so an oversized pull is charged repeatedly, crowds out the live request, and slows the " +
-      "turn down. Defaults are lean on purpose. Turn on `includeResults` only when you need the numbers, " +
-      `\`includeStats\` only when a column's distribution or null count is the actual question, and leave ` +
-      `\`maxResultChars\` at its ${RECALL_RESULT_CHARS_DEFAULT} default — raise it only when a specific value you ` +
-      `need was visibly cut off, and never above ${RECALL_RESULT_CHARS_MAX} (values above that are clamped). If you ` +
-      "want a formula, ask for code alone and switch the results off.",
+      "turn down. Defaults are lean on purpose. Set `includeOutputTableSample` above 0 only when you need the " +
+      "actual numbers, and keep it small — raise it only when a specific value you need was visibly cut off. " +
+      "`includeOutputTableColumnStats` only when a column's distribution or null count is the actual question. " +
+      "If you want a formula, ask for code alone and leave the table sample at 0.",
     inputSchema: z.object({
       turn: z
         .number()
@@ -179,37 +177,30 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         .boolean()
         .optional()
         .describe("Show each changed operator's code as of that turn. Default true — this is usually the point."),
-      includeResults: z
-        .boolean()
-        .optional()
-        .describe(
-          "Show a sample of each changed operator's output table as of that turn. Default false. Turn on only " +
-            "when you need the actual numbers; row/column counts and the schema are shown either way."
-        ),
-      includeStats: z
-        .boolean()
-        .optional()
-        .describe(
-          "Append the per-column statistics profile (nulls, min/max/mean, distinct, top values) to each result. " +
-            "Default false. Expensive per column — only when a distribution or a null count is the question."
-        ),
-      maxResultChars: z
+      includeOutputTableSample: z
         .number()
         .int()
         .min(0)
         .optional()
         .describe(
-          `Character budget for EACH operator's sampled table when includeResults is on. Default ` +
-            `${RECALL_RESULT_CHARS_DEFAULT}, hard maximum ${RECALL_RESULT_CHARS_MAX} (higher values are clamped). ` +
-            "Keep it small: this output is re-sent on every remaining step of the turn."
+          "Characters of sample rows to show for EACH changed operator's output table, as of that turn. " +
+            `0 (default) = no sample rows — row/column counts and the schema show either way. Hard maximum ` +
+            `${RECALL_RESULT_CHARS_MAX}; higher values are clamped. Keep it small: recalled output is re-sent on ` +
+            "every remaining step of this turn."
+        ),
+      includeOutputTableColumnStats: z
+        .boolean()
+        .optional()
+        .describe(
+          "Per-column stats for each result: numeric → min/max/mean; string → distinct count + top values; " +
+            "datetime → range; all → null count. Default false — use when a distribution or null count is the question."
         ),
     }),
     execute: async (args: {
       turn: number;
       includeCode?: boolean;
-      includeResults?: boolean;
-      includeStats?: boolean;
-      maxResultChars?: number;
+      includeOutputTableSample?: number;
+      includeOutputTableColumnStats?: boolean;
     }) => {
       try {
         const turnKey = deps.getCurrentTurnKey?.() ?? "";
@@ -241,9 +232,14 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         }
 
         const includeCode = args.includeCode !== false;
-        const includeResults = args.includeResults === true;
-        const includeStats = args.includeStats === true;
-        const requestedChars = args.maxResultChars ?? RECALL_RESULT_CHARS_DEFAULT;
+        // One knob instead of two: 0 = shapes and schemas only, N > 0 = show up
+        // to N characters of sample rows per operator. The clamp is enforced
+        // here rather than trusted to the prompt — recalled output is re-sent
+        // on every remaining step of the turn, so an over-wide pull is charged
+        // per step, not once.
+        const requestedChars = args.includeOutputTableSample ?? 0;
+        const includeResults = requestedChars > 0;
+        const includeStats = args.includeOutputTableColumnStats === true;
         const maxResultChars = Math.min(requestedChars, RECALL_RESULT_CHARS_MAX);
 
         const out: string[] = [`# Turn ${t.turn}`, ""];
@@ -325,10 +321,11 @@ export function createRecallStateTool(deps: RecallStateDeps) {
 
         const notes: string[] = [];
         if (!includeCode) notes.push("code omitted (includeCode=false)");
-        if (!includeResults) notes.push("table bodies omitted (includeResults=false) — shapes and schemas shown");
+        if (!includeResults)
+          notes.push("table bodies omitted (includeOutputTableSample=0) — shapes and schemas shown");
         if (requestedChars > RECALL_RESULT_CHARS_MAX) {
           notes.push(
-            `maxResultChars ${requestedChars} clamped to ${RECALL_RESULT_CHARS_MAX} — ` +
+            `includeOutputTableSample ${requestedChars} clamped to ${RECALL_RESULT_CHARS_MAX} — ` +
               "recalled output is re-sent on every remaining step of this turn, so it is capped"
           );
         }

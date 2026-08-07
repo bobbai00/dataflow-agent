@@ -123,8 +123,8 @@ describe("telemetry rides along on recallState", () => {
     });
   }
 
-  test("a recalled version carries its lineage and its recorded dataloss — even shape-only", async () => {
-    const out: string = await (tool() as any).execute({ turn: 1, includeResults: false });
+  test("a recalled version carries its lineage and its recorded dataloss — even with sample=0", async () => {
+    const out: string = await (tool() as any).execute({ turn: 1 });
     expect(out).toContain("Lineage: 472 rows in");
     expect(out).toContain("nulled 5 of 40");
   });

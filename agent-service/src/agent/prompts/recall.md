@@ -91,15 +91,15 @@ question:
   the operators in play. Recall reaches for what is *gone*: an earlier version of
   a definition, or the numbers a turn produced before something downstream
   changed.
-- **Ask for code, not tables, when you want a formula.** `includeResults` is off
-  by default and should usually stay off; row counts, column counts and the
+- **Ask for code, not tables, when you want a formula.** `includeOutputTableSample`
+  is 0 by default and should usually stay 0; row counts, column counts and the
   schema come back either way, which is normally all the orientation you need.
-- **Keep `maxResultChars` small.** The default is right for reading a handful of
-  values. Raise it only when a specific number you need was visibly cut off, and
-  never to a large round number "to be safe" — a wide table at a large budget can
-  cost more than the rest of the turn.
-- **`includeStats` only when a distribution or a null count is the actual
-  question.** It is per-column and it is not cheap.
+- **When you do need the numbers, keep `includeOutputTableSample` small.** A
+  thousand characters reads a handful of values. Raise it only when a specific
+  number you need was visibly cut off, never to a large round number "to be
+  safe" — a wide table at a large budget can cost more than the rest of the turn.
+- **`includeOutputTableColumnStats` only when a distribution or a null count is
+  the actual question.** It is per-column and it is not cheap.
 
 ## Two habits that matter here
 
