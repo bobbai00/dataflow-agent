@@ -2236,6 +2236,33 @@ function renderCatalog(
   );
   lines.push("");
 
+  // Which LATER turns revised each operator. This is the anchor for "as it
+  // originally was": a request that wants the version before a change needs to
+  // resume from the turn BEFORE the revision, and without this marker the model
+  // has no way to see that a change ever happened — it would resume from the
+  // newest turn, get the revised version, and answer confidently wrong.
+  const revisedLater = new Map<string, number[]>();
+  prior.forEach((task, i) => {
+    const m = task.nodes[0]?.step.messageId;
+    const tn = (m ? options.turnNumberByMessageId?.get(m) : undefined) ?? i + 1;
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent") continue;
+      const flags = createFlagsByStep.get(node.step.id);
+      for (const call of node.step.toolCalls ?? []) {
+        const opId = (call.input as any)?.operatorId;
+        if (typeof opId !== "string") continue;
+        const isWrite =
+          call.toolName === "createOrModifyOperator" ||
+          call.toolName === "addOperator" ||
+          call.toolName === "modifyOperator";
+        if (!isWrite || flags?.get(opId) === true) continue; // creation is not a revision
+        const at = revisedLater.get(opId) ?? [];
+        if (!at.includes(tn)) at.push(tn);
+        revisedLater.set(opId, at);
+      }
+    }
+  });
+
   prior.forEach((task, i) => {
     // Global turn number where the agent supplied one. Branch position (i + 1)
     // is only correct for a session that never resumed.
@@ -2292,7 +2319,12 @@ function renderCatalog(
             ? `${info.totalRowCount ?? info.result.length} rows x ${Object.keys(info.result[0]).length} cols`
             : undefined;
         const head = [summary ? clip(summary, 110) : undefined, shape].filter(Boolean).join(" — ");
-        lines.push(`  ${mark} ${opId}${head ? `: ${head}` : ""}`);
+        const later = (revisedLater.get(opId) ?? []).filter(t => t > turnNo);
+        const changed =
+          later.length > 0
+            ? `  [later revised in turn ${later.join(", ")} — resume from turn ${turnNo} for this version]`
+            : "";
+        lines.push(`  ${mark} ${opId}${head ? `: ${head}` : ""}${changed}`);
         if (detail === "schema" && info && Array.isArray(info.result) && info.result.length > 0) {
           lines.push(`      cols: ${Object.keys(info.result[0]).join(", ")}`);
         }

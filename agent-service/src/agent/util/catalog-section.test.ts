@@ -136,6 +136,51 @@ describe("# Catalog", () => {
     expect(catalog).toContain("+ pct");
   });
 
+  test("an operator revised by a later turn is marked at the turn that owned the old version", () => {
+    // The anchor for "as it originally was". Without it the model cannot see
+    // that a change happened, so it resumes from the newest turn, gets the
+    // revised version, and answers confidently wrong.
+    const scenario = buildScenario([
+      { id: "u1", stepId: 0, role: "user", messageId: "m1", content: "set the threshold" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m1",
+        parentId: "u1",
+        content: "**Final Answer:** {}",
+        isEnd: true,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "threshold" } }],
+        toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
+      },
+      { id: "u2", stepId: 2, role: "user", messageId: "m2", parentId: "a1", content: "change the threshold" },
+      {
+        id: "a2",
+        stepId: 3,
+        role: "agent",
+        messageId: "m2",
+        parentId: "u2",
+        content: "**Final Answer:** {}",
+        isEnd: true,
+        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t2", input: { operatorId: "threshold" } }],
+        toolResults: [{ toolCallId: "t2", output: "ok", isError: false }],
+      },
+      { id: "u3", stepId: 4, role: "user", messageId: "m3", parentId: "a2", content: "use the ORIGINAL threshold" },
+    ]);
+    scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "threshold", type: "DataProcessing" }]));
+    scenario.storage.setOperatorResult("a1", "threshold", makeInfo(5));
+    scenario.storage.createSnapshot("a2", makeWorkflow([{ id: "threshold", type: "DataProcessing" }]));
+    scenario.storage.setOperatorResult("a2", "threshold", makeInfo(5));
+
+    const text = render(scenario);
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toContain("later revised in turn 2");
+    expect(t1).toContain("resume from turn 1 for this version");
+    // Turn 2 owns the current version, so it carries no such marker.
+    const t2 = text.slice(text.indexOf("## Turn 2"), text.indexOf("# Current Turn"));
+    expect(t2).not.toContain("later revised");
+  });
+
   test("the turn in progress is not catalogued — it is the Current Turn", () => {
     const text = render(twoTurns());
     const catalog = text.slice(text.indexOf("# Catalog"), text.indexOf("# Current Turn"));

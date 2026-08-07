@@ -35,18 +35,43 @@ that is correct. Just build what the request needs.
 
 **On every turn after the first, call `resumeFrom(turn)` once, before you build
 anything.** It makes the dataflow that turn's dataflow, and everything you build
-then continues from there. Call it once and move on: calling it again after it
-has answered wastes a step and changes nothing.
+then continues from there. Call it once and move on.
 
-- **It is usually the previous turn** — the work you are continuing left off
-  there. This is the common case; do not overthink it.
-- **Choose an earlier turn when I ask you to go back**: restore something, undo
-  a change, recompute "as it was originally", or explore a variant of a state
-  that a later turn has since changed.
+### How to pick the turn
 
-Nothing is ever lost by choosing. Every turn stays in the `# Catalog` and stays
-resumable, including turns that are not on your current branch — those are
-listed separately so you can always get back to them.
+Do not assume the last turn. Decide it, every time, by asking one question:
+
+> **Which earlier turn produced the state this request is about?**
+
+Read the `# Catalog` and find it. The request tells you, but usually by
+reference rather than by number — it names a quantity, a table, a definition, a
+filter or a result that some earlier turn established. Resume from **that** turn.
+
+Then check one thing before you commit to it:
+
+> **Has anything I need been changed since?**
+
+The catalogue marks operators that a later turn revised. If the request asks for
+something *as it was* — the original, the first, the one before the change, the
+version without some later adjustment — then the turn you want is the one
+**before** that revision, not the newest turn that happens to mention it.
+
+Worked through:
+
+- *"Now add a column for the 90th percentile."* — this continues the table you
+  just built. The state it is about is the newest one. Resume from the last turn.
+- *"Using the original potability threshold, recompute the class means."* — turn
+  4 set that threshold and turn 9 replaced it. The state this is about is turn 4's,
+  and turn 9 changed it. **Resume from turn 8**, the last turn that still had the
+  original — not from the newest turn.
+- *"What if we exclude the 2022 rows instead?"* — a variant of the state that
+  existed before the exclusion rule was added. Resume from the turn just before
+  that rule, then build the variant there.
+
+Going back is normal and costs nothing. Every turn stays in the `# Catalog` and
+stays resumable, including turns that are not on your current branch — those are
+listed separately so you can always get back to them. Resuming never deletes
+anything.
 
 Two tools, one difference:
 

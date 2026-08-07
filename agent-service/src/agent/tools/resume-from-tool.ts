@@ -98,11 +98,16 @@ export function createResumeFromTool(deps: ResumeFromDeps) {
       "Start this turn from the state as it stood at the end of an EARLIER turn. The dataflow becomes that turn's " +
       "dataflow, and everything you build now branches from there. Call this FIRST, before building anything.\n" +
       "\n" +
-      "WHICH TURN. Read the `# Catalog`. Most of the time the answer is simply the previous turn — that is where the " +
-      "work you are continuing left off. Choose an EARLIER turn when this request asks you to go back: to restore " +
-      "something, to undo a change, to recompute 'as it was originally', or to branch off a state that a later turn " +
-      "has since altered. Choosing a turn does not delete anything — every turn stays in the catalogue and stays " +
-      "resumable.\n" +
+      "WHICH TURN — decide, do not default. Ask: which earlier turn produced the state THIS request is about? The " +
+      "request usually names it indirectly — a quantity, a table, a definition, a filter or a result that some turn " +
+      "established. Find that turn in the `# Catalog` and resume from it.\n" +
+      "\n" +
+      "Then check whether what you need was CHANGED since. The catalogue marks operators a later turn revised. If the " +
+      "request wants something as it originally was — 'the original', 'the first', 'before the change', 'without the " +
+      "later adjustment' — resume from the turn BEFORE that revision. Resuming from the newest turn would hand you " +
+      "the revised version, which is the wrong state and produces a confidently wrong answer.\n" +
+      "\n" +
+      "Going back is normal and costs nothing: no turn is deleted, and every turn stays resumable.\n" +
       "\n" +
       "This MOVES you. To look at an earlier turn without moving to it, use `recallState` instead.\n" +
       "\n" +
