@@ -401,6 +401,13 @@ export interface AgentSettings {
    */
   enableResumeTool: boolean;
   /**
+   * Check that a final answer's substantive numbers trace to a materialized
+   * operator result or to state recalled this turn; on total failure, send one
+   * feedback round. Leverages the dataflow property that results are
+   * addressable tables — unverifiable in a plain transcript. Off by default.
+   */
+  enableAnswerGrounding: boolean;
+  /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
    * render above being the authoritative state. Exposed because it is the leading
@@ -504,6 +511,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // two mechanisms need measuring apart before they are stacked.
   indexDetailedOperators: 0,
   enableResumeTool: false,
+  enableAnswerGrounding: false,
   indexThinObservations: false,
 };
 

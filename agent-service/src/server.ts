@@ -826,6 +826,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           indexRichTables: (settings as any).indexRichTables,
           indexDetailedOperators: (settings as any).indexDetailedOperators,
           enableResumeTool: (settings as any).enableResumeTool,
+          enableAnswerGrounding: (settings as any).enableAnswerGrounding,
           indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -896,6 +897,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       indexRichTables: t.Optional(t.Number()),
       indexDetailedOperators: t.Optional(t.Number()),
       enableResumeTool: t.Optional(t.Boolean()),
+      enableAnswerGrounding: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })

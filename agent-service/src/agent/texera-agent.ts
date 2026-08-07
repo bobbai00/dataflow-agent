@@ -107,6 +107,14 @@ import {
   TOOL_NAME_RESUME_FROM,
   WRITE_TOOL_NAMES,
 } from "./tools/resume-from-tool";
+import {
+  GROUNDING_NUDGES_PER_TURN,
+  buildGroundingNudge,
+  extractSubstantiveNumbers,
+  finalAnswerPayload,
+  groundingReport,
+  shouldNudge,
+} from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import {
   executeWorkflowAndPersist,
@@ -478,7 +486,8 @@ export class TexeraAgent {
         this.settings.enableRenderPrefs === true,
         this.settings.enableCodeInSnapshot === true,
         this.settings.sourceProvenanceHint === true,
-        this.settings.enableRecallTool === true
+        this.settings.enableRecallTool === true,
+        this.settings.enableResumeTool === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1127,6 +1136,7 @@ export class TexeraAgent {
     indexRichTables?: number;
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
+    enableAnswerGrounding?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1342,6 +1352,8 @@ export class TexeraAgent {
     if (updates.indexDetailedOperators !== undefined)
       this.settings.indexDetailedOperators = updates.indexDetailedOperators;
     if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
+    if (updates.enableAnswerGrounding !== undefined)
+      this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
@@ -1497,8 +1509,8 @@ export class TexeraAgent {
       // Pass only the current user turn; prepareStep rebuilds full context each step
       // (historical interactions + DAG + this message).
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
-      const result = await this.driver.runTurn({
-        initialMessages: currentUserMessage,
+      const runDriverOnce = (seed: ModelMessage[]) => this.driver.runTurn({
+        initialMessages: seed,
         systemPrompt: this.systemPrompt,
         tools: this.tools,
         maxSteps: this.settings.maxSteps,
@@ -1588,6 +1600,54 @@ export class TexeraAgent {
           isFirstStep = false;
         },
       });
+
+      let result = await runDriverOnce(currentUserMessage);
+
+      // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
+      // materialized results or state recalled this turn — the property a
+      // dataflow makes checkable that a notebook transcript does not. On total
+      // failure, one feedback round: the nudge is recorded as a visible
+      // feedback step (so the re-rendered context carries it) and the driver
+      // runs once more. One round only — it either works or it will not.
+      if (this.settings.enableAnswerGrounding && result.text) {
+        for (let round = 0; round < GROUNDING_NUDGES_PER_TURN; round++) {
+          const payload = finalAnswerPayload(result.text);
+          if (!payload) break;
+          const numbers = extractSubstantiveNumbers(payload);
+          const pulls: string[] = [];
+          for (const step of this.reActStepsByMessageId.get(messageId) ?? []) {
+            for (const tr of step.toolResults ?? []) {
+              if (typeof tr.output === "string") pulls.push(tr.output);
+            }
+          }
+          const report = groundingReport(
+            numbers,
+            this.head ? this.snapshotStorage.getAllVisibleResults(this.head) : new Map(),
+            pulls
+          );
+          if (!shouldNudge(report)) break;
+          this.log.info(
+            { unmatched: report.unmatched.slice(0, 5), messageId },
+            "answer grounding failed; sending feedback round"
+          );
+          const nudge = buildGroundingNudge(report);
+          const nudgeStepId = this.generateStepId();
+          this.addStep({
+            id: nudgeStepId,
+            parentId: this.head,
+            messageId,
+            stepId: ++stepIndex,
+            timestamp: Date.now(),
+            role: "user",
+            content: nudge,
+            isBegin: false,
+            isEnd: true,
+            messageSource: "feedback",
+          });
+          this.head = nudgeStepId;
+          result = await runDriverOnce([{ role: "user", content: nudge }]);
+        }
+      }
 
       const msgSteps = this.reActStepsByMessageId.get(messageId);
       if (msgSteps && msgSteps.length > 0) {
