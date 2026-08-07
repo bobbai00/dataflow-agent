@@ -2171,7 +2171,15 @@ function renderStructuredTurn(
   }
 
   // The pull blocks are subsections of this section, not top-level ones.
-  const nest = (block: string) => block.replace(/^# /, "## ").replace(/\n## /g, "\n### ");
+  // Demote EVERY heading level inside the pulled blocks, deepest first so a
+  // line is only demoted once. The recall tool's own output opens with an H1
+  // (`# Turn 13`); demoting only the wrapper left that posing as a sibling of
+  // `# Catalog` / `# Current Turn` in the prompt's structure.
+  const nest = (block: string) =>
+    block
+      .replace(/\n## /g, "\n### ")
+      .replace(/\n# /g, "\n## ")
+      .replace(/^# /, "## ");
   if (options.recalledStateRendered) {
     sections.push(nest(options.recalledStateRendered));
     sections.push("");
