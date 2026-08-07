@@ -1137,6 +1137,8 @@ export class TexeraAgent {
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
     enableAnswerGrounding?: boolean;
+    coercionTelemetry?: boolean;
+    rowLineage?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1354,6 +1356,8 @@ export class TexeraAgent {
     if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
     if (updates.enableAnswerGrounding !== undefined)
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
+    if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
+    if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so

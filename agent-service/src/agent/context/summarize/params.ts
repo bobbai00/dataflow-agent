@@ -94,6 +94,8 @@ export const ColumnParamsSchema = z.object({
   fileIoFacts: z.boolean().default(true),
   /** Coercion-dataloss diagnostic (to_numeric/to_datetime NaN wipeouts). */
   coercionAlerts: z.boolean().default(false),
+  /** `Lineage:` rows-in/rows-out fact line from engine execution counts. */
+  lineage: z.boolean().default(false),
   /** Sample-based `Type anomaly:` line — a column loaded as TEXT whose values
    *  are mostly numeric, surfacing the contaminant tokens that forced the
    *  string dtype (the "str-typed but samples look like digits" signal). */
@@ -474,6 +476,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
               valueFormatHints: flag("valueFormatFlags"),
               structuralHints: flag("tableStructureHint"),
               coercionAlerts: flag("coercionTelemetry"),
+              lineage: flag("rowLineage"),
             },
           },
           history: { lastK: 0, render: { detail: "shape" } },

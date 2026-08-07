@@ -63,6 +63,13 @@ export interface FormatOperatorResultOptions {
    *  SAMPLE of the dropped values. Read from the reserved `__coercion_telemetry__`
    *  entry on columnStats (see coercion_telemetry.py). Alarm-only. Defaults to false. */
   coercionTelemetry?: boolean;
+  /** When true, append a `Lineage:` line — rows in vs rows out, from the
+   *  engine's own execution counts (`inputTuples`/`outputTuples`). A pure FACT
+   *  with no thresholds: silent row loss (a join dropping keys, a filter eating
+   *  more than intended) is visible at the step where it happens instead of
+   *  cascading. Only renders for operators that consumed rows, so loaders stay
+   *  clean. Defaults to false. */
+  rowLineage?: boolean;
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
@@ -278,6 +285,7 @@ export function formatOperatorResult(
       : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
+  const lineageLine = options.rowLineage ? formatRowLineage(opInfo) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
   // The worker's line already reads "files read: N [names]", so it is its own
   // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
@@ -299,6 +307,7 @@ export function formatOperatorResult(
     ...metadataLines,
     dataString,
     schemaLine,
+    lineageLine,
     colStatsBlock,
     formatHints,
     coercionLine,
@@ -310,6 +319,29 @@ export function formatOperatorResult(
     .join("\n");
 }
 
+
+
+/**
+ * `Lineage:` — rows consumed vs rows produced, from the engine's execution
+ * counts. Deliberately a fact and not an alarm: any threshold would need
+ * tuning, and the number is short enough to state every time. The reader the
+ * fact exists for is the turn that just ran a join and silently lost rows —
+ * measured: one inner join keeping 462 of 472 rows cost thirteen downstream
+ * turns before anything visibly failed.
+ */
+export function formatRowLineage(opInfo: OperatorInfo): string | undefined {
+  const rowsIn = opInfo.inputTuples;
+  if (typeof rowsIn !== "number" || rowsIn <= 0) return undefined; // loaders: nothing consumed
+  const rowsOut =
+    typeof opInfo.totalRowCount === "number"
+      ? opInfo.totalRowCount
+      : typeof opInfo.outputTuples === "number"
+        ? opInfo.outputTuples
+        : undefined;
+  if (typeof rowsOut !== "number") return undefined;
+  const pct = rowsIn > 0 ? ` (${((100 * rowsOut) / rowsIn).toFixed(1)}% of input rows)` : "";
+  return `Lineage: ${rowsIn} rows in \u2192 ${rowsOut} rows out${pct}`;
+}
 function formatInputOutputMetadata(
   workflowState: WorkflowState,
   operatorId: string,

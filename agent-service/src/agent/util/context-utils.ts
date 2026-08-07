@@ -233,6 +233,9 @@ export interface AssembleContextOptions {
    *  with a sample of the dropped values. Read from `__coercion_telemetry__` on
    *  columnStats. Alarm-only. Off by default. */
   coercionTelemetry?: boolean;
+  /** When true, operator results carry a `Lineage:` rows-in/rows-out fact line
+   *  (see result-formatting.formatRowLineage). Off by default. */
+  rowLineage?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -2642,6 +2645,7 @@ function legacyFormatOptions(options: AssembleContextOptions): FormatOperatorRes
     columnStats: options.columnStats,
     valueFormatFlags: options.valueFormatFlags,
     coercionTelemetry: options.coercionTelemetry,
+    rowLineage: options.rowLineage,
     maxResultRows: options.maxResultRows,
     tableStructureHint: options.tableStructureHint,
     // A7: the legacy (no per-operator extras) path serves DELTA arms and any
@@ -2670,6 +2674,7 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     statsDensity: ex.column.statsDensity,
     valueFormatFlags: ex.column.valueFormatHints,
     coercionTelemetry: ex.column.coercionAlerts,
+    rowLineage: ex.column.lineage,
     tableStructureHint: ex.column.structuralHints,
     fileIoFacts: ex.column.fileIoFacts,
     maxResultRows: sampleRows,

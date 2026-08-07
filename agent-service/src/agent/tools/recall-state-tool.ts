@@ -299,10 +299,19 @@ export function createRecallStateTool(deps: RecallStateDeps) {
             // Shape and schema are cheap and almost always what orients the
             // model; the TSV body is the part that costs, so it is the part
             // behind the switch.
+            // Telemetry facts ride along unconditionally: the lineage line and
+            // any coercion-dataloss diagnostic recorded when this version ran.
+            // They are the where-did-my-cascade-start signal — a recalled
+            // result that hides a known defect (a join that silently dropped
+            // rows back then) sends the reader chasing everything except the
+            // cause. Both are a line or less, and the coercion line exists only
+            // when something actually went wrong, so silence stays free.
             const rendered = formatOperatorResult(opId, info, deps.workflowState, {
               detail: includeResults ? "sample" : "shape",
               schemaInResult: true,
               columnStats: includeStats,
+              coercionTelemetry: true,
+              rowLineage: true,
               inputsInResult: false,
               maxResultChars: includeResults ? maxResultChars : undefined,
             });

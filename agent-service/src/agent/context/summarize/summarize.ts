@@ -168,6 +168,7 @@ export function paramsToRenderOptions(
     lineageErrorContext: params.flow.errorContext,
     graphAudit: params.flow.graphAudit,
     coercionTelemetry: col.coercionAlerts,
+    rowLineage: col.lineage,
     maxResultRows: d.result.latest.tuple.sampleRows,
     maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,

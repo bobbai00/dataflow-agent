@@ -408,6 +408,21 @@ export interface AgentSettings {
    */
   enableAnswerGrounding: boolean;
   /**
+   * Surface the worker's coerce-to-NaN dataloss diagnostics (count + sample of
+   * dropped values) on operator results. The worker computes them
+   * unconditionally by transparently wrapping pandas.to_numeric/to_datetime;
+   * this only gates the render. Alarm-only, value-shape keyed, no task
+   * literals. Off by default.
+   */
+  coercionTelemetry: boolean;
+  /**
+   * Append a `Lineage:` line to operator results — rows in vs rows out from the
+   * engine's execution counts. A pure fact, no thresholds: silent row loss (a
+   * join dropping keys) becomes visible at the step where it happens instead of
+   * cascading. Off by default.
+   */
+  rowLineage: boolean;
+  /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
    * render above being the authoritative state. Exposed because it is the leading
@@ -512,6 +527,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   indexDetailedOperators: 0,
   enableResumeTool: false,
   enableAnswerGrounding: false,
+  coercionTelemetry: false,
+  rowLineage: false,
   indexThinObservations: false,
 };
 

@@ -253,6 +253,8 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       columnStats: settings.columnStats,
       valueFormatFlags: settings.valueFormat,
       tableStructureHint: settings.dataHints,
+      coercionTelemetry: settings.coercionTelemetry,
+      rowLineage: settings.rowLineage,
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
       foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
       foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
@@ -827,6 +829,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           indexDetailedOperators: (settings as any).indexDetailedOperators,
           enableResumeTool: (settings as any).enableResumeTool,
           enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+          coercionTelemetry: (settings as any).coercionTelemetry,
+          rowLineage: (settings as any).rowLineage,
           indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -898,6 +902,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       indexDetailedOperators: t.Optional(t.Number()),
       enableResumeTool: t.Optional(t.Boolean()),
       enableAnswerGrounding: t.Optional(t.Boolean()),
+      coercionTelemetry: t.Optional(t.Boolean()),
+      rowLineage: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
