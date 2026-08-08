@@ -256,6 +256,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       coercionTelemetry: settings.coercionTelemetry,
       rowLineage: settings.rowLineage,
       versionedCatalog: settings.versionedMode,
+      versionedHeads: settings.versionedHeads,
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
       foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
       foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
@@ -833,6 +834,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           coercionTelemetry: (settings as any).coercionTelemetry,
           rowLineage: (settings as any).rowLineage,
           versionedMode: (settings as any).versionedMode,
+          versionedHeads: (settings as any).versionedHeads,
           indexThinObservations: (settings as any).indexThinObservations,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -907,6 +909,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       coercionTelemetry: t.Optional(t.Boolean()),
       rowLineage: t.Optional(t.Boolean()),
       versionedMode: t.Optional(t.Boolean()),
+      versionedHeads: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })

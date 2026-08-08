@@ -437,6 +437,9 @@ export interface AgentSettings {
    * Off by default — byte-parity with legacy when off.
    */
   versionedMode: boolean;
+  /** Versioned mode: render the Latest-versions pointer table (default true).
+   *  Exposed for the A/B measuring what dropping it costs. */
+  versionedHeads: boolean;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -545,6 +548,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   coercionTelemetry: false,
   rowLineage: false,
   versionedMode: false,
+  versionedHeads: true,
   indexThinObservations: false,
 };
 

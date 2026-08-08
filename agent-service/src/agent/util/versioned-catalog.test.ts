@@ -82,7 +82,11 @@ function scenario(): Scenario {
     },
   ]);
   s.storage.createSnapshot("a1", makeWorkflow([{ id: "scores", type: "DataLoading" }]));
-  s.storage.setOperatorResult("a1", "scores", makeInfo(120));
+  s.storage.setOperatorResult(
+    "a1",
+    "scores",
+    makeInfo(120, { columnStats: { id: "(numeric): null=0, min=1, max=120" } as any })
+  );
   s.storage.createSnapshot(
     "a2",
     makeWorkflow(
@@ -151,6 +155,62 @@ describe("versioned catalog", () => {
     expect(i).toBeGreaterThan(text.indexOf("### Latest versions"));
     expect(text.slice(i)).toContain("Compare with the original.");
     expect(text.slice(i)).toContain("### Steps");
+  });
+
+  test("steps are numbered locally per turn, starting at 1", () => {
+    const text = render(scenario());
+    const steps = text.slice(text.indexOf("## Turn 3 (in progress)"));
+    expect(steps).toContain("#### Step 1");
+    expect(steps).not.toContain("Agent Event");
+  });
+
+  test("delta entries carry the output size — the recall-scaling signal", () => {
+    // A later turn deciding how much of an old result to pull needs to know
+    // how big that result is. Rows x cols is the scaling fact.
+    const text = render(scenario());
+    expect(text).toMatch(/Result: 120 rows x \d+ cols — Schema:/);
+  });
+
+  test("observation render knobs stay independent in versioned mode", () => {
+    // The knob shows in OBSERVATIONS, so the current turn must write something.
+    const build = () => {
+      const sc = buildScenario([
+        { id: "u1", stepId: 0, role: "user", messageId: "m1", content: "load it" },
+        {
+          id: "a1",
+          stepId: 1,
+          role: "agent",
+          messageId: "m1",
+          parentId: "u1",
+          toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "scores" } }],
+          toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
+        },
+      ]);
+      sc.storage.createSnapshot("a1", makeWorkflow([{ id: "scores", type: "DataLoading" }]));
+      sc.storage.setOperatorResult(
+        "a1",
+        "scores",
+        makeInfo(120, { columnStats: { id: "(numeric): null=0, min=1, max=120" } as any })
+      );
+      return sc;
+    };
+    const renderWith = (extra: object) => {
+      const sc = build();
+      return String(
+        assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
+          compilationResult: null,
+          agentMode: AgentMode.CODE,
+          versionedCatalog: true,
+          turnNumberByMessageId: new Map([["m1", 1]]),
+          ...extra,
+        } as any).map(m => m.content).join("\n")
+      );
+    };
+    // column_stats flips its block on; nothing else moves with it.
+    expect(renderWith({ columnStats: true })).toContain("Column Schema and stats");
+    expect(renderWith({})).not.toContain("Column Schema and stats");
+    // schemaInResult is its own switch
+    expect(renderWith({ schemaInResult: true })).toContain("Schema (");
   });
 
   test("a recall output persists inline as an observation", () => {

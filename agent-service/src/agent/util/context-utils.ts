@@ -242,6 +242,11 @@ export interface AssembleContextOptions {
    *  State` tail (pull outputs persist inline as observations). See
    *  renderVersionedCatalog. Off by default. */
   versionedCatalog?: boolean;
+  /** Versioned mode: render the `### Latest versions` pointer table. Default
+   *  true. The A/B: the table is strictly derivable from the entries, so its
+   *  value is an attention bet — off measures what dropping it costs in
+   *  wrong-version references per write. */
+  versionedHeads?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -2272,7 +2277,7 @@ function renderVersionedCatalog(
   const lastLeaf = lastSnapshotOf(prior.length > 0 ? prior : tasks);
   const alive = new Set((lastLeaf?.workflow.operators ?? []).map(o => o.operatorID));
   const heads = [...touchTurns.entries()].filter(([op]) => alive.has(op));
-  if (heads.length > 0) {
+  if (heads.length > 0 && options.versionedHeads !== false) {
     sections.push("### Latest versions");
     sections.push("The newest version of each operator. Use these when a reference should build on current state.");
     for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -2297,7 +2302,16 @@ function renderVersionedCatalog(
   if (steps.trim().length > 0) {
     sections.push("### Steps");
     sections.push("");
-    sections.push(steps.replace(/^## /gm, "#### "));
+    // Step numbers are LOCAL to the turn and start at 1. The global event
+    // index still exists internally, but nothing in versioned mode
+    // cross-references it — the catalog addresses turns and operator versions,
+    // not events — so renumbering here is pure clarity: a turn's log reads
+    // 1, 2, 3 instead of starting wherever the session left off.
+    let stepNo = 0;
+    const local = steps
+      .replace(/^## (?:Agent|User) Event \d+$/gm, () => `#### Step ${++stepNo}`)
+      .replace(/^## /gm, "#### ");
+    sections.push(local);
   }
 
   return sections.join("\n").trimEnd();

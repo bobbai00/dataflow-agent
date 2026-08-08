@@ -1179,6 +1179,7 @@ export class TexeraAgent {
     coercionTelemetry?: boolean;
     rowLineage?: boolean;
     versionedMode?: boolean;
+    versionedHeads?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1405,6 +1406,7 @@ export class TexeraAgent {
       this.settings.versionedMode = updates.versionedMode;
       promptNeedsRebuild = true;
     }
+    if (updates.versionedHeads !== undefined) this.settings.versionedHeads = updates.versionedHeads;
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
