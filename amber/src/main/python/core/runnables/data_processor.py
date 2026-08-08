@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import pandas
 import pyarrow as pa
+from loguru import logger
 
 from core.architecture.managers import Context
 from core.models import ExceptionInfo, State, TupleLike, InternalMarker, Schema
