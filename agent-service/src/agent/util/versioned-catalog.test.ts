@@ -166,9 +166,10 @@ describe("versioned catalog", () => {
 
   test("delta entries carry the output size — the recall-scaling signal", () => {
     // A later turn deciding how much of an old result to pull needs to know
-    // how big that result is. Rows x cols is the scaling fact.
+    // how big that result is: rows x cols AND the total serialized chars, so
+    // an `includeOutputTableSample` budget can be sized before the call.
     const text = render(scenario());
-    expect(text).toMatch(/Result: 120 rows x \d+ cols — Schema:/);
+    expect(text).toMatch(/Result: 120 rows x \d+ cols, ~[\d.]+k? chars — Schema:/);
   });
 
   test("observation render knobs stay independent in versioned mode", () => {

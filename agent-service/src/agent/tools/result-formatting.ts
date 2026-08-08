@@ -342,6 +342,39 @@ export function formatRowLineage(opInfo: OperatorInfo): string | undefined {
   const pct = rowsIn > 0 ? ` (${((100 * rowsOut) / rowsIn).toFixed(1)}% of input rows)` : "";
   return `Lineage: ${rowsIn} rows in \u2192 ${rowsOut} rows out${pct}`;
 }
+
+/**
+ * Estimated FULL serialized size of an operator's output table, in characters.
+ *
+ * The size-advertising fact for recall scaling: a later turn deciding how many
+ * characters of an old result to pull needs to know how big that result is \u2014
+ * `includeOutputTableSample: 2000` against a 4k table is the whole thing;
+ * against a 400k table it is 0.5%. Only a row SAMPLE is materialized here, so
+ * the estimate is mean sample-row TSV length x total row count (+ header).
+ * Undefined when there are no rows to measure.
+ */
+export function estimateTableChars(opInfo: OperatorInfo): number | undefined {
+  const rows = Array.isArray(opInfo.result) ? opInfo.result : undefined;
+  if (!rows || rows.length === 0) return undefined;
+  const cols = Object.keys(rows[0] ?? {}).filter(c => !c.startsWith("__"));
+  if (cols.length === 0) return undefined;
+  const line = (r: Record<string, unknown>): number =>
+    cols.reduce((n, c) => n + String(r[c] ?? "").length, 0) + cols.length; // + tabs/newline
+  const sampled = rows.slice(0, 50);
+  const mean = sampled.reduce((n, r) => n + line(r as Record<string, unknown>), 0) / sampled.length;
+  const total = typeof opInfo.totalRowCount === "number" && opInfo.totalRowCount > 0 ? opInfo.totalRowCount : rows.length;
+  const header = cols.join("\t").length + 1;
+  return Math.round(header + mean * total);
+}
+
+/** `~48k chars` / `321 chars` \u2014 the human-scale rendering of estimateTableChars. */
+export function formatApproxChars(chars: number): string {
+  return chars >= 10_000
+    ? `~${Math.round(chars / 1000)}k chars`
+    : chars >= 1000
+      ? `~${(chars / 1000).toFixed(1)}k chars`
+      : `~${chars} chars`;
+}
 function formatInputOutputMetadata(
   workflowState: WorkflowState,
   operatorId: string,

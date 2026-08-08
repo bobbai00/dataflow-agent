@@ -588,6 +588,7 @@ export class TexeraAgent {
         // so this is what resets the per-turn recall budget.
         getCurrentTurnKey: () => this.currentMessageId ?? "",
         workflowState: this.workflowState,
+        maxResultChars: this.settings.recallMaxResultChars,
       });
     }
 
