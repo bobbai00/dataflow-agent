@@ -219,4 +219,41 @@ describe("versioned catalog", () => {
     expect(steps).toContain("recallState output:");
     expect(steps).toContain("Load scores.csv...");
   });
+
+  test("the catalog closes with the # Your Task directive naming the current turn", () => {
+    const text = render(scenario());
+    const roots = text.match(/^# .*$/gm) ?? [];
+    expect(roots[0]).toContain("# Catalog");
+    expect(roots[roots.length - 1]).toBe("# Your Task");
+    expect(text).toContain("Work on the current turn (turn 3).");
+    expect(text).toContain("**Final Answer:** <your answer, in the format the task asks for>");
+  });
+
+  test("LATEST cell: finished entries unchanged, current turn collapses into ### Dataflow", () => {
+    const s = scenario();
+    const text = String(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, {
+        compilationResult: null,
+        agentMode: AgentMode.CODE,
+        versionedCatalog: true,
+        turnNumberByMessageId: new Map([
+          ["m1", 1],
+          ["m2", 2],
+          ["m3", 3],
+        ]),
+      } as any)
+        .map(m => m.content)
+        .join("\n")
+    );
+    // finished entries keep the catalog shape
+    expect(text).toContain("#### `pct` (added)");
+    expect(text).toContain("Upstream: scores (turn 1)");
+    // the current turn carries a nested Dataflow snapshot, never a root section
+    const cur = text.slice(text.indexOf("## Turn 3 (in progress)"));
+    expect(cur).toContain("### Dataflow");
+    expect(text).not.toContain("# Current Dataflow");
+    // recall pull output still persists in the step log (no snapshot to collapse into)
+    expect(cur).toContain("recallState output:");
+    expect(cur).toContain("# Your Task");
+  });
 });

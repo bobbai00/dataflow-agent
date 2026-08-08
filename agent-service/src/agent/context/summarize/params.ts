@@ -283,6 +283,9 @@ export const TrajectoryParamsSchema = z.object({
    *  (supersedes priorTurns entirely). */
   versionedCatalog: z.boolean().default(false),
   versionedHeads: z.boolean().default(true),
+  /** Session layout: the flat event log re-grouped by turn (# Session +
+   *  # Your Task). Superseded by versionedCatalog. */
+  sessionTurns: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -437,6 +440,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       priorTurns: options.turnHistoryIndex ? "index" : "full",
       versionedCatalog: options.versionedCatalog === true,
       versionedHeads: options.versionedHeads !== false,
+      sessionTurns: options.sessionTurns === true,
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
     // DELTA normally has no `# Current Dataflow` section because state lives

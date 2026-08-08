@@ -422,6 +422,16 @@ export interface AgentSettings {
   /** Versioned mode: render the Latest-versions pointer table (default true).
    *  Exposed for the A/B measuring what dropping it costs. */
   versionedHeads: boolean;
+  /** SESSION LAYOUT (non-versioned multi-turn): group the context by turn —
+   *  `# Session` with one `## Turn N` entry per turn (### Task, ### Steps in
+   *  DELTA / ### Dataflow in LATEST, ### Final Answer), closed by a
+   *  `# Your Task` directive pointing at the current turn. The ReAct render
+   *  knobs apply unchanged inside each turn. Purely a re-grouping of the same
+   *  information the flat event log carries — the fair baseline layout for
+   *  comparisons against versionedMode. Ignored when versionedMode is on
+   *  (the catalog is already turn-grouped). Off by default — byte-parity
+   *  with the legacy flat layout when off. */
+  sessionTurns: boolean;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -534,6 +544,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // and without the table — it is derivable from the entries and buys nothing
   // at this scale. Kept as a flag for much longer sessions.
   versionedHeads: false,
+  sessionTurns: false,
   indexThinObservations: false,
 };
 
@@ -661,6 +672,8 @@ export interface AgentSettingsApi {
   indexRichTables?: number;
   /** Operators keeping a full index entry (see AgentSettings.indexDetailedOperators). */
   indexDetailedOperators?: number;
+  /** Turn-grouped session layout (see AgentSettings.sessionTurns). */
+  sessionTurns?: boolean;
 }
 
 export interface AgentInfo {

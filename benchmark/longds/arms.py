@@ -404,12 +404,129 @@ class LongDSLunaVersionedR2(LongDSLunaVersioned):
     _NAME = "LongDSLunaVersionedR2"
 
 
+class LongDSLunaVersionedRich(LongDSLunaVersioned):
+    """Versioned catalog + a RICH observation channel (2026-08-08 campaign).
+
+    Same catalog as `LongDSLunaVersioned` (versioned mode, recallState, lineage
+    facts, coercion facts). What changes is what the model SEES when an operator
+    runs, inside the current turn:
+
+      * `_RESULT_CHARS = 2000` — sample rows up to 2k chars (baseline: 1k);
+      * `_STATS = True` — data_level=2 + `column_stats`: schema, structural
+        hints, and per-column statistics (numeric min/max/mean, string
+        distinct/top, nulls) on every materialized result.
+
+    The bet, from the t12 post-mortem: versioned mode went 3/3 into the
+    turn-12 cascade trap most plausibly because dropping the state dump also
+    dropped upstream VALUE evidence at the moment join decisions are made.
+    This arm restores value evidence through the observation channel — the
+    general mechanism — rather than through any task-specific fix.
+    """
+
+    _NAME = "LongDSLunaVersionedRich"
+    _STATS = True
+    _RESULT_CHARS = 2000
+
+
+class LongDSLunaVersionedRichR2(LongDSLunaVersionedRich):
+    """Second seed of `LongDSLunaVersionedRich`."""
+
+    _NAME = "LongDSLunaVersionedRichR2"
+
+
+class LongDSLunaVersionedRichR3(LongDSLunaVersionedRich):
+    """Third seed of `LongDSLunaVersionedRich`."""
+
+    _NAME = "LongDSLunaVersionedRichR3"
+
+
+class LongDSLunaDelta1kE0808(LongDSBase):
+    """The baseline a third time, for the 2026-08-08 era.
+
+    Byte-identical config to `LongDSLunaDelta1k`/`...SameEra`. Exists because
+    the engine restarted 2026-08-07 11:17 and agent-service 2026-08-08 00:57 —
+    an era boundary (HANDOFF 4.6) — so neither earlier baseline is a valid
+    control for runs started after it. Covers all ten tasks in one era.
+    """
+
+    _NAME = "LongDSLunaDelta1kE0808"
+
+
+class _LongDSLayoutSmoke(LongDSBase):
+    """Base for the 2026-08-08 layout-matrix smoke arms: rich ReAct knobs
+    (2k samples, stats, lineage, coercion facts) so every observation channel
+    is visible in the rendered context. Two-turn smoke runs only."""
+
+    _RESULT_CHARS = 2000
+    _STATS = True
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("row_lineage", True)
+        kwargs.setdefault("coercion_facts", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSmokeSessionDelta(_LongDSLayoutSmoke):
+    """Session layout × DELTA: # Session of turn entries (Task/Steps/Final
+    Answer) + # Your Task; full step replay inside each turn."""
+
+    _NAME = "LongDSLunaSmokeSessionDelta"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("session_turns", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSmokeSessionLatest(_LongDSLayoutSmoke):
+    """Session layout × LATEST: finished turns show touched operators
+    (as-of-turn-end), the current turn the full leaf snapshot.
+
+    `_CODE = True` deliberately: DELTA carries code inline per event, so a
+    code-blind LATEST cell would confound the layout A/B with a code axis."""
+
+    _NAME = "LongDSLunaSmokeSessionLatest"
+    _CONTEXT_MODE = "latest"
+    _CODE = True
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("session_turns", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSmokeVCatDelta(_LongDSLayoutSmoke):
+    """Versioned catalog × DELTA — the shipped versioned mode plus the
+    # Your Task tail (added with the session-layout work)."""
+
+    _NAME = "LongDSLunaSmokeVCatDelta"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("versioned_mode", True)
+        kwargs.setdefault("enable_recall_tool", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSmokeVCatLatest(_LongDSLayoutSmoke):
+    """Versioned catalog × LATEST (the new cell): catalog entries for finished
+    turns; the current turn keeps thoughts/actions + recall pulls in its step
+    log and collapses observations into a ### Dataflow leaf snapshot."""
+
+    _NAME = "LongDSLunaSmokeVCatLatest"
+    _CONTEXT_MODE = "latest"
+    _CODE = True
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("versioned_mode", True)
+        kwargs.setdefault("enable_recall_tool", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
 class LongDSHaikuDelta1k(LongDSBase):
     """The baseline knob set on claude-haiku-4.5 — the cheapest gateway model.
 
-    The luna arms name `gpt-5.6-luna`, which the DKNet gateway does not serve;
-    this arm exists so the dataflow-agent repo's smoke runs (benchmark/bench.sh)
-    exercise the identical turn loop on a model that is actually reachable.
+    The luna arms name `gpt-5.6-luna`, which the local LiteLLM only serves
+    with an OpenAI key; this arm exists so the dataflow-agent repo's smoke
+    runs (bin/bench.sh) exercise the identical turn loop on the cheapest
+    reachable model.
     """
 
     _MODEL = "claude-haiku-4.5"
@@ -435,4 +552,12 @@ ARMS = {
     "luna-cap40-r3": LongDSLunaTurnRecallCap40R3,
     "luna-versioned": LongDSLunaVersioned,
     "luna-versioned-r2": LongDSLunaVersionedR2,
+    "luna-versioned-rich": LongDSLunaVersionedRich,
+    "luna-versioned-rich-r2": LongDSLunaVersionedRichR2,
+    "luna-versioned-rich-r3": LongDSLunaVersionedRichR3,
+    "luna-delta-1k-e0808": LongDSLunaDelta1kE0808,
+    "luna-smoke-session-delta": LongDSLunaSmokeSessionDelta,
+    "luna-smoke-session-latest": LongDSLunaSmokeSessionLatest,
+    "luna-smoke-vcat-delta": LongDSLunaSmokeVCatDelta,
+    "luna-smoke-vcat-latest": LongDSLunaSmokeVCatLatest,
 }

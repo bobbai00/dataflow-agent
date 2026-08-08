@@ -34,7 +34,7 @@ machinery it borrows — see `_paths.py` for the full layout. One-time setup
 bin/bench.sh setup
 ```
 
-Data is **not** in the repo. `bench.sh longds download --task <domain/dataset/task>`
+Data is **not** in the repo. `bin/bench.sh longds download --task <domain/dataset/task>`
 fetches one more task from HF `zjunlp/LongDS` into `benchmark/longds/DataMind/longds/dataset`;
 the full dataset is 19.5 GB, a single task is usually well under 200 MB.
 
@@ -48,8 +48,6 @@ bin/bench.sh longds judge --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
 bin/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k --task sports__nfl_big_data_bowl_2023__task1
 ```
 
-Use `setsid` and `-u` for long runs: stdout buffers without `-u`, and a session
-killed with its parent shell is unrecoverable (below).
 
 ## Deviations from the official protocol — state these with any number
 
@@ -496,3 +494,112 @@ derivation divergence. That is now unambiguously the bottleneck — no render
 design tried so far moves it, which is the strongest argument yet for
 verification at state creation (dual derivation of foundational quantities)
 as the next mechanism.
+
+---
+
+## v10 — 2026-08-08: the rich versioned arm, three replicates, deepseek judge
+
+**Configuration under test.** Versioned catalog (v9) plus a *rich observation
+channel* inside the turn: DELTA, gpt-5.6-luna, `max_operator_result_char_limit`
+2000 (was 1000), `data_level=2` + `column_stats` (schema, structural profile,
+per-column numeric/string/date statistics), `row_lineage`, `coercion_facts`,
+`recallState`, 40 steps. Arms `luna-versioned-rich{,-r2,-r3}`.
+
+The bet came out of the v9 post-mortem: versioned mode kept landing on the bad
+t12 path, and the most plausible reason was that dropping the state dump also
+dropped **value evidence** at the moment join/derivation decisions are made.
+This arm restores value evidence through the observation channel — general,
+dataflow-native, no task-specific tuning.
+
+**Protocol** (this is the first LongDS campaign that meets the bar set in
+§4.6/§4.9): all four runs in ONE era, ten tasks each, every turn present
+(309 turns per run, gate in `progress.log`), **three replicates** of the
+experimental arm, and a fresh baseline `luna-delta-1k-e0808` rather than a
+cross-era one. Judge is the paper's own **deepseek-v4-pro** via OpenRouter on
+both arms.
+
+| run | turn-weighted | task-macro | cost | empties | exec errors | 40-step turns |
+|---|---|---|---|---|---|---|
+| baseline delta-1k | 28.85 | 33.54 | **$32.78** | 3 | 1 | 1 |
+| rich r1 | 31.43 | 38.43 | $15.95 | 1 | 0 | 0 |
+| rich r2 | 25.63 | 30.66 | $16.20 | 1 | 0 | 1 |
+| rich r3 | 27.96 | 32.54 | $14.08 | 2 | 0 | 1 |
+| **rich mean** | **28.34** (sd 2.92) | **33.87** (sd 4.05) | **$15.41** | | | |
+
+**Verdict: accuracy is a tie; cost is a 2.1x win.** 28.34 vs 28.85
+turn-weighted and 33.87 vs 33.54 task-macro are both well inside a replicate
+spread of ~3-4 points. The baseline's single run sits inside the rich arm's own
+band, so nothing here separates the two on accuracy — and that is the honest
+reading, not a defeat: the rich arm buys **2.1x lower cost** ($15.41 vs $32.78)
+and a **2.2x smaller peak context** (517 kB vs 1130 kB on uber) while carrying
+strictly MORE information per observation. On the big DAGs the gap is the whole
+story: uber $11.67 -> $3.64, nfl $7.17 -> $3.99, energy $4.69 -> $1.29.
+
+Per task (baseline / rich mean of 3):
+
+| task | turns | base | rich | delta | $base | $rich |
+|---|---|---|---|---|---|---|
+| github | 15 | 93.3 | 93.3 | +0.0 | 0.24 | 0.17 |
+| bi | 27 | 81.5 | 74.1 | -7.4 | 0.84 | 0.36 |
+| passnyc | 30 | 36.7 | 40.0 | +3.3 | 1.10 | 0.84 |
+| water-pot | 36 | 36.1 | 38.9 | +2.8 | 0.96 | 1.43 |
+| rankings | 21 | 14.3 | 38.1 | +23.8 | 0.49 | 0.35 |
+| nycrest | 32 | 25.0 | 18.8 | -6.2 | 1.90 | 0.86 |
+| nfl | 42 | 14.3 | 14.6 | +0.3 | 7.17 | 3.99 |
+| uber | 36 | 14.3 | 5.8 | -8.5 | 11.67 | 3.64 |
+| energy | 36 | 11.1 | 9.3 | -1.8 | 4.69 | 1.29 |
+| netflix | 34 | 8.8 | 5.9 | -2.9 | 3.71 | 2.49 |
+
+### What the traces say
+
+**The variance is one number, not many.** rankings swings 14.3 / 85.7 / 14.3
+across three identical configs — a 71-point spread that is entirely one
+derivation at turn 4. r1 computed the covariance matrix as `df[cols].cov()` on
+complete rows (Mahalanobis 278.6702, matching gold); r2 used pairwise
+`pair[a].cov(pair[b])` on per-pair dropna (281.8271); the baseline did the same
+(281.8274). Turn 5 removes outliers by that distance: r1 keeps 721 universities
+(gold 721), r2 keeps 718, the baseline keeps 8. From there r1 scores 1 on 15 of
+the next 17 turns and the others score 0 on nearly all of them. **One estimator
+choice at turn 4 decided 18 turns.** Same shape on uber: the arms disagree from
+turn 7 on a compactness share (0.815 vs 0.889) and never reconverge.
+
+This is the identical mechanism as passnyc t12, now observed twice more, and it
+is the reason per-task deltas of +-20 points in this benchmark carry almost no
+information at n=1. It is also why the summary line here is a tie rather than a
+win or a loss: at n=3 the arm difference is smaller than the derivation lottery.
+
+**t12 became deterministic.** All four runs this era answered 462 (gold 472) —
+including the baseline, which never trapped in the previous era. The v9 table
+("control 0/3, versioned 3/3", Fisher ~0.05) was therefore **era-confounded**;
+that inference is retracted. Whatever selects the 462 path is a property of the
+era (engine + service + model snapshot), not of the render.
+
+**The rich channel does help where value evidence is what's missing.** By state
+pattern, rich vs baseline: Counterfactual +7.1 (9.0 -> 16.0), unlabelled turns
++18.8 (34.8 -> 53.6), Initial ~flat (35.0 -> 35.0), Update -5.4, Rollback -4.3.
+Counterfactual turns are exactly the ones that reason about alternative values
+of an existing table, so a value channel plausibly helps there; Update and
+Rollback are the version-selection patterns, where the extra per-column detail
+buys nothing and the longer observations may crowd the decision.
+
+**Two anomaly classes, both benign, both logged.**
+*Reasoning-only empty answers* (7 across 1236 turns, both arms, mostly
+water-potability): the model spends output tokens on reasoning and emits no
+visible text; the turn scores 0. *Silent rework loops* (nfl r2 t28, r3 t26):
+one operator modified 35-38 times with **zero tool errors** — each write
+succeeds, the result dissatisfies, the model retries until the 40-step budget
+ends the turn. Both NFL cases are "reopen the earlier pool" rollback turns.
+The teaching-error contract is not implicated (no rejections involved). The
+general lever, if this recurs: a per-turn same-operator modify budget, which
+would convert a silent loop into a decision the model has to make explicitly.
+
+### Where this leaves the thesis
+
+The render is done arguing. Three campaigns (telemetry, stats, versioned+rich)
+have now moved cost substantially and accuracy not at all, and every per-task
+swing traced to a single early derivation choosing between two defensible
+formulas. **The bottleneck is not what the model can see; it is that nothing
+checks a foundational quantity at the moment it is created.** Verification at
+state creation (dual derivation of quantities that many turns depend on, with
+disagreement surfaced as a decision) is the only remaining lever aimed at that,
+and this campaign is the strongest evidence yet that it is the right one.

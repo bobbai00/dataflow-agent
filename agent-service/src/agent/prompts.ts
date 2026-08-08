@@ -68,6 +68,11 @@ const RESUME_FRAGMENT: string = rd("resume.md");
  *  (operatorId, turn) references. REPLACES the recall fragment's layout
  *  description when on — the sections recall.md names do not exist here. */
 const VERSIONED_FRAGMENT: string = rd("versioned.md");
+/** Session layout (non-versioned multi-turn): `# Session` of `## Turn N`
+ *  entries + `# Your Task`. REPLACES the context-format fragment when on —
+ *  the `# User Task` / `# Agent Events` / `# Current Dataflow` sections that
+ *  fragment names do not exist under this layout. */
+const SESSION_FRAGMENT: string = rd("session.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -377,7 +382,8 @@ export function buildCodeModeSystemPrompt(
   sourceProvenanceHint = false,
   recallEnabled = false,
   resumeEnabled = false,
-  versionedEnabled = false
+  versionedEnabled = false,
+  sessionEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -394,12 +400,20 @@ export function buildCodeModeSystemPrompt(
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is
   // `# Current Dataflow` with or without the per-operator Code: blocks.
-  const contextFormat =
-    key === "delta"
-      ? CONTEXT_FORMAT_FRAGMENTS.delta
-      : noCode
-        ? CONTEXT_FORMAT_FRAGMENTS.latest
-        : CONTEXT_FORMAT_CODE_LATEST;
+  // The turn-grouped layouts REPLACE this fragment: under `# Session` the
+  // legacy sections don't exist (session.md describes the layout), and under
+  // the versioned `# Catalog` the layout lives in versioned.md (injected via
+  // the recall slot above), so the format slot is left empty rather than
+  // describing sections the agent will never see.
+  const contextFormat = versionedEnabled
+    ? ""
+    : sessionEnabled
+      ? SESSION_FRAGMENT
+      : key === "delta"
+        ? CONTEXT_FORMAT_FRAGMENTS.delta
+        : noCode
+          ? CONTEXT_FORMAT_FRAGMENTS.latest
+          : CONTEXT_FORMAT_CODE_LATEST;
   const example = renderPrefsEnabled
     ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
     : key === "delta"
