@@ -673,6 +673,8 @@ export interface AgentSettingsApi {
   turnHistory?: "full" | "index";
   /** Expose the read-only recallState tool (see AgentSettings.enableRecallTool). */
   enableRecallTool?: boolean;
+  /** Service-side clamp on a recall pull's result chars (see AgentSettings.recallMaxResultChars). */
+  recallMaxResultChars?: number;
   /** Upstream operators allowed to render sample rows (see AgentSettings.indexRichTables). */
   indexRichTables?: number;
   /** Operators keeping a full index entry (see AgentSettings.indexDetailedOperators). */
