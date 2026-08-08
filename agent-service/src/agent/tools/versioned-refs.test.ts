@@ -77,20 +77,20 @@ describe("strict version refs", () => {
   test("a process() without upstreams is rejected, and the error teaches", async () => {
     const out = await run(makeTool(store()), { operatorId: "pct", code: PROCESS });
     expect(out).toContain("[ERROR]");
-    expect(out).toContain("Missing version for upstream(s): [scores]");
-    expect(out).toContain('{"scores": <turn>}');
-    expect(out).toContain("versions at turn 1, 3");
+    expect(out).toContain("Missing version reference for upstream(s): [scores]");
+    expect(out).toContain('"scores (turn N)"');
+    expect(out).toContain("scores (turn 1), scores (turn 3)");
   });
 
   test("a wrong turn is rejected with the valid versions listed", async () => {
-    const out = await run(makeTool(store()), { operatorId: "pct", code: PROCESS, upstreams: { scores: 2 } });
+    const out = await run(makeTool(store()), { operatorId: "pct", code: PROCESS, upstreams: ["scores (turn 2)"] });
     expect(out).toContain("no version at turn 2");
-    expect(out).toContain("versions at turn 1, 3");
+    expect(out).toContain("scores (turn 1), scores (turn 3)");
   });
 
   test("referencing this turn's own work is valid", async () => {
     const vs = store({ touchedThisTurn: () => new Set(["scores"]) });
-    const out = await run(makeTool(vs), { operatorId: "pct", code: PROCESS, upstreams: { scores: 5 } });
+    const out = await run(makeTool(vs), { operatorId: "pct", code: PROCESS, upstreams: ["scores (turn 5)"] });
     // passes version validation; whatever happens later (schema lookup in this
     // bare fixture) is a different stage.
     expect(out).not.toContain("no version at turn");
@@ -103,18 +103,24 @@ describe("strict version refs", () => {
       code: "def load() -> pd.DataFrame:\n    return pd.DataFrame()",
     });
     expect(out).toContain("this is a revision");
-    expect(out).toContain("fromTurn");
-    expect(out).toContain("versions at turn 1, 3");
+    expect(out).toContain('"scores (turn N)"');
+    expect(out).toContain("scores (turn 1), scores (turn 3)");
   });
 
-  test("fromTurn on a brand-new operator is rejected — nothing to derive from", async () => {
+  test("`from` on a brand-new operator is rejected — nothing to derive from", async () => {
     const out = await run(makeTool(store()), {
       operatorId: "fresh",
       code: "def load() -> pd.DataFrame:\n    return pd.DataFrame()",
-      fromTurn: 3,
+      from: "fresh (turn 3)",
     });
     expect(out).toContain("does not exist yet");
-    expect(out).toContain("Drop fromTurn");
+    expect(out).toContain("Drop it to create");
+  });
+
+  test("a malformed reference is rejected with the exact expected form", async () => {
+    const out = await run(makeTool(store()), { operatorId: "pct", code: PROCESS, upstreams: ["scores@1"] });
+    expect(out).toContain('Could not parse upstream reference "scores@1"');
+    expect(out).toContain('"opId (turn N)"');
   });
 
   test("legacy arms are untouched: no store, no new requirements", async () => {

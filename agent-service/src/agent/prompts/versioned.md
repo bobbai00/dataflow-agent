@@ -13,8 +13,8 @@ Each finished entry shows:
   result shape and columns.
 - **Answer** — what you answered.
 
-`### Current operators` lists, for every live operator, the turn that holds its
-latest version. That is what "latest" means here — there is no other notion of
+`### Latest versions` lists, for every live operator, its newest version as
+`opId (turn N)`. That is what "latest" means here — there is no other notion of
 current state.
 
 **Nothing is ever overwritten.** Every version of every operator keeps its
@@ -27,13 +27,17 @@ complete record.
 When you build or revise an operator, you say exactly which versions you build
 on:
 
+One notation everywhere: **`opId (turn N)`** — exactly as the catalog prints
+it. You read `middle_base (turn 1)` in an entry; you write `"middle_base
+(turn 1)"` in a call. Nothing to translate.
+
 - `def process(scores, labels)` needs
-  `upstreams: {"scores": <turn>, "labels": <turn>}` — the turn whose version of
-  each input you mean. Use `Current operators` for the latest, or an earlier
-  turn when the request asks for an earlier state. For operators you created
-  **this turn**, use the current turn's number.
-- Revising an existing operator needs `fromTurn` — the turn whose version your
-  new code derives from (usually its latest).
+  `upstreams: ["scores (turn N)", "labels (turn N)"]` — one reference per
+  parameter, naming the version you build on. Use `Latest versions` for the
+  newest, an earlier turn's entry when the request asks for an earlier state,
+  and the current turn's number for operators you created this turn.
+- Revising an existing operator needs `from: "opId (turn N)"` — the version
+  your new code derives from (usually its latest).
 - `def load()` has no inputs — omit `upstreams`.
 
 This is not bookkeeping for its own sake. The classic failure in long analyses
@@ -45,7 +49,7 @@ check against.
 Picking versions:
 
 - **Continuing the analysis** → the latest version of each input, from
-  `Current operators`.
+  `Latest versions`.
 - **"As it was originally" / "before the change" / rollback** → the earlier
   turn's version, straight from that turn's catalog entry. Reference it; do not
   rebuild it from memory.

@@ -131,11 +131,11 @@ describe("versioned catalog", () => {
     expect(text).toContain("Upstream: scores (turn 1)");
   });
 
-  test("the heads table points at latest finished versions only", () => {
+  test("the heads table points at latest finished versions, in the one notation", () => {
     const text = render(scenario());
-    const heads = text.slice(text.indexOf("### Current operators"));
-    expect(heads).toContain("`scores` → turn 1");
-    expect(heads).toContain("`pct` → turn 2");
+    const heads = text.slice(text.indexOf("### Latest versions"));
+    expect(heads).toContain("scores (turn 1)");
+    expect(heads).toContain("pct (turn 2)");
   });
 
   test("no Dataflow section, no Recalled State tail — one catalog is the context", () => {
@@ -148,7 +148,7 @@ describe("versioned catalog", () => {
   test("the in-progress turn is the last entry and carries its steps", () => {
     const text = render(scenario());
     const i = text.indexOf("## Turn 3 (in progress)");
-    expect(i).toBeGreaterThan(text.indexOf("### Current operators"));
+    expect(i).toBeGreaterThan(text.indexOf("### Latest versions"));
     expect(text.slice(i)).toContain("Compare with the original.");
     expect(text.slice(i)).toContain("### Steps");
   });

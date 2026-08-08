@@ -707,22 +707,20 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       const versionedShape: Record<string, z.ZodType> = versionStore
         ? {
             upstreams: z
-              .record(z.string(), z.number().int().min(1))
+              .array(z.string())
               .optional()
               .describe(
-                "REQUIRED for def process(...): for EACH parameter, the turn whose version of that operator you " +
-                  "build on — e.g. {\"scores\": 3, \"labels\": 9}. The `# Catalog` lists every operator's version " +
-                  "turns; `Current operators` names the latest. Use the current turn's number for operators you " +
-                  "created this turn. Omit (or pass {}) for def load()."
+                "REQUIRED for def process(...): one versioned reference per parameter, written exactly as the " +
+                  "catalog prints them — \"opId (turn N)\", e.g. [\"scores (turn 3)\", \"labels (turn 9)\"]. " +
+                  "`Latest versions` names the newest of each; use the current turn's number for operators you " +
+                  "created this turn. Omit for def load()."
               ),
-            fromTurn: z
-              .number()
-              .int()
-              .min(1)
+            from: z
+              .string()
               .optional()
               .describe(
-                "REQUIRED when operatorId already exists: the turn whose version of this operator your new code " +
-                  "derives from (usually its latest). This makes every revision's ancestry explicit."
+                "REQUIRED when operatorId already exists: the version this revision derives from, as " +
+                  "\"opId (turn N)\" — usually its latest. Makes every revision's ancestry explicit."
               ),
           }
         : {};
@@ -755,8 +753,8 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       summary?: string;
       outputSummary?: "minimal" | "standard";
       showOutputStatistics?: boolean;
-      upstreams?: Record<string, number>;
-      fromTurn?: number;
+      upstreams?: string[];
+      from?: string;
     }) => {
       try {
         const { operatorId, code, summary } = args;
@@ -808,53 +806,79 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         // what to do instead produces verbatim retry loops (measured: 35
         // identical calls, a full step budget, no answer).
         if (versionStore) {
-          const versionsLine = (opId: string): string => {
+          // The one notation, everywhere: `opId (turn N)` — exactly what the
+          // catalog prints, so what the model reads is what it writes. The
+          // parser is tolerant of spacing; everything else is an error that
+          // shows the exact expected form.
+          const REF_RE = /^\s*(\S+)\s*\(\s*turn\s+(\d+)\s*\)\s*$/i;
+          const parseRef = (raw: string): { opId: string; turn: number } | undefined => {
+            const m = REF_RE.exec(raw ?? "");
+            return m ? { opId: m[1], turn: Number(m[2]) } : undefined;
+          };
+          const refsOf = (opId: string): string => {
             const turns = versionStore.versionsOf(opId).map(v => v.turn);
             if (versionStore.touchedThisTurn().has(opId)) turns.push(versionStore.currentTurn());
-            return turns.length > 0 ? `\`${opId}\` has versions at turn ${turns.join(", ")}` : `\`${opId}\` has no versions yet`;
+            return turns.length > 0
+              ? `\`${opId}\` has versions: ${turns.map(t => `${opId} (turn ${t})`).join(", ")}`
+              : `\`${opId}\` has no versions yet`;
+          };
+          const validTurn = (opId: string, turn: number): boolean => {
+            if (versionStore.versionsOf(opId).some(v => v.turn === turn)) return true;
+            return versionStore.touchedThisTurn().has(opId) && turn === versionStore.currentTurn();
           };
           if (parameters.length > 0) {
-            const upstreams = args.upstreams ?? {};
-            const missing = parameters.filter(par => typeof upstreams[par] !== "number");
+            const provided = new Map<string, number>();
+            for (const raw of args.upstreams ?? []) {
+              const ref = parseRef(raw);
+              if (!ref) {
+                return createErrorResult(
+                  `Could not parse upstream reference "${raw}". Write each as \"opId (turn N)\", exactly as the ` +
+                    `catalog prints them — e.g. ["${parameters[0]} (turn 1)"].`
+                );
+              }
+              provided.set(ref.opId, ref.turn);
+            }
+            const missing = parameters.filter(par => !provided.has(par));
             if (missing.length > 0) {
               return createErrorResult(
-                `Missing version for upstream(s): [${missing.join(", ")}]. In this session every reference names ` +
-                  `its version — pass upstreams as {${parameters.map(par => `"${par}": <turn>`).join(", ")}}. ` +
-                  parameters.map(versionsLine).join("; ") +
+                `Missing version reference for upstream(s): [${missing.join(", ")}]. Every reference names its ` +
+                  `version — pass upstreams as [${parameters.map(par => `"${par} (turn N)"`).join(", ")}]. ` +
+                  parameters.map(refsOf).join("; ") +
                   "."
               );
             }
             for (const par of parameters) {
-              const want = upstreams[par];
-              const turns = versionStore.versionsOf(par).map(v => v.turn);
-              const inThisTurn = versionStore.touchedThisTurn().has(par) && want === versionStore.currentTurn();
-              if (!turns.includes(want) && !inThisTurn) {
+              const want = provided.get(par)!;
+              if (!validTurn(par, want)) {
                 return createErrorResult(
-                  `\`${par}\` has no version at turn ${want}. ${versionsLine(par)}. Pick one of those ` +
+                  `\`${par}\` has no version at turn ${want}. ${refsOf(par)}. Pick one of those ` +
                     "(the latest, unless this request asks for an earlier state)."
                 );
               }
             }
           }
           if (existingOperator) {
-            const turns = versionStore.versionsOf(operatorId).map(v => v.turn);
-            if (typeof args.fromTurn !== "number") {
+            const fromRef = args.from ? parseRef(args.from) : undefined;
+            if (!args.from) {
               return createErrorResult(
-                `\`${operatorId}\` already exists, so this is a revision — pass fromTurn: the turn whose version ` +
-                  `your new code derives from. ${versionsLine(operatorId)}.`
+                `\`${operatorId}\` already exists, so this is a revision — pass from: the version your new code ` +
+                  `derives from, as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
               );
             }
-            const fromThisTurn =
-              versionStore.touchedThisTurn().has(operatorId) && args.fromTurn === versionStore.currentTurn();
-            if (!turns.includes(args.fromTurn) && !fromThisTurn) {
+            if (!fromRef || fromRef.opId !== operatorId) {
               return createErrorResult(
-                `\`${operatorId}\` has no version at turn ${args.fromTurn}. ${versionsLine(operatorId)}.`
+                `Could not parse from="${args.from}". Write it as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
               );
             }
-          } else if (typeof args.fromTurn === "number") {
+            if (!validTurn(operatorId, fromRef.turn)) {
+              return createErrorResult(
+                `\`${operatorId}\` has no version at turn ${fromRef.turn}. ${refsOf(operatorId)}.`
+              );
+            }
+          } else if (args.from) {
             return createErrorResult(
-              `\`${operatorId}\` does not exist yet — fromTurn only applies when revising an existing operator. ` +
-                "Drop fromTurn to create it."
+              `\`${operatorId}\` does not exist yet — \`from\` only applies when revising an existing operator. ` +
+                "Drop it to create."
             );
           }
         }

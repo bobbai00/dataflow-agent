@@ -2232,7 +2232,12 @@ function renderVersionedCatalog(
         if (ups.length > 0) {
           const withProv = ups.map(u => {
             const t = (touchTurns.get(u) ?? []).filter(x => x <= turnNo);
-            return t.length > 0 ? `${u} (turn ${t[t.length - 1]})` : u;
+            // An upstream with no earlier touch was created in THIS turn — its
+            // version is this turn's. Uniform notation, no bare names: the
+            // string printed here is exactly what a later write's `upstreams`
+            // should carry.
+            const at = t.length > 0 ? t[t.length - 1] : verbs.has(u) ? turnNo : undefined;
+            return at !== undefined ? `${u} (turn ${at})` : u;
           });
           sections.push(`Upstream: ${withProv.join(", ")}`);
         }
@@ -2268,9 +2273,10 @@ function renderVersionedCatalog(
   const alive = new Set((lastLeaf?.workflow.operators ?? []).map(o => o.operatorID));
   const heads = [...touchTurns.entries()].filter(([op]) => alive.has(op));
   if (heads.length > 0) {
-    sections.push("### Current operators (lineage → latest version turn)");
+    sections.push("### Latest versions");
+    sections.push("The newest version of each operator. Use these when a reference should build on current state.");
     for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
-      sections.push(`- \`${op}\` → turn ${turns[turns.length - 1]}`);
+      sections.push(`- ${op} (turn ${turns[turns.length - 1]})`);
     }
     sections.push("");
   }
