@@ -250,7 +250,7 @@ describe("executeOperatorAndFormat — operator result handling", () => {
     const result = await executeOperatorAndFormat(state, cfg(), "op1", { onResult });
 
     expect(result).toContain("Executed operator op1");
-    expect(result).toContain("Output table shape: (2, 2)");
+    expect(result).toContain("Output Table: 2 rows, 2 cols");
     expect(result).toContain("\ta\tb");
     expect(result).toContain("0\t1\t2");
     expect(result).toContain("1\t3\t4");

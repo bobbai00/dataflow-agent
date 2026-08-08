@@ -138,7 +138,14 @@ ThisBuild / excludeDependencies += ExclusionRule("log4j", "log4j")
 // Dependency-free helpers (retry/backoff, ...) that any module may depend on. Keep it that way:
 // anything added here reaches the classpath of every service that depends on it.
 lazy val Util = (project in file("common/util")).settings(commonModuleSettings)
-lazy val DAO = (project in file("common/dao")).settings(commonModuleSettings)
+lazy val DAO = (project in file("common/dao"))
+  .settings(commonModuleSettings)
+  .settings(
+    // The jooq-generated Java sources (agent/cluster tables, generated with an
+    // older jooq codegen) call a deprecated TableImpl constructor; -Werror would
+    // fail the build on generated code we don't hand-edit.
+    Compile / javacOptions := (Compile / javacOptions).value.filterNot(_ == "-Werror")
+  )
 lazy val Config = (project in file("common/config")).settings(commonModuleSettings)
 lazy val Resource = (project in file("common/resource")).settings(commonModuleSettings)
 lazy val Auth = (project in file("common/auth"))
