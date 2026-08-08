@@ -153,3 +153,33 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
   missing/wrong, or you're on the docker-compose litellm (`localhost:4000`)
   which has no provider keys — export the DKNet values above and bounce
   `access-control-service`.
+- **Runs hang in "running" / fail with no result after switching networks**
+  (laptop moved Wi-Fi, VPN toggled): the MinIO endpoint is the HOST LAN IP,
+  and it is baked into (a) the lakekeeper warehouse storage profile and
+  (b) every running JVM's `STORAGE_S3_ENDPOINT`. lakekeeper logs show
+  `tcp connect error: Connection refused` on `s3://texera-iceberg/...`.
+  Fix: update the warehouse profile to the new IP, then bounce the JVMs —
+
+  ```bash
+  NEW_IP=$(ipconfig getifaddr en0)   # or your active interface
+  WID=$(curl -s http://localhost:8181/management/v1/warehouse | python3 -c \
+    "import json,sys; print(json.load(sys.stdin)['warehouses'][0]['id'])")
+  curl -s -X POST "http://localhost:8181/management/v1/warehouse/$WID/storage" \
+    -H 'Content-Type: application/json' -d "{
+      \"storage-profile\": {\"type\":\"s3\",\"bucket\":\"texera-iceberg\",
+        \"endpoint\":\"http://$NEW_IP:9000/\",\"region\":\"us-west-2\",
+        \"path-style-access\":true,\"sts-enabled\":false,\"flavor\":\"s3-compat\",
+        \"push-s3-delete-disabled\":true,\"remote-signing-enabled\":true,
+        \"remote-signing-url-style\":\"auto\"},
+      \"storage-credential\": {\"type\":\"s3\",\"credential-type\":\"access-key\",
+        \"aws-access-key-id\":\"texera_minio\",\"aws-secret-access-key\":\"password\"}}"
+  # then bounce each JVM: bin/local-dev.sh down <svc> && bin/local-dev.sh up <svc> --skip-build
+  ```
+
+  Executions left in a phantom RUNNING state by the dead S3 endpoint can be
+  cleared with:
+
+  ```sql
+  UPDATE texera_db.workflow_executions SET status = 5  -- KILLED
+  WHERE status = 1 AND starting_time < now() - interval '30 minutes';
+  ```
