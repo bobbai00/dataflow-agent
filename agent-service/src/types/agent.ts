@@ -183,24 +183,6 @@ export interface AgentSettings {
    * on value shape (no task literals). Disabled by default (no-op).
    */
   /**
-   * When true, each operator result carries a `Lineage:` line — input→output
-   * row counts (kept % of largest input) plus a conservative alarm on
-   * empty-output / fan-out-explosion transitions. Derived from row counts
-   * already carried in OperatorInfo (topology-level, no column/task literal).
-   * Targets the dominant silent-cardinality wrong-answer and the cost spiral
-   * tail. Disabled by default (no-op).
-   */
-  /**
-   * When true, a degenerate merge (near-zero key match, with an unmatched-key
-   * sample, or a many-to-many fan-out) flagged by the worker's transparent join
-   * instrumentation surfaces as a `Join check ⚠` line. Alarm-only; off by default.
-   */
-  /**
-   * When true, a DataLoading operator whose output reaches no downstream
-   * operator (a dead/forgotten load — typed-DAG reachability) gets a
-   * `Graph check ⚠` line. Off by default.
-   */
-  /**
    * Thought-replay reinjection rung (LATEST only). When true, the assembled
    * context gains a `# Reasoning` block — the last `thoughtReplayK` agent events,
    * each as its thought + the compressed actions it produced — and each operator
@@ -548,7 +530,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   coercionTelemetry: false,
   rowLineage: false,
   versionedMode: false,
-  versionedHeads: true,
+  // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
+  // and without the table — it is derivable from the entries and buys nothing
+  // at this scale. Kept as a flag for much longer sessions.
+  versionedHeads: false,
   indexThinObservations: false,
 };
 
