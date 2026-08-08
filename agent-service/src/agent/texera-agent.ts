@@ -488,7 +488,8 @@ export class TexeraAgent {
         this.settings.sourceProvenanceHint === true,
         this.settings.enableRecallTool === true,
         this.settings.enableResumeTool === true,
-        this.settings.versionedMode === true
+        this.settings.versionedMode === true,
+        this.settings.sessionTurns === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1180,6 +1181,7 @@ export class TexeraAgent {
     rowLineage?: boolean;
     versionedMode?: boolean;
     versionedHeads?: boolean;
+    sessionTurns?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1407,6 +1409,11 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.versionedHeads !== undefined) this.settings.versionedHeads = updates.versionedHeads;
+    if (updates.sessionTurns !== undefined && updates.sessionTurns !== this.settings.sessionTurns) {
+      // Changes the context layout and the prompt fragment describing it.
+      this.settings.sessionTurns = updates.sessionTurns;
+      promptNeedsRebuild = true;
+    }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so

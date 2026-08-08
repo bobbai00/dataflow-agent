@@ -160,6 +160,7 @@ export function paramsToRenderOptions(
     turnHistoryIndex: params.trajectory.priorTurns === "index" ? true : undefined,
     versionedCatalog: params.trajectory.versionedCatalog === true ? true : undefined,
     versionedHeads: params.trajectory.versionedHeads === false ? false : undefined,
+    sessionTurns: params.trajectory.sessionTurns === true ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
