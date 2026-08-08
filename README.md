@@ -27,7 +27,7 @@ on Texera dataflow operators — plus the benchmarking harnesses
 
 ```
 ┌──────────┐   REST/WS    ┌───────────────┐   proxied LLM calls   ┌─────────┐
-│你 / kb.py │ ───────────▶ │ agent-service │ ────────────────────▶ │ LiteLLM │
+│ benchmark  ───────────▶ │ agent-service │ ────────────────────▶ │ LiteLLM │
 └──────────┘              │    (:3001)    │      (:9096→:4000)    └─────────┘
                           └──────┬────────┘
                                  │ workflow CRUD + execution
