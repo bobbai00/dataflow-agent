@@ -203,7 +203,9 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         .optional()
         .describe(
           "Per-column stats for each result: numeric → min/max/mean; string → distinct count + top values; " +
-            "datetime → range; all → null count. Default false — use when a distribution or null count is the question."
+            "datetime → range; all → null count. Also includes the table's structural profile (grain/key " +
+            "candidates, low-cardinality partition columns, empty rows/cols, duplicates). Default false — use " +
+            "when a distribution, null count or the table's structure is the question."
         ),
     }),
     execute: async (args: {
@@ -316,6 +318,11 @@ export function createRecallStateTool(deps: RecallStateDeps) {
               detail: includeResults ? "sample" : "shape",
               schemaInResult: true,
               columnStats: includeStats,
+              // The structural profile (`Output Table profile:` — grain/key,
+              // partition columns, dirty-load facts) ships on the same worker
+              // channel as the column stats and answers the same class of
+              // question, so the one stats switch covers both.
+              tableStructureHint: includeStats,
               coercionTelemetry: true,
               rowLineage: true,
               inputsInResult: false,

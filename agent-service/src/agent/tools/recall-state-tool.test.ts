@@ -158,6 +158,30 @@ describe("recallState — the caller chooses the verbosity", () => {
     expect(out.length).toBeLessThan(RECALL_RESULT_CHARS_MAX * 3);
   });
 
+  test("the stats switch also returns the structural profile — the whole worker channel", async () => {
+    // The worker publishes column stats AND `__table_hints__` unconditionally;
+    // the one switch must expose both, or an arm could never recall a table's
+    // grain/key facts (the engine-provides-everything principle).
+    const log = turns();
+    log[1].results = new Map([
+      [
+        "pct",
+        makeInfo(60, {
+          columnStats: {
+            player: "(string): null=0, distinct=60",
+            __table_hints__: "unique key: player || 2 duplicate rows",
+          } as any,
+        }),
+      ],
+    ]);
+    const out = await run(makeTool({}, log), { turn: 2, includeOutputTableColumnStats: true });
+    expect(out).toContain("Output Table profile:");
+    expect(out).toContain("unique key: player");
+    // and off by default: the profile is behind the same switch as the stats
+    const lean = await run(makeTool({}, log), { turn: 2 });
+    expect(lean).not.toContain("Output Table profile:");
+  });
+
   test("the ceiling is configurable per arm (recallMaxResultChars)", async () => {
     const t = makeTool({ maxResultChars: 100 });
     const out = await run(t, { turn: 2, includeOutputTableSample: 4000 });
