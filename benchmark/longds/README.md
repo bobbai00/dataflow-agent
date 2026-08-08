@@ -31,7 +31,7 @@ machinery it borrows — see `_paths.py` for the full layout. One-time setup
 (DataMind clone, HF task download, symlinks, venv) is handled by:
 
 ```bash
-benchmark/bench.sh setup
+bin/bench.sh setup
 ```
 
 Data is **not** in the repo. `bench.sh longds download --task <domain/dataset/task>`
@@ -41,11 +41,11 @@ the full dataset is 19.5 GB, a single task is usually well under 200 MB.
 ## Running
 
 ```bash
-benchmark/bench.sh longds gate                                                   # go/no-go, see below
-benchmark/bench.sh longds prepare --task sports/nfl_big_data_bowl_2023/task1
-benchmark/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --arm haiku-delta-1k
-benchmark/bench.sh longds judge --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.4
-benchmark/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k --task sports__nfl_big_data_bowl_2023__task1
+bin/bench.sh longds gate                                                   # go/no-go, see below
+bin/bench.sh longds prepare --task sports/nfl_big_data_bowl_2023/task1
+bin/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --arm haiku-delta-1k
+bin/bench.sh longds judge --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
+bin/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k --task sports__nfl_big_data_bowl_2023__task1
 ```
 
 Use `setsid` and `-u` for long runs: stdout buffers without `-u`, and a session

@@ -15,31 +15,48 @@
 # (see docs/local-dev-with-agent.md — remember GUI copilot + LITELLM env).
 #
 # Usage:
-#   benchmark/bench.sh setup [--copy-from PATH]     one-time: venv, .env, data,
+#   bin/bench.sh setup [--copy-from PATH]     one-time: venv, .env, data,
 #                                                   symlinks, DataMind clone,
 #                                                   LongDS sample task
-#   benchmark/bench.sh kb <kb.py args...>           any kb.py command, e.g.:
-#       benchmark/bench.sh kb systems
-#       benchmark/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids "legal-easy-1"
-#       benchmark/bench.sh kb scores --sut DataflowSystemStableHaiku
-#   benchmark/bench.sh longds prepare [--task d/ds/t]
-#   benchmark/bench.sh longds run --task <key> [--arm haiku-delta-1k] [--turn-limit N]
-#   benchmark/bench.sh longds judge --sut <SUT> [--judge-model MODEL]
-#   benchmark/bench.sh longds analyze --sut <SUT> --task <key>
-#   benchmark/bench.sh longds download --task <domain/dataset/task>   fetch one more task from HF
+#   bin/bench.sh kb <kb.py args...>           any kb.py command, e.g.:
+#       bin/bench.sh kb systems
+#       bin/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids "legal-easy-1"
+#       bin/bench.sh kb scores --sut DataflowSystemStableHaiku
+#   bin/bench.sh longds prepare [--task d/ds/t]
+#   bin/bench.sh longds run --task <key> [--arm haiku-delta-1k] [--turn-limit N]
+#   bin/bench.sh longds judge --sut <SUT> [--judge-model MODEL]
+#   bin/bench.sh longds analyze --sut <SUT> --task <key>
+#   bin/bench.sh longds download --task <domain/dataset/task>   fetch one more task from HF
 #
 set -euo pipefail
 
-BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$BENCH_DIR/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BENCH_DIR="$REPO_ROOT/benchmark"
 KB="$BENCH_DIR/Kramabench"
 LONGDS="$BENCH_DIR/longds"
 PY="$KB/.venv/bin/python"
 
+# Root .env: OPENAI_API_KEY (KramaBench scoring + gpt models), ANTHROPIC key,
+# JUDGE_* overrides. Shell-exported values win — only unset variables are
+# taken from the file. See .env.example.
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    while IFS= read -r _envline; do
+        _envline="${_envline#export }"
+        [[ "$_envline" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        _k="${_envline%%=*}"
+        if [[ -z "${!_k:-}" ]]; then
+            _v="${_envline#*=}"
+            _v="${_v%\"}"; _v="${_v#\"}"; _v="${_v%\'}"; _v="${_v#\'}"
+            export "$_k=$_v"
+        fi
+    done < "$REPO_ROOT/.env"
+fi
+
 die() { echo "FATAL: $*" >&2; exit 1; }
 
 need_venv() {
-    [[ -x "$PY" ]] || die "no venv at $KB/.venv — run: benchmark/bench.sh setup"
+    [[ -x "$PY" ]] || die "no venv at $KB/.venv — run: bin/bench.sh setup"
 }
 
 cmd_setup() {
@@ -89,8 +106,8 @@ cmd_setup() {
     "$PY" "$LONGDS/prepare.py" --task sports/nfl_big_data_bowl_2023/task1 || true
 
     echo "[bench] setup done. Next:"
-    echo "  benchmark/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids \"legal-easy-1\""
-    echo "  benchmark/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --turn-limit 3"
+    echo "  bin/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids \"legal-easy-1\""
+    echo "  bin/bench.sh longds run --task sports__nfl_big_data_bowl_2023__task1 --turn-limit 3"
 }
 
 cmd_longds_download() {

@@ -85,7 +85,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentMode, ContextMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentMode, AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
 /**
  * Pick the driver from an optional explicit choice or fall back to
@@ -1048,6 +1048,47 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     agent.stop();
     return { status: "stopping" };
   })
+
+  // Synchronous one-turn REST entry point — the easy integration surface for
+  // external callers (scripts, notebooks, other services) that don't want to
+  // speak the WebSocket protocol. Runs one full agent turn and returns the
+  // final answer; the trace is then a GET /:id/react-steps away. WS clients
+  // attached to the same agent still receive every step/state frame live —
+  // the step callbacks fire regardless of which door the message came in.
+  .post(
+    "/:id/message",
+    async ({ params: { id }, body, set }) => {
+      const agent = getAgent(id);
+      const { content, messageSource } = body as {
+        content: string;
+        messageSource?: "chat" | "feedback";
+      };
+      if (agent.getState() !== AgentState.AVAILABLE) {
+        set.status = 409;
+        return { error: `agent is ${agent.getState()} — one turn at a time` };
+      }
+      const result = await agent.sendMessage(content, messageSource);
+      const steps = agent.getReActSteps();
+      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
+      const lastWithContent = [...steps]
+        .reverse()
+        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      broadcastNextContext(id, agent);
+      return {
+        status: "complete",
+        state: agent.getState(),
+        answer: (endStep?.content ?? lastWithContent?.content ?? "").trim(),
+        steps: result.messages.length,
+        headId: agent.getHead(),
+      };
+    },
+    {
+      body: t.Object({
+        content: t.String(),
+        messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+      }),
+    }
+  )
 
   .post("/:id/clear", ({ params: { id } }) => {
     const agent = getAgent(id);

@@ -651,6 +651,16 @@ export interface AgentSettingsApi {
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
+  /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
+  userTaskPlacement?: "top" | "bottom";
+  /** Prior-turn rendering: verbatim vs compact catalogue (see AgentSettings.turnHistory). */
+  turnHistory?: "full" | "index";
+  /** Expose the read-only recallState tool (see AgentSettings.enableRecallTool). */
+  enableRecallTool?: boolean;
+  /** Upstream operators allowed to render sample rows (see AgentSettings.indexRichTables). */
+  indexRichTables?: number;
+  /** Operators keeping a full index entry (see AgentSettings.indexDetailedOperators). */
+  indexDetailedOperators?: number;
 }
 
 export interface AgentInfo {

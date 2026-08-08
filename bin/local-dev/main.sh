@@ -251,6 +251,22 @@ REPO_ROOT="$SOURCE_ROOT"
 export TEXERA_DEPLOY_SOURCE="$SOURCE_ROOT"   # tui.py reads this for its banner
 cd "$REPO_ROOT"
 
+# Root .env: provider keys (ANTHROPIC/OPENAI for the LiteLLM container),
+# LITELLM_* overrides, JUDGE_* for benchmarks. Shell-exported values win —
+# only unset variables are taken from the file. See .env.example.
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    while IFS= read -r _envline; do
+        _envline="${_envline#export }"
+        [[ "$_envline" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+        _k="${_envline%%=*}"
+        if [[ -z "${!_k:-}" ]]; then
+            _v="${_envline#*=}"
+            _v="${_v%\"}"; _v="${_v#\"}"; _v="${_v%\'}"; _v="${_v#\'}"
+            export "$_k=$_v"
+        fi
+    done < "$REPO_ROOT/.env"
+fi
+
 # Build stamps are content-hashes of the source tree, so they MUST be scoped
 # per deploy source — otherwise a stamp from tree A could suppress the
 # (required) first build of tree B, whose target/ is still empty, and the JVM

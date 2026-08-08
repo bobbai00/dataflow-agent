@@ -15,7 +15,7 @@ entry point for both. The full Texera stack must be up first
 ## One-time setup
 
 ```bash
-benchmark/bench.sh setup [--copy-from ~/path/to/old/Kramabench]
+bin/bench.sh setup [--copy-from ~/path/to/old/Kramabench]
 ```
 
 Creates the submodule venv, wires the symlinks, clones `zjunlp/DataMind`
@@ -31,19 +31,21 @@ dataflow-agent/data              -> benchmark/Kramabench/data
 benchmark/Kramabench/data/longds -> ../../longds/DataMind/longds/dataset/data/longds
 ```
 
-`Kramabench/.env` needs a real `OPENAI_API_KEY` — KramaBench's paraphrase/f1
-metrics call gpt-4o-mini directly, and a dummy key silently zeroes scores.
+API keys come from the repo-root `.env` (see `.env.example`) — `bin/bench.sh`
+exports it before every command. KramaBench's paraphrase/f1 metrics call
+gpt-4o-mini via `OPENAI_API_KEY` directly, and a dummy key silently zeroes
+scores. (`Kramabench/.env` still works as a fallback for standalone use.)
 
 ## KramaBench
 
 ```bash
-benchmark/bench.sh kb systems                                    # list SUTs
-benchmark/bench.sh kb tasks --sut DataflowSystemStableHaiku \
+bin/bench.sh kb systems                                    # list SUTs
+bin/bench.sh kb tasks --sut DataflowSystemStableHaiku \
     --ids "legal-easy-3 wildfire-easy-1" --parallel              # run specific tasks
-benchmark/bench.sh kb run --sut DataflowSystemStableHaiku --parallel   # all 6 workloads
-benchmark/bench.sh kb scores --sut DataflowSystemStableHaiku     # leaderboard
-benchmark/bench.sh kb failed --sut DataflowSystemStableHaiku --zero-only --ids-only
-benchmark/bench.sh kb setup-data                                 # verify/fetch data lake
+bin/bench.sh kb run --sut DataflowSystemStableHaiku --parallel   # all 6 workloads
+bin/bench.sh kb scores --sut DataflowSystemStableHaiku     # leaderboard
+bin/bench.sh kb failed --sut DataflowSystemStableHaiku --zero-only --ids-only
+bin/bench.sh kb setup-data                                 # verify/fetch data lake
 ```
 
 `DataflowSystemStableHaiku` (claude-haiku-4.5 on the converge stack) is the
@@ -58,22 +60,20 @@ as missing. Pre-existing on every branch.
 ## LongDS
 
 ```bash
-benchmark/bench.sh longds download --task sports/nfl_big_data_bowl_2023/task1
-benchmark/bench.sh longds prepare  --task sports/nfl_big_data_bowl_2023/task1
-benchmark/bench.sh longds run     --task sports__nfl_big_data_bowl_2023__task1 \
+bin/bench.sh longds download --task sports/nfl_big_data_bowl_2023/task1
+bin/bench.sh longds prepare  --task sports/nfl_big_data_bowl_2023/task1
+bin/bench.sh longds run     --task sports__nfl_big_data_bowl_2023__task1 \
     --arm haiku-delta-1k --turn-limit 3          # smoke; drop --turn-limit for all 42 turns
-benchmark/bench.sh longds judge   --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.4
-benchmark/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k \
+bin/bench.sh longds judge   --sut LongDS_LongDSHaikuDelta1k --judge-model gpt-5.2
+bin/bench.sh longds analyze --sut LongDS_LongDSHaikuDelta1k \
     --task sports__nfl_big_data_bowl_2023__task1
 ```
 
-The judge defaults to `JUDGE_BASE_URL=http://localhost:4000/v1` (the compose
-litellm, which has no provider keys) — point it at the DKNet gateway instead:
-
-```bash
-export JUDGE_BASE_URL="https://texera.dknet-ai.org/litellm/v1"
-export JUDGE_API_KEY="<dknet master key>"
-```
+The judge defaults to `JUDGE_BASE_URL=http://localhost:4000/v1` — the
+local-dev LiteLLM proxy, which serves every model in
+`bin/single-node/litellm-config.yaml` using the provider keys from the root
+`.env`. Override `JUDGE_BASE_URL` / `JUDGE_API_KEY` (root `.env` or shell) to
+judge through any other OpenAI-compatible endpoint.
 
 Arms live in `benchmark/longds/arms.py` (`haiku-delta-1k` is the
 gateway-reachable smoke arm; the `luna-*` arms name `gpt-5.6-luna`, which the
