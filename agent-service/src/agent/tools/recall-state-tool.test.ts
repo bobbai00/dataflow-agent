@@ -73,11 +73,12 @@ function turns(): RecalledTurn[] {
   ];
 }
 
-function makeTool(log: RecalledTurn[] = turns()) {
+function makeTool(overrides: { maxResultChars?: number } = {}, log: RecalledTurn[] = turns()) {
   return createRecallStateTool({
     getTurns: () => log,
     getCurrentTurnKey: () => "m-current",
     workflowState: new WorkflowState(),
+    ...overrides,
   });
 }
 
@@ -104,7 +105,7 @@ describe("recallState — turn addressing", () => {
       ["pct", "revised"],
       ["probe", "deleted"],
     ]);
-    const out = await run(makeTool(log), { turn: 2 });
+    const out = await run(makeTool({}, log), { turn: 2 });
     expect(out).toContain("~ `pct`");
     expect(out).toContain("- `probe`");
     expect(out).toContain("no longer existed at the end of it");
@@ -117,7 +118,7 @@ describe("recallState — turn addressing", () => {
   });
 
   test("the first turn of a session says there is nothing to recall", async () => {
-    const out = await run(makeTool([]), { turn: 1 });
+    const out = await run(makeTool({}, []), { turn: 1 });
     expect(out).toContain("no earlier turns yet");
   });
 });
@@ -126,8 +127,9 @@ describe("recallState — the caller chooses the verbosity", () => {
   test("code is on by default; table bodies are not", async () => {
     const out = await run(makeTool(), { turn: 2 });
     expect(out).toContain(CODE_PCT);
-    // Shape and schema still orient the model without paying for the rows.
-    expect(out).toContain("Result (as of turn 2):");
+    // Shape and schema still orient the model without paying for the rows —
+    // and the header now states the table's TOTAL size (the scaling fact).
+    expect(out).toMatch(/Result \(as of turn 2, ~[\d.]+k? chars total\):/);
     expect(out).toContain("player");
     expect(out).not.toContain("player_7");
     expect(out).toContain("table bodies omitted (includeOutputTableSample=0)");
@@ -146,10 +148,26 @@ describe("recallState — the caller chooses the verbosity", () => {
     expect(narrow.length).toBeLessThan(wide.length);
   });
 
-  test("an oversized sample budget is clamped, and the model is told", async () => {
+  test("an oversized sample budget is clamped, and the clamp TEACHES the way forward", async () => {
     const out = await run(makeTool(), { turn: 2, includeOutputTableSample: 500000 });
     expect(out).toContain(`clamped to ${RECALL_RESULT_CHARS_MAX}`);
+    // Not a bare rejection: the note points at the size fact and the narrower
+    // channels, so the model narrows instead of retrying with a bigger number.
+    expect(out).toContain("total size");
+    expect(out).toContain("includeOutputTableColumnStats");
     expect(out.length).toBeLessThan(RECALL_RESULT_CHARS_MAX * 3);
+  });
+
+  test("the ceiling is configurable per arm (recallMaxResultChars)", async () => {
+    const t = makeTool({ maxResultChars: 100 });
+    const out = await run(t, { turn: 2, includeOutputTableSample: 4000 });
+    expect(out).toContain("clamped to 100");
+  });
+
+  test("a truncated sample states how much of the table it is", async () => {
+    // The fixture table is ~1.6k chars; a 200-char budget must say so.
+    const out = await run(makeTool(), { turn: 2, includeOutputTableSample: 200 });
+    expect(out).toMatch(/shown: first 200 chars of ~[\d.]+k? chars/);
   });
 });
 

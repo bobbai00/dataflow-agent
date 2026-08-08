@@ -31,7 +31,13 @@ import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot
 import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
-import { formatOperatorResult, formatRowLineage, formatSchemaLine } from "../tools/result-formatting";
+import {
+  estimateTableChars,
+  formatApproxChars,
+  formatOperatorResult,
+  formatRowLineage,
+  formatSchemaLine,
+} from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
@@ -2495,8 +2501,13 @@ function renderVersionedCatalog(
         const info = leaf?.results.get(opId)?.info;
         if (info && Array.isArray(info.result) && info.result.length > 0) {
           const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+          // Total serialized size (estimated) is the recall-scaling fact: it
+          // tells a later turn whether an `includeOutputTableSample` budget
+          // sees the whole table or a sliver, BEFORE it spends the call.
+          const est = estimateTableChars(info);
+          const size = est !== undefined ? `, ${formatApproxChars(est)}` : "";
           sections.push(
-            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols — Schema: ${cols.join(", ")}`
+            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size} — Schema: ${cols.join(", ")}`
           );
           if (options.rowLineage && info) {
             const lin = formatRowLineage(info);

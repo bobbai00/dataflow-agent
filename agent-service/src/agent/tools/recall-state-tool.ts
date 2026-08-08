@@ -62,7 +62,7 @@ import { tool } from "ai";
 import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowContent } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
-import { formatOperatorResult } from "./result-formatting";
+import { estimateTableChars, formatApproxChars, formatOperatorResult } from "./result-formatting";
 import { createErrorResult } from "./tools-utility";
 
 export const TOOL_NAME_RECALL_STATE = "recallState";
@@ -99,15 +99,18 @@ export interface RecalledTurn {
  */
 export const RECALL_CALLS_PER_TURN = 10;
 
-/** Hard ceiling for `includeOutputTableSample`, per operator.
+/** Default hard ceiling for `includeOutputTableSample`, per operator.
  *
  *  Enforced here, not asked for in the prompt. A recalled block is re-rendered
  *  into `# Recalled State` for every remaining step of the turn, so an
  *  over-wide pull is not paid once — it is paid per step until the turn ends.
  *  A model that asks for 100000 characters of a wide table would spend more on
  *  one recall than on the rest of the turn combined.
+ *
+ *  Overridable per arm via the `recallMaxResultChars` setting (RecallStateDeps
+ *  .maxResultChars) — the ceiling is an experiment knob, the clamping is not.
  */
-export const RECALL_RESULT_CHARS_MAX = 4000;
+export const RECALL_RESULT_CHARS_MAX = 5000;
 
 export interface RecallStateDeps {
   /** All COMPLETED turns before the current one, oldest first. */
@@ -115,6 +118,10 @@ export interface RecallStateDeps {
   /** Identifies the current turn, so the budget resets at a turn boundary. */
   getCurrentTurnKey?: () => string;
   workflowState: WorkflowState;
+  /** Per-operator ceiling for `includeOutputTableSample`; default
+   *  RECALL_RESULT_CHARS_MAX. Requests above it are clamped, and the clamp
+   *  message teaches the total size so the model narrows instead of retrying. */
+  maxResultChars?: number;
 }
 
 function findOperator(workflow: WorkflowContent | undefined, opId: string): any {
@@ -141,6 +148,7 @@ const VERB_MARK: Record<RecallVerb, string> = { added: "+", revised: "~", delete
 export function createRecallStateTool(deps: RecallStateDeps) {
   let budgetTurnKey: string | undefined;
   let callsThisTurn = 0;
+  const CHARS_CAP = deps.maxResultChars ?? RECALL_RESULT_CHARS_MAX;
 
   return tool({
     description:
@@ -185,8 +193,10 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         .describe(
           "Characters of sample rows to show for EACH changed operator's output table, as of that turn. " +
             `0 (default) = no sample rows — row/column counts and the schema show either way. Hard maximum ` +
-            `${RECALL_RESULT_CHARS_MAX}; higher values are clamped. Keep it small: recalled output is re-sent on ` +
-            "every remaining step of this turn."
+            `${CHARS_CAP}; higher values are clamped. The \`# Catalog\` states each output's total size ` +
+            "(`~48k chars`), so size your pull against it — a table at or under your budget comes back whole; " +
+            "for one far over it, prefer `includeOutputTableColumnStats` or read the schema line. Keep it small: " +
+            "recalled output is re-sent on every remaining step of this turn."
         ),
       includeOutputTableColumnStats: z
         .boolean()
@@ -240,7 +250,7 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         const requestedChars = args.includeOutputTableSample ?? 0;
         const includeResults = requestedChars > 0;
         const includeStats = args.includeOutputTableColumnStats === true;
-        const maxResultChars = Math.min(requestedChars, RECALL_RESULT_CHARS_MAX);
+        const maxResultChars = Math.min(requestedChars, CHARS_CAP);
 
         const out: string[] = [`# Turn ${t.turn}`, ""];
         out.push("Asked:");
@@ -311,8 +321,18 @@ export function createRecallStateTool(deps: RecallStateDeps) {
               inputsInResult: false,
               maxResultChars: includeResults ? maxResultChars : undefined,
             });
-            out.push(`Result (as of turn ${t.turn}):`);
+            // Size fact on every recalled result: the reader learns whether the
+            // sample it got IS the table or a sliver of it, without another call.
+            const est = estimateTableChars(info);
+            const size = est !== undefined ? `, ${formatApproxChars(est)} total` : "";
+            out.push(`Result (as of turn ${t.turn}${size}):`);
             out.push(rendered);
+            if (includeResults && est !== undefined && est > maxResultChars) {
+              out.push(
+                `(shown: first ${maxResultChars} chars of ${formatApproxChars(est)} — for the full picture ` +
+                  "prefer `includeOutputTableColumnStats: true` over a bigger sample)"
+              );
+            }
           } else if (includeResults) {
             out.push("Result: (not materialized in this turn's snapshot)");
           }
@@ -323,10 +343,13 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         if (!includeCode) notes.push("code omitted (includeCode=false)");
         if (!includeResults)
           notes.push("table bodies omitted (includeOutputTableSample=0) — shapes and schemas shown");
-        if (requestedChars > RECALL_RESULT_CHARS_MAX) {
+        if (requestedChars > CHARS_CAP) {
           notes.push(
-            `includeOutputTableSample ${requestedChars} clamped to ${RECALL_RESULT_CHARS_MAX} — ` +
-              "recalled output is re-sent on every remaining step of this turn, so it is capped"
+            `includeOutputTableSample ${requestedChars} clamped to ${CHARS_CAP} (the per-operator ceiling) — ` +
+              "recalled output is re-sent on every remaining step of this turn, so it is capped. " +
+              "Each Result header above states the table's total size: when it exceeds the ceiling, narrow the " +
+              "question (includeOutputTableColumnStats for distributions, the schema line for structure) " +
+              "instead of asking for more characters"
           );
         }
         if (notes.length > 0) out.push(`(${notes.join("; ")})`);
