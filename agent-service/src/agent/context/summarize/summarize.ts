@@ -158,6 +158,7 @@ export function paramsToRenderOptions(
     foldGraceEvents: params.trajectory.foldGraceEvents,
     userTaskPlacement: params.trajectory.userTaskPlacement,
     turnHistoryIndex: params.trajectory.priorTurns === "index" ? true : undefined,
+    versionedCatalog: params.trajectory.versionedCatalog === true ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,

@@ -31,7 +31,7 @@ import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot
 import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
-import { formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
+import { formatOperatorResult, formatRowLineage, formatSchemaLine } from "../tools/result-formatting";
 import { levelsToFlags } from "../context/decorate/registry";
 import type { DecorateLevel } from "../context/decorate/types";
 import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
@@ -236,6 +236,12 @@ export interface AssembleContextOptions {
   /** When true, operator results carry a `Lineage:` rows-in/rows-out fact line
    *  (see result-formatting.formatRowLineage). Off by default. */
   rowLineage?: boolean;
+  /** VERSIONED MODE render: one `# Catalog` for everything — finished turns as
+   *  Task / Dataflow delta / Answer entries, the in-progress turn as the last
+   *  entry with its live step log. No `# Dataflow` section, no `# Recalled
+   *  State` tail (pull outputs persist inline as observations). See
+   *  renderVersionedCatalog. Off by default. */
+  versionedCatalog?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -577,6 +583,20 @@ export function renderContextCore(
                 foldMark,
                 keepLast
               );
+        break;
+      }
+      // VERSIONED MODE: the whole context is one catalog over the version DAG.
+      // Checked before the structured layout — it supersedes it.
+      if (options.versionedCatalog) {
+        content = renderVersionedCatalog(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep
+        );
         break;
       }
       // Structured three-section layout (turnHistory: "index"). A dedicated
@@ -1865,6 +1885,31 @@ function serializeTaskBody(
     lines.push(serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex)));
     lines.push("");
 
+    // VERSIONED MODE: a read-only pull's OUTPUT persists inline, as an
+    // ordinary observation — snapshot or not (a pull writes nothing, so it
+    // never owns a snapshot and the block below never fires for it). One rule,
+    // "every action's observation stays", replaces the `# Recalled State`
+    // tail. Without persistence the output evaporates on re-render and the
+    // model re-asks (measured at 98 calls in one turn).
+    if (options.versionedCatalog && !omitObservation) {
+      const calls = node.step.toolCalls ?? [];
+      const results = node.step.toolResults ?? [];
+      const pulls: string[] = [];
+      calls.forEach((tc, i) => {
+        if (tc.toolName !== "recallState" && tc.toolName !== "inspectResult") return;
+        const out = stringifyOutput(results[i]?.output).trimEnd();
+        if (out.length === 0) return;
+        if (out.startsWith("[ERROR]")) pulls.push(`- ${tc.toolName}: ${conciseOutcome(out)}`);
+        else pulls.push(`- ${tc.toolName} output:\n${out.replace(/^#/gm, "####")}`);
+      });
+      if (pulls.length > 0) {
+        lines.push("Observation:");
+        lines.push("");
+        lines.push(pulls.join("\n"));
+        lines.push("");
+      }
+    }
+
     if (node.snapshot && !omitObservation) {
       // Observation = the execution outcome of the Action: a per-operator list.
       // The operator-block STRUCTURAL decorations (Summary / Inputs)
@@ -2082,6 +2127,174 @@ function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
   }
   if (blocks.length === 0) return undefined;
   return ["# Recalled State (your recallState pulls this turn)", "", ...blocks].join("\n").trimEnd();
+}
+
+/**
+ * VERSIONED CATALOG — the whole context is ONE catalog over an immutable
+ * version DAG.
+ *
+ *   ## Turn 1..N-1     finished: Task (verbatim) / Dataflow delta / Answer
+ *   ### Current operators   pointer table: lineage -> latest finished turn
+ *   ## Turn N (in progress) Task + the live step log (full observations;
+ *                           recall output persists inline as an observation)
+ *
+ * There is deliberately NO `# Dataflow` section. State renders once, at the
+ * turn that created it, and every reference names (operatorId, turnId) — so
+ * the state dump and the history stop duplicating each other, and the prompt
+ * becomes append-only end to end: finished entries are byte-stable forever,
+ * the heads table changes only at turn boundaries, and within a turn only the
+ * step log grows. That is the cache-optimal shape, reached by structure
+ * rather than by a render cap.
+ */
+function renderVersionedCatalog(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>
+): string {
+  const sections: string[] = [];
+  const prior = tasks.slice(0, -1);
+  const current = tasks.slice(-1);
+  const currentTurnNo =
+    (current[0]?.nodes[0]?.step.messageId
+      ? options.turnNumberByMessageId?.get(current[0].nodes[0].step.messageId)
+      : undefined) ?? tasks.length;
+
+  sections.push("# Catalog (the whole session, one entry per turn)");
+  sections.push("");
+  sections.push(
+    "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
+      "addressed as (operatorId, turn)), and what was answered. `recallState(turn)` fetches any " +
+      "entry's code and results verbatim. The last entry is the turn in progress."
+  );
+  sections.push("");
+
+  // last finished turn that touched each lineage — powers Upstream provenance
+  // and the Current operators table. Finished turns only, so the table changes
+  // at turn boundaries, never mid-turn.
+  const touchTurns = new Map<string, number[]>();
+
+  prior.forEach((task, i) => {
+    const msgId = task.nodes[0]?.step.messageId;
+    const turnNo = (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? i + 1;
+    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
+    const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
+
+    sections.push(`## Turn ${turnNo}`);
+    sections.push("### Task");
+    if (request) sections.push(request.trim());
+    sections.push("");
+
+    // verbs from the same create-vs-modify walk the event renderer uses
+    const verbs = new Map<string, string>();
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent") continue;
+      const flags = createFlagsByStep.get(node.step.id);
+      for (const call of node.step.toolCalls ?? []) {
+        const opId = (call.input as any)?.operatorId;
+        if (typeof opId !== "string") continue;
+        if (call.toolName === "deleteOperator") {
+          verbs.set(opId, "deleted");
+        } else if (
+          call.toolName === "createOrModifyOperator" ||
+          call.toolName === "addOperator" ||
+          call.toolName === "modifyOperator"
+        ) {
+          if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
+          else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
+        }
+      }
+    }
+
+    const leaf = lastSnapshotOf([task]);
+    if (verbs.size > 0) {
+      sections.push("### Dataflow delta");
+      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
+      for (const [opId, verb] of verbs) {
+        if (verb === "deleted" && !survives.has(opId)) continue;
+        sections.push(`#### \`${opId}\` (${verb})`);
+        if (verb === "deleted") {
+          sections.push("");
+          continue;
+        }
+        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
+        const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
+        if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
+        // Upstream with version provenance: the defining turn of each input as
+        // of THIS turn — the exact (operatorId, turn) pairs a later write's
+        // `upstreams` should carry when it builds on this version's inputs.
+        const ups = (leaf?.workflow.links ?? [])
+          .filter(l => l?.target?.operatorID === opId)
+          .map(l => l.source.operatorID);
+        if (ups.length > 0) {
+          const withProv = ups.map(u => {
+            const t = (touchTurns.get(u) ?? []).filter(x => x <= turnNo);
+            return t.length > 0 ? `${u} (turn ${t[t.length - 1]})` : u;
+          });
+          sections.push(`Upstream: ${withProv.join(", ")}`);
+        }
+        const info = leaf?.results.get(opId)?.info;
+        if (info && Array.isArray(info.result) && info.result.length > 0) {
+          const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+          sections.push(
+            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols — Schema: ${cols.join(", ")}`
+          );
+          if (options.rowLineage && info) {
+            const lin = formatRowLineage(info);
+            if (lin) sections.push(lin);
+          }
+        }
+        sections.push("");
+      }
+      for (const [opId, verb] of verbs) {
+        if (verb === "deleted") continue;
+        const arr = touchTurns.get(opId) ?? [];
+        arr.push(turnNo);
+        touchTurns.set(opId, arr);
+      }
+    }
+
+    sections.push("### Answer");
+    sections.push(answer ? clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS) : "(no answer recorded)");
+    sections.push("");
+  });
+
+  // Heads: the derived "current" — a pointer table, never content. This is
+  // what "latest version" means; everything else is explicit (op, turn) refs.
+  const lastLeaf = lastSnapshotOf(prior.length > 0 ? prior : tasks);
+  const alive = new Set((lastLeaf?.workflow.operators ?? []).map(o => o.operatorID));
+  const heads = [...touchTurns.entries()].filter(([op]) => alive.has(op));
+  if (heads.length > 0) {
+    sections.push("### Current operators (lineage → latest version turn)");
+    for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
+      sections.push(`- \`${op}\` → turn ${turns[turns.length - 1]}`);
+    }
+    sections.push("");
+  }
+
+  sections.push(`## Turn ${currentTurnNo} (in progress)`);
+  sections.push("### Task");
+  if (latestUserContent) sections.push(latestUserContent.trim());
+  sections.push("");
+  const steps = renderAgentEvents(
+    current,
+    workflowState,
+    options,
+    initSnapshot,
+    latestUserStepId,
+    createFlagsByStep,
+    /*omitObservation=*/ false
+  );
+  if (steps.trim().length > 0) {
+    sections.push("### Steps");
+    sections.push("");
+    sections.push(steps.replace(/^## /gm, "#### "));
+  }
+
+  return sections.join("\n").trimEnd();
 }
 
 /**

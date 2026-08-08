@@ -279,6 +279,9 @@ export const TrajectoryParamsSchema = z.object({
    *  "index" collapses them into the `# Prior Turns` catalogue and keeps only the
    *  current turn raw (details then pulled with `recallState`). */
   priorTurns: z.enum(["full", "index"]).default("full"),
+  /** Versioned mode: the whole context is one catalog over the version DAG
+   *  (supersedes priorTurns entirely). */
+  versionedCatalog: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -431,6 +434,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       foldGraceEvents: options.foldGraceEvents ?? 1,
       userTaskPlacement: options.userTaskPlacement ?? "top",
       priorTurns: options.turnHistoryIndex ? "index" : "full",
+      versionedCatalog: options.versionedCatalog === true,
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
     // DELTA normally has no `# Current Dataflow` section because state lives

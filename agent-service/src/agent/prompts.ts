@@ -64,6 +64,10 @@ const RECALL_FRAGMENT: string = rd("recall.md");
 /** Version-tree navigation (`resumeFrom`): selected only when that tool is
  *  enabled, so arms without it are never told to call a tool they lack. */
 const RESUME_FRAGMENT: string = rd("resume.md");
+/** Versioned mode: one catalog over an immutable version DAG, strict
+ *  (operatorId, turn) references. REPLACES the recall fragment's layout
+ *  description when on — the sections recall.md names do not exist here. */
+const VERSIONED_FRAGMENT: string = rd("versioned.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -372,7 +376,8 @@ export function buildCodeModeSystemPrompt(
   codeInSnapshotEnabled = true,
   sourceProvenanceHint = false,
   recallEnabled = false,
-  resumeEnabled = false
+  resumeEnabled = false,
+  versionedEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -380,7 +385,10 @@ export function buildCodeModeSystemPrompt(
   const noCode = key === "latest" && !codeInSnapshotEnabled;
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
   const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
-  const recall = recallEnabled ? `\n${RECALL_FRAGMENT}\n` : "";
+  // Versioned mode supersedes the recall fragment: recall.md describes the
+  // `# Current Turn` / `# Dataflow` layout, which does not exist under the
+  // versioned catalog. The recallState tool itself remains available either way.
+  const recall = versionedEnabled ? `\n${VERSIONED_FRAGMENT}\n` : recallEnabled ? `\n${RECALL_FRAGMENT}\n` : "";
   const resume = resumeEnabled ? `\n${RESUME_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis

@@ -1,0 +1,68 @@
+## This session is one version history
+
+I will send you a series of requests about the same data, one at a time. Your
+context is a single `# Catalog`: one entry per turn, oldest first, and the last
+entry is the turn you are working on now.
+
+Each finished entry shows:
+
+- **Task** — what I asked, word for word. Rules stated in any turn (rounding,
+  scales, tie-breaking, cutoffs) keep binding until a later turn changes them.
+- **Dataflow delta** — the operators that turn added, revised or deleted. Each
+  shows its summary, its upstreams **with the turn they came from**, and its
+  result shape and columns.
+- **Answer** — what you answered.
+
+`### Current operators` lists, for every live operator, the turn that holds its
+latest version. That is what "latest" means here — there is no other notion of
+current state.
+
+**Nothing is ever overwritten.** Every version of every operator keeps its
+address: **(operatorId, turn)**. Revising an operator creates a new version at
+the current turn; the old one stays addressable forever. The catalog is the
+complete record.
+
+## Every reference names its version
+
+When you build or revise an operator, you say exactly which versions you build
+on:
+
+- `def process(scores, labels)` needs
+  `upstreams: {"scores": <turn>, "labels": <turn>}` — the turn whose version of
+  each input you mean. Use `Current operators` for the latest, or an earlier
+  turn when the request asks for an earlier state. For operators you created
+  **this turn**, use the current turn's number.
+- Revising an existing operator needs `fromTurn` — the turn whose version your
+  new code derives from (usually its latest).
+- `def load()` has no inputs — omit `upstreams`.
+
+This is not bookkeeping for its own sake. The classic failure in long analyses
+is building on the wrong version of something — the pre-update filter, the
+already-revised threshold — and never noticing. Writing the version down makes
+that mistake visible the moment you make it, and the catalog is right there to
+check against.
+
+Picking versions:
+
+- **Continuing the analysis** → the latest version of each input, from
+  `Current operators`.
+- **"As it was originally" / "before the change" / rollback** → the earlier
+  turn's version, straight from that turn's catalog entry. Reference it; do not
+  rebuild it from memory.
+- **A what-if on an old state** → reference the old versions as inputs and
+  build new operators; nothing needs restoring because nothing was lost.
+
+## Working within a turn
+
+Inside the current entry you work exactly as before: think, act, observe. Your
+operators' results appear in your step observations, and they stay visible for
+the whole turn. `recallState(turn)` fetches any earlier entry's code and
+results verbatim; its output also stays in your steps — never fetch the same
+thing twice.
+
+## Answering
+
+Read the numbers off the results in front of you — your observations this turn,
+or recalled state — and write the answer yourself in your reply. Do NOT build
+operators whose only purpose is to format or serialize an answer; no
+`*_answer` / `*_json` chains. The answer text is yours to write.

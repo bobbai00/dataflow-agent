@@ -487,7 +487,8 @@ export class TexeraAgent {
         this.settings.enableCodeInSnapshot === true,
         this.settings.sourceProvenanceHint === true,
         this.settings.enableRecallTool === true,
-        this.settings.enableResumeTool === true
+        this.settings.enableResumeTool === true,
+        this.settings.versionedMode === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -552,7 +553,8 @@ export class TexeraAgent {
         context,
         this.settings.maxOperatorEdits,
         this.settings.enableRenderPrefs === true,
-        this.isCodeShownToAgent()
+        this.isCodeShownToAgent(),
+        this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -895,6 +897,43 @@ export class TexeraAgent {
     };
   }
 
+  /**
+   * The version store for STRICT (operatorId, turnId) addressing: which
+   * finished turns wrote each operator (with that turn's code), which turn is
+   * in progress, and what it has touched so far. Derived from the same turn
+   * grouping as the catalogue and `recallState`, so a version turn the model
+   * reads anywhere is valid everywhere.
+   */
+  operatorVersionStore() {
+    const agent = this;
+    return {
+      versionsOf(operatorId: string): Array<{ turn: number; code: string }> {
+        const out: Array<{ turn: number; code: string }> = [];
+        for (const t of agent.buildTurnLog()) {
+          if (!t.operators.includes(operatorId)) continue;
+          const op = (t.workflow?.operators as any[])?.find(o => o?.operatorID === operatorId);
+          out.push({ turn: t.turn, code: String(op?.operatorProperties?.code ?? "") });
+        }
+        return out;
+      },
+      currentTurn(): number {
+        return agent.turnOrder().length;
+      },
+      touchedThisTurn(): Set<string> {
+        const touched = new Set<string>();
+        const msg = agent.currentMessageId;
+        if (!msg) return touched;
+        for (const step of agent.reActStepsByMessageId.get(msg) ?? []) {
+          for (const call of step.toolCalls ?? []) {
+            const opId = (call.input as any)?.operatorId;
+            if (typeof opId === "string") touched.add(opId);
+          }
+        }
+        return touched;
+      },
+    };
+  }
+
   private buildTurnLog(): RecalledTurn[] {
     // Drop the synthetic `initialize` bootstrap step exactly as the renderer's
     // buildPath does. Without this the tool numbers turns one higher than the
@@ -1139,6 +1178,7 @@ export class TexeraAgent {
     enableAnswerGrounding?: boolean;
     coercionTelemetry?: boolean;
     rowLineage?: boolean;
+    versionedMode?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1358,6 +1398,13 @@ export class TexeraAgent {
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
     if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
     if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
+    if (updates.versionedMode !== undefined && updates.versionedMode !== this.settings.versionedMode) {
+      // Changes the write tool's schema (strict version params), the context
+      // layout, AND the prompt fragment describing both. Tools are rebuilt at
+      // the end of this method regardless; the prompt needs an explicit rebuild.
+      this.settings.versionedMode = updates.versionedMode;
+      promptNeedsRebuild = true;
+    }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so

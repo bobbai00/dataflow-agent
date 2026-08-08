@@ -606,6 +606,21 @@ function createInputLinks(
   return createdLinkIds;
 }
 
+/**
+ * Version store for STRICT (operatorId, turnId) addressing (versioned mode).
+ * Supplied by the agent, which owns the turn history: for each operator
+ * lineage, the finished turns that changed it (with that turn's code), plus
+ * the in-progress turn's number so same-turn work is referenceable.
+ */
+export interface OperatorVersionStore {
+  /** Sorted finished-turn numbers at which `operatorId` was written, with code. */
+  versionsOf(operatorId: string): Array<{ turn: number; code: string }>;
+  /** The 1-based number of the turn in progress. */
+  currentTurn(): number;
+  /** Operator ids written so far in the turn in progress. */
+  touchedThisTurn(): Set<string>;
+}
+
 export function createCreateOrModifyOperatorTool(
   workflowState: WorkflowState,
   operatorSchemas: Map<string, any>,
@@ -615,7 +630,12 @@ export function createCreateOrModifyOperatorTool(
   // Code visible to the agent is the DEFAULT — true for every DELTA config
   // (events carry `code:`) and for LATEST with code in the snapshot. Only pass
   // false for the one code-blind case: LATEST with the snapshot flag off.
-  codeShownEnabled = true
+  codeShownEnabled = true,
+  // Versioned mode: every reference to earlier state must carry its turn —
+  // `upstreams` maps each def-arg to the version turn it builds on, and a
+  // revision must name `fromTurn`. Off ⇒ schema and behavior are byte-identical
+  // to legacy.
+  versionStore?: OperatorVersionStore
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
 
@@ -684,8 +704,31 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
                   "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
           ),
       };
+      const versionedShape: Record<string, z.ZodType> = versionStore
+        ? {
+            upstreams: z
+              .record(z.string(), z.number().int().min(1))
+              .optional()
+              .describe(
+                "REQUIRED for def process(...): for EACH parameter, the turn whose version of that operator you " +
+                  "build on — e.g. {\"scores\": 3, \"labels\": 9}. The `# Catalog` lists every operator's version " +
+                  "turns; `Current operators` names the latest. Use the current turn's number for operators you " +
+                  "created this turn. Omit (or pass {}) for def load()."
+              ),
+            fromTurn: z
+              .number()
+              .int()
+              .min(1)
+              .optional()
+              .describe(
+                "REQUIRED when operatorId already exists: the turn whose version of this operator your new code " +
+                  "derives from (usually its latest). This makes every revision's ancestry explicit."
+              ),
+          }
+        : {};
       const richSchema = z.object({
         ...baseShape,
+        ...versionedShape,
         outputSummary: z
           .enum(["minimal", "standard"])
           .optional()
@@ -704,7 +747,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       });
       // Control arms (flag off) must not even SEE the pref params — swap in the
       // base schema; the runtime args type is the rich one (fields just absent).
-      return (renderPrefsEnabled ? richSchema : z.object(baseShape)) as typeof richSchema;
+      return (renderPrefsEnabled ? richSchema : z.object({ ...baseShape, ...versionedShape })) as typeof richSchema;
     })(),
     execute: async (args: {
       operatorId: string;
@@ -712,6 +755,8 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       summary?: string;
       outputSummary?: "minimal" | "standard";
       showOutputStatistics?: boolean;
+      upstreams?: Record<string, number>;
+      fromTurn?: number;
     }) => {
       try {
         const { operatorId, code, summary } = args;
@@ -754,6 +799,65 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         }
 
         const existingOperator = findOperatorByName(workflowState, operatorId);
+
+        // STRICT VERSION ADDRESSING (versioned mode). Every dependency on
+        // earlier state is written down as (operatorId, turnId) and checked
+        // against the version store, so building on the wrong version is a
+        // visible, correctable mistake instead of a silent inheritance. Every
+        // rejection lists the valid versions — a rejection that does not say
+        // what to do instead produces verbatim retry loops (measured: 35
+        // identical calls, a full step budget, no answer).
+        if (versionStore) {
+          const versionsLine = (opId: string): string => {
+            const turns = versionStore.versionsOf(opId).map(v => v.turn);
+            if (versionStore.touchedThisTurn().has(opId)) turns.push(versionStore.currentTurn());
+            return turns.length > 0 ? `\`${opId}\` has versions at turn ${turns.join(", ")}` : `\`${opId}\` has no versions yet`;
+          };
+          if (parameters.length > 0) {
+            const upstreams = args.upstreams ?? {};
+            const missing = parameters.filter(par => typeof upstreams[par] !== "number");
+            if (missing.length > 0) {
+              return createErrorResult(
+                `Missing version for upstream(s): [${missing.join(", ")}]. In this session every reference names ` +
+                  `its version — pass upstreams as {${parameters.map(par => `"${par}": <turn>`).join(", ")}}. ` +
+                  parameters.map(versionsLine).join("; ") +
+                  "."
+              );
+            }
+            for (const par of parameters) {
+              const want = upstreams[par];
+              const turns = versionStore.versionsOf(par).map(v => v.turn);
+              const inThisTurn = versionStore.touchedThisTurn().has(par) && want === versionStore.currentTurn();
+              if (!turns.includes(want) && !inThisTurn) {
+                return createErrorResult(
+                  `\`${par}\` has no version at turn ${want}. ${versionsLine(par)}. Pick one of those ` +
+                    "(the latest, unless this request asks for an earlier state)."
+                );
+              }
+            }
+          }
+          if (existingOperator) {
+            const turns = versionStore.versionsOf(operatorId).map(v => v.turn);
+            if (typeof args.fromTurn !== "number") {
+              return createErrorResult(
+                `\`${operatorId}\` already exists, so this is a revision — pass fromTurn: the turn whose version ` +
+                  `your new code derives from. ${versionsLine(operatorId)}.`
+              );
+            }
+            const fromThisTurn =
+              versionStore.touchedThisTurn().has(operatorId) && args.fromTurn === versionStore.currentTurn();
+            if (!turns.includes(args.fromTurn) && !fromThisTurn) {
+              return createErrorResult(
+                `\`${operatorId}\` has no version at turn ${args.fromTurn}. ${versionsLine(operatorId)}.`
+              );
+            }
+          } else if (typeof args.fromTurn === "number") {
+            return createErrorResult(
+              `\`${operatorId}\` does not exist yet — fromTurn only applies when revising an existing operator. ` +
+                "Drop fromTurn to create it."
+            );
+          }
+        }
         const displayName = summary || operatorId;
 
         // Convergence guard (lever C / L1). Count cumulative edits per

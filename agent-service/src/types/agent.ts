@@ -423,6 +423,21 @@ export interface AgentSettings {
    */
   rowLineage: boolean;
   /**
+   * VERSIONED MODE — the session as one immutable version DAG addressed by
+   * (operatorId, turnId). Three coupled changes, one flag:
+   *   render: the context is a single `# Catalog` — finished turns as
+   *     Task / Dataflow delta / Answer entries, the turn in progress as the
+   *     last entry (its steps carry full observations; recall output persists
+   *     there as an ordinary observation). No `# Dataflow` section: state
+   *     renders once, at creation, and the prompt is append-only.
+   *   tools: `createOrModifyOperator` requires `upstreams` (def-arg → version
+   *     turn) and `fromTurn` on revisions, validated against the version store
+   *     with errors that list the valid turns.
+   *   prompt: the versioned.md fragment replaces recall.md's layout section.
+   * Off by default — byte-parity with legacy when off.
+   */
+  versionedMode: boolean;
+  /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
    * render above being the authoritative state. Exposed because it is the leading
@@ -529,6 +544,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableAnswerGrounding: false,
   coercionTelemetry: false,
   rowLineage: false,
+  versionedMode: false,
   indexThinObservations: false,
 };
 
