@@ -74,7 +74,8 @@ cmd_setup() {
     if [[ ! -x "$PY" ]]; then
         echo "[bench] creating Kramabench venv"
         ( cd "$KB" && uv venv -q .venv && uv pip install -q -r requirements.txt --python .venv/bin/python )
-        "$KB/.venv/bin/pip" install -q huggingface_hub kagglehub
+        # uv venvs ship no pip binary — install through uv against the venv.
+        uv pip install -q huggingface_hub kagglehub --python "$PY"
     fi
 
     if [[ ! -f "$KB/.env" ]]; then
