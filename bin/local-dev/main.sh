@@ -573,6 +573,11 @@ export STORAGE_LAKEFS_ENDPOINT="${STORAGE_LAKEFS_ENDPOINT:-http://localhost:8000
 export STORAGE_LAKEFS_AUTH_USERNAME="${STORAGE_LAKEFS_AUTH_USERNAME:-AKIAIOSFOLKFSSAMPLES}"
 export STORAGE_LAKEFS_AUTH_PASSWORD="${STORAGE_LAKEFS_AUTH_PASSWORD:-wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY}"
 export STORAGE_LAKEFS_AUTH_API_SECRET="${STORAGE_LAKEFS_AUTH_API_SECRET:-random_string_for_lakefs}"
+# Prefer the repo's uv-managed venv (has loguru/pyarrow/pandas — the Python
+# worker's hard deps); fall back to whatever python3 is on PATH.
+if [[ -z "${UDF_PYTHON_PATH:-}" && -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    export UDF_PYTHON_PATH="$REPO_ROOT/.venv/bin/python"
+fi
 export UDF_PYTHON_PATH="${UDF_PYTHON_PATH:-$(command -v python3 2>/dev/null || command -v python 2>/dev/null)}"
 export TEXERA_DASHBOARD_SERVICE_ENDPOINT="${TEXERA_DASHBOARD_SERVICE_ENDPOINT:-http://localhost:8080}"
 export WORKFLOW_COMPILING_SERVICE_ENDPOINT="${WORKFLOW_COMPILING_SERVICE_ENDPOINT:-http://localhost:9090}"
@@ -581,7 +586,9 @@ export FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="${FILE_SERVICE_GET_PRESIGNED_URL
 export FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="${FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT:-http://localhost:9092/api/dataset/did/upload}"
 export LITELLM_BASE_URL="${LITELLM_BASE_URL:-http://localhost:4000}"
 export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-texera-internal-do-not-share}"
-export LLM_ENDPOINT="${LLM_ENDPOINT:-http://localhost:8080}"
+# The LLM proxy (POST /api/chat/<route>, GET /api/models) is served by the
+# access-control-service (:9096), matching agent-service/.env.example.
+export LLM_ENDPOINT="${LLM_ENDPOINT:-http://localhost:9096}"
 export LLM_API_KEY="${LLM_API_KEY:-dummy}"
 
 # --------- texera version (dynamic) ---------
