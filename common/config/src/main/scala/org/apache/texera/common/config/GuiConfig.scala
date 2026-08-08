@@ -43,8 +43,6 @@ object GuiConfig {
     conf.getBoolean("gui.workflow-workspace.user-preset-enabled")
   val guiWorkflowWorkspaceExportExecutionResultEnabled: Boolean =
     conf.getBoolean("gui.workflow-workspace.export-execution-result-enabled")
-  val guiWorkflowWorkspaceAutoAttributeCorrectionEnabled: Boolean =
-    conf.getBoolean("gui.workflow-workspace.auto-attribute-correction-enabled")
   val guiWorkflowWorkspaceDefaultExecutionMode: String =
     conf.getString("gui.workflow-workspace.default-execution-mode")
   val guiWorkflowWorkspaceSelectingFilesFromDatasetsEnabled: Boolean =
@@ -73,6 +71,8 @@ object GuiConfig {
     conf.getInt("gui.workflow-workspace.limit-columns")
   val guiAttributionEnabled: Boolean =
     conf.getBoolean("gui.attribution-enabled")
+  val guiDeploymentVersionCheckEnabled: Boolean =
+    conf.getBoolean("gui.deployment-version-check-enabled")
   val guiWorkflowWorkspacePythonNotebookMigrationEnabled: Boolean =
     conf.getBoolean("gui.workflow-workspace.python-notebook-migration-enabled")
 }

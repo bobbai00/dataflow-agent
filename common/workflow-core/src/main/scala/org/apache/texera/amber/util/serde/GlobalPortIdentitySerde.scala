@@ -52,6 +52,18 @@ object GlobalPortIdentitySerde {
       val portId = globalPortId.portId.id
       val isInternal = globalPortId.portId.internal
       val isInput = globalPortId.input
+      // A '/' would add path segments to the VFS URI these ids are interpolated
+      // into, letting a user-chosen id forge structure the URI never meant to have
+      // (e.g. a `wh/<name>` pair). Underscores are fine (see the class doc), but
+      // path separators are not.
+      require(
+        !logicalOpId.contains('/'),
+        s"logicalOpId must not contain '/' (VFS URI parsing relies on this): $logicalOpId"
+      )
+      require(
+        !layerName.contains('/'),
+        s"layerName must not contain '/' (VFS URI parsing relies on this): $layerName"
+      )
       require(portId >= 0, s"portId must be non-negative: $portId")
       s"(logicalOpId=$logicalOpId,layerName=$layerName,portId=$portId,isInternal=$isInternal,isInput=$isInput)"
     }

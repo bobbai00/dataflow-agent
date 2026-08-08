@@ -43,6 +43,7 @@ import { NzBadgeComponent } from "ng-zorro-antd/badge";
 import { GuiConfigService } from "../../../../common/service/gui-config.service";
 import { replaceOneImmutable } from "../../../../common/util/array-utils";
 import { NzCardComponent } from "ng-zorro-antd/card";
+import { NzTagComponent } from "ng-zorro-antd/tag";
 import { ɵNzTransitionPatchDirective } from "ng-zorro-antd/core/transition-patch";
 import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzDropdownMenuComponent } from "ng-zorro-antd/dropdown";
@@ -62,6 +63,7 @@ import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
   styleUrls: ["./admin-user.component.scss"],
   imports: [
     NzCardComponent,
+    NzTagComponent,
     NzTableComponent,
     NzTheadComponent,
     NzTrDirective,
@@ -288,20 +290,38 @@ export class AdminUserComponent implements OnInit {
     this.listOfDisplayUser = [...this.userList];
   }
 
+  private trimSearchValue(value: string | null | undefined): string {
+    return (value ?? "").trim();
+  }
+
   searchByName(): void {
     this.nameSearchVisible = false;
-    const q = (this.nameSearchValue ?? "").trim().toLowerCase();
-    this.listOfDisplayUser = this.userList.filter(u => (u.name ?? "").toLowerCase().includes(q));
+    this.nameSearchValue = this.trimSearchValue(this.nameSearchValue);
+    this.emailSearchValue = "";
+    this.commentSearchValue = "";
+
+    const q = this.nameSearchValue.toLowerCase();
+    this.listOfDisplayUser = this.userList.filter(user => (user.name ?? "").toLowerCase().includes(q));
   }
 
   searchByEmail(): void {
     this.emailSearchVisible = false;
-    this.listOfDisplayUser = this.userList.filter(user => (user.email || "").indexOf(this.emailSearchValue) !== -1);
+    this.emailSearchValue = this.trimSearchValue(this.emailSearchValue);
+    this.nameSearchValue = "";
+    this.commentSearchValue = "";
+
+    const q = this.emailSearchValue.toLowerCase();
+    this.listOfDisplayUser = this.userList.filter(user => (user.email ?? "").toLowerCase().includes(q));
   }
 
   searchByComment(): void {
     this.commentSearchVisible = false;
-    this.listOfDisplayUser = this.userList.filter(user => (user.comment || "").indexOf(this.commentSearchValue) !== -1);
+    this.commentSearchValue = this.trimSearchValue(this.commentSearchValue);
+    this.nameSearchValue = "";
+    this.emailSearchValue = "";
+
+    const q = this.commentSearchValue.toLowerCase();
+    this.listOfDisplayUser = this.userList.filter(user => (user.comment ?? "").toLowerCase().includes(q));
   }
 
   clickToViewQuota(uid: number) {

@@ -48,8 +48,10 @@ import io.reactivex.rxjava3.core.Observable
 import org.apache.texera.auth.SessionUser
 import org.apache.texera.dao.SqlServer
 import org.apache.texera.dao.jooq.generated.Tables.OPERATOR_EXECUTIONS
-import org.apache.texera.web.model.websocket.request.{LogicalPlanPojo, WorkflowExecuteRequest}
-import org.apache.texera.workflow.{LogicalLink, WorkflowCompiler}
+import org.apache.texera.common.compiler.model.LogicalPlanPojo
+import org.apache.texera.web.model.websocket.request.WorkflowExecuteRequest
+import org.apache.texera.common.compiler.model.LogicalLink
+import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource
 import org.apache.texera.web.service.{ExecutionResultService, WorkflowService}
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
@@ -286,7 +288,7 @@ class SyncExecutionResource extends LazyLogging {
             killExecution(executionService)
             (executionService.executionStateStore.metadataStore.getState, true, false)
           case TargetResultsReady(_) =>
-            // RegionExecutionCoordinator caches upstream results asynchronously after operators
+            // RegionExecutionManager caches upstream results asynchronously after operators
             // complete; sleep gives that caching a chance to finish before we shut down the client.
             // TODO: replace with a synchronous signal from the engine.
             Thread.sleep(500)
@@ -1032,7 +1034,7 @@ class SyncExecutionResource extends LazyLogging {
     try {
       val tempContext = new WorkflowContext(WorkflowIdentity(workflowId))
       val compiler = new WorkflowCompiler(tempContext)
-      compiler.compile(logicalPlan)
+      compiler.compile(logicalPlan, CompilationErrorHandling.Strict)
       Map.empty
     } catch {
       case e: Exception =>

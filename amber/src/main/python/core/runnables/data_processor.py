@@ -21,7 +21,6 @@ import re
 import sys
 import traceback
 from contextlib import contextmanager
-from loguru import logger
 from threading import Event
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -328,7 +327,7 @@ class DataProcessor(Runnable, Stoppable):
         back to MainLoop on exit. Reporting must happen *before* the
         switch: MainLoop's post-switch hook flushes console messages and
         then enters EXCEPTION_PAUSE, so anything queued after the switch
-        would arrive at the controller only after the worker resumes.
+        would arrive at the coordinator only after the worker resumes.
         """
         joined = False
         coerced = False
