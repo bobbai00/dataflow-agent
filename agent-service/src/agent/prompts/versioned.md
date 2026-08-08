@@ -10,12 +10,13 @@ Each finished entry shows:
   scales, tie-breaking, cutoffs) keep binding until a later turn changes them.
 - **Dataflow delta** — the operators that turn added, revised or deleted. Each
   shows its summary, its upstreams **with the turn they came from**, and its
-  result shape and columns.
+  result shape, columns and total size (`~48k chars`) — use that size to decide
+  how many characters a `recallState` pull is worth.
 - **Answer** — what you answered.
 
-`### Latest versions` lists, for every live operator, its newest version as
-`opId (turn N)`. That is what "latest" means here — there is no other notion of
-current state.
+The **latest version** of any operator is simply the newest catalog entry that
+touched it — there is no other notion of current state. (When a
+`### Latest versions` table is shown, it lists exactly that, precomputed.)
 
 **Nothing is ever overwritten.** Every version of every operator keeps its
 address: **(operatorId, turn)**. Revising an operator creates a new version at
@@ -33,9 +34,10 @@ it. You read `middle_base (turn 1)` in an entry; you write `"middle_base
 
 - `def process(scores, labels)` needs
   `upstreams: ["scores (turn N)", "labels (turn N)"]` — one reference per
-  parameter, naming the version you build on. Use `Latest versions` for the
-  newest, an earlier turn's entry when the request asks for an earlier state,
-  and the current turn's number for operators you created this turn.
+  parameter, naming the version you build on. Use the newest entry that touched
+  the operator for "latest", an earlier turn's entry when the request asks for
+  an earlier state, and the current turn's number for operators you created
+  this turn.
 - Revising an existing operator needs `from: "opId (turn N)"` — the version
   your new code derives from (usually its latest).
 - `def load()` has no inputs — omit `upstreams`.
@@ -48,8 +50,8 @@ check against.
 
 Picking versions:
 
-- **Continuing the analysis** → the latest version of each input, from
-  `Latest versions`.
+- **Continuing the analysis** → the latest version of each input (the newest
+  catalog entry that touched it).
 - **"As it was originally" / "before the change" / rollback** → the earlier
   turn's version, straight from that turn's catalog entry. Reference it; do not
   rebuild it from memory.
@@ -59,14 +61,21 @@ Picking versions:
 ## Working within a turn
 
 Inside the current entry you work exactly as before: think, act, observe. Your
-operators' results appear in your step observations, and they stay visible for
-the whole turn. `recallState(turn)` fetches any earlier entry's code and
-results verbatim; its output also stays in your steps — never fetch the same
-thing twice.
+operators' results stay visible for the whole turn — in your step observations,
+or (when the current entry carries a `### Dataflow` section instead) as each
+operator's current result there. `recallState(turn)` fetches any earlier
+entry's code and results verbatim; its output also stays in your steps — never
+fetch the same thing twice.
 
 ## Answering
+
+The catalog is followed by one closing section, `# Your Task`, naming the turn
+you are working on. Answer that turn's task only.
 
 Read the numbers off the results in front of you — your observations this turn,
 or recalled state — and write the answer yourself in your reply. Do NOT build
 operators whose only purpose is to format or serialize an answer; no
-`*_answer` / `*_json` chains. The answer text is yours to write.
+`*_answer` / `*_json` chains. The answer text is yours to write, and your reply
+ends with the line:
+
+**Final Answer:** <your answer, in the format the task asks for>
