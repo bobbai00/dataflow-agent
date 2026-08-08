@@ -258,7 +258,9 @@ object CacheReusePreSchedulingStep {
     * execution id) and rebuild the base.
     */
   private def cachedPortBaseURI(resultUri: URI): URI = {
-    val (wfId, eid, gpidOpt, _) = VFSURIFactory.decodeURI(resultUri)
+    val components = VFSURIFactory.decodeURI(resultUri)
+    val (wfId, eid, gpidOpt) =
+      (components.workflowId, components.executionId, components.globalPortId)
     VFSURIFactory.createPortBaseURI(
       wfId,
       eid,

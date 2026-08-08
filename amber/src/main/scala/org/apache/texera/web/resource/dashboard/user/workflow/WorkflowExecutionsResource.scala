@@ -44,7 +44,7 @@ import org.apache.texera.dao.jooq.generated.tables.daos.WorkflowExecutionsDao
 import org.apache.texera.dao.jooq.generated.tables.pojos.{WorkflowExecutions, User => UserPojo}
 import org.apache.texera.web.dao.OperatorPortCacheDao
 import org.apache.texera.web.model.http.request.result.ResultExportRequest
-import org.apache.texera.web.model.websocket.request.LogicalPlanPojo
+import org.apache.texera.common.compiler.model.LogicalPlanPojo
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource._
 import org.apache.texera.web.service.{
   ExecutionsMetadataPersistService,
@@ -53,7 +53,7 @@ import org.apache.texera.web.service.{
 }
 import org.jooq.DSLContext
 import play.api.libs.json.Json
-import org.apache.texera.workflow.WorkflowCompiler
+import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 
 import java.net.URI
 import java.sql.Timestamp
@@ -557,6 +557,28 @@ object WorkflowExecutionsResource {
   }
 
   /**
+    * Record one output port's materialized result URI for an execution.
+    * Used by the cached-region path (RegionExecutionManager) to replay a
+    * cached port's URI into operator_port_executions so downstream reads
+    * (result panel, cache reuse) resolve exactly like a live run.
+    */
+  def insertOperatorPortResultUri(
+      eid: ExecutionIdentity,
+      globalPortId: GlobalPortIdentity,
+      uri: URI
+  ): Unit = {
+    context
+      .insertInto(OPERATOR_PORT_EXECUTIONS)
+      .columns(
+        OPERATOR_PORT_EXECUTIONS.WORKFLOW_EXECUTION_ID,
+        OPERATOR_PORT_EXECUTIONS.GLOBAL_PORT_ID,
+        OPERATOR_PORT_EXECUTIONS.RESULT_URI
+      )
+      .values(eid.id.toInt, globalPortId.serializeAsString, uri.toString)
+      .execute()
+  }
+
+  /**
     * Lookup a result URI by executionId and physical port id.
     */
   def getResultUriByPhysicalPortId(
@@ -944,9 +966,12 @@ class WorkflowExecutionsResource {
       @Auth sessionUser: SessionUser
   ): CacheInvalidationResponse = {
     validateUserCanWriteWorkflow(sessionUser.getUser.getUid, wid)
-    val workflow = try {
+    val physicalPlan = try {
       val workflowContext = new WorkflowContext(workflowId = WorkflowIdentity(wid.toLong))
-      new WorkflowCompiler(workflowContext).compile(request)
+      new WorkflowCompiler(workflowContext)
+        .compile(request, CompilationErrorHandling.Strict)
+        .physicalPlan
+        .getOrElse(throw new IllegalStateException("compilation produced no physical plan"))
     } catch {
       case err: Throwable =>
         throw new BadRequestException(s"Failed to compile workflow for cache invalidation: ${err.getMessage}")
@@ -954,7 +979,7 @@ class WorkflowExecutionsResource {
     val dao = new OperatorPortCacheDao(SqlServer.getInstance())
     val cacheService = new OperatorPortCacheService(dao)
     val removedCount =
-      cacheService.invalidateMismatchedCacheEntries(WorkflowIdentity(wid.toLong), workflow.physicalPlan)
+      cacheService.invalidateMismatchedCacheEntries(WorkflowIdentity(wid.toLong), physicalPlan)
     CacheInvalidationResponse(removedCount)
   }
 
