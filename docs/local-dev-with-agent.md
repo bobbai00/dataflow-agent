@@ -90,12 +90,36 @@ default for e2e), `claude-sonnet-4-6`, `gpt-5.4`, `local-llm`.
 ```bash
 cd agent-service
 bun run e2e          # static workflows through the execution path
-bun run e2e:errors   # runtime-error reporting format
 bun run e2e:agent    # REAL agent driving the LLM gateway (haiku by default)
 
 # context-parameter smoke matrix (LATEST/DELTA, compaction, index caps):
 bun run benchmark/e2e/context-tuning-run.ts
+# multi-turn context FORMAT check (LATEST + DELTA assembled-context markers):
+bun run benchmark/e2e/context-format-check.ts
 ```
+
+Verified on this branch (2026-08-08, model `claude-haiku-4.5` via the DKNet
+gateway):
+
+| Suite | Result |
+|---|---|
+| `bun run e2e` (8 static workflows + strict validators) | 8/8 pass |
+| `bun run e2e:agent` (16 real-agent specs) | 15/16 pass — T4 expects both operators in ONE parallel tool-call step; haiku emitted them sequentially (model behavior, DAG still correct) |
+| context-tuning matrix (6 configs) | 6/6 pass, all reached the correct answer |
+| context-format check (LATEST + DELTA, 2 turns) | all markers present |
+
+Context-tuning matrix configs, all green: `latest` default;
+`latest + columnStats + thoughtReplayK=3`; `delta` unbounded;
+`delta + contextWindowTokens=8000 + compress + deckSampleRatio=0.25`;
+`delta + contextWindowTokens=6000 + sliding`;
+`delta + turnHistory=index + indexDetailedOperators=6 + indexRichTables=2`.
+
+Note: `bun run e2e:errors` asserts the OLD engine-side error format
+(`Operator code:` + `>`-marked line echoed by the worker). The current design
+sends exception + line pointer from the engine and lets the agent-service
+append the operator code from `operatorProperties`, so that suite's
+expectations are stale on `feat/turn-resume` too — not a regression of this
+merge.
 
 ### Context parameters (tuning knobs)
 
@@ -109,7 +133,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `compactionStrategy` | `compress` \| `sliding` | fold old events into a stats deck vs. evict oldest |
 | `deckSampleRatio` | 0..1 (default 0.10) | fraction of folded operators' rows kept as a peek |
 | `maxResultRows` | int | rows rendered per operator result |
-| `columnStats` | bool | per-column stats block on each result |
+| `columnStats` | bool | per-column stats block on each result (suppressed by design when the complete small table is already visible in the context) |
 | `thoughtReplay` / `thoughtReplayK` | bool / int | LATEST `# Reasoning` block of last K events |
 | `turnHistory` | `full` \| `index` | prior turns verbatim vs. compact catalogue |
 | `indexDetailedOperators` | int | how many operators keep full index entries |
