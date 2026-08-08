@@ -166,3 +166,9 @@ agent-service/benchmark/llm-training-data-generation/output/
 agent-service/benchmark/context-ml/report*.json
 agent-service/benchmark/context-ml/cross_model_report.json
 agent-service/benchmark/context-ml/training_data_*.csv
+
+# Benchmark artifacts (benchmark/bench.sh) — data and run outputs, never sources
+/benchmark/longds/DataMind/
+/benchmark/longds/prepared/
+/benchmark/longds/system_scratch/
+/amber/data
