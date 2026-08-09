@@ -221,6 +221,38 @@ describe("versioned catalog", () => {
     expect(steps).toContain("Load scores.csv...");
   });
 
+  test("delta entries carry the structural profile under the D2 channel", () => {
+    const s = scenario();
+    s.storage.setOperatorResult(
+      "a2",
+      "pct",
+      makeInfo(120, {
+        sampleRows: [{ dbn: "x", pct: 0.5 }],
+        columnStats: { __table_hints__: "unique key: dbn || 2 duplicate rows" } as any,
+      })
+    );
+    const withHint = String(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, {
+        compilationResult: null,
+        agentMode: AgentMode.CODE,
+        versionedCatalog: true,
+        tableStructureHint: true,
+        turnNumberByMessageId: new Map([
+          ["m1", 1],
+          ["m2", 2],
+          ["m3", 3],
+        ]),
+      } as any)
+        .map(m => m.content)
+        .join("\n")
+    );
+    const entry = withHint.slice(withHint.indexOf("#### `pct` (added)"), withHint.indexOf("### Answer", withHint.indexOf("#### `pct`")));
+    expect(entry).toContain("Output Table profile:");
+    expect(entry).toContain("unique key: dbn");
+    // and OFF without the flag — knob independence holds in the catalog too
+    expect(render(scenario())).not.toContain("Output Table profile:");
+  });
+
   test("the catalog closes with the # Your Task directive naming the current turn", () => {
     const text = render(scenario());
     const roots = text.match(/^# .*$/gm) ?? [];

@@ -612,6 +612,25 @@ function createInputLinks(
  * lineage, the finished turns that changed it (with that turn's code), plus
  * the in-progress turn's number so same-turn work is referenceable.
  */
+/** Tiny TSV sample of a stored OperatorInfo for the input-values channel —
+ *  header + rows up to ~600 chars, prefixed with the true total row count so
+ *  a partial view can never masquerade as the whole table. */
+function formatUpstreamSample(info: unknown, cap = 600): string | undefined {
+  const rows = Array.isArray((info as any)?.result) ? ((info as any).result as Record<string, unknown>[]) : undefined;
+  if (!rows || rows.length === 0) return undefined;
+  const cols = Object.keys(rows[0] ?? {}).filter(c => !c.startsWith("__"));
+  if (cols.length === 0) return undefined;
+  const lines = [cols.join("\t")];
+  for (const r of rows) {
+    lines.push(cols.map(c => String(r[c] ?? "")).join("\t"));
+    if (lines.reduce((n, l) => n + l.length + 1, 0) > cap) break;
+  }
+  let body = lines.join("\n");
+  if (body.length > cap) body = body.slice(0, cap) + " …";
+  const total = typeof (info as any).totalRowCount === "number" ? (info as any).totalRowCount : rows.length;
+  return `(${total} rows total):\n${body}`;
+}
+
 export interface OperatorVersionStore {
   /** Sorted finished-turn numbers at which `operatorId` was written, with code. */
   versionsOf(operatorId: string): Array<{ turn: number; code: string }>;
@@ -619,6 +638,13 @@ export interface OperatorVersionStore {
   currentTurn(): number;
   /** Operator ids written so far in the turn in progress. */
   touchedThisTurn(): Set<string>;
+  /** The operator's materialized result as of the END of `turn` (the version
+   *  a cross-turn `upstreams` ref names). Powers the input-values channel:
+   *  the first write against an old version gets that version's sample values
+   *  attached to its observation, so derivations over inherited state are
+   *  made with the actual numbers in view. Optional — absent disables the
+   *  channel, nothing else changes. */
+  resultOf?(operatorId: string, turn: number): unknown;
 }
 
 export function createCreateOrModifyOperatorTool(
@@ -651,6 +677,11 @@ export function createCreateOrModifyOperatorTool(
   // never runs mid-`sendMessage`); each KramaBench task uses a fresh agent, so
   // the counters reset per task.
   const guardEditCounts = new Map<string, number>();
+  // Input-values channel (versioned mode): which cross-turn upstream versions
+  // have already had their sample values attached this turn. First reference
+  // pays once; repeats are free because the note persists in the step log.
+  let upstreamShownTurnKey = "";
+  const shownUpstreams = new Set<string>();
 
   return tool({
     description: `Add or modify a Python function as an operator in the dataflow.
@@ -804,7 +835,12 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         // visible, correctable mistake instead of a silent inheritance. Every
         // rejection lists the valid versions — a rejection that does not say
         // what to do instead produces verbatim retry loops (measured: 35
-        // identical calls, a full step budget, no answer).
+        // identical calls, a full step budget, no answer). Unambiguous cases
+        // (stray `from` on a create; missing `from` on a same-turn
+        // self-revision) proceed with a NOTE instead of a rejection — those
+        // rejections cost a step each and taught nothing (65 + a share of 15
+        // across three runs), and the create-rejection fed rename sprawl.
+        const versionNotes: string[] = [];
         if (versionStore) {
           // The one notation, everywhere: `opId (turn N)` — exactly what the
           // catalog prints, so what the model reads is what it writes. The
@@ -856,29 +892,70 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
                 );
               }
             }
+            // INPUT-VALUES CHANNEL: the first write this turn against an OLD
+            // version gets that version's sample values attached to its
+            // observation. Rationale (measured): the catalog names shapes and
+            // schemas but not values, so derivations over inherited state were
+            // made blind — the largest per-task failures all traced to one
+            // foundational quantity derived without the actual numbers in
+            // view, and the versioned arm spent +29% operator writes probing
+            // for values the session arm could simply read.
+            if (versionStore.resultOf) {
+              const turnKey = String(versionStore.currentTurn());
+              if (turnKey !== upstreamShownTurnKey) {
+                upstreamShownTurnKey = turnKey;
+                shownUpstreams.clear();
+              }
+              let attached = 0;
+              for (const [upId, upTurn] of provided) {
+                if (upTurn >= versionStore.currentTurn()) continue; // this turn's own work is already on screen
+                const tag = `${upId}@${upTurn}`;
+                if (shownUpstreams.has(tag)) continue;
+                const sample = formatUpstreamSample(versionStore.resultOf(upId, upTurn));
+                if (!sample) continue;
+                versionNotes.push(`Referenced upstream values — ${upId} (turn ${upTurn}) ${sample}`);
+                shownUpstreams.add(tag);
+                if (++attached >= 3) break; // bounded per write
+              }
+            }
           }
           if (existingOperator) {
             const fromRef = args.from ? parseRef(args.from) : undefined;
             if (!args.from) {
-              return createErrorResult(
-                `\`${operatorId}\` already exists, so this is a revision — pass from: the version your new code ` +
-                  `derives from, as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
-              );
-            }
-            if (!fromRef || fromRef.opId !== operatorId) {
+              // Self-revision within the current turn is unambiguous — the only
+              // version the new code can derive from is the one this turn just
+              // wrote — so default it with a note instead of rejecting. The
+              // strict requirement stays for CROSS-turn revisions, where the
+              // version choice is the whole point. (Measured: bare rejections
+              // here fed the rename-sprawl loop — 94 operators in one turn.)
+              if (versionStore.touchedThisTurn().has(operatorId)) {
+                versionNotes.push(
+                  `note: \`from\` defaulted to "${operatorId} (turn ${versionStore.currentTurn()})" — ` +
+                    "revising your own work from this turn."
+                );
+              } else {
+                return createErrorResult(
+                  `\`${operatorId}\` already exists, so this is a revision — pass from: the version your new code ` +
+                    `derives from, as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
+                );
+              }
+            } else if (!fromRef || fromRef.opId !== operatorId) {
               return createErrorResult(
                 `Could not parse from="${args.from}". Write it as \"${operatorId} (turn N)\". ${refsOf(operatorId)}.`
               );
-            }
-            if (!validTurn(operatorId, fromRef.turn)) {
+            } else if (!validTurn(operatorId, fromRef.turn)) {
               return createErrorResult(
                 `\`${operatorId}\` has no version at turn ${fromRef.turn}. ${refsOf(operatorId)}.`
               );
             }
           } else if (args.from) {
-            return createErrorResult(
-              `\`${operatorId}\` does not exist yet — \`from\` only applies when revising an existing operator. ` +
-                "Drop it to create."
+            // Creating a new operator with a stray `from` — the intent (create)
+            // is unambiguous, so proceed and say what was ignored. Rejecting
+            // this cost a step per occurrence (65 across three runs) and taught
+            // nothing the note doesn't.
+            versionNotes.push(
+              `note: \`from\` ignored — \`${operatorId}\` did not exist, so this call CREATED it fresh ` +
+                "(nothing was derived from an earlier version)."
             );
           }
         }
@@ -1015,6 +1092,9 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           }
         }
 
+        if (versionNotes.length > 0) {
+          resultMsg = `${resultMsg}\n${versionNotes.join("\n")}`;
+        }
         const finalMsg = contractWarning ? `[WARNING] ${contractWarning}\n${resultMsg}` : resultMsg;
         return createToolResult(finalMsg);
       } catch (error: any) {

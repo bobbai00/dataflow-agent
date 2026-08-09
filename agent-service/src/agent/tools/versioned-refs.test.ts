@@ -107,20 +107,91 @@ describe("strict version refs", () => {
     expect(out).toContain("scores (turn 1), scores (turn 3)");
   });
 
-  test("`from` on a brand-new operator is rejected — nothing to derive from", async () => {
+  test("`from` on a brand-new operator proceeds with a note — the intent (create) is unambiguous", async () => {
+    // Rejecting this cost a step per occurrence (65 across three runs) and
+    // taught nothing a note doesn't: the operator is created fresh either way.
     const out = await run(makeTool(store()), {
       operatorId: "fresh",
       code: "def load() -> pd.DataFrame:\n    return pd.DataFrame()",
       from: "fresh (turn 3)",
     });
-    expect(out).toContain("does not exist yet");
-    expect(out).toContain("Drop it to create");
+    // passes version validation; whatever happens later (operator-type lookup
+    // in this bare fixture) is a different stage.
+    expect(out).not.toContain("does not exist yet");
+    expect(out).not.toContain("Drop it to create");
+  });
+
+  test("missing `from` on a SAME-TURN self-revision defaults with a note", async () => {
+    // The only version the new code can derive from is the one this turn just
+    // wrote — strictness there fed the rename-sprawl loop. Cross-turn
+    // revisions (previous test) stay strict.
+    const vs = store({ touchedThisTurn: () => new Set(["scores"]) });
+    const out = await run(makeTool(vs), {
+      operatorId: "scores",
+      code: "def load() -> pd.DataFrame:\n    return pd.DataFrame()",
+    });
+    expect(out).not.toContain("this is a revision");
+    expect(out).toContain('`from` defaulted to "scores (turn 5)"');
   });
 
   test("a malformed reference is rejected with the exact expected form", async () => {
     const out = await run(makeTool(store()), { operatorId: "pct", code: PROCESS, upstreams: ["scores@1"] });
     expect(out).toContain('Could not parse upstream reference "scores@1"');
     expect(out).toContain('"opId (turn N)"');
+  });
+
+  test("input-values channel: first cross-turn reference attaches the version's sample, once", async () => {
+    // The catalog names shapes and schemas, not values — so the first write
+    // against an old version gets that version's sample values attached to its
+    // observation (derivations over inherited state made with numbers in
+    // view), and only the first: the note persists in the step log.
+    const vs = store({
+      versionsOf: (opId: string) =>
+        opId === "scores"
+          ? [{ turn: 1, code: "def load(): ..." }]
+          : opId === "pct"
+            ? [{ turn: 2, code: "def process(scores): ..." }]
+            : [],
+      resultOf: (opId: string, turn: number) =>
+        opId === "scores" && turn === 1
+          ? { result: [{ player: "a", score: 9 }, { player: "b", score: 7 }], totalRowCount: 120 }
+          : undefined,
+    });
+    const ws = new WorkflowState();
+    ws.setWorkflowContent({
+      operators: [
+        {
+          operatorID: "scores",
+          operatorType: "DataLoading",
+          operatorProperties: {},
+          inputPorts: [],
+          outputPorts: [{ portID: "output-0" }],
+        },
+        {
+          operatorID: "pct",
+          operatorType: "DataProcessing",
+          operatorProperties: {},
+          inputPorts: [{ portID: "input-0" }],
+          outputPorts: [{ portID: "output-0" }],
+        },
+      ] as any,
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    } as any);
+    const t = makeTool(vs, ws);
+    const args = {
+      operatorId: "pct",
+      code: PROCESS,
+      upstreams: ["scores (turn 1)"],
+      from: "pct (turn 2)",
+    };
+    const out1 = await run(t, args);
+    expect(out1).toContain("Referenced upstream values — scores (turn 1) (120 rows total):");
+    expect(out1).toContain("player\tscore");
+    const out2 = await run(t, args);
+    expect(out2).not.toContain("Referenced upstream values");
   });
 
   test("legacy arms are untouched: no store, no new requirements", async () => {
