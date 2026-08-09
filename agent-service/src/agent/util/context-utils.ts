@@ -2068,6 +2068,19 @@ function serializeTaskBody(
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
+        // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it
+        // IS the input, since loaders have no `Inputs:` line. `23a5325fc` moved
+        // it out of the `Result:` body so consumed and produced facts stop
+        // mixing, but only added the new render to serializeOperatorFull, which
+        // is the LATEST per-operator block. DELTA lost its render and never got
+        // a replacement — formatOperatorResult still computes the line and
+        // discards it. This is that missing half: emitted at the observation's
+        // own indent, PARALLEL to `result:` rather than inside it, which is the
+        // same relationship it has to `Result:` in LATEST.
+        const fileIoFact = renderOptions.fileIoFacts && info ? formatFileIo(info) : undefined;
+        if (fileIoFact) {
+          for (const l of fileIoFact.split("\n")) obs.push(`  ${l}`);
+        }
         const resultText = info
           ? renderRawResult(
               op.operatorID,
