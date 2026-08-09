@@ -279,13 +279,19 @@ export function formatOperatorResult(
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
+  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so it
+  // is NOT part of the joined body below — the CALLER renders it outside the
+  // Result block (parallel to it, next to `Inputs:`). There are two such callers
+  // and both must have one, which is the trap this file previously set: the line
+  // used to be computed here and then `void`-ed, which reads like the callers are
+  // covered. Only serializeOperatorFull (LATEST) was; serializeTaskBody (DELTA)
+  // was not, so the fact was dead on every DELTA arm for months. Computing it
+  // here at all is what made the omission invisible, so it is no longer computed
+  // here — a caller that forgets now has nothing to inherit.
+  //   LATEST → context-utils.serializeOperatorFull
+  //   DELTA  → context-utils.serializeTaskBody (observation loop)
   // The worker's line already reads "files read: N [names]", so it is its own
   // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
-  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so the
-  // caller renders it OUTSIDE the Result block (parallel to it, next to `Inputs:`).
-  // It is deliberately not part of the joined body below.
-  const fileIoLine = options.fileIoFacts ? formatFileIo(opInfo) : undefined;
-  void fileIoLine;
   // Sample-based tuple-level profiling (summarize params; explicitly labeled
   // sample-based — computed over the sampled rows this service holds).
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
