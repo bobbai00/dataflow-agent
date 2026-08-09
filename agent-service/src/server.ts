@@ -258,6 +258,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,
+      recallOperatorLevel: settings.recallOperatorLevel,
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
       foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
       foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
@@ -829,6 +830,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           turnHistory: (settings as any).turnHistory,
           enableRecallTool: (settings as any).enableRecallTool,
           recallMaxResultChars: (settings as any).recallMaxResultChars,
+          recallOperatorLevel: (settings as any).recallOperatorLevel,
           indexRichTables: (settings as any).indexRichTables,
           indexDetailedOperators: (settings as any).indexDetailedOperators,
           enableResumeTool: (settings as any).enableResumeTool,
@@ -906,6 +908,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
       enableRecallTool: t.Optional(t.Boolean()),
       recallMaxResultChars: t.Optional(t.Number()),
+      recallOperatorLevel: t.Optional(t.Boolean()),
       indexRichTables: t.Optional(t.Number()),
       indexDetailedOperators: t.Optional(t.Number()),
       enableResumeTool: t.Optional(t.Boolean()),

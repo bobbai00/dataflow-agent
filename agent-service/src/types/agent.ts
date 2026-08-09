@@ -355,6 +355,10 @@ export interface AgentSettings {
    *  (characters). Requests above it are clamped with a teaching message.
    *  The ceiling is an experiment knob; the existence of a clamp is not. */
   recallMaxResultChars: number;
+  /** OPERATOR-LEVEL recall (v3): recallState takes `ref: "opId (turn N)"` —
+   *  one version per pull, values on by default — instead of a whole turn.
+   *  Pairs with versionedMode (the catalog prints those addresses). */
+  recallOperatorLevel: boolean;
   /**
    * How many UPSTREAM operators of the current turn's work may render sample
    * rows, ranked most-recently-touched first; the rest stay a one-line index
@@ -545,6 +549,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   turnHistory: "full",
   enableRecallTool: false,
   recallMaxResultChars: 5000,
+  recallOperatorLevel: false,
   indexRichTables: 12,
   // 0 = no cap. The count cap is off while the version-tree model is being
   // evaluated: resumeFrom bounds the DAG by choosing an earlier base, and the

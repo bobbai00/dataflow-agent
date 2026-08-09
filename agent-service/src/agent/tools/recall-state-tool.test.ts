@@ -195,6 +195,48 @@ describe("recallState — the caller chooses the verbosity", () => {
   });
 });
 
+describe("recallState — OPERATOR-LEVEL addressing (v3)", () => {
+  function opTool(extra: { maxResultChars?: number } = {}) {
+    return createRecallStateTool({
+      getTurns: () => turns(),
+      getCurrentTurnKey: () => "m-current",
+      workflowState: new WorkflowState(),
+      operatorLevel: true,
+      ...extra,
+    });
+  }
+
+  test("one ref, one version: code + result with total size, values by default", async () => {
+    const out = await run(opTool(), { ref: "pct (turn 2)" });
+    expect(out).toContain("# pct (turn 2)");
+    expect(out).toContain(CODE_PCT);
+    expect(out).toMatch(/Result \(as of turn 2, ~[\d.]+k? chars total\):/);
+    // values are the point of a scoped pull — sample rows on by default
+    expect(out).toContain("player");
+    expect(out).toContain("player_0");
+  });
+
+  test("a wrong turn teaches the valid versions in the one notation", async () => {
+    const out = await run(opTool(), { ref: "pct (turn 9)" });
+    expect(out).toContain("[ERROR]");
+    expect(out).toContain("pct (turn 2)");
+    expect(out).toContain("pick one of those");
+  });
+
+  test("an unknown operator and a malformed ref each teach the expected form", async () => {
+    expect(await run(opTool(), { ref: "ghost (turn 1)" })).toContain("No finished turn has a version");
+    expect(await run(opTool(), { ref: "pct@2" })).toContain('"opId (turn N)"');
+  });
+
+  test("sample=0 gives shape/schema only; the ceiling still clamps", async () => {
+    const lean = await run(opTool(), { ref: "pct (turn 2)", includeOutputTableSample: 0 });
+    expect(lean).not.toContain("player_0");
+    expect(lean).toContain("Schema");
+    const clamped = await run(opTool({ maxResultChars: 150 }), { ref: "pct (turn 2)", includeOutputTableSample: 9999 });
+    expect(clamped).toContain("clamped to 150");
+  });
+});
+
 describe("recallState — budget", () => {
   test("the per-turn call budget stops a retrieval loop and says what to do instead", async () => {
     const t = makeTool();

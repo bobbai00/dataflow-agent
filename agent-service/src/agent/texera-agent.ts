@@ -489,7 +489,8 @@ export class TexeraAgent {
         this.settings.enableRecallTool === true,
         this.settings.enableResumeTool === true,
         this.settings.versionedMode === true,
-        this.settings.sessionTurns === true
+        this.settings.sessionTurns === true,
+        this.settings.recallOperatorLevel === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -589,6 +590,7 @@ export class TexeraAgent {
         getCurrentTurnKey: () => this.currentMessageId ?? "",
         workflowState: this.workflowState,
         maxResultChars: this.settings.recallMaxResultChars,
+        operatorLevel: this.settings.recallOperatorLevel === true,
       });
     }
 
@@ -1193,6 +1195,8 @@ export class TexeraAgent {
     versionedMode?: boolean;
     versionedHeads?: boolean;
     sessionTurns?: boolean;
+    recallMaxResultChars?: number;
+    recallOperatorLevel?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1423,6 +1427,16 @@ export class TexeraAgent {
     if (updates.sessionTurns !== undefined && updates.sessionTurns !== this.settings.sessionTurns) {
       // Changes the context layout and the prompt fragment describing it.
       this.settings.sessionTurns = updates.sessionTurns;
+      promptNeedsRebuild = true;
+    }
+    if (updates.recallMaxResultChars !== undefined) {
+      // Tools are rebuilt at the end of this method, which re-reads the cap.
+      this.settings.recallMaxResultChars = updates.recallMaxResultChars;
+    }
+    if (updates.recallOperatorLevel !== undefined && updates.recallOperatorLevel !== this.settings.recallOperatorLevel) {
+      // Changes the recall tool's schema AND the prompt fragment + catalog
+      // header describing its addressing.
+      this.settings.recallOperatorLevel = updates.recallOperatorLevel;
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;

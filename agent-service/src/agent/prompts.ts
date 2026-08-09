@@ -68,6 +68,9 @@ const RESUME_FRAGMENT: string = rd("resume.md");
  *  (operatorId, turn) references. REPLACES the recall fragment's layout
  *  description when on — the sections recall.md names do not exist here. */
 const VERSIONED_FRAGMENT: string = rd("versioned.md");
+/** Versioned mode + OPERATOR-LEVEL recall (v3): same catalog, recallState
+ *  re-addressed to `"opId (turn N)"`, read-before-you-wire discipline. */
+const VERSIONED_OPRECALL_FRAGMENT: string = rd("versioned-oprecall.md");
 /** Session layout (non-versioned multi-turn): `# Session` of `## Turn N`
  *  entries + `# Your Task`. REPLACES the context-format fragment when on —
  *  the `# User Task` / `# Agent Events` / `# Current Dataflow` sections that
@@ -404,7 +407,8 @@ export function buildCodeModeSystemPrompt(
   recallEnabled = false,
   resumeEnabled = false,
   versionedEnabled = false,
-  sessionEnabled = false
+  sessionEnabled = false,
+  opRecallEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -415,7 +419,11 @@ export function buildCodeModeSystemPrompt(
   // Versioned mode supersedes the recall fragment: recall.md describes the
   // `# Current Turn` / `# Dataflow` layout, which does not exist under the
   // versioned catalog. The recallState tool itself remains available either way.
-  const recall = versionedEnabled ? `\n${VERSIONED_FRAGMENT}\n` : recallEnabled ? `\n${RECALL_FRAGMENT}\n` : "";
+  const recall = versionedEnabled
+    ? `\n${opRecallEnabled ? VERSIONED_OPRECALL_FRAGMENT : VERSIONED_FRAGMENT}\n`
+    : recallEnabled
+      ? `\n${RECALL_FRAGMENT}\n`
+      : "";
   const resume = resumeEnabled ? `\n${RESUME_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
