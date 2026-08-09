@@ -122,6 +122,13 @@ export interface RecallStateDeps {
    *  RECALL_RESULT_CHARS_MAX. Requests above it are clamped, and the clamp
    *  message teaches the total size so the model narrows instead of retrying. */
   maxResultChars?: number;
+  /** OPERATOR-LEVEL ADDRESSING (v3): the tool takes `ref: "opId (turn N)"` —
+   *  the same string the catalog prints and `upstreams` consumes — and returns
+   *  that ONE version. Turn-level pulls were ~98% redundant with the catalog
+   *  (requests verbatim; 98.3% of answers under its clip) and over-fetched
+   *  whole turn deltas, which kept values invisible-by-default. Off = the
+   *  turn-addressed tool, byte-identical. */
+  operatorLevel?: boolean;
 }
 
 function findOperator(workflow: WorkflowContent | undefined, opId: string): any {
@@ -136,6 +143,191 @@ function summaryOf(op: any): string | undefined {
 
 const VERB_MARK: Record<RecallVerb, string> = { added: "+", revised: "~", deleted: "-" };
 
+/** The one reference notation, shared with the write path: `opId (turn N)`. */
+const OP_REF_RE = /^\s*(\S+)\s*\(\s*turn\s+(\d+)\s*\)\s*$/i;
+
+/**
+ * OPERATOR-LEVEL recall (v3): one call, one operator version, values first.
+ *
+ * The address is the string the model already reads in every catalog entry and
+ * writes in every `upstreams` ref — read = write = recall, nothing to
+ * translate. Scope-of-one makes values affordable, so unlike the turn-level
+ * tool the sample is ON by default: the point of recalling a version is to
+ * look at its numbers before wiring code over them.
+ */
+function createOperatorRecallTool(deps: RecallStateDeps) {
+  let budgetTurnKey: string | undefined;
+  let callsThisTurn = 0;
+  const CHARS_CAP = deps.maxResultChars ?? RECALL_RESULT_CHARS_MAX;
+  const DEFAULT_SAMPLE = Math.min(1200, CHARS_CAP);
+
+  /** Teaching string: every turn that holds a version of `opId`. */
+  const versionsOf = (turns: RecalledTurn[], opId: string): number[] =>
+    turns.filter(t => t.operators.includes(opId)).map(t => t.turn);
+
+  return tool({
+    description:
+      "Recall ONE operator version, verbatim: its code, its result (shape, total size, sample values) and the " +
+      "telemetry recorded when it ran — addressed exactly as the `# Catalog` prints it and `upstreams` consumes " +
+      'it: `ref: "opId (turn N)"`. Read-only — never runs or changes anything.\n' +
+      "\n" +
+      "WHEN TO CALL IT. Before you wire an operator whose inputs come from EARLIER turns, recall those exact " +
+      "versions and look at their values — then write the code. Deriving over a table you have not looked at is " +
+      "how a foundational quantity silently goes wrong. Also recall before any restore/rollback: copy the " +
+      "recalled code verbatim instead of reconstructing it from memory.\n" +
+      "\n" +
+      "WHEN NOT TO. The `# Catalog` already shows every turn's request, answer, and each output's shape and " +
+      "total size — recall is for a version's CONTENT, not for re-reading the conversation. Your pulls stay in " +
+      "your steps for the whole turn; never fetch the same version twice.",
+    inputSchema: z.object({
+      ref: z
+        .string()
+        .describe('Which version to recall, as the catalog prints it: "opId (turn N)" — e.g. "scores (turn 3)".'),
+      includeCode: z.boolean().optional().describe("That version's code. Default true."),
+      includeOutputTableSample: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          `Characters of sample rows from the version's output table. Default ${DEFAULT_SAMPLE} — values are ` +
+            `usually the point of recalling. 0 = shape and schema only. Hard maximum ${CHARS_CAP}; higher values ` +
+            "are clamped. The catalog states each output's total size — size your pull against it."
+        ),
+      includeOutputTableColumnStats: z
+        .boolean()
+        .optional()
+        .describe(
+          "Per-column stats (numeric min/max/mean; string distinct + top; datetime range; null counts) plus the " +
+            "table's structural profile (grain/key candidates, duplicates). Default false."
+        ),
+    }),
+    execute: async (args: {
+      ref: string;
+      includeCode?: boolean;
+      includeOutputTableSample?: number;
+      includeOutputTableColumnStats?: boolean;
+    }) => {
+      try {
+        const turnKey = deps.getCurrentTurnKey?.() ?? "";
+        if (turnKey !== budgetTurnKey) {
+          budgetTurnKey = turnKey;
+          callsThisTurn = 0;
+        }
+        callsThisTurn += 1;
+        if (callsThisTurn > RECALL_CALLS_PER_TURN) {
+          return createErrorResult(
+            `Recall budget for this turn is used up (${RECALL_CALLS_PER_TURN} calls). Proceed with what you ` +
+              "have — your earlier pulls are still in your steps, and the `# Catalog` names every version."
+          );
+        }
+
+        const turns = deps.getTurns();
+        if (turns.length === 0) {
+          return createErrorResult(
+            "There are no earlier turns yet — this is the first request of the session, so there is nothing to recall."
+          );
+        }
+
+        const m = OP_REF_RE.exec(args.ref ?? "");
+        if (!m) {
+          return createErrorResult(
+            `Could not parse ref "${args.ref}". Write it exactly as the catalog prints it: "opId (turn N)" — ` +
+              'e.g. "scores (turn 3)".'
+          );
+        }
+        const opId = m[1];
+        const turnNo = parseInt(m[2], 10);
+        const have = versionsOf(turns, opId);
+        if (have.length === 0) {
+          return createErrorResult(
+            `No finished turn has a version of \`${opId}\`. Check the operator id against the catalog ` +
+              "(ids are exact). The turn in progress cannot be recalled — its work is already in front of you."
+          );
+        }
+        const t = turns.find(x => x.turn === turnNo && x.operators.includes(opId));
+        if (!t) {
+          return createErrorResult(
+            `\`${opId}\` has no version at turn ${turnNo}. It has versions: ` +
+              `${have.map(n => `${opId} (turn ${n})`).join(", ")} — pick one of those (the latest, unless this ` +
+              "request asks for an earlier state)."
+          );
+        }
+
+        const includeCode = args.includeCode !== false;
+        const requestedChars = args.includeOutputTableSample ?? DEFAULT_SAMPLE;
+        const includeResults = requestedChars > 0;
+        const includeStats = args.includeOutputTableColumnStats === true;
+        const maxResultChars = Math.min(requestedChars, CHARS_CAP);
+
+        const op = findOperator(t.workflow, opId);
+        const verb = t.verbs?.get(opId);
+        const out: string[] = [`# ${opId} (turn ${turnNo})${verb ? ` — ${verb} by that turn` : ""}`];
+        const summary = summaryOf(op);
+        if (summary) out.push(`Summary: ${summary}`);
+
+        if (verb === "deleted" || !op) {
+          out.push(
+            verb === "deleted"
+              ? "(deleted by that turn — it no longer existed at the end of it)"
+              : "(no definition recorded in that turn's snapshot)"
+          );
+          return out.join("\n").trimEnd();
+        }
+
+        if (includeCode) {
+          const code = String(op.operatorProperties?.code ?? "").trim();
+          if (code) {
+            out.push("Code:");
+            out.push("```python");
+            out.push(code);
+            out.push("```");
+          } else {
+            out.push("(no code recorded)");
+          }
+        }
+
+        const info = t.results?.get(opId);
+        if (info) {
+          const rendered = formatOperatorResult(opId, info, deps.workflowState, {
+            detail: includeResults ? "sample" : "shape",
+            schemaInResult: true,
+            columnStats: includeStats,
+            tableStructureHint: includeStats,
+            coercionTelemetry: true,
+            rowLineage: true,
+            inputsInResult: false,
+            maxResultChars: includeResults ? maxResultChars : undefined,
+          });
+          const est = estimateTableChars(info);
+          const size = est !== undefined ? `, ${formatApproxChars(est)} total` : "";
+          out.push(`Result (as of turn ${turnNo}${size}):`);
+          out.push(rendered);
+          if (includeResults && est !== undefined && est > maxResultChars) {
+            out.push(
+              `(shown: first ${maxResultChars} chars of ${formatApproxChars(est)} — for the full picture ` +
+                "prefer `includeOutputTableColumnStats: true` over a bigger sample)"
+            );
+          }
+        } else {
+          out.push("Result: (not materialized in that turn's snapshot)");
+        }
+
+        if (requestedChars > CHARS_CAP) {
+          out.push("");
+          out.push(
+            `(includeOutputTableSample ${requestedChars} clamped to ${CHARS_CAP} — recalled output is re-sent ` +
+              "on every remaining step of this turn, so it is capped)"
+          );
+        }
+        return out.join("\n").trimEnd();
+      } catch (error: any) {
+        return createErrorResult(`recallState failed: ${error?.message || String(error)}`);
+      }
+    },
+  });
+}
+
 /**
  * Build the read-only `recallState` tool.
  *
@@ -146,6 +338,7 @@ const VERB_MARK: Record<RecallVerb, string> = { added: "+", revised: "~", delete
  * wrong for two of those three every time.
  */
 export function createRecallStateTool(deps: RecallStateDeps) {
+  if (deps.operatorLevel) return createOperatorRecallTool(deps);
   let budgetTurnKey: string | undefined;
   let callsThisTurn = 0;
   const CHARS_CAP = deps.maxResultChars ?? RECALL_RESULT_CHARS_MAX;

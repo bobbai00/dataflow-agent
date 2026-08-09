@@ -259,6 +259,9 @@ export interface AssembleContextOptions {
    *  information as the flat event log, re-grouped; the ReAct render knobs
    *  apply unchanged inside each turn. Superseded by versionedCatalog. */
   sessionTurns?: boolean;
+  /** OPERATOR-LEVEL recall (v3): the catalog header teaches the per-version
+   *  recall address instead of the per-turn one. Render-text only. */
+  recallOperatorLevel?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -2424,8 +2427,11 @@ function renderVersionedCatalog(
   sections.push("");
   sections.push(
     "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
-      "addressed as (operatorId, turn)), and what was answered. `recallState(turn)` fetches any " +
-      "entry's code and results verbatim. The last entry is the turn in progress."
+      "addressed as (operatorId, turn)), and what was answered. " +
+      (options.recallOperatorLevel
+        ? "`recallState(ref: \"opId (turn N)\")` fetches that one version's code and values verbatim. "
+        : "`recallState(turn)` fetches any entry's code and results verbatim. ") +
+      "The last entry is the turn in progress."
   );
   sections.push("");
 
