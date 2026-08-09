@@ -86,6 +86,27 @@ const RENDER_PREFS_EXAMPLE_FRAGMENTS: Record<string, string> = {
 // shown; short summaries). Selected only when the flag is on, so control arms
 // keep a byte-identical prompt.
 const CONTEXT_FORMAT_CODE_LATEST: string = rd("context-format.latest.code.md");
+/**
+ * The three Key Principles whose truth depends on whether the agent can see its
+ * own code. They used to be unconditional prose in `code-mode.md`, written for
+ * the code-blind case, and so contradicted every arm that shows code: the
+ * context-format fragment said "your current code **is** shown" while the
+ * principles said "code is not preserved in history", "but not its code", and
+ * "your code is discarded after each step" — in one prompt.
+ *
+ * The gate is `noCode` (LATEST *without* code in the snapshot), NOT
+ * `enableCodeInSnapshot`: DELTA carries operator code inline in every Action, so
+ * DELTA arms were being told their code was gone while looking straight at it.
+ * `noCode` is exactly `isCodeShownToAgent()` inverted, which is the same
+ * predicate the createOrModifyOperator tool already uses to pick its `summary`
+ * description — so prompt and tool schema now agree instead of contradicting.
+ *
+ * Not cosmetic: "the summary is your only record" drives verbose summaries that
+ * restate code the agent can already read, which is wasted output on precisely
+ * the arms that pay for the code twice.
+ */
+const PRINCIPLES_CODE_BLIND: string = rd("principles.code-blind.md");
+const PRINCIPLES_CODE_VISIBLE: string = rd("principles.code-visible.md");
 const EXAMPLE_CODE_LATEST: string = rd("example.latest.code.md");
 
 // ============================================================================
@@ -421,7 +442,11 @@ export function buildCodeModeSystemPrompt(
       : noCode
         ? EXAMPLE_FRAGMENTS.latest
         : EXAMPLE_CODE_LATEST;
-  return CODE_MODE_TEMPLATE.replace("{{CONTEXT_FORMAT}}", contextFormat)
+  return CODE_MODE_TEMPLATE.replace(
+    "{{CODE_VISIBILITY_PRINCIPLES}}",
+    noCode ? PRINCIPLES_CODE_BLIND.trimEnd() : PRINCIPLES_CODE_VISIBLE.trimEnd()
+  )
+    .replace("{{CONTEXT_FORMAT}}", contextFormat)
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
