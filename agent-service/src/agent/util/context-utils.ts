@@ -29,7 +29,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { formatFileIo } from "../context/decorate/data/structural-profile";
+import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
   estimateTableChars,
@@ -2512,6 +2512,14 @@ function renderVersionedCatalog(
           if (options.rowLineage && info) {
             const lin = formatRowLineage(info);
             if (lin) sections.push(lin);
+          }
+          // Structural profile (grain/key candidates, partition columns,
+          // duplicates) in the entry itself, when the arm carries the D2
+          // channel: the facts a later turn's join/dedup decision needs,
+          // without spending a probe operator or a recall to get them.
+          if (options.tableStructureHint && info) {
+            const prof = formatTableHints(info);
+            if (prof) sections.push(prof);
           }
         }
         sections.push("");

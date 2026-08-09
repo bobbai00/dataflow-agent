@@ -933,6 +933,15 @@ export class TexeraAgent {
         }
         return touched;
       },
+      resultOf(operatorId: string, turn: number) {
+        // The same as-of-turn results recallState serves — one source of truth
+        // for "what did this version hold" (buildTurnLog resolves each turn's
+        // ending snapshot).
+        return agent
+          .buildTurnLog()
+          .find(t => t.turn === turn)
+          ?.results?.get(operatorId);
+      },
     };
   }
 

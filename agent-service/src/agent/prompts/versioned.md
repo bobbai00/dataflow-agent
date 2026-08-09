@@ -67,6 +67,29 @@ operator's current result there. `recallState(turn)` fetches any earlier
 entry's code and results verbatim; its output also stays in your steps — never
 fetch the same thing twice.
 
+## Establishing foundations
+
+Some turns create quantities that every later turn inherits: an entity count
+after a filter or join, a group definition (which rows count as "X"), a
+threshold, a base table. Get these right AT CREATION — the catalog preserves a
+wrong foundation exactly as faithfully as a right one, and one wrong count at
+turn 1 makes dozens of later answers wrong.
+
+When a turn establishes such a quantity:
+
+- **Derive it a second, independent way** before answering — a different join
+  order, a different source column, a direct count on the raw table — and
+  compare. If the two disagree, find out why before answering; never pick one
+  silently.
+- **Read the Lineage line on the defining operator.** The classic wrong-
+  foundation signatures: a filter that defines a *subset* class but keeps
+  ~100% of rows, or a join that silently drops rows it should keep. When the
+  retained fraction contradicts what the definition means, the definition is
+  wrong.
+
+This costs one extra operator on the few turns that create foundations, and it
+is the highest-value operator you will build: every later turn stands on it.
+
 ## Answering
 
 The catalog is followed by one closing section, `# Your Task`, naming the turn
