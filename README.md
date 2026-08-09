@@ -105,6 +105,30 @@ curl -s $BASE/agents/$AGENT/snapshots/head   # steps + workflow at HEAD
 curl -s -X DELETE $BASE/agents/$AGENT
 ```
 
+### Default configuration
+
+An agent created with no `settings` runs the campaign-measured configuration
+(`DEFAULT_AGENT_SETTINGS` in `agent-service/src/types/agent.ts`):
+
+| Setting | Default | What it gives the model |
+|---|---|---|
+| `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
+| `flowLevel` | `1` | loader-remediation hints + the consolidated `Operators needing attention` section |
+| `dataLevel` | `2` | typed `Schema (N cols)` line + `Output Table profile:` (duplicate rows, all-null regions, unresolved headers) |
+| `columnStats` | `true` | `Column Schema and stats:` — nulls, min/max/mean, distinct, top-N per column |
+| `agentMode` | `code` | one `createOrModifyOperator` tool writing Python `def load()` / `def process()` |
+| `maxSteps` | `100` | per-turn step budget |
+| `maxOperatorResultCharLimit` | `2000` | sample-row budget per result (`codeMaxChars: 0` = code uncapped) |
+| `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
+| layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
+
+Everything else (recall / inspect / resume / compaction / telemetry knobs) is
+off by default. Two renders are **conditional by design**, so their absence in
+a small run is not a bug: column stats are suppressed when the complete table
+is already visible in the context, and the structural profile only appears when
+the worker finds an actual signal (duplicate rows, all-null rows/columns, an
+unresolved header).
+
 Key endpoints (all under `/api/agents`):
 
 | Method | Path | What |

@@ -504,7 +504,13 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "PythonUDFV2",
   ],
   agentMode: AgentMode.CODE,
-  contextMode: ContextMode.LATEST,
+  // DELTA + the observation channel below is the campaign-measured configuration
+  // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
+  // per event, and every materialized result carries its schema, structural
+  // profile and per-column statistics. The bare LATEST/level-0 defaults this
+  // replaces rendered a snapshot with no value evidence, which is the failure
+  // mode every context experiment traced back to.
+  contextMode: ContextMode.DELTA,
   parallelToolCalls: false,
   includeOperatorProperties: true,
   attemptReflection: false,
@@ -518,9 +524,13 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
   maxResultRows: 0,
-  flowLevel: 0,
-  dataLevel: 0,
-  columnStats: false,
+  // flow 1 = loader remediation + the "Operators needing attention" section;
+  // data 2 = typed schema line + structural profile (grain/key candidates,
+  // duplicates, empty rows/cols); columnStats layers per-column statistics
+  // (nulls, min/max/mean, distinct/top-N) onto every non-error result.
+  flowLevel: 1,
+  dataLevel: 2,
+  columnStats: true,
   valueFormat: false,
   dataHints: false,
   toolDialect: "qwen-xml",

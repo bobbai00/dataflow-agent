@@ -127,6 +127,29 @@ results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
+### Default agent configuration
+
+`DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
+created with no `settings` runs. It is the campaign-measured configuration, not
+a minimal one: **`contextMode: delta`**, **`flowLevel: 1`**, **`dataLevel: 2`**,
+**`columnStats: true`** — the trajectory is replayed per event, and every
+materialized result carries its typed schema line, its structural profile, and
+per-column statistics. Also on: `agentMode: code`, `maxSteps: 100`,
+`maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
+(K=10). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
+"index"` all off), and every pull tool (recall / inspect / resume / compact) is
+off. See [README.md §2](README.md) for the full table.
+
+Two renders are conditional by design and their absence in a small run is not a
+defect: column stats are suppressed when the complete table is already visible
+in the context, and the `Output Table profile:` block only appears when the
+worker detects an actual structural signal (duplicate rows, all-null
+rows/columns, an unresolved header).
+
+Benchmark arms override these per experiment (`Kramabench/systems/dataflow_system.py`,
+`benchmark/longds/arms.py`), so an arm's configuration and the service default
+are independent — read the arm, not the default, when interpreting a result.
+
 ## 5. Benchmarking
 
 One driver for both benchmarks, run from the repo root
