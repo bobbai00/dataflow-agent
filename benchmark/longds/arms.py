@@ -35,6 +35,10 @@ class LongDSBase(DataflowSystem):
     _CODE = False
     _MAX_STEPS = 40
     _NAME = "LongDSBase"
+    #: Explicit data ladder level. None keeps the historical coupling
+    #: (2 with _STATS, else 1). Set it to run e.g. data_level=2 (structural
+    #: profile) WITHOUT the column-stats overlay — the two are separate knobs.
+    _DATA_LEVEL: int | None = None
 
     def __init__(self, verbose: bool = False, *args, **kwargs):
         kwargs.setdefault("agent_service_endpoint", AGENT_SERVICE_ENDPOINT)
@@ -43,7 +47,7 @@ class LongDSBase(DataflowSystem):
             context_mode=self._CONTEXT_MODE,
             max_steps=self._MAX_STEPS,
             flow_level=1,
-            data_level=2 if self._STATS else 1,
+            data_level=self._DATA_LEVEL if self._DATA_LEVEL is not None else (2 if self._STATS else 1),
             column_stats=self._STATS,
             attempt_reflection=True,
             max_operator_result_char_limit=self._RESULT_CHARS,
@@ -520,6 +524,105 @@ class LongDSLunaSmokeVCatLatest(_LongDSLayoutSmoke):
         super().__init__(verbose=verbose, *args, **kwargs)
 
 
+class _LongDS2kD2(LongDSBase):
+    """Shared observation channel for the 2026-08-08 layout A/B: 2k sample
+    chars, data_level=2 (schema + structural profile), NO column stats,
+    lineage + coercion facts on. Both layouts get exactly this channel, so any
+    difference is attributable to the layout alone."""
+
+    _RESULT_CHARS = 2000
+    _DATA_LEVEL = 2
+    _STATS = False
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("row_lineage", True)
+        kwargs.setdefault("coercion_facts", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSession2kD2(_LongDS2kD2):
+    """BASELINE layout: # Session — full step replay per turn, # Your Task
+    tail. No recall tool: everything is already in the prompt; that is the
+    point of this arm."""
+
+    _NAME = "LongDSLunaSession2kD2"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("session_turns", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSession2kD2R2(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2R2"
+
+
+class LongDSLunaSession2kD2R3(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2R3"
+
+
+# Fresh session anchors for the catalog-v2 campaign: each v2 rep runs paired
+# with one of these in the same era, so v2-vs-session is direct and v2-vs-v1
+# goes through the anchor (difference-in-differences cancels the era shift).
+class LongDSLunaSession2kD2R4(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2R4"
+
+
+class LongDSLunaSession2kD2R5(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2R5"
+
+
+class LongDSLunaSession2kD2R6(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2R6"
+
+
+class LongDSLunaVersioned2kD2(_LongDS2kD2):
+    """EXPERIMENT layout: # Catalog — state-once entries + recallState pull,
+    # Your Task tail. Same observation channel as the session arm."""
+
+    _NAME = "LongDSLunaVersioned2kD2"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("versioned_mode", True)
+        kwargs.setdefault("enable_recall_tool", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaVersioned2kD2V2(LongDSLunaVersioned2kD2):
+    """The catalog arm after the 2026-08-09 gap analysis — same knobs, four
+    service-side changes (all general, none task-tuned):
+
+      * foundations verification prompt (dual derivation + lineage check on
+        quantities later turns inherit) — targets corr(early errors, later
+        accuracy) = -0.62;
+      * input-values channel: first cross-turn reference attaches that
+        version's sample values to the write's observation — targets the
+        +29% blind probe writes;
+      * unambiguous version-ref cases proceed with a note instead of a
+        rejection (stray `from` on create; same-turn self-revision) — kills
+        ~80 wasted steps/3 runs and the rename-sprawl trigger;
+      * catalog delta entries carry the structural profile line (grain/key,
+        duplicates) under the D2 channel.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V2"
+
+
+class LongDSLunaVersioned2kD2V2R2(LongDSLunaVersioned2kD2V2):
+    _NAME = "LongDSLunaVersioned2kD2V2R2"
+
+
+class LongDSLunaVersioned2kD2V2R3(LongDSLunaVersioned2kD2V2):
+    _NAME = "LongDSLunaVersioned2kD2V2R3"
+
+
+class LongDSLunaVersioned2kD2R2(LongDSLunaVersioned2kD2):
+    _NAME = "LongDSLunaVersioned2kD2R2"
+
+
+class LongDSLunaVersioned2kD2R3(LongDSLunaVersioned2kD2):
+    _NAME = "LongDSLunaVersioned2kD2R3"
+
+
 class LongDSHaikuDelta1k(LongDSBase):
     """The baseline knob set on claude-haiku-4.5 — the cheapest gateway model.
 
@@ -560,4 +663,16 @@ ARMS = {
     "luna-smoke-session-latest": LongDSLunaSmokeSessionLatest,
     "luna-smoke-vcat-delta": LongDSLunaSmokeVCatDelta,
     "luna-smoke-vcat-latest": LongDSLunaSmokeVCatLatest,
+    "luna-session-2k-d2": LongDSLunaSession2kD2,
+    "luna-session-2k-d2-r2": LongDSLunaSession2kD2R2,
+    "luna-session-2k-d2-r3": LongDSLunaSession2kD2R3,
+    "luna-session-2k-d2-r4": LongDSLunaSession2kD2R4,
+    "luna-session-2k-d2-r5": LongDSLunaSession2kD2R5,
+    "luna-session-2k-d2-r6": LongDSLunaSession2kD2R6,
+    "luna-versioned-2k-d2": LongDSLunaVersioned2kD2,
+    "luna-versioned-2k-d2-r2": LongDSLunaVersioned2kD2R2,
+    "luna-versioned-2k-d2-r3": LongDSLunaVersioned2kD2R3,
+    "luna-versioned-2k-d2-v2": LongDSLunaVersioned2kD2V2,
+    "luna-versioned-2k-d2-v2-r2": LongDSLunaVersioned2kD2V2R2,
+    "luna-versioned-2k-d2-v2-r3": LongDSLunaVersioned2kD2V2R3,
 }
