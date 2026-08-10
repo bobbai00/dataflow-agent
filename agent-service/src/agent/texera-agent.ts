@@ -2215,18 +2215,49 @@ export class TexeraAgent {
     // fires `onResult` for every operator that ran on the backend — including
     // ones reporting errors — so the snapshot at HEAD ends up consistent with
     // what the backend actually produced.
+    // Which targets came back with a result — anything missing after a failed
+    // execution gets an explicit error entry below.
+    const produced = new Set<string>();
+    let failure: string | undefined;
     try {
-      await executeWorkflowAndPersist(this.workflowState, execConfig, {
+      const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
         abortSignal: this.abortController?.signal,
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
+          produced.add(opId);
           if (this.head !== undefined) {
             this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
           }
         },
       });
+      if (outcome && outcome.success === false) {
+        failure = outcome.errorText?.trim() || `execution ${outcome.state ?? "failed"}`;
+      }
     } catch (e: any) {
-      this.log.warn({ err: e?.message || e, targetCount: targets.size }, "post-step batched execution failed");
+      failure = e?.message || String(e);
+      this.log.warn({ err: failure, targetCount: targets.size }, "post-step batched execution failed");
+    }
+
+    // SURFACE THE FAILURE. Without this the operator simply has no result, the
+    // renderer prints `(not executed)`, and the model reads that as "my code
+    // produced nothing" — then rewrites the operator under a new name, again
+    // and again. Measured: one cyclic edge made every execution fail for 15
+    // turns, and the agent burned 5 whole step budgets rewriting working code
+    // because nothing ever told it the ENGINE was refusing the plan.
+    if (failure && this.head !== undefined) {
+      for (const opId of targets) {
+        if (produced.has(opId)) continue;
+        const existing = this.snapshotStorage.getOperatorResult(this.head, opId);
+        if (existing && !existing.error) continue; // keep a real earlier result
+        this.snapshotStorage.setOperatorResult(this.head, opId, {
+          operatorId: opId,
+          state: "ExecutionFailed",
+          inputTuples: 0,
+          outputTuples: 0,
+          resultMode: "error",
+          error: `execution failed — ${failure}`,
+        } as any);
+      }
     }
   }
 

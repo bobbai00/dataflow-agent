@@ -59,20 +59,32 @@ Picking versions:
 - **A what-if on an old state** → reference the old versions as inputs and
   build new operators; nothing needs restoring because nothing was lost.
 
-## Read before you wire
+## Recall when values decide, not by reflex
 
 `recallState(ref: "opId (turn N)")` fetches ONE operator version verbatim: its
 code, its result shape and total size, sample values, and its recorded
 telemetry. The catalog names shapes; recall shows the numbers.
 
-Before you wire an operator whose inputs come from EARLIER turns, recall those
-exact versions first and look at their values — then write the code. Deriving
-over a table you have not looked at is how a foundational quantity silently
-goes wrong, and everything downstream inherits it. Your recalled pulls stay in
-your steps for the whole turn — never fetch the same version twice.
+Recall BEFORE wiring when the earlier version's content decides what you
+build:
 
-The catalog already shows every turn's request and answer — recall is for
-STATE, not for re-reading the conversation.
+- the request revises, rolls back to, or compares against a SPECIFIC earlier
+  state — fetch that exact version and copy what must be preserved verbatim;
+- your new code must match an earlier definition, filter, threshold or format
+  — read it, do not reconstruct it from memory;
+- you are about to establish a foundation on top of inherited data and need
+  to see its actual values to choose the join/filter correctly.
+
+Do NOT recall for routine continuation over the latest versions: the catalog
+entry already gives you the shape, schema, size and lineage, and the first
+write referencing an old version attaches that version's sample values to
+your observation automatically. Wire directly and read the attached values
+there. Every pull is re-sent on all remaining steps of the turn — a recall
+that only confirms what the catalog already told you is pure cost.
+
+Your recalled pulls stay in your steps for the whole turn — never fetch the
+same version twice. The catalog already shows every turn's request and answer
+— recall is for STATE, not for re-reading the conversation.
 
 ## Establishing foundations
 
