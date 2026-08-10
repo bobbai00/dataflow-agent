@@ -21,6 +21,7 @@ import type { ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
+import { OperatorVersionStore } from "./operator-version-store";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
@@ -247,6 +248,9 @@ export class TexeraAgent {
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
+  /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
+   *  always turn-tracked; only the versioned write path reads it for wiring. */
+  readonly versionStore = new OperatorVersionStore();
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -908,6 +912,56 @@ export class TexeraAgent {
    * grouping as the catalogue and `recallState`, so a version turn the model
    * reads anywhere is valid everywhere.
    */
+  /**
+   * Record the current definition of each edited operator as its version at
+   * the turn in progress.
+   *
+   * `inputRefs` are captured from the live graph — for each upstream, the
+   * version that upstream currently holds — so a version remembers what it
+   * actually consumed. That is what makes checking out an old version a
+   * lookup chain instead of guesswork about which inputs were in play.
+   */
+  private recordVersionsFor(operatorIds: readonly string[]): void {
+    const turn = this.turnOrder().length;
+    if (turn <= 0) return;
+    for (const opId of new Set(operatorIds)) {
+      const op = this.workflowState.getOperator(opId);
+      if (!op) continue;
+      const inputRefs = this.workflowState
+        .getLinksConnectedToOperator(opId)
+        .filter(l => l.target.operatorID === opId)
+        .map(l => l.source.operatorID)
+        .map(srcId => ({
+          operatorId: srcId,
+          // An upstream written earlier this turn is at THIS turn; otherwise
+          // it is whatever version it last landed at.
+          turn: this.versionStore.latestTurnOf(srcId) ?? turn,
+        }));
+      try {
+        this.versionStore.recordWrite({
+          operatorId: opId,
+          turn,
+          code: String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? ""),
+          operatorType: op.operatorType,
+          inputPorts: op.inputPorts,
+          outputPorts: op.outputPorts,
+          inputRefs,
+          resultStepId: this.head,
+        });
+      } catch (e: any) {
+        // Only thrown when writing into a closed turn — a real invariant
+        // breach worth seeing, never worth killing the turn over.
+        this.log.warn({ err: e?.message || e, opId, turn }, "version store write rejected");
+      }
+    }
+  }
+
+  /** Seal the finished turn's versions: from here they are permanent facts. */
+  private closeVersionTurn(): void {
+    const turn = this.turnOrder().length;
+    if (turn > 0) this.versionStore.closeTurn(turn);
+  }
+
   operatorVersionStore() {
     const agent = this;
     return {
@@ -1802,6 +1856,10 @@ export class TexeraAgent {
         error: error.message || String(error),
       };
     } finally {
+      // The turn is over however it ended (answered, aborted, error): seal its
+      // versions. A later turn referencing `X (turn N)` must get one fixed
+      // definition, so the boundary — not the outcome — is what freezes it.
+      this.closeVersionTurn();
       this.abortController = null;
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
@@ -2191,6 +2249,12 @@ export class TexeraAgent {
       if (operatorId) editedOpIds.push(operatorId);
     }
     if (editedOpIds.length === 0) return;
+
+    // WRITE THROUGH TO THE VERSION STORE — every mode. The store is the only
+    // place a version is a thing rather than an inference; recording here (on
+    // the post-step path, after the write succeeded and the graph settled)
+    // means `inputRefs` capture the wiring that actually landed.
+    this.recordVersionsFor(editedOpIds);
 
     // Build the materialization set: every edited op AND every downstream sink
     // of every edited op. Including the edited op itself is critical for
