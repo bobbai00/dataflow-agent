@@ -209,3 +209,114 @@ set -a && . ./.env && set +a
 
 Judged v3.1 NFL scores backed up at `/tmp/claude-1000/v31_nfl_results_eval.json`
 (42 turns) — an NFL rerun overwrites that scratch dir.
+
+---
+
+# 6. Results (2026-08-10)
+
+## 6.1 What the campaign actually established
+
+**Accuracy is cascade-dominated, and context layout does not move it.**
+
+Judged, 309 turns, 3 reps of v3.1 vs 6 runs of the session layout, accuracy by
+turn position:
+
+| turns | versioned v3.1 | session 2k/D2 |
+|---|---|---|
+| 1-5 | 59.3 | 57.0 |
+| 6-10 | 50.7 | 51.0 |
+| 11-20 | 24.9 | 24.2 |
+| 21-30 | 20.1 | 18.2 |
+| 31+ | 1.9 | 1.9 |
+
+Identical curves, zero stopped/errored turns in either — so the late collapse is
+wrong answers, not infrastructure. Conditioning on whether a turn's declared
+upstream dependencies were themselves correct:
+
+| turns | deps clean | upstream poisoned |
+|---|---|---|
+| 1-5 | 73.5 | 34.6 |
+| 6-10 | 83.1 | 29.7 |
+| 11-20 | 71.2 | 11.0 |
+| 21+ | 83.3 | 9.1 |
+
+**Given correct inputs, per-turn accuracy is flat with depth** (83% at turn 21+).
+There is no long-context degradation. Of 342 late turns, 318 had at least one
+wrong upstream and only 24 were clean; the median first-error turn is 2. So the
+aggregate mostly measures how early the first mistake lands and how many turns
+hang off it — which is why every context knob in this campaign (recall caps,
+session vs catalog, operator-level recall) returned a null result, and why
+between-rep task swings are enormous (world_university_rankings ranged 10-76
+across three v3.1 reps).
+
+Early failures are spec interpretation, not context: percent-vs-proportion units
+(31.8 vs 0.3180), threshold boundaries off by one group (175 vs 170),
+calendar-month vs year-month keying, omitted required output fields, tie-vs-tail.
+
+**Corollary for future work: to move accuracy, target first-error rate on turns
+1-3. Context-layout changes should be evaluated on cost, not score.**
+
+## 6.2 Cost: the two bugs that were worth fixing
+
+| build | NFL cost | note |
+|---|---|---|
+| pre-fix | $7.93 | self-loop made the workflow cyclic; 15 turns of blind rewriting |
+| v3.1 (`ad5301b4a` parent) | $4.13 | composite-key store + pin checkout |
+| v3.2 (`ad5301b4a`) | $1.99 | live turn diffs against inherited snapshot |
+
+Full arm, v3.1 (mean of 3 reps) vs v3.2 (1 rep), 309 turns:
+
+| | v3.1 | v3.2 | delta |
+|---|---|---|---|
+| input tokens | 85.1M | 54.9M | -35% |
+| cost | $15.88 | $9.71 | -39% |
+| steps | 1610 | 1760 | +9% |
+| input tokens/step | 52,838 | 31,184 | -41% |
+| recallState calls | 828 | 909 | +10% |
+| cost per correct turn | $0.167 | $0.108 | -35% |
+
+The mechanism is push -> pull: the catalog stopped pushing inherited state into
+every step, and the model pulls what it needs instead. Every task got cheaper.
+
+Accuracy for v3.2 rep1: 28.99 turn-weighted / 33.09 task-macro, against v3.1's
+30.84 +/- 0.57 and 36.16 +/- 0.60. Four tasks up (netflix 7.8->20.6, nfl
+9.5->26.2, nyc 19.8->28.1, uber 8.3->11.1), six down (energy 19.4->2.8, wur
+34.9->14.3, water 38.9->27.8, passnyc 50->40, bi 81.5->70.4, github 91.1->86.7).
+Per-turn-bucket accuracy is indistinguishable (1-3: 63.3 vs 64.4; 4-10: 48.6 vs
+51.0; 11-20: 24.2 vs 24.9; 21+: 11.4 vs 14.3), so there is no sign the fix
+starved the model of state — the aggregate difference is the cascade lottery.
+Reps 2-3 are needed before any accuracy claim; do not report -1.85 as a
+regression on n=1.
+
+## 6.3 The pin bug (`bc8f0754c`)
+
+Pins materialized for real for the first time on the energy task
+(`panel_base (turn 1)` -> `panel_base__t1`, correctly wired). Every execution
+then failed:
+
+```
+Workflow validation failed: Operator panel_base__t1:
+  - additionalProperties: must NOT have additional properties
+```
+
+`__pinnedFrom` lived inside `operatorProperties`, which the engine validates with
+`additionalProperties: false`. 59 failures in one turn; the model then deleted
+the pin and hand-copied it as `panel_v2`, which stranded its downstream
+(`input_0 requires at least 1 input`). That detour cost 248 steps against
+175-182 for the same task on the prior build and ate the whole prompt-size
+saving. Provenance now lives in a `pinLabels` registry exposed as
+`pinnedLabelOf()`, with an id-pattern fallback validated against the store so
+the edit-a-pin guard survives the lazily-built checkout being rebuilt.
+
+**Still unverified: a pin executing end-to-end in a live run.** The energy rerun
+on the fixed build materialized no pins at all, so the fix is confirmed only by
+unit tests plus the absence of the validation error. A rollback-heavy task is
+needed to exercise it.
+
+## 6.4 Operational lesson
+
+Editing agent-service source while a pool is running kills the run:
+`bun run dev` hot-reloads, and a half-applied edit (a removed export still
+imported elsewhere) takes :3001 down. Seven tasks burned with
+`ConnectionRefusedError` this way. `run_all.sh` says it: nothing may restart a
+service mid-pool. Make source edits only between pools.
