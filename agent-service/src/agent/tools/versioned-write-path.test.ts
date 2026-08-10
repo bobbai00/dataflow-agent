@@ -76,6 +76,7 @@ function harness(opts: { versioned: boolean }) {
     currentTurn: () => turn,
     touchedThisTurn: () => new Set(store.operatorIds().filter(id => store.has(id, turn))),
     checkout: (opId, t, writing) => checkout.resolve({ operatorId: opId, turn: t }, writing),
+    pinnedLabelOf: (opId: string) => checkout.pinnedLabel(opId),
   };
 
   // The ADD path needs a real metadata store to mint predicates; these tests

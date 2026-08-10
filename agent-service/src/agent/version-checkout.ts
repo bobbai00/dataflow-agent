@@ -49,8 +49,21 @@ import type { OperatorVersionStore, VersionRef } from "./operator-version-store"
 import type { WorkflowState } from "./workflow-state";
 import type { OperatorLink, OperatorPredicate } from "../types/workflow";
 
-/** Marks a materialized version node. Read by renderers to label it. */
-export const PINNED_FROM_PROPERTY = "__pinnedFrom";
+/**
+ * Pin provenance lives HERE, not in `operatorProperties`.
+ *
+ * `operatorProperties` is the operator's schema-validated payload: the engine
+ * runs the workflow through the operator's JSON schema with
+ * `additionalProperties: false`, so an internal marker stored there makes every
+ * pin unexecutable —
+ *
+ *   Workflow validation failed: Operator panel_base__t1:
+ *     - additionalProperties: must NOT have additional properties
+ *
+ * which is exactly what happened: pins wired correctly, then could never run,
+ * and the model paid steps hand-copying them to get around it. The pin registry
+ * below is the single source of truth for "is this a pin, and of what".
+ */
 
 export interface CheckoutResult {
   /** Operator id to wire from — the live node, or a pin. */
@@ -74,6 +87,8 @@ export function pinIdFor(operatorId: string, turn: number): string {
 export class VersionCheckout {
   /** `op@turn` -> materialized pin id. One node per version, ever. */
   private pins = new Map<string, string>();
+  /** pin id -> the reference it froze, e.g. `panel_base (turn 1)`. */
+  private pinLabels = new Map<string, string>();
 
   constructor(private deps: CheckoutDeps) {}
 
@@ -83,8 +98,26 @@ export class VersionCheckout {
   }
 
   isPinned(operatorId: string): boolean {
-    const op = this.deps.workflowState.getOperator(operatorId);
-    return Boolean((op?.operatorProperties as Record<string, unknown> | undefined)?.[PINNED_FROM_PROPERTY]);
+    return this.pinnedLabel(operatorId) !== undefined;
+  }
+
+  /**
+   * The reference a pin froze, or undefined for a live operator.
+   *
+   * The registry is authoritative. The id-pattern fallback covers a checkout
+   * rebuilt mid-session (it is constructed lazily): `X__t3` only counts as a pin
+   * when the store actually holds that version, so an operator the model happens
+   * to name `foo__t2` is not mistaken for one.
+   */
+  pinnedLabel(operatorId: string): string | undefined {
+    const known = this.pinLabels.get(operatorId);
+    if (known) return known;
+    const match = /^(.+)__t(\d+)$/.exec(operatorId);
+    if (!match) return undefined;
+    const [, base, turnText] = match;
+    const turn = Number(turnText);
+    if (!this.deps.store.get(base, turn)) return undefined;
+    return `${base} (turn ${turn})`;
   }
 
   /**
@@ -155,12 +188,14 @@ export class VersionCheckout {
       workflowState.addOperator({
         ...blank,
         operatorID: pinId,
+        // Properties carry ONLY what the operator's schema declares — the pin's
+        // provenance goes in `pinLabels`, never here.
         operatorProperties: {
           ...blank.operatorProperties,
           code: version.code,
-          [PINNED_FROM_PROPERTY]: `${ref.operatorId} (turn ${ref.turn})`,
         },
       });
+      this.pinLabels.set(pinId, `${ref.operatorId} (turn ${ref.turn})`);
       if (sourceIds.length > 1) workflowState.updateOperatorInputPorts(pinId, sourceIds.length);
       sourceIds.forEach((srcId, i) => {
         const src = workflowState.getOperator(srcId);

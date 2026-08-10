@@ -689,6 +689,12 @@ export interface OperatorVersionStore {
     turn: number,
     writingOperatorId?: string
   ): { operatorId: string; pinned: boolean } | { error: string };
+  /** The reference a checked-out copy froze (`panel_base (turn 1)`), or
+   *  undefined for a live operator. Provenance is tracked beside the graph, NOT
+   *  in `operatorProperties`: those are schema-validated with
+   *  `additionalProperties: false`, so a marker stored there makes the pin
+   *  unexecutable. Optional — absent disables the edit-a-pin guard. */
+  pinnedLabelOf?(operatorId: string): string | undefined;
 }
 
 export function createCreateOrModifyOperatorTool(
@@ -885,9 +891,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         // A checked-out version is history made executable — editing it would
         // change what an already-recorded version means, which is exactly the
         // immutability the store exists to guarantee.
-        const pinnedFrom = (existingOperator?.operatorProperties as Record<string, unknown> | undefined)?.[
-          "__pinnedFrom"
-        ];
+        const pinnedFrom = existingOperator ? versionStore?.pinnedLabelOf?.(existingOperator.operatorID) : undefined;
         if (typeof pinnedFrom === "string") {
           return createErrorResult(
             `\`${operatorId}\` is a checked-out copy of ${pinnedFrom} and cannot be edited — earlier versions are ` +

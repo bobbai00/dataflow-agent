@@ -31,7 +31,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { OperatorVersionStore } from "./operator-version-store";
-import { PINNED_FROM_PROPERTY, VersionCheckout, pinIdFor } from "./version-checkout";
+import { VersionCheckout, pinIdFor } from "./version-checkout";
 import { WorkflowState } from "./workflow-state";
 import type { OperatorPredicate } from "../types/workflow";
 
@@ -57,7 +57,8 @@ function harness() {
     settings: { dataTransferBatchSize: 400 },
   } as any);
   const store = new OperatorVersionStore();
-  const checkout = new VersionCheckout({ workflowState: ws, store, newOperator: blankOperator });
+  const makeCheckout = () => new VersionCheckout({ workflowState: ws, store, newOperator: blankOperator });
+  const checkout = makeCheckout();
 
   /** Simulate a turn writing an operator: graph node + recorded version. */
   const write = (id: string, turn: number, code: string, inputs: { operatorId: string; turn: number }[] = []) => {
@@ -76,7 +77,7 @@ function harness() {
       inputRefs: inputs,
     });
   };
-  return { ws, store, checkout, write };
+  return { ws, store, checkout, write, makeCheckout };
 }
 
 const codeOf = (ws: WorkflowState, id: string): string =>
@@ -109,15 +110,52 @@ describe("a reference to a superseded version", () => {
   });
 
   test("the pin is labeled so renderers can show what it is", () => {
+    const { store, checkout, write } = harness();
+    write("scores", 1, "v1");
+    store.closeTurn(1);
+    write("scores", 2, "v2");
+    checkout.resolve({ operatorId: "scores", turn: 1 });
+    expect(checkout.pinnedLabel("scores__t1")).toBe("scores (turn 1)");
+    expect(checkout.isPinned("scores__t1")).toBe(true);
+    expect(checkout.isPinned("scores")).toBe(false);
+    expect(checkout.pinnedLabel("scores")).toBeUndefined();
+  });
+
+  /**
+   * The engine validates `operatorProperties` against the operator's JSON schema
+   * with `additionalProperties: false`. A pin that carries internal bookkeeping
+   * there fails validation on EVERY execution —
+   *   "Operator panel_base__t1: - additionalProperties: must NOT have additional properties"
+   * — so the pin wires correctly and then can never run, and the model burns
+   * steps hand-copying it. Provenance belongs beside the graph.
+   */
+  test("a pin's properties carry no internal bookkeeping — only what the schema declares", () => {
     const { ws, store, checkout, write } = harness();
     write("scores", 1, "v1");
     store.closeTurn(1);
     write("scores", 2, "v2");
     checkout.resolve({ operatorId: "scores", turn: 1 });
     const props = ws.getOperator("scores__t1")!.operatorProperties as Record<string, unknown>;
-    expect(props[PINNED_FROM_PROPERTY]).toBe("scores (turn 1)");
-    expect(checkout.isPinned("scores__t1")).toBe(true);
-    expect(checkout.isPinned("scores")).toBe(false);
+    const live = ws.getOperator("scores")!.operatorProperties as Record<string, unknown>;
+    expect(Object.keys(props).filter(k => k.startsWith("__"))).toEqual([]);
+    // Same key set as a normal operator of that type: nothing extra smuggled in.
+    expect(Object.keys(props).sort()).toEqual(Object.keys(live).sort());
+  });
+
+  test("a rebuilt checkout still recognizes an existing pin (id pattern + store)", () => {
+    // `VersionCheckout` is constructed lazily, so the guard against editing a
+    // pin must survive an instance that never materialized it itself.
+    const { ws, store, checkout, write, makeCheckout } = harness();
+    write("scores", 1, "v1");
+    store.closeTurn(1);
+    write("scores", 2, "v2");
+    checkout.resolve({ operatorId: "scores", turn: 1 });
+    const rebuilt = makeCheckout();
+    expect(rebuilt.pinnedLabel("scores__t1")).toBe("scores (turn 1)");
+    // An operator the model merely NAMED like a pin is not one: no such version.
+    expect(ws.getOperator("scores__t1")).toBeDefined();
+    expect(rebuilt.pinnedLabel("scores__t9")).toBeUndefined();
+    expect(rebuilt.pinnedLabel("plain_op")).toBeUndefined();
   });
 
   test("referencing the same version twice reuses ONE pin", () => {
