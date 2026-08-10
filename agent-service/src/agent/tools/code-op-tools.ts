@@ -793,6 +793,9 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .describe(
                 "REQUIRED for def process(...): one versioned reference per parameter, written exactly as the " +
                   "catalog prints them — \"opId (turn N)\", e.g. [\"scores (turn 3)\", \"labels (turn 9)\"]. " +
+                  "N must be a turn that actually WROTE that operator — one of the turn numbers the catalog " +
+                  "shows for it — not just any turn the operator existed in. \"scores (turn 7)\" is an error " +
+                  "when scores was last written at turn 3, and the error lists the turns you can pick from. " +
                   "`Latest versions` names the newest of each; use the current turn's number for operators you " +
                   "created this turn. Omit for def load()."
               ),
@@ -801,7 +804,8 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .optional()
               .describe(
                 "REQUIRED when operatorId already exists: the version this revision derives from, as " +
-                  "\"opId (turn N)\" — usually its latest. Makes every revision's ancestry explicit."
+                  "\"opId (turn N)\" — usually its latest. N must be a turn that actually wrote this operator, " +
+                  "exactly as the catalog prints it. Makes every revision's ancestry explicit."
               ),
           }
         : {};
