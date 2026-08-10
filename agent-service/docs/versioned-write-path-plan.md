@@ -160,14 +160,14 @@ are agent-side convention only).
 
 Land 1 first (small, independently valuable), then 2, then 3 on top.
 
-- [ ] **L1 — guards + failure surfacing** (task #37)
+- [x] **L1 — guards + failure surfacing** — DONE, commit `9b0adadf8` (16 tests)
   - `workflow-state.ts`: self-loop guard in `addLink`; `wouldCreateCycle`
   - `workflow-execution-tools.ts`: pre-ship cycle validation, teaching error
   - `texera-agent.ts` `runPostStepExecution` (~line 2171): inspect result,
     write error OperatorInfo per edited op
   - tests: self-loop rejected; cycle detected + message names the cycle;
     failure produces `[ERROR]` in render, not `(not executed)`
-- [ ] **L2 — OperatorVersionStore** (task #38)
+- [x] **L2 — OperatorVersionStore** — DONE, commit `49d3ec7e0` (12 tests, verified live: 12 versions, freeze + cross-turn lineage)
   - new `src/agent/operator-version-store.ts`
   - `texera-agent.ts`: own it, write-through hook, turn-close hook,
     `versionsOf` reads the store
