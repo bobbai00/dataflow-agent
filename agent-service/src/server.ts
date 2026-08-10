@@ -928,10 +928,25 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
   .get("/:id", ({ params: { id } }) => {
     const agent = getAgent(id);
+    // Version inventory: `(operatorId, turn)` pairs with their lineage. Small
+    // (ids and numbers), and the only way to confirm from outside that the
+    // store recorded what the graph actually did.
+    const versions = agent.versionStore.operatorIds().flatMap(opId =>
+      agent.versionStore.versionsOf(opId).map(turn => {
+        const v = agent.versionStore.get(opId, turn)!;
+        return {
+          operatorId: opId,
+          turn,
+          provisional: v.provisional,
+          inputRefs: v.inputRefs.map(r => `${r.operatorId} (turn ${r.turn})`),
+        };
+      })
+    );
     return {
       ...getAgentInfo(id, agent),
       workflow: agent.getWorkflowState().getWorkflowContent(),
       stepCount: agent.getReActSteps().length,
+      versions,
     };
   })
 
