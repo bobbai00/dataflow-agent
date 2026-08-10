@@ -182,7 +182,11 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
     inputSchema: z.object({
       ref: z
         .string()
-        .describe('Which version to recall, as the catalog prints it: "opId (turn N)" — e.g. "scores (turn 3)".'),
+        .describe(
+          'Which version to recall, as the catalog prints it: "opId (turn N)" — e.g. "scores (turn 3)". ' +
+            "N must be a turn that actually wrote that operator — one of the turn numbers the catalog shows " +
+            "for it — not just any turn it existed in."
+        ),
       includeCode: z.boolean().optional().describe("That version's code. Default true."),
       includeOutputTableSample: z
         .number()
