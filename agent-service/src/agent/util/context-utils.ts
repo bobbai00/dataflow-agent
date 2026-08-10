@@ -2581,11 +2581,22 @@ function renderVersionedCatalog(
   // live operator at its current value. DELTA keeps the full step log with
   // observations, exactly as before.
   const omitObservation = mode === ContextMode.LATEST;
+  // Diff the live turn's first step against the state it INHERITED — the leaf
+  // snapshot of the last finished turn — not against the empty root.
+  //
+  // With `initSnapshot` as the baseline, every operator the session had ever
+  // built counted as "changed at step 1", so the first observation re-dumped
+  // the whole graph: measured on a 42-turn task, step 1 alone was 238 KB of a
+  // 450 KB prompt (53%), growing with operator count and re-paid on every step
+  // of the turn. That silently undid the catalog's central promise — state
+  // renders ONCE, at the turn that created it — and made cost track graph size
+  // (r = +0.98) rather than the work in front of the model.
+  const inheritedSnapshot = prior.length > 0 ? (lastSnapshotOf(prior) ?? initSnapshot) : initSnapshot;
   const steps = renderAgentEvents(
     current,
     workflowState,
     options,
-    initSnapshot,
+    inheritedSnapshot,
     latestUserStepId,
     createFlagsByStep,
     omitObservation
