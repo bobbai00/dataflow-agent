@@ -551,7 +551,8 @@ function regexContractCheck(code: string): ContractResult {
 
 function validateInputParameters(
   workflowState: WorkflowState,
-  parameters: string[]
+  parameters: string[],
+  operatorId?: string
 ): { inputOperators: OperatorPredicate[] } | { error: string } {
   const inputOperators: OperatorPredicate[] = [];
   const missingParams: string[] = [];
@@ -571,6 +572,37 @@ function validateInputParameters(
         `Input parameter(s) not found as operators: [${missingParams.join(", ")}]. ` +
         `Each parameter in def process(${parameters.join(", ")}) must reference an existing operator.`,
     };
+  }
+
+  // An operator cannot consume its own output: the graph holds ONE node per
+  // id, so `def process(X)` while writing `X` is the edge `X -> X`, which
+  // makes the workflow cyclic and causes the execution service to reject every
+  // subsequent plan wholesale. Caught here, before anything mutates, with the
+  // two things the model can actually do instead.
+  if (operatorId && parameters.includes(operatorId)) {
+    return {
+      error:
+        `\`${operatorId}\` cannot take itself as an input — an operator's own output is not available to it, ` +
+        `and the link would make the dataflow cyclic. Either fold the extra work into \`${operatorId}\`'s own ` +
+        `code (drop \`${operatorId}\` from its parameters), or give the new step a DIFFERENT operator id that ` +
+        `reads \`${operatorId}\`.`,
+    };
+  }
+
+  // Same rule one hop out: a parameter that is DOWNSTREAM of this operator
+  // closes a longer cycle. Only meaningful for an existing operator.
+  if (operatorId && workflowState.getOperator(operatorId)) {
+    for (const param of parameters) {
+      if (param === operatorId) continue;
+      if (workflowState.wouldCreateCycle(param, operatorId)) {
+        return {
+          error:
+            `\`${param}\` cannot be an input to \`${operatorId}\`: \`${param}\` is downstream of ` +
+            `\`${operatorId}\`, so the link would close a cycle. Build the new step as a separate operator ` +
+            `reading \`${param}\` instead.`,
+        };
+      }
+    }
   }
 
   return { inputOperators };
@@ -599,8 +631,9 @@ function createInputLinks(
       },
     };
 
-    workflowState.addLink(link);
-    createdLinkIds.push(linkId);
+    // A refused edge (self-link) is skipped, not recorded: reporting a link
+    // the graph does not have would tell the model its wiring succeeded.
+    if (workflowState.addLink(link)) createdLinkIds.push(linkId);
   }
 
   return createdLinkIds;
@@ -820,7 +853,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
 
         let inputOperators: OperatorPredicate[] = [];
         if (isDataProcessing && parameters.length > 0) {
-          const validation = validateInputParameters(workflowState, parameters);
+          const validation = validateInputParameters(workflowState, parameters, operatorId);
           if ("error" in validation) {
             return createErrorResult(validation.error);
           }
