@@ -22,7 +22,7 @@ import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
 import { OperatorVersionStore } from "./operator-version-store";
-import { PINNED_FROM_PROPERTY, VersionCheckout } from "./version-checkout";
+import { VersionCheckout } from "./version-checkout";
 import { WorkflowUtilService } from "./util/workflow-utils";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
@@ -1029,6 +1029,7 @@ export class TexeraAgent {
       },
       checkout: (operatorId: string, turn: number, writingOperatorId?: string) =>
         agent.checkoutVersion(operatorId, turn, writingOperatorId),
+      pinnedLabelOf: (operatorId: string) => agent.versionCheckout?.pinnedLabel(operatorId),
       resultOf(operatorId: string, turn: number) {
         // The same as-of-turn results recallState serves — one source of truth
         // for "what did this version hold" (buildTurnLog resolves each turn's
