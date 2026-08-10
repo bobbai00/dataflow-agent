@@ -199,7 +199,7 @@ Land 1 first (small, independently valuable), then 2, then 3 on top.
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-cd ~/Desktop/bobflow/dataflow-agent/agent-service && bun test   # 3 pre-existing delegate failures are expected
+cd ~/Desktop/bobflow/dataflow-agent/agent-service && bun test   # expect 768/771; see the 3 known failures below
 # service restart needed for prompt .md changes (not watched):
 pkill -f "bun run [d]ev"; cd agent-service && nohup env PATH="$HOME/.bun/bin:$PATH" bun run dev > ~/Desktop/bobflow/Kramabench/logs_agent3001.log 2>&1 &
 # NFL e2e (from Kramabench):
@@ -320,3 +320,34 @@ Editing agent-service source while a pool is running kills the run:
 imported elsewhere) takes :3001 down. Seven tasks burned with
 `ConnectionRefusedError` this way. `run_all.sh` says it: nothing may restart a
 service mid-pool. Make source edits only between pools.
+
+## 6.5 Test inventory for the versioned write path + v3.2
+
+| file | tests | guards |
+|---|---|---|
+| `util/catalog-inherited-baseline.test.ts` | 4 | the v3.2 fix: the live turn diffs against what it inherited; turn 1 unaffected; this turn's own results still shown |
+| `operator-version-store.test.ts` | 12 | composite key `(operatorId, turnId)`, immutability of closed turns |
+| `version-checkout.test.ts` | 13 | pin materialization, recursive checkout, reuse, pin properties carry no internal keys, rebuilt-checkout recognition |
+| `tools/versioned-write-path.test.ts` | 9 | versioned vs non-versioned tool contracts, ref resolution, editing a pin is refused |
+| `tools/self-reference.test.ts` | 5 | self-reference rejected without checkout, pinned when checkout is available |
+| `tools/execution-subdag.test.ts` | 8 | only the minimal DAG for the requested targets is sent to the engine |
+| `graph-guards.test.ts` | 8 | self-loop and cycle rejection in `addLink` |
+| `execution-failure-surfacing.test.ts` | 3 | a failed execution renders as a failure, never as `(not executed)` |
+
+### Known failures (3) — suite-order pollution, NOT a regression
+
+`bun test src/` reports 768/771. The three failures are all in
+`texera-agent.test.ts` ("delegate bootstrap"), and they are an artifact of
+running the whole suite in one process:
+
+- the file passes **26/26 in isolation** at HEAD and at HEAD~2;
+- the full suite fails the same three at HEAD~2 (766/769), i.e. before the
+  versioning work landed.
+
+Symptom: `expect(opResult?.error).toBe("boom")` receives `undefined` — the
+per-operator error is missing, so state from another file is leaking. Only
+`texera-agent.test.ts` patches `globalThis.fetch`, so the leak is a
+module-level singleton cached across files rather than a stray fetch mock.
+Pre-existing test-infra debt; worth fixing separately, and worth not writing off
+as "expected" — it hides real regressions in that file whenever the suite runs
+as a whole.
