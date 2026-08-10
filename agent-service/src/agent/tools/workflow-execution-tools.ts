@@ -181,9 +181,21 @@ function formatWorkflowValidationErrors(validationResult: WorkflowValidationResu
   return lines.join("\n");
 }
 
+/** Test seam: the shipped plan is the contract with the execution service,
+ *  and its SIZE is load-bearing (see execution-subdag.test.ts). */
+export function buildLogicalPlanForTest(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
+  return buildLogicalPlan(workflowState, opsToViewResult);
+}
+
 function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string[]): LogicalPlan {
-  const useSubDAG = opsToViewResult && opsToViewResult.length === 1;
-  const targetOperatorId = useSubDAG ? opsToViewResult[0] : undefined;
+  // Prune to the upstream closure of the requested targets — ANY number of
+  // them. This was previously gated on `length === 1`, so a step that touched
+  // two connected operators (the common case under parallel tool calls) shipped
+  // the ENTIRE workflow. Past ~200 KB of plan JSON the execution service
+  // answers `400 Unable to process JSON`, nothing executes, and every operator
+  // renders `(not executed)` — which the model reads as "my code produced
+  // nothing" and rewrites in a loop until its step budget is gone.
+  const targets = opsToViewResult && opsToViewResult.length > 0 ? opsToViewResult : undefined;
 
   let operatorsList: { operatorID: string; operatorType: string; [key: string]: any }[];
   let linksList: LogicalLink[];
@@ -202,8 +214,8 @@ function buildLogicalPlan(workflowState: WorkflowState, opsToViewResult?: string
     return idx >= 0 ? idx : 0;
   };
 
-  if (targetOperatorId) {
-    const subDAG = workflowState.getSubDAG(targetOperatorId);
+  if (targets) {
+    const subDAG = workflowState.getSubDAGForTargets(targets);
 
     operatorsList = subDAG.operators.map(op => ({
       ...op.operatorProperties,
