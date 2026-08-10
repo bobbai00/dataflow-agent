@@ -22,6 +22,8 @@ import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
 import { OperatorVersionStore } from "./operator-version-store";
+import { PINNED_FROM_PROPERTY, VersionCheckout } from "./version-checkout";
+import { WorkflowUtilService } from "./util/workflow-utils";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "./workflow-snapshot-storage";
@@ -251,6 +253,9 @@ export class TexeraAgent {
   /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
    *  always turn-tracked; only the versioned write path reads it for wiring. */
   readonly versionStore = new OperatorVersionStore();
+  /** Materializes referenced versions into wire-able nodes. Built lazily so it
+   *  sees the WorkflowUtilService the agent constructs during setup. */
+  private versionCheckout: VersionCheckout | undefined;
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -956,6 +961,39 @@ export class TexeraAgent {
     }
   }
 
+  /**
+   * Resolve `(operatorId, turn)` to the node the write path should wire from.
+   * Built on first use so it picks up the initialized metadata store.
+   */
+  private checkoutVersion(
+    operatorId: string,
+    turn: number,
+    writingOperatorId?: string
+  ): { operatorId: string; pinned: boolean } | { error: string } {
+    if (!this.versionCheckout) {
+      const util = new WorkflowUtilService(this.metadataStore, this.workflowState);
+      this.versionCheckout = new VersionCheckout({
+        workflowState: this.workflowState,
+        store: this.versionStore,
+        newOperator: (operatorType, displayName) => {
+          try {
+            return util.getNewOperatorPredicate(operatorType, displayName);
+          } catch {
+            return undefined;
+          }
+        },
+      });
+    }
+    const outcome = this.versionCheckout.resolve({ operatorId, turn }, writingOperatorId);
+    // A freshly materialized pin is itself a version of this turn: recording
+    // it keeps the store's picture of the graph complete, and gives the pin a
+    // lineage entry of its own.
+    if (!("error" in outcome) && outcome.pinned) {
+      this.recordVersionsFor([outcome.operatorId]);
+    }
+    return outcome;
+  }
+
   /** Seal the finished turn's versions: from here they are permanent facts. */
   private closeVersionTurn(): void {
     const turn = this.turnOrder().length;
@@ -989,6 +1027,8 @@ export class TexeraAgent {
         }
         return touched;
       },
+      checkout: (operatorId: string, turn: number, writingOperatorId?: string) =>
+        agent.checkoutVersion(operatorId, turn, writingOperatorId),
       resultOf(operatorId: string, turn: number) {
         // The same as-of-turn results recallState serves — one source of truth
         // for "what did this version hold" (buildTurnLog resolves each turn's

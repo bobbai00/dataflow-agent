@@ -678,6 +678,17 @@ export interface OperatorVersionStore {
    *  made with the actual numbers in view. Optional — absent disables the
    *  channel, nothing else changes. */
   resultOf?(operatorId: string, turn: number): unknown;
+  /** Resolve `(operatorId, turn)` to the operator to actually wire from —
+   *  the live node when it already is that version, otherwise a pinned copy
+   *  of it (see VersionCheckout). `writingOperatorId` is the operator being
+   *  defined by the current call: a reference to it must always pin, because
+   *  the live node is about to become a different version. Optional — absent
+   *  keeps the legacy behavior of wiring to the live node by name. */
+  checkout?(
+    operatorId: string,
+    turn: number,
+    writingOperatorId?: string
+  ): { operatorId: string; pinned: boolean } | { error: string };
 }
 
 export function createCreateOrModifyOperatorTool(
@@ -851,9 +862,18 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         }
         const contractWarning = contract?.kind === "warning" ? contract.message : null;
 
+        // In versioned mode a reference to the operator being written is
+        // LEGAL — it checks out that version as a pin (`X__t28 -> X`), which
+        // is a DAG and is what the model means by "build on what I just had".
+        // Only without checkout is a self-reference genuinely a self-loop.
+        const selfReferenceChecksOut = Boolean(versionStore?.checkout);
         let inputOperators: OperatorPredicate[] = [];
         if (isDataProcessing && parameters.length > 0) {
-          const validation = validateInputParameters(workflowState, parameters, operatorId);
+          const validation = validateInputParameters(
+            workflowState,
+            parameters,
+            selfReferenceChecksOut ? undefined : operatorId
+          );
           if ("error" in validation) {
             return createErrorResult(validation.error);
           }
@@ -861,6 +881,19 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
         }
 
         const existingOperator = findOperatorByName(workflowState, operatorId);
+
+        // A checked-out version is history made executable — editing it would
+        // change what an already-recorded version means, which is exactly the
+        // immutability the store exists to guarantee.
+        const pinnedFrom = (existingOperator?.operatorProperties as Record<string, unknown> | undefined)?.[
+          "__pinnedFrom"
+        ];
+        if (typeof pinnedFrom === "string") {
+          return createErrorResult(
+            `\`${operatorId}\` is a checked-out copy of ${pinnedFrom} and cannot be edited — earlier versions are ` +
+              "permanent. Revise the live operator instead, or create a new operator that reads this one."
+          );
+        }
 
         // STRICT VERSION ADDRESSING (versioned mode). Every dependency on
         // earlier state is written down as (operatorId, turnId) and checked
@@ -924,6 +957,37 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
                     "(the latest, unless this request asks for an earlier state)."
                 );
               }
+            }
+
+            // CHECK OUT THE REFERENCED VERSIONS. Until now the turn number was
+            // validated and then thrown away, so every reference wired to the
+            // LIVE node: `X (turn 3)` silently meant "X as it is now", and
+            // `X (turn 28)` while revising `X` meant "X consumes itself" — a
+            // cycle that took every later execution down with it. Now each
+            // reference resolves to a node that really is that version: the
+            // live one when it already matches (free), otherwise a pinned
+            // copy carrying that version's code and its own historical inputs.
+            if (versionStore.checkout) {
+              const resolved: OperatorPredicate[] = [];
+              for (const par of parameters) {
+                const outcome = versionStore.checkout(par, provided.get(par)!, operatorId);
+                if ("error" in outcome) return createErrorResult(outcome.error);
+                const resolvedOp = findOperatorByName(workflowState, outcome.operatorId);
+                if (!resolvedOp) {
+                  return createErrorResult(
+                    `Could not check out \`${par} (turn ${provided.get(par)!})\` — the version exists but its ` +
+                      "operator could not be materialized. Reference its latest version instead."
+                  );
+                }
+                resolved.push(resolvedOp);
+                if (outcome.pinned) {
+                  versionNotes.push(
+                    `note: \`${par} (turn ${provided.get(par)!})\` is an earlier version, so it was checked out as ` +
+                      `\`${outcome.operatorId}\` (that version's code and inputs) and wired in its place.`
+                  );
+                }
+              }
+              inputOperators = resolved;
             }
             // INPUT-VALUES CHANNEL: the first write this turn against an OLD
             // version gets that version's sample values attached to its
