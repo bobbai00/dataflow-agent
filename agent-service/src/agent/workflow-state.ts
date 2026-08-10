@@ -235,6 +235,46 @@ export class WorkflowState {
     );
   }
 
+  /**
+   * The upstream closure of SEVERAL targets at once, deduplicated.
+   *
+   * Execution only ever needs the ancestors of the operators whose results are
+   * wanted. Building that set one target at a time and unioning it keeps the
+   * shipped plan proportional to the work, not to the session: a 215-operator
+   * NFL workflow asked for two sibling leaves ships ~10 operators, not 215.
+   *
+   * This exists because the single-target `getSubDAG` was the ONLY pruning
+   * path — a multi-target request fell back to the entire workflow, whose JSON
+   * crossed the execution service's request limit at ~200 KB and returned
+   * `400 Unable to process JSON`. Every operator in that step then rendered as
+   * `(not executed)`, and the model rewrote them in a loop until the step
+   * budget died (measured: 5 such turns on one task, ~$0.90 each).
+   */
+  getSubDAGForTargets(targetOperatorIds: readonly string[]): {
+    operators: OperatorPredicate[];
+    links: OperatorLink[];
+  } {
+    const operators: OperatorPredicate[] = [];
+    const links: OperatorLink[] = [];
+    const seenOps = new Set<string>();
+    const seenLinks = new Set<string>();
+    for (const target of targetOperatorIds) {
+      const part = this.getSubDAG(target);
+      for (const op of part.operators) {
+        if (seenOps.has(op.operatorID)) continue;
+        seenOps.add(op.operatorID);
+        operators.push(op);
+      }
+      for (const link of part.links) {
+        const key = `${link.source.operatorID}:${link.source.portID}->${link.target.operatorID}:${link.target.portID}`;
+        if (seenLinks.has(key)) continue;
+        seenLinks.add(key);
+        links.push(link);
+      }
+    }
+    return { operators, links };
+  }
+
   getSubDAG(targetOperatorId: string): { operators: OperatorPredicate[]; links: OperatorLink[] } {
     const visited = new Set<string>();
     const subDagOperators: OperatorPredicate[] = [];
