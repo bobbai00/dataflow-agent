@@ -262,6 +262,10 @@ export interface AssembleContextOptions {
   /** OPERATOR-LEVEL recall (v3): the catalog header teaches the per-version
    *  recall address instead of the per-turn one. Render-text only. */
   recallOperatorLevel?: boolean;
+  /** v3.3: restate the AUDIT requirement in the `# Your Task` directive. The
+   *  system-prompt section is the specification; this is the reminder at the
+   *  point of action. */
+  specAudit?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -2205,7 +2209,7 @@ function buildRecalledStateSection(tasks: TaskGroup[]): string | undefined {
  *  and `# Catalog`). Identical bytes in every layout so it can never confound
  *  a layout comparison. The answer FORMAT is deliberately deferred to the
  *  task text — tasks carry their own rounding/scale/JSON rules. */
-function renderYourTask(turnNo: number): string {
+function renderYourTask(turnNo: number, specAudit = false): string {
   return [
     "# Your Task",
     "",
@@ -2214,6 +2218,19 @@ function renderYourTask(turnNo: number): string {
       "your reply with:",
     "",
     "**Final Answer:** <your answer, in the format the task asks for>",
+    // v3.3: the audit only works if it happens. In the system prompt alone it
+    // reads as optional and fired on 1 turn in 11; this is the last line the
+    // model reads before acting, so the requirement is restated where the work
+    // actually starts. One line, and only when the knob is on.
+    ...(specAudit
+      ? [
+          "",
+          "Before that line: for each number you report, know the operator version, " +
+            "column and row it came from, check it against a relation that would break if " +
+            "it were wrong, and re-read the sentences of the request that constrain the " +
+            "result against what your operators actually do.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -2384,7 +2401,7 @@ function renderSession(
     sections.push("");
   }
 
-  sections.push(renderYourTask(currentTurnNo));
+  sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
   return sections.join("\n").trimEnd();
 }
 
@@ -2614,7 +2631,7 @@ function renderVersionedCatalog(
   }
 
   sections.push("");
-  sections.push(renderYourTask(currentTurnNo));
+  sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
   return sections.join("\n").trimEnd();
 }
 
@@ -3289,8 +3306,91 @@ function formatOperatorAdjacency(
       return shapeStr ? `${i.up} (${shapeStr})` : i.up;
     });
     lines.push("Inputs: " + parts.join(", "));
+
+    // MULTI-INPUT RETENTION. A join that silently drops the rows it should have
+    // kept is the single most expensive mistake in a long analysis: every later
+    // turn inherits the truncated population. The numbers are already on the
+    // Inputs line, and the model still walks past them — measured on
+    // march_madness turn 1, in SIX different arms: three inputs of 354/353/353
+    // rows, output 210, and no arm noticed. Every one of those runs then scored
+    // 3.1 on the task, because the answer was computed over 210 of 353 teams.
+    //
+    // The existing Lineage line cannot show this: it divides by the SUM of the
+    // inputs (1060 here), so a broken join reads as an ordinary filter. For an
+    // inner join the binding constraint is the SMALLEST input, so retention is
+    // measured against that, and stated only when rows were actually lost.
+    const inRows = inbound
+      .map(i => shapes.find(s => s.portIndex === i.port)?.rows)
+      .filter((r): r is number => typeof r === "number" && r > 0);
+    const out = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
+    if (inbound.length > 1 && inRows.length === inbound.length && typeof out === "number") {
+      const smallest = Math.min(...inRows);
+      if (out < smallest) {
+        const pct = ((100 * out) / smallest).toFixed(0);
+        lines.push(
+          `Join retention: ${out} of ${smallest} rows (${pct}% of the smallest input) — ` +
+            `${smallest - out} rows had no match. If they should have matched, the join key does not agree ` +
+            `across the inputs (spelling, spacing, case, or a different naming convention) and the population ` +
+            `every later turn inherits is now short by that many rows.`
+        );
+      }
+    }
   }
+  // VALUE LOSS. The sibling of the join fact, for values rather than rows:
+  // `pd.to_numeric(x, errors="coerce")` turns everything it cannot parse into
+  // NaN, and every mean/sum downstream then skips those rows silently. It
+  // appears at 40% of first-error turns, and nothing surfaces it — the platform's
+  // coercion telemetry only covers conversions IT performs, never the ones inside
+  // the operator's own code. Null RATES per column are already collected on both
+  // sides, so the rise is computable here, and a rate comparison survives the
+  // row-count change a filter introduces.
+  lines.push(...formatValueLoss(inbound.map(i => i.up), opInfo, snapshot));
   return lines;
+}
+
+/** Columns whose null rate rose materially between an input and the output. */
+function formatValueLoss(upstreamIds: string[], opInfo?: OperatorInfo, snapshot?: SnapshotData): string[] {
+  const nullsOf = (stats?: Record<string, string>): Map<string, number> => {
+    const out = new Map<string, number>();
+    for (const [col, text] of Object.entries(stats ?? {})) {
+      const m = /null=(\d+)/.exec(text);
+      if (m) out.set(col, Number(m[1]));
+    }
+    return out;
+  };
+  const outRows = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
+  if (!outRows || outRows <= 0) return [];
+  const outNulls = nullsOf(opInfo?.columnStats);
+  if (outNulls.size === 0) return [];
+
+  const found: string[] = [];
+  for (const up of upstreamIds) {
+    const upInfo = snapshot?.results.get(up)?.info;
+    const upRows = typeof upInfo?.totalRowCount === "number" ? upInfo.totalRowCount : upInfo?.outputTuples;
+    if (!upRows || upRows <= 0) continue;
+    const upNulls = nullsOf(upInfo?.columnStats);
+    for (const [col, after] of outNulls) {
+      const before = upNulls.get(col);
+      if (before === undefined) continue;
+      const rateBefore = before / upRows;
+      const rateAfter = after / outRows;
+      const newlyNull = Math.round((rateAfter - rateBefore) * outRows);
+      // Both a rate jump and a material count, so a 3-row table cannot trip it.
+      if (rateAfter - rateBefore >= 0.05 && newlyNull >= 25) {
+        found.push(
+          `\`${col}\` lost ${newlyNull} values (null rate ${(100 * rateBefore).toFixed(1)}% → ` +
+            `${(100 * rateAfter).toFixed(1)}%) between \`${up}\` and here`
+        );
+      }
+    }
+  }
+  if (found.length === 0) return [];
+  return [
+    "Value loss: " +
+      found.slice(0, 3).join("; ") +
+      ". A parse or coercion did not succeed on those rows; every mean, sum and count over those columns now " +
+      "skips them, so the denominator is smaller than the row count suggests.",
+  ];
 }
 
 function serializeOperatorFull(

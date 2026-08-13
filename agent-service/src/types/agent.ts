@@ -359,6 +359,13 @@ export interface AgentSettings {
    *  one version per pull, values on by default — instead of a whole turn.
    *  Pairs with versionedMode (the catalog prints those addresses). */
   recallOperatorLevel: boolean;
+  /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
+   *  — every requested quantity traced to an `opId (turn N)` + column, every
+   *  binding clause of the task text quoted and answered. Prompt-side only, and
+   *  layout-agnostic: the defect it targets (a 90%-correct answer that loses on
+   *  one unchecked clause — scope, population, sign, denominator, scale) was
+   *  measured at the same rate under `# Session` and `# Catalog`. */
+  specAudit: boolean;
   /**
    * How many UPSTREAM operators of the current turn's work may render sample
    * rows, ranked most-recently-touched first; the rest stay a one-line index
@@ -540,6 +547,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableRecallTool: false,
   recallMaxResultChars: 5000,
   recallOperatorLevel: false,
+  specAudit: false,
   indexRichTables: 12,
   // 0 = no cap. The count cap is off while the version-tree model is being
   // evaluated: resumeFrom bounds the DAG by choosing an earlier base, and the

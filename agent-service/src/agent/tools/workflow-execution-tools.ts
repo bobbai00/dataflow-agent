@@ -25,6 +25,7 @@ import { getBackendConfig } from "../../api/backend-api";
 import { env } from "../../config/env";
 import type { LogicalPlan, LogicalLink } from "../../api/execution-api";
 import type { OperatorInfo, SyncExecutionResult } from "../../types/execution";
+import { annotateMissingPath } from "../util/missing-path-hint";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
@@ -463,7 +464,11 @@ export function persistOperatorResults(
     const hasResult = info.result !== undefined && info.result !== null;
     const hasError = typeof info.error === "string" && info.error.length > 0;
     if (!hasResult && !hasError) continue;
-    onResult(opId, info);
+    // A missing-file error is the one failure the agent cannot debug by
+    // reading its own code: it has no way to list the filesystem. Attach the
+    // real paths carrying that basename so one failure ends the search instead
+    // of starting a guessing loop.
+    onResult(opId, hasError ? { ...info, error: annotateMissingPath(info.error as string) } : info);
   }
 }
 
