@@ -499,7 +499,8 @@ export class TexeraAgent {
         this.settings.enableResumeTool === true,
         this.settings.versionedMode === true,
         this.settings.sessionTurns === true,
-        this.settings.recallOperatorLevel === true
+        this.settings.recallOperatorLevel === true,
+        this.settings.specAudit === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1292,6 +1293,7 @@ export class TexeraAgent {
     sessionTurns?: boolean;
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
+    specAudit?: boolean;
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
@@ -1532,6 +1534,11 @@ export class TexeraAgent {
       // Changes the recall tool's schema AND the prompt fragment + catalog
       // header describing its addressing.
       this.settings.recallOperatorLevel = updates.recallOperatorLevel;
+      promptNeedsRebuild = true;
+    }
+    if (updates.specAudit !== undefined && updates.specAudit !== this.settings.specAudit) {
+      // Adds/removes a system-prompt section only — no tool or schema changes.
+      this.settings.specAudit = updates.specAudit;
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;

@@ -308,6 +308,8 @@ export const TrajectoryParamsSchema = z.object({
   sessionTurns: z.boolean().default(false),
   /** v3: catalog header teaches operator-level recall addressing. */
   recallOperatorLevel: z.boolean().default(false),
+  /** v3.3: the `# Your Task` directive restates the AUDIT requirement. */
+  specAudit: z.boolean().default(false),
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
@@ -464,6 +466,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       versionedHeads: options.versionedHeads !== false,
       sessionTurns: options.sessionTurns === true,
       recallOperatorLevel: options.recallOperatorLevel === true,
+      specAudit: options.specAudit === true,
       renderPrefs: options.renderPrefsEnabled ?? false,
     },
     // DELTA normally has no `# Current Dataflow` section because state lives

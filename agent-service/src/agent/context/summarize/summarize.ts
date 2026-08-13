@@ -164,6 +164,7 @@ export function paramsToRenderOptions(
     versionedHeads: params.trajectory.versionedHeads === false ? false : undefined,
     sessionTurns: params.trajectory.sessionTurns === true ? true : undefined,
     recallOperatorLevel: params.trajectory.recallOperatorLevel === true ? true : undefined,
+    specAudit: params.trajectory.specAudit === true ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,

@@ -76,6 +76,18 @@ const VERSIONED_OPRECALL_FRAGMENT: string = rd("versioned-oprecall.md");
  *  the `# User Task` / `# Agent Events` / `# Current Dataflow` sections that
  *  fragment names do not exist under this layout. */
 const SESSION_FRAGMENT: string = rd("session.md");
+/** EVIDENCE PRINCIPLES (the `specAudit` knob): the versioned fragment with three
+ *  ideas folded INTO the sections that already own them — verify what you report
+ *  (Establishing foundations), know the cell each number came from and re-read the
+ *  constraining sentences (Answering), and repair an operator built under a
+ *  different reading (Every reference names its version).
+ *
+ *  Deliberately a REPLACEMENT, not an appended section. Appending restated things
+ *  the base fragment already said, in a second voice, and in one place
+ *  contradicted it — and it introduced vocabulary ("audit block", "check line")
+ *  that exists nowhere else in the system, which the model then filled in as a
+ *  form. Off by default; when on it supersedes VERSIONED_OPRECALL_FRAGMENT. */
+const VERSIONED_PRINCIPLES_FRAGMENT: string = rd("versioned-oprecall-principles.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -408,7 +420,8 @@ export function buildCodeModeSystemPrompt(
   resumeEnabled = false,
   versionedEnabled = false,
   sessionEnabled = false,
-  opRecallEnabled = false
+  opRecallEnabled = false,
+  specAuditEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -420,7 +433,7 @@ export function buildCodeModeSystemPrompt(
   // `# Current Turn` / `# Dataflow` layout, which does not exist under the
   // versioned catalog. The recallState tool itself remains available either way.
   const recall = versionedEnabled
-    ? `\n${opRecallEnabled ? VERSIONED_OPRECALL_FRAGMENT : VERSIONED_FRAGMENT}\n`
+    ? `\n${opRecallEnabled ? (specAuditEnabled ? VERSIONED_PRINCIPLES_FRAGMENT : VERSIONED_OPRECALL_FRAGMENT) : VERSIONED_FRAGMENT}\n`
     : recallEnabled
       ? `\n${RECALL_FRAGMENT}\n`
       : "";
