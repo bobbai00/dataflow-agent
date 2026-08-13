@@ -462,11 +462,38 @@ fi
 if [[ -n "${NVM_DIR:-}" && -s "$NVM_DIR/nvm.sh" ]]; then
     # shellcheck disable=SC1091
     \. "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+    # Sourcing nvm.sh alone does NOT put a node on PATH — without an explicit
+    # `nvm use` the caller's inherited node wins, and an older one fails the
+    # frontend at yarn startup ("yargs parser supports a minimum Node.js
+    # version of 20"). Honour frontend/.nvmrc, falling back to the user's
+    # default alias; both are best-effort.
+    if [[ -r "$REPO_ROOT/frontend/.nvmrc" ]]; then
+        nvm use "$(tr -d '[:space:]' < "$REPO_ROOT/frontend/.nvmrc")" >/dev/null 2>&1 \
+            || nvm use default >/dev/null 2>&1 || true
+    else
+        nvm use default >/dev/null 2>&1 || true
+    fi
 elif command -v fnm >/dev/null 2>&1; then
     eval "$(fnm env --use-on-cd 2>/dev/null)" || true
 elif [[ -s "$HOME/.volta/load.sh" ]]; then
     # shellcheck disable=SC1091
     \. "$HOME/.volta/load.sh" >/dev/null 2>&1 || true
+fi
+
+# Bun: its installer drops the binary in ~/.bun/bin and appends the PATH export
+# to the user's INTERACTIVE shell profile, which a non-interactive launch (cron,
+# CI, an agent shell, `sg docker -c ...`) never sources. agent-service is then
+# started with plain `nohup bun`, and the only trace is
+# `nohup: failed to run command 'bun': No such file or directory` in its log
+# while the dashboard just reports a health timeout.
+if ! command -v bun >/dev/null 2>&1; then
+    for _bun_dir in "${BUN_INSTALL:-$HOME/.bun}/bin" "$HOME/.local/share/reflex/bun/bin"; do
+        if [[ -x "$_bun_dir/bun" ]]; then
+            export PATH="$_bun_dir:$PATH"
+            break
+        fi
+    done
+    unset _bun_dir
 fi
 
 # --------- runtime env for backend ---------
@@ -1481,6 +1508,27 @@ infra_ensure_db_schema() {
         "SELECT 1 FROM pg_tables WHERE schemaname='texera_db' AND tablename='feedback'" \
         2>/dev/null || true)
     if [[ "$has_feedback" == "1" ]]; then
+        # The base schema being present does NOT imply the updates are pending.
+        # bin/single-node/docker-compose.yml mounts sql/ at
+        # /docker-entrypoint-initdb.d, so on a FRESH volume postgres runs
+        # texera_ddl.sql itself, before this script ever connects — and that DDL
+        # is kept in sync with sql/updates/*, so every changeSet is already in
+        # the schema while liquibase's changelog is still empty. Replaying them
+        # then fails on the first non-idempotent one (28 adds
+        # dataset_owner_uid_name_key, which already exists).
+        #
+        # Full schema + empty/absent changelog == that fresh-bootstrap case, so
+        # record the changeSets instead of replaying them. A database with any
+        # changelog row is mid-history and takes the normal replay path.
+        local changelog_rows=""
+        changelog_rows=$(docker exec "$pg" psql -U texera -d texera_db -tAc \
+            "SELECT count(*) FROM public.databasechangelog" 2>/dev/null || true)
+        changelog_rows="${changelog_rows//[[:space:]]/}"
+        if [[ -z "$changelog_rows" || "$changelog_rows" == "0" ]]; then
+            tui_step "postgres: schema present, changelog empty -- bootstrap detected"
+            infra_apply_sql_updates seed
+            return $?
+        fi
         infra_apply_sql_updates
         return $?
     fi
