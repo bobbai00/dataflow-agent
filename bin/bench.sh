@@ -69,7 +69,14 @@ cmd_setup() {
     done
 
     echo "[bench] submodule init/update (Kramabench @ stable)"
-    git -C "$REPO_ROOT" submodule update --init benchmark/Kramabench
+    # --remote follows the branch .gitmodules declares (stable) instead of the
+    # SHA the parent happens to pin. Without it a fresh setup silently lands on
+    # whatever commit was current when the pointer was last committed, missing
+    # SUTs added since (this is how ClaudeCodeSystem went absent from a clean
+    # checkout). Fall back to the pinned SHA when the remote is unreachable.
+    git -C "$REPO_ROOT" submodule update --init --remote benchmark/Kramabench \
+        || git -C "$REPO_ROOT" submodule update --init benchmark/Kramabench
+    echo "[bench]   Kramabench @ $(git -C "$KB" log --oneline -1 2>/dev/null)"
 
     if [[ ! -x "$PY" ]]; then
         echo "[bench] creating Kramabench venv"
@@ -78,9 +85,18 @@ cmd_setup() {
         uv pip install -q huggingface_hub kagglehub --python "$PY"
     fi
 
+    # KramaBench's evaluate.py does not load the root .env, so the scoring
+    # metrics (llm_paraphrase / f1_approximate, both gpt-4o-mini) read
+    # OPENAI_API_KEY from the submodule's own .env. Seed it from the root value
+    # we already exported; a dummy/absent key silently zeroes those metrics.
     if [[ ! -f "$KB/.env" ]]; then
-        echo "[bench] WARNING: $KB/.env missing — KramaBench scoring calls the real"
-        echo "        OpenAI API (gpt-4o-mini) and needs OPENAI_API_KEY in that file."
+        if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+            echo "[bench] writing $KB/.env (OPENAI_API_KEY from the root .env)"
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY" > "$KB/.env"
+        else
+            echo "[bench] WARNING: $KB/.env missing and OPENAI_API_KEY unset — KramaBench"
+            echo "        scoring calls the real OpenAI API (gpt-4o-mini) and needs it."
+        fi
     fi
 
     echo "[bench] symlinks"
@@ -96,7 +112,11 @@ cmd_setup() {
     fi
 
     echo "[bench] KramaBench data check (fetches wildfire's Kaggle csv if absent)"
-    ( cd "$KB" && ./kb.py setup-data ${copy_from:+--copy-from "$copy_from"} ) || true
+    # Run kb.py through the venv interpreter, NOT ./kb.py — its shebang is
+    # `#!/usr/bin/env python3`, which picks up whatever python3 is on PATH and
+    # therefore lacks kagglehub, so the Kaggle fetch dies with
+    # "FATAL: pip install kagglehub".
+    ( cd "$KB" && "$PY" kb.py setup-data ${copy_from:+--copy-from "$copy_from"} ) || true
 
     if [[ ! -f "$LONGDS/DataMind/longds/dataset/task/longds/task_list.json" ]]; then
         echo "[bench] downloading LongDS sample task (nfl task1) from HF"
