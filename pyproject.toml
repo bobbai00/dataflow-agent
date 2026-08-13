@@ -108,7 +108,11 @@ dev = [
     # hard error (not a skip) when a listed distribution has no compatible
     # wheel — which made the documented setup command fail on Apple Silicon.
     # Excluded there; use `brew install protobuf` if you need to regenerate.
-    "protoc-wheel-0==3.19.4 ; not (sys_platform == 'darwin' and platform_machine == 'arm64')",
+    # PEP 508 marker grammar has no unary `not`, so the intended
+    # `not (darwin and arm64)` has to be written via De Morgan or setuptools
+    # rejects the whole file with `optional-dependencies.dev[9] must be pep508`
+    # — which broke `uv sync --all-extras` on every platform, not just macOS.
+    "protoc-wheel-0==3.19.4 ; sys_platform != 'darwin' or platform_machine != 'arm64'",
 ]
 kramabench = [
     # Domain-Specific Tools
