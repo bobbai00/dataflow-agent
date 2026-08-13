@@ -9,10 +9,30 @@ JVM services + frontend + agent-service native — on the `stable` branch
 | Requirement | Check |
 |---|---|
 | JDK 17, sbt | `java -version`, `sbt --version` |
-| Docker + compose v2 | `docker compose version` |
+| Docker + compose **v2.20+** | `docker compose version` |
 | Bun (agent-service) | `bun --version` |
 | Node 24 + yarn (frontend) | `node --version` |
 | Python venv at `.venv/` | `uv sync --all-extras` (from repo root) |
+| `protoc` (any 3.2x) | `protoc --version` |
+| Generated Python protos | `ls amber/src/main/python/proto/` |
+| Repo-root `.env` | `cp .env.example .env` |
+
+Three of these fail *silently* rather than loudly, so check them before
+debugging anything else:
+
+- **Compose older than 2.20** rejects the `--progress` flag this script passes.
+  Infra reports "5 containers up" while nothing actually started, and the run
+  dies later in `sbt dist` with `not found: value SITE_SETTINGS` — jOOQ codegen
+  against a database that isn't there.
+- **Missing Python protos.** `amber/src/main/python/proto/` is generated and
+  gitignored, so a fresh clone has none, every UDF worker dies at import, and
+  executions never signal. You see agent turns that hang until the engine's
+  240 s timeout, not an import error. Fix:
+  `source .venv/bin/activate && bash bin/python-proto-gen.sh`.
+- **`GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED` unset.** It ships in
+  `.env.example`; the natively-launched JVMs read the repo-root `.env`, and
+  `bin/single-node/.env` reaches only the docker containers. Without it every
+  `/api/chat/*` is `403 {"error": "Copilot feature is disabled"}`.
 
 The Python venv matters: the engine's Python workers run under
 `UDF_PYTHON_PATH`, and `bin/local-dev.sh` prefers `$REPO_ROOT/.venv/bin/python`

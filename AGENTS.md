@@ -49,10 +49,17 @@ Everything runs from the repo root. Full quick start in
 
 ```bash
 uv sync --all-extras                # Python venv for the engine's UDF workers
+source .venv/bin/activate && bash bin/python-proto-gen.sh   # REQUIRED once per clone
 cp .env.example .env                # fill in provider keys (see §7)
 bin/local-dev.sh up                 # docker infra + JVM services + agent + frontend
 bin/local-dev.sh status             # 14 services green; frontend :4200
 ```
+
+The proto step is **not optional on a fresh clone**: `amber/src/main/python/proto/`
+is generated and gitignored, and without it every Python UDF worker dies at
+import, so executions never signal and the engine kills them at its 240 s
+timeout — which surfaces as agent turns that hang rather than as an error.
+It needs `protoc` on PATH (see §8).
 
 `bin/local-dev.sh` is the only supported launcher for development: it
 bootstraps the postgres schema (DDL + liquibase), runs `sbt dist`, starts the
@@ -102,10 +109,12 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   `amber/data → ../data` covers the CU-master's working directory, so the
   same path resolves in the harnesses, the JVMs, and the Python workers.
 - **Gotcha**: JVM services must run with
-  `GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true` (local-dev sets it),
-  otherwise the access-control-service returns
-  `403 {"error": "Copilot feature is disabled"}` for `/api/chat/*` and every
-  agent run dies before its first tool call.
+  `GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true`, otherwise the
+  access-control-service returns `403 {"error": "Copilot feature is disabled"}`
+  for `/api/chat/*` and every agent run dies before its first tool call. It
+  ships in `.env.example`, so it reaches the JVMs through the repo-root `.env`.
+  `bin/single-node/.env` also sets it, but that file is passed only to
+  `docker compose` — it does NOT reach the natively-launched JVM services.
 
 ## 4. Connecting to the agent
 
@@ -225,9 +234,14 @@ output, logs are all gitignored — keep it that way.
 
 ## 8. Conventions for working in this repo
 
-- **Environment**: JDK 17, Scala 2.13, Python 3.12 (uv-managed `.venv`),
-  Node 24, Bun. `.jvmopts` carries the `--add-opens` flags JDK 17 needs;
-  `project/JdkOptions.scala` propagates them to forked JVMs.
+- **Environment**: JDK 17, Scala 2.13, Python 3.12 (uv-managed `.venv`, pinned
+  by `.python-version` — without it `uv` may pick an older system/conda python),
+  Node 24, Bun, `protoc` (any 3.2x; the generated stubs are gitignored), and
+  Docker Compose **v2.20+** (older plugins reject the `--progress` flag
+  `bin/local-dev/main.sh` passes, and the failure is silent: infra reports
+  containers up while nothing started, then `sbt dist` fails jOOQ codegen with
+  `not found: value SITE_SETTINGS`). `.jvmopts` carries the `--add-opens` flags
+  JDK 17 needs; `project/JdkOptions.scala` propagates them to forked JVMs.
 - **Scope**: narrowly scoped changes; `git status --short` before editing;
   never revert unrelated dirty files (local config edits are often
   deliberate).
@@ -237,8 +251,10 @@ output, logs are all gitignored — keep it that way.
 - **Tests first**: failing test → implement → green. Bug fixes start with a
   regression test. `agent-service`: `bun test`; Scala: `sbt <Project>/test`;
   Python engine: `pytest` from `amber/src/main/python`.
-- **After proto changes**: regenerate Python stubs —
-  `source .venv/bin/activate && bash bin/python-proto-gen.sh`.
+- **Python protos**: `bash bin/python-proto-gen.sh` (inside the venv, `protoc`
+  on PATH) once per fresh clone AND after any proto change. `amber/src/main/python/proto/`
+  is gitignored, so a clone never has it; the symptom of forgetting is hanging
+  executions, not an import error you can see.
 - **Formatting/lint/license headers**: [CONTRIBUTING.md](CONTRIBUTING.md);
   every source file carries the ASF header (`.licenserc.yaml`).
 - **Upstream sync**: this fork tracks `apache/texera`; merges from upstream

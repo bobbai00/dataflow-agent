@@ -38,21 +38,33 @@ on Texera dataflow operators — plus the benchmarking harnesses
 
 ## 1. Quick start
 
-Prerequisites: JDK 17, sbt, Docker (compose v2), Bun, Node 24 + yarn,
-Python 3.12 with [uv](https://docs.astral.sh/uv/).
+Prerequisites: JDK 17, sbt, Docker with **Compose v2.20+**, Bun,
+Node 24 + yarn, Python 3.12 with [uv](https://docs.astral.sh/uv/), and
+`protoc` (any 3.2x) on PATH.
+
+Two prerequisites bite specifically on a *fresh clone*, because both failures
+are silent rather than loud: an older Compose plugin rejects the `--progress`
+flag the launcher passes, so infra prints "containers up" while nothing
+started and the build then fails jOOQ codegen with `not found: value
+SITE_SETTINGS`; and the generated Python protos are gitignored, so without
+step 1 below every UDF worker dies at import and agent turns hang until the
+engine's 240 s execution timeout.
 
 ```bash
 # 0. Python venv for the engine's UDF workers
 uv sync --all-extras
 
-# 1. API keys — read by BOTH the stack launcher and the benchmark driver
+# 1. Generated Python protos — REQUIRED once per clone (gitignored, needs protoc)
+source .venv/bin/activate && bash bin/python-proto-gen.sh
+
+# 2. API keys — read by BOTH the stack launcher and the benchmark driver
 cp .env.example .env          # fill in OPENAI_API_KEY / ANTHROPIC_API_KEY
 
-# 2. the whole stack: docker infra (postgres/minio/lakefs/lakekeeper/LiteLLM),
+# 3. the whole stack: docker infra (postgres/minio/lakefs/lakekeeper/LiteLLM),
 #    JVM services, agent-service, frontend
 bin/local-dev.sh up
 
-# 3. check
+# 4. check
 bin/local-dev.sh status       # 14 services; frontend at http://localhost:4200
 ```
 
