@@ -140,7 +140,12 @@ EOF
 
 cmd_kb() {
     need_venv
-    ( cd "$KB" && ./kb.py "$@" )
+    # Run kb.py WITH the venv interpreter, not via its `#!/usr/bin/env python3`
+    # shebang. Most subcommands shell out to `$PY` and so were unaffected, but
+    # anything kb.py imports in-process (setup-data's kagglehub) resolved
+    # against the system python and failed with a misleading
+    # "pip install kagglehub".
+    ( cd "$KB" && "$PY" kb.py "$@" )
 }
 
 cmd_longds() {

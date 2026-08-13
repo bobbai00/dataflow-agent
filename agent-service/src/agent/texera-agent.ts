@@ -1281,7 +1281,6 @@ export class TexeraAgent {
     userTaskPlacement?: "top" | "bottom";
     turnHistory?: "full" | "index";
     enableRecallTool?: boolean;
-    recallMaxResultChars?: number;
     indexRichTables?: number;
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
@@ -1548,8 +1547,6 @@ export class TexeraAgent {
       this.settings.enableRecallTool = updates.enableRecallTool;
       promptNeedsRebuild = true;
     }
-    // Pure render-time: the recall tool reads the clamp per call.
-    if (updates.recallMaxResultChars !== undefined) this.settings.recallMaxResultChars = updates.recallMaxResultChars;
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner
       // path. `null` turns it off. The assembler reads this per-call.

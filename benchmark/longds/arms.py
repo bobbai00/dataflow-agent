@@ -615,6 +615,90 @@ class LongDSLunaVersioned2kD2V2R3(LongDSLunaVersioned2kD2V2):
     _NAME = "LongDSLunaVersioned2kD2V2R3"
 
 
+class LongDSLunaVersioned2kD2V3(LongDSLunaVersioned2kD2V2):
+    """v2 + OPERATOR-LEVEL recall (one variable changed from v2).
+
+    `recallState` is re-addressed from turns to operator versions — the model
+    passes the same `"opId (turn N)"` string it reads in the catalog and
+    writes in `upstreams`, and gets back that ONE version's code, values and
+    telemetry. Turn-level pulls were ~98% redundant (the catalog already
+    carries every request verbatim and 98.3% of answers under its clip) and
+    over-fetched whole turn deltas, which kept values invisible-by-default —
+    recall showed zero accuracy benefit under it. The prompt teaches the
+    natural discipline this enables: recall the versions you are about to
+    build on, look at the numbers, THEN wire.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V3"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("recall_operator_level", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaSession2kD2R7(LongDSLunaSession2kD2):
+    """Session anchor for the v3 pair."""
+
+    _NAME = "LongDSLunaSession2kD2R7"
+
+
+class LongDSLunaVersioned2kD2V31(LongDSLunaVersioned2kD2V3):
+    """v3.1 — SELECTIVE recall (prompt-only change from v3).
+
+    v3 tied its anchor (32.03 vs 32.14) while solving passnyc t12 (472, gold,
+    in a 462-era; task 36.7 -> 80.0) — but reflexive read-before-wire cost
+    1121 recall calls and 5.5 steps/turn, taxing exactly the tasks that carry
+    no inherited-state risk (github -13). The fragment now gates recall on
+    VALUES-DECIDE-WHAT-YOU-BUILD (revision/rollback/comparison/foundation) and
+    tells the model to wire directly otherwise, leaning on the write-time
+    input-values attach as the safety net. Same knobs as v3; the fragment is
+    the variable.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V31"
+
+
+class LongDSLunaVersioned2kD2V32(LongDSLunaVersioned2kD2V31):
+    """v3.2 — v3.1 plus the inherited-baseline fix (commit ad5301b4a).
+
+    The live turn's steps now diff against the previous turn's leaf snapshot
+    instead of the empty root, so inherited operators stop being re-dumped in
+    step 1. Measured share of prompt that dump occupied on NFL: 53% at turn 42
+    (238 of 450 kB, 179 operators). Nothing else changes, so any difference is
+    attributable to removing that duplication.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V32"
+
+
+class LongDSLunaVersioned2kD2V32R2(LongDSLunaVersioned2kD2V32):
+    _NAME = "LongDSLunaVersioned2kD2V32R2"
+
+
+class LongDSLunaVersioned2kD2V32R3(LongDSLunaVersioned2kD2V32):
+    """Third rep. Reps exist because the aggregate is cascade-dominated: a task's
+    score is set largely by where its FIRST wrong turn lands, so single-rep
+    per-task numbers swing wildly (v3.1 saw 10-76 on world_university_rankings
+    across three reps). Three reps is the minimum that separates a real effect
+    from that lottery."""
+
+    _NAME = "LongDSLunaVersioned2kD2V32R3"
+
+
+class LongDSLunaVersioned2kD2V31R2(LongDSLunaVersioned2kD2V31):
+    """v3.1 rep 2 — first CLEAN rep on the fixed build (version store +
+    checkout + graph guards + failure surfacing, commits 9b0adadf8 /
+    49d3ec7e0 / 079b6b39d)."""
+
+    _NAME = "LongDSLunaVersioned2kD2V31R2"
+
+
+class LongDSLunaVersioned2kD2V31R3(LongDSLunaVersioned2kD2V31):
+    """v3.1 rep 3 — second clean rep on the fixed build."""
+
+    _NAME = "LongDSLunaVersioned2kD2V31R3"
+
+
 class LongDSLunaVersioned2kD2R2(LongDSLunaVersioned2kD2):
     _NAME = "LongDSLunaVersioned2kD2R2"
 
@@ -623,21 +707,219 @@ class LongDSLunaVersioned2kD2R3(LongDSLunaVersioned2kD2):
     _NAME = "LongDSLunaVersioned2kD2R3"
 
 
+class LongDSLunaVersioned2kD2Principles(LongDSLunaVersioned2kD2V32):
+    """v3.2 + EVIDENCE PRINCIPLES, on the fixed environment.
+
+    Same three ideas the audit arm carried, but folded into the sections of the
+    versioned fragment that already own them instead of appended as a block:
+
+      * verify what you report, preferring relations that cost nothing (shares
+        sum, subset bound, total equals parts, agreement with an earlier turn)
+        over a second operator — and retire that operator when it is used;
+      * know the operator version, column and row every reported number came
+        from, and re-read the constraining sentences against what the operators
+        actually do;
+      * immutability keeps history, it does not make a mistake permanent — revise
+        the operator built under a different reading rather than answering from it.
+
+    The appended-block version (`V33`) scored 63.6 education against a 60.1
+    baseline over two reps, spread +/-4.3 — suggestive, not established. It also
+    invented vocabulary the system does not have ("audit block", "check line"),
+    which the model filled in as a form: 100% coverage, 0.81 of numbers traced,
+    and still 70% of turns wrong. This arm keeps the principles and drops the
+    vocabulary, so a difference is attributable to the ideas rather than to the
+    ritual.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2Principles"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("spec_audit", True)
+        kwargs.setdefault("execution_timeout_minutes", 10)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaVersioned2kD2V32Fix(LongDSLunaVersioned2kD2V32):
+    """v3.2, unchanged prompt, on the FIXED environment. Isolates what the
+    environment was costing every arm, with no prompt variable in the way:
+
+      * `xgboost` and `duckdb` installed in the UDF venv. education__bi__task1
+        turn 24 names five model families INCLUDING XGBoost, so that turn (and
+        turn 27, which asks about "the best tree-based model") was unwinnable for
+        every arm ever run — 195 `No module named 'xgboost'` observations.
+      * A missing-file error now names the real paths carrying that basename.
+        march_madness ships 42 basenames in more than one directory, and the
+        copies DIFFER, so a wrong guess got no signal: 730 path failures, one turn
+        burning 41 steps on 5 wrong paths with the right ones in its context.
+      * `execution_timeout_minutes=10`. The 4-minute default aborted executions
+        the harness was happy to wait 30 minutes for.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V32Fix"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("execution_timeout_minutes", 10)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaVersioned2kD2JoinFact(LongDSLunaVersioned2kD2V32Fix):
+    """v3.2-fix + the JOIN RETENTION fact in the observation.
+
+    march_madness scores 3.1 in every arm ever run — session, v3.1, v3.2, v3.3,
+    fixed environment, principles. The cause is one line of turn 1: three inputs
+    of 354/353/353 rows join to 210, and no arm noticed, so every later turn
+    answered over 210 of 353 teams. The gold denominators (353 aligned, 66 passing
+    the screens) are unreachable from there.
+
+    The row counts were already printed on the `Inputs:` line. The `Lineage:`
+    line could not surface the loss because it divides by the SUM of the inputs
+    (1060), which makes a broken join look like an ordinary filter. So the
+    observation now states retention against the SMALLEST input — the binding
+    constraint for an inner join — and only when rows were actually lost.
+
+    Renderer-side, so it needs no prompt text and applies to every layout.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2JoinFact"
+
+
+class LongDSLunaVersioned2kD2DataFacts(LongDSLunaVersioned2kD2V32Fix):
+    """v3.2-fix + BOTH silent-loss facts in the observation.
+
+    One class of mistake, two forms. A join drops the rows whose key did not
+    agree; a coercion drops the values it could not parse. Neither is visible:
+    the row counts sit on the Inputs line unremarked, and the platform's coercion
+    telemetry covers only conversions IT performs, never the
+    `pd.to_numeric(..., errors="coerce")` inside the operator's own code.
+
+    Measured: the join form cost march_madness every turn in six arms (3.1 in all
+    of them; 16.1 once stated). The coercion form appears at 40% of first-error
+    turns across the campaign. Both facts are computed from telemetry already
+    collected, stated where the model is already reading, and silent when nothing
+    was lost — no prompt text, so they apply to every layout and every arm.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2DataFacts"
+
+
+class LongDSLunaVersioned2kD2DataFactsR2(LongDSLunaVersioned2kD2DataFacts):
+    """Rep 2. The fixed side of the headline was one rep per task, so its spread
+    was unmeasured: swapping which rep supplied march_madness alone moved the
+    overall number 49.6 -> 50.2. Three reps on both sides makes the comparison
+    say something."""
+
+    _NAME = "LongDSLunaVersioned2kD2DataFactsR2"
+
+
+class LongDSLunaVersioned2kD2DataFactsR3(LongDSLunaVersioned2kD2DataFacts):
+    _NAME = "LongDSLunaVersioned2kD2DataFactsR3"
+
+
+class LongDSLunaVersioned2kD2V33(LongDSLunaVersioned2kD2V32):
+    """v3.3 — v3.2 plus the SPEC AUDIT (prompt-only, `spec_audit`).
+
+    Built from a census of the 309-turn campaign, both layouts, 6 reps:
+
+      * 89.4% of wrong turns declare a dependency on an already-wrong turn, and
+        only 4.5% are a task's FIRST error — accuracy is set by ~59 first-error
+        events whose median turn is 2.
+      * Reading those 59: the answer was ~90% right and lost on ONE clause of the
+        task text. Recurring classes — aggregate scoped to the rows on screen
+        instead of all qualifying rows; a sample reported for the wrong
+        population; a signed offset reported as its magnitude; a share over the
+        wrong denominator; a percentage on the wrong scale.
+      * The 24 turns where the layouts differ by >=2/3 split 12/12 between them:
+        layout is accuracy-neutral, so an accuracy mechanism cannot be a layout
+        change. This one is not — the audit fragment is layout-agnostic.
+
+    So v3.3 adds a filled checklist between the work and the answer: one line per
+    requested quantity, traced to an `opId (turn N)` + column, and one per binding
+    clause, quoted verbatim from the task text. The trace requirement is what
+    makes it more than self-congratulation, and it leans on the catalog's cheap
+    `recallState` to check an inherited operator's code against a restated rule.
+    """
+
+    _NAME = "LongDSLunaVersioned2kD2V33"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("spec_audit", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaVersioned2kD2V33R2(LongDSLunaVersioned2kD2V33):
+    _NAME = "LongDSLunaVersioned2kD2V33R2"
+
+
+class LongDSLunaVersioned2kD2V33R3(LongDSLunaVersioned2kD2V33):
+    _NAME = "LongDSLunaVersioned2kD2V33R3"
+
+
+# ---------------------------------------------------------------------------
+# Domain-expansion pool (2026-08-10): the eight education + sports tasks the
+# 10-task campaign never covered. Config is byte-identical to the campaign's
+# session baseline and v3.2 arm — only the name differs, so the established
+# 309-turn numbers keep their own scratch dirs and are not retro-changed by a
+# larger task set, while the new pool is still directly comparable arm-to-arm
+# (both layouts run in the same era over the same tasks).
+class LongDSLunaSession2kD2Ext1(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2Ext1"
+
+
+class LongDSLunaSession2kD2Ext2(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2Ext2"
+
+
+class LongDSLunaSession2kD2Ext3(LongDSLunaSession2kD2):
+    _NAME = "LongDSLunaSession2kD2Ext3"
+
+
+class LongDSLunaVersioned2kD2V32Ext1(LongDSLunaVersioned2kD2V32):
+    _NAME = "LongDSLunaVersioned2kD2V32Ext1"
+
+
+class LongDSLunaVersioned2kD2V32Ext2(LongDSLunaVersioned2kD2V32):
+    _NAME = "LongDSLunaVersioned2kD2V32Ext2"
+
+
+class LongDSLunaVersioned2kD2V32Ext3(LongDSLunaVersioned2kD2V32):
+    _NAME = "LongDSLunaVersioned2kD2V32Ext3"
+
+
 class LongDSHaikuDelta1k(LongDSBase):
     """The baseline knob set on claude-haiku-4.5 — the cheapest gateway model.
 
-    The luna arms name `gpt-5.6-luna`, which the local LiteLLM only serves
-    with an OpenAI key; this arm exists so the dataflow-agent repo's smoke
-    runs (bin/bench.sh) exercise the identical turn loop on the cheapest
-    reachable model.
+    The luna arms name `gpt-5.6-luna`, which the local LiteLLM only serves with
+    an OpenAI key; this arm exists so the dataflow-agent repo's smoke runs
+    (bin/bench.sh) exercise the identical turn loop on the cheapest reachable
+    model.
     """
 
     _MODEL = "claude-haiku-4.5"
     _NAME = "LongDSHaikuDelta1k"
 
 
+class LongDSHaikuVersioned2kD2V32(LongDSBase):
+    """haiku-4.5 on the v3.2 catalog stack — the smoke counterpart of
+    `luna-versioned-2k-d2-v32`: versioned catalog + operator-level recall,
+    2k samples, data_level=2 with column stats, lineage and coercion facts."""
+
+    _MODEL = "claude-haiku-4.5"
+    _NAME = "LongDSHaikuVersioned2kD2V32"
+    _RESULT_CHARS = 2000
+    _STATS = True
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("versioned_mode", True)
+        kwargs.setdefault("enable_recall_tool", True)
+        kwargs.setdefault("recall_operator_level", True)
+        kwargs.setdefault("row_lineage", True)
+        kwargs.setdefault("coercion_facts", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
 ARMS = {
     "haiku-delta-1k": LongDSHaikuDelta1k,
+    "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "luna-delta-1k": LongDSLunaDelta1k,
     "luna-delta-1k-sameera": LongDSLunaDelta1kSameEra,
     "luna-task-last": LongDSLunaDelta1kTaskLast,
@@ -675,4 +957,27 @@ ARMS = {
     "luna-versioned-2k-d2-v2": LongDSLunaVersioned2kD2V2,
     "luna-versioned-2k-d2-v2-r2": LongDSLunaVersioned2kD2V2R2,
     "luna-versioned-2k-d2-v2-r3": LongDSLunaVersioned2kD2V2R3,
+    "luna-versioned-2k-d2-v3": LongDSLunaVersioned2kD2V3,
+    "luna-session-2k-d2-r7": LongDSLunaSession2kD2R7,
+    "luna-versioned-2k-d2-v31": LongDSLunaVersioned2kD2V31,
+    "luna-versioned-2k-d2-v31-r2": LongDSLunaVersioned2kD2V31R2,
+    "luna-versioned-2k-d2-v32": LongDSLunaVersioned2kD2V32,
+    "luna-versioned-2k-d2-v32-r2": LongDSLunaVersioned2kD2V32R2,
+    "luna-versioned-2k-d2-v32-r3": LongDSLunaVersioned2kD2V32R3,
+    "luna-versioned-2k-d2-v31-r3": LongDSLunaVersioned2kD2V31R3,
+    "luna-versioned-2k-d2-v32-fix": LongDSLunaVersioned2kD2V32Fix,
+    "luna-versioned-2k-d2-principles": LongDSLunaVersioned2kD2Principles,
+    "luna-versioned-2k-d2-joinfact": LongDSLunaVersioned2kD2JoinFact,
+    "luna-versioned-2k-d2-datafacts": LongDSLunaVersioned2kD2DataFacts,
+    "luna-versioned-2k-d2-datafacts-r2": LongDSLunaVersioned2kD2DataFactsR2,
+    "luna-versioned-2k-d2-datafacts-r3": LongDSLunaVersioned2kD2DataFactsR3,
+    "luna-versioned-2k-d2-v33": LongDSLunaVersioned2kD2V33,
+    "luna-versioned-2k-d2-v33-r2": LongDSLunaVersioned2kD2V33R2,
+    "luna-versioned-2k-d2-v33-r3": LongDSLunaVersioned2kD2V33R3,
+    "luna-session-2k-d2-ext1": LongDSLunaSession2kD2Ext1,
+    "luna-session-2k-d2-ext2": LongDSLunaSession2kD2Ext2,
+    "luna-session-2k-d2-ext3": LongDSLunaSession2kD2Ext3,
+    "luna-versioned-2k-d2-v32-ext1": LongDSLunaVersioned2kD2V32Ext1,
+    "luna-versioned-2k-d2-v32-ext2": LongDSLunaVersioned2kD2V32Ext2,
+    "luna-versioned-2k-d2-v32-ext3": LongDSLunaVersioned2kD2V32Ext3,
 }

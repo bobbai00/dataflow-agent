@@ -42,15 +42,12 @@ function joinScenario(inputRows: number[], outputRows: number): Scenario {
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
   ]);
-  const wf = makeWorkflow([
-    ...ups.map(id => ({ id, type: "DataLoading" })),
-    { id: "joined", type: "DataProcessing" },
-  ]);
-  wf.links = ups.map((id, i) => ({
-    linkID: `${id}-->joined`,
-    source: { operatorID: id, portID: "output-0" },
-    target: { operatorID: "joined", portID: `input-${i}` },
-  })) as any;
+  // `links` is readonly on WorkflowContent, so build them through makeWorkflow's
+  // own links parameter ([source, target, targetPort]) rather than assigning after.
+  const wf = makeWorkflow(
+    [...ups.map(id => ({ id, type: "DataLoading" })), { id: "joined", type: "DataProcessing" }],
+    ups.map((id, i) => [id, "joined", i] as [string, string, number])
+  );
   const joined = wf.operators.find((o: any) => o.operatorID === "joined") as any;
   joined.inputPorts = ups.map((_, i) => ({ portID: `input-${i}` }));
   s.storage.createSnapshot("a1", wf);
@@ -111,13 +108,13 @@ function coerceScenario(upNulls: number, upRows: number, outNulls: number, outRo
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
   ]);
-  const wf = makeWorkflow([
-    { id: "raw", type: "DataLoading" },
-    { id: "cleaned", type: "DataProcessing" },
-  ]);
-  wf.links = [
-    { linkID: "raw-->cleaned", source: { operatorID: "raw", portID: "output-0" }, target: { operatorID: "cleaned", portID: "input-0" } },
-  ] as any;
+  const wf = makeWorkflow(
+    [
+      { id: "raw", type: "DataLoading" },
+      { id: "cleaned", type: "DataProcessing" },
+    ],
+    [["raw", "cleaned", 0]]
+  );
   (wf.operators.find((o: any) => o.operatorID === "cleaned") as any).inputPorts = [{ portID: "input-0" }];
   s.storage.createSnapshot("a1", wf);
   const up: any = makeInfo(5, {});
