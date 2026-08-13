@@ -917,9 +917,29 @@ class LongDSHaikuVersioned2kD2V32(LongDSBase):
         super().__init__(verbose=verbose, *args, **kwargs)
 
 
+class LongDSHaikuSessionDelta(LongDSLunaSmokeSessionDelta):
+    """Session layout on claude-haiku-4.5 — `# Session` of turn entries
+    (Task / Steps / Final Answer) plus a `# Your Task` tail. Byte-identical
+    knobs to the luna layout-smoke cell, model swapped so the dataflow-agent
+    repo can exercise the layout on the cheapest reachable model."""
+
+    _MODEL = "claude-haiku-4.5"
+    _NAME = "LongDSHaikuSessionDelta"
+
+
+class LongDSHaikuVersionedDelta(LongDSLunaSmokeVCatDelta):
+    """Versioned-catalog layout on claude-haiku-4.5 — one `# Catalog` over the
+    immutable version DAG, `recallState` on. Same knobs as the luna cell."""
+
+    _MODEL = "claude-haiku-4.5"
+    _NAME = "LongDSHaikuVersionedDelta"
+
+
 ARMS = {
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
+    "haiku-session": LongDSHaikuSessionDelta,
+    "haiku-versioned": LongDSHaikuVersionedDelta,
     "luna-delta-1k": LongDSLunaDelta1k,
     "luna-delta-1k-sameera": LongDSLunaDelta1kSameEra,
     "luna-task-last": LongDSLunaDelta1kTaskLast,
