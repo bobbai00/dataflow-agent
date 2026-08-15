@@ -24,18 +24,39 @@ litellm_settings:
 
 model_list:
   # ── Anthropic (latest generally available) ──────────────────────────────
+  # Anthropic prompt caching is OPT-IN per request (cache_control breakpoints),
+  # unlike OpenAI's automatic caching — so every OpenAI-compatible caller got
+  # cached_tokens=0 on claude while the same path recorded ~85% cache reads on
+  # gpt. Inject breakpoints proxy-side: one on the system prompt, one on the
+  # last message (Anthropic walks back from a breakpoint to the longest cached
+  # prefix, so this caches the whole growing conversation each step).
   - model_name: claude-haiku-4.5
     litellm_params:
       model: claude-haiku-4-5-20251001
       api_key: "os.environ/ANTHROPIC_API_KEY"
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
   - model_name: claude-sonnet-5
     litellm_params:
       model: claude-sonnet-5
       api_key: "os.environ/ANTHROPIC_API_KEY"
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
   - model_name: claude-opus-5
     litellm_params:
       model: claude-opus-5
       api_key: "os.environ/ANTHROPIC_API_KEY"
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -1
 
   # ── OpenAI ───────────────────────────────────────────────────────────────
   - model_name: gpt-5.2
