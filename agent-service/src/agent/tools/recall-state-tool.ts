@@ -112,6 +112,17 @@ export const RECALL_CALLS_PER_TURN = 10;
  */
 export const RECALL_RESULT_CHARS_MAX = 5000;
 
+/** Max versions per batched recall call (`refs`). Eight covers the widest
+ *  fan-in observed in any campaign (4-6 def-args) with slack; more belongs in
+ *  a second call, because the per-call sample budget is shared across the
+ *  batch and sixteen slivers of table are worth less than eight readable ones. */
+export const RECALL_REFS_PER_CALL = 8;
+
+/** Floor for each ref's share of a batched call's sample budget — below this
+ *  a table sample is all header and no rows, which reads as "empty" and
+ *  invites a redundant follow-up pull. */
+export const RECALL_BATCH_MIN_CHARS_PER_REF = 300;
+
 export interface RecallStateDeps {
   /** All COMPLETED turns before the current one, oldest first. */
   getTurns: () => RecalledTurn[];
@@ -178,14 +189,29 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
       "\n" +
       "WHEN NOT TO. The `# Catalog` already shows every turn's request, answer, and each output's shape and " +
       "total size — recall is for a version's CONTENT, not for re-reading the conversation. Your pulls stay in " +
-      "your steps for the whole turn; never fetch the same version twice.",
+      "your steps for the whole turn; never fetch the same version twice.\n" +
+      "\n" +
+      "Recall every version you are about to build on in ONE call — pass them together as `refs`. Each call " +
+      "costs a full step; batching five refs costs one.",
     inputSchema: z.object({
       ref: z
         .string()
+        .optional()
         .describe(
-          'Which version to recall, as the catalog prints it: "opId (turn N)" — e.g. "scores (turn 3)". ' +
+          'ONE version to recall, as the catalog prints it: "opId (turn N)" — e.g. "scores (turn 3)". ' +
             "N must be a turn that actually wrote that operator — one of the turn numbers the catalog shows " +
-            "for it — not just any turn it existed in."
+            "for it — not just any turn it existed in. For more than one version, use `refs` instead."
+        ),
+      refs: z
+        .array(z.string())
+        .min(1)
+        .max(RECALL_REFS_PER_CALL)
+        .optional()
+        .describe(
+          `Several versions in one call (max ${RECALL_REFS_PER_CALL}), same notation as \`ref\`. ` +
+            "Prefer this whenever a write consumes more than one earlier version: one call, one step, " +
+            "every input's values in front of you before you wire. The sample budget is shared across " +
+            "the batch, so very large pulls belong in separate calls."
         ),
       includeCode: z.boolean().optional().describe("That version's code. Default true."),
       includeOutputTableSample: z
@@ -207,7 +233,8 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
         ),
     }),
     execute: async (args: {
-      ref: string;
+      ref?: string;
+      refs?: string[];
       includeCode?: boolean;
       includeOutputTableSample?: number;
       includeOutputTableColumnStats?: boolean;
@@ -233,10 +260,53 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           );
         }
 
-        const m = OP_REF_RE.exec(args.ref ?? "");
+        const refList = args.refs?.length ? args.refs.slice(0, RECALL_REFS_PER_CALL) : args.ref ? [args.ref] : [];
+        if (refList.length === 0) {
+          return createErrorResult(
+            'recallState needs `ref: "opId (turn N)"` or `refs: ["a (turn 1)", "b (turn 3)"]`.'
+          );
+        }
+        // The sample budget is per CALL, split across the batch: recalled
+        // output is re-sent on every remaining step of the turn, so a batch
+        // must not multiply the cap by its size.
+        const requestedChars = args.includeOutputTableSample ?? DEFAULT_SAMPLE;
+        const callCap = Math.min(requestedChars, CHARS_CAP);
+        // The floor keeps a batched ref's sample readable, but it must never
+        // RAISE the configured per-call ceiling (arms run ceilings as low as
+        // 150 chars on purpose).
+        const perRefCap = Math.max(
+          Math.min(RECALL_BATCH_MIN_CHARS_PER_REF, callCap),
+          Math.floor(callCap / refList.length)
+        );
+        const blocks = refList.map(r =>
+          recallOneRef(r, turns, {
+            includeCode: args.includeCode !== false,
+            requestedChars,
+            maxResultChars: perRefCap,
+            includeStats: args.includeOutputTableColumnStats === true,
+          })
+        );
+        // A bad ref inside a batch becomes an error LINE in its block — the
+        // good refs still return. A whole-call rejection over one typo is a
+        // verbatim-retry loop waiting to happen (measured, repeatedly).
+        return blocks.join("\n\n---\n\n").trimEnd();
+      } catch (error: any) {
+        return createErrorResult(`recallState failed: ${error?.message || String(error)}`);
+      }
+    },
+  });
+
+  /** One ref's block — error text inline rather than thrown, so batches degrade per ref. */
+  function recallOneRef(
+    ref: string,
+    turns: RecalledTurn[],
+    opts: { includeCode: boolean; requestedChars: number; maxResultChars: number; includeStats: boolean }
+  ): string {
+    {
+        const m = OP_REF_RE.exec(ref ?? "");
         if (!m) {
           return createErrorResult(
-            `Could not parse ref "${args.ref}". Write it exactly as the catalog prints it: "opId (turn N)" — ` +
+            `Could not parse ref "${ref}". Write it exactly as the catalog prints it: "opId (turn N)" — ` +
               'e.g. "scores (turn 3)".'
           );
         }
@@ -258,11 +328,11 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           );
         }
 
-        const includeCode = args.includeCode !== false;
-        const requestedChars = args.includeOutputTableSample ?? DEFAULT_SAMPLE;
+        const includeCode = opts.includeCode;
+        const requestedChars = opts.requestedChars;
         const includeResults = requestedChars > 0;
-        const includeStats = args.includeOutputTableColumnStats === true;
-        const maxResultChars = Math.min(requestedChars, CHARS_CAP);
+        const includeStats = opts.includeStats;
+        const maxResultChars = opts.maxResultChars;
 
         const op = findOperator(t.workflow, opId);
         const verb = t.verbs?.get(opId);
@@ -317,19 +387,16 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           out.push("Result: (not materialized in that turn's snapshot)");
         }
 
-        if (requestedChars > CHARS_CAP) {
+        if (requestedChars > maxResultChars) {
           out.push("");
           out.push(
-            `(includeOutputTableSample ${requestedChars} clamped to ${CHARS_CAP} — recalled output is re-sent ` +
-              "on every remaining step of this turn, so it is capped)"
+            `(includeOutputTableSample ${requestedChars} clamped to ${maxResultChars} — recalled output is ` +
+              "re-sent on every remaining step of this turn, so it is capped, and a batch shares one budget)"
           );
         }
         return out.join("\n").trimEnd();
-      } catch (error: any) {
-        return createErrorResult(`recallState failed: ${error?.message || String(error)}`);
-      }
-    },
-  });
+    }
+  }
 }
 
 /**

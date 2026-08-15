@@ -235,6 +235,46 @@ describe("recallState — OPERATOR-LEVEL addressing (v3)", () => {
     const clamped = await run(opTool({ maxResultChars: 150 }), { ref: "pct (turn 2)", includeOutputTableSample: 9999 });
     expect(clamped).toContain("clamped to 150");
   });
+
+  test("BATCH: refs returns every version in one call, separated", async () => {
+    const out = await run(opTool(), { refs: ["scores (turn 1)", "pct (turn 2)"] });
+    expect(out).toContain("# scores (turn 1)");
+    expect(out).toContain("# pct (turn 2)");
+    expect(out).toContain("---");
+    expect(out).toContain(CODE_PCT);
+  });
+
+  test("BATCH: one bad ref degrades to an error LINE; the good refs still return", async () => {
+    const out = await run(opTool(), { refs: ["ghost (turn 1)", "pct (turn 2)"] });
+    expect(out).toContain("No finished turn has a version");
+    expect(out).toContain("# pct (turn 2)");
+    expect(out).toContain("player_0");
+  });
+
+  test("BATCH: the sample budget is split across the batch, not multiplied by it", async () => {
+    const single = await run(opTool(), { ref: "pct (turn 2)", includeOutputTableSample: 2000 });
+    const batch = await run(opTool(), {
+      refs: ["scores (turn 1)", "pct (turn 2)"],
+      includeOutputTableSample: 2000,
+    });
+    // two refs at 2000 shared must stay well under two singles at 2000 each
+    expect(batch.length).toBeLessThan(single.length * 2);
+  });
+
+  test("BATCH: the floor keeps a batched sample readable but never raises a small ceiling", async () => {
+    const out = await run(opTool({ maxResultChars: 150 }), {
+      refs: ["scores (turn 1)", "pct (turn 2)"],
+      includeOutputTableSample: 9999,
+    });
+    expect(out).toContain("clamped to 150");
+    expect(out).not.toContain("clamped to 300");
+  });
+
+  test("BATCH: a call with neither ref nor refs teaches both forms", async () => {
+    const out = await run(opTool(), {});
+    expect(out).toContain("[ERROR]");
+    expect(out).toContain("refs");
+  });
 });
 
 describe("recallState — budget", () => {
