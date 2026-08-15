@@ -979,9 +979,52 @@ class LongDSLunaBizVersioned2kD2V32Fix(_LongDSBiz, LongDSLunaVersioned2kD2V32Fix
     _NAME = "LongDSLunaBizVersioned2kD2V32Fix"
 
 
+class LongDSLunaBizV32Cache(LongDSLunaBizVersioned2kD2V32Fix):
+    """v3.2-fix + the two 2026-08-15 service mechanisms, one measurement arm:
+
+      * `cacheAlignedContext` — context rendered once per turn, steps appended
+        at byte-stable positions, so every request extends the previous one
+        (the provider's only cache-hit shape; verified 85-99% cached/step live
+        against the pinned ~7k of every earlier arm);
+      * batch `recallState` (`refs: [...]`) — the versions a write consumes,
+        pulled in ONE step instead of 2-3.
+
+    Same knobs as `luna-biz-v32-fix` otherwise, so a same-task comparison
+    reads the two mechanisms' cost/wall-clock effect directly. The service
+    knob rides in `_EXTRA_AGENT_SETTINGS` (PATCHed by run_longds after agent
+    creation), because the KramaBench ctor does not know it yet.
+    """
+
+    _NAME = "LongDSLunaBizV32Cache"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+class LongDSLunaBizV32Verify(LongDSLunaBizV32Cache):
+    """v32-cache + FOUNDATION VERIFY — the first mechanism aimed at the
+    cascade root rather than the render.
+
+    The business campaign measured 93-94% of wrong turns inheriting from an
+    already-wrong upstream, median first error at turn 2-3, and the recurring
+    first-error classes are population/denominator/scope choices made when the
+    state is CREATED. `foundationVerify` adds one layout-agnostic prompt
+    section: derive foundational quantities twice (against zero-cost
+    relations), read the rendered row-count facts when numbers will be
+    consumed later, and name the denominator of every reported share.
+
+    Control is `luna-biz-v32-cache` — same build, same knobs, one flag. The
+    metric that matters is WHERE the first error lands (cascade_split.py),
+    not the mean score.
+    """
+
+    _NAME = "LongDSLunaBizV32Verify"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True, "foundationVerify": True}
+
+
 ARMS = {
     "luna-biz-session": LongDSLunaBizSession2kD2,
     "luna-biz-v32-fix": LongDSLunaBizVersioned2kD2V32Fix,
+    "luna-biz-v32-cache": LongDSLunaBizV32Cache,
+    "luna-biz-v32-verify": LongDSLunaBizV32Verify,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,

@@ -260,6 +260,30 @@ def main() -> int:
     from dataflow_agent import get_agent_react_steps, get_agent_workflow
 
     endpoint = sut.agent.agent_service_endpoint
+
+    # Settings DataflowSystem's ctor does not know about yet are PATCHed onto
+    # the created agent before the first turn — the service accepts any field
+    # of its own UpdateAgentSettingsRequest. General on purpose: a new
+    # agent-service knob becomes runnable as an arm without touching the
+    # KramaBench submodule. The readback assert is not optional; Elysia strips
+    # unknown body fields silently, and a stripped knob would run the whole
+    # task as a silent control (this exact failure cost one verify round).
+    extra = getattr(arm_cls, "_EXTRA_AGENT_SETTINGS", None)
+    if extra:
+        import requests as _requests
+
+        r = _requests.patch(
+            f"{endpoint}/api/agents/{sut.agent.agent_id}/settings", json=extra, timeout=30
+        )
+        r.raise_for_status()
+        live = _requests.get(
+            f"{endpoint}/api/agents/{sut.agent.agent_id}/settings", timeout=30
+        ).json()
+        missing = {k: v for k, v in extra.items() if live.get(k) != v}
+        if missing:
+            print(f"FATAL: extra settings did not apply (service too old?): {missing}")
+            return 2
+        print(f"  extra settings applied: {extra}")
     (run_dir / "config.json").write_text(
         json.dumps(
             {
