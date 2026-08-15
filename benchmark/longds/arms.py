@@ -26,6 +26,14 @@ from systems.dataflow_system import DataflowSystem
 #: dataflow-agent/agent-service (not a worktree) at the time these arms landed.
 AGENT_SERVICE_ENDPOINT = "http://localhost:3001"
 
+#: A second agent-service instance, sharing the same LiteLLM gateway, JVM
+#: services and Amber engine as :3001 and differing only in which agent-service
+#: build serves it. An arm names its endpoint rather than inheriting one,
+#: because "which service answered" is part of an arm's provenance: run_longds
+#: stamps the listening process's cwd and SHA into `config.json` from whatever
+#: endpoint the arm reports.
+AGENT_SERVICE_ENDPOINT_ALT = "http://localhost:3005"
+
 
 class LongDSBase(DataflowSystem):
     _MODEL = "gpt-5.6-luna"
@@ -39,9 +47,12 @@ class LongDSBase(DataflowSystem):
     #: (2 with _STATS, else 1). Set it to run e.g. data_level=2 (structural
     #: profile) WITHOUT the column-stats overlay — the two are separate knobs.
     _DATA_LEVEL: int | None = None
+    #: Which agent-service answers this arm. Overridden per arm when a campaign
+    #: runs against a second instance; every historical arm keeps :3001.
+    _ENDPOINT: str = AGENT_SERVICE_ENDPOINT
 
     def __init__(self, verbose: bool = False, *args, **kwargs):
-        kwargs.setdefault("agent_service_endpoint", AGENT_SERVICE_ENDPOINT)
+        kwargs.setdefault("agent_service_endpoint", self._ENDPOINT)
         super().__init__(
             model_type=self._MODEL,
             context_mode=self._CONTEXT_MODE,
@@ -935,7 +946,42 @@ class LongDSHaikuVersionedDelta(LongDSLunaSmokeVCatDelta):
     _NAME = "LongDSHaikuVersionedDelta"
 
 
+# ---------------------------------------------------------------------------
+# BUSINESS-DOMAIN campaign (2026-08-13): the 12 business tasks, 411 turns, the
+# same layout A/B the sports + education campaigns ran, one rep each.
+#
+# Config is byte-identical to the established `luna-session-2k-d2` and
+# `luna-versioned-2k-d2-v32-fix` arms — only the name and the endpoint differ.
+# Separate names because a scratch dir is keyed by SUT: reusing the campaign
+# names would mix a different task set into the established 309-turn numbers
+# (the same reason the Ext arms exist). Both arms answer on :3005, so the
+# comparison is same-era, same-service, same-build by construction.
+class _LongDSBiz:
+    """Mixin: pin the business-campaign arms to the second agent-service."""
+
+    _ENDPOINT = AGENT_SERVICE_ENDPOINT_ALT
+
+
+class LongDSLunaBizSession2kD2(_LongDSBiz, LongDSLunaSession2kD2):
+    """BASELINE layout on the business tasks — `# Session`, full step replay per
+    turn, `# Your Task` tail, no recall tool."""
+
+    _NAME = "LongDSLunaBizSession2kD2"
+
+
+class LongDSLunaBizVersioned2kD2V32Fix(_LongDSBiz, LongDSLunaVersioned2kD2V32Fix):
+    """EXPERIMENT layout on the business tasks — v3.2 (versioned catalog +
+    operator-level recall + the inherited-baseline diff) on the fixed
+    environment: `execution_timeout_minutes=10` here, `xgboost`/`duckdb` in the
+    UDF venv, and the missing-file error that names the real paths carrying a
+    basename. Same observation channel as the session arm."""
+
+    _NAME = "LongDSLunaBizVersioned2kD2V32Fix"
+
+
 ARMS = {
+    "luna-biz-session": LongDSLunaBizSession2kD2,
+    "luna-biz-v32-fix": LongDSLunaBizVersioned2kD2V32Fix,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,
