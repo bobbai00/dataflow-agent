@@ -456,6 +456,28 @@ export interface AgentSettings {
    */
   indexThinObservations: boolean;
   /**
+   * CACHE-ALIGNED CONTEXT: render the context ONCE per driver run (step 1) and
+   * let the SDK's native message accumulation carry steps 2..N — assistant
+   * tool-call messages and tool-result messages appended, earlier messages
+   * byte-untouched.
+   *
+   * Exists because of a measured provider behavior: prompt caching engages
+   * ONLY when a request extends a previously-sent request with appended
+   * MESSAGES (probed: identical request → full cache hit; one char changed or
+   * text appended inside a message → 0; append-only message array → everything
+   * but the tail cached). The legacy path re-renders the whole context into a
+   * fresh single user message every step, which is the one shape that can
+   * never hit — measured cached-input stuck at ~5-7k tokens/step (the system
+   * prompt + tools) across 411-turn campaigns on both layouts.
+   *
+   * Within a turn the tool outputs ARE the observation renders, so DELTA-shaped
+   * layouts lose nothing; per-step curation (thought replay windows, in-turn
+   * re-rendering) simply applies at turn boundaries instead. LATEST mode needs
+   * its per-step snapshot rebuild, so the flag is ignored there (logged once).
+   * Off by default — byte-parity with legacy when off.
+   */
+  cacheAlignedContext: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -574,6 +596,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   versionedHeads: false,
   sessionTurns: false,
   indexThinObservations: false,
+  cacheAlignedContext: false,
 };
 
 /**
@@ -704,6 +727,9 @@ export interface AgentSettingsApi {
   indexDetailedOperators?: number;
   /** Turn-grouped session layout (see AgentSettings.sessionTurns). */
   sessionTurns?: boolean;
+  /** Render once per driver run, append natively after — the provider's
+   *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
+  cacheAlignedContext?: boolean;
 }
 
 export interface AgentInfo {
@@ -788,4 +814,6 @@ export interface UpdateAgentSettingsRequest {
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
+  /** Render once per driver run, append natively after (see AgentSettings.cacheAlignedContext). */
+  cacheAlignedContext?: boolean;
 }

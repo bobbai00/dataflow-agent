@@ -53,6 +53,7 @@ import {
   OperatorResultSerializationMode,
 } from "../types/agent";
 import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
+import { formatOperatorResult } from "./tools/result-formatting";
 
 /**
  * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
@@ -261,6 +262,16 @@ export class TexeraAgent {
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
    *  return a value even when the assembler is async (the LLM tuner). */
   private lastRenderedContext: string | undefined = undefined;
+  /** Cache-aligned mode: this step's execution-result render, consumed by the
+   *  next prepareStep as an appended message (append keeps the prefix cached). */
+  private pendingStepResultsRender: string | undefined = undefined;
+  /** Cache-aligned mode: execution-result renders by TOOL-MESSAGE ORDINAL, so
+   *  each prepareStep can re-insert them at byte-stable positions inside the
+   *  SDK's accumulated array. A transient append instead of a stable insert
+   *  makes the next request diverge at the appended message's position and
+   *  the cache hit collapses to the system prompt (measured: alternating
+   *  ~7k-floor steps). Reset per driver run. */
+  private stepResultsByToolOrdinal: Map<number, string> = new Map();
 
   private delegateConfig?: {
     userToken: string;
@@ -1294,6 +1305,7 @@ export class TexeraAgent {
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
     indexThinObservations?: boolean;
+    cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -1541,6 +1553,7 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
+    if (updates.cacheAlignedContext !== undefined) this.settings.cacheAlignedContext = updates.cacheAlignedContext;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
       // the system prompt has to be rebuilt (same contract as inspect/compact).
@@ -1695,7 +1708,12 @@ export class TexeraAgent {
       // Pass only the current user turn; prepareStep rebuilds full context each step
       // (historical interactions + DAG + this message).
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
-      const runDriverOnce = (seed: ModelMessage[]) => this.driver.runTurn({
+      const runDriverOnce = (seed: ModelMessage[]) => {
+        // Cache-aligned bookkeeping is per driver run: a grounding rerun is a
+        // fresh SDK loop whose tool-message ordinals restart at 1.
+        this.stepResultsByToolOrdinal.clear();
+        this.pendingStepResultsRender = undefined;
+        return this.driver.runTurn({
         initialMessages: seed,
         systemPrompt: this.systemPrompt,
         tools: this.tools,
@@ -1703,7 +1721,48 @@ export class TexeraAgent {
         parallelToolCalls: this.settings.parallelToolCalls,
         toolDialect: this.settings.toolDialect,
         abortSignal: this.abortController?.signal,
-        prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
+        prepareStep: async ({ stepNumber, messages: currentMessages }) => {
+          // CACHE-ALIGNED CONTEXT: after step 1, keep the SDK's accumulated
+          // message array byte-untouched — the provider caches a request only
+          // when it EXTENDS a previously-sent one with appended messages
+          // (probed; see AgentSettings.cacheAlignedContext). Re-rendering into
+          // a fresh user message every step is the one shape that never hits.
+          //
+          // Execution results ride along as an APPENDED message: legacy
+          // delivered them through the next step's re-render, so freezing the
+          // render without this leaves the model writing operators and never
+          // seeing their output (measured immediately: one write, then
+          // `{"status":"previewing_input"}` as the final answer).
+          // LATEST is excluded: its context is a per-step snapshot rebuild.
+          if (
+            this.settings.cacheAlignedContext &&
+            this.settings.contextMode !== ContextMode.LATEST &&
+            stepNumber > 0 &&
+            currentMessages.length > 0
+          ) {
+            // Move this step's fresh results into the ordinal map, then rebuild
+            // the array with every step's results INSERTED after its tool
+            // message. The SDK's own array is append-only; re-inserting at the
+            // same ordinals keeps each request a strict byte-extension of the
+            // previous one — the only shape the provider's cache rewards.
+            const totalToolMsgs = currentMessages.filter(m => m.role === "tool").length;
+            if (this.pendingStepResultsRender && totalToolMsgs > 0) {
+              // Fresh results belong to the NEWEST tool message.
+              this.stepResultsByToolOrdinal.set(totalToolMsgs, this.pendingStepResultsRender);
+              this.pendingStepResultsRender = undefined;
+            }
+            const merged: ModelMessage[] = [];
+            let toolOrdinal = 0;
+            for (const msg of currentMessages) {
+              merged.push(msg);
+              if (msg.role === "tool") {
+                toolOrdinal += 1;
+                const results = this.stepResultsByToolOrdinal.get(toolOrdinal);
+                if (results) merged.push({ role: "user" as const, content: results });
+              }
+            }
+            return { messages: merged };
+          }
           let compilationResult: WorkflowCompilationResponse | null = null;
           if (this.workflowState.getAllOperators().length > 0) {
             try {
@@ -1785,7 +1844,8 @@ export class TexeraAgent {
 
           isFirstStep = false;
         },
-      });
+        });
+      };
 
       let result = await runDriverOnce(currentUserMessage);
 
@@ -2366,6 +2426,34 @@ export class TexeraAgent {
           resultMode: "error",
           error: `execution failed — ${failure}`,
         } as any);
+      }
+    }
+
+    // CACHE-ALIGNED CONTEXT: under a frozen turn render nothing re-renders, so
+    // this step's execution results must travel to the model as an appended
+    // message — the next prepareStep picks this up. Same renderer and knobs as
+    // every other result surface, so the observation channel stays identical
+    // to the legacy per-step re-render.
+    if (this.settings.cacheAlignedContext && this.head !== undefined) {
+      const blocks: string[] = [];
+      for (const opId of targets) {
+        const info = this.snapshotStorage.getOperatorResult(this.head, opId);
+        if (!info) continue;
+        const rendered = formatOperatorResult(opId, info, this.workflowState, {
+          detail: "sample",
+          schemaInResult: true,
+          columnStats: this.settings.columnStats,
+          tableStructureHint: this.settings.dataLevel >= 2,
+          coercionTelemetry: this.settings.coercionTelemetry,
+          rowLineage: this.settings.rowLineage,
+          inputsInResult: this.settings.rowLineage,
+          maxResultChars: this.settings.maxOperatorResultCharLimit,
+        });
+        blocks.push(`## ${opId}\n${rendered}`);
+      }
+      if (blocks.length > 0) {
+        this.pendingStepResultsRender =
+          "Execution results for the operators this step touched:\n\n" + blocks.join("\n\n");
       }
     }
   }

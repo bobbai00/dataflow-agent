@@ -843,6 +843,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           versionedHeads: (settings as any).versionedHeads,
           sessionTurns: (settings as any).sessionTurns,
           indexThinObservations: (settings as any).indexThinObservations,
+          cacheAlignedContext: (settings as any).cacheAlignedContext,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -922,6 +923,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       versionedHeads: t.Optional(t.Boolean()),
       sessionTurns: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
+      cacheAlignedContext: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1212,6 +1214,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       agentMode: agentSettings.agentMode,
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
+      cacheAlignedContext: agentSettings.cacheAlignedContext,
       frontierDecayConfig: agentSettings.frontierDecayConfig,
       foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
       probeRetirementConfig: agentSettings.probeRetirementConfig,
@@ -1284,6 +1287,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
+        cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
 
@@ -1325,6 +1329,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         probeRetirementConfig: agentSettings.probeRetirementConfig,
         rolePolicyConfig: agentSettings.rolePolicyConfig,
       sourceProvenanceHint: agentSettings.sourceProvenanceHint,
+      cacheAlignedContext: agentSettings.cacheAlignedContext,
       };
     },
     {
@@ -1377,6 +1382,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         enableRenderPrefs: t.Optional(t.Boolean()),
         enableCompactTool: t.Optional(t.Boolean()),
         compactKeepLastSteps: t.Optional(t.Number()),
+        cacheAlignedContext: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
       }),
