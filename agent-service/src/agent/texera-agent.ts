@@ -99,6 +99,7 @@ import {
 } from "./tools/general-op-tools";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
+import { createQueryResultTool, TOOL_NAME_QUERY_RESULT } from "./tools/query-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import {
   createRecallStateTool,
@@ -512,7 +513,8 @@ export class TexeraAgent {
         this.settings.sessionTurns === true,
         this.settings.recallOperatorLevel === true,
         this.settings.specAudit === true,
-        this.settings.foundationVerify === true
+        this.settings.foundationVerify === true,
+        this.settings.enableQueryTool === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -592,6 +594,21 @@ export class TexeraAgent {
       tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
         getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
         workflowState: this.workflowState,
+      });
+    }
+
+    // Opt-in direct-query PULL tool: one read-only pandas expression over an
+    // operator's materialized rows, evaluated in a sandboxed python subprocess.
+    // Replaces probe-operator writes (engine executions) and the clipped-render
+    // trap. Never mutates, never re-executes.
+    if (this.settings.enableQueryTool) {
+      tools[TOOL_NAME_QUERY_RESULT] = createQueryResultTool({
+        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
+        listOperators: () =>
+          this.head
+            ? [...this.snapshotStorage.getAllVisibleResults(this.head).keys()]
+            : this.workflowState.getAllOperators().map(o => o.operatorID),
+        getCurrentTurnKey: () => this.currentMessageId ?? "",
       });
     }
 
@@ -1306,6 +1323,7 @@ export class TexeraAgent {
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
     foundationVerify?: boolean;
+    enableQueryTool?: boolean;
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
@@ -1557,6 +1575,12 @@ export class TexeraAgent {
     if (updates.foundationVerify !== undefined && updates.foundationVerify !== this.settings.foundationVerify) {
       // Prompt-only, like specAudit.
       this.settings.foundationVerify = updates.foundationVerify;
+      promptNeedsRebuild = true;
+    }
+    if (updates.enableQueryTool !== undefined && updates.enableQueryTool !== this.settings.enableQueryTool) {
+      // Tool set AND prompt fragment change together.
+      this.settings.enableQueryTool = updates.enableQueryTool;
+      this.tools = this.createTools();
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;

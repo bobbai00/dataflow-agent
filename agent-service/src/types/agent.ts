@@ -368,6 +368,15 @@ export interface AgentSettings {
    *  denominator/scope choices at state creation. Off by default —
    *  byte-identical prompt when off. */
   foundationVerify: boolean;
+  /** QUERY TOOL: expose `queryResult(operatorId, expr)` — one read-only pandas
+   *  expression over an operator's materialized result rows, evaluated in a
+   *  sandboxed python subprocess, output clamped. Replaces probe operators
+   *  (14.8 s engine execution each, measured) and the clipped-render trap
+   *  (answering from a truncated table as if complete). The fragment also
+   *  carries the two answer-surface rules the flip census measured: never
+   *  answer from a truncated render; report whole rows. Off by default —
+   *  byte-parity when off. */
+  enableQueryTool: boolean;
   /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
    *  — every requested quantity traced to an `opId (turn N)` + column, every
    *  binding clause of the task text quoted and answered. Prompt-side only, and
@@ -589,6 +598,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   recallMaxResultChars: 5000,
   recallOperatorLevel: false,
   foundationVerify: false,
+  enableQueryTool: false,
   specAudit: false,
   indexRichTables: 12,
   // 0 = no cap. The count cap is off while the version-tree model is being
@@ -743,6 +753,8 @@ export interface AgentSettingsApi {
   /** Dual-derivation + named-denominator prompt discipline
    *  (see AgentSettings.foundationVerify). */
   foundationVerify?: boolean;
+  /** Pandas queries over materialized results (see AgentSettings.enableQueryTool). */
+  enableQueryTool?: boolean;
 }
 
 export interface AgentInfo {
@@ -831,4 +843,6 @@ export interface UpdateAgentSettingsRequest {
   cacheAlignedContext?: boolean;
   /** Dual-derivation + named-denominator prompt discipline (see AgentSettings.foundationVerify). */
   foundationVerify?: boolean;
+  /** Pandas queries over materialized results (see AgentSettings.enableQueryTool). */
+  enableQueryTool?: boolean;
 }

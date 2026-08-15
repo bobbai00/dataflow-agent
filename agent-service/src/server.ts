@@ -834,6 +834,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           recallOperatorLevel: (settings as any).recallOperatorLevel,
           specAudit: (settings as any).specAudit,
           foundationVerify: (settings as any).foundationVerify,
+          enableQueryTool: (settings as any).enableQueryTool,
           indexRichTables: (settings as any).indexRichTables,
           indexDetailedOperators: (settings as any).indexDetailedOperators,
           enableResumeTool: (settings as any).enableResumeTool,
@@ -915,6 +916,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       recallOperatorLevel: t.Optional(t.Boolean()),
       specAudit: t.Optional(t.Boolean()),
       foundationVerify: t.Optional(t.Boolean()),
+      enableQueryTool: t.Optional(t.Boolean()),
       indexRichTables: t.Optional(t.Number()),
       indexDetailedOperators: t.Optional(t.Number()),
       enableResumeTool: t.Optional(t.Boolean()),
@@ -1218,6 +1220,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       parallelToolCalls: agentSettings.parallelToolCalls,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       foundationVerify: agentSettings.foundationVerify,
+      enableQueryTool: agentSettings.enableQueryTool,
       frontierDecayConfig: agentSettings.frontierDecayConfig,
       foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
       probeRetirementConfig: agentSettings.probeRetirementConfig,
@@ -1292,6 +1295,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
         foundationVerify: (settings as any).foundationVerify,
+        enableQueryTool: (settings as any).enableQueryTool,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
 
@@ -1388,6 +1392,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactKeepLastSteps: t.Optional(t.Number()),
         cacheAlignedContext: t.Optional(t.Boolean()),
         foundationVerify: t.Optional(t.Boolean()),
+        enableQueryTool: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
       }),

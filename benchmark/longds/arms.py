@@ -1020,11 +1020,41 @@ class LongDSLunaBizV32Verify(LongDSLunaBizV32Cache):
     _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True, "foundationVerify": True}
 
 
+class LongDSLunaBizV32Query(LongDSLunaBizV32Cache):
+    """v32-cache + the QUERY TOOL: `queryResult(operatorId, expr)` — one
+    read-only pandas expression over an operator's materialized rows, plus the
+    two answer-surface rules the flip census measured (never answer from a
+    truncated render; report whole rows).
+
+    Built from the flip evidence: of the closely-read layout flips, two of five
+    lost with CORRECT numbers (lean answer fields; a clipped render reported as
+    complete), and the arm's extra writes are largely probes built to look at
+    data (1.7x writes, 14.8 s engine execution each). The tool changes the
+    ECONOMICS of looking and checking rather than adding prompt ritual —
+    the four prompt-side verification nulls are why.
+
+    Control is `luna-biz-v32-cache-r2`, same era, one flag apart.
+    """
+
+    _NAME = "LongDSLunaBizV32Query"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True, "enableQueryTool": True}
+
+
+class LongDSLunaBizV32CacheR2(LongDSLunaBizV32Cache):
+    """Fresh control rep for the query experiment — a separate SUT name so the
+    first rep's artifacts stay untouched, and the rep spread of the cache
+    config gets measured for free."""
+
+    _NAME = "LongDSLunaBizV32CacheR2"
+
+
 ARMS = {
     "luna-biz-session": LongDSLunaBizSession2kD2,
     "luna-biz-v32-fix": LongDSLunaBizVersioned2kD2V32Fix,
     "luna-biz-v32-cache": LongDSLunaBizV32Cache,
     "luna-biz-v32-verify": LongDSLunaBizV32Verify,
+    "luna-biz-v32-query": LongDSLunaBizV32Query,
+    "luna-biz-v32-cache-r2": LongDSLunaBizV32CacheR2,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,
