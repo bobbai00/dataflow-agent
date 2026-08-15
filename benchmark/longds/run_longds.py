@@ -146,6 +146,44 @@ def service_provenance(endpoint: str) -> dict:
     return info
 
 
+#: Set once the first turn discovers this run's model has no price anywhere.
+_UNPRICED: set[str] = set()
+
+
+def price_turn(model: str, tok_in: int, tok_out: int, tok_cached: int) -> float | None:
+    """USD for one turn, or None when no price source knows this model.
+
+    None is the point. The old code was `compute_cost(...) or 0.0`, which
+    collapsed "nobody knows this model's price" into "this turn was free" —
+    and on this machine `cost_utils` prices nothing but Claude, because the
+    KramaBench venv has no `litellm`. A whole gpt-5.6-luna campaign therefore
+    summed to $0.00 and read as a cost win. The token counts are recorded
+    either way, so an unpriced run stays recomputable; what must not happen is
+    a zero that looks like a measurement.
+    """
+    from systems.cost_utils import compute_cost as _compute_cost
+
+    from pricing import cost_of
+
+    try:
+        cost = _compute_cost(
+            model, input_tokens=tok_in, output_tokens=tok_out, cached_tokens=tok_cached
+        )
+    except Exception:
+        cost = None
+    if cost is None:
+        cost = cost_of(
+            model, input_tokens=tok_in, output_tokens=tok_out, cached_tokens=tok_cached
+        )
+    if cost is None and model not in _UNPRICED:
+        _UNPRICED.add(model)
+        print(
+            f"  WARNING: no price for {model!r} in systems.cost_utils or longds/pricing.py — "
+            "cost_usd will be null for every turn; token counts are still recorded"
+        )
+    return cost
+
+
 def turn_metrics(new_steps: list) -> dict:
     """Per-turn step count and the largest wire context the model actually saw.
 
@@ -220,7 +258,6 @@ def main() -> int:
         return 2
 
     from dataflow_agent import get_agent_react_steps, get_agent_workflow
-    from systems.cost_utils import compute_cost
 
     endpoint = sut.agent.agent_service_endpoint
     (run_dir / "config.json").write_text(
@@ -237,6 +274,19 @@ def main() -> int:
                 "data_level": sut.data_level,
                 "enable_code_in_snapshot": sut.enable_code_in_snapshot,
                 "context_window_tokens": sut.context_window_tokens,
+                # The layout knobs decide which context the model actually reads
+                # (`# Session` vs `# Catalog`) and are the variable under test in
+                # every layout A/B. Without them an artifact dir can only be
+                # traced back to an arm by its NAME, which is exactly the
+                # provenance that fails when an arm is renamed or copied.
+                "session_turns": getattr(sut, "session_turns", None),
+                "versioned_mode": getattr(sut, "versioned_mode", None),
+                "enable_recall_tool": getattr(sut, "enable_recall_tool", None),
+                "recall_operator_level": getattr(sut, "recall_operator_level", None),
+                "spec_audit": getattr(sut, "spec_audit", None),
+                "row_lineage": getattr(sut, "row_lineage", None),
+                "coercion_facts": getattr(sut, "coercion_facts", None),
+                "execution_timeout_minutes": getattr(sut, "execution_timeout_minutes", None),
                 "max_steps_per_turn": sut.max_steps,
                 "turn_timeout_seconds": args.turn_timeout,
                 "num_turns": len(turns),
@@ -249,7 +299,7 @@ def main() -> int:
         )
     )
 
-    records, steps_seen, wall_start = [], 0, time.time()
+    records, steps_seen, wall_start, unpriced_turns = [], 0, time.time(), 0
     totals = {"cost_usd": 0.0, "input": 0, "output": 0, "reasoning": 0, "cached": 0}
 
     for idx, turn in enumerate(turns):
@@ -304,13 +354,9 @@ def main() -> int:
         tok_in = usage.get("input_tokens", 0)
         tok_out = usage.get("output_tokens", 0)
         tok_cached = usage.get("cached_input_tokens", 0)
-        try:
-            cost = compute_cost(
-                sut.model_type, input_tokens=tok_in, output_tokens=tok_out, cached_tokens=tok_cached
-            ) or 0.0
-        except Exception:
-            cost = 0.0
-        totals["cost_usd"] += cost
+        cost = price_turn(sut.model_type, tok_in, tok_out, tok_cached)
+        unpriced_turns += cost is None
+        totals["cost_usd"] += cost or 0.0
         totals["input"] += tok_in
         totals["output"] += tok_out
         totals["reasoning"] += usage.get("reasoning_tokens", 0)
@@ -322,7 +368,7 @@ def main() -> int:
             "output_tokens": tok_out,
             "reasoning_tokens": usage.get("reasoning_tokens", 0),
             "cached_tokens": tok_cached,
-            "cost_usd": round(cost, 6),
+            "cost_usd": None if cost is None else round(cost, 6),
             "elapsed_seconds": round(elapsed, 1),
             "stopped": stopped,
             "error": err,
@@ -358,7 +404,14 @@ def main() -> int:
                     "sut": sut_name,
                     "turns_total": len(turns),
                     "turns_completed": len(records),
-                    "totals": {**totals, "cost_usd": round(totals["cost_usd"], 6)},
+                    "totals": {
+                        **totals,
+                        "cost_usd": round(totals["cost_usd"], 6),
+                        # Turns whose model had no price contributed 0 to the sum
+                        # above; say so, so a total is never read as complete
+                        # when part of the run was unpriced.
+                        "unpriced_turns": unpriced_turns,
+                    },
                     "wall_seconds": round(time.time() - wall_start, 1),
                 },
                 indent=2,
@@ -369,7 +422,8 @@ def main() -> int:
         print(
             f"  turn {tid:>2}/{len(turns)}  steps={metrics['agent_steps']:>2} "
             f"ctx={metrics['max_prompt_bytes'] / 1000:>7.1f}kB  {elapsed:>5.0f}s "
-            f"${cost:.4f}  ans={answer[:60]!r}{flag}"
+            f"{f'${cost:.4f}' if cost is not None else '   $?   '}  "
+            f"ans={answer[:60]!r}{flag}"
         )
 
     try:
@@ -379,7 +433,9 @@ def main() -> int:
 
     print(
         f"\ndone: {len(records)}/{len(turns)} turns, "
-        f"${totals['cost_usd']:.4f}, {(time.time() - wall_start) / 60:.1f} min"
+        f"${totals['cost_usd']:.4f}"
+        + (f" (+{unpriced_turns} unpriced turns)" if unpriced_turns else "")
+        + f", {(time.time() - wall_start) / 60:.1f} min"
     )
     print(f"artifacts: {run_dir}")
     return 0
