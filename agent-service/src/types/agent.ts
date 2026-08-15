@@ -359,6 +359,15 @@ export interface AgentSettings {
    *  one version per pull, values on by default — instead of a whole turn.
    *  Pairs with versionedMode (the catalog prints those addresses). */
   recallOperatorLevel: boolean;
+  /** FOUNDATION VERIFY: prompt-side, layout-agnostic. Dual derivation of
+   *  quantities later turns consume (checked against zero-cost relations),
+   *  read-the-rendered-row-counts discipline, and a named denominator for
+   *  every reported share. Aimed at the measured failure mass: 93-94% of
+   *  wrong turns inherit from an already-wrong upstream, median first error
+   *  at turn 2-3, and the recurring first-error classes are population/
+   *  denominator/scope choices at state creation. Off by default —
+   *  byte-identical prompt when off. */
+  foundationVerify: boolean;
   /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
    *  — every requested quantity traced to an `opId (turn N)` + column, every
    *  binding clause of the task text quoted and answered. Prompt-side only, and
@@ -579,6 +588,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableRecallTool: false,
   recallMaxResultChars: 5000,
   recallOperatorLevel: false,
+  foundationVerify: false,
   specAudit: false,
   indexRichTables: 12,
   // 0 = no cap. The count cap is off while the version-tree model is being
@@ -730,6 +740,9 @@ export interface AgentSettingsApi {
   /** Render once per driver run, append natively after — the provider's
    *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
+  /** Dual-derivation + named-denominator prompt discipline
+   *  (see AgentSettings.foundationVerify). */
+  foundationVerify?: boolean;
 }
 
 export interface AgentInfo {
@@ -816,4 +829,6 @@ export interface UpdateAgentSettingsRequest {
   tunerConfig?: TunerConfig;
   /** Render once per driver run, append natively after (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
+  /** Dual-derivation + named-denominator prompt discipline (see AgentSettings.foundationVerify). */
+  foundationVerify?: boolean;
 }

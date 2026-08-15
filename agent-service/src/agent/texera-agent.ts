@@ -511,7 +511,8 @@ export class TexeraAgent {
         this.settings.versionedMode === true,
         this.settings.sessionTurns === true,
         this.settings.recallOperatorLevel === true,
-        this.settings.specAudit === true
+        this.settings.specAudit === true,
+        this.settings.foundationVerify === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1304,6 +1305,7 @@ export class TexeraAgent {
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
+    foundationVerify?: boolean;
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
@@ -1550,6 +1552,11 @@ export class TexeraAgent {
     if (updates.specAudit !== undefined && updates.specAudit !== this.settings.specAudit) {
       // Adds/removes a system-prompt section only — no tool or schema changes.
       this.settings.specAudit = updates.specAudit;
+      promptNeedsRebuild = true;
+    }
+    if (updates.foundationVerify !== undefined && updates.foundationVerify !== this.settings.foundationVerify) {
+      // Prompt-only, like specAudit.
+      this.settings.foundationVerify = updates.foundationVerify;
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;

@@ -833,6 +833,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           recallMaxResultChars: (settings as any).recallMaxResultChars,
           recallOperatorLevel: (settings as any).recallOperatorLevel,
           specAudit: (settings as any).specAudit,
+          foundationVerify: (settings as any).foundationVerify,
           indexRichTables: (settings as any).indexRichTables,
           indexDetailedOperators: (settings as any).indexDetailedOperators,
           enableResumeTool: (settings as any).enableResumeTool,
@@ -913,6 +914,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       recallMaxResultChars: t.Optional(t.Number()),
       recallOperatorLevel: t.Optional(t.Boolean()),
       specAudit: t.Optional(t.Boolean()),
+      foundationVerify: t.Optional(t.Boolean()),
       indexRichTables: t.Optional(t.Number()),
       indexDetailedOperators: t.Optional(t.Number()),
       enableResumeTool: t.Optional(t.Boolean()),
@@ -1215,6 +1217,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
+      foundationVerify: agentSettings.foundationVerify,
       frontierDecayConfig: agentSettings.frontierDecayConfig,
       foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
       probeRetirementConfig: agentSettings.probeRetirementConfig,
@@ -1288,6 +1291,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
+        foundationVerify: (settings as any).foundationVerify,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
       });
 
@@ -1383,6 +1387,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         enableCompactTool: t.Optional(t.Boolean()),
         compactKeepLastSteps: t.Optional(t.Number()),
         cacheAlignedContext: t.Optional(t.Boolean()),
+        foundationVerify: t.Optional(t.Boolean()),
         // LLM context-tuner config; validated in-handler. null turns it off.
         tunerConfig: t.Optional(t.Any()),
       }),

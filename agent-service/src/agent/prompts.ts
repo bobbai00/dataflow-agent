@@ -88,6 +88,15 @@ const SESSION_FRAGMENT: string = rd("session.md");
  *  that exists nowhere else in the system, which the model then filled in as a
  *  form. Off by default; when on it supersedes VERSIONED_OPRECALL_FRAGMENT. */
 const VERSIONED_PRINCIPLES_FRAGMENT: string = rd("versioned-oprecall-principles.md");
+/** FOUNDATION VERIFY (the `foundationVerify` knob): dual derivation of
+ *  quantities later turns consume, read-the-row-counts discipline, and a named
+ *  denominator for every reported share. Layout-AGNOSTIC by design — the
+ *  business campaign measured 93-94% of wrong turns inheriting from a wrong
+ *  upstream identically under `# Session` and `# Catalog`, so the mechanism
+ *  aimed at that must not live inside a layout fragment. Deliberately short,
+ *  no invented vocabulary, no output format (the v3.3 audit-block lesson:
+ *  a form gets filled as a form). Off by default; byte-identical prompt off. */
+const FOUNDATION_VERIFY_FRAGMENT: string = rd("foundation-verify.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -421,7 +430,8 @@ export function buildCodeModeSystemPrompt(
   versionedEnabled = false,
   sessionEnabled = false,
   opRecallEnabled = false,
-  specAuditEnabled = false
+  specAuditEnabled = false,
+  foundationVerifyEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -438,6 +448,9 @@ export function buildCodeModeSystemPrompt(
       ? `\n${RECALL_FRAGMENT}\n`
       : "";
   const resume = resumeEnabled ? `\n${RESUME_FRAGMENT}\n` : "";
+  // Rides the same slot as recall/resume so it lands after the layout
+  // description in every configuration — session, versioned, flat.
+  const foundationVerify = foundationVerifyEnabled ? `\n${FOUNDATION_VERIFY_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is
@@ -471,7 +484,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
-    .replace("{{RECALL}}", recall + resume)
+    .replace("{{RECALL}}", recall + resume + foundationVerify)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");
