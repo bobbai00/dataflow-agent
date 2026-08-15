@@ -1768,6 +1768,10 @@ export class TexeraAgent {
                 if (results) merged.push({ role: "user" as const, content: results });
               }
             }
+            // Trace fidelity: the recorded step's inputMessages must be what
+            // the model actually read this step, frozen mode included —
+            // per-turn context growth and prompt forensics both read it.
+            lastPreparedMessages = merged;
             return { messages: merged };
           }
           let compilationResult: WorkflowCompilationResponse | null = null;
