@@ -122,6 +122,28 @@ def report(all_turns: list[list[dict]], judge_model: str = "") -> None:
     if not scored:
         return
 
+    # A judge that could not reach its model still produces a full score table:
+    # every unreachable turn is excluded, the handful that scored 0 without a
+    # call (empty solution or gold) survive, and the report prints 0.00 across
+    # every cut as if it had measured something. That happened — 408 of 411
+    # turns failed with `401 Missing Authentication header` and the run printed
+    # a clean 0.00. So name the coverage, and say what went wrong, before any
+    # number that a reader might quote.
+    coverage = len(scored) / len(flat)
+    if coverage < 0.95:
+        reasons: dict[str, int] = {}
+        for t in flat:
+            if t["judge"].get("score") is None:
+                key = (t["judge"].get("error_detail") or "unparsable judge reply")[:100]
+                reasons[key] = reasons.get(key, 0) + 1
+        print(
+            f"\n*** WARNING: only {coverage:.1%} of turns were judged. The numbers below "
+            f"describe {len(scored)} turns, NOT this run. Do not quote them. ***"
+        )
+        for reason, n in sorted(reasons.items(), key=lambda kv: -kv[1]):
+            print(f"      {n:>4}  {reason}")
+        print()
+
     turn_weighted = statistics.mean(t["judge"]["score"] for t in scored) * 100
     per_task = [
         statistics.mean(t["judge"]["score"] for t in task if t["judge"].get("score") is not None) * 100

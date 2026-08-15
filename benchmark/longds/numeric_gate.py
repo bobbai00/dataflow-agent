@@ -50,9 +50,40 @@ try:
     from sklearn.decomposition import PCA
 except ImportError:
     pass
+# The modelling surface the business tasks reach for. Every name here was taken
+# from a `NameError` the gate actually raised, or from scanning the gold code
+# for it — not from a guess at what a data-science notebook might import. Five
+# of the twelve business tasks died on these: transaction/task1 lost 33 of 36
+# turns to one undefined `train_test_split` at turn 4, because a turn that dies
+# takes every later turn's shared-namespace variables with it.
+try:
+    from sklearn.model_selection import train_test_split, StratifiedKFold, KFold, cross_val_score
+    from sklearn.preprocessing import MinMaxScaler, RobustScaler, OneHotEncoder, OrdinalEncoder, LabelEncoder
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline, make_pipeline
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
+    from sklearn.ensemble import (
+        RandomForestClassifier, RandomForestRegressor,
+        GradientBoostingClassifier, GradientBoostingRegressor,
+    )
+    from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity, linear_kernel
+    from sklearn.metrics import (
+        roc_auc_score, roc_curve, precision_recall_curve, average_precision_score,
+        confusion_matrix, classification_report, f1_score, precision_score,
+        recall_score, accuracy_score, mean_squared_error, mean_absolute_error,
+        r2_score, silhouette_score,
+    )
+except ImportError:
+    pass
 try:
     from scipy import stats
     from scipy.stats import linregress, pearsonr, spearmanr
+    from scipy.sparse import csr_matrix, coo_matrix, hstack as sparse_hstack, vstack as sparse_vstack
+    from scipy.spatial.distance import cdist, pdist, squareform
 except ImportError:
     pass
 
@@ -216,7 +247,11 @@ def run_turns(src: str, data_root: Path, n_turns: int):
                 # missing pretty-printer rather than on its numbers. If the turn
                 # died before computing anything there is simply nothing to find,
                 # and it lands in `missing` as before.
-                errors.append(f"{tid}:{type(exc).__name__}")
+                # The message, not just the class. A run of thirty NameErrors is
+                # usually ONE undefined name cascading through the shared
+                # namespace, and the class alone cannot tell you which — so the
+                # cheap fix (one more import in PRELUDE) stays invisible.
+                errors.append(f"{tid}:{type(exc).__name__}: {exc}")
             finally:
                 sys.stdout = real_stdout
 
