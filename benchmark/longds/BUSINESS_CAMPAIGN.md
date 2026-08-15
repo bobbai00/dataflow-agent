@@ -106,6 +106,41 @@ reduction, costs a statistically real ~1.8× wall-clock increase, and does not
 move accuracy. Choose by which resource binds. Neither layout touches the
 thing that sets the score: first-error rate on turns 1–3.
 
+## Addendum (2026-08-15): the two shipped fixes, measured — and two verdicts
+
+**Prompt caching + batch recall work, and the cost collapse is large.**
+The provider's cache was probed to its actual contract: a request is served
+from cache only when it byte-extends a previously-sent request with appended
+messages (identical → full hit; one char changed, in-message growth,
+`prompt_cache_key` → nothing). `cacheAlignedContext` renders the context once
+per turn and appends steps at byte-stable positions; batch `recallState`
+(`refs: [...]`) pulls every needed version in one step. Same task, three arms:
+
+| nyc3, 34 turns | cost | wall | cached share | recall calls |
+|---|---|---|---|---|
+| session (campaign) | $2.71 | 21.7 m | 7.2% | — |
+| v32-fix (campaign) | $1.44 | 34.6 m | 25.3% | 147 |
+| v32-cache | **$0.49** | 37.9 m | **83.4%** | 103 (64% batched) |
+
+Four cascade-heavy tasks that cost the campaign arms $7.23 (v32) / $12.08
+(session) ran at **$1.96** on the cache arm.
+
+**foundationVerify: no benefit; retired.** Same era, same build, one flag
+against its control, 138 turns each (deepseek-v4-pro): verify 4.5 vs control
+7.7 4-task mean, and — the metric it exists to move — **first-error turns did
+not move later** (t1,t1,t2,t3 vs t1,t1,t2,t4). Fourth prompt-side verification
+mechanism to return nothing (grounding fired 0 times; the audit block became a
+filled form; the folded principles were suggestive at n=2; this one is null at
+n=1 with the wrong sign). The cascade root does not yield to prompt discipline.
+
+**Open question the cross-era gap raises.** The cache control (7.7) also sits
+below the campaign v32-fix (11.4) on these tasks — but that comparison is
+CROSS-ERA, exactly the read §"same-era" warns about (measured bidirectional
+±14-point artifacts). Whether `cacheAlignedContext` costs accuracy needs the
+missing cell: a same-era v32-fix (cache off) rerun on the same four tasks.
+Until that runs, treat the cache arm as the cost configuration, not the
+accuracy-validated default.
+
 ## What to build next (general mechanisms only, ordered by expected value)
 
 1. **Fix prompt caching at the gateway** — infra, layout-independent, the
