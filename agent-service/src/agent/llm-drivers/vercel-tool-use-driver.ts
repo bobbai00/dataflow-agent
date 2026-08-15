@@ -52,6 +52,9 @@ export class VercelToolUseDriver implements LLMDriver {
   }
 
   async runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult> {
+    // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
+    // cannot carry it because its usage schema has no such field.
+    let cacheCreationTotal = 0;
     const result = await generateText({
       model: this.model,
       system: input.systemPrompt,
@@ -73,7 +76,17 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
+      onStepFinish: async ({ text, toolCalls, toolResults, usage, response }) => {
+        // Anthropic cache WRITES (billed 1.25x input). LiteLLM reports them as
+        // prompt_tokens_details.cache_creation_tokens, a non-standard extension
+        // the SDK's typed usage object drops — but the raw parsed HTTP body is
+        // kept on each step's response metadata, so read it from there.
+        const stepCacheCreation = Number(
+          (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
+            (response as any)?.body?.usage?.cache_creation_input_tokens ??
+            0,
+        );
+        cacheCreationTotal += stepCacheCreation;
         await input.onStepFinish({
           text: text || "",
           toolCalls: toolCalls?.map(tc => ({
@@ -100,6 +113,7 @@ export class VercelToolUseDriver implements LLMDriver {
                 // step, so reasoning/cache must ride on each step's usage.
                 reasoningTokens: (usage as any).reasoningTokens,
                 cachedInputTokens: (usage as any).cachedInputTokens,
+                cacheCreationInputTokens: stepCacheCreation,
               }
             : undefined,
         });
@@ -113,6 +127,7 @@ export class VercelToolUseDriver implements LLMDriver {
       totalTokens: finalUsage?.totalTokens ?? 0,
       reasoningTokens: finalUsage?.reasoningTokens ?? 0,
       cachedInputTokens: finalUsage?.cachedInputTokens ?? 0,
+      cacheCreationInputTokens: cacheCreationTotal,
     };
     return {
       text: result.text,

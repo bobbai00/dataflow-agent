@@ -1770,6 +1770,7 @@ export class TexeraAgent {
                   totalTokens: usage.totalTokens,
                   reasoningTokens: (usage as any).reasoningTokens,
                   cachedInputTokens: (usage as any).cachedInputTokens,
+                  cacheCreationInputTokens: (usage as any).cacheCreationInputTokens,
                 }
               : undefined,
             inputMessages: lastPreparedMessages,
