@@ -142,6 +142,24 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
 ]);
 
+/**
+ * The layouts' own `# Your Task` directive, lifted verbatim out of a rendered
+ * context so cache-aligned step messages can restate it.
+ *
+ * Verbatim on purpose: a second, hand-written wording would drift from the
+ * renderer's and would silently confound any layout comparison. Returns
+ * undefined for renders that have no such section (single-turn arms), in which
+ * case step messages simply carry no reminder.
+ */
+export function extractYourTaskDirective(rendered: string): string | undefined {
+  const start = rendered.lastIndexOf("\n# Your Task");
+  if (start === -1) return undefined;
+  const body = rendered.slice(start + 1);
+  // The directive is the last H1 section; stop at a following H1 if one exists.
+  const next = body.indexOf("\n# ", 1);
+  return (next === -1 ? body : body.slice(0, next)).trimEnd();
+}
+
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
     operators: [],
@@ -266,13 +284,19 @@ export class TexeraAgent {
   /** Cache-aligned mode: this step's execution-result render, consumed by the
    *  next prepareStep as an appended message (append keeps the prefix cached). */
   private pendingStepResultsRender: string | undefined = undefined;
-  /** Cache-aligned mode: execution-result renders by TOOL-MESSAGE ORDINAL, so
-   *  each prepareStep can re-insert them at byte-stable positions inside the
-   *  SDK's accumulated array. A transient append instead of a stable insert
-   *  makes the next request diverge at the appended message's position and
-   *  the cache hit collapses to the system prompt (measured: alternating
-   *  ~7k-floor steps). Reset per driver run. */
-  private stepResultsByToolOrdinal: Map<number, string> = new Map();
+  /** Cache-aligned mode (v2): the message array we ship, built by US.
+   *  `[0]` is the turn's full context render, frozen at step 1; every later
+   *  entry is one appended user message describing the step that just ran.
+   *  Each request is therefore the previous request plus one message, which
+   *  is exactly the provider's cache-hit contract (probed: growth INSIDE a
+   *  message caches nothing; appended messages cache everything before them,
+   *  and the role does not matter). Reset per driver run. */
+  private cacheAlignedMessages: ModelMessage[] = [];
+  /** The `# Your Task` reminder appended to every step message: under a frozen
+   *  first message the live request would otherwise sit above the entire step
+   *  log, which is the burial effect this benchmark already measured across
+   *  turns — v1 reproduced it WITHIN a turn and lost ~5 accuracy points. */
+  private cacheAlignedTaskReminder: string | undefined = undefined;
 
   private delegateConfig?: {
     userToken: string;
@@ -1741,8 +1765,9 @@ export class TexeraAgent {
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
       const runDriverOnce = (seed: ModelMessage[]) => {
         // Cache-aligned bookkeeping is per driver run: a grounding rerun is a
-        // fresh SDK loop whose tool-message ordinals restart at 1.
-        this.stepResultsByToolOrdinal.clear();
+        // fresh SDK loop, so its frozen entry 0 is re-rendered from scratch.
+        this.cacheAlignedMessages = [];
+        this.cacheAlignedTaskReminder = undefined;
         this.pendingStepResultsRender = undefined;
         return this.driver.runTurn({
         initialMessages: seed,
@@ -1753,50 +1778,31 @@ export class TexeraAgent {
         toolDialect: this.settings.toolDialect,
         abortSignal: this.abortController?.signal,
         prepareStep: async ({ stepNumber, messages: currentMessages }) => {
-          // CACHE-ALIGNED CONTEXT: after step 1, keep the SDK's accumulated
-          // message array byte-untouched — the provider caches a request only
-          // when it EXTENDS a previously-sent one with appended messages
-          // (probed; see AgentSettings.cacheAlignedContext). Re-rendering into
-          // a fresh user message every step is the one shape that never hits.
+          // CACHE-ALIGNED CONTEXT (v2). The provider serves a request from
+          // cache only when it EXTENDS the previous request with APPENDED
+          // messages, earlier ones byte-untouched — growth inside a message
+          // caches nothing, and the message ROLE is irrelevant (all probed;
+          // see AgentSettings.cacheAlignedContext). The legacy loop re-renders
+          // everything into one fresh user message per step, which is exactly
+          // the shape that can never hit.
           //
-          // Execution results ride along as an APPENDED message: legacy
-          // delivered them through the next step's re-render, so freezing the
-          // render without this leaves the model writing operators and never
-          // seeing their output (measured immediately: one write, then
-          // `{"status":"previewing_input"}` as the final answer).
-          // LATEST is excluded: its context is a per-step snapshot rebuild.
-          if (
-            this.settings.cacheAlignedContext &&
-            this.settings.contextMode !== ContextMode.LATEST &&
-            stepNumber > 0 &&
-            currentMessages.length > 0
-          ) {
-            // Move this step's fresh results into the ordinal map, then rebuild
-            // the array with every step's results INSERTED after its tool
-            // message. The SDK's own array is append-only; re-inserting at the
-            // same ordinals keeps each request a strict byte-extension of the
-            // previous one — the only shape the provider's cache rewards.
-            const totalToolMsgs = currentMessages.filter(m => m.role === "tool").length;
-            if (this.pendingStepResultsRender && totalToolMsgs > 0) {
-              // Fresh results belong to the NEWEST tool message.
-              this.stepResultsByToolOrdinal.set(totalToolMsgs, this.pendingStepResultsRender);
-              this.pendingStepResultsRender = undefined;
-            }
-            const merged: ModelMessage[] = [];
-            let toolOrdinal = 0;
-            for (const msg of currentMessages) {
-              merged.push(msg);
-              if (msg.role === "tool") {
-                toolOrdinal += 1;
-                const results = this.stepResultsByToolOrdinal.get(toolOrdinal);
-                if (results) merged.push({ role: "user" as const, content: results });
-              }
-            }
-            // Trace fidelity: the recorded step's inputMessages must be what
-            // the model actually read this step, frozen mode included —
-            // per-turn context growth and prompt forensics both read it.
-            lastPreparedMessages = merged;
-            return { messages: merged };
+          // So WE own the array: entry 0 is this turn's full context render,
+          // frozen at step 1; every later entry is one user message carrying
+          // the step that just ran — our renderer's observations, not the
+          // SDK's raw tool frames, so every knob (clamps, stats, lineage,
+          // telemetry) applies exactly as in legacy — closed by the task
+          // reminder, because under a frozen entry 0 the live request would
+          // otherwise sit above the whole step log.
+          //
+          // LATEST is excluded: its context IS a per-step snapshot rebuild.
+          const cacheAligned =
+            this.settings.cacheAlignedContext && this.settings.contextMode !== ContextMode.LATEST;
+          if (cacheAligned && stepNumber > 0 && this.cacheAlignedMessages.length > 0) {
+            const stepBlock = this.buildCacheAlignedStepMessage(currentMessages);
+            if (stepBlock) this.cacheAlignedMessages.push({ role: "user", content: stepBlock });
+            // Trace fidelity: record what the model actually read this step.
+            lastPreparedMessages = [...this.cacheAlignedMessages];
+            return { messages: this.cacheAlignedMessages };
           }
           let compilationResult: WorkflowCompilationResponse | null = null;
           if (this.workflowState.getAllOperators().length > 0) {
@@ -1823,6 +1829,14 @@ export class TexeraAgent {
           lastPreparedMessages = processed;
           const firstContent = processed[0]?.content;
           this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
+          if (cacheAligned) {
+            // Freeze this render as entry 0 for the rest of the turn, and lift
+            // the layouts' own `# Your Task` directive out of it so each step
+            // message can restate it verbatim (no second wording to maintain).
+            this.cacheAlignedMessages = [...processed];
+            this.cacheAlignedTaskReminder =
+              typeof firstContent === "string" ? extractYourTaskDirective(firstContent) : undefined;
+          }
           return { messages: processed };
         },
         onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
@@ -2369,6 +2383,66 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
+  /**
+   * Cache-aligned mode: the ONE user message describing the step that just ran.
+   *
+   * Built from the SDK's newest assistant/tool frames plus this step's
+   * execution-result render, then closed by the turn's own `# Your Task`
+   * directive. Content parity with legacy is the requirement: legacy showed
+   * each step's actions and observations through the next re-render, so this
+   * message carries the same things — actions with their arguments, tool
+   * outputs (recall pulls included, which is how they persist for the turn),
+   * and the freshly executed results — and nothing legacy would not have
+   * shown. Returns undefined when the step produced nothing to report.
+   */
+  private buildCacheAlignedStepMessage(currentMessages: readonly ModelMessage[]): string | undefined {
+    const stepNo = this.cacheAlignedMessages.length; // entry 0 is the render
+    const parts: string[] = [];
+
+    // The SDK appends [assistant(with toolCalls), tool(results)] per step; take
+    // the trailing pair(s) added since our last append.
+    const tail: ModelMessage[] = [];
+    for (let i = currentMessages.length - 1; i >= 0; i--) {
+      const m = currentMessages[i];
+      if (m.role !== "assistant" && m.role !== "tool") break;
+      tail.unshift(m);
+      if (tail.length >= 4) break;
+    }
+    const actions: string[] = [];
+    const observations: string[] = [];
+    for (const m of tail) {
+      if (m.role === "assistant" && Array.isArray(m.content)) {
+        for (const part of m.content as any[]) {
+          if (part?.type === "text" && part.text?.trim()) actions.push(part.text.trim());
+          if (part?.type === "tool-call") {
+            actions.push(`Action: ${part.toolName} ${JSON.stringify(part.input ?? {})}`);
+          }
+        }
+      } else if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) {
+        actions.push(m.content.trim());
+      } else if (m.role === "tool" && Array.isArray(m.content)) {
+        for (const part of m.content as any[]) {
+          const out = part?.output;
+          const text = typeof out === "string" ? out : (out?.value ?? out?.text ?? JSON.stringify(out ?? ""));
+          if (text) observations.push(String(text));
+        }
+      }
+    }
+    if (actions.length) parts.push(actions.join("\n"));
+    if (observations.length) parts.push(`Observation:\n${observations.join("\n\n")}`);
+    if (this.pendingStepResultsRender) {
+      parts.push(this.pendingStepResultsRender);
+      this.pendingStepResultsRender = undefined;
+    }
+    if (parts.length === 0) return undefined;
+
+    const head = `## Step ${stepNo}`;
+    const reminder = this.cacheAlignedTaskReminder
+      ? `\n\n${this.cacheAlignedTaskReminder}`
+      : "";
+    return `${head}\n${parts.join("\n\n")}${reminder}`;
+  }
+
   private async runPostStepExecution(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined

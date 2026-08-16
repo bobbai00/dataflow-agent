@@ -1040,6 +1040,21 @@ class LongDSLunaBizV32Query(LongDSLunaBizV32Cache):
     _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True, "enableQueryTool": True}
 
 
+class LongDSLunaBizSessionCache(LongDSLunaBizSession2kD2):
+    """The SESSION layout with cache-aligned packaging — the second half of the
+    packaging verification.
+
+    Packaging must be layout-independent: entry 0 is whatever the layout
+    renders (`# Session` here, `# Catalog` on the versioned arms) and the
+    per-step appends are identical machinery. An arm that cached well under one
+    layout and not the other would mean the freeze had leaked into the
+    renderer.
+    """
+
+    _NAME = "LongDSLunaBizSessionCache"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
 class LongDSLunaBizV32CacheR2(LongDSLunaBizV32Cache):
     """Fresh control rep for the query experiment — a separate SUT name so the
     first rep's artifacts stay untouched, and the rep spread of the cache
@@ -1055,6 +1070,7 @@ ARMS = {
     "luna-biz-v32-verify": LongDSLunaBizV32Verify,
     "luna-biz-v32-query": LongDSLunaBizV32Query,
     "luna-biz-v32-cache-r2": LongDSLunaBizV32CacheR2,
+    "luna-biz-session-cache": LongDSLunaBizSessionCache,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,
