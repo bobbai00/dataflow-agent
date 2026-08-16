@@ -420,6 +420,30 @@ export interface AgentSettings {
    */
   rowLineage: boolean;
   /**
+   * POSITION-AWARE STAT SCOPES — where each data-facet channel may render,
+   * keyed by the operator's place in the DAG (`all` | `source` | `nonsource` |
+   * `off`). `dataLevel` stays the coarse preset that turns channels ON; this
+   * decides WHERE each one renders, so the two compose rather than compete.
+   *
+   * The motivating asymmetry: a SOURCE operator can only lose data at parse
+   * time (coercion NaNs, dropped values, partial file reads), and a CONSUMER
+   * can only lose it in its own transform (a join dropping keys) — so
+   * `{coercion:"source", fileIo:"source", lineage:"nonsource"}` puts each
+   * alarm exactly where its failure lives and nowhere else. Column stats are
+   * the expensive channel (v8 measured them changing join decomposition), so
+   * scoping them is the direct test of "keep the value, drop the flood".
+   *
+   * Undefined = legacy: every enabled channel renders on every operator.
+   */
+  statScopes?: {
+    columnStats?: "all" | "source" | "nonsource" | "off";
+    coercion?: "all" | "source" | "nonsource" | "off";
+    lineage?: "all" | "source" | "nonsource" | "off";
+    structural?: "all" | "source" | "nonsource" | "off";
+    valueFormat?: "all" | "source" | "nonsource" | "off";
+    fileIo?: "all" | "source" | "nonsource" | "off";
+  };
+  /**
    * VERSIONED MODE — the session as one immutable version DAG addressed by
    * (operatorId, turnId). Three coupled changes, one flag:
    *   render: the context is a single `# Catalog` — finished turns as

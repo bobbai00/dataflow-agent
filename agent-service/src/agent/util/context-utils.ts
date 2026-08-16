@@ -72,7 +72,29 @@ const log = createLogger("ContextAssembler");
  *  Public entry
  * ========================================================================= */
 
+/**
+ * Where a data-facet channel is allowed to render, by the operator's position
+ * in the DAG. `all` is the legacy behaviour; `source` / `nonsource` split the
+ * evidence by which failure the operator can actually have (dirty parse at the
+ * lake edge vs row loss in a transform); `off` disables the channel without
+ * touching the flag that turned it on.
+ */
+export type StatScope = "all" | "source" | "nonsource" | "off";
+
+/** Per-channel scope overlay. Any channel left undefined behaves as `all`. */
+export interface StatScopes {
+  columnStats?: StatScope;
+  coercion?: StatScope;
+  lineage?: StatScope;
+  structural?: StatScope;
+  valueFormat?: StatScope;
+  fileIo?: StatScope;
+}
+
 export interface AssembleContextOptions {
+  /** Position-aware gating for the data-facet channels. Undefined = legacy
+   *  (a channel renders wherever its flag is on). */
+  statScopes?: StatScopes;
   /** Compilation result for the *current* workflowState. Schemas it carries
    *  are only attached to operators in the current (last) snapshot — we
    *  can't recompile historical snapshots cheaply, so non-current snapshots
@@ -3054,7 +3076,7 @@ function renderRawResult(
   ex?: OperatorRenderExtras
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
-    ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
+    ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, operatorId, workflowState)),
     resolveInputColumns,
   });
   const text = raw.trim();
@@ -3212,19 +3234,53 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
 
 /** The legacy (global-flag) result-format options — shared by the LATEST
  *  operator block and the DELTA observation render. */
-function legacyFormatOptions(options: AssembleContextOptions): FormatOperatorResultOptions {
+/**
+ * Is `operatorId` a SOURCE operator — one with no inbound link? Sources read
+ * the data lake; everything else reads another operator's output. The two
+ * classes want different evidence: a source can lose rows only by dirty parse
+ * (coercion, dropped values, file-IO), a consumer can lose them only by its own
+ * transform (lineage / join rate), so a channel aimed at one is noise on the other.
+ */
+function isSourceOperator(operatorId: string, workflowState: WorkflowState): boolean {
+  for (const l of workflowState.getAllLinks()) {
+    if (l?.target?.operatorID === operatorId) return false;
+  }
+  return true;
+}
+
+/**
+ * Gate one data-facet channel on where the operator sits in the DAG.
+ * `undefined`/"all" keeps the legacy behaviour (render wherever the flag is on).
+ */
+function inScope(scope: StatScope | undefined, isSource: boolean): boolean {
+  if (!scope || scope === "all") return true;
+  if (scope === "off") return false;
+  return scope === "source" ? isSource : !isSource;
+}
+
+function legacyFormatOptions(
+  options: AssembleContextOptions,
+  operatorId?: string,
+  workflowState?: WorkflowState
+): FormatOperatorResultOptions {
+  // Position-aware channel gating (statScopes). Without scopes configured this
+  // is exactly the previous flag pass-through — every `inScope` returns true.
+  const sc = options.statScopes;
+  const isSource = sc && operatorId && workflowState ? isSourceOperator(operatorId, workflowState) : true;
+  const on = (flag: boolean | undefined, scope: StatScope | undefined) =>
+    flag === true && inScope(scope, isSource);
   return {
     schemaInResult: options.schemaInResult,
-    columnStats: options.columnStats,
-    valueFormatFlags: options.valueFormatFlags,
-    coercionTelemetry: options.coercionTelemetry,
-    rowLineage: options.rowLineage,
+    columnStats: sc ? on(options.columnStats, sc.columnStats) : options.columnStats,
+    valueFormatFlags: sc ? on(options.valueFormatFlags, sc.valueFormat) : options.valueFormatFlags,
+    coercionTelemetry: sc ? on(options.coercionTelemetry, sc.coercion) : options.coercionTelemetry,
+    rowLineage: sc ? on(options.rowLineage, sc.lineage) : options.rowLineage,
     maxResultRows: options.maxResultRows,
-    tableStructureHint: options.tableStructureHint,
+    tableStructureHint: sc ? on(options.tableStructureHint, sc.structural) : options.tableStructureHint,
     // A7: the legacy (no per-operator extras) path serves DELTA arms and any
     // arm without overrides. Omitting this dropped the `Files read:` fact for
     // every such arm even when stats implied it.
-    fileIoFacts: options.fileIoFacts,
+    fileIoFacts: sc ? on(options.fileIoFacts, sc.fileIo) : options.fileIoFacts,
   };
 }
 
@@ -3429,7 +3485,7 @@ function serializeOperatorFull(
     execText = [schemaLine, ex.retirementFact].filter(Boolean).join("\n");
   } else if (info && ex?.detail !== "omit") {
     execText = formatOperatorResult(op.operatorID, info, workflowState, {
-      ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options)),
+      ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, op.operatorID, workflowState)),
       // LATEST renders a single consolidated `Inputs:` (with counts) at the
       // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
       inputsInResult: false,

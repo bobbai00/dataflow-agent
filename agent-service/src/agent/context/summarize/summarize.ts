@@ -146,6 +146,7 @@ export function paramsToRenderOptions(
   const interleaved = params.trajectory.events === "interleaved";
   return {
     compilationResult,
+    statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
     agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,

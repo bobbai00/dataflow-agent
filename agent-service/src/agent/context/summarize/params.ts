@@ -352,6 +352,19 @@ export const SummarizeParamsSchema = z.object({
     .default({}),
   /** Per-cell char cap reused for the surfaced print-output block. 0 ⇒ none. */
   maxCellChars: z.number().int().min(0).default(0),
+  /** Position-aware gating for the data-facet channels: WHERE each enabled
+   *  channel renders (source op / consumer op / everywhere / nowhere).
+   *  Orthogonal to the flags that turn channels on — see AgentSettings.statScopes. */
+  statScopes: z
+    .object({
+      columnStats: z.enum(["all", "source", "nonsource", "off"]).optional(),
+      coercion: z.enum(["all", "source", "nonsource", "off"]).optional(),
+      lineage: z.enum(["all", "source", "nonsource", "off"]).optional(),
+      structural: z.enum(["all", "source", "nonsource", "off"]).optional(),
+      valueFormat: z.enum(["all", "source", "nonsource", "off"]).optional(),
+      fileIo: z.enum(["all", "source", "nonsource", "off"]).optional(),
+    })
+    .optional(),
 });
 export type SummarizeParams = z.infer<typeof SummarizeParamsSchema>;
 
@@ -479,6 +492,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     // event log with the live snapshot, not delete state.
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    statScopes: options.statScopes,
     flow: {
       loaderHints: flag("loaderHint"),
       errorContext: flag("lineageErrorContext"),
