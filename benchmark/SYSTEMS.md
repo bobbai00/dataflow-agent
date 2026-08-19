@@ -414,6 +414,28 @@ print(c.model_type, c.context_mode, c.max_operator_result_char_limit,
 **Never rebind an existing name.** The generators raise rather than overwrite —
 silently redefining a name changes the meaning of results already on disk.
 
+### Register the model's price
+
+A new model alias also needs a row in `systems/cost_utils.py::_FALLBACK`, as
+`(input, output, cache_read, cache_creation)` USD **per token**:
+
+```python
+"claude-sonnet-5": (3.0e-6, 15.0e-6, 3.0e-7, 3.75e-6),
+```
+
+Without it the run still records real token counts but reports
+`cost_usd = 0.0`, so the arm looks *free* rather than *unpriced* — the more
+dangerous of the two failure modes, because a zero reads as a result.
+
+Prices come from `litellm.model_cost` where available; `_FALLBACK` covers what
+litellm lacks (litellm is not installed in this venv, so in practice `_FALLBACK`
+is the whole table). Source input/output from published rates; the cache legs
+default to read = 10% of input and creation = 1.25x input.
+
+> `claude-opus-5` currently has **no** entry, so `ClaudeCodeSystem` (the opus
+> base arm) reports `cost_usd = 0.0`. Its token counts are correct, so cost is
+> recomputable once a rate is added.
+
 ---
 
 ## 7. Running and checking results
