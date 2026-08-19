@@ -61,7 +61,19 @@ scales with step count.** The catalog shrinks prompts 2.8× (cheaper) and
 doubles steps (slower). The session layout is the mirror image. Neither is
 "the fast one" — they sit on opposite ends of one trade.
 
-## Prompt caching is broken for both arms, and it is the largest cost lever found
+## CORRECTION (2026-08-19): the cache pathology is luna-deployment-specific
+
+Probing the same gateway with the same requests against both models settles it:
+gpt-5.2 (public OpenAI) serves a 124.8k-token PREFIX hit even when the last
+character changed or text was appended inside the message — true prefix
+caching, and its KramaBench arms measure 82.8% cached with cached scaling by
+prompt size. gpt-5.6-luna returns 0 for both cases — whole-message exact match
+only. So the "one big re-rendered block" architecture caches fine on standard
+OpenAI models; the ~6k-constant pathology below is a property of the
+luna/terra deployment, and the cache-aligned packaging is the workaround for
+THAT deployment (worth it: luna is 8.75x cheaper per token than gpt-5.2).
+
+## Prompt caching is broken for both arms on the LUNA deployment — the largest cost lever found
 
 `cachedInputTokens` is a constant per step — p50 = p90 = 5,409 (session) /
 7,043 (v32) — i.e. only the system prompt + tool definitions ever cache,
