@@ -81,11 +81,51 @@ except ImportError:
     pass
 try:
     from scipy import stats
-    from scipy.stats import linregress, pearsonr, spearmanr
+    from scipy.stats import linregress, pearsonr, spearmanr, fisher_exact
     from scipy.sparse import csr_matrix, coo_matrix, hstack as sparse_hstack, vstack as sparse_vstack
     from scipy.spatial.distance import cdist, pdist, squareform
 except ImportError:
     pass
+# The top-10 campaign's gold code reaches further into sklearn (water-potability
+# task3: clone / RepeatedStratifiedKFold / RandomizedSearchCV), statsmodels
+# (cpe task1: smf.ols) and geopandas (cpe task2: shapefile overlays). Every
+# name here comes from a NameError the gate actually raised.
+try:
+    from sklearn.base import clone
+    from sklearn.model_selection import RepeatedStratifiedKFold, RandomizedSearchCV, GridSearchCV
+except ImportError:
+    pass
+try:
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+except ImportError:
+    pass
+try:
+    import geopandas as gpd
+except ImportError:
+    pass
+
+# Two RECONSTRUCTED bindings from unexported notebook cells (same class as
+# `dumps4` below — the cell that defined them was never exported to task.py):
+#   SEED — acea task2's split/model seed. 42 is a guess; the gate VALIDATES it:
+#          if the 27 dependent turns reproduce gold exactly, the guess is right,
+#          and if not the task fails loudly rather than shipping a wrong gate.
+#   POP_CACHE — cpe task2's population memo dict, used from turn 2 but defined
+#          only inside turn 22's chunk. Pure memoization over deterministic
+#          loads (`.copy()` on both read and write), so predefining it empty is
+#          semantics-preserving.
+SEED = 42
+POP_CACHE = {}
+
+# acea task3's unexported ranking helper, reconstructed from the task text's
+# own conventions (ranked records run larger-to-smaller; ties break by smaller
+# year / index / label; nulls placed after). Returns top/bottom-n
+# (index, value) pairs. Validated like SEED: 19 turns depend on it and either
+# reproduce gold exactly or the task fails the gate loudly.
+def ranked_series_items(s, n, largest=True):
+    items = list(s.dropna().items())
+    items.sort(key=lambda kv: ((-kv[1] if largest else kv[1]), kv[0]))
+    return items[:n]
 
 # `dumps4` is upstream's own publishing step on several tasks — the one that
 # applies the "round all decimal results to 4 decimal places" rule every task's
@@ -215,6 +255,14 @@ def run_turns(src: str, data_root: Path, n_turns: int):
     )
 
     ns: dict = AutoImportNS(__name__="__gold__")
+    # Path-root variables from the unexported cell. Most tasks bind the
+    # `../../../../../data/longds/<task>` literal themselves (collapsed to "."
+    # by the caller); acea task3 references a bare `BASE` that only ever
+    # existed in the notebook. The gate runs with the task's data root as cwd,
+    # so "." is exactly what these must resolve to. A task that defines its own
+    # simply shadows the seed.
+    for _pathvar in ("BASE", "ROOT", "DATA_DIR", "base_path", "BASE_PATH"):
+        ns[_pathvar] = "."
     produced: dict = {}
     errors: list = []
     cwd = os.getcwd()

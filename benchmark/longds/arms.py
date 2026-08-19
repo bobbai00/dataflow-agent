@@ -1136,3 +1136,66 @@ ARMS = {
     "luna-versioned-2k-d2-v32-ext2": LongDSLunaVersioned2kD2V32Ext2,
     "luna-versioned-2k-d2-v32-ext3": LongDSLunaVersioned2kD2V32Ext3,
 }
+
+
+# ---------------------------------------------------------------------------
+# TOP-10 campaign (2026-08-19): the ten longest runnable tasks in the
+# benchmark (both kiva tasks substituted — a measured engine data-scale limit,
+# not an arm property), session vs versioned-v3.2-fix, THREE reps per arm.
+# The n=3 discipline is the v7 lesson: single runs measure the config times
+# one cascade-lottery draw; three reps is the minimum that separates them.
+# Rep 1 runs the legacy render (byte-identical knobs to the business
+# campaign pair). Reps 2-3 run with cacheAlignedContext ON — a mid-campaign
+# user decision (2026-08-19) that doubles as the v2 packaging's accuracy
+# validation: r1 is the legacy anchor, and an r1-vs-r2/r3 accuracy cliff
+# indicts the packaging. Rep-to-rep spread is confounded with packaging by
+# construction; arm-vs-arm WITHIN each round stays clean.
+class LongDSLunaTop10Session(LongDSLunaBizSession2kD2):
+    """Session baseline for the top-10 campaign, with ONE environment change
+    from the business campaign's session arm: `execution_timeout_minutes=10`
+    (the v3.2-fix value) instead of the 4-minute default. On this task set the
+    default BINDS — cdp's turn 1 materializes an 869k-row feather through the
+    engine and every execution died at exactly 240 s (measured: 486 s steps =
+    2 ops x the cap), which would have handicapped the session arm against a
+    versioned arm that already carries 10 minutes. Equalized so the layout
+    comparison stays about layout."""
+
+    _NAME = "LongDSLunaTop10Session"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("execution_timeout_minutes", 10)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaTop10SessionR2(LongDSLunaTop10Session):
+    _NAME = "LongDSLunaTop10SessionR2"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+class LongDSLunaTop10SessionR3(LongDSLunaTop10Session):
+    _NAME = "LongDSLunaTop10SessionR3"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+class LongDSLunaTop10V32(LongDSLunaBizVersioned2kD2V32Fix):
+    _NAME = "LongDSLunaTop10V32"
+
+
+class LongDSLunaTop10V32R2(LongDSLunaTop10V32):
+    _NAME = "LongDSLunaTop10V32R2"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+class LongDSLunaTop10V32R3(LongDSLunaTop10V32):
+    _NAME = "LongDSLunaTop10V32R3"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+ARMS.update({
+    "luna-top10-session": LongDSLunaTop10Session,
+    "luna-top10-session-r2": LongDSLunaTop10SessionR2,
+    "luna-top10-session-r3": LongDSLunaTop10SessionR3,
+    "luna-top10-v32": LongDSLunaTop10V32,
+    "luna-top10-v32-r2": LongDSLunaTop10V32R2,
+    "luna-top10-v32-r3": LongDSLunaTop10V32R3,
+})
