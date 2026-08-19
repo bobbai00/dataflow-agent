@@ -43,6 +43,7 @@ import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
+import { buildNativeFrames, splitTrailingState } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -119,12 +120,57 @@ export function summarize(input: SummarizeInput, params: SummarizeParams): Summa
     };
   }
 
+  // NATIVE FRAMES: collect which step produced each rendered event so the
+  // transcript can carry that step's REAL tool calls (true toolCallIds).
+  const stepByEvent = new Map<number, ReActStep>();
+  if (params.messageLayout === "native") {
+    options.eventStepSink = (eventIndex, step) => stepByEvent.set(eventIndex, step);
+  }
   const text = renderContextCore(input.visibleSteps, input.workflowState, input.snapshotStorage, mode, options);
+  const messages: ModelMessage[] = buildMessages(params.messageLayout, text, stepByEvent);
   return {
     text,
-    messages: [{ role: "user", content: text }],
+    messages,
     breakdown: computeBreakdown(text),
   };
+}
+
+/**
+ * Frame the rendered context as wire messages.
+ *
+ *   block      one user message — the original shape. Uncacheable: the whole
+ *              thing is re-rendered every step, so no prefix ever repeats.
+ *   blockSplit same bytes, cut into [history][current state] so the history is
+ *              a stable prefix a cache breakpoint can sit on.
+ *   native     a real tool-calling transcript (see native-frames).
+ *
+ * blockSplit and native are cacheable for the same reason — an append-only
+ * prefix with the volatile current-state section pushed last. They differ only
+ * in whether the history is prose in a user turn or real assistant/tool turns,
+ * which is what isolates "does the framing change accuracy" from "does it
+ * change cost".
+ */
+function buildMessages(
+  layout: string | undefined,
+  text: string,
+  stepByEvent: Map<number, ReActStep>,
+): ModelMessage[] {
+  if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
+  if (layout === "blockSplit") {
+    const { head, tail } = splitTrailingState(text);
+    // Structure must be preserved EXACTLY: blockSplit is a wire-framing change
+    // for cache purposes, never a content change. If the two halves do not
+    // reconstruct the render byte-for-byte (ignoring the join whitespace), the
+    // split is wrong and we ship the original single block rather than send the
+    // model something the renderer did not produce.
+    if (tail) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(head + "\n\n" + tail) === norm(text)) {
+        return [{ role: "user", content: head }, { role: "user", content: tail }];
+      }
+    }
+  }
+  return [{ role: "user", content: text }];
 }
 
 /* ============================================================================

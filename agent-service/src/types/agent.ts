@@ -435,6 +435,22 @@ export interface AgentSettings {
    *
    * Undefined = legacy: every enabled channel renders on every operator.
    */
+  /**
+   * WIRE FRAMING. "block" (default) sends the whole rendered trajectory as one
+   * user message per step; its bytes shift every step, so nothing prefix-matches
+   * and the context is re-written each time (measured: 56.6% of input tokens
+   * were cache WRITES at 1.25x, vs READS at 0.10x).
+   *
+   * "native" re-frames the SAME render as a real tool-calling transcript —
+   * assistant turns carry actual tool_calls, and each tool result carries OUR
+   * rendered execution evidence (schema / stats / lineage / coercion, still
+   * gated by their own flags and statScopes). The prefix becomes append-only.
+   *
+   * Do NOT reintroduce a variant that puts the rendered `Action:` text in an
+   * assistant turn: the model imitates it, narrating tool calls as prose
+   * instead of calling tools (measured 5.0% vs 55.3%).
+   */
+  messageLayout?: "block" | "blockSplit" | "native";
   statScopes?: {
     columnStats?: "all" | "source" | "nonsource" | "off";
     coercion?: "all" | "source" | "nonsource" | "off";

@@ -1288,6 +1288,7 @@ export class TexeraAgent {
     coercionTelemetry?: boolean;
     rowLineage?: boolean;
     statScopes?: AgentSettings["statScopes"];
+    messageLayout?: AgentSettings["messageLayout"];
     versionedMode?: boolean;
     versionedHeads?: boolean;
     sessionTurns?: boolean;
@@ -1514,6 +1515,7 @@ export class TexeraAgent {
     if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
     if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
     if (updates.statScopes !== undefined) this.settings.statScopes = updates.statScopes;
+    if (updates.messageLayout !== undefined) this.settings.messageLayout = updates.messageLayout;
     if (updates.versionedMode !== undefined && updates.versionedMode !== this.settings.versionedMode) {
       // Changes the write tool's schema (strict version params), the context
       // layout, AND the prompt fragment describing both. Tools are rebuilt at

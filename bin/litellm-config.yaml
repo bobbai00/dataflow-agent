@@ -41,9 +41,18 @@ model_list:
   # Anthropic prompt caching is OPT-IN per request (cache_control breakpoints),
   # unlike OpenAI's automatic caching — so every OpenAI-compatible caller got
   # cached_tokens=0 on claude while the same path recorded ~85% cache reads on
-  # gpt. Inject breakpoints proxy-side: one on the system prompt, one on the
-  # last message (Anthropic walks back from a breakpoint to the longest cached
-  # prefix, so this caches the whole growing conversation each step).
+  # gpt. Inject breakpoints proxy-side. Anthropic reuses a prefix only if a
+  # PREVIOUS request already wrote a cache entry at that exact boundary, so a
+  # breakpoint is worth having only where the bytes are stable across steps:
+  #   system  - never changes.
+  #   index -2 - end of the append-only region. Under the native layout the
+  #     last message is a re-rendered "current state" block that differs every
+  #     step, so an entry written at -1 can never be matched; -2 lands on the
+  #     final tool result, which IS a byte-identical prefix of the next step.
+  #   index -1 - still useful for a retry of the same step.
+  # Dropping -2 is what made native cost 81% more than block on environment:
+  # 64.7% of input tokens were cache WRITES (1.25x) with only the system
+  # prompt ever read back.
   - model_name: claude-haiku-4.5
     litellm_params:
       model: claude-haiku-4-5-20251001
@@ -52,14 +61,23 @@ model_list:
         - location: message
           role: system
         - location: message
+          index: -2
+        - location: message
           index: -1
   - model_name: claude-sonnet-5
     litellm_params:
       model: claude-sonnet-5
       api_key: "os.environ/ANTHROPIC_API_KEY"
+      # sonnet-5 rejects `temperature` outright ("`temperature` is deprecated
+      # for this model"), and both the dataflow agent and smolagents send it by
+      # default — every request 400s and the task records 0 steps / 0 tokens.
+      # Drop it at the proxy so callers need no per-model special-casing.
+      additional_drop_params: ["temperature"]
       cache_control_injection_points:
         - location: message
           role: system
+        - location: message
+          index: -2
         - location: message
           index: -1
   - model_name: claude-opus-5
@@ -69,6 +87,8 @@ model_list:
       cache_control_injection_points:
         - location: message
           role: system
+        - location: message
+          index: -2
         - location: message
           index: -1
 

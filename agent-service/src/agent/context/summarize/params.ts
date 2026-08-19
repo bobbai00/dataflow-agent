@@ -355,6 +355,8 @@ export const SummarizeParamsSchema = z.object({
   /** Position-aware gating for the data-facet channels: WHERE each enabled
    *  channel renders (source op / consumer op / everywhere / nowhere).
    *  Orthogonal to the flags that turn channels on — see AgentSettings.statScopes. */
+  /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
+  messageLayout: z.enum(["block", "blockSplit", "native"]).optional(),
   statScopes: z
     .object({
       columnStats: z.enum(["all", "source", "nonsource", "off"]).optional(),
@@ -493,6 +495,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
     statScopes: options.statScopes,
+    messageLayout: options.messageLayout,
     flow: {
       loaderHints: flag("loaderHint"),
       errorContext: flag("lineageErrorContext"),

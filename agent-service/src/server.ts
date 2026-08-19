@@ -256,6 +256,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       coercionTelemetry: settings.coercionTelemetry,
       rowLineage: settings.rowLineage,
       statScopes: settings.statScopes,
+      messageLayout: settings.messageLayout,
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,
@@ -493,6 +494,21 @@ const agentStore = new Map<string, TexeraAgent>();
  *  can echo it back to the UI. Populated by `createAgentInstance`. */
 const agentDrivers = new Map<string, AgentDriverKind>();
 let agentCounter = 0;
+/**
+ * Per-process salt for agent ids.
+ *
+ * Ids used to be a bare `agent-<n>` from a module-level counter. That counter
+ * restarts at 0 whenever the service restarts (including a `bun --watch` hot
+ * reload), so a fresh process re-issues ids that concurrent benchmark tasks
+ * are still holding. The result: one task's cleanup `DELETE /api/agents/agent-8`
+ * removes the agent a DIFFERENT task is running on, and that task dies with
+ * "Agent not found" — 0 steps, 0 tokens, scored as a wrong answer. It looked
+ * like random flakiness (~30% of tasks) and was misread as a concurrency limit.
+ *
+ * The salt makes an id unique to the process that minted it, so a stale id from
+ * an earlier process can never address a live agent.
+ */
+const AGENT_ID_SALT = Math.random().toString(36).slice(2, 8);
 
 async function createAgentInstance(
   modelType: string,
@@ -500,7 +516,7 @@ async function createAgentInstance(
   customName?: string,
   explicitDriver?: AgentDriverKind
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
-  const agentId = `agent-${++agentCounter}`;
+  const agentId = `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
 
   const openai = createOpenAI({
@@ -841,6 +857,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           coercionTelemetry: (settings as any).coercionTelemetry,
           rowLineage: (settings as any).rowLineage,
           statScopes: (settings as any).statScopes,
+          messageLayout: (settings as any).messageLayout,
           versionedMode: (settings as any).versionedMode,
           versionedHeads: (settings as any).versionedHeads,
           sessionTurns: (settings as any).sessionTurns,
@@ -921,6 +938,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       coercionTelemetry: t.Optional(t.Boolean()),
       rowLineage: t.Optional(t.Boolean()),
       statScopes: t.Optional(t.Any()),
+      messageLayout: t.Optional(t.String()),
       versionedMode: t.Optional(t.Boolean()),
       versionedHeads: t.Optional(t.Boolean()),
       sessionTurns: t.Optional(t.Boolean()),

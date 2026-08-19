@@ -92,6 +92,12 @@ export interface StatScopes {
 }
 
 export interface AssembleContextOptions {
+  /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
+  messageLayout?: "block" | "blockSplit" | "native";
+  /** Native message layout: called once per rendered agent event with the step
+   *  that produced it, so the message builder can emit that step's REAL tool
+   *  calls (true toolCallIds) instead of inferring them from the rendered text. */
+  eventStepSink?: (eventIndex: number, step: ReActStep) => void;
   /** Position-aware gating for the data-facet channels. Undefined = legacy
    *  (a channel renders wherever its flag is on). */
   statScopes?: StatScopes;
@@ -1977,7 +1983,7 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex)));
+    lines.push(serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex), options));
     lines.push("");
 
     // VERSIONED MODE: a read-only pull's OUTPUT persists inline, as an
@@ -2988,8 +2994,9 @@ function serializeUserEventInline(node: PathNode): string {
  * model emitted. The execution outcome is rendered separately as the caller's
  * `Observation:` block.
  */
-function serializeTurn(node: PathNode, revisionFolds?: Map<string, string>): string {
+function serializeTurn(node: PathNode, revisionFolds?: Map<string, string>, options?: AssembleContextOptions): string {
   const step = node.step;
+  options?.eventStepSink?.(node.eventIndex, step);
   const lines: string[] = [];
   lines.push(`## Agent Event ${node.eventIndex}`);
   lines.push("");

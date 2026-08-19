@@ -1,0 +1,218 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import type { ModelMessage } from "ai";
+import type { ReActStep } from "../../../types/agent";
+
+/**
+ * NATIVE MESSAGE FRAMES — re-frame one rendered DELTA context as a real
+ * tool-calling transcript: user(task) → assistant(text + tool_calls) →
+ * tool(our rendered execution evidence) → …
+ *
+ * WHY THIS SHAPE AND NOT PROSE. An earlier attempt split the same text into
+ * plain user/assistant turns, putting the rendered `Thought:` / `Action:` block
+ * in the ASSISTANT turn as text. That taught the model that assistants NARRATE
+ * actions: it emitted the literal string "## Agent Event 4" with zero tool
+ * calls and the loop died at ~4 steps (5.0% vs 55.3% on `environment`). Real
+ * `tool-call` parts remove the ambiguity — the assistant turn contains actual
+ * calls, so there is nothing to imitate in prose.
+ *
+ * WHY OUR TEXT STILL DRIVES THE EVIDENCE. Execution happens AFTER the tool
+ * returns, and what the model should see about it (schema, column stats,
+ * lineage, coercion loss — each gated by its own flag and now by statScopes) is
+ * rendered by us, not by the tool. So the tool-result content is OUR rendered
+ * `Observation:` block verbatim. We keep full control of the evidence; only the
+ * framing is native.
+ *
+ * WHY IT IS CHEAPER. The block layout re-renders the whole trajectory into one
+ * user message every step, so its bytes shift and nothing prefix-matches: on
+ * `environment` 56.6% of 2.93M input tokens were cache WRITES (1.25x) rather
+ * than READS (0.10x). Frames make the prefix append-only — earlier turns are
+ * byte-identical between steps.
+ */
+
+/** `## Agent Event N` at line start — the boundary the renderer emits. */
+const EVENT_RE = /^## Agent Event (\d+)\s*$/gm;
+/** A top-level section rendered after the last event (current state, not history). */
+const TRAILING_SECTION_RE = /^# [^\n]+$/m;
+
+export interface NativeFramesResult {
+  messages: ModelMessage[];
+  /** Events converted to frame pairs. 0 ⇒ nothing to convert (caller keeps the block). */
+  events: number;
+}
+
+/**
+ * Split a rendered context into its append-only HEAD and its volatile TAIL.
+ *
+ * The tail is the top-level section rendered AFTER the last agent event — the
+ * CURRENT dataflow state, which is re-rendered from scratch every step. The
+ * head is the task plus the event history, which only ever grows.
+ *
+ * This split is what makes prompt caching possible. Anthropic can only reuse a
+ * prefix that some earlier request already stored a cache entry for, and an
+ * entry is only reusable if every byte before it is unchanged. Keeping the two
+ * in ONE message means the volatile tail sits inside the only cacheable unit,
+ * so nothing is ever reused. Measured directly against the proxy: one message
+ * with a changing tail re-wrote all 19,814 tokens on the second call and read
+ * 0; the same bytes split into two messages wrote 10 and read 19,804.
+ *
+ * Returns `tail === ""` when there is no trailing state section, in which case
+ * the caller should emit the text unsplit.
+ */
+export function splitTrailingState(text: string): { head: string; tail: string } {
+  EVENT_RE.lastIndex = 0;
+  let lastEventAt = -1;
+  for (let m = EVENT_RE.exec(text); m !== null; m = EVENT_RE.exec(text)) lastEventAt = m.index;
+  if (lastEventAt < 0) return { head: text, tail: "" };
+  const nl = text.indexOf("\n", lastEventAt) + 1;
+  if (nl <= 0) return { head: text, tail: "" };
+  // Scan line-wise and skip fenced code: rendered Action blocks contain python
+  // comments like `# not a heading`, and matching one would cut the render in
+  // the middle of a step — content still reconstructs, so the caller's equality
+  // guard would not catch it, but the cached head would end mid-event.
+  const rest = text.slice(nl);
+  let off = 0;
+  let fenced = false;
+  let cut = -1;
+  for (const line of rest.split("\n")) {
+    if (/^\s*```/.test(line)) fenced = !fenced;
+    else if (!fenced && /^# [^\n]*$/.test(line)) { cut = off; break; }
+    off += line.length + 1;
+  }
+  if (cut < 0) return { head: text, tail: "" };
+  return { head: text.slice(0, nl + cut).trimEnd(), tail: text.slice(nl + cut).trimEnd() };
+}
+
+/**
+ * Build the transcript. `stepByEvent` maps a rendered event index to the step
+ * that produced it (populated by the renderer's `eventStepSink`), which is what
+ * lets us emit the step's true toolCallIds — a fabricated id would not match the
+ * result part and providers reject the pair.
+ *
+ * Events whose step has no tool calls cannot become a frame pair (a tool result
+ * with no call is invalid), so their rendered text is carried as an assistant
+ * text turn instead — thought-only turns stay visible without breaking pairing.
+ */
+export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActStep>): NativeFramesResult {
+  const marks: Array<{ at: number; index: number }> = [];
+  EVENT_RE.lastIndex = 0;
+  for (let m = EVENT_RE.exec(text); m !== null; m = EVENT_RE.exec(text)) {
+    marks.push({ at: m.index, index: Number(m[1]) });
+  }
+  if (marks.length === 0) return { messages: [{ role: "user", content: text }], events: 0 };
+
+  const messages: ModelMessage[] = [];
+  const prefix = text.slice(0, marks[0].at).trimEnd();
+  if (prefix) messages.push({ role: "user", content: prefix });
+
+  let converted = 0;
+  for (let i = 0; i < marks.length; i++) {
+    const end = i + 1 < marks.length ? marks[i + 1].at : text.length;
+    let chunk = text.slice(marks[i].at, end);
+
+    // Split off a trailing top-level section: it is CURRENT state, re-rendered
+    // every step, so it must sit last or it would break the append-only prefix.
+    let trailing = "";
+    if (i === marks.length - 1) {
+      const nl = chunk.indexOf("\n") + 1;
+      const t = chunk.slice(nl).search(TRAILING_SECTION_RE);
+      if (t >= 0) {
+        trailing = chunk.slice(nl + t).trimEnd();
+        chunk = chunk.slice(0, nl + t);
+      }
+    }
+
+    const obsAt = chunk.search(/^Observation:\s*$/m);
+    const head = (obsAt >= 0 ? chunk.slice(0, obsAt) : chunk).trimEnd();
+    const observation = obsAt >= 0 ? chunk.slice(obsAt).trimEnd() : "";
+
+    const step = stepByEvent.get(marks[i].index);
+    const calls = step?.toolCalls ?? [];
+
+    // `Thought:` is the model's own reasoning; keep it as the assistant's text.
+    // The `Action:` render is dropped here — the tool-call parts below ARE the
+    // action, and repeating it as prose is what caused the narration failure.
+    const thought = extractThought(head);
+
+    if (calls.length === 0) {
+      const body = thought || head;
+      if (body) messages.push({ role: "assistant", content: body });
+      if (observation) messages.push({ role: "user", content: observation });
+      if (trailing) messages.push({ role: "user", content: trailing });
+      continue;
+    }
+
+    messages.push({
+      role: "assistant",
+      content: [
+        ...(thought ? [{ type: "text" as const, text: thought }] : []),
+        ...calls.map(tc => ({
+          type: "tool-call" as const,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input ?? {},
+        })),
+      ],
+    });
+
+    // Every call needs exactly one result. The event's rendered evidence covers
+    // the whole step (it is a per-operator delta, not per-call), so it rides on
+    // the LAST result and earlier calls carry their own one-line outcome.
+    messages.push({
+      role: "tool",
+      content: calls.map((tc, k) => {
+        const own = ownOutcome(step, tc.toolCallId);
+        const isLast = k === calls.length - 1;
+        const value = isLast && observation ? (own ? `${own}\n\n${observation}` : observation) : own || "ok";
+        return {
+          type: "tool-result" as const,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          output: { type: "text" as const, value },
+        };
+      }),
+    });
+    converted++;
+
+    if (trailing) messages.push({ role: "user", content: trailing });
+  }
+
+  // A transcript must not end on an assistant turn, and a tool turn must be
+  // followed by the model's move — both are satisfied by a closing user turn.
+  const last = messages[messages.length - 1];
+  if (last && last.role !== "user") messages.push({ role: "user", content: "Continue." });
+
+  return { messages, events: converted };
+}
+
+/** The `Thought: …` body of a rendered event, up to the `Action:` block. */
+function extractThought(head: string): string {
+  const m = head.match(/^Thought:\s*([\s\S]*?)(?=\n(?:Action:)\s*$|\n*$)/m);
+  return m ? m[1].trim() : "";
+}
+
+/** That one call's own outcome, first line only — errors keep their message. */
+function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
+  const r = step?.toolResults?.find(x => x.toolCallId === toolCallId);
+  if (!r) return "";
+  const out = typeof r.output === "string" ? r.output : JSON.stringify(r.output ?? "");
+  const first = out.trim().split("\n")[0]?.trim() ?? "";
+  return first.slice(0, 300);
+}

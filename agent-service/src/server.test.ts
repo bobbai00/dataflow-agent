@@ -106,7 +106,7 @@ describe(`POST ${API}/agents`, () => {
       state: string;
       delegate: unknown;
     }>(res);
-    expect(agent.id).toMatch(/^agent-\d+$/);
+    expect(agent.id).toMatch(/^agent-[a-z0-9]+-\d+$/);
     expect(agent.name).toBe("Tester");
     expect(agent.modelType).toBe("test-model");
     expect(agent.state).toBe("AVAILABLE");
