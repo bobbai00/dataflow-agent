@@ -290,3 +290,65 @@ describe("versioned catalog", () => {
     expect(cur).toContain("# Your Task");
   });
 });
+
+describe("catalogDetail on the versioned catalog", () => {
+  function scenarioWithCode(): Scenario {
+    const s = scenario();
+    // give the turn-1 operator code, as the write tool stores it (the storage
+    // returns live snapshot objects, so mutate what turn 1's leaf holds)
+    const op = s.storage
+      .getAssociatedSnapshot("a1")
+      .workflow.operators.find(o => o.operatorID === "scores");
+    (op as any).operatorProperties = {
+      ...(op as any).operatorProperties,
+      code: "def load():\n    return pd.read_csv('scores.csv')",
+    };
+    return s;
+  }
+
+  function renderWith(s: Scenario, catalogDetail: string): string {
+    return String(
+      assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, {
+        compilationResult: null,
+        agentMode: AgentMode.CODE,
+        versionedCatalog: true,
+        catalogDetail,
+        turnNumberByMessageId: new Map([
+          ["m1", 1],
+          ["m2", 2],
+          ["m3", 3],
+        ]),
+      } as any)
+        .map(m => m.content)
+        .join("\n")
+    );
+  }
+
+  test('"code" renders each version\'s code in its own entry', () => {
+    const text = renderWith(scenarioWithCode(), "code");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toContain("```python");
+    expect(t1).toContain("pd.read_csv('scores.csv')");
+  });
+
+  test('default ("schema") never renders code blocks in entries', () => {
+    const text = renderWith(scenarioWithCode(), "schema");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).not.toContain("```python");
+  });
+
+  test('"brief" keeps shape and size but drops the column inventory', () => {
+    const text = renderWith(scenario(), "brief");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toMatch(/Result: \d+ rows x \d+ cols/);
+    expect(t1).not.toContain("— Schema:");
+  });
+
+  test('"ids" collapses each entry to id + verb', () => {
+    const text = renderWith(scenario(), "ids");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toContain("#### `scores` (added)");
+    expect(t1).not.toContain("Result:");
+    expect(t1).not.toContain("Summary:");
+  });
+});

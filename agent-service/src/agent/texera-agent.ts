@@ -550,7 +550,8 @@ export class TexeraAgent {
         this.settings.specAudit === true,
         this.settings.foundationVerify === true,
         this.settings.enableQueryTool === true,
-        this.settings.answerShapeRule === true
+        this.settings.answerShapeRule === true,
+        this.settings.catalogDetail === "code"
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1362,6 +1363,7 @@ export class TexeraAgent {
     enableQueryTool?: boolean;
     upstreamValueEcho?: boolean;
     answerShapeRule?: boolean;
+    catalogDetail?: "ids" | "brief" | "schema" | "code";
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
@@ -1616,6 +1618,12 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.upstreamValueEcho !== undefined) this.settings.upstreamValueEcho = updates.upstreamValueEcho;
+    if (updates.catalogDetail !== undefined && updates.catalogDetail !== this.settings.catalogDetail) {
+      // Render knob, but "code" also carries a prompt fragment (the catalog
+      // now shows code, and the recall guidance changes accordingly).
+      this.settings.catalogDetail = updates.catalogDetail;
+      promptNeedsRebuild = true;
+    }
     if (updates.answerShapeRule !== undefined && updates.answerShapeRule !== this.settings.answerShapeRule) {
       // Prompt-only, like specAudit.
       this.settings.answerShapeRule = updates.answerShapeRule;

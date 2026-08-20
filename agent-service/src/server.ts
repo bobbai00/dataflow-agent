@@ -257,6 +257,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       rowLineage: settings.rowLineage,
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
+      catalogDetail: settings.catalogDetail,
       sessionTurns: settings.sessionTurns,
       recallOperatorLevel: settings.recallOperatorLevel,
       specAudit: settings.specAudit,
@@ -848,6 +849,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           sessionTurns: (settings as any).sessionTurns,
           indexThinObservations: (settings as any).indexThinObservations,
           cacheAlignedContext: (settings as any).cacheAlignedContext,
+          catalogDetail: (settings as any).catalogDetail,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -932,6 +934,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       sessionTurns: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
       cacheAlignedContext: t.Optional(t.Boolean()),
+      catalogDetail: t.Optional(
+        t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
+      ),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1223,6 +1228,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       contextMode: agentSettings.contextMode,
       parallelToolCalls: agentSettings.parallelToolCalls,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
+      catalogDetail: agentSettings.catalogDetail,
       foundationVerify: agentSettings.foundationVerify,
       enableQueryTool: agentSettings.enableQueryTool,
       upstreamValueEcho: agentSettings.upstreamValueEcho,
@@ -1300,6 +1306,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         enableCompactTool: (settings as UpdateAgentSettingsRequest).enableCompactTool,
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
+        catalogDetail: (settings as UpdateAgentSettingsRequest).catalogDetail,
         foundationVerify: (settings as any).foundationVerify,
         enableQueryTool: (settings as any).enableQueryTool,
         upstreamValueEcho: (settings as any).upstreamValueEcho,
@@ -1346,6 +1353,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         rolePolicyConfig: agentSettings.rolePolicyConfig,
       sourceProvenanceHint: agentSettings.sourceProvenanceHint,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
+      catalogDetail: agentSettings.catalogDetail,
       };
     },
     {
@@ -1399,6 +1407,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         enableCompactTool: t.Optional(t.Boolean()),
         compactKeepLastSteps: t.Optional(t.Number()),
         cacheAlignedContext: t.Optional(t.Boolean()),
+        catalogDetail: t.Optional(
+          t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
+        ),
         foundationVerify: t.Optional(t.Boolean()),
         enableQueryTool: t.Optional(t.Boolean()),
         upstreamValueEcho: t.Optional(t.Boolean()),

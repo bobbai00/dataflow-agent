@@ -162,6 +162,7 @@ export function paramsToRenderOptions(
     turnHistoryIndex: params.trajectory.priorTurns === "index" ? true : undefined,
     versionedCatalog: params.trajectory.versionedCatalog === true ? true : undefined,
     versionedHeads: params.trajectory.versionedHeads === false ? false : undefined,
+    catalogDetail: params.trajectory.catalogDetail !== "schema" ? params.trajectory.catalogDetail : undefined,
     sessionTurns: params.trajectory.sessionTurns === true ? true : undefined,
     recallOperatorLevel: params.trajectory.recallOperatorLevel === true ? true : undefined,
     specAudit: params.trajectory.specAudit === true ? true : undefined,

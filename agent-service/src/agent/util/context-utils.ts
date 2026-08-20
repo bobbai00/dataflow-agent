@@ -95,10 +95,15 @@ export interface AssembleContextOptions {
    *  the state entirely — measured 33.3% -> 11.1%. */
   thinObservations?: boolean;
   /** Per-operator detail in each `# Catalog` turn entry: "ids" (id + verb),
-   *  "brief" (+ summary and shape, default), "schema" (+ column inventory).
+   *  "brief" (+ summary and shape, default), "schema" (+ column inventory),
+   *  "code" (+ the version's code, versioned catalog only).
    *  Capped by design: a full snapshot per turn is O(turns x operators), which
-   *  was the $12.39 NFL blowup (323 operators re-rendered every step). */
-  catalogDetail?: "ids" | "brief" | "schema";
+   *  was the $12.39 NFL blowup (323 operators re-rendered every step). "code"
+   *  stays O(turns x ops-touched-that-turn) — each version's code renders once,
+   *  in the entry that created it, and the entry is byte-stable forever, so
+   *  under cache-aligned packaging the marginal cost is mostly cached-token
+   *  priced. */
+  catalogDetail?: "ids" | "brief" | "schema" | "code";
   /** GLOBAL turn number per messageId — the order turns were asked in over the
    *  whole session, which is NOT the position on the current branch once a turn
    *  has resumed from an earlier one. The catalogue must number by this, or
@@ -2510,7 +2515,7 @@ function renderVersionedCatalog(
       for (const [opId, verb] of verbs) {
         if (verb === "deleted" && !survives.has(opId)) continue;
         sections.push(`#### \`${opId}\` (${verb})`);
-        if (verb === "deleted") {
+        if (verb === "deleted" || options.catalogDetail === "ids") {
           sections.push("");
           continue;
         }
@@ -2543,8 +2548,12 @@ function renderVersionedCatalog(
           // sees the whole table or a sliver, BEFORE it spends the call.
           const est = estimateTableChars(info);
           const size = est !== undefined ? `, ${formatApproxChars(est)}` : "";
+          // "brief" keeps the shape and size (the recall-scaling facts) but
+          // drops the column inventory; "schema" and above print it.
+          const schemaSuffix =
+            options.catalogDetail === "brief" ? "" : ` — Schema: ${cols.join(", ")}`;
           sections.push(
-            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size} — Schema: ${cols.join(", ")}`
+            `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size}${schemaSuffix}`
           );
           if (options.rowLineage && info) {
             const lin = formatRowLineage(info);
@@ -2557,6 +2566,19 @@ function renderVersionedCatalog(
           if (options.tableStructureHint && info) {
             const prof = formatTableHints(info);
             if (prof) sections.push(prof);
+          }
+        }
+        // "code" detail: the version's code, in the one entry that created it.
+        // This is the convention record — formula, filter, rounding, naming —
+        // that a later turn otherwise reconstructs from the operator's NAME,
+        // which is the measured first-error class of the versioned layout
+        // (session arms read the same code inline from their step history).
+        if (options.catalogDetail === "code") {
+          const code = (op?.operatorProperties as any)?.code;
+          if (typeof code === "string" && code.trim().length > 0) {
+            sections.push("```python");
+            sections.push(clip(code.trimEnd(), CATALOG_CODE_CHARS));
+            sections.push("```");
           }
         }
         sections.push("");
@@ -2790,6 +2812,11 @@ function renderStructuredTurn(
  *  on three turns in four.
  */
 const CATALOG_ANSWER_CHARS = 2400;
+
+/** Per-version code cap under `catalogDetail: "code"`. LongDS operator bodies
+ *  are short pandas functions (p95 well under 2k chars); the cap only guards
+ *  against a pathological single blob, it is not a tuning knob. */
+const CATALOG_CODE_CHARS = 4000;
 
 /** `# Catalog` — one append-only entry per finished turn.
  *

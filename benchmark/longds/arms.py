@@ -1210,6 +1210,44 @@ class LongDSLunaTop10V32R3(LongDSLunaTop10V32):
     }
 
 
+class LongDSLunaSub5V33(LongDSLunaTop10V32):
+    """v3.3 iteration arm on the 5-task signal subset (kaggle t3, nfl t1,
+    acea2, acea3, wids1 — the tasks with the largest ses<->v32 accuracy
+    diffs over rounds 1-2; the other five top-10 tasks score at the floor in
+    every arm and carry no iteration signal).
+
+    Composition, from the r2 loss anatomy (2026-08-20):
+
+      * `cacheAlignedContext` — the cost mechanism, unchanged from r2/r3;
+      * `answerShapeRule` — verified on target (acea2 t1 flipped 0->1 in r3);
+      * `catalogDetail: "code"` — NEW. Each finished catalog entry renders its
+        operator versions' code. Targets the dominant loss class of the
+        versioned layout: convention re-derivation (nfl t3 denominator
+        cascade = 14 turns; acea2 t6 feature-prep drift; kaggle t18
+        population drift), which session arms avoid by reading prior code
+        inline in their step history. Under cache-aligned packaging the extra
+        entry bytes are byte-stable, i.e. mostly cached-token priced.
+
+    Deliberately WITHOUT `upstreamValueEcho`: unproven after r3 (trailed r2
+    on all early-judged tasks; the losses traced to cascade draws, but the
+    mechanism bought nothing measurable), and one variable at a time."""
+
+    _NAME = "LongDSLunaSub5V33"
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "answerShapeRule": True,
+        "catalogDetail": "code",
+    }
+
+
+class LongDSLunaSub5V33R2(LongDSLunaSub5V33):
+    _NAME = "LongDSLunaSub5V33R2"
+
+
+class LongDSLunaSub5V33R3(LongDSLunaSub5V33):
+    _NAME = "LongDSLunaSub5V33R3"
+
+
 ARMS.update({
     "luna-top10-session": LongDSLunaTop10Session,
     "luna-top10-session-r2": LongDSLunaTop10SessionR2,
@@ -1217,4 +1255,7 @@ ARMS.update({
     "luna-top10-v32": LongDSLunaTop10V32,
     "luna-top10-v32-r2": LongDSLunaTop10V32R2,
     "luna-top10-v32-r3": LongDSLunaTop10V32R3,
+    "luna-sub5-v33": LongDSLunaSub5V33,
+    "luna-sub5-v33-r2": LongDSLunaSub5V33R2,
+    "luna-sub5-v33-r3": LongDSLunaSub5V33R3,
 })

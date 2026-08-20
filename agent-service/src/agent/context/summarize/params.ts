@@ -303,6 +303,9 @@ export const TrajectoryParamsSchema = z.object({
    *  (supersedes priorTurns entirely). */
   versionedCatalog: z.boolean().default(false),
   versionedHeads: z.boolean().default(true),
+  /** Per-operator detail of finished catalog entries (versioned mode). "code"
+   *  renders each version's code once, in the entry that created it. */
+  catalogDetail: z.enum(["ids", "brief", "schema", "code"]).default("schema"),
   /** Session layout: the flat event log re-grouped by turn (# Session +
    *  # Your Task). Superseded by versionedCatalog. */
   sessionTurns: z.boolean().default(false),
@@ -464,6 +467,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       priorTurns: options.turnHistoryIndex ? "index" : "full",
       versionedCatalog: options.versionedCatalog === true,
       versionedHeads: options.versionedHeads !== false,
+      catalogDetail: options.catalogDetail ?? "schema",
       sessionTurns: options.sessionTurns === true,
       recallOperatorLevel: options.recallOperatorLevel === true,
       specAudit: options.specAudit === true,

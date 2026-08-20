@@ -109,6 +109,15 @@ const QUERY_FRAGMENT: string = rd("query.md");
  *  numbers scored 0 under renamed/nested fields (acea2 t1 top-10 campaign;
  *  nyc t4 business campaign). Off by default; byte-identical prompt off. */
 const ANSWER_SHAPE_FRAGMENT: string = rd("answer-shape.md");
+/** CATALOG CODE (the `catalogDetail: "code"` knob, versioned mode): each
+ *  finished catalog entry carries its versions' code, and the guidance flips
+ *  from "recall before matching an earlier definition" to "read the printed
+ *  code and keep its conventions". Trace-grounded: the dominant versioned-vs-
+ *  session loss class is convention re-derivation (nfl t3 denominator cascade,
+ *  acea2 t6 feature-prep drift, kaggle t18 population drift — top-10 campaign
+ *  r2), which session arms avoid by reading prior code inline. Off by default;
+ *  byte-identical prompt when off. */
+const CATALOG_CODE_FRAGMENT: string = rd("catalog-code.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -445,7 +454,8 @@ export function buildCodeModeSystemPrompt(
   specAuditEnabled = false,
   foundationVerifyEnabled = false,
   queryToolEnabled = false,
-  answerShapeRuleEnabled = false
+  answerShapeRuleEnabled = false,
+  catalogCodeEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -467,6 +477,10 @@ export function buildCodeModeSystemPrompt(
   const foundationVerify = foundationVerifyEnabled ? `\n${FOUNDATION_VERIFY_FRAGMENT}\n` : "";
   const query = queryToolEnabled ? `\n${QUERY_FRAGMENT}\n` : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
+  // Only meaningful under the versioned catalog (the fragment describes
+  // Dataflow delta entries); gated on both so a stray setting on a session
+  // arm cannot describe a section that does not exist.
+  const catalogCode = catalogCodeEnabled && versionedEnabled ? `\n${CATALOG_CODE_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is
@@ -500,7 +514,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
-    .replace("{{RECALL}}", recall + resume + foundationVerify + query + answerShape)
+    .replace("{{RECALL}}", recall + catalogCode + resume + foundationVerify + query + answerShape)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");

@@ -116,3 +116,26 @@ describe("answerShapeRule prompt knob", () => {
     expect(on).toContain("verbatim");
   });
 });
+
+describe("catalogDetail prompt knob", () => {
+  const V32 = [
+    ContextMode.DELTA, false, false, false, false, false, false, false,
+    true, false, true, false, false, false, false,
+  ] as const;
+  test('defaults to "schema"; "code" adds the fragment; gated on versioned mode', () => {
+    expect(DEFAULT_AGENT_SETTINGS.catalogDetail).toBe("schema");
+    const off = buildCodeModeSystemPrompt(...V32, false);
+    const on = buildCodeModeSystemPrompt(...V32, true);
+    expect(off).toBe(buildCodeModeSystemPrompt(...V32));
+    expect(off).not.toContain("## The catalog shows each version's code");
+    expect(on).toContain("## The catalog shows each version's code");
+    // a session-layout arm (versionedEnabled=false) never gets the fragment
+    const session = [
+      ContextMode.DELTA, false, false, false, false, false, false, false,
+      false, true, false, false, false, false, false,
+    ] as const;
+    expect(buildCodeModeSystemPrompt(...session, true)).not.toContain(
+      "## The catalog shows each version's code"
+    );
+  });
+});

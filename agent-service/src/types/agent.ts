@@ -510,6 +510,20 @@ export interface AgentSettings {
    */
   cacheAlignedContext: boolean;
   /**
+   * Per-operator detail of each finished `# Catalog` entry (versioned mode
+   * only): "ids" (id + verb), "brief" (+ summary, upstream provenance, shape
+   * and size), "schema" (+ column inventory — the historical render, default),
+   * "code" (+ the version's code, once, in the entry that created it).
+   *
+   * "code" exists because the measured first-error class of the versioned
+   * layout is convention re-derivation: a later turn rebuilds an inherited
+   * metric's formula/filter/rounding from the operator's NAME, while session
+   * arms read the defining code inline from their step history. Entries are
+   * byte-stable, so under cacheAlignedContext the extra tokens are mostly
+   * cached-priced.
+   */
+  catalogDetail: "ids" | "brief" | "schema" | "code";
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -633,6 +647,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   sessionTurns: false,
   indexThinObservations: false,
   cacheAlignedContext: false,
+  catalogDetail: "schema",
 };
 
 /**
@@ -775,6 +790,8 @@ export interface AgentSettingsApi {
   upstreamValueEcho?: boolean;
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
+  /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
+  catalogDetail?: "ids" | "brief" | "schema" | "code";
 }
 
 export interface AgentInfo {
@@ -869,4 +886,6 @@ export interface UpdateAgentSettingsRequest {
   upstreamValueEcho?: boolean;
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
+  /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
+  catalogDetail?: "ids" | "brief" | "schema" | "code";
 }
