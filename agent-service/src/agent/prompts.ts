@@ -104,6 +104,11 @@ const FOUNDATION_VERIFY_FRAGMENT: string = rd("foundation-verify.md");
  *  costs an engine execution, a query costs nothing. Off by default;
  *  byte-identical prompt when off. */
 const QUERY_FRAGMENT: string = rd("query.md");
+/** ANSWER SHAPE (the `answerShapeRule` knob): mirror source column names, keep
+ *  the structure flat, echo whole rows. Trace-grounded twice: byte-identical
+ *  numbers scored 0 under renamed/nested fields (acea2 t1 top-10 campaign;
+ *  nyc t4 business campaign). Off by default; byte-identical prompt off. */
+const ANSWER_SHAPE_FRAGMENT: string = rd("answer-shape.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -439,7 +444,8 @@ export function buildCodeModeSystemPrompt(
   opRecallEnabled = false,
   specAuditEnabled = false,
   foundationVerifyEnabled = false,
-  queryToolEnabled = false
+  queryToolEnabled = false,
+  answerShapeRuleEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -460,6 +466,7 @@ export function buildCodeModeSystemPrompt(
   // description in every configuration — session, versioned, flat.
   const foundationVerify = foundationVerifyEnabled ? `\n${FOUNDATION_VERIFY_FRAGMENT}\n` : "";
   const query = queryToolEnabled ? `\n${QUERY_FRAGMENT}\n` : "";
+  const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is
@@ -493,7 +500,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
-    .replace("{{RECALL}}", recall + resume + foundationVerify + query)
+    .replace("{{RECALL}}", recall + resume + foundationVerify + query + answerShape)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");

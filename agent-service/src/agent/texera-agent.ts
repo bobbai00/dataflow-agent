@@ -160,6 +160,12 @@ export function extractYourTaskDirective(rendered: string): string | undefined {
   return (next === -1 ? body : body.slice(0, next)).trimEnd();
 }
 
+/** Canonical "opId (turn N)" form of a version ref, tolerant of spacing. */
+export function normalizeVersionRef(raw: string): string | undefined {
+  const m = /^\s*(.+?)\s*\(\s*turn\s+(\d+)\s*\)\s*$/.exec(raw);
+  return m ? `${m[1]} (turn ${m[2]})` : undefined;
+}
+
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
     operators: [],
@@ -292,6 +298,11 @@ export class TexeraAgent {
    *  message caches nothing; appended messages cache everything before them,
    *  and the role does not matter). Reset per driver run. */
   private cacheAlignedMessages: ModelMessage[] = [];
+  /** Versioned refs recalled/echoed THIS driver run — the upstream-value-echo
+   *  bookkeeping. A write whose upstreams name a version in neither set gets
+   *  that version's sample rows auto-attached to its observation. */
+  private recalledRefsThisTurn: Set<string> = new Set();
+  private echoedRefsThisTurn: Set<string> = new Set();
   /** The `# Your Task` reminder appended to every step message: under a frozen
    *  first message the live request would otherwise sit above the entire step
    *  log, which is the burial effect this benchmark already measured across
@@ -538,7 +549,8 @@ export class TexeraAgent {
         this.settings.recallOperatorLevel === true,
         this.settings.specAudit === true,
         this.settings.foundationVerify === true,
-        this.settings.enableQueryTool === true
+        this.settings.enableQueryTool === true,
+        this.settings.answerShapeRule === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1348,6 +1360,8 @@ export class TexeraAgent {
     specAudit?: boolean;
     foundationVerify?: boolean;
     enableQueryTool?: boolean;
+    upstreamValueEcho?: boolean;
+    answerShapeRule?: boolean;
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
@@ -1601,6 +1615,12 @@ export class TexeraAgent {
       this.settings.foundationVerify = updates.foundationVerify;
       promptNeedsRebuild = true;
     }
+    if (updates.upstreamValueEcho !== undefined) this.settings.upstreamValueEcho = updates.upstreamValueEcho;
+    if (updates.answerShapeRule !== undefined && updates.answerShapeRule !== this.settings.answerShapeRule) {
+      // Prompt-only, like specAudit.
+      this.settings.answerShapeRule = updates.answerShapeRule;
+      promptNeedsRebuild = true;
+    }
     if (updates.enableQueryTool !== undefined && updates.enableQueryTool !== this.settings.enableQueryTool) {
       // Tool set AND prompt fragment change together.
       this.settings.enableQueryTool = updates.enableQueryTool;
@@ -1769,6 +1789,8 @@ export class TexeraAgent {
         this.cacheAlignedMessages = [];
         this.cacheAlignedTaskReminder = undefined;
         this.pendingStepResultsRender = undefined;
+        this.recalledRefsThisTurn.clear();
+        this.echoedRefsThisTurn.clear();
         return this.driver.runTurn({
         initialMessages: seed,
         systemPrompt: this.systemPrompt,
@@ -1890,6 +1912,22 @@ export class TexeraAgent {
           this.maybeCreateSnapshotForHead(afterStepContent);
 
           await this.runPostStepExecution(toolCalls, toolResults);
+
+          // UPSTREAM VALUE ECHO bookkeeping + attach (versioned arms only).
+          for (const tc of toolCalls ?? []) {
+            if (tc.toolName === TOOL_NAME_RECALL_STATE) {
+              const inp: any = tc.input ?? {};
+              for (const r of [...(inp.refs ?? []), ...(inp.ref ? [inp.ref] : [])]) {
+                const k = normalizeVersionRef(String(r));
+                if (k) this.recalledRefsThisTurn.add(k);
+              }
+            }
+          }
+          const echo = this.buildUpstreamValueEcho(toolCalls);
+          if (echo) {
+            this.pendingStepResultsRender =
+              (this.pendingStepResultsRender ? this.pendingStepResultsRender + "\n\n" : "") + echo;
+          }
 
           isFirstStep = false;
         },
@@ -2441,6 +2479,58 @@ export class TexeraAgent {
       ? `\n\n${this.cacheAlignedTaskReminder}`
       : "";
     return `${head}\n${parts.join("\n\n")}${reminder}`;
+  }
+
+  /**
+   * UPSTREAM VALUE ECHO: sample rows of every version this step WIRED without
+   * having recalled it this turn — attached to the step's observation, never a
+   * rejection. Exists because the read-before-you-wire discipline is ignored
+   * under momentum: nfl t3 (top-10 r2) revised one operator nine times over an
+   * unrecalled turn-2 table with a wrong denominator convention and lost ~30
+   * dependent turns; the business campaign measured 17.5% of writes blind.
+   * Requires cacheAlignedContext (rides the per-step append channel).
+   */
+  private buildUpstreamValueEcho(
+    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined
+  ): string | undefined {
+    if (!this.settings.upstreamValueEcho || !toolCalls?.length) return undefined;
+    // Collect unrecalled cross-turn refs first; only then pay for the turn log.
+    const wanted: string[] = [];
+    for (const tc of toolCalls) {
+      if (tc.toolName !== TOOL_NAME_CREATE_OR_MODIFY_OPERATOR) continue;
+      for (const raw of (tc.input?.upstreams ?? []) as unknown[]) {
+        const key = normalizeVersionRef(String(raw));
+        if (!key) continue;
+        if (this.recalledRefsThisTurn.has(key) || this.echoedRefsThisTurn.has(key)) continue;
+        if (!wanted.includes(key)) wanted.push(key);
+      }
+    }
+    if (!wanted.length) return undefined;
+    const turns = this.buildTurnLog();
+    const byTurn = new Map(turns.map(t => [t.turn, t]));
+    const blocks: string[] = [];
+    for (const key of wanted.slice(0, 3)) {
+      const m = /^(.+) \(turn (\d+)\)$/.exec(key)!;
+      const info = byTurn.get(parseInt(m[2], 10))?.results?.get(m[1]);
+      if (!info) continue; // current-turn or unmaterialized refs have no echo
+      this.echoedRefsThisTurn.add(key);
+      const rendered = formatOperatorResult(m[1], info, this.workflowState, {
+        detail: "sample",
+        schemaInResult: true,
+        columnStats: false,
+        coercionTelemetry: true,
+        rowLineage: true,
+        inputsInResult: false,
+        maxResultChars: 800,
+      });
+      blocks.push(`### ${key} (auto-attached)\n${rendered}`);
+    }
+    if (!blocks.length) return undefined;
+    return (
+      "Upstream values — versions this step wired WITHOUT recalling first. Check the code you just " +
+      "wrote against these actual values (columns, scales, populations); if it assumed differently, " +
+      "revise it now rather than downstream:\n\n" + blocks.join("\n\n")
+    );
   }
 
   private async runPostStepExecution(

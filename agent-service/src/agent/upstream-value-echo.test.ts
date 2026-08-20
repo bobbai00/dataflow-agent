@@ -1,0 +1,118 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { describe, expect, test } from "bun:test";
+import { normalizeVersionRef, TexeraAgent } from "./texera-agent";
+import { buildCodeModeSystemPrompt } from "./prompts";
+import { ContextMode, DEFAULT_AGENT_SETTINGS } from "../types/agent";
+
+describe("normalizeVersionRef", () => {
+  test("canonicalizes spacing variants; rejects non-refs", () => {
+    expect(normalizeVersionRef("scores (turn 3)")).toBe("scores (turn 3)");
+    expect(normalizeVersionRef("  scores ( turn  3 ) ")).toBe("scores (turn 3)");
+    expect(normalizeVersionRef("scores")).toBeUndefined();
+  });
+});
+
+describe("upstreamValueEcho", () => {
+  function agent(): any {
+    const a: any = new TexeraAgent({
+      id: "a1",
+      name: "t",
+      modelType: "claude-haiku-4.5",
+    } as any);
+    // The constructor always starts from DEFAULT_AGENT_SETTINGS (the server
+    // applies real settings post-create via updateSettings) — set directly.
+    a.settings.contextMode = ContextMode.DELTA;
+    a.settings.cacheAlignedContext = true;
+    a.settings.upstreamValueEcho = true;
+    // stub the turn log: turn 2 holds `combined (turn 2)` with a result
+    a.buildTurnLog = () => [
+      {
+        turn: 2,
+        operators: ["combined"],
+        workflow: { operators: [], links: [] },
+        verbs: new Map([["combined", "added"]]),
+        results: new Map([
+          [
+            "combined",
+            {
+              operatorId: "combined",
+              state: "Completed",
+              inputTuples: 10,
+              outputTuples: 10,
+              result: [{ player: "A", score: 1.5 }, { player: "B", score: 2.5 }],
+            },
+          ],
+        ]),
+      },
+    ];
+    return a;
+  }
+
+  const write = (upstreams: string[]) => ({
+    toolName: "createOrModifyOperator",
+    toolCallId: "x",
+    input: { operatorId: "pic", upstreams },
+  });
+
+  test("a blind cross-turn write gets that version's values attached", () => {
+    const a = agent();
+    const echo = a.buildUpstreamValueEcho([write(["combined (turn 2)"])]);
+    expect(echo).toContain("combined (turn 2) (auto-attached)");
+    expect(echo).toContain("player"); // sample rows present
+    expect(echo).toContain("WITHOUT recalling");
+  });
+
+  test("a ref recalled this turn is NOT echoed", () => {
+    const a = agent();
+    a.recalledRefsThisTurn.add("combined (turn 2)");
+    expect(a.buildUpstreamValueEcho([write(["combined (turn 2)"])])).toBeUndefined();
+  });
+
+  test("each version echoes at most once per turn", () => {
+    const a = agent();
+    expect(a.buildUpstreamValueEcho([write(["combined (turn 2)"])])).toBeTruthy();
+    expect(a.buildUpstreamValueEcho([write(["combined (turn 2)"])])).toBeUndefined();
+  });
+
+  test("current-turn and unknown refs echo nothing; flag off echoes nothing", () => {
+    const a = agent();
+    expect(a.buildUpstreamValueEcho([write(["fresh (turn 9)"])])).toBeUndefined();
+    const off = agent();
+    off.settings.upstreamValueEcho = false;
+    expect(off.buildUpstreamValueEcho([write(["combined (turn 2)"])])).toBeUndefined();
+  });
+});
+
+describe("answerShapeRule prompt knob", () => {
+  const V32 = [
+    ContextMode.DELTA, false, false, false, false, false, false, false,
+    true, false, true, false, false, false,
+  ] as const;
+  test("off by default, byte-identical off, section lands when on", () => {
+    expect(DEFAULT_AGENT_SETTINGS.answerShapeRule).toBe(false);
+    const off = buildCodeModeSystemPrompt(...V32, false);
+    const on = buildCodeModeSystemPrompt(...V32, true);
+    expect(off).toBe(buildCodeModeSystemPrompt(...V32));
+    expect(off).not.toContain("## Answer shape");
+    expect(on).toContain("## Answer shape");
+    expect(on).toContain("verbatim");
+  });
+});

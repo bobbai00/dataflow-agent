@@ -377,6 +377,20 @@ export interface AgentSettings {
    *  answer from a truncated render; report whole rows. Off by default —
    *  byte-parity when off. */
   enableQueryTool: boolean;
+  /** UPSTREAM VALUE ECHO (versioned mode): when a write's `upstreams` names a
+   *  cross-turn version whose values were not recalled this turn, attach that
+   *  version's sample rows to the step's observation — attach, never reject.
+   *  Trace-grounded: the nfl-t3 class wrote the same operator nine times over
+   *  an unrecalled turn-2 table with the wrong denominator convention and lost
+   *  ~30 dependent turns; the business campaign measured 17.5% of writes
+   *  blind. Requires cacheAlignedContext (rides the per-step append channel).
+   *  Off by default. */
+  upstreamValueEcho: boolean;
+  /** ANSWER SHAPE RULE (prompt-only): mirror the source table's column names,
+   *  keep the structure flat, echo whole rows. Trace-grounded: byte-identical
+   *  numbers scored 0 under renamed/nested fields (acea2 t1; nyc t4 in the
+   *  business campaign). Off by default; byte-identical prompt when off. */
+  answerShapeRule: boolean;
   /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
    *  — every requested quantity traced to an `opId (turn N)` + column, every
    *  binding clause of the task text quoted and answered. Prompt-side only, and
@@ -598,6 +612,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   recallMaxResultChars: 5000,
   recallOperatorLevel: false,
   foundationVerify: false,
+  upstreamValueEcho: false,
+  answerShapeRule: false,
   enableQueryTool: false,
   specAudit: false,
   indexRichTables: 12,
@@ -755,6 +771,10 @@ export interface AgentSettingsApi {
   foundationVerify?: boolean;
   /** Pandas queries over materialized results (see AgentSettings.enableQueryTool). */
   enableQueryTool?: boolean;
+  /** Auto-attach unrecalled upstream values to writes (see AgentSettings.upstreamValueEcho). */
+  upstreamValueEcho?: boolean;
+  /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
+  answerShapeRule?: boolean;
 }
 
 export interface AgentInfo {
@@ -845,4 +865,8 @@ export interface UpdateAgentSettingsRequest {
   foundationVerify?: boolean;
   /** Pandas queries over materialized results (see AgentSettings.enableQueryTool). */
   enableQueryTool?: boolean;
+  /** Auto-attach unrecalled upstream values to writes (see AgentSettings.upstreamValueEcho). */
+  upstreamValueEcho?: boolean;
+  /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
+  answerShapeRule?: boolean;
 }

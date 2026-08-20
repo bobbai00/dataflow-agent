@@ -1187,8 +1187,27 @@ class LongDSLunaTop10V32R2(LongDSLunaTop10V32):
 
 
 class LongDSLunaTop10V32R3(LongDSLunaTop10V32):
+    """Rep 3 of the versioned arm, WITH the two trace-grounded fixes from the
+    round-2 flip analysis (user decision 2026-08-19: fix first, then run r3
+    v32-only):
+
+      * `upstreamValueEcho` — a write wiring an unrecalled cross-turn version
+        gets that version's sample rows auto-attached to its observation
+        (the nfl-t3 class: nine blind revisions, wrong denominator, ~30
+        dependent turns lost);
+      * `answerShapeRule` — mirror source column names, flat structure, whole
+        rows (the acea2-t1 class: byte-identical numbers scored 0 under
+        renamed/nested fields).
+
+    NOTE r3-v32 is therefore NOT a pure replicate of r2-v32: it measures the
+    fix pack. Session-r3 was intentionally skipped (same decision)."""
+
     _NAME = "LongDSLunaTop10V32R3"
-    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "upstreamValueEcho": True,
+        "answerShapeRule": True,
+    }
 
 
 ARMS.update({
