@@ -50,8 +50,37 @@ async function run(t: any, input: any): Promise<string> {
 describe("queryResult — the one query primitive", () => {
   test("a real expression returns the printed value with provenance header", async () => {
     const out = await run(makeTool(), { operatorId: "pressure", expr: "df.shape" });
-    expect(out).toContain("# queryResult: pressure (40 rows held)");
+    expect(out).toContain("# queryResult: pressure (40 rows, the operator's whole result)");
     expect(out).toContain("(40, 3)");
+  });
+
+  test("a PARTIAL table says so — the held rows are not the table", async () => {
+    // 297-col survey table: the char budget leaves ONE row held of 21,879, and
+    // `value_counts()` over it looks exactly like the real inventory. Measured
+    // on kaggle turn 1, where that inventory decides a mapping dict.
+    const wide = { ...makeInfo([{ band: "$0-999" }]), totalRowCount: 21879 } as any;
+    const out = await run(makeTool({ survey: wide }), {
+      operatorId: "survey",
+      expr: "df['band'].value_counts()",
+    });
+    expect(out).toContain("[PARTIAL]");
+    expect(out).toContain("1 row(s) the service holds");
+    expect(out).toContain("21879 rows");
+    expect(out).toContain("Column Schema and stats");
+    // and a complete table must NOT carry the warning
+    expect(await run(makeTool(), { operatorId: "pressure", expr: "df.shape" })).not.toContain("[PARTIAL]");
+  });
+
+  test("safe builtins are available — any/len/sorted are pandas idiom", async () => {
+    const out = await run(makeTool(), {
+      operatorId: "pressure",
+      expr: "sorted([c for c in df.columns if any(k in c for k in ['sc', 'gr'])])",
+    });
+    expect(out).not.toContain("[ERROR]");
+    expect(out).toContain("group");
+    expect(out).toContain("score");
+    // introspection stays blocked
+    expect(await run(makeTool(), { operatorId: "pressure", expr: "eval('1+1')" })).toContain("[ERROR]");
   });
 
   test("top-N beyond any render clamp — the clipped-table fix", async () => {

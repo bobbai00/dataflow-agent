@@ -67,15 +67,28 @@ const PY_TIMEOUT_MS = 10_000;
  *  error before python produces an opaque NameError. */
 const FORBIDDEN = /__|\bimport\b|\bopen\s*\(|\beval\b|\bexec\b|\bgetattr\b|\bsetattr\b|\bglobals\b|\blocals\b|to_(csv|pickle|parquet|json|sql|excel|clipboard)|read_(csv|pickle|parquet|json|sql|excel)|\bos\b|\bsys\b|\bsubprocess\b/;
 
+/** Pure, non-introspective builtins the expression may use. An empty
+ *  `__builtins__` was measured costing 54 failed calls in one 5-task run —
+ *  `any`, `len`, `sorted` are ordinary pandas idiom (`[c for c in df.columns
+ *  if any(k in c for k in ...)]`), and their absence reads to the model as its
+ *  own syntax error, so it retries variants of a call that can never work.
+ *  Nothing here can import, open a file, or reach an attribute — the
+ *  FORBIDDEN deny-list still rejects dunders and I/O method names. */
+const SAFE_BUILTINS =
+  "abs all any bool dict divmod enumerate filter float format frozenset int len list map max min " +
+  "range repr reversed round set slice sorted str sum tuple zip";
+
 const PY_RUNNER = `
 import json, sys
 payload = json.load(sys.stdin)
+import builtins
 import pandas as pd
 import numpy as np
+safe = {n: getattr(builtins, n) for n in "${SAFE_BUILTINS}".split() if hasattr(builtins, n)}
 df = pd.DataFrame(payload["rows"])
 with pd.option_context("display.max_columns", 200, "display.width", 240,
                        "display.max_colwidth", 80):
-    result = eval(payload["expr"], {"__builtins__": {}}, {"df": df, "pd": pd, "np": np})
+    result = eval(payload["expr"], {"__builtins__": safe}, {"df": df, "pd": pd, "np": np})
     out = result.to_string() if hasattr(result, "to_string") else repr(result)
 print(out[: payload["clamp"]])
 if len(out) > payload["clamp"]:
@@ -189,7 +202,26 @@ export function createQueryResultTool(deps: QueryResultDeps) {
         }
         const out = (proc.stdout || "").trimEnd();
         const rows = info.result.length;
-        return `# queryResult: ${args.operatorId} (${rows} rows held) — \`${args.expr}\`\n${out || "(empty output)"}`;
+        const total = info.totalRowCount ?? info.outputTuples;
+        // TRUTH ABOUT SCOPE. The service holds only the rows that fit the
+        // per-operator char budget: on a WIDE table (297 survey columns, 2k
+        // budget) that is ONE row of 21,879, and `value_counts()` over it
+        // prints a one-row inventory that is indistinguishable from the real
+        // one. Measured on kaggle turn 1 — the exact place a value inventory
+        // decides a mapping dict. The tool's own prompt tells the model to use
+        // it INSTEAD of a clipped render, so silence here is the worst
+        // possible framing: it promises completeness it cannot deliver.
+        const partial = typeof total === "number" && total > rows;
+        const header = partial
+          ? `# queryResult: ${args.operatorId} — \`${args.expr}\`\n` +
+            `[PARTIAL] This query ran over the ${rows} row(s) the service holds, NOT the operator's ` +
+            `${total} rows (the per-operator char budget decides how many are held, and a wide table ` +
+            `holds very few). Anything aggregate — counts, means, value_counts, top-N, nunique — ` +
+            `describes those ${rows} row(s) only. To compute over all ${total} rows, build an operator; ` +
+            `for the full per-column value inventory, read the catalog entry's ` +
+            `"Column Schema and stats" block, which the engine computes over the whole table.`
+          : `# queryResult: ${args.operatorId} (${rows} rows, the operator's whole result) — \`${args.expr}\``;
+        return `${header}\n${out || "(empty output)"}`;
       } catch (error: any) {
         return createErrorResult(`queryResult failed: ${error?.message || String(error)}`);
       }
