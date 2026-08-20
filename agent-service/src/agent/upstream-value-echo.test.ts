@@ -139,3 +139,23 @@ describe("catalogDetail prompt knob", () => {
     );
   });
 });
+
+describe("valueProbeRule prompt knob", () => {
+  // (contextMode, compaction, inspect, renderPrefs, codeInSnapshot, provenance,
+  //  recall, resume, versioned, session, opRecall, specAudit, foundationVerify,
+  //  queryTool, answerShape, catalogCode)
+  test("off by default; rides only with the query tool; byte-identical off", () => {
+    expect(DEFAULT_AGENT_SETTINGS.valueProbeRule).toBe(false);
+    const base = [
+      ContextMode.DELTA, false, false, false, false, false, false, false,
+      true, false, true, false, false,
+    ] as const;
+    const noQuery = buildCodeModeSystemPrompt(...base, false, false, false, true);
+    const withQuery = buildCodeModeSystemPrompt(...base, true, false, false, true);
+    const off = buildCodeModeSystemPrompt(...base, true, false, false, false);
+    expect(withQuery).toContain("## Literals must come from the data");
+    expect(noQuery).not.toContain("## Literals must come from the data");
+    expect(off).not.toContain("## Literals must come from the data");
+    expect(off).toBe(buildCodeModeSystemPrompt(...base, true, false, false));
+  });
+});

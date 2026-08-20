@@ -850,6 +850,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           indexThinObservations: (settings as any).indexThinObservations,
           cacheAlignedContext: (settings as any).cacheAlignedContext,
           catalogDetail: (settings as any).catalogDetail,
+          valueProbeRule: (settings as any).valueProbeRule,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -937,6 +938,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       catalogDetail: t.Optional(
         t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
       ),
+      valueProbeRule: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1229,6 +1231,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       parallelToolCalls: agentSettings.parallelToolCalls,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
+      valueProbeRule: agentSettings.valueProbeRule,
       foundationVerify: agentSettings.foundationVerify,
       enableQueryTool: agentSettings.enableQueryTool,
       upstreamValueEcho: agentSettings.upstreamValueEcho,
@@ -1307,6 +1310,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactKeepLastSteps: (settings as UpdateAgentSettingsRequest).compactKeepLastSteps,
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
         catalogDetail: (settings as UpdateAgentSettingsRequest).catalogDetail,
+        valueProbeRule: (settings as UpdateAgentSettingsRequest).valueProbeRule,
         foundationVerify: (settings as any).foundationVerify,
         enableQueryTool: (settings as any).enableQueryTool,
         upstreamValueEcho: (settings as any).upstreamValueEcho,
@@ -1354,6 +1358,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       sourceProvenanceHint: agentSettings.sourceProvenanceHint,
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
+      valueProbeRule: agentSettings.valueProbeRule,
       };
     },
     {
@@ -1410,6 +1415,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         catalogDetail: t.Optional(
           t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
         ),
+        valueProbeRule: t.Optional(t.Boolean()),
         foundationVerify: t.Optional(t.Boolean()),
         enableQueryTool: t.Optional(t.Boolean()),
         upstreamValueEcho: t.Optional(t.Boolean()),

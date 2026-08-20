@@ -118,6 +118,16 @@ const ANSWER_SHAPE_FRAGMENT: string = rd("answer-shape.md");
  *  r2), which session arms avoid by reading prior code inline. Off by default;
  *  byte-identical prompt when off. */
 const CATALOG_CODE_FRAGMENT: string = rd("catalog-code.md");
+/** VALUE PROBE (the `valueProbeRule` knob): literals that must match data
+ *  values (mapping dicts, category filters, join keys, regexes) are copied
+ *  from the actual values, checked with one queryResult call — never typed
+ *  from memory. Trace-grounded: kaggle t23 salary-band dict written from
+ *  memory with `$` on every key (data carries `$` on one band only) mapped
+ *  ~all rows to NaN and lost turns 23-28+31 in two independent v33 reps,
+ *  while the session run probed `salary_band_values` first and scored.
+ *  Requires the queryResult tool (the rule's check costs one query).
+ *  Off by default; byte-identical prompt when off. */
+const VALUE_PROBE_FRAGMENT: string = rd("value-probe.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -455,7 +465,8 @@ export function buildCodeModeSystemPrompt(
   foundationVerifyEnabled = false,
   queryToolEnabled = false,
   answerShapeRuleEnabled = false,
-  catalogCodeEnabled = false
+  catalogCodeEnabled = false,
+  valueProbeRuleEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -476,6 +487,9 @@ export function buildCodeModeSystemPrompt(
   // description in every configuration — session, versioned, flat.
   const foundationVerify = foundationVerifyEnabled ? `\n${FOUNDATION_VERIFY_FRAGMENT}\n` : "";
   const query = queryToolEnabled ? `\n${QUERY_FRAGMENT}\n` : "";
+  // The rule's cheap check is a queryResult call, so it rides only with the
+  // tool that makes it followable.
+  const valueProbe = valueProbeRuleEnabled && queryToolEnabled ? `\n${VALUE_PROBE_FRAGMENT}\n` : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
@@ -514,7 +528,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
-    .replace("{{RECALL}}", recall + catalogCode + resume + foundationVerify + query + answerShape)
+    .replace("{{RECALL}}", recall + catalogCode + resume + foundationVerify + query + valueProbe + answerShape)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");

@@ -524,6 +524,14 @@ export interface AgentSettings {
    */
   catalogDetail: "ids" | "brief" | "schema" | "code";
   /**
+   * Prompt rule: literals that must match data values (mapping dicts,
+   * category filters, join keys) are copied from the actual values via one
+   * queryResult call, never typed from memory. Trace-grounded (kaggle t23
+   * salary-band dict, two independent reps). Only rendered when the
+   * queryResult tool is enabled — the rule's check must be followable.
+   */
+  valueProbeRule: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -648,6 +656,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   indexThinObservations: false,
   cacheAlignedContext: false,
   catalogDetail: "schema",
+  valueProbeRule: false,
 };
 
 /**
@@ -792,6 +801,8 @@ export interface AgentSettingsApi {
   answerShapeRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
   catalogDetail?: "ids" | "brief" | "schema" | "code";
+  /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
+  valueProbeRule?: boolean;
 }
 
 export interface AgentInfo {
@@ -888,4 +899,6 @@ export interface UpdateAgentSettingsRequest {
   answerShapeRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
   catalogDetail?: "ids" | "brief" | "schema" | "code";
+  /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
+  valueProbeRule?: boolean;
 }

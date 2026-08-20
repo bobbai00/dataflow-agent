@@ -1259,3 +1259,44 @@ ARMS.update({
     "luna-sub5-v33-r2": LongDSLunaSub5V33R2,
     "luna-sub5-v33-r3": LongDSLunaSub5V33R3,
 })
+
+
+class LongDSLunaSub5V34(LongDSLunaSub5V33):
+    """v3.4 — v33 plus the VALUE PROBE rule + the queryResult tool that makes
+    it followable.
+
+    Trace-grounded on the v33 3-rep campaign's one reproducible loss block:
+    kaggle t23-28+31 failed in two independent v33 reps because the model
+    typed the salary-band midpoint dict from memory with `$` on every key,
+    while the data carries `$` on one band only — ~every row mapped to NaN,
+    silently. The session run probed the actual band strings first
+    (`salary_band_values`) and scored. Same blindness class as nfl t3.
+
+    `valueProbeRule` (prompt): literals that must match data values are
+    copied from a one-call `queryResult` look at the actual values, and a
+    mapping's coverage is checked once after it runs. `enableQueryTool` makes
+    both checks one cheap call instead of a probe operator."""
+
+    _NAME = "LongDSLunaSub5V34"
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "answerShapeRule": True,
+        "catalogDetail": "code",
+        "enableQueryTool": True,
+        "valueProbeRule": True,
+    }
+
+
+class LongDSLunaSub5V34R2(LongDSLunaSub5V34):
+    _NAME = "LongDSLunaSub5V34R2"
+
+
+class LongDSLunaSub5V34R3(LongDSLunaSub5V34):
+    _NAME = "LongDSLunaSub5V34R3"
+
+
+ARMS.update({
+    "luna-sub5-v34": LongDSLunaSub5V34,
+    "luna-sub5-v34-r2": LongDSLunaSub5V34R2,
+    "luna-sub5-v34-r3": LongDSLunaSub5V34R3,
+})
