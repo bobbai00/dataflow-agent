@@ -1300,3 +1300,45 @@ ARMS.update({
     "luna-sub5-v34-r2": LongDSLunaSub5V34R2,
     "luna-sub5-v34-r3": LongDSLunaSub5V34R3,
 })
+
+
+class LongDSLunaSub5V35(LongDSLunaSub5V34):
+    """v3.5 — push the value inventories INTO the catalog, demote the probe.
+
+    User direction after the v34-r1 query census (990 queryResult calls over 5
+    tasks, ~60% precomputable: value inventories, size checks, browsing reads,
+    schema navigation): catalog entries are byte-stable and cache-priced under
+    cacheAlignedContext, so push the information once instead of paying a
+    runtime probe per use.
+
+      * `catalogDetail: "values"` — each entry adds the worker's FULL-TABLE
+        per-column stats block (distinct-value histograms with counts, nulls,
+        ranges; wide tables capped) on top of the version's code;
+      * `valueProbeRule` keeps its literal discipline but swaps to the demoted
+        variant: copy spellings off the entry's stats block; spend queryResult
+        only on clipped inventories and genuinely dynamic reads (ranked top-N,
+        filtered rows, post-mapping coverage)."""
+
+    _NAME = "LongDSLunaSub5V35"
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "answerShapeRule": True,
+        "catalogDetail": "values",
+        "enableQueryTool": True,
+        "valueProbeRule": True,
+    }
+
+
+class LongDSLunaSub5V35R2(LongDSLunaSub5V35):
+    _NAME = "LongDSLunaSub5V35R2"
+
+
+class LongDSLunaSub5V35R3(LongDSLunaSub5V35):
+    _NAME = "LongDSLunaSub5V35R3"
+
+
+ARMS.update({
+    "luna-sub5-v35": LongDSLunaSub5V35,
+    "luna-sub5-v35-r2": LongDSLunaSub5V35R2,
+    "luna-sub5-v35-r3": LongDSLunaSub5V35R3,
+})

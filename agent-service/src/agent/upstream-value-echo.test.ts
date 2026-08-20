@@ -143,7 +143,7 @@ describe("catalogDetail prompt knob", () => {
 describe("valueProbeRule prompt knob", () => {
   // (contextMode, compaction, inspect, renderPrefs, codeInSnapshot, provenance,
   //  recall, resume, versioned, session, opRecall, specAudit, foundationVerify,
-  //  queryTool, answerShape, catalogCode)
+  //  queryTool, answerShape, catalogCode, valueProbe, catalogValues)
   test("off by default; rides only with the query tool; byte-identical off", () => {
     expect(DEFAULT_AGENT_SETTINGS.valueProbeRule).toBe(false);
     const base = [
@@ -157,5 +157,20 @@ describe("valueProbeRule prompt knob", () => {
     expect(noQuery).not.toContain("## Literals must come from the data");
     expect(off).not.toContain("## Literals must come from the data");
     expect(off).toBe(buildCodeModeSystemPrompt(...base, true, false, false));
+  });
+
+  test('catalogDetail "values" swaps in the demoted read-the-entry-first variant', () => {
+    const base = [
+      ContextMode.DELTA, false, false, false, false, false, false, false,
+      true, false, true, false, false,
+    ] as const;
+    const probeVariant = buildCodeModeSystemPrompt(...base, true, false, false, true, false);
+    const catalogVariant = buildCodeModeSystemPrompt(...base, true, false, false, true, true);
+    expect(probeVariant).toContain("LOOK at the actual values first");
+    expect(probeVariant).not.toContain("Do not re-query what an entry already prints");
+    expect(catalogVariant).toContain("Do not re-query what an entry already prints");
+    expect(catalogVariant).not.toContain("LOOK at the actual values first");
+    // "values" also carries the catalog-code fragment (code is in the entry)
+    expect(catalogVariant).toContain("## The catalog shows each version's code");
   });
 });

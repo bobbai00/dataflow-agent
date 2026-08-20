@@ -936,7 +936,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       indexThinObservations: t.Optional(t.Boolean()),
       cacheAlignedContext: t.Optional(t.Boolean()),
       catalogDetail: t.Optional(
-        t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
+        t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
       ),
       valueProbeRule: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
@@ -1413,7 +1413,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         compactKeepLastSteps: t.Optional(t.Number()),
         cacheAlignedContext: t.Optional(t.Boolean()),
         catalogDetail: t.Optional(
-          t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code")])
+          t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
         ),
         valueProbeRule: t.Optional(t.Boolean()),
         foundationVerify: t.Optional(t.Boolean()),

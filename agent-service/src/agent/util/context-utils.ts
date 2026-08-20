@@ -30,6 +30,7 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
+import { formatColumnStats } from "../context/decorate/data/column-stats";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
   clampCodeChars,
@@ -96,14 +97,18 @@ export interface AssembleContextOptions {
   thinObservations?: boolean;
   /** Per-operator detail in each `# Catalog` turn entry: "ids" (id + verb),
    *  "brief" (+ summary and shape, default), "schema" (+ column inventory),
-   *  "code" (+ the version's code, versioned catalog only).
+   *  "code" (+ the version's code, versioned catalog only), "values" (+ the
+   *  worker's full-table per-column stats block — distinct-value histograms,
+   *  null counts, ranges — on top of "code").
    *  Capped by design: a full snapshot per turn is O(turns x operators), which
    *  was the $12.39 NFL blowup (323 operators re-rendered every step). "code"
-   *  stays O(turns x ops-touched-that-turn) — each version's code renders once,
-   *  in the entry that created it, and the entry is byte-stable forever, so
-   *  under cache-aligned packaging the marginal cost is mostly cached-token
-   *  priced. */
-  catalogDetail?: "ids" | "brief" | "schema" | "code";
+   *  and "values" stay O(turns x ops-touched-that-turn) — each version renders
+   *  once, in the entry that created it, and the entry is byte-stable forever,
+   *  so under cache-aligned packaging the marginal cost is mostly cached-token
+   *  priced. "values" exists to make value-matching literals readable off the
+   *  catalog instead of costing a runtime probe per use (v34 measured 990
+   *  queryResult calls/5 tasks, ~60% of them precomputable inventory reads). */
+  catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** GLOBAL turn number per messageId — the order turns were asked in over the
    *  whole session, which is NOT the position on the current branch once a turn
    *  has resumed from an earlier one. The catalogue must number by this, or
@@ -2567,13 +2572,23 @@ function renderVersionedCatalog(
             const prof = formatTableHints(info);
             if (prof) sections.push(prof);
           }
+          // "values" detail: the worker's full-table per-column stats block
+          // (distinct-value histograms, null counts, ranges). This is the
+          // push-side replacement for runtime value probes: a later turn's
+          // mapping dict or category filter can copy the actual spellings off
+          // the entry instead of spending a queryResult call per look.
+          if (options.catalogDetail === "values") {
+            const stats = formatColumnStats(info);
+            if (stats) sections.push(stats);
+          }
         }
-        // "code" detail: the version's code, in the one entry that created it.
-        // This is the convention record — formula, filter, rounding, naming —
-        // that a later turn otherwise reconstructs from the operator's NAME,
-        // which is the measured first-error class of the versioned layout
-        // (session arms read the same code inline from their step history).
-        if (options.catalogDetail === "code") {
+        // "code" detail (also included by "values"): the version's code, in
+        // the one entry that created it. This is the convention record —
+        // formula, filter, rounding, naming — that a later turn otherwise
+        // reconstructs from the operator's NAME, which is the measured
+        // first-error class of the versioned layout (session arms read the
+        // same code inline from their step history).
+        if (options.catalogDetail === "code" || options.catalogDetail === "values") {
           const code = (op?.operatorProperties as any)?.code;
           if (typeof code === "string" && code.trim().length > 0) {
             sections.push("```python");

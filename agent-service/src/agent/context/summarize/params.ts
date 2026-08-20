@@ -305,7 +305,7 @@ export const TrajectoryParamsSchema = z.object({
   versionedHeads: z.boolean().default(true),
   /** Per-operator detail of finished catalog entries (versioned mode). "code"
    *  renders each version's code once, in the entry that created it. */
-  catalogDetail: z.enum(["ids", "brief", "schema", "code"]).default("schema"),
+  catalogDetail: z.enum(["ids", "brief", "schema", "code", "values"]).default("schema"),
   /** Session layout: the flat event log re-grouped by turn (# Session +
    *  # Your Task). Superseded by versionedCatalog. */
   sessionTurns: z.boolean().default(false),

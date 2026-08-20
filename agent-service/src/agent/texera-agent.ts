@@ -552,7 +552,8 @@ export class TexeraAgent {
         this.settings.enableQueryTool === true,
         this.settings.answerShapeRule === true,
         this.settings.catalogDetail === "code",
-        this.settings.valueProbeRule === true
+        this.settings.valueProbeRule === true,
+        this.settings.catalogDetail === "values"
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1364,7 +1365,7 @@ export class TexeraAgent {
     enableQueryTool?: boolean;
     upstreamValueEcho?: boolean;
     answerShapeRule?: boolean;
-    catalogDetail?: "ids" | "brief" | "schema" | "code";
+    catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
     valueProbeRule?: boolean;
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;

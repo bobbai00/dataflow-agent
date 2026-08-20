@@ -351,4 +351,26 @@ describe("catalogDetail on the versioned catalog", () => {
     expect(t1).not.toContain("Result:");
     expect(t1).not.toContain("Summary:");
   });
+
+  test('"values" renders code AND the full-table column stats block', () => {
+    const s = scenarioWithCode();
+    const info = s.storage.getOperatorResult("a1", "scores")!;
+    (info as any).columnStats = {
+      band: '(str): null=0, distinct=3, top_3={"$0-999"=40, "1,000-1,999"=50, "2,000-2,999"=30}',
+    };
+    const text = renderWith(s, "values");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toContain("```python");
+    expect(t1).toContain("Column Schema and stats:");
+    expect(t1).toContain('"$0-999"=40');
+  });
+
+  test('"code" does NOT render the stats block', () => {
+    const s = scenarioWithCode();
+    const info = s.storage.getOperatorResult("a1", "scores")!;
+    (info as any).columnStats = { band: "(str): null=0, distinct=3" };
+    const text = renderWith(s, "code");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).not.toContain("Column Schema and stats:");
+  });
 });

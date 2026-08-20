@@ -128,6 +128,10 @@ const CATALOG_CODE_FRAGMENT: string = rd("catalog-code.md");
  *  Requires the queryResult tool (the rule's check costs one query).
  *  Off by default; byte-identical prompt when off. */
 const VALUE_PROBE_FRAGMENT: string = rd("value-probe.md");
+/** The demoted variant under `catalogDetail: "values"`: the inventory is
+ *  printed in every entry, so the rule flips to read-the-entry-first and
+ *  reserves queryResult for clipped inventories and dynamic reads. */
+const VALUE_PROBE_CATALOG_FRAGMENT: string = rd("value-probe-catalog.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -466,7 +470,8 @@ export function buildCodeModeSystemPrompt(
   queryToolEnabled = false,
   answerShapeRuleEnabled = false,
   catalogCodeEnabled = false,
-  valueProbeRuleEnabled = false
+  valueProbeRuleEnabled = false,
+  catalogValuesEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -489,12 +494,14 @@ export function buildCodeModeSystemPrompt(
   const query = queryToolEnabled ? `\n${QUERY_FRAGMENT}\n` : "";
   // The rule's cheap check is a queryResult call, so it rides only with the
   // tool that makes it followable.
-  const valueProbe = valueProbeRuleEnabled && queryToolEnabled ? `\n${VALUE_PROBE_FRAGMENT}\n` : "";
+  const valueProbe = valueProbeRuleEnabled && queryToolEnabled
+    ? `\n${catalogValuesEnabled && versionedEnabled ? VALUE_PROBE_CATALOG_FRAGMENT : VALUE_PROBE_FRAGMENT}\n`
+    : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
   // arm cannot describe a section that does not exist.
-  const catalogCode = catalogCodeEnabled && versionedEnabled ? `\n${CATALOG_CODE_FRAGMENT}\n` : "";
+  const catalogCode = (catalogCodeEnabled || catalogValuesEnabled) && versionedEnabled ? `\n${CATALOG_CODE_FRAGMENT}\n` : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is

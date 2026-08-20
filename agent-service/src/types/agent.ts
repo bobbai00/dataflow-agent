@@ -522,7 +522,7 @@ export interface AgentSettings {
    * byte-stable, so under cacheAlignedContext the extra tokens are mostly
    * cached-priced.
    */
-  catalogDetail: "ids" | "brief" | "schema" | "code";
+  catalogDetail: "ids" | "brief" | "schema" | "code" | "values";
   /**
    * Prompt rule: literals that must match data values (mapping dicts,
    * category filters, join keys) are copied from the actual values via one
@@ -800,7 +800,7 @@ export interface AgentSettingsApi {
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
-  catalogDetail?: "ids" | "brief" | "schema" | "code";
+  catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
   valueProbeRule?: boolean;
 }
@@ -898,7 +898,7 @@ export interface UpdateAgentSettingsRequest {
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
-  catalogDetail?: "ids" | "brief" | "schema" | "code";
+  catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
   valueProbeRule?: boolean;
 }
