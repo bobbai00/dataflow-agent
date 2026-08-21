@@ -132,6 +132,13 @@ const VALUE_PROBE_FRAGMENT: string = rd("value-probe.md");
  *  printed in every entry, so the rule flips to read-the-entry-first and
  *  reserves queryResult for clipped inventories and dynamic reads. */
 const VALUE_PROBE_CATALOG_FRAGMENT: string = rd("value-probe-catalog.md");
+/** The no-tool variant: the same literal discipline when the catalog carries
+ *  the stats but `queryResult` is NOT exposed — spellings come off the entry,
+ *  older versions come from `recallState`, and a mapping's coverage is read
+ *  off the resulting operator's own null counts. Measured motive: probes took
+ *  21-43% of agent steps for a 28% reuse rate, and each step re-sends the
+ *  whole frozen context, so the cheap classes are better pushed than pulled. */
+const VALUE_PROBE_CATALOG_ONLY_FRAGMENT: string = rd("value-probe-catalog-only.md");
 const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
 /** Example variants demonstrating render prefs + investigation-operator
  *  cleanup, selected only when the feature is enabled so control arms keep a
@@ -494,9 +501,16 @@ export function buildCodeModeSystemPrompt(
   const query = queryToolEnabled ? `\n${QUERY_FRAGMENT}\n` : "";
   // The rule's cheap check is a queryResult call, so it rides only with the
   // tool that makes it followable.
-  const valueProbe = valueProbeRuleEnabled && queryToolEnabled
-    ? `\n${catalogValuesEnabled && versionedEnabled ? VALUE_PROBE_CATALOG_FRAGMENT : VALUE_PROBE_FRAGMENT}\n`
-    : "";
+  // The rule needs a way to CHECK a spelling. With the query tool that is a
+  // probe; without it, the catalog's own stats block plus recallState. With
+  // neither, the rule would name a capability the arm does not have.
+  const valueProbe = !valueProbeRuleEnabled
+    ? ""
+    : queryToolEnabled
+      ? `\n${catalogValuesEnabled && versionedEnabled ? VALUE_PROBE_CATALOG_FRAGMENT : VALUE_PROBE_FRAGMENT}\n`
+      : catalogValuesEnabled && versionedEnabled
+        ? `\n${VALUE_PROBE_CATALOG_ONLY_FRAGMENT}\n`
+        : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session

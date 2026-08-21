@@ -173,4 +173,20 @@ describe("valueProbeRule prompt knob", () => {
     // "values" also carries the catalog-code fragment (code is in the entry)
     expect(catalogVariant).toContain("## The catalog shows each version's code");
   });
+
+  test("no query tool + catalog values: the rule points at the entry and recallState", () => {
+    const base = [
+      ContextMode.DELTA, false, false, false, false, false, false, false,
+      true, false, true, false, false,
+    ] as const;
+    // queryTool OFF, answerShape OFF, catalogCode OFF, valueProbe ON, values ON
+    const noTool = buildCodeModeSystemPrompt(...base, false, false, false, true, true);
+    expect(noTool).toContain("Literals must come from the data");
+    expect(noTool).toContain("recallState");
+    // an arm without the tool must never be told to call it
+    expect(noTool).not.toContain("queryResult(");
+    // with neither the tool nor catalog values there is nothing to check against
+    const neither = buildCodeModeSystemPrompt(...base, false, false, false, true, false);
+    expect(neither).not.toContain("Literals must come from the data");
+  });
 });

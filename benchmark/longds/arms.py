@@ -1406,3 +1406,54 @@ ARMS.update({
     "luna-sub5-v36-r2": LongDSLunaSub5V36R2,
     "luna-sub5-v36-r3": LongDSLunaSub5V36R3,
 })
+
+
+class LongDSLunaSub5V37(LongDSLunaSub5V36):
+    """v3.7 — PUSH ONLY: catalog stats stay, the probe tool goes.
+
+    `recallState` is unchanged (it has been on in every versioned arm), and the
+    catalog still carries each version's code and full stats block. What is
+    removed is `queryResult`: the census says the pull is a bad trade once the
+    push exists —
+
+      * probes took 43% of agent steps in v34 and 21% in v35, and every step
+        re-sends the whole frozen context, so a probe costs about a context
+        re-send rather than its own payload (which is ~2% of billed context);
+      * only 28% of probe outputs had a value that provably reappeared in later
+        code or the answer;
+      * the classes the catalog now covers — value inventories, size and
+        cardinality checks, schema navigation — were a third of all probes;
+      * what remains genuinely dynamic (a true top-N beyond a clipped render,
+        a specific row set) an operator can compute, which is also how every
+        pre-v34 arm did it.
+
+    `valueProbeRule` stays ON and swaps to its no-tool variant: spellings come
+    off the entry's stats block, older versions from `recallState`, and a
+    mapping's coverage is read off the resulting operator's own null counts.
+    This is the arm that answers whether the flexible probe was ever paying for
+    itself, or whether pushing the same facts into a byte-stable entry is
+    strictly better."""
+
+    _NAME = "LongDSLunaSub5V37"
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "answerShapeRule": True,
+        "catalogDetail": "values",
+        "enableQueryTool": False,
+        "valueProbeRule": True,
+    }
+
+
+class LongDSLunaSub5V37R2(LongDSLunaSub5V37):
+    _NAME = "LongDSLunaSub5V37R2"
+
+
+class LongDSLunaSub5V37R3(LongDSLunaSub5V37):
+    _NAME = "LongDSLunaSub5V37R3"
+
+
+ARMS.update({
+    "luna-sub5-v37": LongDSLunaSub5V37,
+    "luna-sub5-v37-r2": LongDSLunaSub5V37R2,
+    "luna-sub5-v37-r3": LongDSLunaSub5V37R3,
+})
