@@ -20,6 +20,8 @@ turn's events and nothing is trimmed by a token budget. It is already the defaul
 — stated explicitly because for this benchmark it is a design choice, not an
 inherited default.
 """
+import os
+
 from systems.dataflow_system import DataflowSystem
 
 #: The main-checkout agent-service. Verified serving from
@@ -52,7 +54,15 @@ class LongDSBase(DataflowSystem):
     _ENDPOINT: str = AGENT_SERVICE_ENDPOINT
 
     def __init__(self, verbose: bool = False, *args, **kwargs):
-        kwargs.setdefault("agent_service_endpoint", self._ENDPOINT)
+        # `LONGDS_AGENT_ENDPOINT` lets one arm run against a different service
+        # instance without a new class — the way independent reps run
+        # CONCURRENTLY, one service per pool, instead of 15 agents sharing a
+        # single-threaded Bun process. Provenance is unaffected: run_longds
+        # stamps the cwd and SHA of whatever endpoint actually answered.
+        kwargs.setdefault(
+            "agent_service_endpoint",
+            os.environ.get("LONGDS_AGENT_ENDPOINT") or self._ENDPOINT,
+        )
         super().__init__(
             model_type=self._MODEL,
             context_mode=self._CONTEXT_MODE,
