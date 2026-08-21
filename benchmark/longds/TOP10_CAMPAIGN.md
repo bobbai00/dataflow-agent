@@ -136,3 +136,99 @@ Campaign spend: session 15 runs $18.50 · v32 10 runs $10.42 · v32fx 5 runs
 $3.29 · v33 15 runs $9.27 · judge (OpenRouter deepseek) ≈ $4. All arms ran on
 the dev/longds-multiturn worktree agent-service (:3005) against the shared
 JVM stack; scratch under `benchmark/longds/system_scratch/LongDS_*`.
+
+---
+
+# FINAL: 3 reps x 10 tasks x 3 arms (2026-08-21)
+
+Everything above was the iteration story. This is the endpoint: the ten
+longest LongDS tasks, three independent reps, three arms, every turn judged by
+deepseek-v4-pro. 90 task-runs, ~3,000 judged turns.
+
+## The arms
+
+| arm | layout | packaging | catalog entries | probe |
+|---|---|---|---|---|
+| **session** | `# Session` / `## Turn N` | cache-aligned | n/a | no |
+| **v36** | versioned catalog | cache-aligned | code + full column stats | `queryResult`, ceiling 15 |
+| **v37** | versioned catalog | cache-aligned | code + full column stats | **none** |
+
+Both versioned arms also carry `answerShapeRule` and the literal-discipline
+rule (`valueProbeRule`); v37 uses its no-tool variant, which points at the
+entry's stats block and `recallState` instead of a probe. `recallState` is on
+in every versioned arm and always was.
+
+## Result
+
+| task | session | v36 | v37 |
+|---|---|---|---|
+| kaggle-survey t3 | 8/89/76 → 57.7 | 78/41/69 → 62.8 | 81/54/86 → **73.7** |
+| nfl big-data-bowl | 7/43/17 → 22.4 | 27/5/5 → 12.2 | 31/29/5 → 21.4 |
+| acea water t2 | 50/81/84 → 71.8 | 89/84/68 → **80.7** | 82/76/74 → 77.2 |
+| acea water t3 | 100/97/97 → **98.2** | 95/97/100 → 97.3 | 70/76/89 → 78.4 |
+| wids datathon t1 | 60/42/51 → 51.3 | 45/50/36 → 43.6 | 68/62/46 → **58.7** |
+| wids datathon t2 | 46/42/25 → **37.5** | 11/8/17 → 12.0 | 9/31/42 → 26.9 |
+| cpe t1 | 19/3/19 → 13.9 | 25/14/25 → **21.3** | 19/17/17 → 17.8 |
+| cpe t2 | 23/14/11 → **16.1** | 17/6/20 → 14.1 | 14/14/14 → 14.0 |
+| LA city | 3/3/3 → 2.8 | 6/6/14 → **8.3** | 6/11/3 → 6.5 |
+| **task-mean** | **41.3** | 39.2 | **41.6** |
+| pooled turn accuracy | 41.5% ±3.0 | 39.3% ±3.0 | **42.0% ±3.0** |
+| **cost / task-run** | $1.655 | $1.311 | **$1.158** |
+| steps / turn | 3.4 | 6.1 | 4.7 |
+
+(cdp is omitted: it scores 0-3 in every arm and its last run was still
+executing at the time of writing. It cannot move a ranking.)
+
+**v37 matches-to-slightly-beats the session baseline at 70% of its cost.** The
+accuracy gap is inside the CI, so the defensible claim is parity on accuracy
+and a real 30% saving — with the versioned layout's structural properties
+(immutable versions, exact addressing, retrieval) on top.
+
+## What each knob was worth
+
+1. **cache-aligned packaging** — the cost mechanism. The luna deployment only
+   cache-hits when a request extends the previous one, so freezing the render
+   and appending per step took cached share from ~5% to 85-99%.
+2. **code in catalog entries** (`catalogDetail: "code"`) — closed the dominant
+   versioned-vs-session loss class, convention re-derivation. Causal evidence:
+   acea2 t6 reproduced session's exact RMSE 3/3 reps with zero recalls, where
+   the code-blind arm drifted to 0.5352.
+3. **full column stats in entries** (`catalogDetail: "values"`) — value
+   spellings, pushed. Cut probe volume 211 -> 63 per run.
+4. **dropping the probe** (v37) — the census showed probes taking 43% of agent
+   steps in v34 and 21% in v35 for a 28% reuse rate, while each probe costs a
+   whole context re-send. Removing it took steps/turn 5.2 -> 4.3 and cost
+   $1.02 -> $0.89 on the subset, and it won wids1 by ~20 points.
+5. **retired**: `upstreamValueEcho` (net negative), the whole-stats trim (the
+   stats are wanted), and the capped-probe arm (v38, stopped before it ran).
+
+## Where the arms differ, and why
+
+* **v37 wins kaggle (+16 over session)** — the salary-band vocabulary is in the
+  catalog now, so the mapping dict matches the data's real spellings. Before
+  any of this, that dict was typed from memory with `$` on every key against
+  data that carries `$` on one band only, and it NaN'd every row silently.
+* **v37 wins wids1 (+7.4)** — the most operator-heavy task, where probe-driven
+  step inflation hurt most (one v34 turn took 48 minutes and 25 steps).
+* **session wins acea3 (98.2 vs 78.4)** — the one durable win for the
+  baseline. Traced to turn 23, an OLS predicted-mean the probe arms get right
+  3/3 and probe-less arms get right 2/5. v37 rep 3 hit 89, so it narrows.
+* **session wins wids2 (37.5 vs 26.9)** — not investigated; a candidate for
+  the next round.
+
+## Method notes worth keeping
+
+* **Three reps is the minimum.** Session's kaggle went 8 / 89 / 76 across
+  reps; v36's nfl went 27 / 5 / 5. Any single-rep comparison on this benchmark
+  is noise.
+* **Judge coverage must be checked, not assumed.** A credit outage left an
+  eval file that looked complete but held one scored turn of 38, and the mean
+  read 0.0. `judge_coverage.py` prints scored/total per task.
+* **The engine can die mid-run and the transcripts still look normal.**
+  ComputingUnitMaster stopped once; every execution after answered
+  `{"error":"dataflow execution service unavailable"}` and a whole rep of two
+  arms judged at 29 instead of ~65. `run_all.sh` only port-checks at launch,
+  so liveness during a pool needs its own watch.
+* **Parallelism has a ceiling.** ~10 concurrent task-runs across 3-4
+  agent-service instances is comfortable on 24 cores; pushing to ~15 preceded
+  the engine failure above.
