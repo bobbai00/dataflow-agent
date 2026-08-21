@@ -851,6 +851,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           cacheAlignedContext: (settings as any).cacheAlignedContext,
           catalogDetail: (settings as any).catalogDetail,
           valueProbeRule: (settings as any).valueProbeRule,
+          queryCallsPerTurn: (settings as any).queryCallsPerTurn,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -939,6 +940,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
       ),
       valueProbeRule: t.Optional(t.Boolean()),
+      queryCallsPerTurn: t.Optional(t.Number()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1232,6 +1234,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
       valueProbeRule: agentSettings.valueProbeRule,
+      queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       foundationVerify: agentSettings.foundationVerify,
       enableQueryTool: agentSettings.enableQueryTool,
       upstreamValueEcho: agentSettings.upstreamValueEcho,
@@ -1311,6 +1314,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
         catalogDetail: (settings as UpdateAgentSettingsRequest).catalogDetail,
         valueProbeRule: (settings as UpdateAgentSettingsRequest).valueProbeRule,
+        queryCallsPerTurn: (settings as UpdateAgentSettingsRequest).queryCallsPerTurn,
         foundationVerify: (settings as any).foundationVerify,
         enableQueryTool: (settings as any).enableQueryTool,
         upstreamValueEcho: (settings as any).upstreamValueEcho,
@@ -1359,6 +1363,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
       valueProbeRule: agentSettings.valueProbeRule,
+      queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       };
     },
     {
@@ -1416,6 +1421,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
         ),
         valueProbeRule: t.Optional(t.Boolean()),
+        queryCallsPerTurn: t.Optional(t.Number()),
         foundationVerify: t.Optional(t.Boolean()),
         enableQueryTool: t.Optional(t.Boolean()),
         upstreamValueEcho: t.Optional(t.Boolean()),

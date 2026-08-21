@@ -133,6 +133,21 @@ describe("queryResult — the one query primitive", () => {
     expect(out).toContain("clipped at");
   });
 
+  test("the per-turn ceiling is overridable — the tail-trimming knob", async () => {
+    const results: Record<string, any> = { pressure: makeInfo(ROWS) };
+    const t = createQueryResultTool({
+      getResult: id => results[id],
+      listOperators: () => Object.keys(results),
+      getCurrentTurnKey: () => "m1",
+      callsPerTurn: 2,
+    });
+    expect(await run(t, { operatorId: "pressure", expr: "df.shape" })).not.toContain("[ERROR]");
+    expect(await run(t, { operatorId: "pressure", expr: "df.shape" })).not.toContain("[ERROR]");
+    const third = await run(t, { operatorId: "pressure", expr: "df.shape" });
+    expect(third).toContain("[ERROR]");
+    expect(third).toContain("(2 calls)");
+  });
+
   test("the per-turn budget stops a loop and resets on a new turn", async () => {
     let key = "m1";
     const results: Record<string, OperatorInfo> = { pressure: makeInfo(ROWS) } as any;

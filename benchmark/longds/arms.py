@@ -1457,3 +1457,48 @@ ARMS.update({
     "luna-sub5-v37-r2": LongDSLunaSub5V37R2,
     "luna-sub5-v37-r3": LongDSLunaSub5V37R3,
 })
+
+
+class LongDSLunaSub5V38(LongDSLunaSub5V36):
+    """v3.8 — the middle setting: keep the probe, CAP it at 5 calls per turn.
+
+    v36 (probe, ceiling 15) and v37 (no probe) each win half the subset: v36
+    holds acea3 at 94-100 across five reps where v37 sits at 70-76 twice, and
+    v37 takes wids1 by ~20 points and runs ~15% cheaper with 0.8 fewer steps
+    per turn. The probe is therefore load-bearing on some turns and pure step
+    inflation on others, which is a BUDGET question rather than an on/off one.
+
+    Where the cap comes from: over four 5-task reps, 396 probing turns issued
+    2,018 probes; turns using more than five calls were 31% of probing turns
+    but 40% of all probes, and that tail is dominated by row-browsing. A
+    ceiling of 5 keeps ~60% of probe volume and leaves ~69% of probing turns
+    completely untouched — including acea3's early foundation turns, which is
+    where its probes actually land.
+
+    `queryCallsPerTurn` is a real setting rather than a constant so v36 keeps
+    its ceiling of 15 and stays a valid control."""
+
+    _NAME = "LongDSLunaSub5V38"
+    _EXTRA_AGENT_SETTINGS = {
+        "cacheAlignedContext": True,
+        "answerShapeRule": True,
+        "catalogDetail": "values",
+        "enableQueryTool": True,
+        "valueProbeRule": True,
+        "queryCallsPerTurn": 5,
+    }
+
+
+class LongDSLunaSub5V38R2(LongDSLunaSub5V38):
+    _NAME = "LongDSLunaSub5V38R2"
+
+
+class LongDSLunaSub5V38R3(LongDSLunaSub5V38):
+    _NAME = "LongDSLunaSub5V38R3"
+
+
+ARMS.update({
+    "luna-sub5-v38": LongDSLunaSub5V38,
+    "luna-sub5-v38-r2": LongDSLunaSub5V38R2,
+    "luna-sub5-v38-r3": LongDSLunaSub5V38R3,
+})

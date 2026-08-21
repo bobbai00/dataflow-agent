@@ -58,6 +58,17 @@ export const QUERY_RESULT_CHARS_MAX = 4000;
 /** Per-turn call budget — the same loop-stopper recall carries. */
 export const QUERY_CALLS_PER_TURN = 15;
 
+/** Per-turn probe budget, overridable per agent (`queryCallsPerTurn`).
+ *
+ *  The ceiling is not advisory — the model spends whatever it is given: over
+ *  four 5-task reps, 396 probing turns issued 2,018 probes, and the 31% of
+ *  those turns that went past five calls accounted for 40% of all probes,
+ *  mostly plain row-browsing. Because each probe consumes a STEP, and a step
+ *  re-sends the whole frozen context, that tail is what moved cost per run
+ *  from $0.66 to ~$1.00 without a matching accuracy gain. A lower ceiling
+ *  trims the tail while leaving ~70% of probing turns untouched. */
+export const QUERY_CALLS_PER_TURN_DEFAULT = QUERY_CALLS_PER_TURN;
+
 /** Subprocess wall clamp. A groupby over the few thousand rows the service
  *  holds is milliseconds; anything near this is a runaway expression. */
 const PY_TIMEOUT_MS = 10_000;
@@ -116,6 +127,8 @@ export interface QueryResultDeps {
   listOperators: () => string[];
   /** Per-turn budget key (the current messageId). */
   getCurrentTurnKey?: () => string;
+  /** Per-turn call ceiling; defaults to QUERY_CALLS_PER_TURN_DEFAULT. */
+  callsPerTurn?: number;
 }
 
 export function createQueryResultTool(deps: QueryResultDeps) {
@@ -157,9 +170,10 @@ export function createQueryResultTool(deps: QueryResultDeps) {
           callsThisTurn = 0;
         }
         callsThisTurn += 1;
-        if (callsThisTurn > QUERY_CALLS_PER_TURN) {
+        const budget = deps.callsPerTurn ?? QUERY_CALLS_PER_TURN_DEFAULT;
+        if (callsThisTurn > budget) {
           return createErrorResult(
-            `Query budget for this turn is used up (${QUERY_CALLS_PER_TURN} calls). Your earlier query results ` +
+            `Query budget for this turn is used up (${budget} calls). Your earlier query results ` +
               "are still in your steps — proceed with what you have."
           );
         }

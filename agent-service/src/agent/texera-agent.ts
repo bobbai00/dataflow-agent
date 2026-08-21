@@ -648,6 +648,7 @@ export class TexeraAgent {
             ? [...this.snapshotStorage.getAllVisibleResults(this.head).keys()]
             : this.workflowState.getAllOperators().map(o => o.operatorID),
         getCurrentTurnKey: () => this.currentMessageId ?? "",
+        callsPerTurn: this.settings.queryCallsPerTurn,
       });
     }
 
@@ -1367,6 +1368,7 @@ export class TexeraAgent {
     answerShapeRule?: boolean;
     catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
     valueProbeRule?: boolean;
+    queryCallsPerTurn?: number;
     indexThinObservations?: boolean;
     cacheAlignedContext?: boolean;
     tunerConfig?: TunerConfig | null;
@@ -1626,6 +1628,11 @@ export class TexeraAgent {
       // now shows code, and the recall guidance changes accordingly).
       this.settings.catalogDetail = updates.catalogDetail;
       promptNeedsRebuild = true;
+    }
+    if (updates.queryCallsPerTurn !== undefined && updates.queryCallsPerTurn !== this.settings.queryCallsPerTurn) {
+      // Tool-internal budget: rebuild the tool so the new ceiling applies.
+      this.settings.queryCallsPerTurn = updates.queryCallsPerTurn;
+      this.tools = this.createTools();
     }
     if (updates.valueProbeRule !== undefined && updates.valueProbeRule !== this.settings.valueProbeRule) {
       // Prompt-only, like specAudit.

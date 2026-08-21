@@ -532,6 +532,14 @@ export interface AgentSettings {
    */
   valueProbeRule: boolean;
   /**
+   * Per-turn ceiling on `queryResult` calls. The model spends whatever ceiling
+   * it is given — measured over four 5-task reps, the 31% of probing turns
+   * that went past five calls issued 40% of all probes, mostly row-browsing —
+   * and each probe costs a STEP, i.e. a whole re-send of the frozen context.
+   * Lowering this trims that tail without removing the tool.
+   */
+  queryCallsPerTurn: number;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -657,6 +665,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   cacheAlignedContext: false,
   catalogDetail: "schema",
   valueProbeRule: false,
+  queryCallsPerTurn: 15,
 };
 
 /**
@@ -803,6 +812,8 @@ export interface AgentSettingsApi {
   catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
   valueProbeRule?: boolean;
+  /** Per-turn queryResult ceiling (see AgentSettings.queryCallsPerTurn). */
+  queryCallsPerTurn?: number;
 }
 
 export interface AgentInfo {
@@ -901,4 +912,6 @@ export interface UpdateAgentSettingsRequest {
   catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
   valueProbeRule?: boolean;
+  /** Per-turn queryResult ceiling (see AgentSettings.queryCallsPerTurn). */
+  queryCallsPerTurn?: number;
 }
