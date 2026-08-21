@@ -1502,3 +1502,56 @@ ARMS.update({
     "luna-sub5-v38-r2": LongDSLunaSub5V38R2,
     "luna-sub5-v38-r3": LongDSLunaSub5V38R3,
 })
+
+# ---------------------------------------------------------------------------
+# BUSINESS + SPORTS campaign (2026-08-21). The two hardest domains of the
+# benchmark, three reps each of the two arms that survived the top-10 work:
+# the session baseline and v3.7 (versioned catalog + values + no probe).
+#
+# Separate SUT names from the top-10 arms on purpose: the task sets differ, so
+# mixing them into one scratch directory would make "the 3-rep mean" ambiguous.
+# The knobs are identical to their top-10 counterparts, so a per-task number is
+# directly comparable across campaigns.
+# ---------------------------------------------------------------------------
+
+
+class LongDSLunaBSSession(LongDSLunaTop10Session):
+    """Session baseline, cache-aligned — same knobs as LongDSLunaTop10SessionR2."""
+
+    _NAME = "LongDSLunaBSSession"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True}
+
+
+class LongDSLunaBSSessionR2(LongDSLunaBSSession):
+    _NAME = "LongDSLunaBSSessionR2"
+
+
+class LongDSLunaBSSessionR3(LongDSLunaBSSession):
+    _NAME = "LongDSLunaBSSessionR3"
+
+
+class LongDSLunaBSV37(LongDSLunaSub5V37):
+    """v3.7 on business + sports. Knobs identical to LongDSLunaSub5V37:
+    cache-aligned packaging, answer-shape rule, catalog entries carrying code
+    and full column stats, the literal-discipline rule in its no-tool variant,
+    and queryResult OFF (the flag stays, so it can be turned back on)."""
+
+    _NAME = "LongDSLunaBSV37"
+
+
+class LongDSLunaBSV37R2(LongDSLunaBSV37):
+    _NAME = "LongDSLunaBSV37R2"
+
+
+class LongDSLunaBSV37R3(LongDSLunaBSV37):
+    _NAME = "LongDSLunaBSV37R3"
+
+
+ARMS.update({
+    "luna-bs-session": LongDSLunaBSSession,
+    "luna-bs-session-r2": LongDSLunaBSSessionR2,
+    "luna-bs-session-r3": LongDSLunaBSSessionR3,
+    "luna-bs-v37": LongDSLunaBSV37,
+    "luna-bs-v37-r2": LongDSLunaBSV37R2,
+    "luna-bs-v37-r3": LongDSLunaBSV37R3,
+})
