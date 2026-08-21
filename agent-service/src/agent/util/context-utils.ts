@@ -30,7 +30,7 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
-import { formatValueVocabulary } from "../context/decorate/data/value-vocabulary";
+import { formatColumnStats } from "../context/decorate/data/column-stats";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
   clampCodeChars,
@@ -2572,18 +2572,14 @@ function renderVersionedCatalog(
             const prof = formatTableHints(info);
             if (prof) sections.push(prof);
           }
-          // "values" detail: the categorical VOCABULARY of this version —
-          // each low-cardinality string column's values as the worker
-          // enumerated them over the full table. The push-side replacement for
-          // runtime value probes: a later turn's mapping dict or category
-          // filter copies the spellings off the entry instead of spending a
-          // query per look. Deliberately NOT the whole stats block — that was
-          // 33% of a 342 kB context on wids1 turn 35, of which the
-          // vocabularies were 4%; the rest was numeric mean/min/max, which
-          // carries no spelling and which an operator can compute on demand.
+          // "values" detail: the worker's full-table per-column stats block
+          // (distinct-value histograms, null counts, ranges). This is the
+          // push-side replacement for runtime value probes: a later turn's
+          // mapping dict or category filter can copy the actual spellings off
+          // the entry instead of spending a queryResult call per look.
           if (options.catalogDetail === "values") {
-            const vocab = formatValueVocabulary(info);
-            if (vocab) sections.push(vocab);
+            const stats = formatColumnStats(info);
+            if (stats) sections.push(stats);
           }
         }
         // "code" detail (also included by "values"): the version's code, in
