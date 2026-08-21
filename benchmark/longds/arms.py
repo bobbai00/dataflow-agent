@@ -1347,8 +1347,62 @@ class LongDSLunaSub5V35R3(LongDSLunaSub5V35):
     _NAME = "LongDSLunaSub5V35R3"
 
 
+class LongDSLunaSub5V35R4(LongDSLunaSub5V35):
+    """Third rep of v35 ON THE FIXED SERVICE BUILD.
+
+    Rep 1 ran against an agent-service started 15:32, before the 15:46
+    queryResult truthfulness fix (`[PARTIAL]` scope header + safe builtins)
+    landed; reps 2-3 ran against services started 17:02, after it. The probe
+    census shows the split cleanly — 210 probe calls/run in rep 1 versus 52 in
+    reps 2-3 — so rep 1 is NOT a replicate of reps 2-3 and this arm supplies
+    the third same-build rep. Rep 1 is kept as the measurement of what the
+    silent-partial-read probe cost."""
+
+    _NAME = "LongDSLunaSub5V35R4"
+
+
 ARMS.update({
     "luna-sub5-v35": LongDSLunaSub5V35,
     "luna-sub5-v35-r2": LongDSLunaSub5V35R2,
     "luna-sub5-v35-r3": LongDSLunaSub5V35R3,
+    "luna-sub5-v35-r4": LongDSLunaSub5V35R4,
+})
+
+
+class LongDSLunaSub5V36(LongDSLunaSub5V35):
+    """v3.6 — identical knobs to v35, plus the two queryResult BUG FIXES the
+    probe census turned up. The catalog still renders the full stats block per
+    entry (a trimmed variant was tried and reverted: the stats are wanted).
+
+      * `[PARTIAL]` scope header — the service holds only the rows that fit the
+        per-operator char budget, so a probe over kaggle's 297-column raw table
+        ran over ONE held row of 21,879 while its own prompt told the model to
+        use it INSTEAD of a clipped render. `value_counts()` over that row
+        looked exactly like the real inventory. 12% of v34's probes were
+        aggregates over such a prefix.
+      * safe-builtins whitelist — 54 of v34's 177 failed probes were
+        `NameError` on `any`/`len`/`sorted`, ordinary pandas idiom; the model
+        read the failure as its own syntax error and retried dead variants.
+        Probe error rate fell 17% -> 2% once available.
+
+    The census also priced probing honestly: probe OUTPUT is only ~2% of billed
+    context, but probes took 43% of v34's agent steps, and a step re-sends the
+    whole frozen context — that, not the probe payload, is what moved cost per
+    run from $0.66 to $0.88."""
+
+    _NAME = "LongDSLunaSub5V36"
+
+
+class LongDSLunaSub5V36R2(LongDSLunaSub5V36):
+    _NAME = "LongDSLunaSub5V36R2"
+
+
+class LongDSLunaSub5V36R3(LongDSLunaSub5V36):
+    _NAME = "LongDSLunaSub5V36R3"
+
+
+ARMS.update({
+    "luna-sub5-v36": LongDSLunaSub5V36,
+    "luna-sub5-v36-r2": LongDSLunaSub5V36R2,
+    "luna-sub5-v36-r3": LongDSLunaSub5V36R3,
 })
