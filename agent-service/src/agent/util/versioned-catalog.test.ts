@@ -352,7 +352,7 @@ describe("catalogDetail on the versioned catalog", () => {
     expect(t1).not.toContain("Summary:");
   });
 
-  test('"values" renders code AND the full-table column stats block', () => {
+  test('"values" renders code AND the categorical vocabulary, verbatim', () => {
     const s = scenarioWithCode();
     const info = s.storage.getOperatorResult("a1", "scores")!;
     (info as any).columnStats = {
@@ -361,16 +361,37 @@ describe("catalogDetail on the versioned catalog", () => {
     const text = renderWith(s, "values");
     const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
     expect(t1).toContain("```python");
-    expect(t1).toContain("Column Schema and stats:");
+    expect(t1).toContain("Value vocabulary");
+    // the exact spellings survive — including the band that carries no `$`
     expect(t1).toContain('"$0-999"=40');
+    expect(t1).toContain('"1,000-1,999"=50');
   });
 
-  test('"code" does NOT render the stats block', () => {
+  test('"values" omits distribution-only columns — no mean/min/max bloat', () => {
+    // wids1 turn 35 measured 1,115 stats lines = 33% of a 342 kB context, of
+    // which the string vocabularies were 3.3%. Numeric summaries carry no
+    // spelling, so they do not belong in a byte-stable catalog entry.
     const s = scenarioWithCode();
     const info = s.storage.getOperatorResult("a1", "scores")!;
-    (info as any).columnStats = { band: "(str): null=0, distinct=3" };
+    (info as any).columnStats = {
+      height: "(numeric): null=239, mean=17.46, min=0, max=115.6",
+      plain_id: "(str): null=0, distinct=10000",
+      band: '(str): null=0, distinct=2, top_3={"a"=5, "b"=6}',
+    };
+    const text = renderWith(s, "values");
+    const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
+    expect(t1).toContain('"band"');
+    expect(t1).not.toContain("mean=17.46");
+    // a high-cardinality string column has no enumerable vocabulary either
+    expect(t1).not.toContain('"plain_id"');
+  });
+
+  test('"code" does NOT render any value block', () => {
+    const s = scenarioWithCode();
+    const info = s.storage.getOperatorResult("a1", "scores")!;
+    (info as any).columnStats = { band: '(str): distinct=3, top_3={"a"=1}' };
     const text = renderWith(s, "code");
     const t1 = text.slice(text.indexOf("## Turn 1"), text.indexOf("## Turn 2"));
-    expect(t1).not.toContain("Column Schema and stats:");
+    expect(t1).not.toContain("Value vocabulary");
   });
 });
