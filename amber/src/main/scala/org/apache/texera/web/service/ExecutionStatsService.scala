@@ -352,4 +352,11 @@ class ExecutionStatsService(
         })
     )
   }
+
+  // The persist executor is per-execution; without this it outlives the
+  // execution and its thread leaks for the life of the JVM.
+  override def unsubscribeAll(): Unit = {
+    super.unsubscribeAll()
+    metricsPersistThread.shutdown()
+  }
 }
