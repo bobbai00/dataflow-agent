@@ -51,15 +51,23 @@ for rep, sut in REPS:
         bad = 0
         if res.exists():
             try:
-                # An empty solution is as diagnostic as an error string: the
-                # runner records '' when the turn died on infrastructure (e.g.
-                # agent-service down -> ConnectionRefused printed to the lane
-                # log only). No real turn legitimately answers nothing.
-                bad = sum(
-                    1
-                    for x in json.loads(res.read_text())
-                    if ERR.search(str(x.get("solution") or "")) or not str(x.get("solution") or "").strip()
-                )
+                # An empty solution means the turn produced nothing. Two very
+                # different causes, split by elapsed time:
+                #   * fast-fail (< ~1100s): infrastructure died under the turn
+                #     (service down, connection refused) -> the turn never got
+                #     its fair budget -> CONTAMINATED, re-run;
+                #   * at/over the turn budget: the arm legitimately failed to
+                #     answer in time -> a real score-0 turn, NOT contamination
+                #     (question-only especially: later turns never see answers,
+                #     so nothing cascades).
+                for x in json.loads(res.read_text()):
+                    sol = str(x.get("solution") or "")
+                    if ERR.search(sol):
+                        bad += 1
+                    elif not sol.strip():
+                        elapsed = float((x.get("stats") or {}).get("elapsed_seconds") or 0)
+                        if elapsed < 1100:
+                            bad += 1
             except Exception:
                 pass
         if bad:
