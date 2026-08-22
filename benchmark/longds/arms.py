@@ -1547,6 +1547,32 @@ class LongDSLunaBSV37R3(LongDSLunaBSV37):
     _NAME = "LongDSLunaBSV37R3"
 
 
+class LongDSLunaBSQO(LongDSLunaTop10Session):
+    """QUESTION-ONLY on business + sports — the stripped extreme of the layout
+    spectrum (question-only <- versioned catalog <- full session). Past turns
+    render as their question text only: no steps, no dataflows, no answers.
+    The agent re-derives everything each turn from the raw files; the question
+    history exists solely so cross-turn references stay resolvable.
+
+    Inherits the session lineage so every non-layout knob (model, result chars,
+    data level, execution timeout, delta ReAct) matches the session baseline
+    exactly; `questionOnlyTurns` takes precedence over the inherited
+    session_turns flag inside the renderer, so the only difference between this
+    arm and the session arm IS the layout. Cache-aligned like both other arms.
+    """
+
+    _NAME = "LongDSLunaBSQO"
+    _EXTRA_AGENT_SETTINGS = {"cacheAlignedContext": True, "questionOnlyTurns": True}
+
+
+class LongDSLunaBSQOR2(LongDSLunaBSQO):
+    _NAME = "LongDSLunaBSQOR2"
+
+
+class LongDSLunaBSQOR3(LongDSLunaBSQO):
+    _NAME = "LongDSLunaBSQOR3"
+
+
 ARMS.update({
     "luna-bs-session": LongDSLunaBSSession,
     "luna-bs-session-r2": LongDSLunaBSSessionR2,
@@ -1554,4 +1580,7 @@ ARMS.update({
     "luna-bs-v37": LongDSLunaBSV37,
     "luna-bs-v37-r2": LongDSLunaBSV37R2,
     "luna-bs-v37-r3": LongDSLunaBSV37R3,
+    "luna-bs-qo": LongDSLunaBSQO,
+    "luna-bs-qo-r2": LongDSLunaBSQOR2,
+    "luna-bs-qo-r3": LongDSLunaBSQOR3,
 })

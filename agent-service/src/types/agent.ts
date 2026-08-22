@@ -480,6 +480,17 @@ export interface AgentSettings {
    *  with the legacy flat layout when off. */
   sessionTurns: boolean;
   /**
+   * QUESTION-ONLY LAYOUT: past turns render as their `### Task` (question)
+   * text only — no steps, no dataflow, no answers. The agent solves every
+   * turn from scratch against the raw sources; the question history exists
+   * solely so cross-turn references stay resolvable. The stripped extreme of
+   * the layout spectrum (question-only ← versioned catalog ← full session).
+   * Takes precedence over sessionTurns (so a session-lineage arm can layer it
+   * on); superseded by versionedMode. Prompt-affecting: the context-format
+   * fragment switches to question-only.md.
+   */
+  questionOnlyTurns: boolean;
+  /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
    * render above being the authoritative state. Exposed because it is the leading
@@ -661,6 +672,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // at this scale. Kept as a flag for much longer sessions.
   versionedHeads: false,
   sessionTurns: false,
+  questionOnlyTurns: false,
   indexThinObservations: false,
   cacheAlignedContext: false,
   catalogDetail: "schema",
@@ -796,6 +808,8 @@ export interface AgentSettingsApi {
   indexDetailedOperators?: number;
   /** Turn-grouped session layout (see AgentSettings.sessionTurns). */
   sessionTurns?: boolean;
+  /** Question-only layout (see AgentSettings.questionOnlyTurns). */
+  questionOnlyTurns?: boolean;
   /** Render once per driver run, append natively after — the provider's
    *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
@@ -914,4 +928,6 @@ export interface UpdateAgentSettingsRequest {
   valueProbeRule?: boolean;
   /** Per-turn queryResult ceiling (see AgentSettings.queryCallsPerTurn). */
   queryCallsPerTurn?: number;
+  /** Question-only layout (see AgentSettings.questionOnlyTurns). */
+  questionOnlyTurns?: boolean;
 }

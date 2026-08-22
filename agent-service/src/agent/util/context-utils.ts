@@ -270,6 +270,14 @@ export interface AssembleContextOptions {
    *  information as the flat event log, re-grouped; the ReAct render knobs
    *  apply unchanged inside each turn. Superseded by versionedCatalog. */
   sessionTurns?: boolean;
+  /** QUESTION-ONLY LAYOUT: past turns render as their `### Task` text ONLY —
+   *  no steps, no dataflow, no answers. The agent re-derives everything the
+   *  current question needs from the raw sources within the current turn; the
+   *  question history exists solely so cross-turn references ("the ledger from
+   *  turn 1") stay resolvable. Finished entries are tiny and byte-stable, so
+   *  the layout is append-only across turns like the catalog. Supersedes
+   *  sessionTurns; superseded by versionedCatalog. */
+  questionOnlyTurns?: boolean;
   /** OPERATOR-LEVEL recall (v3): the catalog header teaches the per-version
    *  recall address instead of the per-turn one. Render-text only. */
   recallOperatorLevel?: boolean;
@@ -635,6 +643,22 @@ export function renderContextCore(
         );
         break;
       }
+      // QUESTION-ONLY LAYOUT: past turns as bare questions, current turn as a
+      // normal live step log. Checked before sessionTurns — an arm that layers
+      // it on a session-lineage config means "the stripped-down variant".
+      if (options.questionOnlyTurns) {
+        content = renderQuestionOnly(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep,
+          ContextMode.DELTA
+        );
+        break;
+      }
       // SESSION LAYOUT: the flat event log re-grouped by turn (# Session +
       // # Your Task). Superseded by versionedCatalog above.
       if (options.sessionTurns) {
@@ -705,6 +729,21 @@ export function renderContextCore(
       // and collapses observations into a `### Dataflow` leaf snapshot.
       if (options.versionedCatalog) {
         content = renderVersionedCatalog(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep,
+          ContextMode.LATEST
+        );
+        break;
+      }
+      // QUESTION-ONLY × LATEST: past turns as bare questions; the current
+      // turn renders as in session-LATEST (leaf snapshot).
+      if (options.questionOnlyTurns) {
+        content = renderQuestionOnly(
           tasks,
           workflowState,
           options,
@@ -2404,6 +2443,112 @@ function renderSession(
       if (options.agentTurns) {
         pushSteps(current[0], undefined, true);
       }
+      const leaf = lastSnapshotOf(tasks) ?? initSnapshot;
+      if (leaf) {
+        const { sortedOps, allLinks } = topoSortDag(leaf.workflow);
+        if (sortedOps.length > 0) {
+          sections.push("### Dataflow");
+          sections.push("");
+          for (const op of sortedOps) {
+            sections.push(serializeOperatorFull(op, leaf, workflowState, options, /*isCurrent=*/ true, allLinks, 4));
+            sections.push("");
+          }
+        }
+      }
+    }
+  }
+
+  // On-demand pulls (inspectResult) persist here, ahead of the directive.
+  if (options.inspectionsRendered) {
+    sections.push(options.inspectionsRendered);
+    sections.push("");
+  }
+
+  sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
+  return sections.join("\n").trimEnd();
+}
+
+/**
+ * QUESTION-ONLY — the stripped-to-the-bone extreme of the layout spectrum:
+ * past turns contribute their `### Task` text and NOTHING else (no steps, no
+ * dataflow, no answers), so the agent re-derives the current question's every
+ * prerequisite from the raw sources inside the current turn. The history is
+ * kept only because LongDS questions reference conventions established by
+ * earlier questions ("the cleaned ledger from turn 1"); without the question
+ * list those references would be unresolvable.
+ *
+ *   ## Turn 1..N-1        finished: ### Task verbatim, nothing else
+ *   ## Turn N (current)   Task + live step log (DELTA) or leaf snapshot
+ *                         (LATEST), exactly as renderSession's current turn
+ *   # Your Task           the shared closing directive
+ *
+ * Finished entries are tiny and byte-stable forever, so the layout is
+ * append-only across turns; within a turn cacheAlignedContext applies
+ * unchanged. DELTA diffs for the current turn are seeded from the inherited
+ * leaf — earlier turns' operators still exist in the workflow even though
+ * they are not rendered, and diffing against the true inherited state keeps
+ * step 1 from re-stating them as "added".
+ */
+function renderQuestionOnly(
+  tasks: TaskGroup[],
+  workflowState: WorkflowState,
+  options: AssembleContextOptions,
+  initSnapshot: SnapshotData | undefined,
+  latestUserContent: string | undefined,
+  latestUserStepId: string | undefined,
+  createFlagsByStep: Map<string, Map<string, boolean>>,
+  mode: ContextMode
+): string {
+  const sections: string[] = [];
+  const prior = tasks.slice(0, -1);
+  const current = tasks.slice(-1);
+  const turnNoOf = (task: TaskGroup | undefined, fallback: number): number => {
+    const msgId = task?.nodes[0]?.step.messageId;
+    return (msgId ? options.turnNumberByMessageId?.get(msgId) : undefined) ?? fallback;
+  };
+  const currentTurnNo = turnNoOf(current[0], tasks.length);
+
+  sections.push("# Questions so far");
+  sections.push("");
+
+  prior.forEach((task, i) => {
+    const turnNo = turnNoOf(task, i + 1);
+    const request = task.nodes.find(n => n.step.role === "user")?.step.content;
+    sections.push(`## Turn ${turnNo}`);
+    sections.push("### Task");
+    if (request) sections.push(request.trim());
+    sections.push("");
+  });
+
+  sections.push(`## Turn ${currentTurnNo} (current turn)`);
+  sections.push("### Task");
+  if (latestUserContent) sections.push(latestUserContent.trim());
+  sections.push("");
+
+  if (current.length > 0) {
+    const agentOnly: TaskGroup = {
+      ...current[0],
+      nodes: current[0].nodes.filter(n => n.step.role !== "user"),
+    };
+    if (mode === ContextMode.DELTA) {
+      // Seed diffs from the truly inherited state (last finished turn's leaf).
+      const base = lastSnapshotOf(prior) ?? initSnapshot;
+      const steps = renderAgentEvents(
+        [agentOnly],
+        workflowState,
+        options,
+        base,
+        latestUserStepId,
+        createFlagsByStep,
+        /* omitObservation */ false
+      );
+      if (steps.trim().length > 0 && steps !== "(no agent actions yet)") {
+        sections.push("### Steps");
+        sections.push("");
+        sections.push(localizeSteps(steps));
+        sections.push("");
+      }
+    } else {
       const leaf = lastSnapshotOf(tasks) ?? initSnapshot;
       if (leaf) {
         const { sortedOps, allLinks } = topoSortDag(leaf.workflow);

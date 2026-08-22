@@ -309,6 +309,10 @@ export const TrajectoryParamsSchema = z.object({
   /** Session layout: the flat event log re-grouped by turn (# Session +
    *  # Your Task). Superseded by versionedCatalog. */
   sessionTurns: z.boolean().default(false),
+  /** Question-only layout: past turns render as their Task text only — no
+   *  steps, no dataflow, no answers. Supersedes sessionTurns; superseded by
+   *  versionedCatalog. */
+  questionOnlyTurns: z.boolean().default(false),
   /** v3: catalog header teaches operator-level recall addressing. */
   recallOperatorLevel: z.boolean().default(false),
   /** v3.3: the `# Your Task` directive restates the AUDIT requirement. */
@@ -469,6 +473,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       versionedHeads: options.versionedHeads !== false,
       catalogDetail: options.catalogDetail ?? "schema",
       sessionTurns: options.sessionTurns === true,
+      questionOnlyTurns: options.questionOnlyTurns === true,
       recallOperatorLevel: options.recallOperatorLevel === true,
       specAudit: options.specAudit === true,
       renderPrefs: options.renderPrefsEnabled ?? false,

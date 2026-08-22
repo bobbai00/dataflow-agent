@@ -76,6 +76,11 @@ const VERSIONED_OPRECALL_FRAGMENT: string = rd("versioned-oprecall.md");
  *  the `# User Task` / `# Agent Events` / `# Current Dataflow` sections that
  *  fragment names do not exist under this layout. */
 const SESSION_FRAGMENT: string = rd("session.md");
+/** Question-only layout: past turns as bare questions (`# Questions so far`),
+ *  no steps/dataflows/answers — the agent re-derives everything the current
+ *  question needs from the raw sources within the current turn. REPLACES the
+ *  context-format fragment when on, same as session.md. */
+const QUESTION_ONLY_FRAGMENT: string = rd("question-only.md");
 /** EVIDENCE PRINCIPLES (the `specAudit` knob): the versioned fragment with three
  *  ideas folded INTO the sections that already own them — verify what you report
  *  (Establishing foundations), know the cell each number came from and re-read the
@@ -478,7 +483,8 @@ export function buildCodeModeSystemPrompt(
   answerShapeRuleEnabled = false,
   catalogCodeEnabled = false,
   valueProbeRuleEnabled = false,
-  catalogValuesEnabled = false
+  catalogValuesEnabled = false,
+  questionOnlyEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -527,13 +533,15 @@ export function buildCodeModeSystemPrompt(
   // describing sections the agent will never see.
   const contextFormat = versionedEnabled
     ? ""
-    : sessionEnabled
-      ? SESSION_FRAGMENT
-      : key === "delta"
-        ? CONTEXT_FORMAT_FRAGMENTS.delta
-        : noCode
-          ? CONTEXT_FORMAT_FRAGMENTS.latest
-          : CONTEXT_FORMAT_CODE_LATEST;
+    : questionOnlyEnabled
+      ? QUESTION_ONLY_FRAGMENT
+      : sessionEnabled
+        ? SESSION_FRAGMENT
+        : key === "delta"
+          ? CONTEXT_FORMAT_FRAGMENTS.delta
+          : noCode
+            ? CONTEXT_FORMAT_FRAGMENTS.latest
+            : CONTEXT_FORMAT_CODE_LATEST;
   const example = renderPrefsEnabled
     ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
     : key === "delta"

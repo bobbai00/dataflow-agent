@@ -553,7 +553,8 @@ export class TexeraAgent {
         this.settings.answerShapeRule === true,
         this.settings.catalogDetail === "code",
         this.settings.valueProbeRule === true,
-        this.settings.catalogDetail === "values"
+        this.settings.catalogDetail === "values",
+        this.settings.questionOnlyTurns === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1359,6 +1360,7 @@ export class TexeraAgent {
     versionedMode?: boolean;
     versionedHeads?: boolean;
     sessionTurns?: boolean;
+    questionOnlyTurns?: boolean;
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
@@ -1600,6 +1602,11 @@ export class TexeraAgent {
     if (updates.sessionTurns !== undefined && updates.sessionTurns !== this.settings.sessionTurns) {
       // Changes the context layout and the prompt fragment describing it.
       this.settings.sessionTurns = updates.sessionTurns;
+      promptNeedsRebuild = true;
+    }
+    if (updates.questionOnlyTurns !== undefined && updates.questionOnlyTurns !== this.settings.questionOnlyTurns) {
+      // Changes the context layout and the prompt fragment describing it.
+      this.settings.questionOnlyTurns = updates.questionOnlyTurns;
       promptNeedsRebuild = true;
     }
     if (updates.recallMaxResultChars !== undefined) {
