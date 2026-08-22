@@ -1574,14 +1574,14 @@ class LongDSLunaBSQOR3(LongDSLunaBSQO):
 
 
 class LongDSLunaBSV37F(LongDSLunaBSV37):
-    """v3.7 + the rollback-anchor rule (reported as V37 — the considered V37
-    after the rollback autopsy). Identical knobs to LongDSLunaBSV37 plus
-    `catalogExampleRule`: the prompt teaches, with a worked example, that
-    rollback/restore/compare turns must WIRE the defining (opId, turn) version
-    (recallState first) or copy its selection logic verbatim, never re-derive
-    the convention from a paraphrase; and that version pins record last-rebuilt,
-    not currently-in-effect. Separate SUT name so the pre-fix grid survives for
-    the before/after comparison."""
+    """v3.7 on the catalog-example service build (reported as V37 — the
+    considered V37 after the rollback autopsy). Knobs identical to
+    LongDSLunaBSV37; the difference is the service's versioned-mode prompt now
+    carries the catalog field guide + a worked multi-turn example: wire the
+    defining (opId, turn) version (recallState first) or copy its selection
+    logic verbatim instead of re-deriving conventions from paraphrase, and
+    treat version pins as last-rebuilt, not currently-in-effect. Separate SUT
+    name so the pre-fix grid survives for the before/after comparison."""
 
     _NAME = "LongDSLunaBSV37F"
     # Knobs identical to LongDSLunaBSV37 (inherited): the fix is not a setting —
