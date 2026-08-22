@@ -1584,7 +1584,9 @@ class LongDSLunaBSV37F(LongDSLunaBSV37):
     the before/after comparison."""
 
     _NAME = "LongDSLunaBSV37F"
-    _EXTRA_AGENT_SETTINGS = dict(LongDSLunaBSV37._EXTRA_AGENT_SETTINGS, catalogExampleRule=True)
+    # Knobs identical to LongDSLunaBSV37 (inherited): the fix is not a setting —
+    # the catalog example rides versionedMode in the service build this arm
+    # runs against. The separate SUT name is what separates before from after.
 
 
 class LongDSLunaBSV37FR2(LongDSLunaBSV37F):
