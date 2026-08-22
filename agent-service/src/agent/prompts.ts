@@ -123,6 +123,13 @@ const ANSWER_SHAPE_FRAGMENT: string = rd("answer-shape.md");
  *  r2), which session arms avoid by reading prior code inline. Off by default;
  *  byte-identical prompt when off. */
 const CATALOG_CODE_FRAGMENT: string = rd("catalog-code.md");
+/** ROLLBACK ANCHOR (the `catalogExampleRule` knob): rollback/restore/compare
+ *  turns must WIRE the defining `(opId, turn)` version or copy its selection
+ *  logic verbatim — never re-derive the convention from a paraphrase. Carries
+ *  a worked example (instruction-only rules got poor adherence; see the
+ *  {{EXAMPLE}} precedent). Versioned-mode only: the rule addresses catalog
+ *  version pins, which no other layout has. */
+const CATALOG_EXAMPLE_FRAGMENT: string = rd("catalog-example.md");
 /** VALUE PROBE (the `valueProbeRule` knob): literals that must match data
  *  values (mapping dicts, category filters, join keys, regexes) are copied
  *  from the actual values, checked with one queryResult call — never typed
@@ -484,7 +491,8 @@ export function buildCodeModeSystemPrompt(
   catalogCodeEnabled = false,
   valueProbeRuleEnabled = false,
   catalogValuesEnabled = false,
-  questionOnlyEnabled = false
+  questionOnlyEnabled = false,
+  catalogExampleRuleEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -518,6 +526,10 @@ export function buildCodeModeSystemPrompt(
         ? `\n${VALUE_PROBE_CATALOG_ONLY_FRAGMENT}\n`
         : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
+  // Addresses catalog version pins — meaningless outside the versioned layout,
+  // so gated on both (a stray setting on a session arm must stay byte-inert).
+  const catalogExample =
+    catalogExampleRuleEnabled && versionedEnabled ? `\n${CATALOG_EXAMPLE_FRAGMENT}\n` : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
   // arm cannot describe a section that does not exist.
@@ -557,7 +569,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
     .replace("{{INSPECT}}", inspect)
-    .replace("{{RECALL}}", recall + catalogCode + resume + foundationVerify + query + valueProbe + answerShape)
+    .replace("{{RECALL}}", recall + catalogCode + resume + foundationVerify + query + valueProbe + answerShape + catalogExample)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");

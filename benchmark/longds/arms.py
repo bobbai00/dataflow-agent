@@ -1573,6 +1573,28 @@ class LongDSLunaBSQOR3(LongDSLunaBSQO):
     _NAME = "LongDSLunaBSQOR3"
 
 
+class LongDSLunaBSV37F(LongDSLunaBSV37):
+    """v3.7 + the rollback-anchor rule (reported as V37 — the considered V37
+    after the rollback autopsy). Identical knobs to LongDSLunaBSV37 plus
+    `catalogExampleRule`: the prompt teaches, with a worked example, that
+    rollback/restore/compare turns must WIRE the defining (opId, turn) version
+    (recallState first) or copy its selection logic verbatim, never re-derive
+    the convention from a paraphrase; and that version pins record last-rebuilt,
+    not currently-in-effect. Separate SUT name so the pre-fix grid survives for
+    the before/after comparison."""
+
+    _NAME = "LongDSLunaBSV37F"
+    _EXTRA_AGENT_SETTINGS = dict(LongDSLunaBSV37._EXTRA_AGENT_SETTINGS, catalogExampleRule=True)
+
+
+class LongDSLunaBSV37FR2(LongDSLunaBSV37F):
+    _NAME = "LongDSLunaBSV37FR2"
+
+
+class LongDSLunaBSV37FR3(LongDSLunaBSV37F):
+    _NAME = "LongDSLunaBSV37FR3"
+
+
 ARMS.update({
     "luna-bs-session": LongDSLunaBSSession,
     "luna-bs-session-r2": LongDSLunaBSSessionR2,
@@ -1583,4 +1605,7 @@ ARMS.update({
     "luna-bs-qo": LongDSLunaBSQO,
     "luna-bs-qo-r2": LongDSLunaBSQOR2,
     "luna-bs-qo-r3": LongDSLunaBSQOR3,
+    "luna-bs-v37f": LongDSLunaBSV37F,
+    "luna-bs-v37f-r2": LongDSLunaBSV37FR2,
+    "luna-bs-v37f-r3": LongDSLunaBSV37FR3,
 })
