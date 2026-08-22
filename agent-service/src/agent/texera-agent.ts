@@ -554,8 +554,7 @@ export class TexeraAgent {
         this.settings.catalogDetail === "code",
         this.settings.valueProbeRule === true,
         this.settings.catalogDetail === "values",
-        this.settings.questionOnlyTurns === true,
-        this.settings.catalogExampleRule === true
+        this.settings.questionOnlyTurns === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -1369,7 +1368,6 @@ export class TexeraAgent {
     enableQueryTool?: boolean;
     upstreamValueEcho?: boolean;
     answerShapeRule?: boolean;
-    catalogExampleRule?: boolean;
     catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
     valueProbeRule?: boolean;
     queryCallsPerTurn?: number;
@@ -1651,11 +1649,6 @@ export class TexeraAgent {
     if (updates.answerShapeRule !== undefined && updates.answerShapeRule !== this.settings.answerShapeRule) {
       // Prompt-only, like specAudit.
       this.settings.answerShapeRule = updates.answerShapeRule;
-      promptNeedsRebuild = true;
-    }
-    if (updates.catalogExampleRule !== undefined && updates.catalogExampleRule !== this.settings.catalogExampleRule) {
-      // Prompt-only, like answerShapeRule.
-      this.settings.catalogExampleRule = updates.catalogExampleRule;
       promptNeedsRebuild = true;
     }
     if (updates.enableQueryTool !== undefined && updates.enableQueryTool !== this.settings.enableQueryTool) {

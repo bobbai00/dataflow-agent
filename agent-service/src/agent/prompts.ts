@@ -491,8 +491,7 @@ export function buildCodeModeSystemPrompt(
   catalogCodeEnabled = false,
   valueProbeRuleEnabled = false,
   catalogValuesEnabled = false,
-  questionOnlyEnabled = false,
-  catalogExampleRuleEnabled = false
+  questionOnlyEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -526,10 +525,10 @@ export function buildCodeModeSystemPrompt(
         ? `\n${VALUE_PROBE_CATALOG_ONLY_FRAGMENT}\n`
         : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
-  // Addresses catalog version pins — meaningless outside the versioned layout,
-  // so gated on both (a stray setting on a session arm must stay byte-inert).
-  const catalogExample =
-    catalogExampleRuleEnabled && versionedEnabled ? `\n${CATALOG_EXAMPLE_FRAGMENT}\n` : "";
+  // Rides with the versioned layout itself: whenever the catalog exists, the
+  // agent gets the field guide + the multi-turn worked example for it. The
+  // single-ReAct {{EXAMPLE}} below is untouched — the two compose.
+  const catalogExample = versionedEnabled ? `\n${CATALOG_EXAMPLE_FRAGMENT}\n` : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
   // arm cannot describe a section that does not exist.

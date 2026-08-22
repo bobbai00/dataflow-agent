@@ -391,16 +391,6 @@ export interface AgentSettings {
    *  numbers scored 0 under renamed/nested fields (acea2 t1; nyc t4 in the
    *  business campaign). Off by default; byte-identical prompt when off. */
   answerShapeRule: boolean;
-  /** ROLLBACK ANCHOR RULE (prompt-only, versioned mode): rollback/restore/
-   *  compare-against-earlier turns must WIRE the defining `(opId, turn)`
-   *  version (recallState it first) or copy its selection logic verbatim —
-   *  never re-derive the convention from a paraphrase of the task text.
-   *  Includes a worked example. Trace-grounded: deep rollback turns lost to
-   *  paraphrase drift (a remembered ">=150" becoming ">=300", "top tenth"
-   *  becoming head(10)) and to stale head pins after declarative rollbacks
-   *  (v37 rollback acc 18.7% vs session 26.6% at turns 26+). Off by default;
-   *  byte-identical prompt when off. */
-  catalogExampleRule: boolean;
   /** v3.3 SPEC AUDIT: require a filled AUDIT checklist before the final answer
    *  — every requested quantity traced to an `opId (turn N)` + column, every
    *  binding clause of the task text quoted and answered. Prompt-side only, and
@@ -665,7 +655,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   foundationVerify: false,
   upstreamValueEcho: false,
   answerShapeRule: false,
-  catalogExampleRule: false,
   enableQueryTool: false,
   specAudit: false,
   indexRichTables: 12,
@@ -833,8 +822,6 @@ export interface AgentSettingsApi {
   upstreamValueEcho?: boolean;
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
-  /** Wire-the-defining-version rollback discipline (see AgentSettings.catalogExampleRule). */
-  catalogExampleRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
   catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */
@@ -935,8 +922,6 @@ export interface UpdateAgentSettingsRequest {
   upstreamValueEcho?: boolean;
   /** Mirror-source answer shape rule (see AgentSettings.answerShapeRule). */
   answerShapeRule?: boolean;
-  /** Wire-the-defining-version rollback discipline (see AgentSettings.catalogExampleRule). */
-  catalogExampleRule?: boolean;
   /** Per-entry catalog detail, versioned mode (see AgentSettings.catalogDetail). */
   catalogDetail?: "ids" | "brief" | "schema" | "code" | "values";
   /** Copy value-matching literals from the data, checked via queryResult (see AgentSettings.valueProbeRule). */

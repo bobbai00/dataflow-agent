@@ -853,7 +853,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           cacheAlignedContext: (settings as any).cacheAlignedContext,
           catalogDetail: (settings as any).catalogDetail,
           valueProbeRule: (settings as any).valueProbeRule,
-          catalogExampleRule: (settings as any).catalogExampleRule,
           queryCallsPerTurn: (settings as any).queryCallsPerTurn,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
@@ -944,7 +943,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
       ),
       valueProbeRule: t.Optional(t.Boolean()),
-      catalogExampleRule: t.Optional(t.Boolean()),
       queryCallsPerTurn: t.Optional(t.Number()),
             tunerConfig: t.Optional(t.Any()),
           })
@@ -1239,7 +1237,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
       valueProbeRule: agentSettings.valueProbeRule,
-      catalogExampleRule: agentSettings.catalogExampleRule,
       queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       foundationVerify: agentSettings.foundationVerify,
@@ -1321,7 +1318,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         cacheAlignedContext: (settings as UpdateAgentSettingsRequest).cacheAlignedContext,
         catalogDetail: (settings as UpdateAgentSettingsRequest).catalogDetail,
         valueProbeRule: (settings as UpdateAgentSettingsRequest).valueProbeRule,
-        catalogExampleRule: (settings as UpdateAgentSettingsRequest).catalogExampleRule,
         queryCallsPerTurn: (settings as UpdateAgentSettingsRequest).queryCallsPerTurn,
         questionOnlyTurns: (settings as UpdateAgentSettingsRequest).questionOnlyTurns,
         foundationVerify: (settings as any).foundationVerify,
@@ -1372,7 +1368,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       cacheAlignedContext: agentSettings.cacheAlignedContext,
       catalogDetail: agentSettings.catalogDetail,
       valueProbeRule: agentSettings.valueProbeRule,
-      catalogExampleRule: agentSettings.catalogExampleRule,
       queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       };
@@ -1432,7 +1427,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           t.Union([t.Literal("ids"), t.Literal("brief"), t.Literal("schema"), t.Literal("code"), t.Literal("values")])
         ),
         valueProbeRule: t.Optional(t.Boolean()),
-        catalogExampleRule: t.Optional(t.Boolean()),
         queryCallsPerTurn: t.Optional(t.Number()),
         questionOnlyTurns: t.Optional(t.Boolean()),
         foundationVerify: t.Optional(t.Boolean()),
