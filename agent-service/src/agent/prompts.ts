@@ -130,6 +130,11 @@ const CATALOG_CODE_FRAGMENT: string = rd("catalog-code.md");
  *  {{EXAMPLE}} precedent). Versioned-mode only: the rule addresses catalog
  *  version pins, which no other layout has. */
 const CATALOG_EXAMPLE_FRAGMENT: string = rd("catalog-example.md");
+/** The pre-answer-tool variant: same field guide, worked example ends with a
+ *  written Final Answer line instead of the answer() call. Selected when the
+ *  versioned arm runs WITHOUT the terminal answer tool, so the prompt never
+ *  demonstrates a tool the model does not have. */
+const CATALOG_EXAMPLE_NOTOOL_FRAGMENT: string = rd("catalog-example-notool.md");
 /** VALUE PROBE (the `valueProbeRule` knob): literals that must match data
  *  values (mapping dicts, category filters, join keys, regexes) are copied
  *  from the actual values, checked with one queryResult call — never typed
@@ -491,7 +496,8 @@ export function buildCodeModeSystemPrompt(
   catalogCodeEnabled = false,
   valueProbeRuleEnabled = false,
   catalogValuesEnabled = false,
-  questionOnlyEnabled = false
+  questionOnlyEnabled = false,
+  answerToolEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -528,7 +534,9 @@ export function buildCodeModeSystemPrompt(
   // Rides with the versioned layout itself: whenever the catalog exists, the
   // agent gets the field guide + the multi-turn worked example for it. The
   // single-ReAct {{EXAMPLE}} below is untouched — the two compose.
-  const catalogExample = versionedEnabled ? `\n${CATALOG_EXAMPLE_FRAGMENT}\n` : "";
+  const catalogExample = versionedEnabled
+    ? `\n${answerToolEnabled ? CATALOG_EXAMPLE_FRAGMENT : CATALOG_EXAMPLE_NOTOOL_FRAGMENT}\n`
+    : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
   // arm cannot describe a section that does not exist.

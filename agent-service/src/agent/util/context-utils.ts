@@ -1001,7 +1001,9 @@ function requestGist(text: string | undefined, max: number): string {
 
 /** Strip a harness's final-answer marker so the catalogue shows the value. */
 function stripAnswerMarker(text: string): string {
-  const m = /(?:\*\*\s*)?final answer:\s*/i.exec(text);
+  // Consume the closing bold of `**Final Answer:**` too — without it every
+  // rendered answer began with a stray "** ".
+  const m = /(?:\*\*\s*)?final answer:(?:\*\*)?\s*/i.exec(text);
   return m ? text.slice(m.index + m[0].length).replace(/\*\*\s*$/, "") : text;
 }
 
@@ -2821,12 +2823,22 @@ function renderVersionedCatalog(
       }
     }
 
+    // CONVENTIONS (v39): the interpretive commitments the turn declared at
+    // answer time — the distilled slice of session-style reasoning the nfl/
+    // acea studies proved is load-bearing. Never ages, renders before the
+    // answer so later turns read the decision, then the number.
+    const convMatch = answer ? /^Conventions:\s*(.+)$/m.exec(answer) : null;
+    if (convMatch && convMatch[1].trim()) {
+      sections.push("### Conventions");
+      sections.push(clip(convMatch[1], 600));
+      sections.push("");
+    }
     sections.push("### Answer");
     // A turn the harness aborted mid-work must not read as answered: its
     // operator versions above exist but were never validated by an answer.
     // (Measured: cdp rep-1 rendered "Generation stopped by user." as two
     // turns' Answers and every later turn built on the half-finished state.)
-    const answerBody = answer ? stripAnswerMarker(answer).trim() : "";
+    const answerBody = answer ? stripAnswerMarker(answer).replace(/^Conventions:.*$/m, "").trim() : "";
     if (!answerBody || /^Generation stopped by user\.?$/i.test(answerBody)) {
       sections.push(
         "(turn aborted before answering — the operator versions above were never validated; re-verify before building on them)"

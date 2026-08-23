@@ -31,7 +31,7 @@
  * always has.
  */
 
-import { generateText, stepCountIs, type LanguageModel } from "ai";
+import { generateText, hasToolCall, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
 import type { TokenUsage } from "../../types/agent";
 
@@ -58,7 +58,11 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      // A terminal tool (e.g. `answer`) ends the turn the moment the model
+      // calls it — the structured-answer pattern; step cap still applies.
+      stopWhen: input.terminalToolName
+        ? [stepCountIs(input.maxSteps), hasToolCall(input.terminalToolName)]
+        : stepCountIs(input.maxSteps),
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },

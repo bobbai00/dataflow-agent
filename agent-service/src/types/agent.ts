@@ -501,6 +501,11 @@ export interface AgentSettings {
    *  summary, provenance, result shape and code. K>0 also drops the schema
    *  tail, numeric top_10 and Lineage lines everywhere. 0 = off. */
   catalogFreshTurns: number;
+  /** Terminal `answer` tool: the turn ends when the model calls answer(answer,
+   *  conventions). Conventions are pinned, never aging, into the turn's
+   *  catalog entry — the distilled interpretive commitments a session arm
+   *  carries implicitly in its own transcript. Off by default. */
+  enableAnswerTool: boolean;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -686,6 +691,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   questionOnlyTurns: false,
   catalogSampleRowsRatio: 0,
   catalogFreshTurns: 0,
+  enableAnswerTool: false,
   indexThinObservations: false,
   cacheAlignedContext: false,
   catalogDetail: "schema",
@@ -827,6 +833,8 @@ export interface AgentSettingsApi {
   catalogSampleRowsRatio?: number;
   /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
   catalogFreshTurns?: number;
+  /** Terminal answer tool (see AgentSettings.enableAnswerTool). */
+  enableAnswerTool?: boolean;
   /** Render once per driver run, append natively after — the provider's
    *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
@@ -951,4 +959,6 @@ export interface UpdateAgentSettingsRequest {
   catalogSampleRowsRatio?: number;
   /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
   catalogFreshTurns?: number;
+  /** Terminal answer tool (see AgentSettings.enableAnswerTool). */
+  enableAnswerTool?: boolean;
 }

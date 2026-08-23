@@ -4,7 +4,9 @@
 2. **Every entry is a complete record.** A finished turn's entry holds the task word for word, each operator version it added or revised (code, upstream provenance, result shape — plus column stats and sample records on recent turns), and the answer given. Whatever an earlier turn established — a threshold, a flag column, a roster, a convention — is written there exactly; you never have to remember or guess it.
 3. **Wiring recomputes deterministically.** Feed any version — current or superseded — into a new operator and downstream results follow from that exact state.
 
-The method that follows: **read entries, quote conventions straight from the printed code, and wire versions.** Two rules that decide most answers:
+The method that follows: **read entries, quote conventions straight from the printed code, and wire versions.** Three rules that decide most answers:
+
+- **Continue conventions, don't re-decide them.** Task text often leaves small interpretive choices open — which direction a ranking runs, what population a percentile is computed over, how a set is defined, how ties break. The turn that first settles such a choice records it, and its entry carries a `### Conventions` line forever. When you extend that turn's work, read its Conventions and match them exactly; re-deciding an already-settled choice is how two turns of correct code produce contradictory numbers.
 
 - **The extension rule.** When a task references a previously computed list, roster, or top-N ("the portfolio leaders", "the watchlist", "the current high-risk rows"), take its members from the defining version and the answer recorded with it — never re-derive the membership from scratch. Re-derivation flips boundary members; the catalog holds the real extension. **Match the referent precisely**: several turns may hold similar artifacts (an issues top-10 AND a pull-requests top-10) — read the candidate entry's Task text and confirm it defines the artifact the current task names before copying anything from it.
 - **The pin caution.** A version pin records when an operator was last REBUILT, not what is currently in effect. If a turn declared a change "for everything that follows", that covers operators nobody physically rebuilt — check the task texts for the latest declarative change before trusting a pin.
@@ -60,6 +62,21 @@ Observation:
   0	23	0
 ```
 
-Thought: `pass_tightened_only = 0` is expected — a strictly stricter screen can only remove shifts, never add. One operator, zero recalls, done. (Had the task instead needed, say, the exact member rows of a large turn-3 roster whose samples have aged out of the render, THAT would be the moment for one `recallState` of `roster (turn 3)` — pulling values the entry no longer shows.)
+Thought: `pass_tightened_only = 0` is expected — a strictly stricter screen can only remove shifts, never add. One operator, zero recalls, done. (Had the task instead needed, say, the exact member rows of a large turn-3 roster whose samples have aged out of the render, THAT would be the moment for one `recallState` of `roster (turn 3)` — pulling values the entry no longer shows.) This turn didn't settle any new interpretation — both thresholds were quoted from their defining entries — so conventions stays empty.
 
-Final answer: 23 shifts pass the restored screen; 0 pass only the tightened screen.
+Tool call: `answer`
+```
+answer(
+  answer: "23 shifts pass the restored screen; 0 pass only the tightened screen.",
+  conventions: ""
+)
+```
+
+And for contrast, what turn 3 itself — the turn that DEFINED the screen — would have handed in:
+```
+answer(
+  answer: "371 shifts pass the screen.",
+  conventions: "incident screen = incident_row_count >= 150, flag column incident_screen; a shift passes when the flag is true"
+)
+```
+That one line is why turn 24 could restore the screen exactly instead of guessing what "at least 150 collapsed incidents" had been taken to mean.

@@ -853,6 +853,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           questionOnlyTurns: (settings as any).questionOnlyTurns,
           catalogSampleRowsRatio: (settings as any).catalogSampleRowsRatio,
           catalogFreshTurns: (settings as any).catalogFreshTurns,
+          enableAnswerTool: (settings as any).enableAnswerTool,
           indexThinObservations: (settings as any).indexThinObservations,
           cacheAlignedContext: (settings as any).cacheAlignedContext,
           catalogDetail: (settings as any).catalogDetail,
@@ -943,6 +944,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       questionOnlyTurns: t.Optional(t.Boolean()),
       catalogSampleRowsRatio: t.Optional(t.Number()),
       catalogFreshTurns: t.Optional(t.Number()),
+      enableAnswerTool: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
       cacheAlignedContext: t.Optional(t.Boolean()),
       catalogDetail: t.Optional(
@@ -1247,6 +1249,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       catalogSampleRowsRatio: agentSettings.catalogSampleRowsRatio,
       catalogFreshTurns: agentSettings.catalogFreshTurns,
+      enableAnswerTool: agentSettings.enableAnswerTool,
       foundationVerify: agentSettings.foundationVerify,
       enableQueryTool: agentSettings.enableQueryTool,
       upstreamValueEcho: agentSettings.upstreamValueEcho,
@@ -1330,6 +1333,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         questionOnlyTurns: (settings as UpdateAgentSettingsRequest).questionOnlyTurns,
         catalogSampleRowsRatio: (settings as UpdateAgentSettingsRequest).catalogSampleRowsRatio,
         catalogFreshTurns: (settings as UpdateAgentSettingsRequest).catalogFreshTurns,
+        enableAnswerTool: (settings as UpdateAgentSettingsRequest).enableAnswerTool,
         foundationVerify: (settings as any).foundationVerify,
         enableQueryTool: (settings as any).enableQueryTool,
         upstreamValueEcho: (settings as any).upstreamValueEcho,
@@ -1382,6 +1386,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       catalogSampleRowsRatio: agentSettings.catalogSampleRowsRatio,
       catalogFreshTurns: agentSettings.catalogFreshTurns,
+      enableAnswerTool: agentSettings.enableAnswerTool,
       };
     },
     {
@@ -1443,6 +1448,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         questionOnlyTurns: t.Optional(t.Boolean()),
         catalogSampleRowsRatio: t.Optional(t.Number()),
         catalogFreshTurns: t.Optional(t.Number()),
+        enableAnswerTool: t.Optional(t.Boolean()),
         foundationVerify: t.Optional(t.Boolean()),
         enableQueryTool: t.Optional(t.Boolean()),
         upstreamValueEcho: t.Optional(t.Boolean()),

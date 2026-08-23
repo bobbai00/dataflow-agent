@@ -101,6 +101,7 @@ import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR }
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createQueryResultTool, TOOL_NAME_QUERY_RESULT } from "./tools/query-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
+import { createAnswerTool, TOOL_NAME_ANSWER } from "./tools/answer-tool";
 import {
   createRecallStateTool,
   TOOL_NAME_RECALL_STATE,
@@ -308,6 +309,9 @@ export class TexeraAgent {
    *  log, which is the burial effect this benchmark already measured across
    *  turns — v1 reproduced it WITHIN a turn and lost ~5 accuracy points. */
   private cacheAlignedTaskReminder: string | undefined = undefined;
+  /** Structured answer stashed by the terminal `answer` tool for the current
+   *  driver run; consumed when composing the turn's final response. */
+  private pendingStructuredAnswer: { answer: string; conventions: string } | undefined = undefined;
 
   private delegateConfig?: {
     userToken: string;
@@ -554,7 +558,8 @@ export class TexeraAgent {
         this.settings.catalogDetail === "code",
         this.settings.valueProbeRule === true,
         this.settings.catalogDetail === "values",
-        this.settings.questionOnlyTurns === true
+        this.settings.questionOnlyTurns === true,
+        this.settings.enableAnswerTool === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -671,6 +676,15 @@ export class TexeraAgent {
         workflowState: this.workflowState,
         maxResultChars: this.settings.recallMaxResultChars,
         operatorLevel: this.settings.recallOperatorLevel === true,
+      });
+    }
+    // Terminal answer tool: the turn ends when the model hands in its answer
+    // (with the conventions it committed to). The driver stops on this call.
+    if (this.settings.enableAnswerTool) {
+      tools[TOOL_NAME_ANSWER] = createAnswerTool({
+        onAnswer: args => {
+          this.pendingStructuredAnswer = args;
+        },
       });
     }
 
@@ -1363,6 +1377,7 @@ export class TexeraAgent {
     questionOnlyTurns?: boolean;
     catalogSampleRowsRatio?: number;
     catalogFreshTurns?: number;
+    enableAnswerTool?: boolean;
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
@@ -1619,6 +1634,11 @@ export class TexeraAgent {
       // Pure render knob — gradual catalog window.
       this.settings.catalogFreshTurns = updates.catalogFreshTurns;
     }
+    if (updates.enableAnswerTool !== undefined && updates.enableAnswerTool !== this.settings.enableAnswerTool) {
+      // Tool set AND the prompt's how-to-finish instructions change together.
+      this.settings.enableAnswerTool = updates.enableAnswerTool;
+      promptNeedsRebuild = true;
+    }
     if (updates.recallMaxResultChars !== undefined) {
       // Tools are rebuilt at the end of this method, which re-reads the cap.
       this.settings.recallMaxResultChars = updates.recallMaxResultChars;
@@ -1831,8 +1851,10 @@ export class TexeraAgent {
         this.pendingStepResultsRender = undefined;
         this.recalledRefsThisTurn.clear();
         this.echoedRefsThisTurn.clear();
+        this.pendingStructuredAnswer = undefined;
         return this.driver.runTurn({
         initialMessages: seed,
+        terminalToolName: this.settings.enableAnswerTool ? TOOL_NAME_ANSWER : undefined,
         systemPrompt: this.systemPrompt,
         tools: this.tools,
         maxSteps: this.settings.maxSteps,
@@ -1975,6 +1997,24 @@ export class TexeraAgent {
       };
 
       let result = await runDriverOnce(currentUserMessage);
+
+      // Structured answer (terminal `answer` tool): the run ended on a tool
+      // call, so result.text is empty. Compose the canonical final text —
+      // Conventions line + Final Answer marker — so every downstream consumer
+      // (runner extraction, judge, grounding, session AND catalog renders)
+      // sees exactly the shape a marker-writing agent produces.
+      if (this.pendingStructuredAnswer) {
+        const { answer, conventions } = this.pendingStructuredAnswer;
+        const composed =
+          (conventions.trim() ? `Conventions: ${conventions.trim()}\n` : "") +
+          `**Final Answer:** ${answer.trim()}`;
+        result = { ...result, text: composed };
+        const steps = this.reActStepsByMessageId.get(messageId);
+        const last = steps && steps.length > 0 ? steps[steps.length - 1] : undefined;
+        if (last && last.role === "agent" && !last.content?.trim()) {
+          last.content = composed;
+        }
+      }
 
       // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
       // materialized results or state recalled this turn — the property a

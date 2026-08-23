@@ -1663,6 +1663,27 @@ class LongDSLunaTEV38R3(LongDSLunaTEV38):
     _NAME = "LongDSLunaTEV38R3"
 
 
+class LongDSLunaTEV39(LongDSLunaTEV38):
+    """V39 = V38 + the terminal `answer` tool with a required `conventions`
+    field: the turn ends by handing in the answer plus the interpretive
+    choices it settled (ranking direction, percentile grain, set definitions,
+    tie-breaks, seeds), which the catalog pins as a never-aging
+    `### Conventions` line in the entry. Targets the measured convention
+    re-instantiation drift (nfl t2 gate, acea per-entity rolls) — the one
+    slice of session-style reasoning the catalog was missing."""
+
+    _NAME = "LongDSLunaTEV39"
+    _EXTRA_AGENT_SETTINGS = dict(LongDSLunaTEV38._EXTRA_AGENT_SETTINGS, enableAnswerTool=True)
+
+
+class LongDSLunaTEV39R2(LongDSLunaTEV39):
+    _NAME = "LongDSLunaTEV39R2"
+
+
+class LongDSLunaTEV39R3(LongDSLunaTEV39):
+    _NAME = "LongDSLunaTEV39R3"
+
+
 ARMS.update({
     "luna-bs-session": LongDSLunaBSSession,
     "luna-bs-session-r2": LongDSLunaBSSessionR2,
@@ -1685,4 +1706,7 @@ ARMS.update({
     "luna-te-v38": LongDSLunaTEV38,
     "luna-te-v38-r2": LongDSLunaTEV38R2,
     "luna-te-v38-r3": LongDSLunaTEV38R3,
+    "luna-te-v39": LongDSLunaTEV39,
+    "luna-te-v39-r2": LongDSLunaTEV39R2,
+    "luna-te-v39-r3": LongDSLunaTEV39R3,
 })

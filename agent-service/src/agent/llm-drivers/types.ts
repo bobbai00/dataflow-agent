@@ -96,6 +96,9 @@ export type DriverPrepareStep = (args: {
  * `onStepFinish`.
  */
 export interface DriverRunTurnInput {
+  /** Name of a tool whose invocation ENDS the turn (structured-answer
+   *  pattern). The driver stops as soon as the model calls it. */
+  terminalToolName?: string;
   /** Initial messages — typically `[{ role: "user", content: userMessage }]`.
    *  Passed through to `prepareStep` on the first iteration. */
   initialMessages: ModelMessage[];
