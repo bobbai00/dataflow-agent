@@ -275,6 +275,12 @@ export interface AssembleContextOptions {
    *  off (byte-identical to the values render). Rows of a version are
    *  immutable, so entries stay byte-stable. */
   catalogSampleRowsRatio?: number;
+  /** GRADUAL CATALOG: entries within the last K finished turns render the
+   *  full payload (thin stats + sample rows); older entries keep only task,
+   *  answer, summary, provenance, result shape and code. K>0 also drops the
+   *  Result schema tail, numeric top_10 histograms, and Lineage lines
+   *  everywhere (zero measured reuse). 0/unset = off (byte-identical). */
+  catalogFreshTurns?: number;
   /** QUESTION-ONLY LAYOUT: past turns render as their `### Task` text ONLY —
    *  no steps, no dataflow, no answers. The agent re-derives everything the
    *  current question needs from the raw sources within the current turn; the
@@ -2637,6 +2643,13 @@ function renderVersionedCatalog(
     const request = task.nodes.find(n => n.step.role === "user")?.step.content;
     const answer = [...task.nodes].reverse().find(n => n.step.role === "agent" && n.step.isEnd)?.step.content;
 
+    // GRADUAL CATALOG (catalogFreshTurns = K > 0): the K most recent finished
+    // turns keep the full payload (thin stats + sample rows); older entries
+    // keep the durable skeleton — task, answer, summary, provenance, shape,
+    // code. Answers carry old extensions; code carries old conventions.
+    const freshK = options.catalogFreshTurns ?? 0;
+    const isFresh = freshK <= 0 || turnNo >= currentTurnNo - freshK;
+
     sections.push(`## Turn ${turnNo}`);
     sections.push("### Task");
     if (request) sections.push(request.trim());
@@ -2713,11 +2726,11 @@ function renderVersionedCatalog(
           // "brief" keeps the shape and size (the recall-scaling facts) but
           // drops the column inventory; "schema" and above print it.
           const schemaSuffix =
-            options.catalogDetail === "brief" ? "" : ` — Schema: ${cols.join(", ")}`;
+            options.catalogDetail === "brief" || freshK > 0 ? "" : ` — Schema: ${cols.join(", ")}`;
           sections.push(
             `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size}${schemaSuffix}`
           );
-          if (options.rowLineage && info) {
+          if (options.rowLineage && freshK <= 0 && info) {
             const lin = formatRowLineage(info);
             if (lin) sections.push(lin);
           }
@@ -2734,8 +2747,13 @@ function renderVersionedCatalog(
           // push-side replacement for runtime value probes: a later turn's
           // mapping dict or category filter can copy the actual spellings off
           // the entry instead of spending a queryResult call per look.
-          if (options.catalogDetail === "values") {
-            const stats = formatColumnStats(info);
+          if (options.catalogDetail === "values" && isFresh) {
+            let stats = formatColumnStats(info);
+            if (stats && freshK > 0) {
+              // Thin stats: numeric top_10 histograms had zero measured reuse
+              // (str top_5 keeps the label spellings the agent does copy).
+              stats = stats.replace(/, top_10=\{[^}]*\}/g, "");
+            }
             if (stats) sections.push(stats);
           }
           // Sample records: a FRACTION of the version's in-memory rows in the
@@ -2743,7 +2761,7 @@ function renderVersionedCatalog(
           // result render, so head and tail regularities both show. A
           // version's rows are immutable, so the entry stays byte-stable;
           // this is the push-side sibling of a recallState row pull.
-          if (options.catalogSampleRowsRatio && options.catalogSampleRowsRatio > 0) {
+          if (options.catalogSampleRowsRatio && options.catalogSampleRowsRatio > 0 && isFresh) {
             const rows = formatCatalogSampleRows(info, options.catalogSampleRowsRatio);
             if (rows) sections.push(rows);
           }

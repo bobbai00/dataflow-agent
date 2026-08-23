@@ -496,6 +496,11 @@ export interface AgentSettings {
    *  char-capped. 0 = off (byte-identical render). A version's rows are
    *  immutable, so entries stay byte-stable and cache-aligned. */
   catalogSampleRowsRatio: number;
+  /** GRADUAL CATALOG: entries within the last K finished turns render full
+   *  payload (thin stats + sample rows); older entries keep task, answer,
+   *  summary, provenance, result shape and code. K>0 also drops the schema
+   *  tail, numeric top_10 and Lineage lines everywhere. 0 = off. */
+  catalogFreshTurns: number;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -680,6 +685,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   sessionTurns: false,
   questionOnlyTurns: false,
   catalogSampleRowsRatio: 0,
+  catalogFreshTurns: 0,
   indexThinObservations: false,
   cacheAlignedContext: false,
   catalogDetail: "schema",
@@ -819,6 +825,8 @@ export interface AgentSettingsApi {
   questionOnlyTurns?: boolean;
   /** Sample rows per finished catalog entry (see AgentSettings.catalogSampleRowsRatio). */
   catalogSampleRowsRatio?: number;
+  /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
+  catalogFreshTurns?: number;
   /** Render once per driver run, append natively after — the provider's
    *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
@@ -941,4 +949,6 @@ export interface UpdateAgentSettingsRequest {
   questionOnlyTurns?: boolean;
   /** Sample rows per finished catalog entry (see AgentSettings.catalogSampleRowsRatio). */
   catalogSampleRowsRatio?: number;
+  /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
+  catalogFreshTurns?: number;
 }

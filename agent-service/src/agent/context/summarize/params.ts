@@ -316,6 +316,8 @@ export const TrajectoryParamsSchema = z.object({
   /** Sample records per finished catalog entry (versioned mode): fraction
    *  (0..1) of the version's in-memory rows, first/last split. 0 = off. */
   catalogSampleRowsRatio: z.number().min(0).max(1).default(0),
+  /** Gradual catalog window: full payload for the last K finished turns. */
+  catalogFreshTurns: z.number().int().min(0).default(0),
   /** v3: catalog header teaches operator-level recall addressing. */
   recallOperatorLevel: z.boolean().default(false),
   /** v3.3: the `# Your Task` directive restates the AUDIT requirement. */
@@ -478,6 +480,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       sessionTurns: options.sessionTurns === true,
       questionOnlyTurns: options.questionOnlyTurns === true,
       catalogSampleRowsRatio: options.catalogSampleRowsRatio ?? 0,
+      catalogFreshTurns: options.catalogFreshTurns ?? 0,
       recallOperatorLevel: options.recallOperatorLevel === true,
       specAudit: options.specAudit === true,
       renderPrefs: options.renderPrefsEnabled ?? false,

@@ -166,6 +166,7 @@ export function paramsToRenderOptions(
     sessionTurns: params.trajectory.sessionTurns === true ? true : undefined,
     questionOnlyTurns: params.trajectory.questionOnlyTurns === true ? true : undefined,
     catalogSampleRowsRatio: params.trajectory.catalogSampleRowsRatio > 0 ? params.trajectory.catalogSampleRowsRatio : undefined,
+    catalogFreshTurns: params.trajectory.catalogFreshTurns > 0 ? params.trajectory.catalogFreshTurns : undefined,
     recallOperatorLevel: params.trajectory.recallOperatorLevel === true ? true : undefined,
     specAudit: params.trajectory.specAudit === true ? true : undefined,
     renderPrefsEnabled: params.trajectory.renderPrefs,

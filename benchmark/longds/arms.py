@@ -1605,6 +1605,64 @@ class LongDSLunaBSV37FR3(LongDSLunaBSV37F):
     _NAME = "LongDSLunaBSV37FR3"
 
 
+# ---------------------------------------------------------------------------
+# TWO-ENDS campaign (2026-08-22): the 5 longest tasks (nfl 42, wids 40, cdp 39,
+# acea2 38, acea3 37) and the 5 shortest (github 15, univ-rankings 21/23,
+# kaggle-survey-2021 25, LearnPlatform 25), three arms:
+#   session — full history baseline;
+#   qo      — question-only extreme;
+#   v38     — the catalog as a verified extension cache: gradual entries
+#             (catalogFreshTurns=5), 50% sample rows on fresh entries, thin
+#             stats, recallState demoted to exceptional by the rewritten
+#             catalog-example.md, plus the extension rule.
+# ---------------------------------------------------------------------------
+
+
+class LongDSLunaTESession(LongDSLunaBSSession):
+    _NAME = "LongDSLunaTESession"
+
+
+class LongDSLunaTESessionR2(LongDSLunaTESession):
+    _NAME = "LongDSLunaTESessionR2"
+
+
+class LongDSLunaTESessionR3(LongDSLunaTESession):
+    _NAME = "LongDSLunaTESessionR3"
+
+
+class LongDSLunaTEQO(LongDSLunaBSQO):
+    _NAME = "LongDSLunaTEQO"
+
+
+class LongDSLunaTEQOR2(LongDSLunaTEQO):
+    _NAME = "LongDSLunaTEQOR2"
+
+
+class LongDSLunaTEQOR3(LongDSLunaTEQO):
+    _NAME = "LongDSLunaTEQOR3"
+
+
+class LongDSLunaTEV38(LongDSLunaBSV37):
+    """V38: v37 knobs + gradual catalog (fresh window 5) + 50% sample rows on
+    fresh entries + the quote-from-entry prompt with optional recall and the
+    extension rule (catalog-example.md as of this commit)."""
+
+    _NAME = "LongDSLunaTEV38"
+    _EXTRA_AGENT_SETTINGS = dict(
+        LongDSLunaBSV37._EXTRA_AGENT_SETTINGS,
+        catalogSampleRowsRatio=0.5,
+        catalogFreshTurns=5,
+    )
+
+
+class LongDSLunaTEV38R2(LongDSLunaTEV38):
+    _NAME = "LongDSLunaTEV38R2"
+
+
+class LongDSLunaTEV38R3(LongDSLunaTEV38):
+    _NAME = "LongDSLunaTEV38R3"
+
+
 ARMS.update({
     "luna-bs-session": LongDSLunaBSSession,
     "luna-bs-session-r2": LongDSLunaBSSessionR2,
@@ -1618,4 +1676,13 @@ ARMS.update({
     "luna-bs-v37f": LongDSLunaBSV37F,
     "luna-bs-v37f-r2": LongDSLunaBSV37FR2,
     "luna-bs-v37f-r3": LongDSLunaBSV37FR3,
+    "luna-te-session": LongDSLunaTESession,
+    "luna-te-session-r2": LongDSLunaTESessionR2,
+    "luna-te-session-r3": LongDSLunaTESessionR3,
+    "luna-te-qo": LongDSLunaTEQO,
+    "luna-te-qo-r2": LongDSLunaTEQOR2,
+    "luna-te-qo-r3": LongDSLunaTEQOR3,
+    "luna-te-v38": LongDSLunaTEV38,
+    "luna-te-v38-r2": LongDSLunaTEV38R2,
+    "luna-te-v38-r3": LongDSLunaTEV38R3,
 })

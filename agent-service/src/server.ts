@@ -261,6 +261,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       sessionTurns: settings.sessionTurns,
       questionOnlyTurns: settings.questionOnlyTurns,
       catalogSampleRowsRatio: settings.catalogSampleRowsRatio,
+      catalogFreshTurns: settings.catalogFreshTurns,
       recallOperatorLevel: settings.recallOperatorLevel,
       specAudit: settings.specAudit,
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
@@ -851,6 +852,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           sessionTurns: (settings as any).sessionTurns,
           questionOnlyTurns: (settings as any).questionOnlyTurns,
           catalogSampleRowsRatio: (settings as any).catalogSampleRowsRatio,
+          catalogFreshTurns: (settings as any).catalogFreshTurns,
           indexThinObservations: (settings as any).indexThinObservations,
           cacheAlignedContext: (settings as any).cacheAlignedContext,
           catalogDetail: (settings as any).catalogDetail,
@@ -940,6 +942,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       sessionTurns: t.Optional(t.Boolean()),
       questionOnlyTurns: t.Optional(t.Boolean()),
       catalogSampleRowsRatio: t.Optional(t.Number()),
+      catalogFreshTurns: t.Optional(t.Number()),
       indexThinObservations: t.Optional(t.Boolean()),
       cacheAlignedContext: t.Optional(t.Boolean()),
       catalogDetail: t.Optional(
@@ -1243,6 +1246,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       catalogSampleRowsRatio: agentSettings.catalogSampleRowsRatio,
+      catalogFreshTurns: agentSettings.catalogFreshTurns,
       foundationVerify: agentSettings.foundationVerify,
       enableQueryTool: agentSettings.enableQueryTool,
       upstreamValueEcho: agentSettings.upstreamValueEcho,
@@ -1325,6 +1329,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         queryCallsPerTurn: (settings as UpdateAgentSettingsRequest).queryCallsPerTurn,
         questionOnlyTurns: (settings as UpdateAgentSettingsRequest).questionOnlyTurns,
         catalogSampleRowsRatio: (settings as UpdateAgentSettingsRequest).catalogSampleRowsRatio,
+        catalogFreshTurns: (settings as UpdateAgentSettingsRequest).catalogFreshTurns,
         foundationVerify: (settings as any).foundationVerify,
         enableQueryTool: (settings as any).enableQueryTool,
         upstreamValueEcho: (settings as any).upstreamValueEcho,
@@ -1376,6 +1381,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       queryCallsPerTurn: agentSettings.queryCallsPerTurn,
       questionOnlyTurns: agentSettings.questionOnlyTurns,
       catalogSampleRowsRatio: agentSettings.catalogSampleRowsRatio,
+      catalogFreshTurns: agentSettings.catalogFreshTurns,
       };
     },
     {
@@ -1436,6 +1442,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         queryCallsPerTurn: t.Optional(t.Number()),
         questionOnlyTurns: t.Optional(t.Boolean()),
         catalogSampleRowsRatio: t.Optional(t.Number()),
+        catalogFreshTurns: t.Optional(t.Number()),
         foundationVerify: t.Optional(t.Boolean()),
         enableQueryTool: t.Optional(t.Boolean()),
         upstreamValueEcho: t.Optional(t.Boolean()),
