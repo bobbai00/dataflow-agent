@@ -35,6 +35,14 @@ FAMILIES = {
     "qo": {
         "bs": [(1, "LongDS_LongDSLunaBSQO"), (2, "LongDS_LongDSLunaBSQOR2"), (3, "LongDS_LongDSLunaBSQOR3")],
     },
+    # V37 + catalog field-guide prompt. r2 is NOT a replicate — it also carries
+    # catalogSampleRowsRatio=0.5, so it is its own family below.
+    "v37f": {
+        "bs": [(1, "LongDS_LongDSLunaBSV37F"), (3, "LongDS_LongDSLunaBSV37FR3")],
+    },
+    "v37f-rows": {
+        "bs": [(2, "LongDS_LongDSLunaBSV37FR2")],
+    },
 }
 
 COLS = [

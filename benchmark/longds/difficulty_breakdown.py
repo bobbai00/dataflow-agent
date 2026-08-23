@@ -26,7 +26,7 @@ for r in csv.DictReader(open(path)):
         continue
     rows.append(r)
 
-FAMS = ["session", "v37", "qo"]
+FAMS = ["session", "v37", "qo", "v37f", "v37f-rows"]
 
 
 def depth_bucket(t):
@@ -53,7 +53,7 @@ def agg(key_fn, title):
         for f in FAMS:
             rs = cells[b][f]
             if rs:
-                acc = 100 * sum(int(x["score"]) for x in rs) / len(rs)
+                acc = 100 * sum(float(x["score"]) for x in rs) / len(rs)
                 cost = sum(float(x["cost_usd"] or 0) for x in rs) / len(rs)
                 line += f"{acc:>10.1f}{cost:>9.4f}{len(rs):>7}"
             else:
