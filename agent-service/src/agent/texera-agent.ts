@@ -1361,6 +1361,7 @@ export class TexeraAgent {
     versionedHeads?: boolean;
     sessionTurns?: boolean;
     questionOnlyTurns?: boolean;
+    catalogSampleRowsRatio?: number;
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
@@ -1608,6 +1609,10 @@ export class TexeraAgent {
       // Changes the context layout and the prompt fragment describing it.
       this.settings.questionOnlyTurns = updates.questionOnlyTurns;
       promptNeedsRebuild = true;
+    }
+    if (updates.catalogSampleRowsRatio !== undefined) {
+      // Pure render knob — entries gain a Sample rows block, prompt unchanged.
+      this.settings.catalogSampleRowsRatio = updates.catalogSampleRowsRatio;
     }
     if (updates.recallMaxResultChars !== undefined) {
       // Tools are rebuilt at the end of this method, which re-reads the cap.

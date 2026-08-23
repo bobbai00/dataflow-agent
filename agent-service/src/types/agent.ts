@@ -490,6 +490,12 @@ export interface AgentSettings {
    * fragment switches to question-only.md.
    */
   questionOnlyTurns: boolean;
+  /** Sample records per finished catalog entry (versioned mode): the given
+   *  FRACTION (0..1) of the version's in-memory rows, split first-half/last-
+   *  half like the ReAct result render, TSV, cell-clipped, whole block
+   *  char-capped. 0 = off (byte-identical render). A version's rows are
+   *  immutable, so entries stay byte-stable and cache-aligned. */
+  catalogSampleRowsRatio: number;
   /**
    * Whether the step log drops each observation's result body, keeping only its
    * `- operator X updated` verb line. True (default) relies on the dataflow
@@ -673,6 +679,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   versionedHeads: false,
   sessionTurns: false,
   questionOnlyTurns: false,
+  catalogSampleRowsRatio: 0,
   indexThinObservations: false,
   cacheAlignedContext: false,
   catalogDetail: "schema",
@@ -810,6 +817,8 @@ export interface AgentSettingsApi {
   sessionTurns?: boolean;
   /** Question-only layout (see AgentSettings.questionOnlyTurns). */
   questionOnlyTurns?: boolean;
+  /** Sample rows per finished catalog entry (see AgentSettings.catalogSampleRowsRatio). */
+  catalogSampleRowsRatio?: number;
   /** Render once per driver run, append natively after — the provider's
    *  cache-hit shape (see AgentSettings.cacheAlignedContext). */
   cacheAlignedContext?: boolean;
@@ -930,4 +939,6 @@ export interface UpdateAgentSettingsRequest {
   queryCallsPerTurn?: number;
   /** Question-only layout (see AgentSettings.questionOnlyTurns). */
   questionOnlyTurns?: boolean;
+  /** Sample rows per finished catalog entry (see AgentSettings.catalogSampleRowsRatio). */
+  catalogSampleRowsRatio?: number;
 }

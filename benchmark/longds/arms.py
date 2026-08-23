@@ -1590,7 +1590,15 @@ class LongDSLunaBSV37F(LongDSLunaBSV37):
 
 
 class LongDSLunaBSV37FR2(LongDSLunaBSV37F):
+    """NOT a pure replicate: rep-2 slot doubles as the SAMPLE-ROWS probe (user
+    request, 2026-08-22) — same knobs as V37F plus catalogSampleRowsRatio=0.5:
+    each finished catalog entry carries 50% of the version's in-memory rows,
+    first-half/last-half like the ReAct render, char-capped. Errored versions
+    render code + error instead. Compare against r1/r3 (rows off) to price the
+    rows; the clean V37F mean is r1+r3."""
+
     _NAME = "LongDSLunaBSV37FR2"
+    _EXTRA_AGENT_SETTINGS = dict(LongDSLunaBSV37._EXTRA_AGENT_SETTINGS, catalogSampleRowsRatio=0.5)
 
 
 class LongDSLunaBSV37FR3(LongDSLunaBSV37F):

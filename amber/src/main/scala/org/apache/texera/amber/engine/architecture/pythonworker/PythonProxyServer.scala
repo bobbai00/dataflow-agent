@@ -201,8 +201,11 @@ class PythonProxyServer(
       case e: Exception =>
         throw new RuntimeException(e)
     } finally {
-      assert(s != null)
-      s.close()
+      // Close only when the socket was actually opened. The previous
+      // `assert(s != null)` fired exactly when ServerSocket(0) had thrown
+      // (port/fd exhaustion) and MASKED the real cause as "assertion failed",
+      // which cost a long diagnosis. Let the RuntimeException above surface.
+      if (s != null) s.close()
     }
   }
 }

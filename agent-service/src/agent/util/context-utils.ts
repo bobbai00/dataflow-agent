@@ -270,6 +270,11 @@ export interface AssembleContextOptions {
    *  information as the flat event log, re-grouped; the ReAct render knobs
    *  apply unchanged inside each turn. Superseded by versionedCatalog. */
   sessionTurns?: boolean;
+  /** Sample records per finished catalog entry (versioned mode): the first N
+   *  rows of each version's materialized result, TSV, cell-clipped. 0/unset =
+   *  off (byte-identical to the values render). Rows of a version are
+   *  immutable, so entries stay byte-stable. */
+  catalogSampleRowsRatio?: number;
   /** QUESTION-ONLY LAYOUT: past turns render as their `### Task` text ONLY —
    *  no steps, no dataflow, no answers. The agent re-derives everything the
    *  current question needs from the raw sources within the current turn; the
@@ -2691,6 +2696,13 @@ function renderVersionedCatalog(
           sections.push(`Upstream: ${withProv.join(", ")}`);
         }
         const info = leaf?.results.get(opId)?.info;
+        // A version that ENDED the turn errored: its record is the code (the
+        // attempt) plus the error (why it failed) — no stats, no data, which
+        // it does not have anyway. Later turns then know this version is not
+        // a usable endpoint without spending a recall to find out.
+        if (info?.error) {
+          sections.push(`Error: ${clip(String(info.error).trim(), 500)}`);
+        }
         if (info && Array.isArray(info.result) && info.result.length > 0) {
           const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
           // Total serialized size (estimated) is the recall-scaling fact: it
@@ -2725,6 +2737,15 @@ function renderVersionedCatalog(
           if (options.catalogDetail === "values") {
             const stats = formatColumnStats(info);
             if (stats) sections.push(stats);
+          }
+          // Sample records: a FRACTION of the version's in-memory rows in the
+          // entry itself, split first-half/last-half exactly like the ReAct
+          // result render, so head and tail regularities both show. A
+          // version's rows are immutable, so the entry stays byte-stable;
+          // this is the push-side sibling of a recallState row pull.
+          if (options.catalogSampleRowsRatio && options.catalogSampleRowsRatio > 0) {
+            const rows = formatCatalogSampleRows(info, options.catalogSampleRowsRatio);
+            if (rows) sections.push(rows);
           }
         }
         // "code" detail (also included by "values"): the version's code, in
@@ -3938,6 +3959,44 @@ function topoSortDag(workflow: WorkflowContent) {
   );
   return { sortedOps, allLinks, topoOrder };
 }
+
+/**
+ * A fraction of a version's in-memory rows as a compact TSV block for its
+ * catalog entry: ceil(k/2) from the head + floor(k/2) from the tail (the
+ * ReAct result render's convention), where k = ratio x in-memory rows,
+ * k >= 1 when any rows exist. Deliberately minimal next to
+ * formatOperatorResult: no stats, no adjacency — the entry already carries
+ * those. Cells clipped, whole block char-capped, `__`-prefixed bookkeeping
+ * columns skipped.
+ */
+function formatCatalogSampleRows(info: OperatorInfo, ratio: number): string | undefined {
+  if (!Array.isArray(info.result) || info.result.length === 0) return undefined;
+  const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+  if (cols.length === 0) return undefined;
+  const total = info.result.length;
+  const k = Math.max(1, Math.min(total, Math.round(total * ratio)));
+  const head = info.result.slice(0, Math.ceil(k / 2));
+  const tailN = Math.floor(k / 2);
+  const tail = tailN > 0 ? info.result.slice(total - tailN) : [];
+  const cell = (v: unknown): string => clip(v === null || v === undefined ? "" : String(v), 60).replace(/[\t\n]/g, " ");
+  const lines = [
+    `Sample rows (${head.length} head + ${tail.length} tail of ${info.totalRowCount ?? total} rows, ${Math.round(ratio * 100)}% of in-memory sample):`,
+  ];
+  lines.push("  \t" + cols.join("\t"));
+  head.forEach((r, i) => {
+    lines.push(`  ${i}\t` + cols.map(c => cell((r as Record<string, unknown>)[c])).join("\t"));
+  });
+  if (tail.length > 0) {
+    lines.push("  ...");
+    tail.forEach((r, i) => {
+      lines.push(`  ${total - tail.length + i}\t` + cols.map(c => cell((r as Record<string, unknown>)[c])).join("\t"));
+    });
+  }
+  return clip(lines.join("\n"), CATALOG_ROWS_CHARS);
+}
+
+// Per-entry cap for the Sample rows block, sibling of CATALOG_CODE_CHARS.
+const CATALOG_ROWS_CHARS = 4000;
 
 function lastSnapshotOf(tasks: TaskGroup[]): SnapshotData | undefined {
   for (let i = tasks.length - 1; i >= 0; i--) {
