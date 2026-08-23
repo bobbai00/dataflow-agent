@@ -324,6 +324,7 @@ def main() -> int:
     )
 
     records, steps_seen, wall_start, unpriced_turns = [], 0, time.time(), 0
+    infra_streak = 0  # consecutive infra-signature turns; 2 aborts (see tripwire)
     totals = {"cost_usd": 0.0, "input": 0, "output": 0, "reasoning": 0, "cached": 0}
 
     for idx, turn in enumerate(turns):
@@ -416,6 +417,31 @@ def main() -> int:
                 "stats": stats,
             }
         )
+        # FAIL-LOUD TRIPWIRE (learned 2026-08-22, the port-exhaustion outage):
+        # infrastructure failures do not announce themselves — executions
+        # silently return empty and the agent answers plausible-looking
+        # "unable to compute" garbage for the REST OF THE RUN. Two consecutive
+        # infra-signature turns abort the task with a distinct exit code so a
+        # sick backend stops a campaign instead of poisoning it. Signatures:
+        #   * empty answer that did NOT spend the turn budget (fast fail), or
+        #   * a trace whose execution renders are dominated by empty tables.
+        trace_blob = json.dumps(metrics) + (tdir / "react_steps.json").read_text() \
+            if (tdir / "react_steps.json").exists() else ""
+        zero_tables = trace_blob.count("0 rows, 0 cols")
+        real_tables = trace_blob.count("Output Table:") - zero_tables
+        infra_suspect = (not str(answer or "").strip() and elapsed < 1100) or (
+            zero_tables >= 2 and zero_tables > real_tables
+        )
+        infra_streak = infra_streak + 1 if infra_suspect else 0
+        if infra_streak >= 2:
+            print(
+                f"INFRA TRIPWIRE: {infra_streak} consecutive infra-signature turns "
+                f"(turn {tid}: empty_answer={not str(answer or '').strip()}, "
+                f"zero_tables={zero_tables}/{zero_tables + real_tables}) — aborting task; "
+                "check the engine before rerunning"
+            )
+            return 3
+
         # Checkpoint after every turn: a crash at turn 40 must not lose 39 turns.
         (run_dir / "results_with_ground_truth.json").write_text(
             json.dumps(records, indent=2, ensure_ascii=False)
