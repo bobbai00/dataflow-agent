@@ -951,6 +951,35 @@ function clip(text: string | undefined, max: number): string {
 }
 
 /**
+ * Length-clip that PRESERVES whitespace structure. clip() collapses all
+ * whitespace to single spaces — right for prose summaries, catastrophic for
+ * Python (indentation is the block delimiter) and TSV tables (tabs/newlines
+ * are the separators): the v38 trace audit measured 100% of catalog code and
+ * sample-row blocks flattened into single-line soup. Over-length text gets an
+ * EXPLICIT truncation notice (a bare ellipsis reads as complete-ish; a
+ * roster copied off a silently-shortened answer is silently wrong).
+ */
+function clipRaw(text: string | undefined, max: number): string {
+  if (!text) return "";
+  const t = text.trimEnd();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}\n… [truncated: showing ${max} of ${t.length} chars — recallState the version for the rest]`;
+}
+
+/**
+ * Code-specific clip: keep the head AND the tail. A head-only cut usually
+ * removes the `return` — the output shape, column selection, and rounding,
+ * exactly the convention a later turn quotes.
+ */
+function clipCode(code: string, max: number): string {
+  const t = code.trimEnd();
+  if (t.length <= max) return t;
+  const head = Math.floor(max * 0.75);
+  const tail = max - head;
+  return `${t.slice(0, head)}\n# … [middle truncated: ${t.length - max} chars — recallState the version for full code] …\n${t.slice(t.length - tail)}`;
+}
+
+/**
  * The ASK inside a turn's message.
  *
  * A harness typically front-loads the first turn with session setup (role, file
@@ -2776,7 +2805,9 @@ function renderVersionedCatalog(
           const code = (op?.operatorProperties as any)?.code;
           if (typeof code === "string" && code.trim().length > 0) {
             sections.push("```python");
-            sections.push(clip(code.trimEnd(), CATALOG_CODE_CHARS));
+            // clipCode, not clip: indentation IS Python's block structure,
+            // and the tail carries the return/output convention.
+            sections.push(clipCode(code, CATALOG_CODE_CHARS));
             sections.push("```");
           }
         }
@@ -2791,7 +2822,18 @@ function renderVersionedCatalog(
     }
 
     sections.push("### Answer");
-    sections.push(answer ? clip(stripAnswerMarker(answer).trim(), CATALOG_ANSWER_CHARS) : "(no answer recorded)");
+    // A turn the harness aborted mid-work must not read as answered: its
+    // operator versions above exist but were never validated by an answer.
+    // (Measured: cdp rep-1 rendered "Generation stopped by user." as two
+    // turns' Answers and every later turn built on the half-finished state.)
+    const answerBody = answer ? stripAnswerMarker(answer).trim() : "";
+    if (!answerBody || /^Generation stopped by user\.?$/i.test(answerBody)) {
+      sections.push(
+        "(turn aborted before answering — the operator versions above were never validated; re-verify before building on them)"
+      );
+    } else {
+      sections.push(clipRaw(answerBody, CATALOG_ANSWER_CHARS));
+    }
     sections.push("");
   });
 
@@ -4010,7 +4052,7 @@ function formatCatalogSampleRows(info: OperatorInfo, ratio: number): string | un
       lines.push(`  ${total - tail.length + i}\t` + cols.map(c => cell((r as Record<string, unknown>)[c])).join("\t"));
     });
   }
-  return clip(lines.join("\n"), CATALOG_ROWS_CHARS);
+  return clipRaw(lines.join("\n"), CATALOG_ROWS_CHARS);
 }
 
 // Per-entry cap for the Sample rows block, sibling of CATALOG_CODE_CHARS.
