@@ -1676,6 +1676,24 @@ class LongDSLunaTEV39(LongDSLunaTEV38):
     _EXTRA_AGENT_SETTINGS = dict(LongDSLunaTEV38._EXTRA_AGENT_SETTINGS, enableAnswerTool=True)
 
 
+# --- Engine-cache verification probes (2026-08-23) -------------------------
+# Same knobs as the TE arms, fresh SUT dirs. Used to verify cross-turn engine
+# result caching (operator_port_cache) end-to-end per context mode after the
+# idle-teardown cache-wipe fix in WorkflowService.clearExecutionResources.
+
+
+class LongDSLunaCacheSession(LongDSLunaTESession):
+    _NAME = "LongDSLunaCacheSession"
+
+
+class LongDSLunaCacheQO(LongDSLunaTEQO):
+    _NAME = "LongDSLunaCacheQO"
+
+
+class LongDSLunaCacheV38(LongDSLunaTEV38):
+    _NAME = "LongDSLunaCacheV38"
+
+
 class LongDSLunaTEV39R2(LongDSLunaTEV39):
     _NAME = "LongDSLunaTEV39R2"
 
@@ -1709,4 +1727,7 @@ ARMS.update({
     "luna-te-v39": LongDSLunaTEV39,
     "luna-te-v39-r2": LongDSLunaTEV39R2,
     "luna-te-v39-r3": LongDSLunaTEV39R3,
+    "luna-cache-session": LongDSLunaCacheSession,
+    "luna-cache-qo": LongDSLunaCacheQO,
+    "luna-cache-v38": LongDSLunaCacheV38,
 })

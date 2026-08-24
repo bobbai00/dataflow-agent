@@ -217,7 +217,11 @@ class SyncExecutionResource extends LazyLogging {
             val externalInputPortsReporting =
               metrics.operatorStatistics.inputMetrics.count(!_.portId.internal)
             val expectedExternalInputs = targetExpectedExternalInputs.getOrElse(opId, 0)
-            metrics.operatorState == COMPLETED &&
+            // A cache-hit target is as done as a freshly completed one — its result
+            // is already materialized. Without this, an execution whose targets all
+            // cache-hit waits for the aggregate terminal state instead of returning
+            // as soon as the (replayed) results are available.
+            (metrics.operatorState == COMPLETED || metrics.operatorState == COMPLETED_FROM_CACHE) &&
             externalInputPortsReporting >= expectedExternalInputs
           }
         }
@@ -972,6 +976,10 @@ class SyncExecutionResource extends LazyLogging {
       case PAUSED        => "Paused"
       case RESUMING      => "Resuming"
       case COMPLETED     => "Completed"
+      // Cached-region operators are short-circuited by the scheduler; their result
+      // is replayed from the operator-port cache. Surface that as a completed
+      // state (with provenance) instead of falling through to "Unknown".
+      case COMPLETED_FROM_CACHE => "CompletedFromCache"
       case FAILED        => "Failed"
       case KILLED        => "Killed"
       case TERMINATED    => "Terminated"
