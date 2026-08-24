@@ -2665,9 +2665,10 @@ function renderVersionedCatalog(
   sections.push("");
   sections.push(
     lean
-      ? "Each finished entry: what was asked, the decisions that turn settled, and what was answered. " +
-          "The operators themselves live in ONE shared dataflow — `# Dataflow (latest)` below names every " +
-          "live operator at its current (latest) version; that is the state your code references. " +
+      ? "Each finished entry: what was asked, how the dataflow changed (each operator's code, in the turn " +
+          "that wrote it), the decisions that turn settled, and what was answered. The operators live in ONE " +
+          "shared dataflow — `# Dataflow (built from previous turns)` below indexes every live operator; new " +
+          "code references them by id, and a reference always means the latest version. " +
           '`recallState(ref: "opId (turn N)")` fetches an operator\'s state as of an earlier turn when a ' +
           "task needs history. The last entry is the turn in progress."
       : "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
@@ -2725,9 +2726,49 @@ function renderVersionedCatalog(
 
     const leaf = lastSnapshotOf([task]);
     if (verbs.size > 0 && lean) {
-      // LEAN: no per-turn dataflow rendering at all — the workflow state lives
-      // once, in `# Dataflow (latest)`. Only the touch bookkeeping survives,
-      // to power the heads table's since-turn stamps.
+      // LEAN + DELTA: each finished turn records the operators it added or
+      // revised — summary, upstream ids (plain: references are always to the
+      // latest version), result shape, and CODE. Code in the entry is the
+      // verbatim-pin channel the acea decomposition proved load-bearing
+      // (code alone ~58, decisions alone ~58, both ~72): a later turn that
+      // repeats the pattern copies the printed code instead of re-deriving
+      // it from Solution prose. Deliberately NO stats and NO sample rows
+      // (measured near-zero reuse; recallState carries values on demand),
+      // so entries stay small and byte-stable forever.
+      sections.push("### Dataflow delta");
+      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
+      for (const [opId, verb] of verbs) {
+        if (verb === "deleted" && !survives.has(opId)) continue;
+        sections.push(`#### \`${opId}\` (${verb})`);
+        if (verb === "deleted") {
+          sections.push("");
+          continue;
+        }
+        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
+        const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
+        if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
+        const ups = (leaf?.workflow.links ?? [])
+          .filter(l => l?.target?.operatorID === opId)
+          .map(l => l.source.operatorID);
+        if (ups.length > 0) sections.push(`Upstream: ${ups.join(", ")}`);
+        const info = leaf?.results.get(opId)?.info;
+        if (info?.error) {
+          sections.push(`Error: ${clip(String(info.error).trim(), 500)}`);
+        }
+        if (info && Array.isArray(info.result) && info.result.length > 0) {
+          const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+          const est = estimateTableChars(info);
+          const size = est !== undefined ? `, ${formatApproxChars(est)}` : "";
+          sections.push(`Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size}`);
+        }
+        const code = (op?.operatorProperties as any)?.code;
+        if (typeof code === "string" && code.trim().length > 0) {
+          sections.push("```python");
+          sections.push(clipCode(code, CATALOG_CODE_CHARS));
+          sections.push("```");
+        }
+        sections.push("");
+      }
       for (const [opId, verb] of verbs) {
         if (verb === "deleted") continue;
         const arr = touchTurns.get(opId) ?? [];
@@ -2893,11 +2934,13 @@ function renderVersionedCatalog(
     // (recall coordinate + provenance: which judged answer vouches for it),
     // its output columns (so column names are copied, never guessed), and its
     // one-line summary. Small, and it changes only at turn boundaries.
-    sections.push("# Dataflow (latest)");
+    sections.push("# Dataflow (built from previous turns)");
     sections.push(
-      "The one shared dataflow, every live operator at its current version — this is the state new code " +
-      "references (by id; references are always to the latest version). For an operator's code or values as " +
-      'of an earlier turn, use `recallState(ref: "opId (turn N)")`.'
+      "The one shared dataflow as of the END of the last finished turn — an index of every live operator: " +
+      "id, when it last changed, and its output columns. New code references these by id, and a reference " +
+      "always means the operator's latest version. Changes YOU make this turn appear in your step log (and " +
+      "here from the next turn on). Each operator's code is printed in the Dataflow delta of the turn that " +
+      'last wrote it; for its state as of any earlier turn, use `recallState(ref: "opId (turn N)")`.'
     );
     sections.push("");
     for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {

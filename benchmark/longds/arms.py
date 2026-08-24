@@ -1698,6 +1698,24 @@ class LongDSLunaTEV40(LongDSLunaTEV39):
     )
 
 
+class LongDSLunaTEV40D(LongDSLunaTEV40):
+    """V40D = v40 lean chassis + code-bearing Dataflow delta per entry (no
+    stats/rows) + the copy-forward rule + `# Dataflow (built from previous
+    turns)` index. Same agent settings as v40 — the D build differs only in
+    agent-service source (renderer + fragments), so it gets its own SUT dir
+    to keep rep-1's pure-lean ablation data intact."""
+
+    _NAME = "LongDSLunaTEV40D"
+
+
+class LongDSLunaTEV40DR2(LongDSLunaTEV40D):
+    _NAME = "LongDSLunaTEV40DR2"
+
+
+class LongDSLunaTEV40DR3(LongDSLunaTEV40D):
+    _NAME = "LongDSLunaTEV40DR3"
+
+
 class LongDSLunaTEV40R2(LongDSLunaTEV40):
     _NAME = "LongDSLunaTEV40R2"
 
@@ -1758,6 +1776,9 @@ ARMS.update({
     "luna-te-v39-r2": LongDSLunaTEV39R2,
     "luna-te-v39-r3": LongDSLunaTEV39R3,
     "luna-te-v40": LongDSLunaTEV40,
+    "luna-te-v40d": LongDSLunaTEV40D,
+    "luna-te-v40d-r2": LongDSLunaTEV40DR2,
+    "luna-te-v40d-r3": LongDSLunaTEV40DR3,
     "luna-te-v40-r2": LongDSLunaTEV40R2,
     "luna-te-v40-r3": LongDSLunaTEV40R3,
     "luna-cache-session": LongDSLunaCacheSession,
