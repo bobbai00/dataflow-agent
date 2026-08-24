@@ -38,11 +38,53 @@ export const TOOL_NAME_ANSWER = "answer";
 
 export interface AnswerToolDeps {
   /** Called once with the structured answer; the agent composes the turn's
-   *  final response from it. */
-  onAnswer: (args: { answer: string; conventions: string }) => void;
+   *  final response from it. `note` is the second field's text regardless of
+   *  variant (conventions or decisions). */
+  onAnswer: (args: { answer: string; note: string }) => void;
+  /** Which second field the tool asks for.
+   *  - "conventions" (v39, default): the interpretive choices pinned per turn.
+   *  - "decisions" (v40 lean catalog): the decisions the turn settled — how the
+   *    answer was derived, described by the model in its own words. Renders as
+   *    the entry's `### Solution` line. */
+  variant?: "conventions" | "decisions";
 }
 
 export function createAnswerTool(deps: AnswerToolDeps) {
+  if (deps.variant === "decisions") {
+    return tool({
+      description:
+        "Finish the current turn by handing in your answer. Call this instead of writing a final " +
+        "message — it is how a turn ends. Alongside the answer itself, write down the decisions this " +
+        "turn settled: the choices you made that the task text left open, in your own words, precise " +
+        "enough that a colleague continuing tomorrow — with only your note and the current dataflow — " +
+        "would reproduce your numbers exactly. Future turns read this note instead of your reasoning.",
+      inputSchema: z.object({
+        answer: z
+          .string()
+          .describe(
+            "Your final answer to the current task, exactly as it should be graded — same format " +
+              "the task asked for (usually a single-line JSON object). Nothing else: no reasoning, " +
+              "no preamble."
+          ),
+        decisions: z
+          .string()
+          .describe(
+            "The decisions this turn settled, described in your own words — the definitions, rules " +
+              "and interpretations behind the answer that the task text did not fully pin down. " +
+              "Think: which direction a ranking runs ('rank 1 = highest mean_kick'), what population " +
+              "a percentile is computed over, how a set or metric is defined, filters applied, " +
+              "tie-break rules, seeds and split sizes. Short clauses separated by semicolons — NOT a " +
+              "narrative of the steps you took; the choices, not the journey. If this turn changed a " +
+              "standing decision from an earlier turn, say so explicitly ('supersedes turn 3\'s " +
+              "definition of X'). If the turn settled nothing new, pass an empty string."
+          ),
+      }),
+      execute: async ({ answer, decisions }) => {
+        deps.onAnswer({ answer: answer ?? "", note: decisions ?? "" });
+        return "Answer recorded — turn complete.";
+      },
+    });
+  }
   return tool({
     description:
       "Finish the current turn by handing in your answer. Call this instead of writing a final " +
@@ -72,7 +114,7 @@ export function createAnswerTool(deps: AnswerToolDeps) {
         ),
     }),
     execute: async ({ answer, conventions }) => {
-      deps.onAnswer({ answer: answer ?? "", conventions: conventions ?? "" });
+      deps.onAnswer({ answer: answer ?? "", note: conventions ?? "" });
       return "Answer recorded — turn complete.";
     },
   });

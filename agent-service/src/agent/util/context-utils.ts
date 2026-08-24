@@ -289,6 +289,15 @@ export interface AssembleContextOptions {
    *  the layout is append-only across turns like the catalog. Supersedes
    *  sessionTurns; superseded by versionedCatalog. */
   questionOnlyTurns?: boolean;
+  /** LATEST-DATAFLOW catalog (v40, "lean"): finished entries carry ONLY
+   *  Task / Solution / Answer — no Dataflow deltas, no code, no stats, no
+   *  sample rows. The workflow renders once, as a `# Dataflow (latest)` heads
+   *  table (id, since-turn, columns, one-liner): ONE shared dataflow whose
+   *  version is always the latest, matching the engine's actual semantics
+   *  (links are by opId; writes overwrite in place). History is reachable
+   *  only through recallState("opId (turn N)") with as-of resolution.
+   *  Requires versionedCatalog; refines its rendering. */
+  catalogLatestDataflow?: boolean;
   /** OPERATOR-LEVEL recall (v3): the catalog header teaches the per-version
    *  recall address instead of the per-turn one. Render-text only. */
   recallOperatorLevel?: boolean;
@@ -2651,15 +2660,22 @@ function renderVersionedCatalog(
       ? options.turnNumberByMessageId?.get(current[0].nodes[0].step.messageId)
       : undefined) ?? tasks.length;
 
+  const lean = options.catalogLatestDataflow === true;
   sections.push("# Catalog (the whole session, one entry per turn)");
   sections.push("");
   sections.push(
-    "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
-      "addressed as (operatorId, turn)), and what was answered. " +
-      (options.recallOperatorLevel
-        ? "`recallState(ref: \"opId (turn N)\")` fetches that one version's code and values verbatim. "
-        : "`recallState(turn)` fetches any entry's code and results verbatim. ") +
-      "The last entry is the turn in progress."
+    lean
+      ? "Each finished entry: what was asked, the decisions that turn settled, and what was answered. " +
+          "The operators themselves live in ONE shared dataflow — `# Dataflow (latest)` below names every " +
+          "live operator at its current (latest) version; that is the state your code references. " +
+          '`recallState(ref: "opId (turn N)")` fetches an operator\'s state as of an earlier turn when a ' +
+          "task needs history. The last entry is the turn in progress."
+      : "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
+          "addressed as (operatorId, turn)), and what was answered. " +
+          (options.recallOperatorLevel
+            ? "`recallState(ref: \"opId (turn N)\")` fetches that one version's code and values verbatim. "
+            : "`recallState(turn)` fetches any entry's code and results verbatim. ") +
+          "The last entry is the turn in progress."
   );
   sections.push("");
 
@@ -2708,7 +2724,17 @@ function renderVersionedCatalog(
     }
 
     const leaf = lastSnapshotOf([task]);
-    if (verbs.size > 0) {
+    if (verbs.size > 0 && lean) {
+      // LEAN: no per-turn dataflow rendering at all — the workflow state lives
+      // once, in `# Dataflow (latest)`. Only the touch bookkeeping survives,
+      // to power the heads table's since-turn stamps.
+      for (const [opId, verb] of verbs) {
+        if (verb === "deleted") continue;
+        const arr = touchTurns.get(opId) ?? [];
+        arr.push(turnNo);
+        touchTurns.set(opId, arr);
+      }
+    } else if (verbs.size > 0) {
       sections.push("### Dataflow delta");
       const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
@@ -2823,13 +2849,16 @@ function renderVersionedCatalog(
       }
     }
 
-    // CONVENTIONS (v39): the interpretive commitments the turn declared at
-    // answer time — the distilled slice of session-style reasoning the nfl/
+    // DECISIONS / CONVENTIONS: the interpretive commitments the turn declared
+    // at answer time — the distilled slice of session-style reasoning the nfl/
     // acea studies proved is load-bearing. Never ages, renders before the
-    // answer so later turns read the decision, then the number.
-    const convMatch = answer ? /^Conventions:\s*(.+)$/m.exec(answer) : null;
+    // answer so later turns read the decision, then the number. The lean
+    // layout titles it `### Solution` (answer tool field: `decisions`); the
+    // v39 layout titles it `### Conventions`. Both markers parse either way,
+    // so a session that switched arms mid-stream still renders every entry.
+    const convMatch = answer ? /^(?:Conventions|Decisions):\s*(.+)$/m.exec(answer) : null;
     if (convMatch && convMatch[1].trim()) {
-      sections.push("### Conventions");
+      sections.push(lean ? "### Solution" : "### Conventions");
       sections.push(clip(convMatch[1], 600));
       sections.push("");
     }
@@ -2838,10 +2867,14 @@ function renderVersionedCatalog(
     // operator versions above exist but were never validated by an answer.
     // (Measured: cdp rep-1 rendered "Generation stopped by user." as two
     // turns' Answers and every later turn built on the half-finished state.)
-    const answerBody = answer ? stripAnswerMarker(answer).replace(/^Conventions:.*$/m, "").trim() : "";
+    const answerBody = answer
+      ? stripAnswerMarker(answer).replace(/^(?:Conventions|Decisions):.*$/m, "").trim()
+      : "";
     if (!answerBody || /^Generation stopped by user\.?$/i.test(answerBody)) {
       sections.push(
-        "(turn aborted before answering — the operator versions above were never validated; re-verify before building on them)"
+        lean
+          ? "(turn aborted before answering — any operator changes it made were never validated; re-verify before building on them)"
+          : "(turn aborted before answering — the operator versions above were never validated; re-verify before building on them)"
       );
     } else {
       sections.push(clipRaw(answerBody, CATALOG_ANSWER_CHARS));
@@ -2854,7 +2887,36 @@ function renderVersionedCatalog(
   const lastLeaf = lastSnapshotOf(prior.length > 0 ? prior : tasks);
   const alive = new Set((lastLeaf?.workflow.operators ?? []).map(o => o.operatorID));
   const heads = [...touchTurns.entries()].filter(([op]) => alive.has(op));
-  if (heads.length > 0 && options.versionedHeads !== false) {
+  if (lean && heads.length > 0) {
+    // LEAN: the heads table IS the dataflow section — the one place workflow
+    // state renders. One line per live operator: id, when it last changed
+    // (recall coordinate + provenance: which judged answer vouches for it),
+    // its output columns (so column names are copied, never guessed), and its
+    // one-line summary. Small, and it changes only at turn boundaries.
+    sections.push("# Dataflow (latest)");
+    sections.push(
+      "The one shared dataflow, every live operator at its current version — this is the state new code " +
+      "references (by id; references are always to the latest version). For an operator's code or values as " +
+      'of an earlier turn, use `recallState(ref: "opId (turn N)")`.'
+    );
+    sections.push("");
+    for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
+      const sinceTurn = turns[turns.length - 1];
+      const opDef = lastLeaf?.workflow.operators.find(o => o.operatorID === op);
+      const summary = (opDef as any)?.customDisplayName || (opDef?.operatorProperties as any)?.summary;
+      const info = lastLeaf?.results.get(op)?.info;
+      let shape = "";
+      if (info && Array.isArray(info.result) && info.result.length > 0) {
+        const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+        shape = ` — ${info.totalRowCount ?? info.result.length} rows; cols: ${cols.join(", ")}`;
+      }
+      const errored = info?.error ? " — ERRORED (not a usable endpoint)" : "";
+      sections.push(
+        `- \`${op}\` (since turn ${sinceTurn})${summary ? ` ${clip(String(summary), 140)}` : ""}${clipRaw(shape, 400)}${errored}`
+      );
+    }
+    sections.push("");
+  } else if (heads.length > 0 && options.versionedHeads !== false) {
     sections.push("### Latest versions");
     sections.push("The newest version of each operator. Use these when a reference should build on current state.");
     for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {

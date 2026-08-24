@@ -501,6 +501,11 @@ export interface AgentSettings {
    *  summary, provenance, result shape and code. K>0 also drops the schema
    *  tail, numeric top_10 and Lineage lines everywhere. 0 = off. */
   catalogFreshTurns: number;
+  /** LEAN latest-dataflow catalog (v40): finished entries carry only
+   *  Task / Solution / Answer; workflow state renders once as the
+   *  `# Dataflow (latest)` heads table; recallState resolves "opId (turn N)"
+   *  as-of; the answer tool asks for `decisions`. Requires versionedMode. */
+  catalogLatestDataflow: boolean;
   /** Terminal `answer` tool: the turn ends when the model calls answer(answer,
    *  conventions). Conventions are pinned, never aging, into the turn's
    *  catalog entry — the distilled interpretive commitments a session arm
@@ -691,6 +696,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   questionOnlyTurns: false,
   catalogSampleRowsRatio: 0,
   catalogFreshTurns: 0,
+  catalogLatestDataflow: false,
   enableAnswerTool: false,
   indexThinObservations: false,
   cacheAlignedContext: false,
@@ -833,6 +839,8 @@ export interface AgentSettingsApi {
   catalogSampleRowsRatio?: number;
   /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
   catalogFreshTurns?: number;
+  /** Lean latest-dataflow catalog (see AgentSettings.catalogLatestDataflow). */
+  catalogLatestDataflow?: boolean;
   /** Terminal answer tool (see AgentSettings.enableAnswerTool). */
   enableAnswerTool?: boolean;
   /** Render once per driver run, append natively after — the provider's
@@ -959,6 +967,8 @@ export interface UpdateAgentSettingsRequest {
   catalogSampleRowsRatio?: number;
   /** Gradual catalog window (see AgentSettings.catalogFreshTurns). */
   catalogFreshTurns?: number;
+  /** Lean latest-dataflow catalog (see AgentSettings.catalogLatestDataflow). */
+  catalogLatestDataflow?: boolean;
   /** Terminal answer tool (see AgentSettings.enableAnswerTool). */
   enableAnswerTool?: boolean;
 }

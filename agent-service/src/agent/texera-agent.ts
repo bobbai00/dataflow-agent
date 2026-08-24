@@ -311,7 +311,7 @@ export class TexeraAgent {
   private cacheAlignedTaskReminder: string | undefined = undefined;
   /** Structured answer stashed by the terminal `answer` tool for the current
    *  driver run; consumed when composing the turn's final response. */
-  private pendingStructuredAnswer: { answer: string; conventions: string } | undefined = undefined;
+  private pendingStructuredAnswer: { answer: string; note: string } | undefined = undefined;
 
   private delegateConfig?: {
     userToken: string;
@@ -559,7 +559,8 @@ export class TexeraAgent {
         this.settings.valueProbeRule === true,
         this.settings.catalogDetail === "values",
         this.settings.questionOnlyTurns === true,
-        this.settings.enableAnswerTool === true
+        this.settings.enableAnswerTool === true,
+        this.settings.catalogLatestDataflow === true
       );
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
@@ -625,7 +626,13 @@ export class TexeraAgent {
         this.settings.maxOperatorEdits,
         this.settings.enableRenderPrefs === true,
         this.isCodeShownToAgent(),
-        this.settings.versionedMode ? this.operatorVersionStore() : undefined
+        // Lean latest-dataflow mode drops version-pinned wiring entirely:
+        // references are by parameter name and always mean the latest version
+        // (the engine's actual semantics). No `upstreams`/`from` refs, no
+        // checkout copies — history is read via recallState, never wired.
+        this.settings.versionedMode && !this.settings.catalogLatestDataflow
+          ? this.operatorVersionStore()
+          : undefined
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -676,6 +683,10 @@ export class TexeraAgent {
         workflowState: this.workflowState,
         maxResultChars: this.settings.recallMaxResultChars,
         operatorLevel: this.settings.recallOperatorLevel === true,
+        // Lean latest-dataflow catalog: "opId (turn N)" resolves as-of —
+        // the model no longer sees writing turns, so any turn number it has
+        // seen must address the operator's state at that point.
+        asOf: this.settings.catalogLatestDataflow === true,
       });
     }
     // Terminal answer tool: the turn ends when the model hands in its answer
@@ -685,6 +696,9 @@ export class TexeraAgent {
         onAnswer: args => {
           this.pendingStructuredAnswer = args;
         },
+        // Lean latest-dataflow catalog asks for the turn's settled DECISIONS
+        // (rendered as `### Solution`); v39 asks for conventions.
+        variant: this.settings.catalogLatestDataflow ? "decisions" : "conventions",
       });
     }
 
@@ -1377,6 +1391,7 @@ export class TexeraAgent {
     questionOnlyTurns?: boolean;
     catalogSampleRowsRatio?: number;
     catalogFreshTurns?: number;
+    catalogLatestDataflow?: boolean;
     enableAnswerTool?: boolean;
     recallMaxResultChars?: number;
     recallOperatorLevel?: boolean;
@@ -1633,6 +1648,16 @@ export class TexeraAgent {
     if (updates.catalogFreshTurns !== undefined) {
       // Pure render knob — gradual catalog window.
       this.settings.catalogFreshTurns = updates.catalogFreshTurns;
+    }
+    if (
+      updates.catalogLatestDataflow !== undefined &&
+      updates.catalogLatestDataflow !== this.settings.catalogLatestDataflow
+    ) {
+      // Changes the catalog layout, the recall tool's addressing semantics,
+      // the answer tool's second field, AND the prompt fragments describing
+      // all three — prompt and tools rebuild together.
+      this.settings.catalogLatestDataflow = updates.catalogLatestDataflow;
+      promptNeedsRebuild = true;
     }
     if (updates.enableAnswerTool !== undefined && updates.enableAnswerTool !== this.settings.enableAnswerTool) {
       // Tool set AND the prompt's how-to-finish instructions change together.
@@ -2004,9 +2029,10 @@ export class TexeraAgent {
       // (runner extraction, judge, grounding, session AND catalog renders)
       // sees exactly the shape a marker-writing agent produces.
       if (this.pendingStructuredAnswer) {
-        const { answer, conventions } = this.pendingStructuredAnswer;
+        const { answer, note } = this.pendingStructuredAnswer;
+        const marker = this.settings.catalogLatestDataflow ? "Decisions" : "Conventions";
         const composed =
-          (conventions.trim() ? `Conventions: ${conventions.trim()}\n` : "") +
+          (note.trim() ? `${marker}: ${note.trim()}\n` : "") +
           `**Final Answer:** ${answer.trim()}`;
         result = { ...result, text: composed };
         const steps = this.reActStepsByMessageId.get(messageId);

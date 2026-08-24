@@ -135,6 +135,14 @@ const CATALOG_EXAMPLE_FRAGMENT: string = rd("catalog-example.md");
  *  versioned arm runs WITHOUT the terminal answer tool, so the prompt never
  *  demonstrates a tool the model does not have. */
 const CATALOG_EXAMPLE_NOTOOL_FRAGMENT: string = rd("catalog-example-notool.md");
+/** LEAN LATEST-DATAFLOW catalog (v40, `catalogLatestDataflow`): layout guide —
+ *  history entries are Task/Solution/Answer only; `# Dataflow (latest)` is the
+ *  one shared workflow; recallState is the only window into earlier states. */
+const VERSIONED_LATEST_FRAGMENT: string = rd("versioned-latest.md");
+/** Worked multi-turn example for the lean layout: read the heads, recall an
+ *  earlier state when the task needs history, do the work, hand in the answer
+ *  with the decisions the turn settled. */
+const CATALOG_LATEST_EXAMPLE_FRAGMENT: string = rd("catalog-latest-example.md");
 /** VALUE PROBE (the `valueProbeRule` knob): literals that must match data
  *  values (mapping dicts, category filters, join keys, regexes) are copied
  *  from the actual values, checked with one queryResult call — never typed
@@ -497,7 +505,8 @@ export function buildCodeModeSystemPrompt(
   valueProbeRuleEnabled = false,
   catalogValuesEnabled = false,
   questionOnlyEnabled = false,
-  answerToolEnabled = false
+  answerToolEnabled = false,
+  catalogLatestEnabled = false
 ): string {
   const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
   // The only code-blind configuration: LATEST without code in the snapshot.
@@ -509,7 +518,9 @@ export function buildCodeModeSystemPrompt(
   // `# Current Turn` / `# Dataflow` layout, which does not exist under the
   // versioned catalog. The recallState tool itself remains available either way.
   const recall = versionedEnabled
-    ? `\n${opRecallEnabled ? (specAuditEnabled ? VERSIONED_PRINCIPLES_FRAGMENT : VERSIONED_OPRECALL_FRAGMENT) : VERSIONED_FRAGMENT}\n`
+    ? catalogLatestEnabled
+      ? `\n${VERSIONED_LATEST_FRAGMENT}\n`
+      : `\n${opRecallEnabled ? (specAuditEnabled ? VERSIONED_PRINCIPLES_FRAGMENT : VERSIONED_OPRECALL_FRAGMENT) : VERSIONED_FRAGMENT}\n`
     : recallEnabled
       ? `\n${RECALL_FRAGMENT}\n`
       : "";
@@ -526,8 +537,8 @@ export function buildCodeModeSystemPrompt(
   const valueProbe = !valueProbeRuleEnabled
     ? ""
     : queryToolEnabled
-      ? `\n${catalogValuesEnabled && versionedEnabled ? VALUE_PROBE_CATALOG_FRAGMENT : VALUE_PROBE_FRAGMENT}\n`
-      : catalogValuesEnabled && versionedEnabled
+      ? `\n${catalogValuesEnabled && versionedEnabled && !catalogLatestEnabled ? VALUE_PROBE_CATALOG_FRAGMENT : VALUE_PROBE_FRAGMENT}\n`
+      : catalogValuesEnabled && versionedEnabled && !catalogLatestEnabled
         ? `\n${VALUE_PROBE_CATALOG_ONLY_FRAGMENT}\n`
         : "";
   const answerShape = answerShapeRuleEnabled ? `\n${ANSWER_SHAPE_FRAGMENT}\n` : "";
@@ -535,12 +546,17 @@ export function buildCodeModeSystemPrompt(
   // agent gets the field guide + the multi-turn worked example for it. The
   // single-ReAct {{EXAMPLE}} below is untouched — the two compose.
   const catalogExample = versionedEnabled
-    ? `\n${answerToolEnabled ? CATALOG_EXAMPLE_FRAGMENT : CATALOG_EXAMPLE_NOTOOL_FRAGMENT}\n`
+    ? catalogLatestEnabled
+      ? `\n${CATALOG_LATEST_EXAMPLE_FRAGMENT}\n`
+      : `\n${answerToolEnabled ? CATALOG_EXAMPLE_FRAGMENT : CATALOG_EXAMPLE_NOTOOL_FRAGMENT}\n`
     : "";
   // Only meaningful under the versioned catalog (the fragment describes
   // Dataflow delta entries); gated on both so a stray setting on a session
   // arm cannot describe a section that does not exist.
-  const catalogCode = (catalogCodeEnabled || catalogValuesEnabled) && versionedEnabled ? `\n${CATALOG_CODE_FRAGMENT}\n` : "";
+  const catalogCode =
+    (catalogCodeEnabled || catalogValuesEnabled) && versionedEnabled && !catalogLatestEnabled
+      ? `\n${CATALOG_CODE_FRAGMENT}\n`
+      : "";
   const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
   // Context format tracks the LAYOUT the agent is fed, which is a separate axis
   // from code visibility: DELTA is always `# Agent Events`, LATEST is

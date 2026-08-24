@@ -65,19 +65,19 @@ async function main() {
     { name: "E4 modify C",  plan: mk([A(1), B, C(2), D], [link("probe_a","probe_b"), link("probe_b","probe_c"), link("probe_b","probe_d")], ["probe_c"]),
       expectFresh: ["probe_c"], expectCached: ["probe_a","probe_b"] },
     { name: "E5 revert C",  plan: mk([A(1), B, C(1), D], [link("probe_a","probe_b"), link("probe_b","probe_c"), link("probe_b","probe_d")], ["probe_c"]),
-      expectFresh: [], expectCached: ["probe_a","probe_b","probe_c"] },
+      expectFresh: [] as string[], expectCached: ["probe_a","probe_b","probe_c"] },
     { name: "E6 modify A",  plan: mk([A(2), B, C(1), D], [link("probe_a","probe_b"), link("probe_b","probe_c"), link("probe_b","probe_d")], ["probe_c"]),
       expectFresh: ["probe_a","probe_b","probe_c"], expectCached: [] },
     { name: "E7 identical", plan: mk([A(2), B, C(1), D], [link("probe_a","probe_b"), link("probe_b","probe_c"), link("probe_b","probe_d")], ["probe_c"]),
-      expectFresh: [], expectCached: ["probe_a","probe_b","probe_c"] },
+      expectFresh: [] as string[], expectCached: ["probe_a","probe_b","probe_c"] },
     { name: "E8 subplan A->B", plan: mk([A(2), B], [link("probe_a","probe_b")], ["probe_b"]),
-      expectFresh: [], expectCached: ["probe_a","probe_b"] },
+      expectFresh: [] as string[], expectCached: ["probe_a","probe_b"] },
     // Regression test for the idle-teardown cache wipe: the workflow lifecycle
     // manager fires 30s after idle and used to invalidate every cache row the
     // workflow produced. Wait past the deadline, then re-execute unchanged.
     { name: "E9 idle >30s then identical", waitSeconds: 45,
       plan: mk([A(2), B, C(1), D], [link("probe_a","probe_b"), link("probe_b","probe_c"), link("probe_b","probe_d")], ["probe_c"]),
-      expectFresh: [], expectCached: ["probe_a","probe_b","probe_c"] },
+      expectFresh: [] as string[], expectCached: ["probe_a","probe_b","probe_c"] },
   ];
 
   // The sync result only carries the VIEWED target op, so per-step assertions

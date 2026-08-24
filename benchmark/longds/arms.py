@@ -1676,6 +1676,36 @@ class LongDSLunaTEV39(LongDSLunaTEV38):
     _EXTRA_AGENT_SETTINGS = dict(LongDSLunaTEV38._EXTRA_AGENT_SETTINGS, enableAnswerTool=True)
 
 
+class LongDSLunaTEV40(LongDSLunaTEV39):
+    """V40 "lean latest-dataflow catalog": finished entries carry ONLY
+    Task / Solution / Answer (no dataflow deltas, code, stats or sample rows);
+    the workflow renders once as `# Dataflow (latest)` — one shared dataflow,
+    references always mean the latest version, matching the engine's actual
+    overwrite semantics. History is reachable only through
+    recallState("opId (turn N)") with as-of resolution; version-pinned wiring
+    (upstreams/from refs) is gone from the write tool. The answer tool asks
+    for the turn's settled `decisions` (rendered as the entry's Solution
+    line). Targets the measured pathologies of the version-DAG rendering:
+    stale head pins, referent confusion, rollback re-derivation."""
+
+    _NAME = "LongDSLunaTEV40"
+    _EXTRA_AGENT_SETTINGS = dict(
+        LongDSLunaTEV39._EXTRA_AGENT_SETTINGS,
+        catalogLatestDataflow=True,
+        # Entry payload knobs are moot (lean entries render none of it) and the
+        # value-probe rule described catalog stats blocks that no longer exist.
+        valueProbeRule=False,
+    )
+
+
+class LongDSLunaTEV40R2(LongDSLunaTEV40):
+    _NAME = "LongDSLunaTEV40R2"
+
+
+class LongDSLunaTEV40R3(LongDSLunaTEV40):
+    _NAME = "LongDSLunaTEV40R3"
+
+
 # --- Engine-cache verification probes (2026-08-23) -------------------------
 # Same knobs as the TE arms, fresh SUT dirs. Used to verify cross-turn engine
 # result caching (operator_port_cache) end-to-end per context mode after the
@@ -1727,6 +1757,9 @@ ARMS.update({
     "luna-te-v39": LongDSLunaTEV39,
     "luna-te-v39-r2": LongDSLunaTEV39R2,
     "luna-te-v39-r3": LongDSLunaTEV39R3,
+    "luna-te-v40": LongDSLunaTEV40,
+    "luna-te-v40-r2": LongDSLunaTEV40R2,
+    "luna-te-v40-r3": LongDSLunaTEV40R3,
     "luna-cache-session": LongDSLunaCacheSession,
     "luna-cache-qo": LongDSLunaCacheQO,
     "luna-cache-v38": LongDSLunaCacheV38,

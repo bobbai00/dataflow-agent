@@ -140,6 +140,13 @@ export interface RecallStateDeps {
    *  whole turn deltas, which kept values invisible-by-default. Off = the
    *  turn-addressed tool, byte-identical. */
   operatorLevel?: boolean;
+  /** AS-OF RESOLUTION (v40 latest-dataflow mode): "opId (turn N)" means "the
+   *  state of opId as of the end of turn N" — resolved to the latest version
+   *  written at or before N — instead of requiring N to be a writing turn.
+   *  The lean catalog no longer renders per-turn dataflow deltas, so the model
+   *  cannot know writing turns; any turn number it has seen must be a valid
+   *  address. Off = exact writing-turn addressing, byte-identical. */
+  asOf?: boolean;
 }
 
 function findOperator(workflow: WorkflowContent | undefined, opId: string): any {
@@ -177,8 +184,25 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
     turns.filter(t => t.operators.includes(opId)).map(t => t.turn);
 
   return tool({
-    description:
-      "Recall ONE operator version, verbatim: its code, its result (shape, total size, sample values) and the " +
+    description: deps.asOf
+      ? "Look up the state of ONE operator as of an earlier turn: its code back then, its result (shape, total " +
+        'size, sample values). Addressed as `ref: "opId (turn N)"` — any operator id from `# Dataflow (latest)` ' +
+        "or an earlier answer, plus any turn number; you get the operator as it stood at the END of that turn. " +
+        "Read-only — never runs or changes anything.\n" +
+        "\n" +
+        "WHEN TO CALL IT. The catalog shows what each turn asked, decided and answered — not the code or values " +
+        "behind it. When solving the current turn needs an earlier turn's specifics (the exact formula behind an " +
+        "answer, the values a definition produced, a state you are asked to revisit or roll back to), recall it " +
+        "first, then do the work. For a rollback, copy the recalled code verbatim into a new write instead of " +
+        "reconstructing it from memory.\n" +
+        "\n" +
+        "WHEN NOT TO. `# Dataflow (latest)` already names every live operator with its columns — building forward " +
+        "on current state needs no recall at all. Recall is for HISTORY. Your pulls stay in your steps for the " +
+        "whole turn; never fetch the same state twice.\n" +
+        "\n" +
+        "Recall everything you need in ONE call — pass several refs together as `refs`. Each call costs a full " +
+        "step; batching five refs costs one."
+      : "Recall ONE operator version, verbatim: its code, its result (shape, total size, sample values) and the " +
       "telemetry recorded when it ran — addressed exactly as the `# Catalog` prints it and `upstreams` consumes " +
       'it: `ref: "opId (turn N)"`. Read-only — never runs or changes anything.\n' +
       "\n" +
@@ -319,7 +343,20 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
               "(ids are exact). The turn in progress cannot be recalled — its work is already in front of you."
           );
         }
-        const t = turns.find(x => x.turn === turnNo && x.operators.includes(opId));
+        let t = turns.find(x => x.turn === turnNo && x.operators.includes(opId));
+        if (!t && deps.asOf) {
+          // As-of semantics: resolve to the latest version written at or
+          // before the requested turn — "the operator's state as of turn N".
+          const priorWrites = have.filter(n => n <= turnNo);
+          if (priorWrites.length > 0) {
+            const resolved = priorWrites[priorWrites.length - 1];
+            t = turns.find(x => x.turn === resolved && x.operators.includes(opId));
+          } else {
+            return createErrorResult(
+              `\`${opId}\` did not exist yet at turn ${turnNo} — its first version was written at turn ${have[0]}.`
+            );
+          }
+        }
         if (!t) {
           return createErrorResult(
             `\`${opId}\` has no version at turn ${turnNo}. It has versions: ` +
@@ -336,7 +373,9 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
 
         const op = findOperator(t.workflow, opId);
         const verb = t.verbs?.get(opId);
-        const out: string[] = [`# ${opId} (turn ${turnNo})${verb ? ` — ${verb} by that turn` : ""}`];
+        const asOfNote =
+          t.turn !== turnNo ? ` — state as of turn ${turnNo} (last written at turn ${t.turn})` : "";
+        const out: string[] = [`# ${opId} (turn ${t.turn})${asOfNote}${!asOfNote && verb ? ` — ${verb} by that turn` : ""}`];
         const summary = summaryOf(op);
         if (summary) out.push(`Summary: ${summary}`);
 
