@@ -130,3 +130,35 @@ cd agent-service && PORT=3001 nohup bun run start > ../logs/agent-service-3001.l
 Known traps: plain `up` resets deploy target to main checkout; goodbooks t1
 never fits 1200s; march t13 + derby t1 need isolation; watch-mode bun on the
 campaign port poisons runs on any source edit (verify exactly ONE listener).
+
+## Infra trap: a wedged pgroonga index silently kills every run (2026-08-24)
+
+After an unclean shutdown (hardware failure / hard reboot) the Groonga
+full-text index on `texera_db.workflow` can be left in a state where **every
+`INSERT INTO workflow` hangs forever**, inside Groonga's C code and therefore
+uninterruptible by `statement_timeout`. Symptom: runs die at
+`[DataflowAgent] Creating workflow...` with ZERO engine activity, and nothing
+appears in any service log — Jetty's request log only writes on completion, so
+a hung request is invisible. `REINDEX` and `DROP INDEX` hang too; restarting
+Postgres does not clear it.
+
+Detect:
+```sql
+select pid, now()-query_start, left(query,60) from pg_stat_activity
+ where state='active' and query like 'insert%workflow%';
+```
+Anything alive for minutes is the signature. `logs/health-sentinel.sh` now
+watches for it (fires at >90s).
+
+Recover — the index only powers dashboard search, so rebuilding is safe and
+touches no row data:
+```bash
+# 1. save every definition FIRST
+psql ... -Atc "select schemaname||'.'||indexname, indexdef from pg_indexes
+               where indexdef ilike '%pgroonga%';" > /tmp/pgroonga_defs.txt
+# 2. drop the wedged one (the DROP may appear to hang; it commits server-side)
+psql ... -c "DROP INDEX texera_db.idx_workflow_pgroonga;"
+# 3. verify inserts flow, then recreate verbatim from the saved definition
+```
+There are 5 pgroonga indexes (workflow, user, project, dataset,
+dataset_version); only the workflow one has been observed wedging.

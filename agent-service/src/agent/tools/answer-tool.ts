@@ -23,12 +23,19 @@
  * Exists because of the nfl/acea convention-drift finding: a session arm
  * carries its own reasoning forward, so an interpretation committed at turn 1
  * ("higher kick = faster") stays committed; the catalog arm re-derives it from
- * artifacts each turn and re-rolls the dice. The `conventions` field captures
- * that one load-bearing sentence at the moment the agent knows which
- * interpretations mattered — answer time — and the catalog pins it into the
- * turn's entry forever. Schema-required structure, zero extra steps (this
- * call REPLACES the final free-text message; the driver stops on it via
- * hasToolCall).
+ * artifacts each turn and re-rolls the dice. The second field captures that one
+ * load-bearing sentence at the moment the agent knows which interpretations
+ * mattered — answer time — and the catalog pins it into the turn's entry
+ * forever. Schema-required structure, zero extra steps (this call REPLACES the
+ * final free-text message; the driver stops on it via hasToolCall).
+ *
+ * Two variants of that second field, selected by `variant`:
+ *   "conventions" (v39) — the interpretive choices, rendered as `### Conventions`.
+ *   "decisions"  (v40d) — the decisions the turn settled, in the model's own
+ *                 words, rendered as the entry's `### Solution` line.
+ * They are separate `tool()` definitions rather than one schema built from a
+ * conditional: the AI SDK's inputSchema is not a union type, and a spread-built
+ * shape widens the inferred arg type to `never`.
  */
 
 import { tool } from "ai";

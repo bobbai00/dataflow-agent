@@ -34,6 +34,14 @@
  * is to catalogue what exists (`# Catalog`, the push side) and let the model
  * fetch the specific piece it needs (this tool, the pull side).
  *
+ * ADDRESSING HAS TWO MODES, set per arm. `asOf` off (default): "opId (turn N)"
+ * must name a turn that actually WROTE that operator. `asOf` on (the lean
+ * latest-dataflow catalog): it means "that operator's state as of the END of
+ * turn N", resolved to the latest version at or before N — because the lean
+ * catalog no longer renders per-turn dataflow deltas, so the model cannot know
+ * which turns were writing turns, and any turn number it has seen must be a
+ * valid address.
+ *
  * THE ADDRESSING UNIT IS THE TURN. An earlier design offered five `what` modes
  * (turn_log / turn / operator / operator_history / result), which made the model
  * choose a retrieval strategy before it knew what was there — and a wrong mode
