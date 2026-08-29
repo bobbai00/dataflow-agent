@@ -2042,6 +2042,61 @@ export class TexeraAgent {
         }
       }
 
+      // ANSWER GUARD: a turn must not end empty-handed while its own work
+      // succeeded. Observed once in 492 turn-slots (wids t13, catalog rep 1):
+      // five operators executed, the final observation carried every value the
+      // task asked for — `protected_city_cutoff 8.65557894817205, 10, 9, 7, 3`
+      // and the full city table — and the model replied "I'm sorry, but I
+      // couldn't complete the requested calculation." No tool error, no step
+      // limit (6 steps, stopped:false, error:null). Rare, but it throws away a
+      // turn that was already finished, and the fix is one retry that points
+      // at what is already on screen. Only fires when operators actually
+      // succeeded — a genuinely blocked turn still ends blocked.
+      const hasFinalAnswer = (t: string | undefined) =>
+        !!t && (/\*\*Final Answer/i.test(t) || !!this.pendingStructuredAnswer);
+      if (this.settings.enableAnswerTool && !hasFinalAnswer(result.text)) {
+        const stepsSoFar = this.reActStepsByMessageId.get(messageId) ?? [];
+        const okOperators = stepsSoFar.some(step =>
+          (step.toolResults ?? []).some(
+            tr => typeof tr.output === "string" && !/^\s*\[ERROR\]/.test(tr.output)
+          )
+        );
+        if (okOperators) {
+          this.log.info({ messageId }, "turn ended without a final answer; sending answer-guard round");
+          const nudge =
+            "This turn ended without a final answer, but your operators ran and their results are " +
+            "in the step log above. Do not re-run or rebuild anything. Read the values off the " +
+            `last successful observation and call the \`${TOOL_NAME_ANSWER}\` tool now. If some ` +
+            "requested quantity genuinely is not derivable, answer with the parts you do have and " +
+            "say which part is missing — an empty turn is never the right output.";
+          const guardStepId = this.generateStepId();
+          this.addStep({
+            id: guardStepId,
+            parentId: this.head,
+            messageId,
+            stepId: ++stepIndex,
+            timestamp: Date.now(),
+            role: "user",
+            content: nudge,
+            isBegin: false,
+            isEnd: true,
+            messageSource: "feedback",
+          });
+          this.head = guardStepId;
+          result = await runDriverOnce([{ role: "user", content: nudge }]);
+          if (this.pendingStructuredAnswer) {
+            const { answer, note } = this.pendingStructuredAnswer;
+            const marker = this.settings.catalogLatestDataflow ? "Decisions" : "Conventions";
+            result = {
+              ...result,
+              text:
+                (note.trim() ? `${marker}: ${note.trim()}\n` : "") +
+                `**Final Answer:** ${answer.trim()}`,
+            };
+          }
+        }
+      }
+
       // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
       // materialized results or state recalled this turn — the property a
       // dataflow makes checkable that a notebook transcript does not. On total

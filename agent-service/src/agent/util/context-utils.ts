@@ -975,6 +975,51 @@ function clipRaw(text: string | undefined, max: number): string {
   return `${t.slice(0, max)}\n… [truncated: showing ${max} of ${t.length} chars — recallState the version for the rest]`;
 }
 
+/** Character budget for one operator's column list in the dataflow index. */
+const INDEX_COLS_BUDGET = 1200;
+
+/**
+ * Column-list renderer for the dataflow index: keep the HEAD and the TAIL.
+ *
+ * A head-only clip at 400 chars was measured to hide exactly the columns that
+ * decide later turns. Derived flags are APPENDED, so they land last: the nfl
+ * t23 trace lost `reliable_pool` (the pool filter) behind the clip in all
+ * three pool-carrying operators at once, and the agent rebuilt the turn's
+ * scoring off an 86-row base instead of the 33-row pool — right numbers, wrong
+ * frame. The same clip drives schema guessing: catalog runs hit 80 new
+ * KeyErrors on nfl against full-history's 31, because code gets written
+ * against a column list that stopped early.
+ *
+ * So: raise the budget, and when it still does not fit, drop from the MIDDLE
+ * and say how many were dropped, so both the identifying leading columns and
+ * the trailing derived flags survive.
+ */
+export function renderColumnList(cols: string[], budget = INDEX_COLS_BUDGET): string {
+  const all = cols.join(", ");
+  if (all.length <= budget) return all;
+  const head: string[] = [];
+  const tail: string[] = [];
+  let used = 0;
+  let i = 0;
+  let j = cols.length - 1;
+  while (i <= j) {
+    const takeHead = head.length <= tail.length;
+    const c = takeHead ? cols[i] : cols[j];
+    if (used + c.length + 2 > budget) break;
+    used += c.length + 2;
+    if (takeHead) {
+      head.push(c);
+      i++;
+    } else {
+      tail.unshift(c);
+      j--;
+    }
+  }
+  const elided = cols.length - head.length - tail.length;
+  if (elided <= 0) return all;
+  return `${head.join(", ")}, … ${elided} more columns … , ${tail.join(", ")}`;
+}
+
 /**
  * Code-specific clip: keep the head AND the tail. A head-only cut usually
  * removes the `return` — the output shape, column selection, and rounding,
@@ -2943,6 +2988,60 @@ function renderVersionedCatalog(
       'last wrote it; for its state as of any earlier turn, use `recallState(ref: "opId (turn N)")`.'
     );
     sections.push("");
+
+    // WORKING SET — the frame the last finished turn was actually standing on.
+    //
+    // The index below is a flat alphabetical roster: a base table and the
+    // narrowed frame derived from it four turns later render as coequal peers,
+    // and nothing says which one the analysis currently stands on. Full
+    // history never faces that choice — its last execution lines name the live
+    // frame, and recency does the marking. Measured cost of losing it:
+    // water-potability t8 built the severity decile on the 3146-row
+    // `water_model_panel` instead of the 2988-row `water_narrowed` created one
+    // turn earlier (n=315 vs the required 299, 0/3 reps, and the poisoned
+    // operator re-fired at t16); nfl t23 rebuilt off the wrong pool the same
+    // way. So re-assert it explicitly, ABOVE the roster: the operators the
+    // previous turn wrote, plus what they read, with columns uncut.
+    const prevTurnNo = currentTurnNo - 1;
+    if (prevTurnNo >= 1 && lastLeaf) {
+      const writtenLast = new Set(
+        heads.filter(([, turns]) => turns[turns.length - 1] === prevTurnNo).map(([op]) => op)
+      );
+      if (writtenLast.size > 0) {
+        const consumed = new Set<string>();
+        for (const link of lastLeaf.workflow.links ?? []) {
+          const from = link.source?.operatorID;
+          const to = link.target?.operatorID;
+          if (from && to && writtenLast.has(to) && alive.has(from) && !writtenLast.has(from)) {
+            consumed.add(from);
+          }
+        }
+        const renderRow = (op: string, role: string): string => {
+          const opDef = lastLeaf?.workflow.operators.find(o => o.operatorID === op);
+          const summary =
+            (opDef as any)?.customDisplayName || (opDef?.operatorProperties as any)?.summary;
+          const info = lastLeaf?.results.get(op)?.info;
+          let shape = "";
+          if (info && Array.isArray(info.result) && info.result.length > 0) {
+            const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
+            shape = ` — ${info.totalRowCount ?? info.result.length} rows; cols: ${cols.join(", ")}`;
+          }
+          return `- \`${op}\` (${role})${summary ? ` ${clip(String(summary), 140)}` : ""}${shape}`;
+        };
+        sections.push(`### Working set (as of turn ${prevTurnNo})`);
+        sections.push(
+          "What the previous turn wrote, and what it read to write it — the frame the analysis " +
+          "currently stands on. Columns here are never abbreviated. If this turn continues that " +
+          "analysis, build on these operators rather than on an earlier, wider table with a " +
+          "similar name; if it deliberately starts from a different frame, say so in the answer."
+        );
+        sections.push("");
+        for (const op of [...writtenLast].sort()) sections.push(renderRow(op, `written turn ${prevTurnNo}`));
+        for (const op of [...consumed].sort()) sections.push(renderRow(op, "read by that turn"));
+        sections.push("");
+      }
+    }
+
     for (const [op, turns] of heads.sort((a, b) => a[0].localeCompare(b[0]))) {
       const sinceTurn = turns[turns.length - 1];
       const opDef = lastLeaf?.workflow.operators.find(o => o.operatorID === op);
@@ -2951,11 +3050,11 @@ function renderVersionedCatalog(
       let shape = "";
       if (info && Array.isArray(info.result) && info.result.length > 0) {
         const cols = Object.keys(info.result[0]).filter(c => !c.startsWith("__"));
-        shape = ` — ${info.totalRowCount ?? info.result.length} rows; cols: ${cols.join(", ")}`;
+        shape = ` — ${info.totalRowCount ?? info.result.length} rows; cols: ${renderColumnList(cols)}`;
       }
       const errored = info?.error ? " — ERRORED (not a usable endpoint)" : "";
       sections.push(
-        `- \`${op}\` (since turn ${sinceTurn})${summary ? ` ${clip(String(summary), 140)}` : ""}${clipRaw(shape, 400)}${errored}`
+        `- \`${op}\` (since turn ${sinceTurn})${summary ? ` ${clip(String(summary), 140)}` : ""}${shape}${errored}`
       );
     }
     sections.push("");

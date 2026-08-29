@@ -1716,6 +1716,39 @@ class LongDSLunaTEV40DR3(LongDSLunaTEV40D):
     _NAME = "LongDSLunaTEV40DR3"
 
 
+class LongDSLunaTEV41(LongDSLunaTEV40D):
+    """V41 = v40d + the three trace-derived index/driver fixes. No settings
+    change — the whole delta is agent-service source, so it needs its own SUT
+    dir to keep v40d's data intact:
+
+      1. The dataflow index no longer head-clips column lists at 400 chars.
+         Derived flags are APPENDED, so a head-only cut hid exactly the column
+         later turns filter on — `reliable_pool` was invisible in all three
+         pool-carrying operators at nfl t23, and the turn rebuilt its scoring
+         off the 86-row base instead of the 33-row pool. Same clip drove the
+         schema guessing: 80 new KeyErrors on nfl vs full history's 31.
+      2. A `### Working set` block above the roster names the operators the
+         previous turn wrote and what they read, columns uncut — the frame the
+         analysis is standing on. The flat alphabetical roster rendered
+         `water_narrowed` (2988 rows, turn 7) as a coequal peer of
+         `water_model_panel` (3146, turn 3); all three reps took the wider one
+         at water-potability t8 and re-fired the same error at t16.
+      3. Driver answer guard: a turn whose operators succeeded may not end
+         without a final answer (wids t13 printed every required value, then
+         replied "I'm sorry, but I couldn't complete the requested calculation").
+    """
+
+    _NAME = "LongDSLunaTEV41"
+
+
+class LongDSLunaTEV41R2(LongDSLunaTEV41):
+    _NAME = "LongDSLunaTEV41R2"
+
+
+class LongDSLunaTEV41R3(LongDSLunaTEV41):
+    _NAME = "LongDSLunaTEV41R3"
+
+
 class LongDSLunaTEV40R2(LongDSLunaTEV40):
     _NAME = "LongDSLunaTEV40R2"
 
@@ -1779,6 +1812,9 @@ ARMS.update({
     "luna-te-v40d": LongDSLunaTEV40D,
     "luna-te-v40d-r2": LongDSLunaTEV40DR2,
     "luna-te-v40d-r3": LongDSLunaTEV40DR3,
+    "luna-te-v41": LongDSLunaTEV41,
+    "luna-te-v41-r2": LongDSLunaTEV41R2,
+    "luna-te-v41-r3": LongDSLunaTEV41R3,
     "luna-te-v40-r2": LongDSLunaTEV40R2,
     "luna-te-v40-r3": LongDSLunaTEV40R3,
     "luna-cache-session": LongDSLunaCacheSession,
