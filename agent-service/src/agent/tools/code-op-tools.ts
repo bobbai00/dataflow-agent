@@ -121,7 +121,7 @@ export function validateOperatorId(name: string): string | null {
   return validatePythonVariableName(name);
 }
 
-function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
+export function parseCodeBlock(code: string): CodeBlockParseResult | { error: string } {
   const funcPattern = /def\s+(\w+)\s*\(([^)]*)\)/;
   const match = funcPattern.exec(code);
 

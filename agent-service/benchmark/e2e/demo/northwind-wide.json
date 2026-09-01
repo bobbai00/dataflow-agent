@@ -1,0 +1,20 @@
+{
+ "name": "northwind-wide",
+ "workflowName": "Demo: Northwind revenue views (agent)",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "turns": [
+  {
+   "say": "Load /agent-demo@texera.dev/northwind/v1/orders.csv and /agent-demo@texera.dev/northwind/v1/order_details.csv, join them on orderID, and add a revenue column = unitPrice * quantity * (1 - discount) plus an order_month column (1-12 from orderDate). Then give me three views of revenue side by side: a bar chart by shipCountry, a pie chart by employeeID, and a line chart by order_month. Use native operators; Python only for the two computed columns."
+  },
+  {
+   "say": "Add a fourth view: average freight per shipVia as a bar chart. Keep the other three."
+  },
+  {
+   "checkout": 1
+  },
+  {
+   "say": "Replace the pie chart by employee with a bar chart of order-line count per employee."
+  }
+ ]
+}

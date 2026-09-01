@@ -39,6 +39,7 @@ import {
 } from "./tools-utility";
 import { formatValidationErrors, formatCompactSchemaForError } from "../util/workflow-system-metadata";
 import type { ToolContext } from "./workflow-crud-tools";
+import { parseCodeBlock } from "./code-op-tools";
 
 export const TOOL_NAME_ADD_OPERATOR = "addOperator";
 export const TOOL_NAME_MODIFY_OPERATOR = "modifyOperator";
@@ -49,6 +50,35 @@ function formatInputArgs(args: Record<string, any>): string {
     if (value !== undefined) compact[key] = value;
   }
   return `Input: ${JSON.stringify(compact)}`;
+}
+
+/**
+ * `inputOperatorIds` values name a source operator, optionally suffixed with
+ * the source OUTPUT port index: `"op9"` (port 0) or `"op9:1"` (port 1). Multi-
+ * output operators such as `Split` (port 0 = training share, port 1 = the
+ * rest) are only reachable through the suffix — without it every consumer
+ * silently attached to port 0.
+ */
+/**
+ * `DataProcessing` derives its input-port count from the `def process(<a>, <b>, …)`
+ * signature (CODE mode does the same through `createOrModifyOperator`). Without
+ * this every GENERAL-mode DataProcessing had exactly one input port, so a
+ * two-table `process(orders, n_lines)` could never be wired.
+ */
+function syncDataProcessingPorts(workflowState: WorkflowState, operatorId: string, code: unknown): string | null {
+  if (typeof code !== "string") return null;
+  const parsed = parseCodeBlock(code);
+  if ("error" in parsed) return parsed.error;
+  const op = workflowState.getOperator(operatorId);
+  if (op && parsed.type === "DataProcessing" && parsed.numInputPorts !== op.inputPorts.length) {
+    workflowState.updateOperatorInputPorts(operatorId, parsed.numInputPorts);
+  }
+  return null;
+}
+
+export function parseSourceRef(ref: string): { operatorId: string; outputPortIndex: number } {
+  const m = /^(.*?)(?::(\d+))?$/.exec(ref.trim());
+  return { operatorId: m?.[1] ?? ref, outputPortIndex: m?.[2] !== undefined ? parseInt(m[2], 10) : 0 };
 }
 
 export function createAddOperatorTool(
@@ -81,6 +111,8 @@ Examples:
         .describe(
           "Mapping from input port index to an ordered list of source operator IDs that connect to that port. " +
             'E.g. {"0": ["opA", "opB"], "1": ["opC"]} connects opA and opB to input port 0, opC to input port 1. ' +
+            "A source id may carry an OUTPUT port suffix to read from a non-default output port of a multi-output " +
+            'operator, e.g. {"0": ["op9:1"]} links from op9\'s output port 1 (Split: port 0 = training share, port 1 = rest). ' +
             "Source operators that load files (e.g. CSVFileScan) should NOT have any input operators."
         ),
       summary: z.string().describe("Very brief summary of operator behavior. Within 5 words"),
@@ -139,6 +171,11 @@ Examples:
 
         workflowState.addOperator(operator);
 
+        if (operator.operatorType === "DataProcessing") {
+          const err = syncDataProcessingPorts(workflowState, operator.operatorID, args.properties?.code);
+          if (err) return createErrorResult(`${err} ${inputInfo}`);
+        }
+
         const createdLinkPairs: { source: string; target: string }[] = [];
         if (args.inputOperatorIds) {
           const addedOperator = workflowState.getOperator(operator.operatorID)!;
@@ -156,14 +193,23 @@ Examples:
             }
             const targetPortId = addedOperator.inputPorts[targetPortIdx].portID;
 
-            for (const sourceOpId of sourceOpIds) {
+            for (const sourceRef of sourceOpIds) {
+              const { operatorId: sourceOpId, outputPortIndex } = parseSourceRef(sourceRef);
               const sourceOp = workflowState.getOperator(sourceOpId);
               if (!sourceOp) {
                 return createErrorResult(
                   `Source operator "${sourceOpId}" not found. Make sure it exists before referencing it in inputOperatorIds. ${inputInfo}`
                 );
               }
-              const sourcePortId = sourceOp.outputPorts.length > 0 ? sourceOp.outputPorts[0].portID : "output-0";
+              if (sourceOp.outputPorts.length > 0 && outputPortIndex >= sourceOp.outputPorts.length) {
+                return createErrorResult(
+                  `Output port index ${outputPortIndex} out of range for source "${sourceOpId}" (${sourceOp.outputPorts.length} output port(s)). ${inputInfo}`
+                );
+              }
+              const sourcePortId =
+                sourceOp.outputPorts.length > 0
+                  ? sourceOp.outputPorts[outputPortIndex].portID
+                  : `output-${outputPortIndex}`;
 
               const linkId = workflowState.generateLinkId();
               const link: OperatorLink = {
@@ -259,6 +305,12 @@ Examples:
           workflowState.updateOperatorDisplayName(args.operatorId, args.summary);
         }
 
+        if (operator.operatorType === "DataProcessing" && args.properties?.code !== undefined) {
+          const err = syncDataProcessingPorts(workflowState, args.operatorId, args.properties.code);
+          if (err) return createErrorResult(`${err} ${inputInfo}`);
+        }
+        const currentOperator = workflowState.getOperator(args.operatorId) ?? operator;
+
         if (args.inputOperatorIds) {
           const currentLinks = workflowState
             .getLinksConnectedToOperator(args.operatorId)
@@ -275,21 +327,30 @@ Examples:
                 `Invalid input port index: "${portIndexStr}". Must be a non-negative integer. ${inputInfo}`
               );
             }
-            if (targetPortIdx >= operator.inputPorts.length) {
+            if (targetPortIdx >= currentOperator.inputPorts.length) {
               return createErrorResult(
-                `Input port index ${targetPortIdx} out of range. Operator "${args.operatorId}" has ${operator.inputPorts.length} input port(s). ${inputInfo}`
+                `Input port index ${targetPortIdx} out of range. Operator "${args.operatorId}" has ${currentOperator.inputPorts.length} input port(s). ${inputInfo}`
               );
             }
-            const targetPortId = operator.inputPorts[targetPortIdx].portID;
+            const targetPortId = currentOperator.inputPorts[targetPortIdx].portID;
 
-            for (const sourceOpId of sourceOpIds) {
+            for (const sourceRef of sourceOpIds) {
+              const { operatorId: sourceOpId, outputPortIndex } = parseSourceRef(sourceRef);
               const sourceOp = workflowState.getOperator(sourceOpId);
               if (!sourceOp) {
                 return createErrorResult(
                   `Source operator "${sourceOpId}" not found. Make sure it exists before referencing it in inputOperatorIds. ${inputInfo}`
                 );
               }
-              const sourcePortId = sourceOp.outputPorts.length > 0 ? sourceOp.outputPorts[0].portID : "output-0";
+              if (sourceOp.outputPorts.length > 0 && outputPortIndex >= sourceOp.outputPorts.length) {
+                return createErrorResult(
+                  `Output port index ${outputPortIndex} out of range for source "${sourceOpId}" (${sourceOp.outputPorts.length} output port(s)). ${inputInfo}`
+                );
+              }
+              const sourcePortId =
+                sourceOp.outputPorts.length > 0
+                  ? sourceOp.outputPorts[outputPortIndex].portID
+                  : `output-${outputPortIndex}`;
 
               const linkId = workflowState.generateLinkId();
               const link: OperatorLink = {

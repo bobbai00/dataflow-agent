@@ -35,6 +35,7 @@ import type {
   ReActStep,
   TokenUsage,
   UserInfo,
+  ToolOperatorAccess,
 } from "../types/agent";
 import type { SummarizeParamsPatch } from "./context/summarize/params";
 import type { SelectorConfig } from "./context/selector/selector";
@@ -105,11 +106,7 @@ import {
   type RecalledTurn,
   type RecallVerb,
 } from "./tools/recall-state-tool";
-import {
-  createResumeFromTool,
-  TOOL_NAME_RESUME_FROM,
-  WRITE_TOOL_NAMES,
-} from "./tools/resume-from-tool";
+import { createResumeFromTool, TOOL_NAME_RESUME_FROM, WRITE_TOOL_NAMES } from "./tools/resume-from-tool";
 import {
   GROUNDING_NUDGES_PER_TURN,
   buildGroundingNudge,
@@ -198,7 +195,13 @@ type SnapshotCallback = (stepId: string, workflow: WorkflowContent) => void;
  * knowing each operator's row count or error.
  */
 function formatInitializationSummary(
-  runResult: { success: boolean; state: string; opCount: number; errorCount: number; errorText?: string },
+  runResult: {
+    success: boolean;
+    state: string;
+    opCount: number;
+    errorCount: number;
+    errorText?: string;
+  },
   results: Map<string, OperatorInfo>
 ): string {
   const header = `Initialization: state=${runResult.state}, operators=${runResult.opCount}, errors=${runResult.errorCount}.`;
@@ -216,6 +219,57 @@ function formatInitializationSummary(
     }
   }
   return lines.join("\n");
+}
+
+/**
+ * Derive which operators each tool call viewed / added / modified from the
+ * call's input and its result text. Pure; keyed by tool-call index so the
+ * frontend can map it onto `toolCalls[i]`. Returns undefined when there are
+ * no tool calls so steps without actions stay byte-identical.
+ */
+export function computeOperatorAccess(
+  toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
+  toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
+): Record<number, ToolOperatorAccess> | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  const access: Record<number, ToolOperatorAccess> = {};
+  toolCalls.forEach((tc, i) => {
+    const entry: ToolOperatorAccess = {
+      viewedOperatorIds: [],
+      addedOperatorIds: [],
+      modifiedOperatorIds: [],
+    };
+    const result = toolResults?.find(tr => tr.toolCallId === tc.toolCallId);
+    const inputOpId = typeof tc.input?.operatorId === "string" ? tc.input.operatorId : undefined;
+    if (result && !result.isError && result.output !== undefined && result.output !== null) {
+      const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
+      const added = out.match(/Added operator ([A-Za-z0-9_-]+)/);
+      const modified = out.match(/Operator ([A-Za-z0-9_-]+) modified/);
+      const deleted = out.match(/Deleted operator:? ([A-Za-z0-9_-]+)/);
+      const executed = out.match(/Executed operator ([A-Za-z0-9_-]+)/);
+      if (added) entry.addedOperatorIds.push(added[1]);
+      else if (modified) entry.modifiedOperatorIds.push(modified[1]);
+      else if (deleted) entry.modifiedOperatorIds.push(deleted[1]);
+      else if (executed) entry.viewedOperatorIds.push(executed[1]);
+      else if (inputOpId) {
+        // Fall back on the tool's declared intent when the result text is
+        // not one of the known summaries (e.g. inspect/execute variants).
+        if (tc.toolName === TOOL_NAME_ADD_OPERATOR) entry.addedOperatorIds.push(inputOpId);
+        else if (
+          tc.toolName === TOOL_NAME_MODIFY_OPERATOR ||
+          tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR ||
+          tc.toolName === TOOL_NAME_DELETE_OPERATOR
+        )
+          entry.modifiedOperatorIds.push(inputOpId);
+        else entry.viewedOperatorIds.push(inputOpId);
+      }
+    } else if (inputOpId && (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR || tc.toolName === TOOL_NAME_INSPECT_RESULT)) {
+      // A failed read still tells the UI which operator the model looked at.
+      entry.viewedOperatorIds.push(inputOpId);
+    }
+    access[i] = entry;
+  });
+  return access;
 }
 
 export class TexeraAgent {
@@ -796,11 +850,19 @@ export class TexeraAgent {
    * is navigable in both directions; without them, resuming to turn 8 would
    * hide turns 9..20 permanently.
    */
-  offBranchTurns(
-    visibleSteps: ReActStep[]
-  ): Array<{ turn: number; request: string; answer?: string; operators: string[] }> {
+  offBranchTurns(visibleSteps: ReActStep[]): Array<{
+    turn: number;
+    request: string;
+    answer?: string;
+    operators: string[];
+  }> {
     const onBranch = new Set(visibleSteps.map(s => s.messageId));
-    const out: Array<{ turn: number; request: string; answer?: string; operators: string[] }> = [];
+    const out: Array<{
+      turn: number;
+      request: string;
+      answer?: string;
+      operators: string[];
+    }> = [];
     this.turnOrder().forEach((msgId, i) => {
       if (onBranch.has(msgId)) return;
       const steps = this.reActStepsByMessageId.get(msgId) ?? [];
@@ -894,10 +956,18 @@ export class TexeraAgent {
 
     const group = this.reActStepsByMessageId.get(targetMsg) ?? [];
     const baseStepId = group[group.length - 1]?.id;
-    if (!baseStepId) return { ok: false, message: `Turn ${turn} recorded no steps to resume from.` };
+    if (!baseStepId)
+      return {
+        ok: false,
+        message: `Turn ${turn} recorded no steps to resume from.`,
+      };
 
     const userStep = mine.find(s => s.role === "user");
-    if (!userStep) return { ok: false, message: "This turn has no request step to re-parent." };
+    if (!userStep)
+      return {
+        ok: false,
+        message: "This turn has no request step to re-parent.",
+      };
     userStep.parentId = baseStepId;
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(baseStepId));
 
@@ -1009,7 +1079,10 @@ export class TexeraAgent {
         for (const t of agent.buildTurnLog()) {
           if (!t.operators.includes(operatorId)) continue;
           const op = (t.workflow?.operators as any[])?.find(o => o?.operatorID === operatorId);
-          out.push({ turn: t.turn, code: String(op?.operatorProperties?.code ?? "") });
+          out.push({
+            turn: t.turn,
+            code: String(op?.operatorProperties?.code ?? ""),
+          });
         }
         return out;
       },
@@ -1117,7 +1190,15 @@ export class TexeraAgent {
       // `recallState(turn: 5)` would stop meaning the catalogue's "Turn 5".
       const msgId = steps[0]?.messageId;
       const turnNo = (msgId ? this.turnNumberOf(msgId) : undefined) ?? i + 1;
-      return { turn: turnNo, request, answer: endStep?.content, operators, verbs, workflow, results };
+      return {
+        turn: turnNo,
+        request,
+        answer: endStep?.content,
+        operators,
+        verbs,
+        workflow,
+        results,
+      };
     });
   }
 
@@ -1208,7 +1289,12 @@ export class TexeraAgent {
 
   getSystemInfo(): {
     systemPrompt: string;
-    tools: Array<{ name: string; description: string; inputSchema: any; enabled: boolean }>;
+    tools: Array<{
+      name: string;
+      description: string;
+      inputSchema: any;
+      enabled: boolean;
+    }>;
   } {
     const toolsInfo = Object.entries(this.tools).map(([name, toolDef]) => {
       const description = toolDef.description || "";
@@ -1533,7 +1619,10 @@ export class TexeraAgent {
       // Tools are rebuilt at the end of this method, which re-reads the cap.
       this.settings.recallMaxResultChars = updates.recallMaxResultChars;
     }
-    if (updates.recallOperatorLevel !== undefined && updates.recallOperatorLevel !== this.settings.recallOperatorLevel) {
+    if (
+      updates.recallOperatorLevel !== undefined &&
+      updates.recallOperatorLevel !== this.settings.recallOperatorLevel
+    ) {
       // Changes the recall tool's schema AND the prompt fragment + catalog
       // header describing its addressing.
       this.settings.recallOperatorLevel = updates.recallOperatorLevel;
@@ -1544,7 +1633,8 @@ export class TexeraAgent {
       this.settings.specAudit = updates.specAudit;
       promptNeedsRebuild = true;
     }
-    if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
+    if (updates.indexThinObservations !== undefined)
+      this.settings.indexThinObservations = updates.indexThinObservations;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
       // the system prompt has to be rebuilt (same contract as inspect/compact).
@@ -1614,7 +1704,13 @@ export class TexeraAgent {
   }
 
   getDelegateConfig():
-    | { userToken: string; userInfo?: UserInfo; workflowId: number; workflowName?: string; computingUnitId?: number }
+    | {
+        userToken: string;
+        userInfo?: UserInfo;
+        workflowId: number;
+        workflowName?: string;
+        computingUnitId?: number;
+      }
     | undefined {
     return this.delegateConfig;
   }
@@ -1699,98 +1795,101 @@ export class TexeraAgent {
       // Pass only the current user turn; prepareStep rebuilds full context each step
       // (historical interactions + DAG + this message).
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
-      const runDriverOnce = (seed: ModelMessage[]) => this.driver.runTurn({
-        initialMessages: seed,
-        systemPrompt: this.systemPrompt,
-        tools: this.tools,
-        maxSteps: this.settings.maxSteps,
-        parallelToolCalls: this.settings.parallelToolCalls,
-        toolDialect: this.settings.toolDialect,
-        abortSignal: this.abortController?.signal,
-        prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
-          let compilationResult: WorkflowCompilationResponse | null = null;
-          if (this.workflowState.getAllOperators().length > 0) {
-            try {
-              const logicalPlan = this.workflowState.toLogicalPlan();
-              compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken);
-            } catch (e: any) {
-              this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
+      const runDriverOnce = (seed: ModelMessage[]) =>
+        this.driver.runTurn({
+          initialMessages: seed,
+          systemPrompt: this.systemPrompt,
+          tools: this.tools,
+          maxSteps: this.settings.maxSteps,
+          parallelToolCalls: this.settings.parallelToolCalls,
+          toolDialect: this.settings.toolDialect,
+          abortSignal: this.abortController?.signal,
+          prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
+            let compilationResult: WorkflowCompilationResponse | null = null;
+            if (this.workflowState.getAllOperators().length > 0) {
+              try {
+                const logicalPlan = this.workflowState.toLogicalPlan();
+                compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken);
+              } catch (e: any) {
+                this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
+              }
             }
-          }
 
-          const visibleSteps = this.getVisibleReActSteps();
-          // The assembler may be async (LLM context tuner). Await it here on the
-          // prepareStep path; cache the rendered content for the sync preview.
-          const processed = await this.contextAssembler({
-            visibleSteps,
-            workflowState: this.workflowState,
-            snapshotStorage: this.snapshotStorage,
-            settings: this.settings,
-            compilationResult,
-            turnNumberByMessageId: this.turnNumberMap(),
-            offBranchTurns: this.offBranchTurns(visibleSteps),
-          });
-          lastPreparedMessages = processed;
-          const firstContent = processed[0]?.content;
-          this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
-          return { messages: processed };
-        },
-        onStepFinish: async ({ text, toolCalls, toolResults, usage }) => {
-          stepIndex++;
+            const visibleSteps = this.getVisibleReActSteps();
+            // The assembler may be async (LLM context tuner). Await it here on the
+            // prepareStep path; cache the rendered content for the sync preview.
+            const processed = await this.contextAssembler({
+              visibleSteps,
+              workflowState: this.workflowState,
+              snapshotStorage: this.snapshotStorage,
+              settings: this.settings,
+              compilationResult,
+              turnNumberByMessageId: this.turnNumberMap(),
+              offBranchTurns: this.offBranchTurns(visibleSteps),
+            });
+            lastPreparedMessages = processed;
+            const firstContent = processed[0]?.content;
+            this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
+            return { messages: processed };
+          },
+          onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
+            stepIndex++;
 
-          const formattedToolCalls = toolCalls?.map(tc => ({
-            toolName: tc.toolName,
-            toolCallId: tc.toolCallId,
-            input: tc.input,
-          }));
+            const formattedToolCalls = toolCalls?.map(tc => ({
+              toolName: tc.toolName,
+              toolCallId: tc.toolCallId,
+              input: tc.input,
+            }));
 
-          // Driver pre-computes isError using the `[ERROR] …` prefix + the
-          // structured `{ error: … }` shape — passthrough is enough here.
-          const formattedToolResults = toolResults?.map(tr => ({
-            toolCallId: tr.toolCallId,
-            output: tr.output,
-            isError: tr.isError,
-          }));
+            // Driver pre-computes isError using the `[ERROR] …` prefix + the
+            // structured `{ error: … }` shape — passthrough is enough here.
+            const formattedToolResults = toolResults?.map(tr => ({
+              toolCallId: tr.toolCallId,
+              output: tr.output,
+              isError: tr.isError,
+            }));
 
-          const afterStepContent = this.workflowState.getWorkflowContent();
+            const afterStepContent = this.workflowState.getWorkflowContent();
 
-          const agentStepId = this.generateStepId();
-          const agentStep: ReActStep = {
-            id: agentStepId,
-            parentId: this.head,
-            messageId,
-            stepId: stepIndex,
-            timestamp: Date.now(),
-            role: "agent",
-            content: text || "",
-            isBegin: isFirstStep,
-            isEnd: false,
-            toolCalls: formattedToolCalls,
-            toolResults: formattedToolResults,
-            usage: usage
-              ? {
-                  inputTokens: usage.inputTokens,
-                  outputTokens: usage.outputTokens,
-                  totalTokens: usage.totalTokens,
-                  reasoningTokens: (usage as any).reasoningTokens,
-                  cachedInputTokens: (usage as any).cachedInputTokens,
-                  cacheCreationInputTokens: (usage as any).cacheCreationInputTokens,
-                }
-              : undefined,
-            inputMessages: lastPreparedMessages,
-          };
-          lastPreparedMessages = undefined;
-          this.addStep(agentStep);
-          this.head = agentStepId;
-          // Snapshot iff the model emitted tool calls this step; thinking
-          // turns and final summaries don't own a snapshot.
-          this.maybeCreateSnapshotForHead(afterStepContent);
+            const agentStepId = this.generateStepId();
+            const agentStep: ReActStep = {
+              id: agentStepId,
+              parentId: this.head,
+              messageId,
+              stepId: stepIndex,
+              timestamp: Date.now(),
+              role: "agent",
+              content: text || "",
+              reasoningText: reasoningText || undefined,
+              isBegin: isFirstStep,
+              isEnd: false,
+              toolCalls: formattedToolCalls,
+              toolResults: formattedToolResults,
+              operatorAccess: computeOperatorAccess(formattedToolCalls, formattedToolResults),
+              usage: usage
+                ? {
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    totalTokens: usage.totalTokens,
+                    reasoningTokens: (usage as any).reasoningTokens,
+                    cachedInputTokens: (usage as any).cachedInputTokens,
+                    cacheCreationInputTokens: (usage as any).cacheCreationInputTokens,
+                  }
+                : undefined,
+              inputMessages: lastPreparedMessages,
+            };
+            lastPreparedMessages = undefined;
+            this.addStep(agentStep);
+            this.head = agentStepId;
+            // Snapshot iff the model emitted tool calls this step; thinking
+            // turns and final summaries don't own a snapshot.
+            this.maybeCreateSnapshotForHead(afterStepContent);
 
-          await this.runPostStepExecution(toolCalls, toolResults);
+            await this.runPostStepExecution(toolCalls, toolResults);
 
-          isFirstStep = false;
-        },
-      });
+            isFirstStep = false;
+          },
+        });
 
       let result = await runDriverOnce(currentUserMessage);
 
@@ -2075,7 +2174,11 @@ export class TexeraAgent {
     this.clearHistory();
     const stepById = new Map<string, ReActStep>();
     for (const s of steps) {
-      stepById.set(s.id, { ...s, parentId: knownParent(s.parentId), timestamp: toEpochMs(s.timestamp) });
+      stepById.set(s.id, {
+        ...s,
+        parentId: knownParent(s.parentId),
+        timestamp: toEpochMs(s.timestamp),
+      });
     }
     const order: ReActStep[] = [];
     const queue: string[] = [...(childrenOf.get(VIRTUAL_ROOT) ?? [])];
@@ -2427,7 +2530,11 @@ export class TexeraAgent {
   async handleDebugInput(
     content: string,
     messageSource?: "chat" | "feedback"
-  ): Promise<{ kind: "user_message" | "function_call"; stopped: boolean; error?: string }> {
+  ): Promise<{
+    kind: "user_message" | "function_call";
+    stopped: boolean;
+    error?: string;
+  }> {
     this.abortController = new AbortController();
     this.state = AgentStateEnum.GENERATING;
 
@@ -2534,6 +2641,7 @@ export class TexeraAgent {
         isEnd: false,
         toolCalls: formattedToolCalls,
         toolResults: formattedToolResults,
+        operatorAccess: computeOperatorAccess(formattedToolCalls, formattedToolResults),
       };
       this.addStep(agentStep);
       this.head = agentStepId;
@@ -2542,7 +2650,11 @@ export class TexeraAgent {
 
       await this.runPostStepExecution(formattedToolCalls, formattedToolResults);
 
-      return { kind: "function_call", stopped: false, error: isError ? String(output) : undefined };
+      return {
+        kind: "function_call",
+        stopped: false,
+        error: isError ? String(output) : undefined,
+      };
     } finally {
       this.abortController = null;
       this.currentMessageId = undefined;
@@ -2550,46 +2662,20 @@ export class TexeraAgent {
     }
   }
 
-  private getOperatorIdsFromStep(step: ReActStep): { added: string[]; modified: string[] } {
+  private getOperatorIdsFromStep(step: ReActStep): {
+    added: string[];
+    modified: string[];
+  } {
+    // Prefer the access map recorded at step time; derive it for steps that
+    // predate the field (imported archives, older persisted traces).
+    const access = step.operatorAccess ?? computeOperatorAccess(step.toolCalls, step.toolResults);
     const added: string[] = [];
     const modified: string[] = [];
-
-    if (!step.toolResults) {
-      return { added, modified };
+    if (!access) return { added, modified };
+    for (const entry of Object.values(access)) {
+      added.push(...entry.addedOperatorIds);
+      modified.push(...entry.modifiedOperatorIds);
     }
-
-    for (const result of step.toolResults) {
-      if (result.isError || !result.output) continue;
-
-      const toolCall = step.toolCalls?.find(tc => tc.toolCallId === result.toolCallId);
-      const toolName = toolCall?.toolName || "";
-
-      const outputStr = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
-
-      const addedMatch = outputStr.match(/Added operator ([a-zA-Z0-9_-]+)/);
-      if (addedMatch && (toolName === "addOperator" || toolName.toLowerCase().includes("add"))) {
-        added.push(addedMatch[1]);
-        continue;
-      }
-
-      const modifiedMatch = outputStr.match(/Operator ([a-zA-Z0-9_-]+) modified/);
-      if (modifiedMatch && (toolName === "modifyOperator" || toolName.toLowerCase().includes("modify"))) {
-        modified.push(modifiedMatch[1]);
-        continue;
-      }
-
-      try {
-        const output = JSON.parse(outputStr);
-        if (output.operatorId) {
-          if (toolName === "addOperator" || toolName === "addCodeOperator") {
-            added.push(output.operatorId);
-          } else if (toolName === "modifyOperator" || toolName === "modifyCodeOperator") {
-            modified.push(output.operatorId);
-          }
-        }
-      } catch {}
-    }
-
     return { added, modified };
   }
 

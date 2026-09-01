@@ -44,7 +44,12 @@ export interface ContextAssemblerInput {
   turnNumberByMessageId?: Map<string, number>;
   /** Turns that exist but are not ancestors of HEAD — still listed, still
    *  resumable. Empty for a session that never resumed. */
-  offBranchTurns?: Array<{ turn: number; request: string; answer?: string; operators: string[] }>;
+  offBranchTurns?: Array<{
+    turn: number;
+    request: string;
+    answer?: string;
+    operators: string[];
+  }>;
 }
 
 /**
@@ -71,6 +76,9 @@ export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[] 
  */
 export interface DriverStepFinish {
   text: string;
+  /** Provider reasoning summary for the step, when the model exposes one.
+   *  Display-only — never folded into `text`, which is replayed as context. */
+  reasoningText?: string;
   toolCalls?: Array<{ toolName: string; toolCallId: string; input: any }>;
   toolResults?: Array<{ toolCallId: string; output: any; isError?: boolean }>;
   usage?: TokenUsage;

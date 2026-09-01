@@ -166,7 +166,7 @@ describe("AgentService", () => {
       const req = httpMock.expectOne(r => r.method === "GET" && r.url === "/api/agents/agent-1/operator-results");
       req.flush({
         results: {
-          "op-1": { sampleRecords: [{ a: 1 }], resultStatistics: { a: "{}" } },
+          "op-1": { sampleRecords: [{ a: 1 }], columnStats: { a: "{}" } },
         },
       });
 
@@ -197,7 +197,7 @@ describe("AgentService", () => {
 
       service.stopGeneration("agent-1");
 
-      expect(send).toHaveBeenCalledWith(JSON.stringify({ type: "WsClientStopCommand" }));
+      expect(send).toHaveBeenCalledWith(JSON.stringify({ type: "stop" }));
     });
 
     it("falls back to the REST stop endpoint when no websocket is open", () => {
@@ -507,7 +507,7 @@ describe("AgentService", () => {
         expect(notification.error).toHaveBeenCalledWith("WebSocket connection not available");
       });
 
-      it("sends a WsClientPromptCommand carrying the message source over an open socket", () => {
+      it("sends a `message` frame carrying the message source over an open socket", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
         const ws = FakeWebSocket.latest();
@@ -517,12 +517,12 @@ describe("AgentService", () => {
         service.sendMessage("agent-1", "fix it", "feedback");
 
         expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
-          type: "WsClientPromptCommand",
+          type: "message",
           content: "hello",
           messageSource: "chat",
         });
         expect(JSON.parse(ws.send.mock.calls[1][0])).toEqual({
-          type: "WsClientPromptCommand",
+          type: "message",
           content: "fix it",
           messageSource: "feedback",
         });
@@ -545,7 +545,7 @@ describe("AgentService", () => {
     });
 
     describe("server events", () => {
-      it("applies a WsServerSnapshotEvent: state, converted steps, HEAD and workflow", () => {
+      it("applies an `init` frame: state, converted steps, HEAD and workflow", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
         const ws = FakeWebSocket.latest();
@@ -558,7 +558,7 @@ describe("AgentService", () => {
         service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
 
         emit(ws, {
-          type: "WsServerSnapshotEvent",
+          type: "init",
           state: "GENERATING",
           headId: "h1",
           workflowContent: { operators: ["op"] },
@@ -597,11 +597,11 @@ describe("AgentService", () => {
         expect((service as any).agentStateTracking.get("agent-1").wsWorkflowActive).toBe(true);
 
         // A follow-up status event flips only the state.
-        emit(ws, { type: "WsServerStatusEvent", state: "AVAILABLE" });
+        emit(ws, { type: "state", state: "AVAILABLE" });
         expect(states[states.length - 1]).toBe(AgentState.AVAILABLE);
       });
 
-      it("appends, replaces in place and advances HEAD on WsServerStepEvent", () => {
+      it("appends, replaces in place and advances HEAD on `step`; `snapshot` updates the workflow", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
         const ws = FakeWebSocket.latest();
@@ -612,7 +612,7 @@ describe("AgentService", () => {
         service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
 
         emit(ws, {
-          type: "WsServerStepEvent",
+          type: "step",
           step: { messageId: "m1", stepId: 1, id: "s1", isEnd: false, timestamp: "2026-06-11T00:00:00.000Z" },
         });
         expect(steps.length).toBe(1);
@@ -621,26 +621,22 @@ describe("AgentService", () => {
 
         // Same messageId + stepId: the existing step is replaced, not appended.
         emit(ws, {
-          type: "WsServerStepEvent",
+          type: "step",
           step: { messageId: "m1", stepId: 1, id: "s1", isEnd: true, timestamp: "2026-06-11T00:00:01.000Z" },
         });
         expect(steps.length).toBe(1);
         expect(steps[0].isEnd).toBe(true);
         expect(service.getVisibleSteps("agent-1").length).toBe(1);
 
-        // A new step with afterWorkflowContent also updates the workflow.
+        // Workflow content no longer rides on step frames: a separate
+        // `snapshot` frame carries the DAG recorded at the new HEAD.
         emit(ws, {
-          type: "WsServerStepEvent",
-          step: {
-            messageId: "m1",
-            stepId: 2,
-            id: "s2",
-            timestamp: "2026-06-11T00:00:02.000Z",
-            afterWorkflowContent: { operators: [1] },
-          },
+          type: "step",
+          step: { messageId: "m1", stepId: 2, id: "s2", timestamp: "2026-06-11T00:00:02.000Z" },
         });
         expect(steps.length).toBe(2);
         expect(service.getHeadId("agent-1")).toBe("s2");
+        emit(ws, { type: "snapshot", stepId: "s2", workflow: { operators: [1] } });
         expect(workflow!.content).toEqual({ operators: [1] });
         expect((service as any).agentStateTracking.get("agent-1").wsWorkflowActive).toBe(true);
       });
@@ -654,7 +650,7 @@ describe("AgentService", () => {
         let changes = 0;
         service.agentChange$.subscribe(() => changes++);
 
-        emit(ws, { type: "WsServerErrorEvent", error: "Agent not found" });
+        emit(ws, { type: "error", error: "Agent not found" });
 
         expect((service as any).agents.has("agent-1")).toBe(false);
         expect((service as any).agentStateTracking.has("agent-1")).toBe(false);
@@ -667,7 +663,7 @@ describe("AgentService", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
 
-        emit(FakeWebSocket.latest(), { type: "WsServerErrorEvent", error: "boom" });
+        emit(FakeWebSocket.latest(), { type: "error", error: "boom" });
 
         expect(notification.error).toHaveBeenCalledWith("boom");
         expect((service as any).agents.has("agent-1")).toBe(true);
@@ -706,7 +702,7 @@ describe("AgentService", () => {
         // A snapshot carrying workflowContent flips wsWorkflowActive and
         // suppresses subsequent polls.
         FakeWebSocket.latest().onmessage!({
-          data: JSON.stringify({ type: "WsServerSnapshotEvent", workflowContent: { operators: [] } }),
+          data: JSON.stringify({ type: "init", workflowContent: { operators: [] } }),
         });
         workflowPersist.retrieveWorkflow.mockClear();
         vi.advanceTimersByTime(3000);

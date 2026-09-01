@@ -143,7 +143,7 @@ created with no `settings` runs. It is the campaign-measured configuration, not
 a minimal one: **`contextMode: delta`**, **`flowLevel: 1`**, **`dataLevel: 2`**,
 **`columnStats: true`** — the trajectory is replayed per event, and every
 materialized result carries its typed schema line, its structural profile, and
-per-column statistics. Also on: `agentMode: code`, `maxSteps: 100`,
+per-column statistics. Also on: `agentMode: general`, `parallelToolCalls: true`, `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
 (K=10). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
 "index"` all off), and every pull tool (recall / inspect / resume / compact) is

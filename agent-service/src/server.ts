@@ -559,9 +559,12 @@ async function createAgentInstance(
   return { agentId, agent };
 }
 
-function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
+/** Render the agent's live settings in the wire shape shared by
+ *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
+ *  a knob the frontend can set is always a knob it can read back. */
+function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
-  const settingsApi: AgentSettingsApi = {
+  return {
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
     maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
@@ -608,7 +611,10 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
   };
+}
 
+function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
+  const settingsApi = settingsToApi(agent);
   const delegateConfig = agent.getDelegateConfig();
 
   return {
@@ -1217,28 +1223,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return Object.entries(allTypes).map(([type, description]) => ({ type, description }));
   })
 
-  .get("/:id/settings", ({ params: { id } }) => {
-    const agent = getAgent(id);
-    const agentSettings = agent.getSettings();
-    return {
-      maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-      maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
-      operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
-      toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
-      executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
-      disabledTools: Array.from(agentSettings.disabledTools),
-      maxSteps: agentSettings.maxSteps,
-      maxOperatorEdits: agentSettings.maxOperatorEdits,
-      allowedOperatorTypes: agentSettings.allowedOperatorTypes,
-      agentMode: agentSettings.agentMode,
-      contextMode: agentSettings.contextMode,
-      parallelToolCalls: agentSettings.parallelToolCalls,
-      frontierDecayConfig: agentSettings.frontierDecayConfig,
-      foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
-      probeRetirementConfig: agentSettings.probeRetirementConfig,
-      rolePolicyConfig: agentSettings.rolePolicyConfig,
-    };
-  })
+  .get("/:id/settings", ({ params: { id } }) => settingsToApi(getAgent(id)))
 
   .patch(
     "/:id/settings",
@@ -1313,40 +1298,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       // so clients stay in sync.
       broadcastNextContext(id, agent);
 
-      const agentSettings = agent.getSettings();
-      return {
-        maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-        maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
-        operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
-        toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
-        executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
-        disabledTools: Array.from(agentSettings.disabledTools),
-        maxSteps: agentSettings.maxSteps,
-        maxOperatorEdits: agentSettings.maxOperatorEdits,
-        allowedOperatorTypes: agentSettings.allowedOperatorTypes,
-        agentMode: agentSettings.agentMode,
-        contextMode: agentSettings.contextMode,
-        parallelToolCalls: agentSettings.parallelToolCalls,
-        includeOperatorProperties: agentSettings.includeOperatorProperties,
-        thoughtReplay: agentSettings.thoughtReplay,
-        errorReflection: agentSettings.errorReflection,
-        errorReflectionThreshold: agentSettings.errorReflectionThreshold,
-        thoughtReplayK: agentSettings.thoughtReplayK,
-        fewShotPrompt: agentSettings.fewShotPrompt,
-        maxResultRows: agentSettings.maxResultRows,
-        flowLevel: agentSettings.flowLevel,
-        dataLevel: agentSettings.dataLevel,
-        attemptReflection: agentSettings.attemptReflection,
-        columnStats: agentSettings.columnStats,
-        valueFormat: agentSettings.valueFormat,
-        dataHints: agentSettings.dataHints,
-        toolDialect: agentSettings.toolDialect,
-        frontierDecayConfig: agentSettings.frontierDecayConfig,
-        foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
-        probeRetirementConfig: agentSettings.probeRetirementConfig,
-        rolePolicyConfig: agentSettings.rolePolicyConfig,
-      sourceProvenanceHint: agentSettings.sourceProvenanceHint,
-      };
+      return settingsToApi(agent);
     },
     {
       body: t.Object({

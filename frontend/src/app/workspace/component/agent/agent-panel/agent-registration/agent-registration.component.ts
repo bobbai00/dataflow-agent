@@ -60,7 +60,10 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
 
   public modelTypes: ModelType[] = [];
   public selectedModelType: string | null = null;
-  public customAgentName: string = "Texera Agent";
+  /** Default agent name; must match the agent-service fallback in `createAgent`. */
+  public static readonly DEFAULT_AGENT_NAME = "Bob";
+
+  public customAgentName: string = AgentRegistrationComponent.DEFAULT_AGENT_NAME;
   public isLoadingModels: boolean = false;
   public hasLoadingError: boolean = false;
   public computingUnitConnected: boolean = false;
@@ -143,7 +146,7 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
 
   private resetForm(): void {
     this.selectedModelType = null;
-    this.customAgentName = "";
+    this.customAgentName = AgentRegistrationComponent.DEFAULT_AGENT_NAME;
     this.isCreating = false;
   }
 

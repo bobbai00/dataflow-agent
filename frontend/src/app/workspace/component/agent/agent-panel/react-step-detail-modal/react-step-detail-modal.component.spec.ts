@@ -59,8 +59,6 @@ describe("ReActStepDetailModalComponent", () => {
       ]),
       id: "step-3",
       parentId: "step-2",
-      beforeWorkflowContent: { operators: [] },
-      afterWorkflowContent: { operators: [{}] },
     };
   }
 

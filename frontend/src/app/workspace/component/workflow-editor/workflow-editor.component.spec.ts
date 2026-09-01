@@ -1199,7 +1199,7 @@ describe("WorkflowEditorComponent", () => {
           inputTuples: 1,
           outputTuples: 2,
           sampleRecords: [{ colA: "x" }],
-          resultStatistics: { rowCount: "2" },
+          columnStats: { rowCount: "2" },
         });
         (agentService as any).operatorResultSummariesSubject.next(summaries);
 

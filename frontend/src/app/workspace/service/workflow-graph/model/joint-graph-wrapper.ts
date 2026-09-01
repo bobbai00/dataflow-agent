@@ -612,7 +612,7 @@ export class JointGraphWrapper {
         graphlib: graphlib,
         nodeSep: 100,
         edgeSep: 150,
-        rankSep: 80,
+        rankSep: 90,
         ranker: "tight-tree",
         rankDir: "LR",
         resizeClusters: true,

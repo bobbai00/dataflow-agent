@@ -128,7 +128,7 @@ An agent created with no `settings` runs the campaign-measured configuration
 | `flowLevel` | `1` | loader-remediation hints + the consolidated `Operators needing attention` section |
 | `dataLevel` | `2` | typed `Schema (N cols)` line + `Output Table profile:` (duplicate rows, all-null regions, unresolved headers) |
 | `columnStats` | `true` | `Column Schema and stats:` — nulls, min/max/mean, distinct, top-N per column |
-| `agentMode` | `code` | one `createOrModifyOperator` tool writing Python `def load()` / `def process()` |
+| `agentMode` | `general` | one `createOrModifyOperator` tool writing Python `def load()` / `def process()` |
 | `maxSteps` | `100` | per-turn step budget |
 | `maxOperatorResultCharLimit` | `2000` | sample-row budget per result (`codeMaxChars: 0` = code uncapped) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

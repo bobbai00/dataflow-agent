@@ -32,7 +32,15 @@ import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { ContextMode, type LocalToolDialect } from "../types/agent";
 
-const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
+const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2", "PythonUDFSourceV2"];
+/** Function-style Python operators: `DataLoading` (`def load()`, a source that
+ *  may do file I/O) and `DataProcessing` (`def process(<upstream ids>)`, one
+ *  parameter per input port). Same operators CODE mode drives through
+ *  `createOrModifyOperator`; in GENERAL mode they are added like any other
+ *  typed operator with a `code` property. */
+export const DATA_UDF_OPERATOR_TYPES = ["DataLoading", "DataProcessing"];
+/** sklearn operators: the ML guide is appended when any of them is allowed. */
+export const ML_OPERATOR_TYPE_PATTERN = /^(Split|SklearnTraining\w+|Sklearn\w+|Scorer)$/;
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
 
 // The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
@@ -163,7 +171,7 @@ Your input is structured as top-level sections in this order:
 
    In FULL mode each event is followed by \`### Completed dataflow after event N\` — the full snapshot of operators + links at that point. In DELTA mode the same wrapper title becomes \`### Dataflow changes after event N\` and only operators that changed at that event are shown (plus the full link set so the DAG wiring stays visible).
 
-3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, and (where executed) result preview. Present in LATEST mode only — FULL and DELTA modes carry the trailing snapshot inline under their last \`## Agent Event N\` block. Operator code is **not** shown in any snapshot; to modify a past operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.
+3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, and (where executed) result preview. Present in LATEST mode only — FULL and DELTA modes carry the trailing snapshot inline under their last \`## Agent Event N\` block. Operator code is **not** shown in any snapshot; to change a past operator, call \`modifyOperator\` with the same \`operatorId\` and the properties to change (for a Python operator, its new \`code\`).
 
 ### Operator Result Tables
 
@@ -181,20 +189,15 @@ const KEY_PRINCIPLES = `
 - **Build incrementally**: Link new operators to existing ones. Never recreate data already in the workflow.
 - **Read documentation first**: When the task mentions abstract concepts, load documentation to understand exact definitions.
 - **Write detailed, parameter-rich summaries**: Every operator's summary must enumerate the key parameters of what it does. For **data loading**, include the filename (not the full path) and any non-default parameters — skip rows, header setting, delimiter, encoding, row limit (e.g., \`nrows=5\`). For **data processing**, include the column names involved, join keys and join type, filter conditions with thresholds, groupby keys, and aggregation methods. A summary like "Load customers.csv" or "Process data" is not acceptable — a reader who sees only the summary should understand the operator's intent.
-- **When an operator is wrong, fix THAT operator by modify it**: This is a hard rule, not a preference. If an operator errors, your next tool call MUST be a \`createOrModifyOperator\` call with the SAME \`operatorId\` and rewritten code. Never add a downstream operator to "clean up" the output of a failed upstream operator — that doubles the surface area, hides the original bug, and produces a pipeline that the next debug pass can't follow. The same rule applies to semantically wrong results: trace back to the operator whose logic is off (often upstream of where you first noticed the problem) and modify it in place. Creating a brand-new operator with a different \`operatorId\` to bypass a failed one is also forbidden — it leaves a permanent corpse in the DAG.
+- **When an operator is wrong, fix THAT operator by modify it**: This is a hard rule, not a preference. If an operator errors, your next tool call MUST be a \`modifyOperator\` call with the SAME \`operatorId\` and corrected properties (for a Python operator: rewritten \`code\`). Never add a downstream operator to "clean up" the output of a failed upstream operator — that doubles the surface area, hides the original bug, and produces a pipeline that the next debug pass can't follow. The same rule applies to semantically wrong results: trace back to the operator whose logic is off (often upstream of where you first noticed the problem) and modify it in place. Creating a brand-new operator with a different \`operatorId\` to bypass a failed one is also forbidden — it leaves a permanent corpse in the DAG.
 - **Don't loop on the same error — change strategy after 2 failed attempts**: Fixing the failing operator in place is correct, but if the SAME operator fails twice in a row with the same or a closely-related error, STOP making small edits to the same code — that never converges. Re-read the actual error message and the operator's INPUT schema, then change your approach: address the root cause (e.g. nulls, a column type that isn't what you assumed), restructure the logic, or switch to a different operator type. If two consecutive attempts produce two *different* errors that contradict each other (e.g. "cast to int fails on NaN" vs "schema says LONG but got DOUBLE"), they share one root cause — solve that, don't keep toggling between the two. When an operator has errored, its block shows its upstream **input schema**, **how many times you have modified it**, and the **diff from your previous modification** — read those before modifying it again. If the same error keeps repeating, or your last modification was a no-op, change approach (a different decomposition, operator, or upstream assumption) rather than modifying the same code again.
 - **Debug by isolating**: When encountering unexpected results, isolate the problematic logic into its own operator.
 - **Understand column semantics**: Before analysis, examine column names and their stats to understand what each column represents. Columns may carry semantic meaning that affects how data should be filtered or interpreted — respect these signals and apply appropriate preprocessing before computing results.
 - **Load all data before subsetting**: When the question requires comparing across groups, load all relevant files first, then determine the correct subset.
 - **Use the exact data paths the task gives you**: The task message provides a list of data file paths (e.g., \`data/foo/input/bar.csv\`). Use those strings verbatim in your operator code. In particular: (a) do NOT prepend a leading \`/\` to make them absolute — the paths are relative to the working directory and adding \`/\` will turn them into absolute filesystem paths that don't exist; (b) do NOT invent or normalize filenames that look "cleaner" (e.g., truncating a date suffix, dropping a \`-v2\`, changing \`.text\` to \`.txt\`) — the file on disk is named exactly what the task said. If a load fails with \`FileNotFoundError\` on a path the task explicitly provided, the failure is almost always a typo in your own code, not a missing file — re-check the path character-for-character before changing strategy. When the task path contains a wildcard, use \`glob.glob(...)\` and assert at least one match before iterating.
-- **Inspect data file BEFORE you write its real loader**: This is mandatory. For every data file the task references, your must create separate inspection operator(s) first that returns the header / mid / tail rows with no header inference, so you can see the raw byte/cell layout. Templates:
-  Read the returned rows to find the real header row index, the actual delimiter/encoding, and any metadata/comment/unit rows above the data. The next real loader you write should reference the inspection's findings in its \`summary\`. Then write the real loader as a **NEW** operator (don't repurpose the inspection one) with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. Downstream analysis reads from the real loader, NEVER from the 30-row inspection. **Do NOT carry \`dtype=str\` (or any other coercive dtype) from the inspection step into the real loader** — the real loader must infer types normally so downstream numeric / datetime columns behave correctly. The inspection's \`dtype=str\` exists only to keep cell values byte-faithful for the eyeball pass. Once the real loader is in place, delete the inspection — see the next principle.
-- **Delete each inspection operator once its real loader is in place**: Inspection operators are throwaway scaffolding. Their job is one eyeball pass before the real loader exists; after that they have no downstream consumer, yet their sample rows + column schema and stats keep re-serializing into every subsequent context — pure token waste. Once two preconditions both hold — **(a)** the real loader for that file is committed and not currently broken, and **(b)** nothing else in the dataflow reads the inspection node (check the snapshot's edges) — issue \`deleteOperator(operatorId="inspect_X")\` as a parallel sibling of your next downstream step (e.g. the join that consumes the real loaders). The delete is fenced to run after the sibling create in the same batch, so it costs zero extra round-trips. If either precondition is uncertain — leave the inspection alone; you can delete on any later turn, but you cannot un-delete without re-running an inspection.
-- **Recovery from a loader that returned messy output**: If a loader returned auto-generated column names (\`Unnamed: 0\`, \`0\`, \`1\`, …), a data value as a header, an encoding error, or simply nothing useful — fix that loader IN PLACE with the right parameters (re-read the inspection result to determine \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`). Never stack a downstream cleaning operator to patch a bad load; the cleaning belongs in the loader's parameters.
-- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
-- **Every operator MUST return a DataFrame**: \`def load()\` and \`def process(...)\` must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
-- **\`print(...)\` is for debugging only**: you may \`print(...)\` to inspect a value while debugging — its output is shown back to you under the operator's \`Print output\` block (truncated). But print output is NOT the operator's result and is NOT passed to downstream operators: every operator MUST still \`return\` a DataFrame, and a downstream \`process(...)\` only receives what you \`return\`, never what you print. Use print to peek at a value, then expose the real output via the returned DataFrame.`;
-
+{{LOADER_PRINCIPLES}}- **Avoid monolithic code blocks**: Do NOT write one large operator that does everything — you cannot tell which step failed, inspect intermediate results, or debug without re-running everything. Instead, decompose into separate operators each doing ONE thing (e.g., filter → join → aggregate → filter → join → final filter). Each can be executed and verified independently.
+- **Every Python operator MUST return a DataFrame**: the function you write for it (\`def process(...)\`, or a source operator's \`def load()\`) must end with \`return <pd.DataFrame>\`. Code that falls through (or only \`return\`s bare) is rejected — the operator would run but produce no result data.
+- **\`print(...)\` is for debugging only (Python operators)**: you may \`print(...)\` to inspect a value while debugging — its output is shown back to you under the operator's \`Print output\` block (truncated). But print output is NOT the operator's result and is NOT passed to downstream operators: every operator MUST still \`return\` a DataFrame, and a downstream \`process(...)\` only receives what you \`return\`, never what you print. Use print to peek at a value, then expose the real output via the returned DataFrame.`;
 
 // ============================================================================
 // GENERAL mode template + Python/R UDF guides
@@ -203,6 +206,19 @@ const KEY_PRINCIPLES = `
 const PYTHON_UDF_INSTRUCTIONS = `## Python UDF Guide
 
 Python UDF operators run user-defined Python code. There are 2 APIs to process data:
+
+### Source API (\`PythonUDFSourceV2\`) — generate a table, with a DECLARED schema native operators can consume
+Set \`columns\` to the exact output columns (name + type: string, integer, long, double, boolean, timestamp) and keep
+\`workers: 1\`, \`defaultEnv: true\`, \`dynamicOutputSchema: false\`. \`produce()\` yields one dict per row.
+\`\`\`python
+from pytexera import *
+
+class GenerateOperator(UDFSourceOperator):
+    @overrides
+    def produce(self) -> Iterator[Union[TupleLike, TableLike, None]]:
+        for c, a in zip(["a", "b"], [1, 2]):
+            yield {"category": c, "amount": a}
+\`\`\`
 
 ### Tuple API
 Takes one input tuple from a port at a time. Returns an iterator of optional TupleLike instances.
@@ -272,6 +288,129 @@ class ProcessTableOperator(UDFTableOperator):
 - If adding extra columns, specify them in the Extra Output Columns property.
 - Prefer native operators over Python UDF when possible.`;
 
+/**
+ * The function-style Python guide. Built from the allowed types so it never
+ * advertises an operator the agent cannot use: with the default allowlist only
+ * `DataProcessing` is available (no `DataLoading`, no `PythonUDFV2`/
+ * `PythonUDFSourceV2`), and when no sklearn operators are allowed it also
+ * carries the "train the model inside `process`" pattern.
+ */
+function buildDataUdfInstructions(available: string[]): string {
+  const has = (t: string) => available.includes(t);
+  const hasLoading = has("DataLoading");
+  const mlInPython = !available.some(t => ML_OPERATOR_TYPE_PATTERN.test(t));
+
+  const consumers = ["DataProcessing", ...(has("PythonUDFV2") ? ["PythonUDFV2"] : [])].map(t => `\`${t}\``).join(", ");
+  const declaredSources = [
+    ...(has("PythonUDFSourceV2") ? ["`PythonUDFSourceV2` with the `columns` property"] : []),
+    ...(has("PythonUDFV2") ? ["`PythonUDFV2` with `retainInputColumns` / `outputColumns`"] : []),
+  ];
+
+  const sections: string[] = [];
+  sections.push(
+    `## ${hasLoading ? "DataLoading / DataProcessing" : "DataProcessing"} Guide (function-style Python)\n\n` +
+      `${hasLoading ? "These operators take" : "This operator takes"} a single \`code\` property holding one plain ` +
+      `Python function — no class boilerplate, \`pd\` (pandas) is already imported.`
+  );
+
+  if (hasLoading) {
+    sections.push(
+      "### DataLoading — a source operator (no input ports); file I/O is allowed here and ONLY here\n" +
+        '```python\ndef load() -> pd.DataFrame:\n    return pd.read_csv("data/foo/input/bar.csv")\n```\n' +
+        "Use it to load files, or to build a small literal table (`return pd.DataFrame({...})`) when the task supplies data inline."
+    );
+  }
+
+  sections.push(DATA_UDF_PROCESS_SECTION);
+
+  const schemaRule = [
+    "### Schema rule — READ THIS BEFORE WIRING",
+    `The output schema of ${hasLoading ? "`DataLoading` and `DataProcessing`" : "`DataProcessing`"} is inferred at ` +
+      "RUNTIME, so it is unknown when the dataflow is compiled. A native typed operator (`Filter`, `Aggregate`, " +
+      "`HashJoin`, `Sort`, charts, ...) linked downstream of one of them cannot compile and the whole execution fails " +
+      "with `schema is not available`. Therefore:",
+    `- Only Python operators (${consumers}) may consume the output of ` +
+      `${hasLoading ? "`DataLoading` / `DataProcessing`" : "a `DataProcessing`"}.`,
+    "- Native operators may consume: another native operator, `CSVFileScan`" +
+      (declaredSources.length > 0
+        ? `, or a Python source that DECLARES its columns (${declaredSources.join(", ")})`
+        : "") +
+      ".",
+    "- `DataProcessing` may sit downstream of native operators (e.g. `Aggregate` → `DataProcessing`) — that direction is fine.",
+    "- So: do the relational work with typed operators FIRST, and put the `DataProcessing` last in its branch (or feed " +
+      "another `DataProcessing`). If you want a chart of something a `DataProcessing` computes, compute it relationally " +
+      "instead, or accept the Python step's table as the final answer.",
+  ];
+  sections.push(schemaRule.join("\n"));
+
+  if (mlInPython) {
+    sections.push(
+      "### Machine learning inside `DataProcessing`\n" +
+        "There are no sklearn operators available, so a model is one `DataProcessing` that splits, fits, predicts and " +
+        "scores, then returns a small metrics table:\n" +
+        "```python\n" +
+        "def process(features) -> pd.DataFrame:\n" +
+        "    from sklearn.linear_model import LinearRegression\n" +
+        "    from sklearn.model_selection import train_test_split\n" +
+        "    from sklearn.metrics import r2_score, mean_absolute_error\n" +
+        "    df = features.dropna()\n" +
+        '    X, y = df.drop(columns=["TARGET"]), df["TARGET"]\n' +
+        "    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)\n" +
+        "    pred = LinearRegression().fit(X_train, y_train).predict(X_test)\n" +
+        "    return pd.DataFrame([{\n" +
+        '        "model": "LinearRegression", "n_train": len(X_train), "n_test": len(X_test),\n' +
+        '        "features": ", ".join(X.columns), "r2": round(r2_score(y_test, pred), 4),\n' +
+        '        "mae": round(mean_absolute_error(y_test, pred), 2),\n' +
+        "    }])\n" +
+        "```\n" +
+        "Report the returned numbers in your answer. Keep the feature selection in a `Projection` upstream so changing " +
+        "the feature set is a one-property edit, not a code rewrite."
+    );
+  }
+
+  sections.push(DATA_UDF_OTHER_RULES);
+  return sections.join("\n\n");
+}
+
+const DATA_UDF_PROCESS_SECTION = `### DataProcessing — one input port per function parameter; NEVER do file I/O here
+\`\`\`python
+def process(orders, customers) -> pd.DataFrame:
+    merged = orders.merge(customers, on="customer_id")
+    return merged[["order_id", "customer_name", "total"]]
+\`\`\`
+Parameters bind to input ports **in order**: the 1st parameter receives input port 0, the 2nd input port 1, and so on.
+Give the operator one input link per parameter (\`inputs\` in \`addOperator\` / \`modifyOperator\`), in the same order.`;
+
+const DATA_UDF_OTHER_RULES = `### Other rules
+- Always end with \`return <pd.DataFrame>\`; the returned frame's columns become the output schema.
+- Do ONE logical step per operator (one filter, one join, one aggregation...). Chain operators instead of writing a monolith.
+- Do not cast numeric types unless the task requires it; integer columns with nulls arrive as floats — leave them.
+- \`print(...)\` output is shown back to you for debugging but is NOT the operator's result.
+- Prefer native operators (Filter, Projection, Aggregate, HashJoin, Sort, ...) when one does the job; use these only for logic no native operator expresses.`;
+
+const ML_INSTRUCTIONS = `## Machine Learning Guide (sklearn operators)
+
+Typical supervised pipeline — a small DAG, not a chain:
+\`\`\`
+features ─► Split ─┬─(output port 0: training share k%)─► SklearnTraining<Model> ─► model ─┐
+                   └─(output port 1: held-out rest) ───────────────────────────────► SklearnPrediction ─► Scorer
+\`\`\`
+- **Features first**: the training table must contain ONLY numeric columns plus the label. Encode strings with a
+  \`PythonUDFV2\` (declare the new integer/double column in \`outputColumns\`, keep \`retainInputColumns\`), then
+  \`Projection\` the wanted columns and \`Filter\` out nulls (or fill them in the UDF).
+- **Split**: properties \`{k, random, seed}\`; \`k\` = percentage on output port 0 (training), the rest on output port 1.
+  Link the trainer from port 0 (\`{"0": ["<split>"]}\`) and the predictor's data input from port 1 (\`{"1": ["<split>:1"]}\`).
+  Never score on the training share.
+- **SklearnTraining<Model>** (LogisticRegression, RandomForest, KNN, DecisionTree, ...): single input port; property
+  \`target\` = label column; every other column is a feature. Outputs one row with a \`model\` column.
+- **SklearnPrediction**: input port 0 = the trainer's output (\`model\`), input port 1 = rows to predict. Set
+  \`"Ground Truth Attribute Name to Ignore"\` to the label column; it appends a \`prediction\` column.
+- **Scorer**: input = SklearnPrediction output; \`actualValueColumn\` = label, \`predictValueColumn\` = "prediction",
+  \`isRegression\` false, \`classificationFlag\` e.g. ["Accuracy", "Precision Score", "Recall Score", "F1 Score"]
+  (regression: \`isRegression\` true with \`regressionFlag\` ["MSE", "RMSE", "MAE", "R2"]). Its output has one row per
+  class plus an "Overall" row — report the numbers from it.
+- Use the same \`seed\` when comparing models so they see the same split.`;
+
 const R_UDF_INSTRUCTIONS = `## R UDF Guide
 
 R UDF operators run user-defined R code. Two modes: Table API and Tuple API.
@@ -340,15 +479,29 @@ You have the following operators available:
 
 {{OPERATOR_SCHEMA}}
 
+{{OPERATOR_ROUTING}}
+
 **IMPORTANT**:
-- You MUST try to use the native operators (e.g. TableProjection, TableAggregate, TableFilter) as much as possible.
-  Only fall back to Python/R UDF if no native operator fits.
-- Do NOT use Python to do aggregate, use operators like TableAggregate to do it.
-- When you handle data with nulls, please explicitly mention in the summary how you handle the nulls.
-- Use Join operator when you need to join two tables. Do NOT use Python to join two tables.
-- If you have to use a UDF, do ONE minimum step in it (e.g. dropping records, changing one column's value).
-  Do NOT do multiple things, e.g. Dropping then Aggregate then Sort.
+- Dataset files are referenced by paths like \`/<owner-email>/<dataset>/<version>/<file>.csv\`: load them with \`CSVFileScan\`
+  (\`fileName\` = that exact path, \`hasHeader\` true). They are NOT on the local filesystem — never \`pd.read_csv\` them.
+- Multi-output operators: pick the source output port with an \`:N\` suffix in \`inputOperatorIds\`, e.g.
+  \`{"0": ["op9:1"]}\` links from op9's output port 1. A bare id means port 0.
+- When you handle data with nulls, explicitly mention in the summary how you handle the nulls.
+- Do not stop to ask the user for clarification about the environment — build the operators, execute, and report the result.
 `;
+
+/**
+ * Loader-inspection principles. They instruct the agent to create throwaway
+ * `DataLoading` operators to eyeball a raw file before writing its real
+ * loader, so they only make sense when `DataLoading` is available (the
+ * benchmark arms). With the default allowlist the data arrives through
+ * `CSVFileScan` on a declared dataset path and no such operator exists, so
+ * telling the agent to build one would be an instruction it cannot follow.
+ */
+const LOADER_INSPECTION_PRINCIPLES = `- **Inspect data file BEFORE you write its real loader**: This is mandatory. For every data file the task references, you must create separate inspection operator(s) first — a \`DataLoading\` operator whose \`load()\` reads the header / mid / tail rows with no header inference (\`header=None, dtype=str\`) — so you can see the raw byte/cell layout.
+  Read the returned rows to find the real header row index, the actual delimiter/encoding, and any metadata/comment/unit rows above the data. The next real loader you write should reference the inspection's findings in its \`summary\`. Then write the real loader as a **NEW** operator (don't repurpose the inspection one) with the right \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`. Downstream analysis reads from the real loader, NEVER from the 30-row inspection. **Do NOT carry \`dtype=str\` (or any other coercive dtype) from the inspection step into the real loader** — the real loader must infer types normally so downstream numeric / datetime columns behave correctly. The inspection's \`dtype=str\` exists only to keep cell values byte-faithful for the eyeball pass. Once the real loader is in place, delete the inspection — see the next principle.
+- **Delete each inspection operator once its real loader is in place**: Inspection operators are throwaway scaffolding. Their job is one eyeball pass before the real loader exists; after that they have no downstream consumer, yet their sample rows + column schema and stats keep re-serializing into every subsequent context — pure token waste. Once two preconditions both hold — **(a)** the real loader for that file is committed and not currently broken, and **(b)** nothing else in the dataflow reads the inspection node (check the snapshot's edges) — issue \`deleteOperator(operatorId="inspect_X")\` as a parallel sibling of your next downstream step (e.g. the join that consumes the real loaders). The delete is fenced to run after the sibling create in the same batch, so it costs zero extra round-trips. If either precondition is uncertain — leave the inspection alone; you can delete on any later turn, but you cannot un-delete without re-running an inspection.
+- **Recovery from a loader that returned messy output**: If a loader returned auto-generated column names (\`Unnamed: 0\`, \`0\`, \`1\`, …), a data value as a header, an encoding error, or simply nothing useful — fix that loader IN PLACE with the right parameters (re-read the inspection result to determine \`skiprows=\` / \`header=\` / \`sep=\` / \`encoding=\`). Never stack a downstream cleaning operator to patch a bad load; the cleaning belongs in the loader's parameters.`;
 
 // ============================================================================
 // Build helpers
@@ -487,15 +640,143 @@ export function buildGeneralModeSystemPrompt(
 ): string {
   const operatorSchemas = buildAllowedOperatorSchemas(metadataStore, allowedOperatorTypes);
   const allowsAll = allowedOperatorTypes.length === 0;
+  const available = allowsAll ? Object.keys(metadataStore.getAllOperatorTypes()) : allowedOperatorTypes;
   const pythonAllowed = allowsAll || allowedOperatorTypes.some(t => PYTHON_UDF_OPERATOR_TYPES.includes(t));
+  const dataUdfAllowed = allowsAll || allowedOperatorTypes.some(t => DATA_UDF_OPERATOR_TYPES.includes(t));
   const rAllowed = allowsAll || allowedOperatorTypes.some(t => R_UDF_OPERATOR_TYPES.includes(t));
+  const mlAllowed = allowsAll || allowedOperatorTypes.some(t => ML_OPERATOR_TYPE_PATTERN.test(t));
 
   const extraSections: string[] = [];
+  if (dataUdfAllowed) extraSections.push(buildDataUdfInstructions(available));
   if (pythonAllowed) extraSections.push(PYTHON_UDF_INSTRUCTIONS);
+  if (mlAllowed) extraSections.push(ML_INSTRUCTIONS);
   if (rAllowed) extraSections.push(R_UDF_INSTRUCTIONS);
 
-  const base = GENERAL_MODE_TEMPLATE.replace("{{OPERATOR_SCHEMA}}", operatorSchemas);
+  const base = GENERAL_MODE_TEMPLATE.replace("{{OPERATOR_SCHEMA}}", operatorSchemas)
+    .replace("{{OPERATOR_ROUTING}}", buildOperatorRoutingGuidance(metadataStore, allowedOperatorTypes))
+    // The loader-inspection principles build `DataLoading` operators; drop them
+    // when that operator is not available.
+    .replace("{{LOADER_PRINCIPLES}}", available.includes("DataLoading") ? LOADER_INSPECTION_PRINCIPLES : "");
   return extraSections.length > 0 ? `${base}\n${extraSections.join("\n\n")}\n` : base;
+}
+
+/**
+ * The "which family does this step belong to" section of the GENERAL-mode
+ * prompt. Three families, one job each:
+ *
+ *   - **relational** (`CSVFileScan`, `Filter`, `Projection`, `HashJoin`,
+ *     `Aggregate`, …) — loading, shaping and summarizing tables: the default
+ *     for any ETL step;
+ *   - **visualization** (`BarChart`, `LineChart`, …) — rendering a chart from a
+ *     relational table;
+ *   - **`DataProcessing`** — custom Python for what the typed operators cannot
+ *     express, ML model training / inference included.
+ *
+ * Written from the *allowed* types rather than hardcoded, so a custom allowlist
+ * never gets told to use an operator it does not have (the default allowlist,
+ * for instance, has no sklearn operators and no `PythonUDFV2`). The
+ * runtime-schema rule — nothing native may follow a `DataProcessing`, because
+ * its schema is only known at run time — is stated wherever `DataProcessing` is
+ * available, since it decides where in the DAG the Python step can sit.
+ */
+function buildOperatorRoutingGuidance(
+  metadataStore: WorkflowSystemMetadata,
+  allowedOperatorTypes: string[] = []
+): string {
+  const allowsAll = allowedOperatorTypes.length === 0;
+  const available = allowsAll ? Object.keys(metadataStore.getAllOperatorTypes()) : allowedOperatorTypes;
+  const has = (t: string) => available.includes(t);
+  const hasAny = (types: string[]) => types.some(has);
+  const mlOps = available.filter(t => ML_OPERATOR_TYPE_PATTERN.test(t));
+
+  const relational = ["Filter", "Projection", "HashJoin", "Aggregate", "Sort", "Limit", "Union", "Distinct"].filter(
+    has
+  );
+  const charts = [
+    "BarChart",
+    "LineChart",
+    "PieChart",
+    "Histogram",
+    "Scatterplot",
+    "HeatMap",
+    "BoxViolinPlot",
+    "WordCloud",
+  ].filter(has);
+
+  const lines: string[] = ["**Pick the operator family that matches the step**:"];
+
+  lines.push(
+    `- **Relational operators${relational.length > 0 ? ` (${relational.map(t => `\`${t}\``).join(", ")})` : ""} — ` +
+      `for all straightforward data ETL**: loading, filtering, selecting columns, joining, sorting, limiting, ` +
+      `deduplicating and aggregating. This is the DEFAULT: if a typed operator expresses the step, you MUST use it ` +
+      `instead of writing Python. Never aggregate in Python (use \`Aggregate\`, with \`average\` for a rate or ratio) ` +
+      `and never join in Python (use \`HashJoin\`).`
+  );
+
+  if (charts.length > 0) {
+    lines.push(
+      `- **Visualization operators (${charts.map(t => `\`${t}\``).join(", ")}) — for all visualization**: feed one a ` +
+        `relational table (usually straight out of an \`Aggregate\`) and it renders the chart. Never build a chart in Python.`
+    );
+  }
+
+  if (has("DataProcessing")) {
+    lines.push(
+      "- **`DataProcessing` (`def process(<inputs>) -> pd.DataFrame`) — for custom logic and for machine learning**: " +
+        "anything the typed operators cannot express, including feature engineering that needs real code, and " +
+        "**training or running an ML model** (import sklearn etc. inside the function, fit on the input table, and " +
+        "return a small DataFrame of predictions or metrics). Parameter names become the input port names, so " +
+        "`def process(train, test)` takes two inputs."
+    );
+    lines.push(
+      "- **Where a `DataProcessing` may sit**: its output schema is only known at run time, so **nothing native " +
+        "(relational or chart) may be linked downstream of it** — it goes LAST in its branch, or feeds another " +
+        "`DataProcessing`. Do the relational work (filtering, column selection, joins) BEFORE it with typed " +
+        "operators, and have the Python step return the finished, small result. Keep each one to a single job."
+    );
+    if (mlOps.length === 0) {
+      lines.push(
+        "- There are no sklearn/`Split` operators available: do the whole model — train/test split, fit, predict, " +
+          "score — inside one `DataProcessing`, and return the metrics (and, if useful, a few predictions) as its table."
+      );
+    }
+  }
+
+  if (mlOps.length > 0) {
+    lines.push(
+      `- **ML operators (${mlOps
+        .slice(0, 6)
+        .map(t => `\`${t}\``)
+        .join(", ")}${mlOps.length > 6 ? ", …" : ""})**: prefer these over hand-written Python when one fits the ` +
+        "model you need — see the Machine Learning Guide below."
+    );
+  }
+
+  if (has("PythonUDFV2")) {
+    lines.push(
+      "- **Derived columns** (a computed value, an encoded category, a parsed month) go in a `PythonUDFV2` with " +
+        "`retainInputColumns` true and the new columns declared in `outputColumns` — NOT in a `DataProcessing` — so " +
+        "native operators and charts downstream still see a static schema."
+    );
+  }
+
+  if (hasAny(["PythonUDFSourceV2", "DataLoading"])) {
+    const src: string[] = [];
+    if (has("PythonUDFSourceV2")) {
+      src.push(
+        "use `PythonUDFSourceV2` and DECLARE its `columns` when native operators must consume the generated table"
+      );
+    }
+    if (has("DataLoading")) {
+      src.push(
+        "use `DataLoading` (`def load() -> pd.DataFrame`) only when every downstream operator is Python, since " +
+          "native operators cannot read its runtime-inferred schema"
+      );
+    }
+    lines.push(`- **Generating a table in Python**: ${src.join("; ")}.`);
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -538,14 +819,8 @@ export function buildSystemPrompt(metadataStore: WorkflowSystemMetadata, allowed
 // `# Current Dataflow` context that assembler renders, so prompt and context
 // agree. `react-text` keeps its standalone `# Event N` prompt + the
 // `assembleLocalReactContext` renderer.
-const QWEN_TOOL_APPENDIX: string = readFileSync(
-  new URL("./prompts/local-qwen-tools.txt", import.meta.url),
-  "utf8"
-);
-const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(
-  new URL("./prompts/local-react.txt", import.meta.url),
-  "utf8"
-);
+const QWEN_TOOL_APPENDIX: string = readFileSync(new URL("./prompts/local-qwen-tools.txt", import.meta.url), "utf8");
+const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/local-react.txt", import.meta.url), "utf8");
 /**
  * Returns the local driver's system prompt for the given tool-call dialect.
  * `react-text` is standalone; `qwen-xml` is the CODE-mode body (mode-aware, so

@@ -210,12 +210,20 @@ export class JointUIService {
   //   - a left icon section (ICON_SECTION_WIDTH wide) holding the operator icon
   //   - a right text section holding the operator's description / custom name
   // The box never grows with its text; overflowing text is ellipsized instead.
-  public static readonly DEFAULT_OPERATOR_WIDTH = 240;
+  /** Colour per agent action; shared by the label text and the highlight ring. */
+  public static readonly AGENT_ACTION_COLORS: Readonly<Record<"viewed" | "added" | "modified", string>> = {
+    viewed: "#1890ff",
+    added: "#52c41a",
+    modified: "#fa8c16",
+  };
+  public static readonly AGENT_ACTION_FONT_SIZE = 14;
+
+  public static readonly DEFAULT_OPERATOR_WIDTH = 210;
   public static readonly DEFAULT_OPERATOR_HEIGHT = 80;
   // Width of the left icon section; the divider is drawn at this x offset.
-  public static readonly ICON_SECTION_WIDTH = 60;
+  public static readonly ICON_SECTION_WIDTH = 48;
   // Padding between the divider and the description text on the right section.
-  private static readonly TEXT_SECTION_PADDING = 12;
+  private static readonly TEXT_SECTION_PADDING = 8;
   // The wrapping box for the right-section description text.
   private static readonly DESC_TEXT_WIDTH =
     JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.ICON_SECTION_WIDTH - JointUIService.TEXT_SECTION_PADDING * 2;
@@ -223,7 +231,7 @@ export class JointUIService {
   // Font sizes for the in-box labels. Kept here (not inline) so the rendered
   // size and the size `breakText` measures with stay in sync — a mismatch
   // makes wrapping/ellipsis disagree with what's actually drawn.
-  private static readonly DESC_FONT_SIZE = 16; // custom display name / description
+  private static readonly DESC_FONT_SIZE = 14; // custom display name / description
   private static readonly ID_FONT_SIZE = 16; // operator id label above the box
   public static readonly DEFAULT_GROUP_MARGIN = 50;
   public static readonly DEFAULT_GROUP_MARGIN_BOTTOM = 40;
@@ -691,28 +699,38 @@ export class JointUIService {
         { ellipsis: true }
       );
     } catch {
-      // breakText needs DOM measurement; fall back to char-based truncation if
+      // breakText needs DOM measurement; fall back to char-based wrapping if
       // we're somewhere it can't run (e.g. unit tests without document).
-      const approxCharsPerLine = 24;
-      const maxLines = 4;
-      const words = text.split(/\s+/);
+      // ~7px per character at DESC_FONT_SIZE, DESC_TEXT_HEIGHT / line height.
+      const approxCharsPerLine = Math.max(8, Math.floor(JointUIService.DESC_TEXT_WIDTH / 7));
+      const maxLines = Math.max(1, Math.floor(JointUIService.DESC_TEXT_HEIGHT / (JointUIService.DESC_FONT_SIZE * 1.2)));
+      // Hard-break words longer than a line so a single long token can't escape the box.
+      const words = text
+        .split(/\s+/)
+        .filter(w => w.length > 0)
+        .flatMap(w => w.match(new RegExp(`.{1,${approxCharsPerLine}}`, "g")) ?? []);
       const lines: string[] = [];
       let line = "";
       let truncated = false;
       for (const w of words) {
-        if ((line + " " + w).trim().length > approxCharsPerLine) {
+        if (line.length > 0 && (line + " " + w).length > approxCharsPerLine) {
           if (lines.length >= maxLines - 1) {
             truncated = true;
             break;
           }
-          lines.push(line.trim());
+          lines.push(line);
           line = w;
         } else {
-          line = (line + " " + w).trim();
+          line = line.length > 0 ? line + " " + w : w;
         }
       }
       if (line && lines.length < maxLines) lines.push(line);
-      if (truncated && lines.length > 0) lines[lines.length - 1] = lines[lines.length - 1] + "…";
+      else if (line) truncated = true;
+      if (truncated && lines.length > 0) {
+        const last = lines[lines.length - 1];
+        lines[lines.length - 1] =
+          (last.length >= approxCharsPerLine ? last.slice(0, approxCharsPerLine - 1) : last) + "…";
+      }
       return lines.join("\n");
     }
   }
@@ -916,7 +934,7 @@ export class JointUIService {
       },
       ".texera-operator-agent-action-progress": {
         text: "",
-        "font-size": "11px",
+        "font-size": `${JointUIService.AGENT_ACTION_FONT_SIZE}px`,
         "font-weight": "bold",
         "font-family": "'Inter', 'SF Pro Display', -apple-system, sans-serif",
         visibility: "hidden",
@@ -991,6 +1009,10 @@ export class JointUIService {
       },
       "rect.boundary": {
         fill: "rgba(0, 0, 0, 0)",
+        // Stroked only while an agent action label is showing, see
+        // `showAgentActionLabel`.
+        stroke: "none",
+        "stroke-width": 0,
         width: this.DEFAULT_OPERATOR_WIDTH + 20,
         height: this.DEFAULT_OPERATOR_HEIGHT + 20,
         ref: "rect.body",
@@ -1029,11 +1051,12 @@ export class JointUIService {
         "y-alignment": "middle",
         "x-alignment": "left",
       },
-      // Operator ID, shown in small grey text just above the box (replaces the
-      // operator type that used to live here, keeping the same style).
+      // Operator id + type, in small grey text just above the box
+      // ("op5: CSVFileScan"). The id alone is what the agent's chat refers to;
+      // the type says what the box actually is without opening it.
       ".texera-operator-friendly-name": {
         text: JointUIService.truncateToWidth(
-          operator.operatorID,
+          `${operator.operatorID}: ${operatorType}`,
           JointUIService.DEFAULT_OPERATOR_WIDTH,
           `${JointUIService.ID_FONT_SIZE}px`
         ),
@@ -1239,13 +1262,16 @@ export class JointUIService {
 
   /**
    * Shows agent action labels (viewed/added/modified) on operators.
-   * Displays bold agent name and action type as text below the operator.
+   * Displays bold agent name and action type as text below the operator, and
+   * rings the operator in the matching colour — the label alone is small text
+   * under a 210x80 box and is easy to miss on a busy canvas. `viewed` uses a
+   * dashed ring so a read is visually weaker than a write.
    */
   public showAgentActionLabel(
     jointPaper: joint.dia.Paper,
     operatorID: string,
     actionType: "viewed" | "added" | "modified",
-    agentName: string = "Agent"
+    agentName: string = "Bob"
   ): void {
     const element = jointPaper.getModelById(operatorID);
     if (!element) {
@@ -1253,19 +1279,31 @@ export class JointUIService {
     }
 
     const labelText = `${agentName}: ${actionType}`;
+    const color = JointUIService.AGENT_ACTION_COLORS[actionType];
 
     element.attr({
       [`.${operatorAgentActionProgressClass}`]: {
         text: labelText,
-        fill: "#52c41a",
+        fill: color,
+        "font-size": `${JointUIService.AGENT_ACTION_FONT_SIZE}px`,
         "font-weight": "bold",
         visibility: "visible",
+      },
+      // `rect.boundary` is the transparent 10px-margin rect around the body;
+      // nothing else styles it, so it doubles as the highlight ring without
+      // fighting the validity colouring on `rect.body`.
+      "rect.boundary": {
+        stroke: color,
+        "stroke-width": 3,
+        "stroke-dasharray": actionType === "viewed" ? "6,5" : "none",
+        rx: 12,
+        ry: 12,
       },
     });
   }
 
   /**
-   * Hides agent action labels on operators.
+   * Hides agent action labels on operators, and removes the highlight ring.
    */
   public hideAgentActionLabel(jointPaper: joint.dia.Paper, operatorID: string): void {
     const element = jointPaper.getModelById(operatorID);
@@ -1277,6 +1315,11 @@ export class JointUIService {
       [`.${operatorAgentActionProgressClass}`]: {
         text: "",
         visibility: "hidden",
+      },
+      "rect.boundary": {
+        stroke: "none",
+        "stroke-width": 0,
+        "stroke-dasharray": "none",
       },
     });
   }

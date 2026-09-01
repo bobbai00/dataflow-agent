@@ -153,11 +153,24 @@
       </div>
       <div
         class="tree-viewport"
+        #treeViewport
         *ngIf="!treePanelCollapsed">
         <div
           class="tree-canvas"
           [style.width.px]="treeCanvasWidth"
           [style.height.px]="treeHeight">
+          <!-- Time axis: one HH:MM:SS label per tree rank, in the left gutter -->
+          <div
+            class="tree-time-axis"
+            [style.width.px]="treeTimeAxisWidth"
+            [style.height.px]="treeHeight">
+            <div
+              *ngFor="let row of snapshotTimeRows"
+              class="tree-time-label"
+              [style.top.px]="row.y">
+              {{ row.label }}
+            </div>
+          </div>
           <svg
             class="tree-edges"
             [attr.width]="treeCanvasWidth"
@@ -186,13 +199,8 @@
             [style.height.px]="node.height"
             (click)="onSnapshotNodeClick(node)"
             nz-tooltip
-            [nzTooltipTitle]="node.id">
+            [nzTooltipTitle]="node.timeLabel ? node.id + ' · ' + node.timeLabel : node.id">
             <span class="snapshot-node-label">{{ node.id }}</span>
-            <span
-              *ngIf="node.timeLabel"
-              class="snapshot-node-time"
-              >{{ node.timeLabel }}</span
-            >
           </div>
         </div>
       </div>
@@ -244,11 +252,15 @@
                   </ng-template>
                 </span>
                 <!-- Thinking text, truncated with an ellipsis that follows the
-                     panel width (CSS overflow). -->
+                     panel width (CSS overflow). Models that emit tool calls with
+                     no visible preamble and no reasoning summary leave this
+                     empty; the placeholder is then only worth showing on the
+                     running row, since the action chips already say what the
+                     finished ones did. -->
                 <span
                   class="react-card-thinking"
                   [title]="row.thinking">
-                  {{ row.thinking || 'Working…' }}
+                  {{ row.thinking || (isRowRunning(row) ? 'Working…' : '') }}
                 </span>
                 <!-- Actions the agent called this step (one chip each). -->
                 <span class="react-card-actions">
@@ -365,7 +377,9 @@
 
       <!-- Next-Step Context Preview — live, identical to what the model would
            receive on the next prepareStep. Available in both User and Debug modes. -->
-      <div class="next-context-panel">
+      <div
+        *ngIf="showNextContextPanel"
+        class="next-context-panel">
         <div class="next-context-header">
           <button
             nz-button
@@ -412,7 +426,9 @@
       </div>
 
       <!-- Input Mode bar (User vs Debug). Debug bypasses the LLM. -->
-      <div class="input-mode-bar">
+      <div
+        *ngIf="showDebugToggle"
+        class="input-mode-bar">
         <nz-switch
           [(ngModel)]="debugMode"
           nzSize="small"
@@ -557,9 +573,6 @@
                 <nz-option
                   nzValue="delta"
                   nzLabel="Delta"></nz-option>
-                <nz-option
-                  nzValue="full"
-                  nzLabel="Full"></nz-option>
               </nz-select>
               <button
                 nz-button
@@ -573,8 +586,7 @@
               Snapshot-selection policy for the ReAct context.
               <strong>Latest</strong>: events + one trailing snapshot of the current state (cheapest).
               <strong>Delta</strong>: each turn followed by a snapshot that renders changed operators in full and
-              unchanged ones as id+description placeholders. <strong>Full</strong>: each turn followed by its full
-              snapshot (highest fidelity, most tokens).
+              unchanged ones as id+description placeholders.
             </div>
           </div>
 
@@ -630,11 +642,36 @@
               </button>
             </div>
             <div class="settings-param-hint-block">
-              When <strong>enabled</strong>, every non-error operator result is followed by a <code>Column stats:</code>
-              block — one line per column showing the type and type-specific summary (null/distinct/top_10 for strings,
-              null/mean/min/max for numerics, null/true/false for bools, etc.). Helps the model reason about column
-              semantics without re-issuing inspection operators. When <strong>disabled</strong>, only the data preview
-              + shape metadata is rendered.
+              When <strong>enabled</strong>, every non-error operator result is followed by a
+              <code>Column stats:</code> block — one line per column showing the type and type-specific summary
+              (null/distinct/top_10 for strings, null/mean/min/max for numerics, null/true/false for bools, etc.). Helps
+              the model reason about column semantics without re-issuing inspection operators. When
+              <strong>disabled</strong>, only the data preview + shape metadata is rendered.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Panel Views</label>
+            <div class="settings-param-input settings-param-switches">
+              <label class="settings-switch-row">
+                <nz-switch
+                  [ngModel]="showNextContextPanel"
+                  (ngModelChange)="setShowNextContextPanel($event)"
+                  nzSize="small"></nz-switch>
+                <span>Show Next-Step Context preview</span>
+              </label>
+              <label class="settings-switch-row">
+                <nz-switch
+                  [ngModel]="showDebugToggle"
+                  (ngModelChange)="setShowDebugToggle($event)"
+                  nzSize="small"></nz-switch>
+                <span>Show User / Debug input toggle</span>
+              </label>
+            </div>
+            <div class="settings-param-hint-block">
+              Both are hidden by default. The context preview shows the exact prompt the model receives on its next
+              step; Debug mode bypasses the LLM and records typed text (or a <code>Function(...)</code> literal) as a
+              step.
             </div>
           </div>
 

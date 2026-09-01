@@ -45,6 +45,18 @@ export interface TokenUsage {
   reasoningTokens?: number;
 }
 
+/**
+ * Which operators one tool call touched. Keyed by tool-call index on the
+ * owning step (`operatorAccess[i]` describes `toolCalls[i]`). The frontend
+ * uses it to highlight operators on the canvas when a step is hovered and to
+ * answer "which steps touched operator X".
+ */
+export interface ToolOperatorAccess {
+  viewedOperatorIds: string[];
+  addedOperatorIds: string[];
+  modifiedOperatorIds: string[];
+}
+
 export interface ReActStep {
   id: string;
   parentId?: string;
@@ -53,6 +65,12 @@ export interface ReActStep {
   timestamp: number;
   role: "user" | "agent";
   content: string;
+  /** Reasoning summary the provider returned for this step, when it exposes
+   *  one (OpenAI reasoning models, Anthropic extended thinking). Kept out of
+   *  `content` on purpose: `content` is replayed to the model as context,
+   *  this is display-only — the chat's step list falls back to it when the
+   *  model emitted tool calls with no visible text. */
+  reasoningText?: string;
   isBegin: boolean;
   isEnd: boolean;
   toolCalls?: Array<{
@@ -68,6 +86,10 @@ export interface ReActStep {
   usage?: TokenUsage;
   inputMessages?: any[];
   messageSource?: "chat" | "feedback";
+  /** Per-tool-call operator access, derived from tool inputs/outputs at
+   *  step-record time (see `computeOperatorAccess`). Absent on steps with
+   *  no tool calls. */
+  operatorAccess?: Record<number, ToolOperatorAccess>;
 }
 
 export enum OperatorResultSerializationMode {
@@ -534,7 +556,14 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   executionTimeoutMs: 240000,
   maxSteps: 100,
   maxOperatorEdits: 0,
+  // Three families, one job each (the general-mode prompt says the same thing):
+  //   relational — load, shape and summarize tabular data;
+  //   visualization — render a chart from a relational table;
+  //   DataProcessing — custom Python for anything the typed operators cannot
+  //     express, ML training/inference included.
+  // No sklearn / Split operators: model work belongs in `DataProcessing`.
   allowedOperatorTypes: [
+    // Relational
     "CSVFileScan",
     "Filter",
     "Projection",
@@ -543,18 +572,24 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "Limit",
     "Distinct",
     "Union",
+    "Intersect",
+    "Difference",
     "KeywordSearch",
     "HashJoin",
     "Aggregate",
-    "LineChart",
+    // Visualization
     "BarChart",
+    "LineChart",
     "PieChart",
     "Histogram",
     "Scatterplot",
+    "HeatMap",
+    "BoxViolinPlot",
     "WordCloud",
-    "PythonUDFV2",
+    // Custom logic / ML, in Python
+    "DataProcessing",
   ],
-  agentMode: AgentMode.CODE,
+  agentMode: AgentMode.GENERAL,
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
   // per event, and every materialized result carries its schema, structural
@@ -562,7 +597,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // replaces rendered a snapshot with no value evidence, which is the failure
   // mode every context experiment traced back to.
   contextMode: ContextMode.DELTA,
-  parallelToolCalls: false,
+  parallelToolCalls: true,
   includeOperatorProperties: true,
   attemptReflection: false,
   thoughtReplay: true,

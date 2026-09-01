@@ -324,4 +324,29 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const clearedBody = await readJson<{ frontierDecayConfig?: unknown }>(cleared);
     expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
+
+  test("columnStats is readable and writable under its wire name (frontend 'Column Stats Block' toggle)", async () => {
+    const created = await readJson<{ id: string; settings: { columnStats?: boolean } }>(await createAgent());
+    expect(created.settings.columnStats).toBe(true);
+
+    // GET /settings exposes the same knob the create/info payload does.
+    const initial = await readJson<{ columnStats?: boolean; contextMode: string }>(
+      await getJson(`${API}/agents/${created.id}/settings`)
+    );
+    expect(initial.columnStats).toBe(true);
+    expect(["delta", "latest"]).toContain(initial.contextMode);
+
+    const patched = await patchJson(`${API}/agents/${created.id}/settings`, { columnStats: false });
+    expect(patched.status).toBe(200);
+    expect((await readJson<{ columnStats?: boolean }>(patched)).columnStats).toBe(false);
+
+    const reread = await readJson<{ columnStats?: boolean }>(await getJson(`${API}/agents/${created.id}/settings`));
+    expect(reread.columnStats).toBe(false);
+  });
+
+  test("rejects contextMode values outside delta|latest with 400", async () => {
+    const created = await readJson<{ id: string }>(await createAgent());
+    const res = await patchJson(`${API}/agents/${created.id}/settings`, { contextMode: "full" });
+    expect(res.status).toBe(400);
+  });
 });

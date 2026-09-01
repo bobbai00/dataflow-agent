@@ -102,6 +102,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private removeButton!: new () => joint.linkTools.Button;
   private breakpointButton!: new () => joint.linkTools.Button;
 
+  /** Screen-space gap between an operator's bottom edge and its chat popover (room for the caret). */
+  private static readonly CHAT_POPOVER_GAP_PX = 8;
+
+  /** Agent action labels currently drawn on the canvas (see
+   *  `applyAgentActionHighlight`); kept so the paint can be redone when the
+   *  canvas catches up with the agent's steps. */
+  private agentActionHighlight: {
+    agentName: string;
+    operatorIds: { viewedOperatorIds: string[]; addedOperatorIds: string[]; modifiedOperatorIds: string[] };
+  } | null = null;
+
   // Chat popover state (operator chat button)
   public chatPopoverOperator: {
     operatorId: string;
@@ -546,7 +557,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
         regionMap = event.regions.map(([id, region]) => {
           const element = new Region({ id: "region-" + id });
-          const ops = region.map(id => this.paper.getModelById(id));
+          // An operator id from the region plan may no longer be on the canvas
+          // (e.g. an agent checkout replaced the DAG) — skip it instead of
+          // crashing on `undefined.getBBox()` in updateRegionElement.
+          const ops = region.map(id => this.paper.getModelById(id)).filter((cell): cell is joint.dia.Cell => !!cell);
           this.paper.model.addCell(element);
           this.updateRegionElement(element, ops);
           return { regionElement: element, operators: ops };
@@ -1633,30 +1647,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
             this.agentService
               .getHoveredMessageOperatorsObservable(agent.id)
               .pipe(untilDestroyed(this))
-              .subscribe(({ viewedOperatorIds, addedOperatorIds, modifiedOperatorIds }) => {
-                // Clear all previous labels first
-                this.clearAllAgentActionLabels();
-
-                // Show "viewed" labels on viewed operators
-                viewedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "viewed", agent.name);
-                  }
-                });
-
-                // Show "added" labels on added operators
-                addedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "added", agent.name);
-                  }
-                });
-
-                // Show "modified" labels on modified operators
-                modifiedOperatorIds.forEach(operatorId => {
-                  if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
-                    this.jointUIService.showAgentActionLabel(this.paper, operatorId, "modified", agent.name);
-                  }
-                });
+              .subscribe(operatorIds => {
+                this.agentActionHighlight = { agentName: agent.name, operatorIds };
+                this.applyAgentActionHighlight();
               });
           });
         });
@@ -1669,6 +1662,29 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     // Initial setup
     setupAgentHoverSubscription();
+  }
+
+  /**
+   * Draw the current agent action highlight (the hovered step, or the latest
+   * step that changed the workflow), skipping operators the canvas does not
+   * have. Idempotent: every call repaints from scratch.
+   */
+  private applyAgentActionHighlight(): void {
+    this.clearAllAgentActionLabels();
+    const highlight = this.agentActionHighlight;
+    if (!highlight) {
+      return;
+    }
+    const { viewedOperatorIds, addedOperatorIds, modifiedOperatorIds } = highlight.operatorIds;
+    const show = (operatorIds: string[], actionType: "viewed" | "added" | "modified") =>
+      operatorIds.forEach(operatorId => {
+        if (this.workflowActionService.getTexeraGraph().hasOperator(operatorId)) {
+          this.jointUIService.showAgentActionLabel(this.paper, operatorId, actionType, highlight.agentName);
+        }
+      });
+    show(viewedOperatorIds, "viewed");
+    show(addedOperatorIds, "added");
+    show(modifiedOperatorIds, "modified");
   }
 
   /**
@@ -1781,10 +1797,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const scale = this.paper.scale();
     const translate = this.paper.translate();
 
-    // Position popover below the operator, centered horizontally
-    // Add extra offset for the display name text below the operator box
+    // Position popover directly below the operator body, centered horizontally.
+    // The display name lives inside the box, so only a small screen-space gap
+    // (for the popover's caret) separates the two.
     const screenX = (bbox.x + bbox.width / 2) * scale.sx + translate.tx;
-    const screenY = (bbox.y + bbox.height) * scale.sy + translate.ty + 40;
+    const screenY = (bbox.y + bbox.height) * scale.sy + translate.ty + WorkflowEditorComponent.CHAT_POPOVER_GAP_PX;
 
     return { x: screenX, y: screenY };
   }
@@ -1802,7 +1819,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   getOperatorResultStatistics(operatorId: string): Record<string, string> | undefined {
-    return this.operatorSummaries.get(operatorId)?.resultStatistics;
+    return this.operatorSummaries.get(operatorId)?.columnStats;
   }
 
   isOperatorVisualization(operatorId: string): boolean {

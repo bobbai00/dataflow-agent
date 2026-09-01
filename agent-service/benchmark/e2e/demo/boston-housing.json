@@ -1,0 +1,26 @@
+{
+ "name": "boston-housing",
+ "workflowName": "Demo: Boston house values (agent)",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "turns": [
+  {
+   "say": "whats actually in this file? /agent-demo@texera.dev/boston-housing/v1/boston_single_family_fy2026.csv"
+  },
+  {
+   "say": "ok cool. which neighborhoods are the expensive ones? bar chart pls"
+  },
+  {
+   "say": "hmm that's a bit misleading, a couple of those barely have any houses in them. drop anything with fewer than 200 homes and sort it high to low"
+  },
+  {
+   "say": "does size actually drive the price here? plot living area against value"
+  },
+  {
+   "say": "the mansions are squashing everything, cut it off at 4000 sqft"
+  },
+  {
+   "say": "last thing - can you predict a home's value from its features? just tell me how good it gets"
+  }
+ ]
+}

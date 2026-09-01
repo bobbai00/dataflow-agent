@@ -1,0 +1,53 @@
+{
+ "name": "titanic-simple",
+ "workflowName": "Demo (simple): Titanic checkout",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "allowedOperatorTypes": [
+  "CSVFileScan",
+  "Filter",
+  "Projection",
+  "TypeCasting",
+  "Sort",
+  "Limit",
+  "Distinct",
+  "Union",
+  "HashJoin",
+  "Aggregate",
+  "LineChart",
+  "BarChart",
+  "PieChart",
+  "Histogram",
+  "Scatterplot",
+  "PythonUDFV2",
+  "PythonUDFSourceV2",
+  "Split",
+  "SklearnTrainingLogisticRegression",
+  "SklearnTrainingRandomForest",
+  "SklearnPrediction",
+  "Scorer"
+ ],
+ "turns": [
+  {
+   "say": "Load /agent-demo@texera.dev/titanic/v1/titanic.csv and show survival rate by passenger class as a bar chart."
+  },
+  {
+   "say": "Build a numeric feature table: encode Sex as sex_num, then keep only Survived, Pclass, sex_num, Age, SibSp, Parch and Fare. Drop rows with a missing Age."
+  },
+  {
+   "say": "Train a logistic regression on an 80/20 split with seed 1 and score it."
+  },
+  {
+   "say": "Let's simplify the features: keep only Survived, Age and Fare. Retrain and score."
+  },
+  {
+   "checkout": 3
+  },
+  {
+   "say": "Keep the logistic regression, but fill missing Age with 28 instead of dropping those rows."
+  },
+  {
+   "say": "Did keeping those passengers help? Compare with the previous accuracy."
+  }
+ ]
+}

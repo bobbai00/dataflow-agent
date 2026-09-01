@@ -50,6 +50,12 @@ class MockAgentService {
   public scrollToStep$ = this.scrollToStepSubject.asObservable();
 
   public ensureWorkflowPolling = vi.fn();
+  public checkoutStep = vi.fn((): Observable<unknown> => of({ status: "checked out" }));
+  public nextContextSubject = new BehaviorSubject<string>("");
+  public getNextContextObservable = vi.fn((): Observable<string> => this.nextContextSubject.asObservable());
+  public getSnapshotTree = vi.fn((): Observable<{ rootId: string; nodes: unknown[] }> => of({ rootId: "", nodes: [] }));
+  public importReActSteps = vi.fn((): Observable<unknown> => of({ headId: "h", importedCount: 0 }));
+  public sendDebugInput = vi.fn();
   public getAgentState = vi.fn((): Observable<AgentState> => of(this.stateSubject.getValue()));
   public getAgentStateObservable = vi.fn((): Observable<AgentState> => this.stateSubject.asObservable());
   public getReActStepsObservable = vi.fn((): Observable<ReActStep[]> => this.stepsSubject.asObservable());
@@ -246,14 +252,15 @@ describe("AgentChatComponent", () => {
   });
 
   describe("step subscription and hovered-message tracking", () => {
-    it("auto-advances the hover highlight to the latest step on new emissions", () => {
+    it("leaves the canvas highlight alone on new emissions", () => {
       createComponent();
       const steps = [makeStep({ stepId: 0 }), makeStep({ stepId: 1 }), makeStep({ stepId: 2 })];
       agentService.stepsSubject.next(steps);
 
       expect(component.agentResponses).toEqual(steps);
-      expect(component.hoveredMessageIndex).toBe(2);
-      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, steps[2]);
+      // Highlighting follows the pointer only — arriving steps never claim it.
+      expect(component.hoveredMessageIndex).toBeNull();
+      expect(agentService.setHoveredMessage).not.toHaveBeenCalled();
     });
 
     it("keeps a manually hovered non-latest step across the next emission", () => {
@@ -268,27 +275,37 @@ describe("AgentChatComponent", () => {
       expect(component.hoveredMessageIndex).toBe(0);
     });
 
-    it("advances a hover that was sitting on the previous latest step", () => {
+    it("keeps a hover on the latest step across the next emission", () => {
       createComponent();
       const steps = [makeStep({ stepId: 0 }), makeStep({ stepId: 1 })];
       agentService.stepsSubject.next(steps);
-      expect(component.hoveredMessageIndex).toBe(1);
+      component.setHoveredMessage(1);
 
-      const more = [...steps, makeStep({ stepId: 2 })];
-      agentService.stepsSubject.next(more);
-      expect(component.hoveredMessageIndex).toBe(2);
-      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, more[2]);
+      agentService.stepsSubject.next([...steps, makeStep({ stepId: 2 })]);
+      expect(component.hoveredMessageIndex).toBe(1);
+      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, steps[1]);
     });
 
-    it("reverts to the latest step when unhovered (null)", () => {
+    it("clears the highlight when unhovered (null)", () => {
       createComponent();
       const steps = [makeStep({ stepId: 0 }), makeStep({ stepId: 1 }), makeStep({ stepId: 2 })];
       agentService.stepsSubject.next(steps);
       component.setHoveredMessage(0);
 
       component.setHoveredMessage(null);
-      expect(component.hoveredMessageIndex).toBe(2);
-      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, steps[2]);
+      expect(component.hoveredMessageIndex).toBeNull();
+      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, null);
+    });
+
+    it("drops a hover left dangling past the end of the visible steps", () => {
+      createComponent();
+      const steps = [makeStep({ stepId: 0 }), makeStep({ stepId: 1 }), makeStep({ stepId: 2 })];
+      agentService.stepsSubject.next(steps);
+      component.setHoveredMessage(2);
+
+      agentService.stepsSubject.next([steps[0]]);
+      expect(component.hoveredMessageIndex).toBeNull();
+      expect(agentService.setHoveredMessage).toHaveBeenLastCalledWith(AGENT_ID, null);
     });
   });
 
@@ -664,8 +681,11 @@ describe("AgentChatComponent", () => {
   describe("exportReActSteps", () => {
     it("warns and skips the fetch when there is nothing to export", () => {
       createComponent();
-      // Exercise the template binding too: the export button is the second toolbar button.
-      const exportButton = fixture.nativeElement.querySelectorAll(".chat-toolbar button")[1] as HTMLButtonElement;
+      // Exercise the template binding too: locate the export button by its tooltip
+      // rather than by position (the toolbar also has play/import buttons).
+      const exportButton = fixture.nativeElement.querySelector(
+        '.chat-toolbar button[nztooltiptitle="Export ReAct steps as JSON"]'
+      ) as HTMLButtonElement;
       exportButton.click();
       expect(notification.warning).toHaveBeenCalledWith("No ReAct steps to export");
       expect(agentService.getReActSteps).not.toHaveBeenCalled();
@@ -777,8 +797,11 @@ describe("AgentChatComponent", () => {
       expect(messages[1].classList.contains("ai-message")).toBe(true);
       expect(messages[1].textContent).toContain("Test Agent");
       expect(messages[1].textContent).toContain("hi human");
-      expect(messages[1].textContent).toContain("Execute 1 tool");
-      // The latest step is auto-hovered, so its details button is visible.
+      expect(messages[1].textContent).toContain("Add 1 operator");
+      // The details button belongs to the hovered row only.
+      expect(messages[1].querySelector("button")).toBeNull();
+      component.setHoveredMessage(1);
+      fixture.detectChanges();
       expect(messages[1].querySelector("button")).toBeTruthy();
     });
 
@@ -817,13 +840,19 @@ describe("AgentChatComponent", () => {
       const warning = fixture.nativeElement.querySelector(".connection-warning");
       expect(warning).toBeTruthy();
       expect(warning.textContent).toContain("Agent is disconnected. Please check your connection.");
-      // Clear button (*ngIf isAvailable) is gone: only info + export remain.
-      expect(fixture.nativeElement.querySelectorAll(".chat-toolbar button").length).toBe(2);
+      // Clear button (*ngIf isAvailable) is gone: info + play + export + import remain.
+      expect(fixture.nativeElement.querySelectorAll(".chat-toolbar button").length).toBe(4);
+      expect(
+        fixture.nativeElement.querySelector('.chat-toolbar button[nztooltiptitle="Clear chat history"]')
+      ).toBeNull();
 
       agentService.stateSubject.next(AgentState.AVAILABLE);
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector(".connection-warning")).toBeNull();
-      expect(fixture.nativeElement.querySelectorAll(".chat-toolbar button").length).toBe(3);
+      expect(fixture.nativeElement.querySelectorAll(".chat-toolbar button").length).toBe(5);
+      expect(
+        fixture.nativeElement.querySelector('.chat-toolbar button[nztooltiptitle="Clear chat history"]')
+      ).toBeTruthy();
     });
 
     it("disables the send button until there is input and the agent is available", () => {
@@ -845,7 +874,9 @@ describe("AgentChatComponent", () => {
 
     it("clear button delegates to the service", () => {
       createComponent();
-      const clearButton = fixture.nativeElement.querySelectorAll(".chat-toolbar button")[2] as HTMLButtonElement;
+      const clearButton = fixture.nativeElement.querySelector(
+        '.chat-toolbar button[nztooltiptitle="Clear chat history"]'
+      ) as HTMLButtonElement;
       clearButton.click();
       expect(agentService.clearMessages).toHaveBeenCalledWith(AGENT_ID);
     });
@@ -928,7 +959,8 @@ describe("AgentChatComponent", () => {
         expect(paramsText).toContain("Max Steps per Message");
 
         clickTab("Operators");
-        expect(document.querySelectorAll("nz-switch").length).toBe(2);
+        // Scope to the modal: the chat's own Debug-mode nz-switch lives outside it.
+        expect(document.querySelectorAll(".ant-modal .ant-tabs-tabpane-active nz-switch").length).toBe(2);
         const operatorsText = document.body.textContent ?? "";
         // Sorted alphabetically: CSVScan renders before PythonUDF.
         expect(operatorsText.indexOf("CSVScan")).toBeGreaterThan(-1);
@@ -937,9 +969,113 @@ describe("AgentChatComponent", () => {
         // A query with no matches renders the empty-state hint instead of rows.
         component.operatorTypeSearchQuery = "nomatch-xyz";
         flushOverlay();
-        expect(document.querySelectorAll("nz-switch").length).toBe(0);
+        expect(document.querySelectorAll(".ant-modal .ant-tabs-tabpane-active nz-switch").length).toBe(0);
         expect(document.body.textContent).toContain('No operators match "nomatch-xyz"');
       });
+    });
+  });
+
+  describe("snapshot tree layout", () => {
+    /** s1 → s2 → {s3, s5}; s5 forks off s2 after s3/s4 already exist. */
+    const branchingTree = [
+      { id: "s1", parentId: undefined, reactStepId: "r1", operatorCount: 1, resultCount: 0, timestamp: 1000 },
+      { id: "s2", parentId: "s1", reactStepId: "r2", operatorCount: 2, resultCount: 0, timestamp: 2000 },
+      { id: "s3", parentId: "s2", reactStepId: "r3", operatorCount: 3, resultCount: 0, timestamp: 3000 },
+      { id: "s4", parentId: "s3", reactStepId: "r4", operatorCount: 4, resultCount: 0, timestamp: 4000 },
+      { id: "s5", parentId: "s2", reactStepId: "r5", operatorCount: 3, resultCount: 0, timestamp: 5000 },
+    ];
+
+    it("orders rows chronologically, parents before children", () => {
+      // Deliberately shuffled input: order must come from timestamps, not array order.
+      const shuffled = [branchingTree[4], branchingTree[1], branchingTree[3], branchingTree[0], branchingTree[2]];
+      expect(AgentChatComponent.orderSnapshotsByTime(shuffled).map(n => n.id)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    });
+
+    it("never places a child above its parent, even when the child's timestamp is older or missing", () => {
+      const skewed = [
+        { id: "p", parentId: undefined, reactStepId: "r1", operatorCount: 1, resultCount: 0, timestamp: 5000 },
+        { id: "c", parentId: "p", reactStepId: "r2", operatorCount: 2, resultCount: 0, timestamp: 1000 },
+        { id: "g", parentId: "c", reactStepId: "r3", operatorCount: 3, resultCount: 0, timestamp: null },
+      ];
+      expect(AgentChatComponent.orderSnapshotsByTime(skewed).map(n => n.id)).toEqual(["p", "c", "g"]);
+    });
+
+    it("keeps a linear chain in one lane and gives each fork the next lane", () => {
+      const ordered = AgentChatComponent.orderSnapshotsByTime(branchingTree);
+      const lanes = AgentChatComponent.assignSnapshotLanes(ordered);
+      expect([lanes.get("s1"), lanes.get("s2"), lanes.get("s3"), lanes.get("s4")]).toEqual([0, 0, 0, 0]);
+      // s5 is s2's second child → its own lane, so the fork is visible on x.
+      expect(lanes.get("s5")).toBe(1);
+    });
+
+    it("keeps the tree shape unchanged across a checkout, moving only the highlight", () => {
+      // Steps r1..r5 mirror the snapshots; r5 branches off r2 like s5 off s2.
+      component.agentResponses = [
+        { id: "r1", parentId: undefined },
+        { id: "r2", parentId: "r1" },
+        { id: "r3", parentId: "r2" },
+        { id: "r4", parentId: "r3" },
+        { id: "r5", parentId: "r2" },
+      ] as any;
+      component.snapshotTree = { rootId: "s1", nodes: branchingTree };
+
+      // HEAD on the branch tip...
+      component.currentHeadId = "r5";
+      component.buildSnapshotTree();
+      const branchLayout = component.snapshotNodes.map(n => ({ id: n.id, x: n.x, y: n.y }));
+      const branchEdges = component.snapshotEdges.map(e => e.path);
+      expect(component.snapshotNodes.find(n => n.isActive)!.id).toBe("s5");
+
+      // ...then checked out to the other branch's tip.
+      component.currentHeadId = "r4";
+      component.buildSnapshotTree();
+      expect(component.snapshotNodes.map(n => ({ id: n.id, x: n.x, y: n.y }))).toEqual(branchLayout);
+      expect(component.snapshotEdges.map(e => e.path)).toEqual(branchEdges);
+      // Only the highlight moved.
+      expect(component.snapshotNodes.find(n => n.isActive)!.id).toBe("s4");
+      expect(component.snapshotNodes.filter(n => n.isOnActivePath).map(n => n.id)).toEqual(["s1", "s2", "s3", "s4"]);
+    });
+
+    it("routes a fork away from its parent's lane immediately", () => {
+      component.snapshotTree = { rootId: "s1", nodes: branchingTree };
+      component.buildSnapshotTree();
+
+      const nodeX = new Map(component.snapshotNodes.map(n => [n.id, n.x]));
+      const fork = component.snapshotEdges.find(e => e.sourceId === "s2" && e.targetId === "s5")!;
+      expect(nodeX.get("s5")).not.toBe(nodeX.get("s2"));
+      // The path bends into the child's lane first, then drops: the only
+      // straight segment ("L") is the vertical run at the child's x.
+      expect(fork.path).toContain(`L ${nodeX.get("s5")} `);
+      expect(fork.path.startsWith(`M ${nodeX.get("s2")} `)).toBe(true);
+    });
+
+    it("gives every snapshot its own y, with the time axis labelling each row", () => {
+      component.snapshotTree = { rootId: "s1", nodes: branchingTree };
+      component.buildSnapshotTree();
+
+      expect(component.snapshotNodes.length).toBe(5);
+      const ys = component.snapshotNodes.map(n => n.y);
+      expect(new Set(ys).size).toBe(ys.length); // no two nodes share a level
+      expect([...ys]).toEqual([...ys].sort((a, b) => a - b)); // rows increase with time
+      expect(component.snapshotNodes.map(n => n.id)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+      // Rows never overlap vertically.
+      for (let i = 1; i < ys.length; i++) {
+        expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(component.snapshotNodes[i].height);
+      }
+      expect(component.snapshotTimeRows.map(r => r.y)).toEqual(ys);
+      expect(component.snapshotEdges.length).toBe(4);
+      expect(component.treeHeight).toBeGreaterThan(ys[ys.length - 1]);
+    });
+
+    it("labels a repeated clock time only on its first row", () => {
+      const sameSecond = [
+        { id: "a", parentId: undefined, reactStepId: "r1", operatorCount: 1, resultCount: 0, timestamp: 1000 },
+        { id: "b", parentId: "a", reactStepId: "r2", operatorCount: 2, resultCount: 0, timestamp: 1000 },
+      ];
+      component.snapshotTree = { rootId: "a", nodes: sameSecond };
+      component.buildSnapshotTree();
+      expect(component.snapshotTimeRows[0].label).not.toBe("");
+      expect(component.snapshotTimeRows[1].label).toBe("");
     });
   });
 });

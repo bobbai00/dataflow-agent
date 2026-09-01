@@ -571,8 +571,45 @@ _detect_host_lan_ip() {
 # host-reachable S3 endpoint (cmd_up, cmd_auto). Subcommands like
 # `version`, `status`, `--help`, or `-i` don't talk to MinIO and shouldn't
 # refuse to run just because the laptop is offline.
+#
+# The S3 endpoint has to be ONE string that resolves both inside docker
+# (lakekeeper does S3 ops) and on the host (the JVMs read signed URLs back), so
+# it defaults to the host's LAN IP. That IP changes whenever the machine hops
+# networks or renews a DHCP lease, and the running stack has it baked into every
+# JVM's env plus Lakekeeper's stored warehouse profile — so execution starts
+# failing with an opaque Iceberg RESTException while every service still reports
+# "running" (#6195).
+#
+# The permanent way out is a name that resolves on both sides. `texera-minio`
+# already resolves inside the compose network; add the matching loopback entry on
+# the host and the LAN IP stops mattering:
+#
+#     echo '127.0.0.1 texera-minio' | sudo tee -a /etc/hosts
+#
+# When that entry exists we use `http://texera-minio:9000` and never touch the
+# LAN IP again. Everything below is the fallback for hosts without it.
+_host_resolves_minio_alias() {
+    # Only trust an entry that maps the alias onto loopback: anything else (a
+    # real DNS record, a stale office-network entry) would send the host JVMs
+    # somewhere that is not this machine's published MinIO port.
+    grep -qE '^[[:space:]]*(127\.0\.0\.1|::1)[[:space:]]+([^#]*[[:space:]])?texera-minio([[:space:]]|$)' /etc/hosts 2>/dev/null
+}
+
 _require_host_lan_ip() {
-    [[ -n "${HOST_LAN_IP:-}" ]] && return 0
+    if [[ -z "${HOST_LAN_IP:-}" ]] && [[ -z "${STORAGE_S3_ENDPOINT:-}" ]] && _host_resolves_minio_alias; then
+        # Stable path: no LAN IP involved, so a network change cannot stale it.
+        export STORAGE_S3_ENDPOINT="http://texera-minio:9000"
+        return 0
+    fi
+    if [[ -n "${HOST_LAN_IP:-}" ]]; then
+        # Caller pinned the IP explicitly. Still derive STORAGE_S3_ENDPOINT from
+        # it — returning early here used to leave the variable unset, so docker
+        # compose fell back to bin/single-node/.env's `texera-minio` and
+        # lakekeeper-init baked an endpoint the host JVMs cannot resolve.
+        export HOST_LAN_IP
+        export STORAGE_S3_ENDPOINT="${STORAGE_S3_ENDPOINT:-http://$HOST_LAN_IP:9000}"
+        return 0
+    fi
     HOST_LAN_IP="$(_detect_host_lan_ip)" || HOST_LAN_IP=""
     if [[ -z "$HOST_LAN_IP" ]]; then
         local probes="" bridge_note=""
@@ -2422,6 +2459,41 @@ emit_status_json() {
     (( n_running == n_total ))
 }
 
+# Warn when the S3 endpoint the RUNNING stack baked in no longer points at this
+# machine. Symptom otherwise: every service reports "running" but each workflow
+# execution hangs ~30s and dies with an opaque Iceberg RESTException, because the
+# JVMs and Lakekeeper hold an address the host has since moved off of. Silent
+# until it actually matters, and never fatal — `status` must work offline.
+_status_check_s3_endpoint_drift() {
+    local n_running="${1:-0}"
+    (( n_running > 0 )) || return 0
+
+    local baked=""
+    baked="$(curl -sf -m 3 "http://localhost:8181/management/v1/warehouse" 2>/dev/null |
+        grep -oE '"endpoint":[[:space:]]*"[^"]+"' | head -1 |
+        sed -E 's/.*"endpoint":[[:space:]]*"([^"]+)".*/\1/')" || baked=""
+    [[ -n "$baked" ]] || return 0
+
+    local baked_host=""
+    baked_host="$(printf '%s' "$baked" | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
+    [[ -n "$baked_host" ]] || return 0
+
+    # A hostname (the `texera-minio` alias) cannot go stale with the IP.
+    [[ "$baked_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+
+    local current=""
+    current="$(_detect_host_lan_ip 2>/dev/null)" || current=""
+    [[ -n "$current" && "$current" != "$baked_host" ]] || return 0
+
+    printf "\n"
+    printf "  ${YELLOW}${BOLD}!${RESET}  ${YELLOW}S3 endpoint is stale — workflow execution WILL fail.${RESET}\n"
+    printf "     ${DIM}baked into the running stack:${RESET} %s\n" "$baked_host"
+    printf "     ${DIM}this host's LAN IP now:${RESET}       %s\n" "$current"
+    printf "     ${DIM}fix (docker volumes are kept):${RESET} ${BOLD}bin/local-dev.sh down && bin/local-dev.sh up --skip-build${RESET}\n"
+    printf "     ${DIM}permanent fix, then the IP stops mattering:${RESET}\n"
+    printf "       ${BOLD}echo '127.0.0.1 texera-minio' | sudo tee -a /etc/hosts${RESET}\n"
+}
+
 cmd_status() {
     case "${1:-}" in
         --json) emit_status_json; return $? ;;
@@ -2497,6 +2569,8 @@ cmd_status() {
     (( n_running == n_total )) && summary_color="$GREEN"
     (( n_running == 0 )) && summary_color="$GRAY"
     printf "  ${BOLD}Status${RESET}: ${summary_color}%d of %d services running${RESET}\n" "$n_running" "$n_total"
+
+    _status_check_s3_endpoint_drift "$n_running"
 
     printf "\n"
     printf "  ${CYAN}${SYM_LIST}${RESET}  Logs:    ${DIM}%s${RESET}\n" "$LOG_DIR/<service>.log"

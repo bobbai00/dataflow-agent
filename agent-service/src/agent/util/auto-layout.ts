@@ -25,12 +25,12 @@ import type { WorkflowState } from "../workflow-state";
 const LAYOUT_CONFIG: dagre.GraphLabel = {
   nodesep: 100,
   edgesep: 150,
-  ranksep: 80,
+  ranksep: 90,
   ranker: "tight-tree",
   rankdir: "LR",
 };
 
-const NODE_WIDTH = 200;
+const NODE_WIDTH = 210;
 const NODE_HEIGHT = 80;
 
 export function autoLayoutWorkflow(workflowState: WorkflowState): void {

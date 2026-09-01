@@ -65,10 +65,10 @@ describe("AgentRegistrationComponent", () => {
     component = fixture.componentInstance;
   });
 
-  it("should create and default customAgentName to 'Texera Agent'", () => {
+  it("should create and default customAgentName to 'Bob'", () => {
     fixture.detectChanges();
     expect(component).toBeTruthy();
-    expect(component.customAgentName).toBe("Texera Agent");
+    expect(component.customAgentName).toBe("Bob");
   });
 
   describe("ngOnInit", () => {
@@ -128,7 +128,7 @@ describe("AgentRegistrationComponent", () => {
 
       component.createAgent();
 
-      expect(createAgent).toHaveBeenCalledWith("gpt", "Texera Agent", 123);
+      expect(createAgent).toHaveBeenCalledWith("gpt", "Bob", 123);
       expect(emitted).toEqual(["agent-1"]);
       expect(component.selectedModelType).toBeNull();
       expect(component.isCreating).toBe(false);

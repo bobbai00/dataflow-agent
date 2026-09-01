@@ -1,0 +1,26 @@
+{
+ "name": "northwind-simple",
+ "workflowName": "Demo (simple): Northwind revenue views",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "turns": [
+  {
+   "say": "Load /agent-demo@texera.dev/northwind/v1/orders.csv and /agent-demo@texera.dev/northwind/v1/order_details.csv, then join them on orderID."
+  },
+  {
+   "say": "Add a revenue column = unitPrice * quantity * (1 - discount)."
+  },
+  {
+   "say": "Show revenue by shipCountry as a bar chart."
+  },
+  {
+   "say": "Add a second view: revenue by employeeID as a pie chart."
+  },
+  {
+   "say": "Add a third view: revenue by month of orderDate as a line chart."
+  },
+  {
+   "say": "Which country and which month earn the most?"
+  }
+ ]
+}

@@ -34,9 +34,13 @@
   margin-bottom: 10px;
 }
 
+// Kept short on purpose: this panel lives in a popover capped at 480px, and a
+// 450px-tall chart pushed the agent picker and the feedback box below the fold —
+// they were only reachable by scrolling inside the popover, so the panel looked
+// like it had no feedback input at all.
 .visualization-iframe {
   width: 100%;
-  height: 450px;
+  height: 260px;
   border: 1px solid #e8e8e8;
   border-radius: 4px;
   background: #fff;
@@ -228,12 +232,19 @@
   }
 }
 
+// Pinned to the bottom of the scrolling popover so the feedback box is always
+// on screen, no matter how tall the result preview above it is.
 .input-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   border-top: 1px solid #f0f0f0;
   padding-top: 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fafafa;
+  padding-bottom: 4px;
 }
 
 .feedback-input {
@@ -265,7 +276,11 @@
   }
 }
 
+// Same reason as `.input-section`: this is the other bottom-of-panel state.
 .not-connected-message {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;

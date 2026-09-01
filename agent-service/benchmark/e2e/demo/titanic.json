@@ -1,0 +1,56 @@
+{
+ "name": "titanic",
+ "workflowName": "Demo: Titanic survival (agent)",
+ "agentName": "Bob",
+ "maxSteps": 60,
+ "allowedOperatorTypes": [
+  "CSVFileScan",
+  "Filter",
+  "Projection",
+  "TypeCasting",
+  "Sort",
+  "Limit",
+  "Distinct",
+  "Union",
+  "KeywordSearch",
+  "HashJoin",
+  "Aggregate",
+  "LineChart",
+  "BarChart",
+  "PieChart",
+  "Histogram",
+  "Scatterplot",
+  "WordCloud",
+  "PythonUDFV2",
+  "PythonUDFSourceV2",
+  "DataLoading",
+  "DataProcessing",
+  "Split",
+  "SklearnTrainingLogisticRegression",
+  "SklearnTrainingKNN",
+  "SklearnTrainingRandomForest",
+  "SklearnTrainingDecisionTree",
+  "SklearnPrediction",
+  "Scorer"
+ ],
+ "turns": [
+  {
+   "say": "Load /agent-demo@texera.dev/titanic/v1/titanic.csv and show me the survival rate by passenger class and by sex, with a bar chart for the class breakdown."
+  },
+  {
+   "say": "Build a numeric feature table for modeling: encode Sex as sex_num (female=1) with a Python UDF, then keep only Survived, Pclass, sex_num, Age, SibSp, Parch and Fare with a Projection and drop rows with missing Age with a Filter. Also add a histogram of Age colored by Survived."
+  },
+  {
+   "say": "Train a logistic regression to predict Survived using an 80/20 split (seed 1), score it on the held-out 20% and report accuracy, precision, recall and F1."
+  },
+  {
+   "checkout": 2
+  },
+  {
+   "say": "Same pipeline, but with a random forest instead. Does it beat the logistic regression?"
+  },
+  {
+   "say": "Instead of dropping passengers with a missing Age, fill it with 28 in a UDF, rerun the random forest and compare with the previous version."
+  }
+ ]
+}

@@ -157,7 +157,9 @@ class MachineLearningScorerOpDesc extends PythonOperatorDescriptor {
          |  # if the label is not a string, convert it to string
          |  labels = ['class_' + str(label) if type(label) != str else label for label in labels]
          |  result['Class'] = labels
-         |  result_df = pd.DataFrame(result)
+         |  # Column order must match the declared output schema: 'Class' first,
+         |  # then the metrics in the order they were selected.
+         |  result_df = pd.DataFrame(result)[['Class'] + metric_list]
          |
          |  return result_df
          |

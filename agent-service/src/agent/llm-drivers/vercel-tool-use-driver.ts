@@ -76,7 +76,7 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, toolCalls, toolResults, usage, response }) => {
+      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
         // Anthropic cache WRITES (billed 1.25x input). LiteLLM reports them as
         // prompt_tokens_details.cache_creation_tokens, a non-standard extension
         // the SDK's typed usage object drops — but the raw parsed HTTP body is
@@ -84,11 +84,12 @@ export class VercelToolUseDriver implements LLMDriver {
         const stepCacheCreation = Number(
           (response as any)?.body?.usage?.prompt_tokens_details?.cache_creation_tokens ??
             (response as any)?.body?.usage?.cache_creation_input_tokens ??
-            0,
+            0
         );
         cacheCreationTotal += stepCacheCreation;
         await input.onStepFinish({
           text: text || "",
+          reasoningText: reasoningText || undefined,
           toolCalls: toolCalls?.map(tc => ({
             toolName: tc.toolName,
             toolCallId: tc.toolCallId,
@@ -96,8 +97,7 @@ export class VercelToolUseDriver implements LLMDriver {
           })),
           toolResults: toolResults?.map(tr => {
             const outputStr = typeof tr.output === "string" ? tr.output : "";
-            const isError =
-              !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
+            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
             return {
               toolCallId: tr.toolCallId,
               output: tr.output,

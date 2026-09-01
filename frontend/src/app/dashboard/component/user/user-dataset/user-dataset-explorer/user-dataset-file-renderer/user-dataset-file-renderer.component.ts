@@ -72,7 +72,9 @@ export const MIME_TYPE_SIZE_LIMITS_MB = {
   [MIME_TYPES.PNG]: 5 * 1024 * 1024, // 5 MB
   [MIME_TYPES.WEBP]: 5 * 1024 * 1024, // 5 MB
   [MIME_TYPES.GIF]: 10 * 1024 * 1024, // 10 MB
-  [MIME_TYPES.CSV]: 2 * 1024 * 1024, // 2 MB for text-based data files
+  // CSV previews are paginated by nz-table (10 rows per page), so a larger cap costs
+  // parse time and memory, not DOM nodes.
+  [MIME_TYPES.CSV]: 10 * 1024 * 1024, // 10 MB for text-based data files
   [MIME_TYPES.TXT]: 1 * 1024 * 1024, // 1 MB for plain text files
   [MIME_TYPES.MD]: 1 * 1024 * 1024, // 1 MB for MD files
   [MIME_TYPES.JSON]: 1 * 1024 * 1024, // 1 MB for JSON files
