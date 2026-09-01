@@ -1,0 +1,17 @@
+{
+ "name": "boston-price-ml",
+ "workflowName": "Demo: Boston price model (train + inference)",
+ "agentName": "Bob",
+ "maxSteps": 40,
+ "turns": [
+  {
+   "say": "i have two files. /agent-demo@texera.dev/boston-price-ml/v1/boston_train.csv has home features plus TOTAL_VALUE, and /agent-demo@texera.dev/boston-price-ml/v1/boston_inference.csv has the same features but no price column. load both and tell me what im working with"
+  },
+  {
+   "say": "train a model on the training file to predict TOTAL_VALUE, then use it to predict the prices for every home in the inference file. i want PID and the predicted value out the other end"
+  },
+  {
+   "say": "how much should i trust these numbers? show me the training metrics and the range of what you predicted"
+  }
+ ]
+}

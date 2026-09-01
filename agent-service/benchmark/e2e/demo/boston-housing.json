@@ -5,22 +5,22 @@
  "maxSteps": 40,
  "turns": [
   {
-   "say": "whats actually in this file? /agent-demo@texera.dev/boston-housing/v1/boston_single_family_fy2026.csv"
+   "say": "whats in this file? /agent-demo@texera.dev/boston-housing-demo/v4/boston_single_family_fy2026_demo.csv"
   },
   {
-   "say": "ok cool. which neighborhoods are the expensive ones? bar chart pls"
+   "say": "which neighborhoods are the pricey ones? bar chart pls"
   },
   {
-   "say": "hmm that's a bit misleading, a couple of those barely have any houses in them. drop anything with fewer than 200 homes and sort it high to low"
+   "say": "roslindale being #1 makes no sense to me. show me the distribution of home values in roslindale"
   },
   {
-   "say": "does size actually drive the price here? plot living area against value"
+   "say": "yeah those are junk - a single family home isnt worth $100 million. drop anything over 10 million and redo the neighborhood chart"
   },
   {
-   "say": "the mansions are squashing everything, cut it off at 4000 sqft"
+   "say": "how many rows did that throw away? and check the other neighborhoods have the same problem or not"
   },
   {
-   "say": "last thing - can you predict a home's value from its features? just tell me how good it gets"
+   "say": "ok good. now on the clean data, can you predict a home's value from its size and rooms? just tell me how good it gets"
   }
  ]
 }

@@ -1101,6 +1101,67 @@ describe("AgentChatComponent", () => {
       expect(lanes.get("s5")).toBe(1);
     });
 
+    it("checks out the last step of the snapshot's own turn, not the next turn's request", () => {
+      createComponent();
+      // Two turns. Snapshot S1 is owned by a1 (the only action-bearing step of
+      // turn m1); f1 is that turn's action-less final reply. u2 opens turn m2.
+      component.agentResponses = [
+        { id: "u1", parentId: undefined, messageId: "m1", role: "user", timestamp: new Date(1) },
+        {
+          id: "a1",
+          parentId: "u1",
+          messageId: "m1",
+          role: "agent",
+          toolCalls: [{ toolName: "addOperator" }],
+          timestamp: new Date(2),
+        },
+        { id: "f1", parentId: "a1", messageId: "m1", role: "agent", timestamp: new Date(3) },
+        { id: "u2", parentId: "f1", messageId: "m2", role: "user", timestamp: new Date(4) },
+        {
+          id: "a2",
+          parentId: "u2",
+          messageId: "m2",
+          role: "agent",
+          toolCalls: [{ toolName: "addOperator" }],
+          timestamp: new Date(5),
+        },
+      ] as any;
+      component.snapshotTree = {
+        rootId: "root",
+        nodes: [
+          { id: "S1", parentId: "root", reactStepId: "a1" },
+          { id: "S2", parentId: "S1", reactStepId: "a2" },
+        ],
+      } as any;
+
+      component.onSnapshotNodeClick({ id: "S1", reactStepId: "a1" } as any);
+
+      // f1 — the deepest step of turn m1. Checking out u2 would show a request
+      // this snapshot predates and branch the next turn off it.
+      expect(agentService.checkoutStep).toHaveBeenLastCalledWith(AGENT_ID, "f1");
+    });
+
+    it("checks out the owning step itself when its turn produced nothing after it", () => {
+      createComponent();
+      component.agentResponses = [
+        { id: "u1", parentId: undefined, messageId: "m1", role: "user", timestamp: new Date(1) },
+        {
+          id: "a1",
+          parentId: "u1",
+          messageId: "m1",
+          role: "agent",
+          toolCalls: [{ toolName: "addOperator" }],
+          timestamp: new Date(2),
+        },
+        { id: "u2", parentId: "a1", messageId: "m2", role: "user", timestamp: new Date(3) },
+      ] as any;
+      component.snapshotTree = { rootId: "root", nodes: [{ id: "S1", parentId: "root", reactStepId: "a1" }] } as any;
+
+      component.onSnapshotNodeClick({ id: "S1", reactStepId: "a1" } as any);
+
+      expect(agentService.checkoutStep).toHaveBeenLastCalledWith(AGENT_ID, "a1");
+    });
+
     it("keeps the tree shape unchanged across a checkout, moving only the highlight", () => {
       // Steps r1..r5 mirror the snapshots; r5 branches off r2 like s5 off s2.
       component.agentResponses = [

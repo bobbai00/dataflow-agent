@@ -1458,8 +1458,16 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       }
       return undefined;
     };
+    const ownerStep = reactStepId ? stepMap.get(reactStepId) : undefined;
     return this.agentResponses
       .filter(s => associatedOwner(s.id) === reactStepId)
+      // A group must never cross a turn boundary. Only action-bearing steps own
+      // snapshots, so the *next* turn's request — a user message — resolves to
+      // this turn's snapshot; checking out the deepest member would then park
+      // HEAD on a question this snapshot predates, showing it in the transcript
+      // and branching the following turn off it. Every step of a turn carries
+      // that turn's `messageId`, so the owner's id fences the group.
+      .filter(s => !ownerStep || s.messageId === ownerStep.messageId)
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
 

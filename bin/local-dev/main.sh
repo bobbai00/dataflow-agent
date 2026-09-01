@@ -97,7 +97,8 @@
 #   agent-service                  :3001  Bun --watch (cd agent-service && bun run dev)
 #   frontend                       :4200  ng serve via cd frontend && yarn start
 #
-# Docker infra (postgres / minio / lakefs / lakekeeper / litellm) IS managed
+# Docker infra (postgres / minio / lakefs / litellm, plus lakekeeper in
+# REST-catalog mode) IS managed
 # here: `up` brings it up via `docker compose` (project texera-local-dev) and
 # `down` tears down any docker targets. The script warns if expected ports are
 # unreachable. Before any sbt build the postgres schema is reconciled: a fresh
@@ -567,6 +568,32 @@ _detect_host_lan_ip() {
         *)      _detect_host_lan_ip_darwin || _detect_host_lan_ip_linux ;;
     esac
 }
+# Which Iceberg catalog the stack runs on decides whether any of the LAN-IP
+# machinery below is needed at all.
+#
+#   postgres (default) — catalog rows in the `texera_iceberg_catalog` database,
+#     table files under `amber/user-resources/workflow-results` on this host.
+#     Every hop is loopback or a local path, so no address can go stale and no
+#     container has to reach MinIO for results. Lakekeeper is not started.
+#   rest — Lakekeeper owns the catalog and does server-side S3 ops, so MinIO
+#     needs ONE address that resolves the same inside docker and on the host:
+#     the LAN IP. That is the mode that breaks on every network change (#6195).
+#
+# `STORAGE_ICEBERG_CATALOG_TYPE=rest bin/local-dev.sh up` opts back in.
+_catalog_is_rest() { [[ "${STORAGE_ICEBERG_CATALOG_TYPE:-}" == "rest" ]]; }
+
+# The S3 endpoint as *containers* must see it. minio-init runs `mc alias set`
+# inside the compose network, where `localhost` is its own loopback — so in
+# postgres mode the host gets `localhost:9000` and compose keeps the network
+# alias. In rest mode both sides must agree, hence the shared LAN IP.
+_compose_s3_endpoint() {
+    if _catalog_is_rest; then
+        printf '%s' "${STORAGE_S3_ENDPOINT:-http://texera-minio:9000}"
+    else
+        printf '%s' "http://texera-minio:9000"
+    fi
+}
+
 # Lazy resolver — called from subcommands that actually need to publish a
 # host-reachable S3 endpoint (cmd_up, cmd_auto). Subcommands like
 # `version`, `status`, `--help`, or `-i` don't talk to MinIO and shouldn't
@@ -596,6 +623,13 @@ _host_resolves_minio_alias() {
 }
 
 _require_host_lan_ip() {
+    if ! _catalog_is_rest; then
+        # Nothing in a container reads results in this mode, so the host can
+        # simply use its own published port. Detection is skipped entirely:
+        # being offline is no longer a reason to refuse to start.
+        export STORAGE_S3_ENDPOINT="${STORAGE_S3_ENDPOINT:-http://localhost:9000}"
+        return 0
+    fi
     if [[ -z "${HOST_LAN_IP:-}" ]] && [[ -z "${STORAGE_S3_ENDPOINT:-}" ]] && _host_resolves_minio_alias; then
         # Stable path: no LAN IP involved, so a network change cannot stale it.
         export STORAGE_S3_ENDPOINT="http://texera-minio:9000"
@@ -642,7 +676,15 @@ export STORAGE_JDBC_PASSWORD="${STORAGE_JDBC_PASSWORD:-password}"
 export STORAGE_S3_AUTH_USERNAME="${STORAGE_S3_AUTH_USERNAME:-texera_minio}"
 export STORAGE_S3_AUTH_PASSWORD="${STORAGE_S3_AUTH_PASSWORD:-password}"
 export STORAGE_S3_REGION="${STORAGE_S3_REGION:-us-west-2}"
-export STORAGE_ICEBERG_CATALOG_TYPE="${STORAGE_ICEBERG_CATALOG_TYPE:-rest}"
+# postgres, not rest: see `_catalog_is_rest`. The catalog database already ships
+# in the compose stack and both the JVM and the Python worker support this mode,
+# so it costs nothing and removes the LAN-IP failure mode entirely.
+export STORAGE_ICEBERG_CATALOG_TYPE="${STORAGE_ICEBERG_CATALOG_TYPE:-postgres}"
+# Both the JVMs and the Python workers derive the filesystem warehouse path from
+# TEXERA_HOME (`$TEXERA_HOME/amber/user-resources/workflow-results`). It defaults
+# to the process's cwd, which would put results somewhere different for anything
+# launched from a subdirectory — pin it to the repo root.
+export TEXERA_HOME="${TEXERA_HOME:-$REPO_ROOT}"
 export STORAGE_ICEBERG_CATALOG_REST_URI="${STORAGE_ICEBERG_CATALOG_REST_URI:-http://localhost:8181/catalog}"
 export STORAGE_ICEBERG_CATALOG_REST_WAREHOUSE_NAME="${STORAGE_ICEBERG_CATALOG_REST_WAREHOUSE_NAME:-texera}"
 export STORAGE_ICEBERG_CATALOG_REST_S3_BUCKET="${STORAGE_ICEBERG_CATALOG_REST_S3_BUCKET:-texera-iceberg}"
@@ -821,11 +863,13 @@ _sbt_transitive_src_dirs() {
 }
 
 # --------- service catalog ---------
+# `lakekeeper` is only a service in REST-catalog mode; the postgres catalog has
+# no server-side component, so listing it would report a permanently-down row.
 SERVICES=(
     postgres
     minio
     lakefs
-    lakekeeper
+    $(_catalog_is_rest && echo lakekeeper || true)
     litellm
     config-service
     access-control-service
@@ -940,8 +984,18 @@ DOCKER_PROJECT="texera-local-dev"
 DOCKER_COMPOSE_FILE="$SELF_ROOT/bin/single-node/docker-compose.yml"
 DOCKER_OVERLAY_FILE="$SELF_ROOT/bin/local-dev/docker-compose.override.yml"
 DOCKER_ENV_FILE="$SELF_ROOT/bin/single-node/.env"
-DOCKER_INFRA_SERVICES=(postgres minio minio-init lakefs lakekeeper-migrate lakekeeper lakekeeper-init litellm)
-DOCKER_INFRA_LONGLIVED=(postgres minio lakefs lakekeeper litellm)  # exclude one-shot init jobs
+# The lakekeeper trio (migrate / server / init) only exists in REST-catalog mode.
+# Dropping it in postgres mode also drops its startup dependency on the Alpine
+# package CDN: `lakekeeper-init` begins with `apk add curl jq`, so a network that
+# blocks that mirror leaves the warehouse endpoint stale and every execution
+# failing, with the stack still reporting itself healthy.
+if _catalog_is_rest; then
+    DOCKER_INFRA_SERVICES=(postgres minio minio-init lakefs lakekeeper-migrate lakekeeper lakekeeper-init litellm)
+    DOCKER_INFRA_LONGLIVED=(postgres minio lakefs lakekeeper litellm)  # exclude one-shot init jobs
+else
+    DOCKER_INFRA_SERVICES=(postgres minio minio-init lakefs litellm)
+    DOCKER_INFRA_LONGLIVED=(postgres minio lakefs litellm)             # exclude one-shot init jobs
+fi
 
 # Build the array of -f flags: base single-node compose + local-dev overlay
 # (the overlay publishes infra ports to the host, which the upstream compose
@@ -1484,11 +1538,19 @@ docker_svc_state() {
     esac
 }
 
+# The filesystem warehouse is just a directory; Iceberg creates table paths
+# under it but not the root itself.
+_ensure_local_warehouse_dir() {
+    _catalog_is_rest && return 0
+    mkdir -p "$TEXERA_HOME/amber/user-resources/workflow-results"
+}
+
 infra_up() {
-    # Resolve the host LAN IP now (lazy) — both the docker compose stack
-    # (lakekeeper-init reads STORAGE_S3_ENDPOINT) and the host JVMs about
-    # to start need it pointing at a host-reachable MinIO.
+    # In REST mode this resolves the host LAN IP that both the compose stack
+    # (lakekeeper-init reads STORAGE_S3_ENDPOINT) and the host JVMs must share.
+    # In postgres mode it just pins the host's own `localhost:9000`.
     _require_host_lan_ip
+    _ensure_local_warehouse_dir
     if [[ "$(infra_state)" == external:* ]]; then
         tui_err "infra: ports already taken by non-script containers"
         printf "  ${DIM}Likely an old project (e.g. \`texera-dev\`) is running. Stop it first:${RESET}\n"
@@ -1500,9 +1562,12 @@ infra_up() {
     # No stdout redirect → docker compose detects TTY and renders an in-place
     # progress panel that overwrites itself instead of appending event lines.
     # --progress=tty forces it even if stdout looks like a pipe.
+    # STORAGE_S3_ENDPOINT is overridden for the containers only — see
+    # `_compose_s3_endpoint`; the exported value stays the host's view.
+    STORAGE_S3_ENDPOINT="$(_compose_s3_endpoint)" \
     docker compose --progress auto -p "$DOCKER_PROJECT" --env-file "$DOCKER_ENV_FILE" "${files[@]}" \
         up -d "${DOCKER_INFRA_SERVICES[@]}"
-    tui_ok "infra: 5 containers up"
+    tui_ok "infra: ${#DOCKER_INFRA_LONGLIVED[@]} containers up"
 }
 
 infra_down() {
@@ -1951,10 +2016,29 @@ stop_one() {
     tui_ok "$svc: stopped"
 }
 
+# file-service dials LakeFS while booting and gives up after 5 quick attempts,
+# so a LakeFS that is listening but not yet serving ("unexpected end of stream")
+# takes file-service down with it — leaving a stack that reports N-1 services and
+# no dataset access. Gate the launch on LakeFS actually answering.
+_await_lakefs_ready() {
+    local deadline=$((SECONDS + 90)) endpoint="http://localhost:8000/api/v1/healthcheck"
+    if curl -sf -o /dev/null -m 2 "$endpoint"; then
+        return 0
+    fi
+    tui_step "file-service: waiting for LakeFS to answer ${DIM}($endpoint)${RESET}"
+    while (( SECONDS < deadline )); do
+        sleep 2
+        curl -sf -o /dev/null -m 2 "$endpoint" && return 0
+    done
+    tui_warn "file-service: LakeFS still not answering after 90s — starting anyway"
+    return 0
+}
+
 start_one() {
     local svc="$1"
     local type=""
     type=$(amap_get SVC_TYPE "$svc")
+    [[ "$svc" == "file-service" ]] && _await_lakefs_ready
     # JVMs and docker services need STORAGE_S3_ENDPOINT exported before
     # launch (JVM clients dial MinIO; lakekeeper bakes the URL into the
     # warehouse storage profile). yarn/bun watch services don't.
@@ -1972,6 +2056,7 @@ start_one() {
         tui_step "$svc: docker compose up -d $svc"
         local files=()
         while read -r f; do files+=("$f"); done < <(docker_compose_files | tr ' ' '\n')
+        STORAGE_S3_ENDPOINT="$(_compose_s3_endpoint)" \
         docker compose --progress auto -p "$DOCKER_PROJECT" --env-file "$DOCKER_ENV_FILE" \
             "${files[@]}" up -d "$svc" >/dev/null 2>&1
         # Don't clear the phase yet — docker `up -d` returns before the
@@ -2464,9 +2549,23 @@ emit_status_json() {
 # execution hangs ~30s and dies with an opaque Iceberg RESTException, because the
 # JVMs and Lakekeeper hold an address the host has since moved off of. Silent
 # until it actually matters, and never fatal — `status` must work offline.
+# In postgres mode there is no baked endpoint to go stale; report the storage
+# layout instead, so `status` still answers "where do results live?".
+_status_report_storage_mode() {
+    if _catalog_is_rest; then
+        return 0
+    fi
+    printf "\n"
+    printf "  ${CYAN}${SYM_LIST}${RESET}  Results: ${DIM}postgres catalog (texera_iceberg_catalog) + files under${RESET} %s\n" \
+        "amber/user-resources/workflow-results"
+    printf "  ${CYAN}${SYM_LIST}${RESET}  ${DIM}No LAN IP involved — a network change cannot break execution.${RESET}\n"
+}
+
 _status_check_s3_endpoint_drift() {
     local n_running="${1:-0}"
     (( n_running > 0 )) || return 0
+    # Only the REST catalog bakes an endpoint that can go stale.
+    _catalog_is_rest || return 0
 
     local baked=""
     baked="$(curl -sf -m 3 "http://localhost:8181/management/v1/warehouse" 2>/dev/null |
@@ -2571,6 +2670,7 @@ cmd_status() {
     printf "  ${BOLD}Status${RESET}: ${summary_color}%d of %d services running${RESET}\n" "$n_running" "$n_total"
 
     _status_check_s3_endpoint_drift "$n_running"
+    _status_report_storage_mode
 
     printf "\n"
     printf "  ${CYAN}${SYM_LIST}${RESET}  Logs:    ${DIM}%s${RESET}\n" "$LOG_DIR/<service>.log"
