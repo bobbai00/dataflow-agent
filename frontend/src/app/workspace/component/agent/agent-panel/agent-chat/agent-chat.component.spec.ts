@@ -30,6 +30,7 @@ import { AgentState, ReActStep, ToolOperatorAccess } from "../../../../service/a
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
 import { WorkflowPersistService } from "../../../../../common/service/workflow-persist/workflow-persist.service";
+import { AgentFileUpload, AgentFileUploadService } from "../../../../service/agent/agent-file-upload.service";
 import { Workflow } from "../../../../../common/type/workflow";
 import { commonTestProviders } from "../../../../../common/testing/test-utils";
 
@@ -114,6 +115,8 @@ describe("AgentChatComponent", () => {
   let reloadWorkflow: ReturnType<typeof vi.fn>;
   let notification: Record<"success" | "error" | "warning" | "info", ReturnType<typeof vi.fn>>;
   let persist: { setWorkflowPersistFlag: ReturnType<typeof vi.fn> };
+  let fileUpload: { uploadFiles: ReturnType<typeof vi.fn> };
+  let uploadSubject: Subject<AgentFileUpload>;
   let createObjectURL: ReturnType<typeof vi.fn>;
   let revokeObjectURL: ReturnType<typeof vi.fn>;
   let scrollIntoViewMock: ReturnType<typeof vi.fn>;
@@ -141,6 +144,8 @@ describe("AgentChatComponent", () => {
     reloadWorkflow = vi.fn();
     notification = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
     persist = { setWorkflowPersistFlag: vi.fn() };
+    uploadSubject = new Subject<AgentFileUpload>();
+    fileUpload = { uploadFiles: vi.fn(() => uploadSubject.asObservable()) };
 
     await TestBed.configureTestingModule({
       // MarkdownModule.forRoot() backs the <markdown> elements in the chat
@@ -154,6 +159,7 @@ describe("AgentChatComponent", () => {
         { provide: WorkflowActionService, useValue: { reloadWorkflow } },
         { provide: NotificationService, useValue: notification },
         { provide: WorkflowPersistService, useValue: persist },
+        { provide: AgentFileUploadService, useValue: fileUpload },
         ...commonTestProviders,
       ],
     }).compileComponents();
@@ -737,6 +743,93 @@ describe("AgentChatComponent", () => {
 
       expect(notification.error).toHaveBeenCalledWith("Failed to export ReAct steps");
       expect(createObjectURL).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("drag & drop file upload", () => {
+    const fileDragEvent = (type: string, files: File[] = []): DragEvent =>
+      ({
+        type,
+        preventDefault: vi.fn(),
+        dataTransfer: { types: ["Files"], files, dropEffect: "" },
+      }) as unknown as DragEvent;
+
+    it("opens the drop zone only for file drags", () => {
+      createComponent();
+
+      component.onFileDragEnter(fileDragEvent("dragenter"));
+      expect(component.isFileDragOver).toBe(true);
+
+      component.onFileDragLeave(fileDragEvent("dragleave"));
+      expect(component.isFileDragOver).toBe(false);
+
+      // An operator drag carries no files and must leave the panel alone.
+      const operatorDrag = { preventDefault: vi.fn(), dataTransfer: { types: ["text/plain"] } } as unknown as DragEvent;
+      component.onFileDragEnter(operatorDrag);
+      expect(component.isFileDragOver).toBe(false);
+    });
+
+    it("keeps the drop zone open while the pointer crosses child elements", () => {
+      createComponent();
+
+      component.onFileDragEnter(fileDragEvent("dragenter"));
+      component.onFileDragEnter(fileDragEvent("dragenter"));
+      component.onFileDragLeave(fileDragEvent("dragleave"));
+
+      expect(component.isFileDragOver).toBe(true);
+    });
+
+    it("uploads dropped files and appends each dataset path to the message", () => {
+      createComponent();
+      const file = new File(["a,b\n1,2\n"], "my data.csv", { type: "text/csv" });
+
+      component.onFileDrop(fileDragEvent("drop", [file]));
+
+      expect(fileUpload.uploadFiles).toHaveBeenCalledWith([file]);
+      // The pending row uses the sanitized name the service will store under.
+      expect(component.fileUploads).toEqual([{ fileName: "my_data.csv", percentage: 0, status: "uploading" }]);
+      expect(component.isFileDragOver).toBe(false);
+
+      uploadSubject.next({ fileName: "my_data.csv", percentage: 40, status: "uploading" });
+      expect(component.fileUploads[0].percentage).toBe(40);
+
+      uploadSubject.next({
+        fileName: "my_data.csv",
+        percentage: 100,
+        status: "done",
+        path: "/me@texera.dev/agent-uploads/v1/my_data.csv",
+      });
+      expect(component.currentMessage).toBe("/me@texera.dev/agent-uploads/v1/my_data.csv");
+    });
+
+    it("appends the path after text the user already typed", () => {
+      createComponent();
+      component.currentMessage = "plot this ";
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
+
+      uploadSubject.next({ fileName: "a.csv", percentage: 100, status: "done", path: "/me/agent-uploads/v1/a.csv" });
+
+      expect(component.currentMessage).toBe("plot this /me/agent-uploads/v1/a.csv");
+    });
+
+    it("reports an upload failure and marks the row failed", () => {
+      createComponent();
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
+
+      uploadSubject.error(new Error("lakefs is down"));
+
+      expect(notification.error).toHaveBeenCalledWith(expect.stringContaining("lakefs is down"));
+      expect(component.fileUploads[0].status).toBe("failed");
+      expect(component.currentMessage).toBe("");
+    });
+
+    it("ignores a drop that carries no files", () => {
+      createComponent();
+
+      component.onFileDrop(fileDragEvent("drop", []));
+
+      expect(fileUpload.uploadFiles).not.toHaveBeenCalled();
+      expect(component.fileUploads).toEqual([]);
     });
   });
 

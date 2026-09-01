@@ -29,10 +29,12 @@ import {
   OnChanges,
   SimpleChanges,
 } from "@angular/core";
+import { HttpErrorResponse } from "@angular/common/http";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { Subject } from "rxjs";
 import { distinctUntilChanged, filter, pairwise, startWith, takeUntil } from "rxjs/operators";
 import { AgentState, ReActStep } from "../../../../service/agent/agent-types";
+import { AgentFileUpload, AgentFileUploadService } from "../../../../service/agent/agent-file-upload.service";
 import { AgentInfo, AgentService, SnapshotTreeResponse } from "../../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
@@ -42,7 +44,7 @@ import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
 import { NzButtonComponent } from "ng-zorro-antd/button";
-import { NgIf, NgFor } from "@angular/common";
+import { NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
 import { MarkdownComponent } from "ngx-markdown";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
 import {
@@ -133,6 +135,8 @@ export type ChatItem = { kind: "message"; step: ReActStep; index: number } | { k
     NzButtonComponent,
     NgIf,
     NgFor,
+    NgSwitch,
+    NgSwitchCase,
     MarkdownComponent,
     NzSpinComponent,
     NzInputDirective,
@@ -174,6 +178,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public systemPrompt: string = "";
   public availableTools: Array<{ name: string; description: string; inputSchema: any }> = [];
   public agentState: AgentState = AgentState.UNAVAILABLE;
+
+  /** True while a file is being dragged over the panel (drop-zone overlay). */
+  public isFileDragOver = false;
+  /** In-flight and just-finished drops, newest last; cleared a beat after they finish. */
+  public fileUploads: AgentFileUpload[] = [];
+  private fileDragDepth = 0;
 
   /**
    * Debug mode toggle. When true, the input bypasses the LLM:
@@ -298,7 +308,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     private workflowActionService: WorkflowActionService,
     private notificationService: NotificationService,
     private cdr: ChangeDetectorRef,
-    private workflowPersistService: WorkflowPersistService
+    private workflowPersistService: WorkflowPersistService,
+    private agentFileUploadService: AgentFileUploadService
   ) {}
 
   ngOnInit(): void {
@@ -504,6 +515,126 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       this.scrollToBottom();
       this.shouldScrollToBottom = false;
     }
+  }
+
+  // ============================================================================
+  // Drag & drop file upload
+  // ============================================================================
+
+  /** How long a finished upload row stays visible before it clears itself. */
+  private static readonly UPLOAD_ROW_LINGER_MS = 2500;
+
+  /** Only file drags open the drop zone — dragging an operator must not. */
+  private static isFileDrag(event: DragEvent): boolean {
+    const types = event.dataTransfer?.types;
+    return !!types && Array.from(types).includes("Files");
+  }
+
+  public onFileDragEnter(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.fileDragDepth++;
+    this.isFileDragOver = true;
+  }
+
+  public onFileDragOver(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    // Without preventDefault the browser navigates to the file on drop.
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  /**
+   * `dragleave` fires for every child element the pointer crosses, so count
+   * enters/leaves instead of clearing on the first one — otherwise the overlay
+   * flickers as the pointer moves across the panel.
+   */
+  public onFileDragLeave(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    this.fileDragDepth = Math.max(0, this.fileDragDepth - 1);
+    if (this.fileDragDepth === 0) {
+      this.isFileDragOver = false;
+    }
+  }
+
+  public onFileDrop(event: DragEvent): void {
+    if (!AgentChatComponent.isFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.fileDragDepth = 0;
+    this.isFileDragOver = false;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length > 0) {
+      this.uploadDroppedFiles(files);
+    }
+  }
+
+  /**
+   * Upload dropped files into the user's `agent-uploads` dataset and append the
+   * resulting dataset paths to the message being composed, so the next thing
+   * the user types is the task for those files.
+   */
+  private uploadDroppedFiles(files: File[]): void {
+    const pending: AgentFileUpload[] = files.map(file => ({
+      fileName: AgentFileUploadService.sanitizeFileName(file.name),
+      percentage: 0,
+      status: "uploading",
+    }));
+    this.fileUploads = [...this.fileUploads, ...pending];
+    this.cdr.detectChanges();
+
+    this.agentFileUploadService
+      .uploadFiles(files)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: update => {
+          this.mergeUploadState(update);
+          if (update.status === "done" && update.path) {
+            this.appendToMessage(update.path);
+          }
+          this.cdr.detectChanges();
+        },
+        error: (err: unknown) => {
+          const message = err instanceof HttpErrorResponse ? err.error?.message || err.message : String(err);
+          this.notificationService.error(`File upload failed: ${message}`);
+          pending.forEach(p => this.mergeUploadState({ ...p, status: "failed", error: message }));
+          this.cdr.detectChanges();
+          this.scheduleUploadRowCleanup();
+        },
+        complete: () => this.scheduleUploadRowCleanup(),
+      });
+  }
+
+  private mergeUploadState(update: AgentFileUpload): void {
+    const index = this.fileUploads.findIndex(u => u.fileName === update.fileName && u.status !== "done");
+    if (index === -1) {
+      this.fileUploads = [...this.fileUploads, update];
+      return;
+    }
+    this.fileUploads = this.fileUploads.map((u, i) => (i === index ? { ...u, ...update } : u));
+  }
+
+  /** Append text to the composer, keeping whatever the user already typed. */
+  private appendToMessage(text: string): void {
+    const current = this.currentMessage.trimEnd();
+    this.currentMessage = current.length > 0 ? `${current} ${text}` : text;
+    this.messageInput?.nativeElement.focus();
+  }
+
+  private scheduleUploadRowCleanup(): void {
+    setTimeout(() => {
+      this.fileUploads = this.fileUploads.filter(u => u.status !== "done" && u.status !== "failed");
+      this.cdr.detectChanges();
+    }, AgentChatComponent.UPLOAD_ROW_LINGER_MS);
   }
 
   public setHoveredMessage(index: number | null): void {

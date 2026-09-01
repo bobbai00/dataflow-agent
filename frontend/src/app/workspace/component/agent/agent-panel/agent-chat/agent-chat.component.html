@@ -17,8 +17,25 @@
  under the License.
 -->
 
-<!-- Agent Chat Container (used within tabs) -->
-<div class="agent-chat-container">
+<!-- Agent Chat Container (used within tabs). Dropping files anywhere on the
+     panel uploads them to the user's `agent-uploads` dataset and appends the
+     resulting dataset paths to the message being composed. -->
+<div
+  class="agent-chat-container"
+  (dragenter)="onFileDragEnter($event)"
+  (dragover)="onFileDragOver($event)"
+  (dragleave)="onFileDragLeave($event)"
+  (drop)="onFileDrop($event)">
+  <!-- Drop zone overlay -->
+  <div
+    *ngIf="isFileDragOver"
+    class="file-drop-overlay">
+    <i
+      nz-icon
+      nzType="cloud-upload"
+      nzTheme="outline"></i>
+    <span>Drop files to upload — their dataset paths land in your message</span>
+  </div>
   <!-- Toolbar -->
   <div class="chat-toolbar">
     <div class="chat-toolbar-controls">
@@ -442,6 +459,30 @@
       </div>
 
       <!-- Input Area -->
+      <!-- Upload progress, one row per dropped file -->
+      <div
+        *ngIf="fileUploads.length > 0"
+        class="file-upload-list">
+        <div
+          *ngFor="let upload of fileUploads"
+          class="file-upload-row"
+          [class.failed]="upload.status === 'failed'">
+          <i
+            nz-icon
+            [nzType]="upload.status === 'failed' ? 'close-circle' : upload.status === 'done' ? 'check-circle' : 'loading'"
+            nzTheme="outline"></i>
+          <span class="file-upload-name">{{ upload.fileName }}</span>
+          <span class="file-upload-status">
+            <ng-container [ngSwitch]="upload.status">
+              <ng-container *ngSwitchCase="'uploading'">{{ upload.percentage }}%</ng-container>
+              <ng-container *ngSwitchCase="'committing'">saving version…</ng-container>
+              <ng-container *ngSwitchCase="'done'">added to message</ng-container>
+              <ng-container *ngSwitchCase="'failed'">{{ upload.error || 'failed' }}</ng-container>
+            </ng-container>
+          </span>
+        </div>
+      </div>
+
       <div class="input-area">
         <textarea
           #messageInput
