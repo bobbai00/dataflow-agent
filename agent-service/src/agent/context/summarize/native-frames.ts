@@ -216,3 +216,53 @@ function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
   const first = out.trim().split("\n")[0]?.trim() ?? "";
   return first.slice(0, 300);
 }
+
+/**
+ * OPERATOR SPLIT — the LATEST-mode analogue of the append-only transcript.
+ *
+ * A DELTA render is append-only, so cutting it at step boundaries gives a
+ * growing stable prefix. A LATEST render has no history to append: it is a
+ * fresh snapshot of the CURRENT graph each step. Measured on luna LATEST arms
+ * (C3 578 step-pairs, C4 495), that snapshot is nonetheless highly stable —
+ * median 100% of the previous render is a byte-identical prefix, mean 85%,
+ * because most steps only add or touch one operator. What kills the cache is
+ * that it all ships as ONE message, so a provider matching whole messages
+ * (gpt-5.6-*) or anchoring breakpoints (claude-*) can reuse none of it, and
+ * when the render does change it changes at the FIRST operator: the p10 cases
+ * are `probe_precip_amherst` -> `precip_amherst` and a rewritten
+ * `omni_spec_probe`, each invalidating the whole remainder.
+ *
+ * Splitting per operator localises that: revising one operator invalidates its
+ * own message and the ones after it, not the entire context. Operator ORDER is
+ * left exactly as the renderer produced it — reordering (e.g. by last-modified,
+ * to push churn to the tail) would cache better still, but it breaks dataflow
+ * reading order on a graph-building task and is a separate, riskier experiment.
+ */
+export function splitOperators(text: string): string[] {
+  const marks: number[] = [];
+  const RE = /^### Operator /gm;
+  for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
+  if (marks.length < 2) return [];
+
+  const parts: string[] = [];
+  const head = text.slice(0, marks[0]).trimEnd();
+  if (head) parts.push(head);
+
+  for (let i = 0; i < marks.length; i++) {
+    const end = i + 1 < marks.length ? marks[i + 1] : text.length;
+    let chunk = text.slice(marks[i], end);
+    // A trailing top-level section after the last operator is CURRENT state
+    // re-rendered every step; it must sit last or it breaks the stable prefix.
+    if (i === marks.length - 1) {
+      const nl = chunk.indexOf("\n") + 1;
+      const t = chunk.slice(nl).search(TRAILING_SECTION_RE);
+      if (t >= 0) {
+        parts.push(chunk.slice(0, nl + t).trimEnd());
+        parts.push(chunk.slice(nl + t).trimEnd());
+        continue;
+      }
+    }
+    parts.push(chunk.trimEnd());
+  }
+  return parts.filter(p => p.length > 0);
+}

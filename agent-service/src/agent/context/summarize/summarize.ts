@@ -43,7 +43,7 @@ import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
-import { buildNativeFrames, splitTrailingState } from "./native-frames";
+import { buildNativeFrames, splitTrailingState, splitOperators } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -156,6 +156,19 @@ function buildMessages(
   stepByEvent: Map<number, ReActStep>,
 ): ModelMessage[] {
   if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
+  if (layout === "opSplit") {
+    const parts = splitOperators(text);
+    // Same byte-parity contract as blockSplit: a framing change, never a
+    // content change. If the parts do not reconstruct the render, ship the
+    // single block rather than send the model something the renderer
+    // did not produce.
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+  }
   if (layout === "blockSplit") {
     const { head, tail } = splitTrailingState(text);
     // Structure must be preserved EXACTLY: blockSplit is a wire-framing change

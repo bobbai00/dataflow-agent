@@ -356,7 +356,7 @@ export const SummarizeParamsSchema = z.object({
    *  channel renders (source op / consumer op / everywhere / nowhere).
    *  Orthogonal to the flags that turn channels on — see AgentSettings.statScopes. */
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout: z.enum(["block", "blockSplit", "native"]).optional(),
+  messageLayout: z.enum(["block", "blockSplit", "native", "opSplit"]).optional(),
   statScopes: z
     .object({
       columnStats: z.enum(["all", "source", "nonsource", "off"]).optional(),

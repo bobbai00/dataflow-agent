@@ -59,6 +59,7 @@ Observation:
   	customer_id	name	email	signup_date	tier
   0	C001	Alice	alice@example.com	2023-01-15	gold
   ...
+  Schema (3 cols): tier (str), customer_id (str), email (str)
   Column Schema and stats:
   - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
   - "customer_id" (str): null=0, distinct=10000
@@ -69,6 +70,7 @@ Observation:
   	order_id	customer_id	amount	order_date
   0	O001	C001	250.00	2024-11-05
   ...
+  Schema (3 cols): order_id (str), customer_id (str), amount (numeric)
   Column Schema and stats:
   - "order_id" (str): null=0, distinct=50000
   - "customer_id" (str): null=0, distinct=10000
@@ -93,6 +95,7 @@ Observation:
   Inputs: customers (10000 rows, 5 cols), orders (50000 rows, 4 cols)
   Output Table: 1247 rows, 8 cols
   ...
+  Schema (3 cols): customer_id (str), email (str), amount (numeric)
   Column Schema and stats:
   - "customer_id" (str): null=0, distinct=312
   - "email" (str): null=5, distinct=310
@@ -117,6 +120,7 @@ Observation:
   	customer_id	name	total_spending
   0	C001	Alice	12450.00
   ...
+  Schema (1 cols): total_spending (numeric)
   Column Schema and stats:
   - "total_spending" (numeric): null=0, mean=8810, min=6290, max=12450
 ```

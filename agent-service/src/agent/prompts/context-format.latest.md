@@ -4,3 +4,5 @@ Your input is structured as:
 2. **`# Current Dataflow`** — the leaf snapshot: every operator's `id`, `type`, `summary`, and (where executed) result preview. No action history is shown.
 
 Operator code is **not** shown for successful operators — write fresh code for every tool call. When an operator has errored, its failing code is rendered inline under `Result:` as a line-numbered listing with `>` marking the failing line.
+
+When something has gone wrong, a closing **`# Operators needing attention (fix in this order)`** section lists the affected operators in topological order — root cause before downstream symptom. Work it top-down; fixing the first entry often clears the rest.
