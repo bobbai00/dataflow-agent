@@ -140,14 +140,17 @@ Dataflow represents data analysis as a DAG (directed acyclic graph) where:
 
 After each of your actions, a dataflow snapshot — the operators and their execution results — is produced and surfaced to you in subsequent turns so you can see how the action shaped the state.`;
 
-// Context-format description. The context the LLM sees is a path on the
-// snapshot tree from the root (empty snapshot) to the leaf (current state),
-// rendered differently per ContextMode:
-//   - LATEST: just the leaf snapshot, no events.
-//   - FULL  : every event on the path, each followed by the full snapshot
-//             after that event.
-//   - DELTA : every event on the path, each followed by a delta-only
-//             snapshot of operators that changed at that event.
+// Context-format description for GENERAL (native-operator) mode. Code mode does
+// NOT use this const — it swaps the per-mode `context-format.{latest,delta}.md`
+// fragments into `{{CONTEXT_FORMAT}}` instead. Both modes share
+// `renderContextCore`, so this text must track the SAME render the fragments
+// describe. Verified against recorded renders (2026-09-02, luna delta-2k n=555
+// and latest-1k n=256 messages): DELTA emits `Action:` blocks with
+// `operatorId:`/`summary:`/`code:` indented beneath plus `Observation:`;
+// LATEST emits per-operator `Code:` blocks. The strings this block used to
+// claim — `- create operator "X", result: …`, `### Completed dataflow after
+// event N`, `### Dataflow changes after event N`, and "code is not shown in any
+// snapshot" — occur ZERO times in either render.
 const CONTEXT_FORMAT = `
 ## Context Format
 
@@ -158,12 +161,14 @@ Your input is structured as top-level sections in this order:
 2. **\`# Agent Events\`** — your action history along the path from the root of the snapshot tree to the current state. Present in FULL and DELTA modes, omitted entirely in LATEST mode (where the prompt jumps straight from \`# User Task\` to \`# Current Dataflow\`).
 
    Each event is one of:
-   - \`## Agent Event N\` — your thought and the actions you took on that turn. Each tool call renders as a one-line natural-language statement: \`- create operator "X", result: …\` / \`- modify operator "X", result: …\` / \`- delete operator "X", result: …\` (or \`- <toolName> on operator "X", result: …\` for other tools). The \`code\` you submitted and the \`summary\` you wrote are NOT shown on the event line — the snapshot below carries the resulting state.
+   - \`## Agent Event N\` — your thought and the actions you took on that turn, as an **\`Action:\`** block listing each tool call with its arguments indented beneath it (\`operatorId:\`, \`summary:\`, \`code:\`), followed by the resulting **\`Observation:\`**. Your submitted \`code\` and \`summary\` ARE shown here, so you can see what you already tried.
    - \`## User Event N\` — only appears when the user sent more than one message in this chat. The latest user message is in \`# User Task\` above; older ones (multi-task continuations) show up inline here.
 
-   In FULL mode each event is followed by \`### Completed dataflow after event N\` — the full snapshot of operators + links at that point. In DELTA mode the same wrapper title becomes \`### Dataflow changes after event N\` and only operators that changed at that event are shown (plus the full link set so the DAG wiring stays visible).
+   Only operators that changed in an event appear under it; the full link set is always included so the DAG wiring stays visible. An operator's current state is the one in the MOST RECENT event that changed it.
 
-3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, and (where executed) result preview. Present in LATEST mode only — FULL and DELTA modes carry the trailing snapshot inline under their last \`## Agent Event N\` block. Operator code is **not** shown in any snapshot; to modify a past operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`.
+3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, its current **\`Code:\`** block, and (where executed) result preview. Present in LATEST mode only — DELTA carries its trailing snapshot inline under the last \`## Agent Event N\` block. To change an operator's logic, call \`createOrModifyOperator\` again with the same \`operatorId\` and new \`code\`; each call replaces that operator's code outright, so send the complete function every time.
+
+4. **\`# Operators needing attention (fix in this order)\`** — appears only when something has gone wrong: the affected operators in topological order, root cause before downstream symptom. Work it top-down; fixing the first entry often clears the rest.
 
 ### Operator Result Tables
 
