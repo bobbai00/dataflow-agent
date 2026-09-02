@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { of } from "rxjs";
+import { of, throwError } from "rxjs";
+import { HttpErrorResponse } from "@angular/common/http";
 import { AgentFileUpload, AgentFileUploadService } from "./agent-file-upload.service";
 import { DatasetService } from "../../../dashboard/service/user/dataset/dataset.service";
 import { UserService } from "../../../common/service/user/user.service";
@@ -119,6 +120,7 @@ describe("AgentFileUploadService", () => {
       fileName: "a.csv",
       percentage: 100,
       status: "done",
+      reused: false,
       path: "/me@texera.dev/agent-uploads/v3/a.csv",
     });
   });
@@ -169,6 +171,40 @@ describe("AgentFileUploadService", () => {
     const events = await collect(service, [new File(["x"], "a.csv")]);
 
     expect(events.filter(e => e.status === "uploading").every(e => e.percentage < 100)).toBe(true);
+  });
+
+  it("reuses the newest version when the bytes are already committed", async () => {
+    // file-service rejects the commit with 400 when LakeFS has no diff — the
+    // case of re-dropping a file that is already in the dataset.
+    const conflict = new HttpErrorResponse({
+      status: 400,
+      error: { message: "No changes detected in dataset. Version creation aborted." },
+    });
+    const { service, datasetService } = makeService({
+      createDatasetVersion: vi.fn(() => throwError(() => conflict)),
+      retrieveDatasetLatestVersion: vi.fn(() => of({ name: "v7" })),
+    });
+
+    const events = await collect(service, [new File(["x"], "a.csv")]);
+
+    expect(datasetService.retrieveDatasetLatestVersion).toHaveBeenCalledWith(7);
+    expect(events.at(-1)).toEqual({
+      fileName: "a.csv",
+      percentage: 100,
+      status: "done",
+      reused: true,
+      path: "/me@texera.dev/agent-uploads/v7/a.csv",
+    });
+  });
+
+  it("still fails on a version error that is not about a missing diff", async () => {
+    const { service } = makeService({
+      createDatasetVersion: vi.fn(() =>
+        throwError(() => new HttpErrorResponse({ status: 400, error: { message: "Dataset is read-only" } }))
+      ),
+    });
+
+    await expect(collect(service, [new File(["x"], "a.csv")])).rejects.toBeTruthy();
   });
 
   it("errors when nobody is signed in", async () => {

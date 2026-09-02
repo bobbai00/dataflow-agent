@@ -476,7 +476,9 @@
             <ng-container [ngSwitch]="upload.status">
               <ng-container *ngSwitchCase="'uploading'">{{ upload.percentage }}%</ng-container>
               <ng-container *ngSwitchCase="'committing'">saving version…</ng-container>
-              <ng-container *ngSwitchCase="'done'">added to message</ng-container>
+              <ng-container *ngSwitchCase="'done'"
+                >{{ upload.reused ? "already in dataset — path added" : "added to message" }}</ng-container
+              >
               <ng-container *ngSwitchCase="'failed'">{{ upload.error || 'failed' }}</ng-container>
             </ng-container>
           </span>

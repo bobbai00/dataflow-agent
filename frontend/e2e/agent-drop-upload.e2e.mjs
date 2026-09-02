@@ -196,6 +196,32 @@ async function main() {
       check("uploaded bytes match the dropped file", body === CSV_BODY, `${body.length} bytes`);
     }
 
+    // ---- dropping the identical file again ----
+    // The bytes are already committed, so LakeFS has no diff and file-service
+    // refuses to cut a version. That must resolve to the existing version, not
+    // surface as a failed upload.
+    await composer.fill("");
+    await page.dispatchEvent(panel, "dragenter", { dataTransfer });
+    await page.dispatchEvent(panel, "drop", { dataTransfer });
+    await page
+      .waitForFunction(el => /\/agent-uploads\/v\d+\//.test(el.value), await composer.elementHandle(), {
+        timeout: 120000,
+      })
+      .catch(() => {});
+    const secondPath = ((await composer.inputValue()).match(/\/\S+\/agent-uploads\/v\d+\/\S+/) ?? [])[0];
+    check("re-dropping the same file still yields a path", !!secondPath, secondPath ?? "(none)");
+    check("re-drop reuses the version it is already in", secondPath === path, `${secondPath} vs ${path}`);
+    // `.last()`, not `.first()`: the previous drop's row lingers for a couple of
+    // seconds, so the first row belongs to that drop.
+    const rowText = await page
+      .locator(".file-upload-row")
+      .last()
+      .textContent()
+      .catch(() => "");
+    check("row says it was already in the dataset", /already in dataset/.test(rowText ?? ""), (rowText ?? "").trim());
+    const errorToast = await page.locator(".ant-notification-notice-message").count();
+    check("no error notification raised", errorToast === 0, `${errorToast} notice(s)`);
+
     // ---- the agent can use it ----
     if (RUN_AGENT_TURN) {
       await composer.fill(`${path} — load this file and tell me how many rows it has`);

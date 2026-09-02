@@ -135,6 +135,11 @@ export class CodeEditorComponent implements AfterViewInit, SafeStyle, OnDestroy 
     "PythonUDFV2",
     "PythonUDFSourceV2",
     "DualInputPortsPythonUDFV2",
+    // The code-mode pair: both hold a Python `def process(...)` / `def load()`.
+    // Missing here, they fell through to the `java` default and opened with
+    // Java syntax highlighting and no Python language server.
+    "DataProcessing",
+    "DataLoading",
   ]);
   private static readonly R_OPERATOR_TYPES: ReadonlySet<string> = new Set(["RUDFSource", "RUDF"]);
 

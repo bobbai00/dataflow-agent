@@ -18,8 +18,9 @@
  */
 
 import { Injectable } from "@angular/core";
+import { HttpErrorResponse } from "@angular/common/http";
 import { Observable, concat, of, throwError } from "rxjs";
-import { map, switchMap } from "rxjs/operators";
+import { catchError, map, switchMap } from "rxjs/operators";
 import { DatasetService } from "../../../dashboard/service/user/dataset/dataset.service";
 import { UserService } from "../../../common/service/user/user.service";
 import { Dataset } from "../../../common/type/dataset";
@@ -34,6 +35,8 @@ export interface AgentFileUpload {
   status: "uploading" | "committing" | "done" | "failed";
   /** Dataset path, once the file is in a committed version. */
   path?: string;
+  /** True when the bytes were already committed, so no new version was made. */
+  reused?: boolean;
   error?: string;
 }
 
@@ -72,6 +75,21 @@ export class AgentFileUploadService {
     const base = fileName.split(/[\\/]/).pop() ?? fileName;
     const cleaned = base.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "");
     return cleaned.length > 0 ? cleaned : "file";
+  }
+
+  /**
+   * Whether a version-creation failure means "these exact bytes are already
+   * committed" (file-service checks LakeFS for uncommitted objects first and
+   * returns 400 when there are none). Matched on status *and* message so a
+   * different 400 still surfaces as a real error.
+   */
+  private static isNothingToCommit(err: unknown): boolean {
+    if (!(err instanceof HttpErrorResponse) || err.status !== 400) {
+      return false;
+    }
+    const body = err.error;
+    const message = typeof body === "string" ? body : body?.message ?? err.message ?? "";
+    return /no changes detected/i.test(message);
   }
 
   /** `/owner@email/dataset/version/file.csv` — the form operators expect. */
@@ -188,13 +206,28 @@ export class AgentFileUploadService {
     return concat(
       of(...committing),
       this.datasetService.createDatasetVersion(did, "").pipe(
-        switchMap(version =>
+        map(version => ({ version: version.name, reused: false })),
+        catchError((err: unknown) => {
+          // Dropping a file whose bytes are already committed leaves LakeFS with
+          // nothing to commit, so the version endpoint rejects with 400 "No
+          // changes detected". That is not a failure for us: the file already
+          // lives in the dataset, so resolve the path against the newest
+          // version instead of failing the drop.
+          if (!AgentFileUploadService.isNothingToCommit(err)) {
+            return throwError(() => err);
+          }
+          return this.datasetService
+            .retrieveDatasetLatestVersion(did)
+            .pipe(map(version => ({ version: version.name, reused: true })));
+        }),
+        switchMap(({ version, reused }) =>
           of(
             ...fileNames.map(fileName => ({
               fileName,
               percentage: 100,
               status: "done" as const,
-              path: AgentFileUploadService.buildDatasetPath(ownerEmail, datasetName, version.name, fileName),
+              reused,
+              path: AgentFileUploadService.buildDatasetPath(ownerEmail, datasetName, version, fileName),
             }))
           )
         )

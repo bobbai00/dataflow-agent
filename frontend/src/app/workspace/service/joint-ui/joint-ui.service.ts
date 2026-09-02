@@ -210,6 +210,7 @@ export class JointUIService {
   //   - a left icon section (ICON_SECTION_WIDTH wide) holding the operator icon
   //   - a right text section holding the operator's description / custom name
   // The box never grows with its text; overflowing text is ellipsized instead.
+
   /** Colour per agent action; shared by the label text and the highlight ring. */
   public static readonly AGENT_ACTION_COLORS: Readonly<Record<"viewed" | "added" | "modified", string>> = {
     viewed: "#1890ff",
@@ -224,6 +225,10 @@ export class JointUIService {
   public static readonly ICON_SECTION_WIDTH = 48;
   // Padding between the divider and the description text on the right section.
   private static readonly TEXT_SECTION_PADDING = 8;
+  // Strip above the box's right edge taken by the delete + agent-chat buttons.
+  // The id/type label is truncated to this much less than the full width so it
+  // can never grow underneath them.
+  private static readonly BUTTON_ROW_WIDTH = 56;
   // The wrapping box for the right-section description text.
   private static readonly DESC_TEXT_WIDTH =
     JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.ICON_SECTION_WIDTH - JointUIService.TEXT_SECTION_PADDING * 2;
@@ -1054,19 +1059,24 @@ export class JointUIService {
       // Operator id + type, in small grey text just above the box
       // ("op5: CSVFileScan"). The id alone is what the agent's chat refers to;
       // the type says what the box actually is without opening it.
+      //
+      // Left-aligned, and truncated to stop short of `BUTTON_ROW_WIDTH`: the
+      // delete and agent-chat buttons live in that top-right strip, and a
+      // centred label grew straight under them once it carried the type too.
       ".texera-operator-friendly-name": {
         text: JointUIService.truncateToWidth(
           `${operator.operatorID}: ${operatorType}`,
-          JointUIService.DEFAULT_OPERATOR_WIDTH,
+          JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.BUTTON_ROW_WIDTH,
           `${JointUIService.ID_FONT_SIZE}px`
         ),
         fill: "#888888",
         "font-size": `${JointUIService.ID_FONT_SIZE}px`,
-        "ref-x": 0.5,
+        "ref-x": 2,
         "ref-y": -12,
         ref: "rect.body",
+        "text-anchor": "start",
         "y-alignment": "middle",
-        "x-alignment": "middle",
+        "x-alignment": "left",
       },
       // Vertical divider separating the icon section from the text section.
       [`.${operatorSectionDividerClass}`]: {
@@ -1082,17 +1092,20 @@ export class JointUIService {
         "ref-x": -5,
         "ref-y": -35,
       },
+      // Top-row buttons, right to left: delete pinned hardest into the corner
+      // (overhanging the body a little, like a badge), the agent-chat button
+      // tight against it with a 4px gap. Both clear the id label above the box.
       ".delete-button": {
-        x: this.DEFAULT_OPERATOR_WIDTH - 24,
-        y: -22,
+        x: this.DEFAULT_OPERATOR_WIDTH - 16,
+        y: -26,
         cursor: "pointer",
         fill: "#D8656A",
         event: "element:delete",
         visibility: "hidden",
       },
       ".chat-button": {
-        x: this.DEFAULT_OPERATOR_WIDTH - 52,
-        y: -22,
+        x: this.DEFAULT_OPERATOR_WIDTH - 40,
+        y: -24,
         cursor: "pointer",
         fill: "#1890ff",
         event: "element:chat",

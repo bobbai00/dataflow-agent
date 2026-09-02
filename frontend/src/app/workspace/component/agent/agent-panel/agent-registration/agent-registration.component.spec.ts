@@ -169,6 +169,17 @@ describe("AgentRegistrationComponent", () => {
   });
 
   describe("canCreate", () => {
+    it("maps model ids to their vendor mark, and leaves unknown vendors on the glyph", () => {
+      expect(component.providerIconSrc("claude-haiku-4.5")).toBe("assets/ai_provider/claude.png");
+      expect(component.providerIconSrc("gpt-5.2")).toBe("assets/ai_provider/openai.png");
+      expect(component.providerIconSrc("o1-mini")).toBe("assets/ai_provider/openai.png");
+      // Self-hosted models keep the generic icon rather than borrowing a vendor's.
+      expect(component.providerIconSrc("local-llm")).toBeNull();
+      expect(component.providerIconSrc("qwen2.5-coder")).toBeNull();
+      expect(component.providerName("claude-sonnet-5")).toBe("Anthropic Claude");
+      expect(component.providerName("local-llm")).toBe("Model");
+    });
+
     it("is true only with a selected model, an idle form, and a connected computing unit", () => {
       component.selectedModelType = "gpt";
       component.isCreating = false;
