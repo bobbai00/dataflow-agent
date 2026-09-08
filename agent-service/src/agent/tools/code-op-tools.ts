@@ -39,6 +39,11 @@ import {
   formatOperatorError,
 } from "./tools-utility";
 import type { ToolContext } from "./workflow-crud-tools";
+import { grainSplit, abstractInputs, type GrainSplitResult } from "./grain-split";
+import type { OperatorInfo } from "../../types/execution";
+import { createLogger } from "../../logger";
+
+const log = createLogger("CodeOpTools");
 
 export const TOOL_NAME_CREATE_OR_MODIFY_OPERATOR = "createOrModifyOperator";
 
@@ -640,6 +645,92 @@ function createInputLinks(
 }
 
 /**
+ * GRAIN SPLIT — land the stages `grain_split.py` produced as real operators.
+ * Stages are upserted in chain order (a stage's `def process(...)` names the
+ * previous stage and/or the model's original inputs, all of which exist by
+ * then). The LAST stage keeps the model's operatorId, so every downstream
+ * operator keeps reading the same id; its outgoing links survive even when
+ * its type flips (a split loader's final stage is a `process`).
+ */
+async function applyGrainStages(
+  workflowState: WorkflowState,
+  workflowUtil: WorkflowUtilService,
+  operatorSchemas: Map<string, any>,
+  operatorId: string,
+  displayName: string,
+  gs: GrainSplitResult,
+  generated: Map<string, string[]>,
+  isModify: boolean
+): Promise<{ message: string } | { error: string }> {
+  for (const st of gs.stages) {
+    const err = await validatePythonSyntax(st.code);
+    if (err) return { error: `stage ${st.id}: ${err}` };
+  }
+  // Retire stale stages from an earlier split of this operator.
+  for (const old of generated.get(operatorId) ?? []) {
+    if (old !== operatorId && !gs.stages.some(s => s.id === old)) workflowState.deleteOperator(old);
+  }
+  const created: string[] = [];
+  for (const st of gs.stages) {
+    const parsed = parseCodeBlock(st.code);
+    if ("error" in parsed) return { error: `stage ${st.id}: ${parsed.error}` };
+    const opType = parsed.type === "DataProcessing" ? DATA_PROCESSING_OPERATOR_TYPE : DATA_LOADING_OPERATOR_TYPE;
+    if (!operatorSchemas.get(opType)) return { error: `Operator type "${opType}" is not available.` };
+    const inputs: OperatorPredicate[] = [];
+    for (const p of parsed.parameters) {
+      const op = findOperatorByName(workflowState, p);
+      if (!op) return { error: `stage ${st.id} reads \`${p}\`, which does not exist` };
+      inputs.push(op);
+    }
+    const name = st.id === operatorId ? displayName : `${displayName} — ${st.kind}`;
+    let existing = findOperatorByName(workflowState, st.id);
+    let outgoing: OperatorLink[] = [];
+    if (existing && existing.operatorType !== opType) {
+      // Type flip (load -> process): recreate, but keep the consumers wired.
+      outgoing = workflowState.getLinksConnectedToOperator(st.id).filter(l => l.source.operatorID === st.id);
+      workflowState.deleteOperator(st.id);
+      existing = undefined;
+    }
+    if (!existing) {
+      let op = workflowUtil.getNewOperatorPredicate(opType, name);
+      op = { ...op, operatorID: st.id, operatorProperties: { ...op.operatorProperties, code: st.code } };
+      workflowState.addOperator(op);
+      if (parsed.type === "DataProcessing" && parsed.numInputPorts > 1) {
+        workflowState.updateOperatorInputPorts(st.id, parsed.numInputPorts);
+      }
+      if (inputs.length > 0) createInputLinks(workflowState, st.id, inputs);
+      for (const l of outgoing) workflowState.addLink(l);
+      created.push(st.id);
+    } else {
+      workflowState.updateOperatorProperties(st.id, { code: st.code });
+      workflowState.updateOperatorDisplayName(st.id, name);
+      if (parsed.type === "DataProcessing") {
+        if (parsed.numInputPorts !== existing.inputPorts.length) {
+          workflowState.updateOperatorInputPorts(st.id, parsed.numInputPorts);
+        }
+        for (const l of workflowState.getLinksConnectedToOperator(st.id).filter(l => l.target.operatorID === st.id)) {
+          workflowState.deleteLink(l.linkID);
+        }
+        if (inputs.length > 0) createInputLinks(workflowState, st.id, inputs);
+      }
+    }
+  }
+  generated.set(operatorId, gs.stages.map(s => s.id));
+
+  const chain = gs.stages.map(s => `\`${s.id}\`${s.kind !== "final" ? ` (${s.kind})` : ""}`).join(" → ");
+  const head = gs.split
+    ? `${isModify ? "Modified" : "Added"} \`${operatorId}\` as a chain, cut where its rows change: ${chain}. ` +
+      `Each stage is a normal operator you can read and edit; downstream operators keep reading \`${operatorId}\`.`
+    : `${isModify ? "Modified" : "Added"} operator \`${operatorId}\`.`;
+  const checks =
+    gs.checks > 0
+      ? ` ${gs.checks} data check(s) run on the FULL input of the row-changing step(s); a \`[check]\` line appears ` +
+        `under that stage's result only if an assumption is violated.`
+      : "";
+  return { message: head + checks };
+}
+
+/**
  * Version store for STRICT (operatorId, turnId) addressing (versioned mode).
  * Supplied by the agent, which owns the turn history: for each operator
  * lineage, the finished turns that changed it (with that turn's code), plus
@@ -711,9 +802,18 @@ export function createCreateOrModifyOperatorTool(
   // `upstreams` maps each def-arg to the version turn it builds on, and a
   // revision must name `fromTurn`. Off ⇒ schema and behavior are byte-identical
   // to legacy.
-  versionStore?: OperatorVersionStore
+  versionStore?: OperatorVersionStore,
+  // GRAIN SPLIT: cut each submitted operator where row identity changes and
+  // attach full-data checks to the row-changing stages (grain-split.ts).
+  grainSplitEnabled = false,
+  // Reads an upstream operator's cached result (schema + full-data stats) at
+  // HEAD — the abstract state the compiler pass is seeded with.
+  getResult?: (opId: string) => OperatorInfo | undefined
 ) {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
+  // operatorId -> ids of the stage operators generated for it (so a re-split
+  // on MODIFY can retire stale stages).
+  const generatedStages = new Map<string, string[]>();
 
   // Convergence-guard state (goal.md lever C). Per-operator CUMULATIVE edit
   // counter: operatorId → number of `createOrModifyOperator` calls that have
@@ -1083,6 +1183,32 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .filter(link => link.target.operatorID === operatorId)
               .map(link => link.source.operatorID);
             return createErrorResult(buildConvergenceGuardMessage(operatorId, maxOperatorEdits, upstreamIds));
+          }
+        }
+
+        // GRAIN SPLIT. Cut where row identity changes; each stage carries a
+        // full-data check of its row-changing step's input assumption. Any
+        // splitter failure falls through to the legacy single-operator path.
+        if (grainSplitEnabled && !versionStore && workflowUtil) {
+          const gs = await grainSplit(code, operatorId, { inputs: abstractInputs(parameters, getResult) });
+          if (gs && gs.stages.length > 0 && (gs.split || gs.checks > 0)) {
+            const applied = await applyGrainStages(
+              workflowState,
+              workflowUtil,
+              operatorSchemas,
+              operatorId,
+              displayName,
+              gs,
+              generatedStages,
+              existingOperator !== undefined
+            );
+            if (!("error" in applied)) {
+              autoLayoutWorkflow(workflowState);
+              let msg = applied.message;
+              if (versionNotes.length > 0) msg = `${msg}\n${versionNotes.join("\n")}`;
+              return createToolResult(contractWarning ? `[WARNING] ${contractWarning}\n${msg}` : msg);
+            }
+            log.warn({ operatorId, err: applied.error }, "grain split could not be applied — falling back to single operator");
           }
         }
 

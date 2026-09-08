@@ -496,6 +496,14 @@ export interface AgentSettings {
    */
   indexThinObservations: boolean;
   /**
+   * GRAIN SPLIT: cut each submitted code operator where row identity changes
+   * (filter / merge / concat / dedup / groupby-aggregate) into a chain of
+   * operators, and inject a full-data CHECK of the assumption each row-changing
+   * step makes about its input (rendered as `[check]` lines only when violated).
+   * Off ⇒ byte-identical legacy behavior.
+   */
+  grainSplit: boolean;
+  /**
    * Expose the `compactContext` tool (agent-triggered compaction POC). When the
    * agent calls it, the DELTA assembler folds the trajectory up to that mark into
    * a compact snapshot deck + raw suffix. Requires contextMode DELTA (no-op in
@@ -614,6 +622,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   versionedHeads: false,
   sessionTurns: false,
   indexThinObservations: false,
+  grainSplit: false,
 };
 
 /**

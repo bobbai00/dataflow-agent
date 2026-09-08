@@ -566,7 +566,9 @@ export class TexeraAgent {
         this.settings.maxOperatorEdits,
         this.settings.enableRenderPrefs === true,
         this.isCodeShownToAgent(),
-        this.settings.versionedMode ? this.operatorVersionStore() : undefined
+        this.settings.versionedMode ? this.operatorVersionStore() : undefined,
+        this.settings.grainSplit === true,
+        (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined)
       );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
@@ -1296,6 +1298,7 @@ export class TexeraAgent {
     recallOperatorLevel?: boolean;
     specAudit?: boolean;
     indexThinObservations?: boolean;
+    grainSplit?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
     let promptNeedsRebuild = false;
@@ -1545,6 +1548,7 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.indexThinObservations !== undefined) this.settings.indexThinObservations = updates.indexThinObservations;
+    if (updates.grainSplit !== undefined) this.settings.grainSplit = updates.grainSplit;
     if (updates.enableRecallTool !== undefined && updates.enableRecallTool !== this.settings.enableRecallTool) {
       // Adds/removes the read-only recallState tool AND its prompt section, so
       // the system prompt has to be rebuilt (same contract as inspect/compact).
@@ -2321,6 +2325,15 @@ export class TexeraAgent {
       targets.add(opId);
       for (const sink of this.workflowState.getDownstreamSinks(opId)) {
         targets.add(sink);
+      }
+    }
+    // Grain-split stages (`<id>__<kind>`) sit UPSTREAM of the operator the
+    // model edited, so neither rule above reaches them. Materialize them too —
+    // an unmaterialized stage renders with no `Result:` block, which defeats
+    // the point of the split (seeing the intermediate).
+    for (const opId of editedOpIds) {
+      for (const op of this.workflowState.getAllOperators()) {
+        if (op.operatorID.startsWith(`${opId}__`)) targets.add(op.operatorID);
       }
     }
     if (targets.size === 0) return;

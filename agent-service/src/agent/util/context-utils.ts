@@ -64,6 +64,7 @@ import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../c
 import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
+import { stripCheckBlocks } from "../tools/grain-split";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -3554,7 +3555,7 @@ function serializeOperatorFull(
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
   if (ex?.includeCode && !info?.error) {
-    const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+    const code = stripCheckBlocks(String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "")).trim();
     if (code) {
       lines.push("Code:");
       for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
@@ -3621,8 +3622,15 @@ function serializeOperatorFull(
     const cap = options.maxOperatorResultCellCharLimit;
     if (cap && cap > 0 && text.length > cap) text = text.slice(0, cap) + " …(truncated)";
     if (text) {
+      // Grain-split data checks print `[check] …` lines: label them as what
+      // they are — engine-verified facts about this operator's FULL input.
+      const allChecks = text
+        .split("\n")
+        .every(l => l.trim().startsWith("[check]") || l.trim().startsWith("[plan]") || l.trim().startsWith("[change]"));
       lines.push(
-        "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"
+        allChecks
+          ? "Data changes inside this operator (measured on the FULL tables at each step — what your code did to the data):"
+          : "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"
       );
       for (const l of text.split("\n")) lines.push("  " + l);
     }
@@ -3713,7 +3721,7 @@ function serializeOperatorFull(
           "from a different operator."
       );
       if (!info?.error) {
-        const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+        const code = stripCheckBlocks(String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "")).trim();
         if (code) {
           lines.push("Current code:");
           for (const l of code.split("\n")) lines.push("  " + l);

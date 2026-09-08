@@ -20,6 +20,7 @@
 import type { OperatorInfo } from "../../types/execution";
 import type { WorkflowState } from "../workflow-state";
 import { getVisibleResultHeaders } from "./tools-utility";
+import { stripCheckBlocks } from "./grain-split";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
@@ -160,7 +161,7 @@ export function formatOperatorResult(
     // operatorProperties — so the agent still sees exactly what code failed,
     // without the engine duplicating it into every error payload.
     const op = workflowState.getOperator(operatorId);
-    const code = String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+    const code = stripCheckBlocks(String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "")).trim();
     const codeBlock = code ? `\nOperator code:\n${code}` : "";
     return `[ERROR] ${opInfo.error}${codeBlock}`;
   }

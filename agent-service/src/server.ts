@@ -862,6 +862,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           versionedHeads: (settings as any).versionedHeads,
           sessionTurns: (settings as any).sessionTurns,
           indexThinObservations: (settings as any).indexThinObservations,
+          grainSplit: (settings as any).grainSplit,
           tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         });
       }
@@ -943,6 +944,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       versionedHeads: t.Optional(t.Boolean()),
       sessionTurns: t.Optional(t.Boolean()),
       indexThinObservations: t.Optional(t.Boolean()),
+      grainSplit: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
