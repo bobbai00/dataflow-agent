@@ -39,9 +39,7 @@ Operator ids are short snake_case names for what the table IS (`reports`, `cross
 
 Your input is structured as:
 
-1. **`# User Task`** — the user's request, verbatim.
-2. **`# Current Dataflow`** — every operator's `id`, `type`, `Summary`, `Properties` (your own parameters), `Inputs` with row counts, and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
-3. **`# Operators needing attention`** — when something failed: the affected operators in topological order, root cause first.
+{{CONTEXT_LAYOUT}}
 
 {{RESULT_SHAPES}}
 

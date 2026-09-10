@@ -1028,6 +1028,19 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
     const eventFlags = new Map<string, boolean>();
     for (const tc of node.step.toolCalls) {
       const inp = (tc.input ?? {}) as Record<string, unknown>;
+      // NATIVE `addOperators`: every operator the batch LANDED (present in the
+      // step's snapshot) is a create; a refused batch marks nothing.
+      const batch = Array.isArray(inp.operators) ? (inp.operators as Array<Record<string, unknown>>) : undefined;
+      if (batch) {
+        const landed = new Set((node.snapshot?.workflow.operators ?? []).map(o => o.operatorID));
+        for (const spec of batch) {
+          const id = typeof spec?.id === "string" ? spec.id : "";
+          if (!id || !landed.has(id)) continue;
+          eventFlags.set(id, !known.has(id));
+          known.add(id);
+        }
+        continue;
+      }
       const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
       if (!opId) continue;
       if (tc.toolName === "createOrModifyOperator") {
@@ -2047,10 +2060,31 @@ function serializeTaskBody(
       calls.forEach((tc, i) => {
         const inp = tc.input as Record<string, unknown> | undefined;
         const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
+        const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
         if (tc.toolName === "deleteOperator" && opId) {
           deletedOps.push(opId);
         } else if (tc.toolName === "createOrModifyOperator" && opId) {
           actedVerb.set(opId, createFlags?.get(opId) ? "added" : "updated");
+        } else if (batch) {
+          // NATIVE `addOperators`: one verb per landed operator. A refused (or
+          // partly refused) batch keeps its error as a one-line outcome, so the
+          // model sees why nothing (or not everything) landed.
+          let landed = 0;
+          for (const spec of batch) {
+            const id = typeof spec?.id === "string" ? spec.id : "";
+            if (id && delta.has(id)) {
+              actedVerb.set(id, createFlags?.get(id) ? "added" : "updated");
+              landed++;
+            }
+          }
+          if (landed < batch.length) {
+            noChangeOutcome.push(
+              `- addOperators (${batch.length - landed} of ${batch.length} not added): ${conciseOutcome(results[i]?.output)}`
+            );
+          }
+          return;
+        } else if (tc.toolName === "modifyOperator" && opId) {
+          actedVerb.set(opId, "updated");
         }
         // An action whose operator isn't reflected in Δ (a rejected/no-op edit, or
         // a non-operator tool) keeps a one-line outcome so the attempt isn't lost.
@@ -2059,12 +2093,22 @@ function serializeTaskBody(
         }
       });
 
+      // NATIVE result selection applies to the observation too: an operator that
+      // changed this step renders in the shape the rule gives it in the
+      // post-step snapshot (full / count / header), same semantics as LATEST.
+      const snapForShapes = node.snapshot;
+      const deltaShapes =
+        options.resultSelection === "rule"
+          ? selectResultShapes(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info)
+          : undefined;
+
       const obs: string[] = [];
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
-        obs.push(`- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        const typed = op.nativeOp ? ` (${op.nativeOp.type})` : "";
+        obs.push(`- operator ${op.operatorID}${typed} ${actedVerb.get(op.operatorID) ?? "updated"}`);
         // `Inputs:` line — structure-consistent with LATEST. Rendered once, on
         // the op's most-recent edit, from the LEAF snapshot's DAG (current
         // wiring), via the same formatOperatorAdjacency LATEST uses. Skipped for
@@ -2108,6 +2152,12 @@ function serializeTaskBody(
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
+        const shape = deltaShapes?.get(op.operatorID);
+        if (shape && info && !info.error && shape.shape === "header") continue;
+        if (shape && info && !info.error && shape.shape === "count") {
+          obs.push(`  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`);
+          continue;
+        }
         // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it
         // IS the input, since loaders have no `Inputs:` line. `23a5325fc` moved
         // it out of the `Result:` body so consumed and produced facts stop
@@ -3052,6 +3102,24 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
     if (k === "code") continue; // rendered last as a block
+    if (k === "operators" && Array.isArray(v)) {
+      // NATIVE `addOperators`: one line per operator, `id (Type) <- inputs: {properties} — summary`;
+      // a UDF's code renders as its own block like a code-mode call.
+      lines.push("    operators:");
+      for (const spec of v as Array<Record<string, unknown>>) {
+        const ins = Array.isArray(spec.inputs) && spec.inputs.length > 0 ? ` <- ${(spec.inputs as string[]).join(", ")}` : "";
+        const props = (spec.properties ?? {}) as Record<string, unknown>;
+        const isUdf = spec.type === "UDF";
+        const shown = isUdf ? "" : `: ${JSON.stringify(props)}`;
+        const summary = typeof spec.summary === "string" && spec.summary.trim() ? ` — ${spec.summary.replace(/\s+/g, " ").trim()}` : "";
+        lines.push(`      - ${spec.id} (${spec.type})${ins}${shown}${summary}`);
+        if (isUdf && typeof props.code === "string") {
+          lines.push("        code:");
+          for (const l of props.code.split("\n")) lines.push(`          ${l}`);
+        }
+      }
+      continue;
+    }
     const val = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : JSON.stringify(v);
     lines.push(`    ${k}: ${val}`);
   }

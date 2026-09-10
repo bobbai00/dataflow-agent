@@ -525,20 +525,20 @@ export function buildNativeModeSystemPrompt(
   const inspectLine = inspectEnabled
     ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
     : "";
-  let prompt = NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
-    .replace("{{RESULT_SHAPES}}", shapes)
+  const layout = contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST;
+  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
+    .replace("{{CONTEXT_LAYOUT}}", layout)
+    .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
     .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
-  if (contextMode === ContextMode.DELTA) {
-    // Native mode is designed for the LATEST snapshot; under DELTA the state
-    // arrives as per-event observations instead. Say so rather than describe a
-    // section the agent will not see.
-    prompt = prompt.replace(
-      "2. **`# Current Dataflow`** — every operator's",
-      "2. **`# Agent Events`** — your actions and their observations, one event per turn; the latest state of each operator is in the most recent event that touched it. Each operator entry shows its"
-    );
-  }
-  return prompt;
 }
+
+const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, verbatim.
+2. **\`# Current Dataflow\`** — every operator's \`id\`, \`type\`, \`Summary\`, \`Properties\` (your own parameters), \`Inputs\` with row counts, and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
+3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
+
+const NATIVE_LAYOUT_DELTA = `1. **\`# User Task\`** — the user's request, verbatim.
+2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took (your tool calls; an \`addOperators\` call lists its operators one per line as \`id (Type) <- inputs: {properties} — summary\`) and the **\`Observation:\`** it produced: \`- operator id (Type) added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table, \`Column Schema and stats\`, \`Output Table profile\`). A refused call appears as \`- addOperators (k of n not added): [ERROR] …\`. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.
+3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
 
 /**
  * Build the GENERAL-mode system prompt with operator schemas and, when the
