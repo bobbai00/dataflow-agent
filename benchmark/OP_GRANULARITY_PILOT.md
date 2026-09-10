@@ -223,8 +223,45 @@ Reading the table:
 | Compute called with the wrong property shape (twice) | model guessed `expressions`/list shapes | validation error already names the expected shape; the model recovered next step |
 | script-agent arm returned `No response from agent` for every task | LiteLLM `400 No connected db.`: the harness shell had no `LITELLM_MASTER_KEY` | export `CODE_AGENT_API_KEY=$LITELLM_MASTER_KEY` for that arm |
 | kb.py watchdog killed a live 15-minute native run | the harness log is silent for the whole agent run | `--watchdog-min 30` for single long tasks |
+| after `modifyOperator`, intermediate operators below the edit showed no `Result` | post-step execution materialized only the edited operator and the downstream sinks | native mode re-materializes every descendant |
 
-### 4.4 What to run next
+### 4.4 The cache fix, applied (`message_layout="opSplit"`)
+
+None of the arms above carried the LATEST cache fix (one user message per
+`### Operator` block, so gpt-5.6 credits unchanged operators as whole-message
+matches). Three byte-identical variants with it, same 10 tasks, 1 rep:
+
+| arm | pass | steps / task | input tokens | cached | uncached / step | output | cost |
+|---|---|---|---|---|---|---|---|
+| code mode, single block | 6/10 | 6.4 | 523k | 67% | 2,571 | 16.8k | $0.062 |
+| code mode, opSplit | 7/10 | 7.6 | 657k | 88% | 1,130 | 20.0k | $0.051 |
+| native all, opSplit | 6/10 | 6.4 | 412k | 54% | 2,941 | 18.3k | $0.064 |
+| native rule, opSplit | 7/10 | 6.1 | 438k | 57% | — | 17.3k | $0.063 |
+
+With the fix, native mode costs what code mode cost without it, and code mode
+gets cheaper still. Why native benefits less — per step, compare each rendered
+operator block with the previous step's (prefix semantics: a block is a hit only
+if it is unchanged and nothing before it moved):
+
+| blocks across steps | code mode opSplit | native all opSplit | native rule opSplit |
+|---|---|---|---|
+| hit: unchanged, same position | 67% | 34% | 42% |
+| new, appended at the end | 21% | 37% | 35% |
+| new, inserted before the end | 6% | 8% | 6% |
+| unchanged but shifted by an insertion or deletion | 3% | 13% | 11% |
+| content changed | 2% | 8% | 6% |
+
+Two reasons. Native steps append more genuinely new content (a chain of 3–4
+operators per call), which no cache can serve. And the snapshot is ordered
+topologically: a new Scan or a deleted preview lands or vanishes before
+existing operators and shifts every block after it — 11–13% of native blocks
+were unchanged yet uncacheable for that reason, against 3% in code mode, whose
+DAGs are half the size and lose fewer probes. Rendering native operators in
+creation order (which the model already keeps close to topological) would
+recover most of that; the rule's full-to-count flips account for the rest of
+the "content changed" share.
+
+### 4.5 What to run next
 
 - 3 reps of the four arms on the same 10 tasks (noise floor), then the full 104.
 - `NativeRuleInspectRep1` (rule + `inspectResult`): pull logs tell whether the
