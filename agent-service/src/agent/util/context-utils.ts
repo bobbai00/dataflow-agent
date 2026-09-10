@@ -29,6 +29,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
+import { selectResultShapes, type ShapeDecision } from "../native/selection";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
@@ -107,6 +108,10 @@ export interface AssembleContextOptions {
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
   agentMode: AgentMode;
+  /** NATIVE-mode result selection for the current snapshot: "all" (every
+   *  executed operator renders its full result) or "rule" (ship only what the
+   *  data decided — see native/selection.ts). */
+  resultSelection?: "all" | "rule";
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
@@ -3189,8 +3194,16 @@ function serializeSnapshotFull(
 
   lines.push(`${sectionHash} Operators`);
   lines.push("");
+  // NATIVE result selection: decide once per snapshot which operator results
+  // ship in full, as a row count, or not at all (native/selection.ts).
+  const shapes =
+    options.resultSelection === "rule"
+      ? selectResultShapes(workflow.operators, allLinks, id => snapshot.results.get(id)?.info)
+      : undefined;
   for (const op of sortedOps) {
-    lines.push(serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel));
+    lines.push(
+      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, shapes?.get(op.operatorID))
+    );
     lines.push("");
   }
   return lines.join("\n").trimEnd();
@@ -3338,6 +3351,33 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
 // is re-exported here for back-compat with any existing importers.
 export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
+/**
+ * NATIVE result selection, "count" shape: one line — the output row count against
+ * the input row count(s) — plus, for a Compute whose column profile moved, the
+ * moved facts. `Output Table: 452 rows, 2 cols (from 660 rows)`.
+ */
+function formatCountOnlyResult(
+  op: OperatorPredicate,
+  info: OperatorInfo,
+  snapshot: SnapshotData,
+  allLinks: WorkflowContent["links"],
+  note?: string
+): string {
+  const rows = typeof info.totalRowCount === "number" ? info.totalRowCount : info.outputTuples;
+  const cols = outputColsFromSnapshot(snapshot, op.operatorID);
+  const inRows: number[] = [];
+  for (const l of allLinks) {
+    if (l.target.operatorID !== op.operatorID) continue;
+    const up = snapshot.results.get(l.source.operatorID)?.info;
+    const r = typeof up?.totalRowCount === "number" ? up.totalRowCount : up?.outputTuples;
+    if (typeof r === "number") inRows.push(r);
+  }
+  const from =
+    inRows.length === 0 ? "" : inRows.length === 1 ? ` (from ${inRows[0]} rows)` : ` (from ${inRows.join(" + ")} rows)`;
+  const colsPart = typeof cols === "number" ? `, ${cols} cols` : "";
+  return `Output Table: ${rows} rows${colsPart}${from}${note ? `; ${note}` : ""}`;
+}
+
 /** An operator's output column count = the visible-header count of its result's
  *  first row. Used to fill an input's `M cols` on the shape line (the engine's
  *  input port metrics carry only the row/tuple count). Undefined when unknown. */
@@ -3477,7 +3517,8 @@ function serializeOperatorFull(
   options: AssembleContextOptions,
   isCurrent: boolean,
   allLinks: WorkflowContent["links"],
-  operatorLevel: number
+  operatorLevel: number,
+  shape?: ShapeDecision
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
@@ -3485,7 +3526,11 @@ function serializeOperatorFull(
   // the pre-summarize assembler.
   const ex = options.opExtras?.(op.operatorID);
   let execText: string | undefined;
-  if (info && !info.error && ex?.retirementFact) {
+  if (info && !info.error && shape && shape.shape !== "full") {
+    // NATIVE result selection: the data decided only the row count here (or
+    // nothing at all) — ship that, not the table.
+    execText = shape.shape === "count" ? formatCountOnlyResult(op, info, snapshot, allLinks, shape.note) : undefined;
+  } else if (info && !info.error && ex?.retirementFact) {
     // Rank-4 probe retirement: the Result body is the compact extracted fact
     // (plus the Schema line when on) — the table/stats are omitted.
     const schemaLine = ex.column.schema ? formatSchemaLine(info, ex.column.schemaTypes !== false) : undefined;
@@ -3515,8 +3560,17 @@ function serializeOperatorFull(
   //     user's code + line marker inline.
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
-  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+  // NATIVE operators show their typed name (`Filter`), not the Python carrier type.
+  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.nativeOp?.type ?? op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+  if (op.nativeOp && op.nativeOp.type !== "UDF") {
+    // The agent's own parameters — always shown for typed operators; the
+    // generated code is never shown (it is not what the agent wrote).
+    lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+  }
+  // A header-only shape (Project / Sort / unchanged Compute) carries no result
+  // section: the table is the input table transformed exactly as Properties say.
+  const headerOnly = shape?.shape === "header" && info && !info.error;
   for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
@@ -3535,6 +3589,7 @@ function serializeOperatorFull(
   const includeProps = ex ? ex.includeProperties : options.includeOperatorProperties !== false;
   if (
     includeProps &&
+    !op.nativeOp &&
     !CODE_OPERATOR_TYPES.has(op.operatorType) &&
     op.operatorProperties &&
     Object.keys(op.operatorProperties).length > 0
@@ -3553,7 +3608,7 @@ function serializeOperatorFull(
 
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
-  if (ex?.includeCode && !info?.error) {
+  if (ex?.includeCode && !info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
     const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     if (code) {
       lines.push("Code:");
@@ -3584,9 +3639,13 @@ function serializeOperatorFull(
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
 
-  if (execText) {
+  if (execText && shape?.shape === "count") {
+    lines.push(`Result: ${execText}`);
+  } else if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
+  } else if (headerOnly) {
+    // nothing: header-only shape
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
     // "blocked by upstream error" from "not yet executed" by walking
@@ -3712,7 +3771,9 @@ function serializeOperatorFull(
           "result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer " +
           "from a different operator."
       );
-      if (!info?.error) {
+      // NATIVE typed operators already show their Properties; their generated
+      // code is not what the agent wrote, so it is never echoed.
+      if (!info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
         const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
         if (code) {
           lines.push("Current code:");

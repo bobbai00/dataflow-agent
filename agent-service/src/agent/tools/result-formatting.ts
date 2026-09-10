@@ -160,6 +160,12 @@ export function formatOperatorResult(
     // operatorProperties — so the agent still sees exactly what code failed,
     // without the engine duplicating it into every error payload.
     const op = workflowState.getOperator(operatorId);
+    // NATIVE typed operators: the agent wrote parameters, not the generated
+    // code, so echo the parameters (the DuckDB/pandas message already names
+    // the failing column or expression).
+    if (op?.nativeOp && op.nativeOp.type !== "UDF") {
+      return `[ERROR] ${opInfo.error}\nOperator properties: ${JSON.stringify(op.nativeOp.properties)}`;
+    }
     const code = String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     const codeBlock = code ? `\nOperator code:\n${code}` : "";
     return `[ERROR] ${opInfo.error}${codeBlock}`;

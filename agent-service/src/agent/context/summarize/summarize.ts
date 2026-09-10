@@ -207,6 +207,7 @@ export function paramsToRenderOptions(
     compilationResult,
     statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
+    resultSelection: params.resultSelection,
     agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,

@@ -30,7 +30,8 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { ContextMode, type LocalToolDialect } from "../types/agent";
+import { ContextMode, type LocalToolDialect, type ResultSelection } from "../types/agent";
+import { nativeCatalogText } from "./native/catalog";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
@@ -480,6 +481,63 @@ export function buildCodeModeSystemPrompt(
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
     .replace(/\n{3,}/g, "\n\n");
+}
+
+// ============================================================================
+// NATIVE mode: fixed-grain typed operators (native/catalog.ts) compiled to
+// Python by the service. Template in prompts/native-mode.md; the catalog is
+// generated from the same definitions the tool validates against, so prompt
+// and validator cannot drift.
+// ============================================================================
+const NATIVE_MODE_TEMPLATE: string = readFileSync(new URL("./prompts/native-mode.md", import.meta.url), "utf8");
+
+const NATIVE_SHAPES_ALL = `Every executed operator shows its full result: \`Output Table\`, sample rows, \`Column Schema and stats\`, \`Output Table profile\`.`;
+
+const NATIVE_SHAPES_RULE = `### Which results are shown
+
+Your own parameters are always shown under \`Properties\`. A result is shown where the DATA, not your parameters, decided it. Each operator appears in one of three shapes:
+
+**Full** — \`Result:\` with the table, stats and profile. Shown for Scan, Aggregate, Join and UDF outputs, for the INPUT table of every Aggregate / Join / UDF (the table whose grain that consumer depends on), and for every operator nothing consumes yet (the table you are about to act on).
+
+**Count** — one line, \`Result: Output Table: 452 rows, 2 cols (from 660 rows)\`. Shown for Filter, Distinct, Union and Limit whose output feeds a row-preserving operator or another filter: the data decided how many rows survived, nothing else.
+
+**Header** — no \`Result:\` line. Project and Sort, and a Compute whose new or replaced columns kept the same null and distinct counts as their source: the table is the input table transformed exactly as \`Properties\` say. A Compute whose column profile did move shows the moved facts on a count line (\`"reports": null 0 → 12\`).
+{{INSPECT_HINT}}`;
+
+/**
+ * Build the NATIVE-mode system prompt. `resultSelection` decides how the
+ * context-format section describes result blocks (all vs the three shapes).
+ */
+export function buildNativeModeSystemPrompt(
+  contextMode: ContextMode = ContextMode.LATEST,
+  inspectEnabled = false,
+  resultSelection: ResultSelection = "all"
+): string {
+  const shapes =
+    resultSelection === "rule"
+      ? NATIVE_SHAPES_RULE.replace(
+          "{{INSPECT_HINT}}",
+          inspectEnabled
+            ? "\nAny Count or Header operator's full table can be opened with `inspectResult` — read-only, no re-execution."
+            : ""
+        )
+      : NATIVE_SHAPES_ALL;
+  const inspectLine = inspectEnabled
+    ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
+    : "";
+  let prompt = NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
+    .replace("{{RESULT_SHAPES}}", shapes)
+    .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
+  if (contextMode === ContextMode.DELTA) {
+    // Native mode is designed for the LATEST snapshot; under DELTA the state
+    // arrives as per-event observations instead. Say so rather than describe a
+    // section the agent will not see.
+    prompt = prompt.replace(
+      "2. **`# Current Dataflow`** — every operator's",
+      "2. **`# Agent Events`** — your actions and their observations, one event per turn; the latest state of each operator is in the most recent event that touched it. Each operator entry shows its"
+    );
+  }
+  return prompt;
 }
 
 /**

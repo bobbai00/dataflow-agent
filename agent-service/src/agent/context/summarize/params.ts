@@ -343,6 +343,10 @@ export const SummarizeParamsSchema = z.object({
    *  current snapshot's operator blocks (needs a compilationResult input;
    *  legacy: GENERAL mode only). */
   compiledSchemas: z.boolean().default(false),
+  /** Native-mode result selection for the current snapshot (see
+   *  AgentSettings.resultSelection): "all" renders every result block,
+   *  "rule" ships only what the data decided. */
+  resultSelection: z.enum(["all", "rule"]).default("all"),
   flow: FlowParamsSchema.default({}),
   operators: z
     .object({
@@ -494,6 +498,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     // event log with the live snapshot, not delete state.
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    resultSelection: options.resultSelection ?? "all",
     statScopes: options.statScopes,
     messageLayout: options.messageLayout,
     flow: {

@@ -82,7 +82,21 @@ export enum OperatorResultSerializationMode {
 export enum AgentMode {
   CODE = "code",
   GENERAL = "general",
+  /** Fixed-grain typed operators (Scan/Filter/Project/Compute/Aggregate/Join/
+   *  Union/Distinct/Sort/Limit + UDF) compiled to Python by the service. */
+  NATIVE = "native",
 }
+
+/**
+ * Which operator results the LATEST snapshot ships, and at what fidelity.
+ *  - "all":  every executed operator renders its full result block (legacy).
+ *  - "rule": ship only what the data decided (native mode): full blocks for
+ *            Scan/Aggregate/Join/UDF outputs, for the input of any
+ *            Aggregate/Join/UDF, and for frontier operators; a row-count line
+ *            for Filter/Distinct/Union/Limit; header only for Project/Sort and
+ *            for Compute whose columns' null/distinct counts did not move.
+ */
+export type ResultSelection = "all" | "rule";
 
 /**
  * Snapshot-selection policy for serializing the ReAct context (paper §5,
@@ -133,6 +147,8 @@ export interface AgentSettings {
   maxOperatorEdits: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
+  /** Which operator results the snapshot ships (see ResultSelection). */
+  resultSelection: ResultSelection;
   contextMode: ContextMode;
   /**
    * When true, the model may emit multiple tool calls in a single assistant
@@ -555,6 +571,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "PythonUDFV2",
   ],
   agentMode: AgentMode.CODE,
+  resultSelection: "all",
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
   // per event, and every materialized result carries its schema, structural
@@ -679,10 +696,12 @@ export interface AgentSettingsApi {
   maxSteps?: number;
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general";
+  agentMode?: "code" | "general" | "native";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
+  /** Native mode result selection: "all" (default) or "rule". */
+  resultSelection?: "all" | "rule";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
@@ -779,10 +798,12 @@ export interface UpdateAgentSettingsRequest {
   maxSteps?: number;
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general";
+  agentMode?: "code" | "general" | "native";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
+  /** Native mode result selection: "all" (default) or "rule". */
+  resultSelection?: "all" | "rule";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;

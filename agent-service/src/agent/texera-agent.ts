@@ -96,6 +96,14 @@ import {
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
+import {
+  createAddOperatorsTool,
+  createNativeModifyOperatorTool,
+  TOOL_NAME_ADD_OPERATORS,
+  TOOL_NAME_MODIFY_NATIVE_OPERATOR,
+} from "./tools/native-op-tools";
+import { buildNativeModeSystemPrompt } from "./prompts";
+import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
@@ -138,6 +146,7 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
+  TOOL_NAME_ADD_OPERATORS,
 ]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
@@ -485,6 +494,12 @@ export class TexeraAgent {
         this.settings.contextMode,
         compactionEnabled
       );
+    } else if (this.settings.agentMode === AgentMode.NATIVE) {
+      this.systemPrompt = buildNativeModeSystemPrompt(
+        this.settings.contextMode,
+        this.settings.enableInspectTool === true,
+        this.settings.resultSelection
+      );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -505,7 +520,7 @@ export class TexeraAgent {
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
     // not just the instruction (which got poor .copy() adherence). Off by default.
-    if (this.settings.fewShotPrompt && this.settings.agentMode !== AgentMode.GENERAL && !this.systemPromptBuilder) {
+    if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -568,6 +583,10 @@ export class TexeraAgent {
         this.isCodeShownToAgent(),
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
+    } else if (this.settings.agentMode === AgentMode.NATIVE) {
+      // Fixed-grain typed operators: a chain per call, compiled to Python by the service.
+      tools[TOOL_NAME_ADD_OPERATORS] = createAddOperatorsTool(this.workflowState, context);
+      tools[TOOL_NAME_MODIFY_NATIVE_OPERATOR] = createNativeModifyOperatorTool(this.workflowState, context);
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -1244,6 +1263,7 @@ export class TexeraAgent {
     maxOperatorEdits?: number;
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
+    resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     includeOperatorProperties?: boolean;
@@ -1332,6 +1352,12 @@ export class TexeraAgent {
     }
     if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
       this.settings.agentMode = updates.agentMode;
+      promptNeedsRebuild = true;
+    }
+    if (updates.resultSelection !== undefined && updates.resultSelection !== this.settings.resultSelection) {
+      // Render-time selection of result blocks; the native prompt describes the
+      // shapes the agent will see, so it rebuilds too.
+      this.settings.resultSelection = updates.resultSelection;
       promptNeedsRebuild = true;
     }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
@@ -2297,6 +2323,13 @@ export class TexeraAgent {
       if (resultText.startsWith("[ERROR]")) continue;
       const operatorId = (tc.input as any)?.operatorId;
       if (operatorId) editedOpIds.push(operatorId);
+      // NATIVE `addOperators`: one call adds a chain; every id it landed is an edit.
+      const batch = (tc.input as any)?.operators;
+      if (Array.isArray(batch)) {
+        for (const spec of batch) {
+          if (spec && typeof spec.id === "string" && this.workflowState.getOperator(spec.id)) editedOpIds.push(spec.id);
+        }
+      }
     }
     if (editedOpIds.length === 0) return;
 
