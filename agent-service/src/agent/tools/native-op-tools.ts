@@ -63,14 +63,20 @@ function validateProps(type: string, props: unknown): string | undefined {
   return `invalid properties for ${type}: ${errs}. Expected: ${def.signature}`;
 }
 
-/** Link `inputs[i]` → this operator's `input-i` port (port order = `process()` parameter order). */
+/** Distinct input ids in order — a self-join names the same table twice but has one port. */
+function distinctInputs(inputs: string[]): string[] {
+  return [...new Set(inputs)];
+}
+
+/** Link each distinct input → this operator's `input-i` port (port order = `process()` parameter order). */
 function wireInputs(workflowState: WorkflowState, operatorId: string, inputs: string[]): void {
-  for (let i = 0; i < inputs.length; i++) {
-    const src = workflowState.getOperator(inputs[i]);
+  const ins = distinctInputs(inputs);
+  for (let i = 0; i < ins.length; i++) {
+    const src = workflowState.getOperator(ins[i]);
     if (!src) continue;
     const link: OperatorLink = {
-      linkID: `${inputs[i]}-->${operatorId}`,
-      source: { operatorID: inputs[i], portID: src.outputPorts[0]?.portID || "output-0" },
+      linkID: `${ins[i]}-->${operatorId}`,
+      source: { operatorID: ins[i], portID: src.outputPorts[0]?.portID || "output-0" },
       target: { operatorID: operatorId, portID: `input-${i}` },
     };
     workflowState.addLink(link);
@@ -186,8 +192,8 @@ export function createAddOperatorsTool(workflowState: WorkflowState, context?: T
           nativeOp: view,
         };
         workflowState.addOperator(operator);
-        if (compiled.operatorType === "DataProcessing" && inputs.length > 1) {
-          workflowState.updateOperatorInputPorts(spec.id, inputs.length);
+        if (compiled.operatorType === "DataProcessing" && distinctInputs(inputs).length > 1) {
+          workflowState.updateOperatorInputPorts(spec.id, distinctInputs(inputs).length);
         }
         wireInputs(workflowState, spec.id, inputs);
         created.push(spec.id);
@@ -263,8 +269,8 @@ export function createNativeModifyOperatorTool(workflowState: WorkflowState, con
       };
       workflowState.addOperator(next, position);
       if (inputsChanged) {
-        if (compiled.operatorType === "DataProcessing" && view.inputs.length >= 1) {
-          workflowState.updateOperatorInputPorts(args.operatorId, view.inputs.length);
+        if (compiled.operatorType === "DataProcessing" && distinctInputs(view.inputs).length >= 1) {
+          workflowState.updateOperatorInputPorts(args.operatorId, distinctInputs(view.inputs).length);
         }
         wireInputs(workflowState, args.operatorId, view.inputs);
         autoLayoutWorkflow(workflowState);

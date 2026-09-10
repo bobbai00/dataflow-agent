@@ -233,12 +233,15 @@ const JOIN_HOW: Record<string, string> = { inner: "inner", left: "left", right: 
 
 function compileJoin(p: Record<string, any>, inputs: string[]): string {
   const [l, r] = inputs;
+  // Self-join (the same table on both sides, e.g. year vs year-1): one
+  // parameter, used twice.
+  const params = l === r ? l : `${l}, ${r}`;
   const on = (p.on ?? []) as Array<[string, string]>;
   if (on.length === 0 || p.type === "cross") {
     // Cross join: every left row paired with every right row (the way to put two
     // one-row results side by side before a Compute).
     return [
-      `def process(${l}, ${r}):`,
+      `def process(${params}):`,
       "    import pandas as pd",
       `    return ${l}.merge(${r}, how='cross', suffixes=('', '_right'))`,
     ].join("\n");
@@ -247,7 +250,7 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
   const rightOn = on.map(x => x[1]);
   const how = JOIN_HOW[p.type ?? "inner"] ?? "inner";
   return [
-    `def process(${l}, ${r}):`,
+    `def process(${params}):`,
     "    import pandas as pd",
     `    return ${l}.merge(${r}, left_on=${py(leftOn)}, right_on=${py(rightOn)}, how=${py(how)}, suffixes=('', '_right'))`,
   ].join("\n");
@@ -290,7 +293,7 @@ export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
   for (const id of inputs) {
     if (!NATIVE_ID_RE.test(id)) throw new Error(`input operator id "${id}" is not a valid identifier`);
   }
-  if (new Set(inputs).size !== inputs.length) {
+  if (new Set(inputs).size !== inputs.length && view.type !== "Join") {
     throw new Error(`inputs must be distinct operators (got ${inputs.join(", ")})`);
   }
   if (def.inputs === 0 && inputs.length !== 0 && view.type !== "UDF") {

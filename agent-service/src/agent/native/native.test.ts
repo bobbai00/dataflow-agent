@@ -65,6 +65,10 @@ describe("native codegen", () => {
     expect(u.code).toContain("pd.concat([a, b, c]");
     const x = compileNativeOp({ type: "Join", inputs: ["num", "den"], properties: {} });
     expect(x.code).toContain("how='cross'");
+    // self-join: one parameter used on both sides
+    const s = compileNativeOp({ type: "Join", inputs: ["rates", "rates"], properties: { on: [["year_prev", "year"]] } });
+    expect(s.code).toContain("def process(rates):");
+    expect(s.code).toContain("rates.merge(rates,");
   });
 
   test("UDF parameters must match the input ids", () => {

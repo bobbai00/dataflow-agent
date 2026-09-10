@@ -185,7 +185,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "multiply",
     signature:
       'Join {on?: [[leftCol, rightCol]], type?: inner|left|right|full|cross}   inputs = [left, right]; same-named non-key columns from the right get suffix _right; ' +
-      "omit `on` (or type cross) to pair every row with every row, e.g. to put two one-row results side by side before a Compute",
+      "omit `on` (or type cross) to pair every row with every row, e.g. to put two one-row results side by side before a Compute; " +
+      "a self-join names the same operator twice in inputs (e.g. year against year-1)",
     schema: {
       type: "object",
       additionalProperties: false,
