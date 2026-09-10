@@ -261,7 +261,35 @@ creation order (which the model already keeps close to topological) would
 recover most of that; the rule's full-to-count flips account for the rest of
 the "content changed" share.
 
-### 4.5 What to run next
+### 4.5 DELTA mode check
+
+Native mode was first exercised only under LATEST. The DELTA renderer was then
+taught about typed operators (an `addOperators` action lists its operators one
+per line as `id (Type) <- inputs: {properties} — summary`; observations carry
+`- operator id (Type) added|updated`; a refused batch keeps its error as
+`- addOperators (k of n not added): [ERROR] …`; the selection rule applies to
+observations with LATEST semantics) and run on four tasks
+(`DataflowSystemLunaNative{Rule,All}DeltaRep1`, data_level 2, column stats,
+2k chars, single-block framing):
+
+| check (4 runs, 14 events each arm) | rule | all |
+|---|---|---|
+| typed action lines / raw JSON operators | 32 / 0 | 34 / 0 |
+| typed observation verbs / untyped | 36 / 0 | 34 / 0 |
+| count-shape results (rule only) | 4 | 0 |
+| refused-batch outcome lines | 0 | 1 |
+| `Column Schema and stats` / `Output Table profile` blocks | 16 / 3 | 17 / 2 |
+| generated-code leaks outside error blocks | 0 | 0 |
+| pass | 3/4 | 2/4 |
+| cost | $0.019 | $0.018 |
+
+Stats and profiles render wherever the table exceeds the sample (small
+results print the whole table and skip them, as in code mode). The descendant
+re-materialization fix showed up live: after `modifyOperator` on a Filter, the
+Compute below it rendered a fresh result in the same observation. DELTA's own
+cache fix (`cache_aligned_context`) was not enabled here (cache 52–53%).
+
+### 4.6 What to run next
 
 - 3 reps of the four arms on the same 10 tasks (noise floor), then the full 104.
 - `NativeRuleInspectRep1` (rule + `inspectResult`): pull logs tell whether the
