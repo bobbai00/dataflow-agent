@@ -2352,8 +2352,18 @@ export class TexeraAgent {
     const targets = new Set<string>();
     for (const opId of editedOpIds) {
       targets.add(opId);
-      for (const sink of this.workflowState.getDownstreamSinks(opId)) {
-        targets.add(sink);
+      if (this.settings.agentMode === AgentMode.NATIVE) {
+        // Typed chains are long and every operator below an edit is a table the
+        // render shows (or decides a shape from). Materialize all descendants,
+        // not just the sinks — otherwise an upstream modify leaves the
+        // intermediate blocks without a fresh Result (seen in the pilot).
+        for (const down of this.workflowState.getDownstreamOperators(opId)) {
+          targets.add(down);
+        }
+      } else {
+        for (const sink of this.workflowState.getDownstreamSinks(opId)) {
+          targets.add(sink);
+        }
       }
     }
     if (targets.size === 0) return;

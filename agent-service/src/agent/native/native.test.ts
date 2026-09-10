@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { WorkflowState } from "../workflow-state";
 import { compileNativeOp } from "./codegen";
 import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
 import { selectResultShapes } from "./selection";
@@ -160,6 +161,17 @@ describe("result selection rule", () => {
     expect(shapes.get("cast")?.shape).toBe("count");
     expect(shapes.get("cast")?.note).toContain("null 0 → 12");
     expect(shapes.get("keep")?.shape).toBe("full"); // frontier
+  });
+
+  test("modify re-materializes every descendant, not only the sinks", () => {
+    // scan -> filter -> compute -> aggregate, plus a second branch filter -> distinct
+    const ws = new WorkflowState();
+    const chain = [op("scan", "Scan", []), op("f", "Filter", ["scan"]), op("c", "Compute", ["f"]), op("agg", "Aggregate", ["c"]), op("d", "Distinct", ["f"])];
+    for (const o of chain) ws.addOperator(o);
+    for (const l of links(chain)) ws.addLink(l);
+    expect(ws.getDownstreamSinks("f").sort()).toEqual(["agg", "d"]);
+    expect(ws.getDownstreamOperators("f").sort()).toEqual(["agg", "c", "d"]);
+    expect(ws.getDownstreamOperators("agg")).toEqual([]);
   });
 
   test("errors, non-native operators and unexecuted operators stay full", () => {
