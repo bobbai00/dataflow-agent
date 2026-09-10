@@ -63,6 +63,8 @@ describe("native codegen", () => {
     expect(j.code).toContain(`l.merge(r, left_on=["k"], right_on=["key"], how="left"`);
     const u = compileNativeOp({ type: "Union", inputs: ["a", "b", "c"], properties: {} });
     expect(u.code).toContain("pd.concat([a, b, c]");
+    const x = compileNativeOp({ type: "Join", inputs: ["num", "den"], properties: {} });
+    expect(x.code).toContain("how='cross'");
   });
 
   test("UDF parameters must match the input ids", () => {

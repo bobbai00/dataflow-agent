@@ -184,18 +184,17 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 2,
     rowEffect: "multiply",
     signature:
-      'Join {on: [[leftCol, rightCol]], type?: inner|left|right|full}   inputs = [left, right]; same-named non-key columns from the right get suffix _right',
+      'Join {on?: [[leftCol, rightCol]], type?: inner|left|right|full|cross}   inputs = [left, right]; same-named non-key columns from the right get suffix _right; ' +
+      "omit `on` (or type cross) to pair every row with every row, e.g. to put two one-row results side by side before a Compute",
     schema: {
       type: "object",
       additionalProperties: false,
-      required: ["on"],
       properties: {
         on: {
           type: "array",
-          minItems: 1,
           items: { type: "array", items: str, minItems: 2, maxItems: 2 },
         },
-        type: { type: "string", enum: ["inner", "left", "right", "full"] },
+        type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
       },
     },
   },

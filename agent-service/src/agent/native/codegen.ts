@@ -233,7 +233,16 @@ const JOIN_HOW: Record<string, string> = { inner: "inner", left: "left", right: 
 
 function compileJoin(p: Record<string, any>, inputs: string[]): string {
   const [l, r] = inputs;
-  const on = p.on as Array<[string, string]>;
+  const on = (p.on ?? []) as Array<[string, string]>;
+  if (on.length === 0 || p.type === "cross") {
+    // Cross join: every left row paired with every right row (the way to put two
+    // one-row results side by side before a Compute).
+    return [
+      `def process(${l}, ${r}):`,
+      "    import pandas as pd",
+      `    return ${l}.merge(${r}, how='cross', suffixes=('', '_right'))`,
+    ].join("\n");
+  }
   const leftOn = on.map(x => x[0]);
   const rightOn = on.map(x => x[1]);
   const how = JOIN_HOW[p.type ?? "inner"] ?? "inner";
