@@ -6,6 +6,11 @@ how it behaves on real runs, and what the first pilot measured.
 
 ---
 
+Design and contract, kept current with the code:
+`agent-service/docs/typed-operators-design.md` (table in, table out; lineage;
+result selection; renders) and `agent-service/docs/operator-tools-spec.md`
+(one tool per operator, upsert / delete, Scan formats, compilation, errors).
+
 ## 1. What was built
 
 ### 1.1 The operator set
@@ -48,31 +53,57 @@ snapshot storage work as before.
 - `Project`, `Join`, `Union`, `Distinct`, `Sort`, `Limit` have no expressions
   and compile to the pandas call.
 - `Scan` compiles to DuckDB `read_csv([files], header, skip, names,
-  all_varchar, union_by_name, filename)` with pandas fallbacks for xlsx / html /
-  json, and a raw-line `preview` mode for inspecting a file before the real Scan.
+  all_varchar, union_by_name, filename)` for utf-8 delimited text. Everything
+  else is pandas from the same parameters: files whose bytes are not utf-8
+  (detected on the first 4 MB; 19 legal / wildfire CSVs are cp1252, which
+  DuckDB rejects), `delim: "whitespace"`, `comment: "#"`, `format: "fwf"` with
+  `widths`, `format: "lines"` (one row per line, parsed downstream with
+  `compute`), xlsx (`sheet`), html (`sheet` = table index), json (a dict of
+  scalars becomes a key/value table; records are normalized), parquet.
+  `preview: n` returns the first n raw lines of a text file, the first n rows
+  of every xlsx sheet or html table, and for a binary format one row with a
+  loader hint (gpkg / shp / npz / cdf are `udf` loaders). Verified on every
+  unusual KramaBench file: TLE, OMNI `.dat` / `.lst`, SP3, commented Swarm
+  density text, xlsx with title rows, html, json dict, cp1252 csv, gpkg.
 
 The typed view (`type`, `properties`, ordered `inputs`) rides on the operator
 predicate as `nativeOp`. The execution payload never forwards it; the renderer
 prints `(Filter)` and `Properties:` from it and never shows generated code.
 
 Files: `agent-service/src/agent/native/{catalog,codegen,selection}.ts`,
-`agent-service/src/agent/tools/native-op-tools.ts`,
+`agent-service/src/agent/tools/native-typed-tools.ts`,
 `agent-service/src/agent/prompts/native-mode.md`.
 
 ### 1.3 Tools and prompt
 
-- `addOperators({operators: [{id, type, inputs, properties, summary}, …]})` —
-  a chain per call, executed once after the turn.
-- `modifyOperator({operatorId, properties, inputs, summary})` — properties
-  replaced whole, code recompiled.
-- `deleteOperator`, and optionally `inspectResult` (read-only re-render of an
-  existing result).
+One tool per operator type — `scan filter project compute aggregate join union
+distinct sort limit udf` — plus `deleteOperator`. A tool's arguments are the
+operator's parameters at top level, the output table's `id`, and its input
+table(s) (`input`; `left`/`right` for join; `inputs` for union and udf). There
+is no summary argument: the type and the parameters are the summary.
 
-The system prompt is generated from the same catalog the tool validates
-against (one signature line per operator), plus SQL notes, build rules (one
-relational operation per operator; UDF only for what the catalog cannot do;
-preview a file before its Scan; fix in place), the result-table format, and
-the key principles carried over from code mode minus the pandas-specific ones.
+- **Upsert by id.** A new id adds the operator; an existing id replaces its
+  parameters and inputs in place and keeps every outgoing link (a Scan cannot
+  become a processing operator or vice versa). Downstream operators are
+  re-materialized after the edit.
+- **A chain is several calls in one turn.** The scheduler orders same-turn
+  calls by their input references, so a call may name an id created by an
+  earlier call in the same turn; the workflow executes once after the turn.
+- **`deleteOperator(id)`** refuses while consumers exist and names them.
+- Tool schemas, the Ajv validator and the prompt's catalog are generated from
+  the same `NATIVE_OPERATORS` table, so they cannot disagree. (The earlier
+  `addOperators` batch tool is kept in the tree but no longer wired.)
+
+Before this change the model spent 34–38% of an operator's output tokens on
+its parameters and the rest on the envelope (JSON framing 27%, the summary
+20%, id / inputs / type); the per-operator tool drops the summary and most of
+the framing.
+
+The system prompt is generated from the same catalog (one signature line per
+tool), plus SQL notes, build rules (one relational operation per operator;
+UDF only for what the catalog cannot do; preview a file before its Scan; fix
+in place with the same id), the result-table format, and the key principles
+carried over from code mode minus the pandas-specific ones.
 
 ### 1.4 Result selection
 

@@ -56,23 +56,21 @@ operators**, each fully specified by its parameters:
 | `UDF` | Python code | unknown |
 
 The granularity of an operator is therefore set by the algebra, not by the agent: one
-operator is one relational operation. For this task the agent submits five of them
-(the tool call, abbreviated):
+operator is one relational operation, and each operator type is one tool: the tool's
+arguments are the operator's parameters plus the output table's `id` and its input
+table(s). For this task the agent submits five calls in one turn:
 
-```json
-{"operators": [
-  {"id": "identity_theft", "type": "Scan",
-   "files": "data/legal/input/State MSA Identity Theft data/*.csv", "skipLines": 3, "header": false,
-   "columns": ["metropolitan_area", "reports"], "types": ["text", "text"]},
-  {"id": "non_blank",   "type": "Filter",    "input": "identity_theft",
-   "predicate": "metropolitan_area IS NOT NULL AND reports IS NOT NULL"},
-  {"id": "reports_num", "type": "Compute",   "input": "non_blank",
-   "columns": {"reports": "CAST(REPLACE(reports, ',', '') AS INTEGER)"}},
-  {"id": "cross_state", "type": "Filter",    "input": "reports_num",
-   "predicate": "REGEXP_LIKE(metropolitan_area, ', [A-Z]{2}(-[A-Z]{2})+ ')"},
-  {"id": "total",       "type": "Aggregate", "input": "cross_state",
-   "aggregations": [{"function": "sum", "column": "reports", "as": "total_reports"}]}
-]}
+```
+scan     (id="identity_theft", files="data/legal/input/State MSA Identity Theft data/*.csv",
+          skipLines=3, header=false, columns=["metropolitan_area", "reports"], allText=true)
+filter   (id="non_blank",   input="identity_theft",
+          predicate="metropolitan_area IS NOT NULL AND reports IS NOT NULL")
+compute  (id="reports_num", input="non_blank",
+          columns={"reports": "TRY_CAST(replace(reports, ',', '') AS INTEGER)"})
+filter   (id="cross_state", input="reports_num",
+          predicate="regexp_matches(metropolitan_area, ', [A-Z]{2}(-[A-Z]{2})+ ')")
+aggregate(id="total",       input="cross_state",
+          aggregations=[{"fn": "sum", "col": "reports", "as": "total_reports"}])
 ```
 
 The engine runs the chain and holds the full table on every edge, with its statistics
