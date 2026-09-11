@@ -20,6 +20,9 @@
 import { describe, expect, test } from "bun:test";
 import { WorkflowState } from "../workflow-state";
 import { formatNativeError } from "../tools/result-formatting";
+import { describeInputs, nativeInputsOf, nativeToolSchema, nativeViewOf, toolSignature } from "../tools/native-typed-tools";
+import { defaultParseDeps, defaultProducedOpId } from "../tools/tool-call-scheduler";
+import { NATIVE_BY_TYPE } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
 import { selectResultShapes } from "./selection";
@@ -40,6 +43,33 @@ describe("native codegen", () => {
     expect(r.code).toContain("header=false");
     expect(r.code).toContain("names=[\\'a\\', \\'b\\']");
     expect(r.code).toContain("all_varchar=true");
+  });
+
+  test("Scan variants: preview, lines, whitespace/comment, fwf, json, encoding routing", () => {
+    const scan = (properties: Record<string, unknown>) => compileNativeOp({ type: "Scan", properties, inputs: [] }).code;
+    const preview = scan({ files: "a.xlsx", preview: 5 });
+    expect(preview).toContain("n = 5");
+    expect(preview).toContain("xl.sheet_names"); // sheet heads for xlsx
+    expect(preview).toContain("pd.read_html(files[0])"); // table heads for html
+    expect(preview).toContain("BINARY_HINT"); // pointer row for binary formats
+    const lines = scan({ files: "x.tle", format: "lines", fileColumn: "file" });
+    expect(lines).toContain("if fmt == 'lines':");
+    expect(lines).toContain("'line_no': range(len(ls)), 'line': ls");
+    const ws = scan({ files: "omni.dat", delim: "whitespace", comment: "#", header: false, columns: ["a", "b"] });
+    expect(ws).toContain("sep=r'\\s+', engine='python'");
+    expect(ws).toContain('comment="#"');
+    expect(ws).toContain('names=["a","b"]');
+    expect(ws).toContain("return _pandas_csv()");
+    expect(ws).not.toContain("read_csv(' + flist"); // whitespace never goes to DuckDB
+    const fwf = scan({ files: "x.txt", format: "fwf", widths: [4, 3, 8] });
+    expect(fwf).toContain("pd.read_fwf(f, widths=[4,3,8]");
+    const csv = scan({ files: "a.csv", skipLines: 2 });
+    expect(csv).toContain("_text_enc(f).lower() not in ('utf-8', 'utf8')"); // cp1252 files take the pandas path
+    expect(csv).toContain("read_csv(' + flist + ', header=true, skip=2, union_by_name=true)");
+    expect(csv).toContain("return 'cp1252'");
+    const json = scan({ files: "s.json" });
+    expect(json).toContain("pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
+    expect(json).toContain("pd.json_normalize(j)");
   });
 
   test("Filter embeds the predicate as a Python string literal", () => {
@@ -106,6 +136,28 @@ describe("native codegen", () => {
     const scan =
       "(line 36) `d = _con.sql('SELECT * FROM read_csv(' + flist + ', header=true)').df()` - InvalidInputException: Invalid Input Error: File is not latin-1 encoded";
     expect(formatNativeError("noaa", "Scan", scan)).toBe("Scan `noaa` failed: Invalid Input Error: File is not latin-1 encoded");
+  });
+
+  test("per-operator tools: schema, signature, view, deps", () => {
+    const filter = NATIVE_BY_TYPE.get("Filter")!;
+    const schema = nativeToolSchema(filter) as any;
+    expect(schema.required).toEqual(["id", "input", "predicate"]);
+    expect(Object.keys(schema.properties)).toEqual(["id", "input", "predicate"]);
+    expect(toolSignature(filter).startsWith("filter(id, input, predicate)")).toBe(true);
+    const join = NATIVE_BY_TYPE.get("Join")!;
+    expect((nativeToolSchema(join) as any).required).toEqual(["id", "left", "right"]);
+    expect(toolSignature(join).startsWith("join(id, left, right, on?, type?)")).toBe(true);
+    // the view strips id and input refs; inputs come from the refs in port order
+    const call = { id: "pairs", left: "rates", right: "rates", on: [["year_prev", "year"]] };
+    expect(nativeViewOf("join", call)).toEqual({ type: "Join", properties: { on: [["year_prev", "year"]] }, inputs: ["rates", "rates"] });
+    expect(nativeInputsOf("union", { id: "u", inputs: ["a", "b"] })).toEqual(["a", "b"]);
+    expect(describeInputs("Join", ["a", "b"])).toBe("inputs: left = a, right = b");
+    expect(describeInputs("Filter", ["a"])).toBe("inputs: a");
+    // scheduler: dependencies and produced id from the typed refs
+    expect(defaultParseDeps("filter", { id: "f", input: "s", predicate: "1=1" })).toEqual(["s"]);
+    expect(defaultParseDeps("join", call)).toEqual(["rates", "rates"]);
+    expect(defaultProducedOpId("aggregate", { id: "total" })).toBe("total");
+    expect(defaultProducedOpId("deleteOperator", { id: "x" })).toBe("x");
   });
 
   test("catalog text lists every type once", () => {

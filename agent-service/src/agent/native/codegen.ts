@@ -81,77 +81,155 @@ function compileScan(p: Record<string, any>): string {
   const files = Array.isArray(p.files) ? p.files : [p.files];
   const header = p.header !== false;
   const skip = Number(p.skipLines ?? 0);
-  const lines: string[] = [];
-  lines.push("def load():");
-  lines.push("    import glob, os, duckdb, pandas as pd");
-  lines.push(`    _pats = ${py(files)}`);
-  lines.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
-  lines.push("    if not files:");
-  lines.push("        raise FileNotFoundError('no file matches ' + ', '.join(_pats))");
-  lines.push("    missing = [f for f in files if not os.path.exists(f)]");
-  lines.push("    if missing:");
-  lines.push("        raise FileNotFoundError('not found: ' + ', '.join(missing))");
-  if (p.preview) {
-    lines.push(`    n = ${Number(p.preview)}`);
-    lines.push("    rows = []");
-    lines.push("    for f in files[:5]:");
-    lines.push("        with open(f, 'r', encoding=" + py(p.encoding ?? "utf-8") + ", errors='replace') as fh:");
-    lines.push("            for i, line in enumerate(fh):");
-    lines.push("                if i >= n:");
-    lines.push("                    break");
-    lines.push("                rows.append({'file': os.path.basename(f), 'line_no': i, 'line': line.rstrip('\\n\\r')})");
-    lines.push("    return pd.DataFrame(rows, columns=['file', 'line_no', 'line'])");
-    return lines.join("\n");
-  }
-  lines.push("    ext = os.path.splitext(files[0])[1].lower()");
-  lines.push("    parts = []");
-  // Excel / HTML / JSON via pandas
-  lines.push("    if ext in ('.xlsx', '.xls', '.xlsm'):");
-  lines.push("        for f in files:");
-  lines.push(
-    `            d = pd.read_excel(f, sheet_name=${py(p.sheet ?? 0)}, header=${header ? "0" : "None"}, skiprows=${skip}` +
-      (Array.isArray(p.columns) ? `, names=${py(p.columns)}` : "") +
-      (p.allText ? ", dtype=str" : "") +
-      ")"
-  );
-  lines.push("            if " + py(Boolean(p.fileColumn)) + ":");
-  lines.push(`                d[${py(p.fileColumn ?? "file")}] = os.path.basename(f)`);
-  lines.push("            parts.append(d)");
-  lines.push("        return pd.concat(parts, ignore_index=True, sort=False)");
-  lines.push("    if ext in ('.html', '.htm'):");
-  lines.push("        for f in files:");
-  lines.push(`            tables = pd.read_html(f, header=${header ? "0" : "None"}, skiprows=${skip || "None"})`);
-  lines.push(`            d = tables[${py(typeof p.sheet === "number" ? p.sheet : 0)}]`);
-  lines.push("            if " + py(Boolean(p.fileColumn)) + ":");
-  lines.push(`                d[${py(p.fileColumn ?? "file")}] = os.path.basename(f)`);
-  lines.push("            parts.append(d)");
-  lines.push("        return pd.concat(parts, ignore_index=True, sort=False)");
-  lines.push("    if ext in ('.json', '.jsonl', '.ndjson'):");
-  lines.push("        for f in files:");
-  lines.push("            d = pd.read_json(f, lines=(ext != '.json'))");
-  lines.push("            if " + py(Boolean(p.fileColumn)) + ":");
-  lines.push(`                d[${py(p.fileColumn ?? "file")}] = os.path.basename(f)`);
-  lines.push("            parts.append(d)");
-  lines.push("        return pd.concat(parts, ignore_index=True, sort=False)");
-  // CSV-like via DuckDB's read_csv (SQL form: one statement, list of files).
+  const allText = Boolean(p.allText);
+  const encoding = typeof p.encoding === "string" && p.encoding.trim() ? p.encoding.trim() : null;
   const sqlLit = (s: unknown) => "'" + String(s).replace(/'/g, "''") + "'";
+  const L: string[] = [];
+  L.push("def load():");
+  L.push("    import glob, os, json, duckdb, pandas as pd");
+  L.push(`    _pats = ${py(files)}`);
+  L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
+  L.push("    if not files:");
+  L.push("        raise FileNotFoundError('no file matches ' + ', '.join(_pats))");
+  L.push("    missing = [f for f in files if not os.path.exists(f)]");
+  L.push("    if missing:");
+  L.push("        raise FileNotFoundError('not found: ' + ', '.join(missing))");
+  L.push("    ext = os.path.splitext(files[0])[1].lower()");
+  L.push(`    fmt = ${py(p.format ?? "auto")}`);
+  L.push("    if fmt == 'auto':");
+  L.push("        if ext in ('.xlsx', '.xls', '.xlsm'): fmt = 'excel'");
+  L.push("        elif ext in ('.html', '.htm'): fmt = 'html'");
+  L.push("        elif ext in ('.json', '.jsonl', '.ndjson'): fmt = 'json'");
+  L.push("        elif ext == '.parquet': fmt = 'parquet'");
+  L.push("        elif ext in ('.gpkg', '.shp', '.npz', '.npy', '.cdf', '.nc', '.h5', '.hdf5', '.pkl', '.zip', '.gz', '.db', '.sqlite'): fmt = 'binary'");
+  L.push("        else: fmt = 'csv'");
+  L.push("    BINARY_HINT = 'binary format ' + ext + ': scan reads text tables, xlsx, html, json and parquet; read this file with a udf loader (geopandas.read_file for .gpkg/.shp, numpy.load for .npz, cdflib for .cdf)'");
+  L.push(`    file_col = ${py(p.fileColumn ?? null)}`);
+  L.push("    def _tag(d, f):");
+  L.push("        if file_col: d[file_col] = os.path.basename(f)");
+  L.push("        return d");
+  // Text encoding: the given one, else utf-8 unless the file's first 4 MB say
+  // otherwise (then cp1252, which covers the latin-1 / Windows exports seen in
+  // practice). DuckDB only reads utf-8, so anything else takes the pandas path.
+  L.push(`    _enc = ${py(encoding)}`);
+  L.push("    def _text_enc(f):");
+  L.push("        if _enc: return _enc");
+  L.push("        with open(f, 'rb') as fh: b = fh.read(1 << 22)");
+  L.push("        try:");
+  L.push("            b.decode('utf-8'); return 'utf-8'");
+  L.push("        except UnicodeDecodeError:");
+  L.push("            return 'cp1252'");
+  if (p.preview) {
+    // ---- preview: raw lines for text; sheet / table heads for excel and html; a pointer for binary
+    L.push(`    n = ${Number(p.preview)}`);
+    L.push("    if fmt == 'excel':");
+    L.push("        rows = []");
+    L.push("        xl = pd.ExcelFile(files[0])");
+    L.push("        for sh in xl.sheet_names:");
+    L.push("            d = xl.parse(sh, header=None, nrows=n, dtype=str)");
+    L.push("            d.columns = [str(c) for c in d.columns]");
+    L.push("            d.insert(0, 'row_no', range(len(d))); d.insert(0, 'sheet', sh)");
+    L.push("            rows.append(d)");
+    L.push("        return pd.concat(rows, ignore_index=True, sort=False)");
+    L.push("    if fmt == 'html':");
+    L.push("        rows = []");
+    L.push("        for i, t in enumerate(pd.read_html(files[0])):");
+    L.push("            d = pd.concat([pd.DataFrame([[str(c) for c in t.columns]]), t.astype(str).head(n).set_axis(range(t.shape[1]), axis=1)], ignore_index=True)");
+    L.push("            d.columns = [str(c) for c in d.columns]");
+    L.push("            d.insert(0, 'row_no', range(len(d))); d.insert(0, 'table', i)");
+    L.push("            rows.append(d)");
+    L.push("        return pd.concat(rows, ignore_index=True, sort=False)");
+    L.push("    if fmt == 'binary':");
+    L.push("        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})");
+    L.push("    rows = []");
+    L.push("    for f in files[:5]:");
+    L.push("        with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh:");
+    L.push("            for i, line in enumerate(fh):");
+    L.push("                if i >= n:");
+    L.push("                    break");
+    L.push("                rows.append({'file': os.path.basename(f), 'line_no': i, 'line': line.rstrip('\\n\\r')})");
+    L.push("    return pd.DataFrame(rows, columns=['file', 'line_no', 'line'])");
+    return L.join("\n");
+  }
+  L.push("    parts = []");
+  // ---- lines: every line of every file is a row; parse it downstream with compute
+  L.push("    if fmt == 'lines':");
+  L.push("        for f in files:");
+  L.push("            with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh:");
+  L.push(`                ls = [l.rstrip('\\n\\r') for l in fh][${skip}:]`);
+  L.push("            parts.append(_tag(pd.DataFrame({'line_no': range(len(ls)), 'line': ls}), f))");
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("    if fmt == 'binary':");
+  L.push("        raise ValueError(BINARY_HINT)");
+  // ---- excel / html / json / parquet
+  L.push("    if fmt == 'excel':");
+  L.push("        for f in files:");
+  L.push(
+    `            parts.append(_tag(pd.read_excel(f, sheet_name=${py(p.sheet ?? 0)}, header=${header ? "0" : "None"}, skiprows=${skip}` +
+      (Array.isArray(p.columns) ? `, names=${py(p.columns)}` : "") +
+      (allText ? ", dtype=str" : "") +
+      "), f))"
+  );
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("    if fmt == 'html':");
+  L.push("        for f in files:");
+  L.push(`            tables = pd.read_html(f, header=${header ? "0" : "None"}, skiprows=${skip || "None"})`);
+  L.push(`            parts.append(_tag(tables[${py(typeof p.sheet === "number" ? p.sheet : 0)}], f))`);
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("    if fmt == 'json':");
+  L.push("        for f in files:");
+  L.push("            with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh: txt = fh.read()");
+  L.push("            try:");
+  L.push("                j = json.loads(txt)");
+  L.push("            except ValueError:");
+  L.push("                j = [json.loads(l) for l in txt.splitlines() if l.strip()]");
+  L.push("            if isinstance(j, dict) and all(not isinstance(v, (dict, list)) for v in j.values()):");
+  L.push("                d = pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
+  L.push("            elif isinstance(j, dict) and all(isinstance(v, list) for v in j.values()) and len({len(v) for v in j.values()}) == 1:");
+  L.push("                d = pd.DataFrame(j)");
+  L.push("            else:");
+  L.push("                d = pd.json_normalize(j)");
+  L.push("            parts.append(_tag(d, f))");
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("    if fmt == 'parquet':");
+  L.push("        return duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df()");
+  // ---- pandas text readers: fixed width, whitespace-aligned, commented, non-utf-8
+  const pdCommon =
+    `header=${header ? "0" : "None"}, skiprows=${skip}` +
+    (Array.isArray(p.columns) ? `, names=${py(p.columns)}` : "") +
+    (allText ? ", dtype=str" : "") +
+    (p.comment ? `, comment=${py(String(p.comment).slice(0, 1))}` : "") +
+    ", encoding=_text_enc(f), encoding_errors='replace'";
+  L.push("    if fmt == 'fwf':");
+  L.push("        for f in files:");
+  L.push(`            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`);
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  const pandasCsv = p.delim === "whitespace" ? `sep=r'\\s+', engine='python'` : `sep=${py(p.delim ?? ",")}`;
+  L.push("    def _pandas_csv():");
+  L.push("        for f in files:");
+  L.push(`            parts.append(_tag(pd.read_csv(f, ${pandasCsv}, ${pdCommon}), f))`);
+  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  if (p.delim === "whitespace" || p.comment) {
+    L.push("    return _pandas_csv()");
+    return L.join("\n");
+  }
+  L.push("    if any(_text_enc(f).lower() not in ('utf-8', 'utf8') for f in files):");
+  L.push("        return _pandas_csv()");
+  // ---- utf-8 delimited text: DuckDB read_csv over all files at once
   const opts: string[] = [`header=${header ? "true" : "false"}`, `skip=${skip}`, "union_by_name=true"];
   if (Array.isArray(p.columns)) opts.push(`names=[${p.columns.map(sqlLit).join(", ")}]`);
-  if (p.allText) opts.push("all_varchar=true");
+  if (allText) opts.push("all_varchar=true");
   if (p.delim) opts.push(`delim=${sqlLit(p.delim)}`);
-  if (p.encoding && p.encoding.toLowerCase() !== "utf-8" && p.encoding.toLowerCase() !== "utf8") {
-    opts.push(`encoding=${sqlLit(p.encoding)}`);
-  }
   if (p.fileColumn) opts.push("filename=true");
-  lines.push("    _con = duckdb.connect()");
-  lines.push("    flist = '[' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + ']'");
-  lines.push(`    d = _con.sql('SELECT * FROM read_csv(' + flist + ', ${opts.join(", ").replace(/'/g, "\\'")})').df()`);
+  L.push("    _con = duckdb.connect()");
+  L.push("    flist = '[' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + ']'");
+  L.push(`    d = _con.sql('SELECT * FROM read_csv(' + flist + ', ${opts.join(", ").replace(/'/g, "\\'")})').df()`);
   if (p.fileColumn) {
-    lines.push(`    d[${py(p.fileColumn)}] = d['filename'].map(os.path.basename)`);
-    lines.push("    d = d.drop(columns=['filename'])");
+    L.push(`    d[${py(p.fileColumn)}] = d['filename'].map(os.path.basename)`);
+    L.push("    d = d.drop(columns=['filename'])");
   }
-  lines.push("    return d");
-  return lines.join("\n");
+  L.push("    return d");
+  return L.join("\n");
 }
 
 function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = []): string {
@@ -161,6 +239,8 @@ function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = []):
     `def process(${inputName}):`,
     DUCK_PRELUDE.trimEnd(),
     `    t = _ready(${inputName})`,
+    "    if t.shape[1] == 0:",
+    "        return t",
     "    _con.register('t', t)",
     ...sqlBuilder,
     "    d = _con.sql(q).df()",

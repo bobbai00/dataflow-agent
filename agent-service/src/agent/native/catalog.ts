@@ -72,9 +72,10 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 0,
     rowEffect: "create",
     signature:
-      'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json)", skipLines?: int, header?: bool (default true), ' +
-      'columns?: [name] (names when header=false), allText?: bool (read every column as text), delim?: str, ' +
-      'sheet?: str|int, encoding?: str, fileColumn?: str (add the source file name as this column), preview?: int (return the first n RAW lines of each file, one text column, for inspecting a file before the real Scan)}',
+      'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true), ' +
+      'columns?: [name] (names when header=false), allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
+      'format?: auto|csv|lines|fwf (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths), widths?: [int], ' +
+      'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table)}',
     schema: {
       type: "object",
       additionalProperties: false,
@@ -86,6 +87,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
         columns: strList,
         allText: { type: "boolean" },
         delim: str,
+        comment: { type: "string", minLength: 1, maxLength: 1 },
+        format: { type: "string", enum: ["auto", "csv", "lines", "fwf"] },
+        widths: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1 },
         sheet: { oneOf: [str, { type: "integer" }] },
         encoding: str,
         fileColumn: str,

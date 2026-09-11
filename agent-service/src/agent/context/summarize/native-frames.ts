@@ -240,7 +240,8 @@ function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
  */
 export function splitOperators(text: string): string[] {
   const marks: number[] = [];
-  const RE = /^### Operator /gm;
+  // Code-mode blocks read `### Operator \`id\` (Type)`, native ones `### filter operator \`id\``.
+  const RE = /^### (?:Operator |\w+ operator )/gm;
   for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
   if (marks.length < 2) return [];
 

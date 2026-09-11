@@ -31,7 +31,7 @@
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { ContextMode, type LocalToolDialect, type ResultSelection } from "../types/agent";
-import { nativeCatalogText } from "./native/catalog";
+import { nativeToolCatalogText } from "./tools/native-typed-tools";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2"];
 const R_UDF_OPERATOR_TYPES = ["RUDF"];
@@ -497,11 +497,11 @@ const NATIVE_SHAPES_RULE = `### Which results are shown
 
 Your own parameters are always shown under \`Properties\`. A result is shown where the DATA, not your parameters, decided it. Each operator appears in one of three shapes:
 
-**Full** — \`Result:\` with the table, stats and profile. Shown for Scan, Aggregate, Join and UDF outputs, for the INPUT table of every Aggregate / Join / UDF (the table whose grain that consumer depends on), and for every operator nothing consumes yet (the table you are about to act on).
+**Full** — \`Result:\` with the table, stats and profile. Shown for scan, aggregate, join and udf outputs, for the INPUT table of every aggregate / join / udf (the table whose grain that consumer depends on), and for every operator nothing consumes yet (the table you are about to act on).
 
-**Count** — one line, \`Result: Output Table: 452 rows, 2 cols (from 660 rows)\`. Shown for Filter, Distinct, Union and Limit whose output feeds a row-preserving operator or another filter: the data decided how many rows survived, nothing else.
+**Count** — one line, \`Result: Output Table: 452 rows, 2 cols (from 660 rows)\`. Shown for filter, distinct, union and limit whose output feeds a row-preserving operator or another filter: the data decided how many rows survived, nothing else.
 
-**Header** — no \`Result:\` line. Project and Sort, and a Compute whose new or replaced columns kept the same null and distinct counts as their source: the table is the input table transformed exactly as \`Properties\` say. A Compute whose column profile did move shows the moved facts on a count line (\`"reports": null 0 → 12\`).
+**Header** — no \`Result:\` line. project and sort, and a compute whose new or replaced columns kept the same null and distinct counts as their source: the table is the input table transformed exactly as \`Properties\` say. A compute whose column profile did move shows the moved facts on a count line (\`"reports": null 0 → 12\`).
 {{INSPECT_HINT}}`;
 
 /**
@@ -526,18 +526,18 @@ export function buildNativeModeSystemPrompt(
     ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
     : "";
   const layout = contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST;
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
+  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", layout)
     .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
     .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
 }
 
 const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, verbatim.
-2. **\`# Current Dataflow\`** — every operator's \`id\`, \`type\`, \`Summary\`, \`Properties\` (your own parameters), \`Inputs\` with row counts, and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
+2. **\`# Current Dataflow\`** — one block per operator, headed \`### <type> operator \\\`id\\\`\` (e.g. \`### filter operator \\\`web_fraud\\\`\`), with \`Inputs:\` (upstream ids and their row counts), \`Properties:\` (your own parameters) and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
 3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
 
 const NATIVE_LAYOUT_DELTA = `1. **\`# User Task\`** — the user's request, verbatim.
-2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took (your tool calls; an \`addOperators\` call lists its operators one per line as \`id (Type) <- inputs: {properties} — summary\`) and the **\`Observation:\`** it produced: \`- operator id (Type) added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table, \`Column Schema and stats\`, \`Output Table profile\`). A refused call appears as \`- addOperators (k of n not added): [ERROR] …\`. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.
+2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took, one line per call: \`- add filter operator \\\`web_fraud\\\`; inputs: contributors; properties: {…}\` (\`modify\` when the id already existed, \`- delete operator \\\`x\\\`\`), and the **\`Observation:\`** it produced: \`- filter operator \\\`web_fraud\\\` added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table, \`Column Schema and stats\`, \`Output Table profile\`). A refused call appears as a one-line \`[ERROR] …\` outcome. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.
 3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
 
 /**

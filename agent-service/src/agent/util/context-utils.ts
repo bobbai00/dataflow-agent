@@ -30,6 +30,7 @@ import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { selectResultShapes, type ShapeDecision } from "../native/selection";
+import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
@@ -1041,9 +1042,10 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
         }
         continue;
       }
-      const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
+      const opId =
+        typeof inp.operatorId === "string" ? inp.operatorId : typeof inp.id === "string" ? inp.id : "";
       if (!opId) continue;
-      if (tc.toolName === "createOrModifyOperator") {
+      if (tc.toolName === "createOrModifyOperator" || NATIVE_TOOL_NAMES.has(tc.toolName)) {
         const isCreate = !known.has(opId);
         eventFlags.set(opId, isCreate);
         known.add(opId);
@@ -1942,8 +1944,10 @@ function buildFlowSection(
     }
 
     if (lines.length > 0) {
-      // NATIVE operators name their typed operator (`Filter`), not the Python carrier.
-      entries.push(`### \`${op.operatorID}\` (${op.nativeOp?.type ?? op.operatorType})`);
+      // NATIVE operators use the same header as their block: `### filter operator \`id\``.
+      entries.push(
+        op.nativeOp ? `### ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\`` : `### \`${op.operatorID}\` (${op.operatorType})`
+      );
       for (const l of lines) entries.push(l);
       entries.push("");
     }
@@ -2002,7 +2006,9 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex), options));
+    lines.push(
+      serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex), options, createFlagsByStep.get(node.step.id))
+    );
     lines.push("");
 
     // VERSIONED MODE: a read-only pull's OUTPUT persists inline, as an
@@ -2086,6 +2092,9 @@ function serializeTaskBody(
           return;
         } else if (tc.toolName === "modifyOperator" && opId) {
           actedVerb.set(opId, "updated");
+        } else if (NATIVE_TOOL_NAMES.has(tc.toolName) && typeof inp?.id === "string") {
+          // NATIVE typed tool: upsert by id — created this step or updated.
+          actedVerb.set(inp.id as string, createFlags?.get(inp.id as string) ? "added" : "updated");
         }
         // An action whose operator isn't reflected in Δ (a rejected/no-op edit, or
         // a non-operator tool) keeps a one-line outcome so the attempt isn't lost.
@@ -2108,8 +2117,12 @@ function serializeTaskBody(
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
-        const typed = op.nativeOp ? ` (${op.nativeOp.type})` : "";
-        obs.push(`- operator ${op.operatorID}${typed} ${actedVerb.get(op.operatorID) ?? "updated"}`);
+        // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
+        obs.push(
+          op.nativeOp
+            ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? "updated"}`
+            : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
+        );
         // `Inputs:` line — structure-consistent with LATEST. Rendered once, on
         // the op's most-recent edit, from the LEAF snapshot's DAG (current
         // wiring), via the same formatOperatorAdjacency LATEST uses. Skipped for
@@ -3050,7 +3063,12 @@ function serializeUserEventInline(node: PathNode): string {
  * model emitted. The execution outcome is rendered separately as the caller's
  * `Observation:` block.
  */
-function serializeTurn(node: PathNode, revisionFolds?: Map<string, string>, options?: AssembleContextOptions): string {
+function serializeTurn(
+  node: PathNode,
+  revisionFolds?: Map<string, string>,
+  options?: AssembleContextOptions,
+  createFlags?: Map<string, boolean>
+): string {
   const step = node.step;
   options?.eventStepSink?.(node.eventIndex, step);
   const lines: string[] = [];
@@ -3065,17 +3083,58 @@ function serializeTurn(node: PathNode, revisionFolds?: Map<string, string>, opti
   // renderToolCall (tool name + `key: value` params + `code` block). Lossless —
   // except a createOrModifyOperator whose revision was later RESOLVED (rank-3
   // fold): its `code:` block renders as the one-line resolution fact instead.
+  // NATIVE typed tools render as one line, `- add filter operator \`id\`; inputs: …; properties: {…}`.
   if (step.toolCalls && step.toolCalls.length > 0) {
     lines.push("Action:");
     for (const tc of step.toolCalls) {
       const inp = tc.input as Record<string, unknown> | undefined;
       const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
       const foldFact = opId && tc.toolName === "createOrModifyOperator" ? revisionFolds?.get(opId) : undefined;
+      const nativeLines = renderNativeToolCall(tc, createFlags);
+      if (nativeLines) {
+        lines.push(...nativeLines);
+        continue;
+      }
       for (const l of renderToolCall(tc, foldFact)) lines.push(l);
     }
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+/**
+ * NATIVE typed tool call as one Action line in the agreed shape:
+ *   `- add filter operator \`web_fraud\`; inputs: contributors; properties: {"predicate":"…"}`
+ *   `- modify join operator \`pairs\`; inputs: left = a, right = b; properties: {…}`
+ *   `- delete operator \`x\``
+ * A udf's code renders as an indented block under its line. Returns undefined
+ * for non-native tools (the generic renderer handles those).
+ */
+function renderNativeToolCall(
+  tc: { toolName: string; input?: unknown },
+  createFlags?: Map<string, boolean>
+): string[] | undefined {
+  const inp = (tc.input ?? {}) as Record<string, unknown>;
+  const id = typeof inp.id === "string" ? inp.id : "";
+  if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
+  const type = nativeTypeForTool(tc.toolName);
+  if (!type || !id) return undefined;
+  const view = nativeViewOf(tc.toolName, inp);
+  if (!view) return undefined;
+  const verb = createFlags?.get(id) === false ? "modify" : "add";
+  const parts = [`- ${verb} ${tc.toolName} operator \`${id}\``];
+  const ins = describeInputs(type, view.inputs);
+  if (ins) parts.push(ins);
+  const props = { ...view.properties };
+  const code = type === "UDF" && typeof props.code === "string" ? (props.code as string) : undefined;
+  if (code !== undefined) delete props.code;
+  if (Object.keys(props).length > 0) parts.push(`properties: ${JSON.stringify(props)}`);
+  const lines = [parts.join("; ")];
+  if (code !== undefined) {
+    lines.push("    code:");
+    for (const l of code.split("\n")) lines.push(`      ${l}`);
+  }
+  return lines;
 }
 
 /** A one-line, code-free outcome for a tool result: `ok` or the first line of
@@ -3629,9 +3688,14 @@ function serializeOperatorFull(
   //     user's code + line marker inline.
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
-  // NATIVE operators show their typed name (`Filter`), not the Python carrier type.
-  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.nativeOp?.type ?? op.operatorType})`);
-  lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+  // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
+  // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
+  if (op.nativeOp) {
+    lines.push(`${opHash} ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\``);
+  } else {
+    lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
+    lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
+  }
   if (op.nativeOp && op.nativeOp.type !== "UDF") {
     // The agent's own parameters — always shown for typed operators; the
     // generated code is never shown (it is not what the agent wrote).

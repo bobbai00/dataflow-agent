@@ -96,12 +96,8 @@ import {
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
-import {
-  createAddOperatorsTool,
-  createNativeModifyOperatorTool,
-  TOOL_NAME_ADD_OPERATORS,
-  TOOL_NAME_MODIFY_NATIVE_OPERATOR,
-} from "./tools/native-op-tools";
+import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
+import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
@@ -147,6 +143,7 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
   TOOL_NAME_ADD_OPERATORS,
+  ...NATIVE_TOOL_NAMES,
 ]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
@@ -584,9 +581,9 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      // Fixed-grain typed operators: a chain per call, compiled to Python by the service.
-      tools[TOOL_NAME_ADD_OPERATORS] = createAddOperatorsTool(this.workflowState, context);
-      tools[TOOL_NAME_MODIFY_NATIVE_OPERATOR] = createNativeModifyOperatorTool(this.workflowState, context);
+      // Fixed-grain typed operators: one tool per operator type (upsert by id),
+      // plus a consumer-aware delete that replaces the generic one.
+      Object.assign(tools, createNativeTypedTools(this.workflowState, context));
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -2321,7 +2318,8 @@ export class TexeraAgent {
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
-      const operatorId = (tc.input as any)?.operatorId;
+      const operatorId =
+        (tc.input as any)?.operatorId ?? (NATIVE_TOOL_NAMES.has(tc.toolName) ? (tc.input as any)?.id : undefined);
       if (operatorId) editedOpIds.push(operatorId);
       // NATIVE `addOperators`: one call adds a chain; every id it landed is an edit.
       const batch = (tc.input as any)?.operators;
