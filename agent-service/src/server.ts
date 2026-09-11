@@ -257,7 +257,11 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       coercionTelemetry: settings.coercionTelemetry,
       rowLineage: settings.rowLineage,
       statScopes: settings.statScopes,
-      messageLayout: settings.messageLayout,
+      // Caching is not optional: unless an arm pins a layout, LATEST ships one
+      // message per operator block (opSplit) and DELTA ships the append-only
+      // tool-call transcript (native), the two framings gpt-5.6-* can credit.
+      messageLayout:
+        settings.messageLayout ?? (settings.contextMode === ContextMode.LATEST ? "opSplit" : "native"),
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,

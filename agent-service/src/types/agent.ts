@@ -466,7 +466,7 @@ export interface AgentSettings {
    * assistant turn: the model imitates it, narrating tool calls as prose
    * instead of calling tools (measured 5.0% vs 55.3%).
    */
-  messageLayout?: "block" | "blockSplit" | "native";
+  messageLayout?: "block" | "blockSplit" | "native" | "opSplit";
   statScopes?: {
     columnStats?: "all" | "source" | "nonsource" | "off";
     coercion?: "all" | "source" | "nonsource" | "off";

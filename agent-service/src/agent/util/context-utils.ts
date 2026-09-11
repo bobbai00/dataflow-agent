@@ -94,7 +94,7 @@ export interface StatScopes {
 
 export interface AssembleContextOptions {
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout?: "block" | "blockSplit" | "native";
+  messageLayout?: "block" | "blockSplit" | "native" | "opSplit";
   /** Native message layout: called once per rendered agent event with the step
    *  that produced it, so the message builder can emit that step's REAL tool
    *  calls (true toolCallIds) instead of inferring them from the rendered text. */

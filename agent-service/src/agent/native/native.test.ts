@@ -19,6 +19,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { WorkflowState } from "../workflow-state";
+import { formatNativeError } from "../tools/result-formatting";
 import { compileNativeOp } from "./codegen";
 import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
 import { selectResultShapes } from "./selection";
@@ -87,6 +88,24 @@ describe("native codegen", () => {
     expect(() => compileNativeOp({ type: "Join", inputs: ["a"], properties: { on: [["k", "k"]] } })).toThrow(/two inputs/);
     expect(() => compileNativeOp({ type: "Union", inputs: ["a", "a"], properties: {} })).toThrow(/distinct/);
     expect(() => compileNativeOp({ type: "Filter", inputs: ["bad-id"], properties: { predicate: "1=1" } })).toThrow(/identifier/);
+  });
+
+  test("engine errors are rewritten in the agent's terms (no generated-code pointers)", () => {
+    const direct =
+      "(line 21) `d = _con.sql(q).df()` - BinderException: Binder Error: Cannot mix values of type VARCHAR and INTEGER_LITERAL in BETWEEN clause - an explicit cast is required";
+    expect(formatNativeError("web_fraud", "Filter", direct)).toBe(
+      "Filter `web_fraud` failed: Binder Error: Cannot mix values of type VARCHAR and INTEGER_LITERAL in BETWEEN clause - an explicit cast is required"
+    );
+    const cascade =
+      "execution failed — Execution failed due to the following error:\n  Execution error:\n    web_fraud: (line 21) `d = _con.sql(q).df()` - BinderException: Binder Error: Cannot mix values\n  more";
+    expect(formatNativeError("web_fraud_numeric", "Compute", cascade)).toBe(
+      "not executed — upstream `web_fraud` failed: Binder Error: Cannot mix values"
+    );
+    const timeout = "execution failed — Execution failed due to the following error:\n  Error:\n    The operation timed out.";
+    expect(formatNativeError("x", "Aggregate", timeout)).toContain("timed out");
+    const scan =
+      "(line 36) `d = _con.sql('SELECT * FROM read_csv(' + flist + ', header=true)').df()` - InvalidInputException: Invalid Input Error: File is not latin-1 encoded";
+    expect(formatNativeError("noaa", "Scan", scan)).toBe("Scan `noaa` failed: Invalid Input Error: File is not latin-1 encoded");
   });
 
   test("catalog text lists every type once", () => {
