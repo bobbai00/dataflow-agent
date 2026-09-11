@@ -334,3 +334,91 @@ Scripts used for the numbers above live in the session scratchpad
 `native_trace.py`, `native_ops.py`); raw runs are under
 `benchmark/Kramabench/system_scratch/<arm>/` with the pre-fix native runs kept
 as `<arm>__run1`.
+
+---
+
+## 5. One tool per operator (2026-09-11)
+
+The batch tool (`addOperators({operators: [...]})`) was replaced by one tool
+per operator type with upsert-by-id semantics; contract in
+`agent-service/docs/operator-tools-spec.md`. Same 10 tasks, 1 rep, luna,
+opSplit framing everywhere:
+
+| arm | pass | steps / task | ops / task | input tokens | cached | output tokens | out tok / op | cost |
+|---|---|---|---|---|---|---|---|---|
+| code mode | 7/10 | 7.6 | 5.9 | 657k | 88% | 20.0k | 339 | $0.051 |
+| native all, addOperators | 6/10 | 6.4 | 9.9 | 412k | 54% | 18.3k | 185 | $0.064 |
+| native rule, addOperators | 6/10 | 6.1 | 11.9 | 438k | 57% | 17.3k | 145 | $0.063 |
+| native all, per-op tools | 4/10 | 8.6 | 8.7 | 707k | 89% | 16.7k | 192 | $0.048 |
+| native rule, per-op tools | 5/10 | 8.5 | 10.1 | 824k | 90% | 15.8k | 157 | $0.051 |
+
+- **Cache 54–57% → 89–90%, cost $0.063 → $0.048–0.051**: code-mode parity.
+  Every step's prefix is now the system prompt plus unchanged operator blocks;
+  the batch tool's long JSON arguments were the part that never cached.
+- **Output tokens only −9% to −13%.** Luna's output count includes reasoning
+  (legal-easy-4: 241 of 527 output tokens), so the envelope removed per
+  operator (summary, JSON framing) is a minority of what is billed.
+- **More steps, more input, all cached.** With one tool per operator the model
+  emits 1.2 operators per turn against 2.0 in a batch; steps rose 6.1 → 8.5 and
+  input tokens 438k → 824k, at 90% cached. The prompt asks for whole stages
+  per turn; the habit is one call per turn.
+- **Pass 5/10 and 4/10 against 6/10** is within one rep's noise and has no
+  tool-mechanism cause: no refused calls in 28 runs, no loops; the modify
+  path (same id) was used 1–5 times per task where needed. The flips:
+  `environment-hard-19` (True/False) went the other way in both per-op arms;
+  `environment-hard-7` came out as 0.11 for 10.87 (percent vs proportion) in
+  the all arm. The remaining failures are the same convention misses as every
+  arm since the first pilot (legal-15 Micropolitan, hard-16, hard-12,
+  wildfire-17 partial).
+- **DELTA** with per-op tools (`DataflowSystemLunaNativeToolsRuleDeltaRep1`,
+  legal-easy-4 + legal-hard-15): 1/2 (legal-15 convention), $0.011, 67%
+  cached; the tool result carries the receipt and the typed observation
+  (`- filter operator `cross_state_rows` added`, then the result in the rule's
+  shape). The action is the model's own tool call.
+
+## 6. Unusual file types
+
+The 104 tasks name sources that are not plain csv in 30 of them: xlsx (13),
+txt (6), tle / dat / sp3 (2 each), html (2), gpkg (2), json, cdf, lst, npz (1
+each). Eight were added to the test set, one per layout:
+
+| task | source | what Scan needed |
+|---|---|---|
+| archeology-easy-4 | xlsx, title rows, header on row 5, units row | sheet preview, `skipLines: 5` |
+| biomedical-easy-2 | xlsx, 179 columns | sheet preview, `sheet` |
+| legal-hard-2 | html (6 tables) + 52 csv | table preview, `sheet: 1` |
+| environment-hard-8 / -9 | txt list of names + 8 csv | `header: false, columns` |
+| astronomy-easy-5 | TLE (2-line records), skyfield | `format: lines` → udf |
+| wildfire-easy-2 | two gpkg | udf loader (geopandas), WKT geometry |
+| astronomy-hard-9 | whitespace `.dat` (55 cols) + TLE + spec text | `delim: whitespace` or `lines` |
+
+Scan was extended for them (spec §3): encoding detection (19 legal / wildfire
+csv files are cp1252, which DuckDB rejects), `delim: whitespace`, `comment`,
+`format: lines | fwf`, html table index, json objects, parquet, line-form
+previews of sheets and html tables, a loader hint for binary formats, and a
+missing path that lists the directory. All verified locally on every unusual
+file in the lake before the runs.
+
+Results, per-op tools, 1 rep:
+
+| task | rule | all | notes |
+|---|---|---|---|
+| archeology-easy-4 | pass, 7 steps, $0.005 | pass, 7 steps, $0.004 | 15 steps / $0.011 before the line-form preview |
+| biomedical-easy-2 | 68.1 (68.5) | 68.1 | `Case_excluded` convention; 5 modify loops before the `columns` guard, 2 after |
+| legal-hard-2 | pass, 12 steps, $0.009 | pass, 11 steps | html table 1 joined to 52 csv files |
+| environment-hard-8 | pass, 8 steps, $0.013 | pass, 13 steps, $0.024 | 9 previews in one turn, 8 scans in the next |
+| environment-hard-9 | pass, 8 steps, $0.013 | pass, 11 steps, $0.008 | |
+| astronomy-easy-5 | pass, 11 steps, $0.008 | pass, 11 steps, $0.008 | `format: lines` + skyfield udf; a `lag` self-join now avoidable with window functions |
+| wildfire-easy-2 | pass, 9 steps, $0.005 | pass, 8 steps, $0.005 | geopandas udf loader, `.to_wkt()`, sjoin inside the udf |
+| astronomy-hard-9 | 21 (24), 16 steps, $0.034 | 21, 12 steps, $0.040 | the task says `omni2.txt`, the lake has `omni2.text`; without the spec the model guessed the AP column |
+| **total** | **6/8, $0.092** | **6/8, $0.100** | |
+
+Both misses are outside Scan: one answer convention, one wrong path in the
+task text. The path case is what the directory listing in the missing-file
+error is for; its rerun and a code-mode baseline on the same eight tasks are
+in progress. `wildfire-hard-21` (json) is unusable in this checkout: its
+`ZHVI.csv` is a 0-byte Kaggle placeholder.
+
+Scripts for §5–§6: `arm_table.py`, `scores.py`, `answers.py`,
+`verify_tools.py`, `gen_odd.ts` / `run_odd.py` (local execution of compiled
+Scan chains over the unusual files) in the session scratchpad.
