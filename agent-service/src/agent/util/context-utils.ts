@@ -65,7 +65,7 @@ import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context
 import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
 import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
-import type { FormatOperatorResultOptions } from "../tools/result-formatting";
+import { formatNativeError, type FormatOperatorResultOptions } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
 
 const log = createLogger("ContextAssembler");
@@ -1908,7 +1908,14 @@ function buildFlowSection(
         // operator stays salient.
         erroredOps.push(op.operatorID);
       } else {
-        lines.push(`error: ${info.error.split("\n")[0]}`);
+        // Typed operators: the agent never saw the generated code, so the error
+        // is rewritten in its own terms (no `(line N)` pointers into Python).
+        const nativeType = op.nativeOp?.type;
+        lines.push(
+          nativeType && nativeType !== "UDF"
+            ? `error: ${formatNativeError(op.operatorID, nativeType, info.error)}`
+            : `error: ${info.error.split("\n")[0]}`
+        );
         if (options.loaderHint && op.operatorType === "DataLoading") {
           const hint = formatLoaderHint(info.error);
           if (hint) lines.push(...hint.split("\n"));

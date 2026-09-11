@@ -83,17 +83,35 @@ function compileScan(p: Record<string, any>): string {
   const skip = Number(p.skipLines ?? 0);
   const allText = Boolean(p.allText);
   const encoding = typeof p.encoding === "string" && p.encoding.trim() ? p.encoding.trim() : null;
+  if (Array.isArray(p.columns) && header && !p.preview) {
+    throw new Error(
+      "`columns` names the columns of a header-less file and needs `header: false`. This scan keeps the file's header row: drop `columns` and add a `project` with `keep` to select columns."
+    );
+  }
   const sqlLit = (s: unknown) => "'" + String(s).replace(/'/g, "''") + "'";
   const L: string[] = [];
   L.push("def load():");
   L.push("    import glob, os, json, duckdb, pandas as pd");
   L.push(`    _pats = ${py(files)}`);
   L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
+  // A wrong path is the most common Scan failure (the task text says `omni2.txt`,
+  // the lake has `omni2.text`): name the directory's actual files in the error.
+  L.push("    def _not_found(paths):");
+  L.push("        hints = []");
+  L.push("        for q in paths[:3]:");
+  L.push("            d = os.path.dirname(q) or '.'");
+  L.push("            if os.path.isdir(d):");
+  L.push("                names = sorted(os.listdir(d))");
+  L.push("                hints.append(d + '/ contains: ' + ', '.join(names[:40]) + (' ...' if len(names) > 40 else ''))");
+  L.push("            else:");
+  L.push("                parent = os.path.dirname(d.rstrip('/')) or '.'");
+  L.push("                hints.append('no directory ' + d + (' (' + parent + '/ contains: ' + ', '.join(sorted(os.listdir(parent))[:40]) + ')' if os.path.isdir(parent) else ''))");
+  L.push("        raise FileNotFoundError('not found: ' + ', '.join(paths) + '. ' + ' | '.join(hints))");
   L.push("    if not files:");
-  L.push("        raise FileNotFoundError('no file matches ' + ', '.join(_pats))");
+  L.push("        _not_found(_pats)");
   L.push("    missing = [f for f in files if not os.path.exists(f)]");
   L.push("    if missing:");
-  L.push("        raise FileNotFoundError('not found: ' + ', '.join(missing))");
+  L.push("        _not_found(missing)");
   L.push("    ext = os.path.splitext(files[0])[1].lower()");
   L.push(`    fmt = ${py(p.format ?? "auto")}`);
   L.push("    if fmt == 'auto':");
@@ -122,23 +140,28 @@ function compileScan(p: Record<string, any>): string {
   if (p.preview) {
     // ---- preview: raw lines for text; sheet / table heads for excel and html; a pointer for binary
     L.push(`    n = ${Number(p.preview)}`);
+    // A sheet or html row becomes one text line (cells joined by ' | ', trailing
+    // empty cells dropped), so the preview reads like the raw-line preview of a
+    // csv and shows where the header row is.
+    L.push("    def _row_line(vals):");
+    L.push("        cells = ['' if (v is None or (isinstance(v, float) and v != v)) else str(v) for v in vals]");
+    L.push("        while cells and cells[-1] == '': cells.pop()");
+    L.push("        return ' | '.join(cells)");
     L.push("    if fmt == 'excel':");
     L.push("        rows = []");
     L.push("        xl = pd.ExcelFile(files[0])");
     L.push("        for sh in xl.sheet_names:");
     L.push("            d = xl.parse(sh, header=None, nrows=n, dtype=str)");
-    L.push("            d.columns = [str(c) for c in d.columns]");
-    L.push("            d.insert(0, 'row_no', range(len(d))); d.insert(0, 'sheet', sh)");
-    L.push("            rows.append(d)");
-    L.push("        return pd.concat(rows, ignore_index=True, sort=False)");
+    L.push("            for i, r in enumerate(d.itertuples(index=False)):");
+    L.push("                rows.append({'sheet': sh, 'row_no': i, 'line': _row_line(r)})");
+    L.push("        return pd.DataFrame(rows, columns=['sheet', 'row_no', 'line'])");
     L.push("    if fmt == 'html':");
     L.push("        rows = []");
     L.push("        for i, t in enumerate(pd.read_html(files[0])):");
-    L.push("            d = pd.concat([pd.DataFrame([[str(c) for c in t.columns]]), t.astype(str).head(n).set_axis(range(t.shape[1]), axis=1)], ignore_index=True)");
-    L.push("            d.columns = [str(c) for c in d.columns]");
-    L.push("            d.insert(0, 'row_no', range(len(d))); d.insert(0, 'table', i)");
-    L.push("            rows.append(d)");
-    L.push("        return pd.concat(rows, ignore_index=True, sort=False)");
+    L.push("            rows.append({'table': i, 'row_no': 0, 'line': _row_line([str(c) for c in t.columns])})");
+    L.push("            for k, r in enumerate(t.head(n).itertuples(index=False), 1):");
+    L.push("                rows.append({'table': i, 'row_no': k, 'line': _row_line(r)})");
+    L.push("        return pd.DataFrame(rows, columns=['table', 'row_no', 'line'])");
     L.push("    if fmt == 'binary':");
     L.push("        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})");
     L.push("    rows = []");

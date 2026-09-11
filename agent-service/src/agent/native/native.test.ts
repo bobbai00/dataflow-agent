@@ -51,6 +51,8 @@ describe("native codegen", () => {
     expect(preview).toContain("n = 5");
     expect(preview).toContain("xl.sheet_names"); // sheet heads for xlsx
     expect(preview).toContain("pd.read_html(files[0])"); // table heads for html
+    expect(preview).toContain("' | '.join(cells)"); // one text line per sheet / table row
+    expect(() => scan({ files: "a.csv", columns: ["x"] })).toThrow(/header: false/); // columns names a header-less file
     expect(preview).toContain("BINARY_HINT"); // pointer row for binary formats
     const lines = scan({ files: "x.tle", format: "lines", fileColumn: "file" });
     expect(lines).toContain("if fmt == 'lines':");
@@ -70,6 +72,7 @@ describe("native codegen", () => {
     const json = scan({ files: "s.json" });
     expect(json).toContain("pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
     expect(json).toContain("pd.json_normalize(j)");
+    expect(csv).toContain("contains: ' + ', '.join(names[:40])"); // a wrong path names the directory's files
   });
 
   test("Filter embeds the predicate as a Python string literal", () => {

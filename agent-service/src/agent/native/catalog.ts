@@ -75,7 +75,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true), ' +
       'columns?: [name] (names when header=false), allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
       'format?: auto|csv|lines|fwf (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths), widths?: [int], ' +
-      'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table)}',
+      'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table with cells joined by " | " for display)}',
     schema: {
       type: "object",
       additionalProperties: false,
