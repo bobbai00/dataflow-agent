@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildNativeFrames, splitTrailingState } from "./native-frames";
+import { buildNativeFrames, splitOperators, splitTrailingState } from "./native-frames";
 import type { ReActStep } from "../../../types/agent";
 
 const CTX = [
@@ -216,5 +216,19 @@ describe("splitTrailingState", () => {
     const text = render(2, "op_a: 10 rows");
     const { head, tail } = splitTrailingState(text);
     expect((head + "\n\n" + tail).replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
+  });
+});
+
+describe("stable first message (prefix cache)", () => {
+  test("splitOperators splits a single operator too", () => {
+    const text = "# User Task\nQ\n\n# Current Dataflow\n## Operators\n\n### scan operator `a`\nProperties: {}\nResult: x";
+    const parts = splitOperators(text);
+    expect(parts.length).toBe(2);
+    expect(parts[0]).toBe("# User Task\nQ\n\n# Current Dataflow\n## Operators");
+    expect(parts[1].startsWith("### scan operator `a`")).toBe(true);
+  });
+  test("buildNativeFrames drops the no-events placeholder so step 1 ends like every later prefix", () => {
+    const r = buildNativeFrames("# User Task\nQ\n\n# Agent Events\n\n(no agent actions yet)", new Map());
+    expect(r.messages).toEqual([{ role: "user", content: "# User Task\nQ\n\n# Agent Events" }]);
   });
 });

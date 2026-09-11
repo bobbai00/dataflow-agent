@@ -149,7 +149,9 @@ an error naming the available ones.
 ### compute
 
 `columns: {name: expression}`. A name that exists is replaced (`SELECT *
-REPLACE (expr AS name)`), a new name is appended (`SELECT *, expr AS name`).
+REPLACE (expr AS name)`), a new name is appended (`SELECT *, expr AS name`). A
+difference of two timestamps comes back in seconds (the engine has no
+interval type).
 Scalar functions, `TRY_CAST`, `CASE WHEN`, string / date functions, and window
 functions (`lag(x) OVER (ORDER BY t)`, `row_number() OVER (...)`) are allowed;
 aggregates without `OVER` are not (that is `aggregate`).
@@ -275,6 +277,12 @@ Inputs: top3 (3 rows, 3 cols)
 Properties: {"keep":["state","reports"],"rename":{"reports":"total"}}
 ```
 
+```
+### scan operator `csn_preview`
+Properties: {"files":"data/legal/input/2024_CSN_Data_Contributors.csv","preview":12}
+Result: (preview superseded by scan `csn_data`)
+```
+
 DELTA action (text form of the tool calls of one turn):
 
 ```
@@ -304,6 +312,8 @@ Observation:
 ```
 
 `updated` replaces `added` for a modify; a refused call keeps its error line.
+The transcript ends on the tool results of the last turn (no trailing user
+message), so each step's prompt is the previous prompt plus the new turn.
 
 ## 7. Prompt
 

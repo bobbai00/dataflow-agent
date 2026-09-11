@@ -116,7 +116,11 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
   for (let m = EVENT_RE.exec(text); m !== null; m = EVENT_RE.exec(text)) {
     marks.push({ at: m.index, index: Number(m[1]) });
   }
-  if (marks.length === 0) return { messages: [{ role: "user", content: text }], events: 0 };
+  if (marks.length === 0) {
+    // No events yet: end the message exactly where later steps' prefix ends
+    // (`# Agent Events`), so step 1 shares the cached prefix with step 2.
+    return { messages: [{ role: "user", content: text.replace(/\n+\(no agent actions yet\)\s*$/, "") }], events: 0 };
+  }
 
   const messages: ModelMessage[] = [];
   const prefix = text.slice(0, marks[0].at).trimEnd();
@@ -194,10 +198,15 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     if (trailing) messages.push({ role: "user", content: trailing });
   }
 
-  // A transcript must not end on an assistant turn, and a tool turn must be
-  // followed by the model's move — both are satisfied by a closing user turn.
+  // A transcript must not end on an assistant turn (a thought-only event), so
+  // that case gets a closing user turn. A tool turn is left as the last message:
+  // the model's move follows tool results in the standard loop, and a constant
+  // user message after them would sit where the next step inserts new content,
+  // which made the provider's prefix cache stop at the system prompt (measured:
+  // with `Continue.` cached = system + tools only; without it the whole
+  // previous prompt is a cache hit).
   const last = messages[messages.length - 1];
-  if (last && last.role !== "user") messages.push({ role: "user", content: "Continue." });
+  if (last && last.role === "assistant") messages.push({ role: "user", content: "Continue." });
 
   return { messages, events: converted };
 }
@@ -243,7 +252,10 @@ export function splitOperators(text: string): string[] {
   // Code-mode blocks read `### Operator \`id\` (Type)`, native ones `### filter operator \`id\``.
   const RE = /^### (?:Operator |\w+ operator )/gm;
   for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
-  if (marks.length < 2) return [];
+  // One operator is split too: the first message must be the same bytes at
+  // every step (task + `# Current Dataflow` header), or the prefix cache
+  // restarts at steps 2 and 3 of every run.
+  if (marks.length < 1) return [];
 
   const parts: string[] = [];
   const head = text.slice(0, marks[0]).trimEnd();

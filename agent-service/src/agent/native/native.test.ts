@@ -25,7 +25,7 @@ import { defaultParseDeps, defaultProducedOpId } from "../tools/tool-call-schedu
 import { NATIVE_BY_TYPE } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
-import { selectResultShapes } from "./selection";
+import { retiredPreviews, selectResultShapes } from "./selection";
 import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
 
@@ -74,6 +74,12 @@ describe("native codegen", () => {
     expect(json).toContain("pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
     expect(json).toContain("pd.json_normalize(j)");
     expect(csv).toContain("contains: ' + ', '.join(names[:40])"); // a wrong path names the directory's files
+  });
+
+  test("DuckDB stages return timestamp differences in seconds", () => {
+    const code = compileNativeOp({ type: "Compute", properties: { columns: { gap: "epoch - prev_epoch" } }, inputs: ["t"] }).code;
+    expect(code).toContain("if str(d[_c].dtype).startswith('timedelta'):");
+    expect(code).toContain("d[_c] = d[_c].dt.total_seconds()");
   });
 
   test("Filter embeds the predicate as a Python string literal", () => {
@@ -196,6 +202,51 @@ function links(ops: OperatorPredicate[]): OperatorLink[] {
 function info(rows: number, columnStats?: Record<string, string>): OperatorInfo {
   return { state: "COMPLETED", inputTuples: 0, outputTuples: rows, totalRowCount: rows, resultMode: "tsv", result: [{ a: 1 }], columnStats };
 }
+
+describe("probe retirement", () => {
+  const op = (id: string, type: string, inputs: string[], properties: Record<string, unknown> = {}): OperatorPredicate => ({
+    operatorID: id,
+    operatorType: type === "Scan" ? "DataLoading" : "DataProcessing",
+    operatorProperties: {},
+    inputPorts: [],
+    outputPorts: [],
+    showAdvanced: false,
+    isDisabled: false,
+    customDisplayName: id,
+    nativeOp: { type, properties, inputs },
+  } as unknown as OperatorPredicate);
+  const link = (a: string, b: string) => ({ linkID: `${a}-->${b}`, source: { operatorID: a, portID: "output-0" }, target: { operatorID: b, portID: "input-0" } });
+  const info = (rows: number, error?: string) => ({ outputTuples: rows, totalRowCount: rows, error } as unknown as OperatorInfo);
+
+  test("a preview covered by a real scan and read by nobody renders header-only with a pointer", () => {
+    const ops = [
+      op("csn_preview", "Scan", [], { files: "data/legal/input/2024_CSN_Data_Contributors.csv", preview: 12 }),
+      op("csn_data", "Scan", [], { files: "data/legal/input/2024_CSN_Data_Contributors.csv", skipLines: 3 }),
+      op("msa_preview", "Scan", [], { files: "data/legal/input/State MSA Identity Theft data/Alabama.csv", preview: 5 }),
+      op("msa", "Scan", [], { files: "data/legal/input/State MSA Identity Theft data/*.csv", skipLines: 3 }),
+      op("spec_preview", "Scan", [], { files: "data/astronomy/input/omni2.text", preview: 30 }),
+      op("spec_lines", "Filter", ["spec_preview"], { predicate: "line LIKE '%ap%'" }),
+      op("lonely_preview", "Scan", [], { files: "data/x/other.csv", preview: 5 }),
+    ];
+    const links = [link("spec_preview", "spec_lines")];
+    const r = retiredPreviews(ops, links, () => info(12));
+    expect(r.get("csn_preview")).toEqual({ shape: "header", note: "(preview superseded by scan `csn_data`)" });
+    expect(r.get("msa_preview")).toEqual({ shape: "header", note: "(preview superseded by scan `msa`)" }); // glob covers the file
+    expect(r.has("spec_preview")).toBe(false); // has a consumer: still the input of a filter
+    expect(r.has("lonely_preview")).toBe(false); // no real scan yet: still the thing being inspected
+    expect(r.has("csn_data")).toBe(false);
+    // and the rule inherits it
+    const shapes = selectResultShapes(ops, links, () => info(12));
+    expect(shapes.get("csn_preview")?.shape).toBe("header");
+    expect(shapes.get("lonely_preview")?.shape).toBe("full");
+  });
+
+  test("an errored preview nobody reads collapses to its first error line", () => {
+    const ops = [op("bad_preview", "Scan", [], { files: "data/x/missing.txt", preview: 5 })];
+    const r = retiredPreviews(ops, [], () => info(0, "FileNotFoundError: not found: data/x/missing.txt. data/x/ contains: a.csv\n  at line 9"));
+    expect(r.get("bad_preview")).toEqual({ shape: "header", note: "[ERROR] FileNotFoundError: not found: data/x/missing.txt. data/x/ contains: a.csv" });
+  });
+});
 
 describe("result selection rule", () => {
   test("legal-hard-15 chain: scan full, filter count, compute header, aggregate input full, aggregate full", () => {

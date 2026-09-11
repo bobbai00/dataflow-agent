@@ -269,6 +269,9 @@ function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = []):
     "    _con.register('t', t)",
     ...sqlBuilder,
     "    d = _con.sql(q).df()",
+    "    for _c in d.columns:",
+    "        if str(d[_c].dtype).startswith('timedelta'):",
+    "            d[_c] = d[_c].dt.total_seconds()",
     ...post,
     "    return d",
   ].join("\n");

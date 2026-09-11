@@ -157,6 +157,11 @@ function buildMessages(
 ): ModelMessage[] {
   if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
   if (layout === "opSplit") {
+    // An empty dataflow (step 1) still ends with the `# Current Dataflow`
+    // header, so the first message is byte-identical from step 1 onwards.
+    if (!/^# Current Dataflow$/m.test(text) && !/^### /m.test(text)) {
+      return [{ role: "user", content: text.trimEnd() + "\n\n# Current Dataflow\n## Operators" }];
+    }
     const parts = splitOperators(text);
     // Same byte-parity contract as blockSplit: a framing change, never a
     // content change. If the parts do not reconstruct the render, ship the

@@ -62,6 +62,7 @@ model (`src/agent/native/selection.ts`):
 | full | schema, stats, sample, profile | outputs of Scan, Aggregate, Join, UDF; the **input** of any Aggregate / Join / UDF; every **frontier** table (no consumer yet); anything errored or not typed |
 | count | `Result: Output Table: 94 rows, 3 cols (from 452 rows)` | Filter, Distinct, Union, Limit whose output feeds a row-preserving operator or another row-dropper |
 | header | header, `Inputs:`, `Properties:`, no `Result:` | Project, Sort; Compute whose new or replaced columns kept their null and distinct counts. A moved count renders as a count line: `"reports": null 208 → 0` |
+| retired probe | header, `Properties:`, one line `Result: (preview superseded by scan \`csn_data\`)` | a `preview` Scan nobody reads once a real Scan covers its file(s); an errored preview nobody reads keeps its first error line. Applies in every mode, `all` included: it is about probes, not about what the data decided |
 
 Why exactly these:
 
@@ -94,8 +95,13 @@ Three of six tables are shown in full; the naive render shows six. Without the
 94-row table with `distinct=43` is where that is visible, and it is shown
 because an Aggregate consumes it.
 
-`resultSelection: "all"` renders every table and is the baseline for measuring
-the rule.
+`resultSelection: "all"` renders every table (retired probes excepted) and is
+the baseline for measuring the rule.
+
+Why probes need their own rule: in the first 36 per-operator-tool runs the
+model deleted 1 of 115 previews, and a preview with no consumer is by
+definition a frontier table, so the rule alone rendered every one of them in
+full at every step — 20% of the LATEST context.
 
 ## 4. Two contexts, the same tables
 
@@ -114,6 +120,14 @@ Sources have no `Inputs:` line; a full shape replaces the count line with the
 table, its `Column Schema and stats:` and `Output Table profile:`; a header
 shape stops after `Properties:`. UDF blocks show the code instead of
 properties.
+
+Both layouts keep the first message byte-identical from step 1: LATEST always
+ends it with the `# Current Dataflow / ## Operators` header and splits even a
+single operator; DELTA ends it at `# Agent Events`. The transcript ends on the
+tool results, never on a constant `Continue.` user turn: measured against
+LiteLLM, that trailing message limited the cache hit to system prompt + tools
+(4335 of 7656 tokens), without it the whole previous prompt is a hit (7647 of
+7783).
 
 **DELTA** is a transcript. The action is the tool call itself, in text form
 `- add filter operator `web_fraud`; inputs: contributors; properties: {...}`

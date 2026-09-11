@@ -432,3 +432,36 @@ display-only), and asked for `format: "whitespace"` (now an alias of
 Scripts for §5–§6: `arm_table.py`, `scores.py`, `answers.py`,
 `verify_tools.py`, `gen_odd.ts` / `run_odd.py` (local execution of compiled
 Scan chains over the unusual files) in the session scratchpad.
+
+## 7. Trace audit and fixes (2026-09-11)
+
+Audit of the 36 LATEST runs (18 tasks × rule / all) and 2 DELTA runs above
+(`trace_audit.py`, `cache_steps.py`, `cache_probe.ts`). Ranked by cost:
+
+| anomaly | evidence | cause | fix |
+|---|---|---|---|
+| leftover previews rendered in full every step | 54 of 63 previews never deleted (rule), 45 of 52 (all); preview blocks = 20% / 18% of the final context | a preview has no consumer, so the rule makes it a frontier table | probe retirement: a preview nobody reads whose files a real Scan covers renders one line, `Result: (preview superseded by scan \`x\`)`; an errored one keeps its first error line; every mode |
+| cache reset at steps 2 and 3 of every run | 34 / 41 resets, all at steps 2–3 | first message differed three times: task only → task + single block merged → task + `# Current Dataflow` header | header always present from step 1; a single operator is split too |
+| DELTA never cached the transcript | cached = 5149 (system prompt) at every step with 11 of 12 messages identical | probe against LiteLLM: the trailing `Continue.` user message after the tool results limits the hit to system + tools (4335 of 7656 tokens); without it the previous prompt is a full hit (7647 of 7783). Same for a user-text rendering | no `Continue.` after tool results (kept after a thought-only assistant turn); DELTA step-1 message ends at `# Agent Events` |
+| one Python operator chain per file | environment-hard-8: 29 operators (rule), 68 (all), 31k-token context | the task lists 8 like files; the prompt mentioned globs only | prompt: like files are one scan with the list of paths |
+| `TypeError: Unmatched type … got 0 days 06:22:09` | Compute of `epoch - prev_epoch` | the engine has no interval type | DuckDB stages return timedelta columns in seconds; SQL note |
+| errored probe repeated 9 steps | astronomy-hard-9 (all): failed `omni2.txt` preview kept its full error block in 9 contexts | model moved on without deleting it | covered by probe retirement (errored, no consumer → one line) |
+| `format: "whitespace"` refused | 3 refusals, the only kind | natural spelling | alias of `delim: "whitespace"` (§6) |
+
+Not anomalous: 0 text-only turns, 0 loops beyond 4 calls on one id, 10–12
+modifies per arm all purposeful, 3 engine errors in 18 rule runs. Half the
+steps carry a single tool call (1.9 calls per non-final step); the prompt asks
+for whole stages and this did not move, so wall-clock on the 320k-row water
+data stays at 130–215 s per step (the chain re-executes every step).
+
+Verification, targeted reruns after the fixes (1 rep each):
+
+| run | before | after |
+|---|---|---|
+| legal-easy-4, LATEST rule | 7 steps, 5 ops, 43.4k in, 82% cached, $0.0029; cache reset at steps 2 and 3 | 7 steps, 5 ops, 42.4k in, 83%, $0.0029; first message identical at every step, no reset; preview shows `(preview superseded by scan \`csn_data\`)` |
+| astronomy-easy-5, LATEST rule | 11 steps, 10 ops, 3 udf (one a hand-written lag), 94.4k in, 91%, $0.0082 | 9 steps, 8 ops, 1 udf; the lag is `lag(epoch) OVER (ORDER BY epoch)` in a compute and the gap `date_diff('second', …)`, so the timedelta path (unit-tested) was not needed; 67.6k in, 87%, $0.0058 |
+| environment-hard-8, LATEST rule | 8 steps, 29 ops (one chain per file), 143.6k in, 78%, $0.0128 | 7 steps, 7 ops (one scan of the 8 files), 54.6k in, 87%, $0.0044 |
+| legal-easy-4, DELTA rule | 8 steps, 57.3k in, 63% cached, cached tokens flat at 5149 every step, $0.0057 | 7 steps, 46.4k in, 84%, cached 5440 → 5920 → 6568 → 6804 → 7060 (90–98% per step), $0.0028 |
+
+All four answers exact. The DELTA number is the one that changes the earlier
+picture: DELTA now caches like LATEST.

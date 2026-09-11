@@ -72,6 +72,59 @@ function parseFacts(text: string | undefined): ColFacts | undefined {
   return { nulls: n ? Number(n[1]) : undefined, distinct: d ? Number(d[1]) : undefined };
 }
 
+/** `files` of a Scan as a list of path patterns. */
+function scanFiles(op: OperatorPredicate): string[] {
+  const f = op.nativeOp?.properties?.files;
+  return Array.isArray(f) ? f.map(String) : typeof f === "string" ? [f] : [];
+}
+
+/** True when `path` is `pattern` or matches it as a glob (`*`, `?`, `**`). */
+function globCovers(pattern: string, path: string): boolean {
+  if (pattern === path) return true;
+  if (!/[*?[]/.test(pattern)) return false;
+  const re = new RegExp(
+    "^" +
+      pattern
+        .replace(/[.+^${}()|\\]/g, "\\$&")
+        .replace(/\*\*/g, "\u0000")
+        .replace(/\*/g, "[^/]*")
+        .replace(/\?/g, "[^/]")
+        .replace(/\u0000/g, ".*") +
+      "$"
+  );
+  return re.test(path);
+}
+
+/**
+ * PROBE RETIREMENT — a `preview` Scan exists to inspect a file before its real
+ * Scan. Once a real Scan covers the same file(s) and nothing reads the preview,
+ * its raw lines are spent: render the header only, pointing at the real Scan.
+ * An errored preview nobody reads collapses the same way, carrying the error's
+ * first line. Independent of `resultSelection` (it is about probes, not about
+ * what the data decided), so LATEST and DELTA both apply it.
+ */
+export function retiredPreviews(
+  operators: readonly OperatorPredicate[],
+  links: readonly OperatorLink[],
+  getInfo: (opId: string) => OperatorInfo | undefined
+): Map<string, ShapeDecision> {
+  const out = new Map<string, ShapeDecision>();
+  const hasConsumer = new Set(links.map(l => l.source.operatorID));
+  const realScans = operators.filter(o => o.nativeOp?.type === "Scan" && !o.nativeOp.properties?.preview);
+  for (const op of operators) {
+    if (op.nativeOp?.type !== "Scan" || !op.nativeOp.properties?.preview || hasConsumer.has(op.operatorID)) continue;
+    const info = getInfo(op.operatorID);
+    if (info?.error) {
+      out.set(op.operatorID, { shape: "header", note: `[ERROR] ${info.error.split("\n")[0].slice(0, 200)}` });
+      continue;
+    }
+    const files = scanFiles(op);
+    const by = realScans.find(r => files.length > 0 && files.every(f => scanFiles(r).some(pat => globCovers(pat, f))));
+    if (by) out.set(op.operatorID, { shape: "header", note: `(preview superseded by scan \`${by.operatorID}\`)` });
+  }
+  return out;
+}
+
 export function selectResultShapes(
   operators: readonly OperatorPredicate[],
   links: readonly OperatorLink[],
@@ -91,6 +144,7 @@ export function selectResultShapes(
   for (const op of operators) {
     out.set(op.operatorID, decide(op, consumers.get(op.operatorID) ?? [], getInfo));
   }
+  for (const [id, d] of retiredPreviews(operators, links, getInfo)) out.set(id, d);
   return out;
 }
 

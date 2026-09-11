@@ -29,7 +29,7 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { selectResultShapes, type ShapeDecision } from "../native/selection";
+import { retiredPreviews, selectResultShapes, type ShapeDecision } from "../native/selection";
 import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
@@ -2117,7 +2117,7 @@ function serializeTaskBody(
       const deltaShapes =
         options.resultSelection === "rule"
           ? selectResultShapes(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info)
-          : undefined;
+          : retiredPreviews(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info);
 
       const obs: string[] = [];
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
@@ -3331,10 +3331,11 @@ function serializeSnapshotFull(
   lines.push("");
   // NATIVE result selection: decide once per snapshot which operator results
   // ship in full, as a row count, or not at all (native/selection.ts).
+  // Spent previews retire in every mode (probe retirement, not result selection).
   const shapes =
     options.resultSelection === "rule"
       ? selectResultShapes(workflow.operators, allLinks, id => snapshot.results.get(id)?.info)
-      : undefined;
+      : retiredPreviews(workflow.operators, allLinks, id => snapshot.results.get(id)?.info);
   for (const op of sortedOps) {
     lines.push(
       serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, shapes?.get(op.operatorID))
@@ -3661,7 +3662,10 @@ function serializeOperatorFull(
   // the pre-summarize assembler.
   const ex = options.opExtras?.(op.operatorID);
   let execText: string | undefined;
-  if (info && !info.error && shape && shape.shape !== "full") {
+  if (info && shape && shape.shape === "header" && shape.note) {
+    // Retired probe: one line says why there is no table here.
+    execText = shape.note;
+  } else if (info && !info.error && shape && shape.shape !== "full") {
     // NATIVE result selection: the data decided only the row count here (or
     // nothing at all) — ship that, not the table.
     execText = shape.shape === "count" ? formatCountOnlyResult(op, info, snapshot, allLinks, shape.note) : undefined;
@@ -3779,7 +3783,7 @@ function serializeOperatorFull(
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
 
-  if (execText && shape?.shape === "count") {
+  if (execText && (shape?.shape === "count" || (shape?.shape === "header" && shape.note))) {
     lines.push(`Result: ${execText}`);
   } else if (execText) {
     lines.push("Result:");
