@@ -399,25 +399,35 @@ previews of sheets and html tables, a loader hint for binary formats, and a
 missing path that lists the directory. All verified locally on every unusual
 file in the lake before the runs.
 
-Results, per-op tools, 1 rep:
+Results, 1 rep (native arms with per-op tools; code mode = the opSplit arm of §4.4):
 
-| task | rule | all | notes |
-|---|---|---|---|
-| archeology-easy-4 | pass, 7 steps, $0.005 | pass, 7 steps, $0.004 | 15 steps / $0.011 before the line-form preview |
-| biomedical-easy-2 | 68.1 (68.5) | 68.1 | `Case_excluded` convention; 5 modify loops before the `columns` guard, 2 after |
-| legal-hard-2 | pass, 12 steps, $0.009 | pass, 11 steps | html table 1 joined to 52 csv files |
-| environment-hard-8 | pass, 8 steps, $0.013 | pass, 13 steps, $0.024 | 9 previews in one turn, 8 scans in the next |
-| environment-hard-9 | pass, 8 steps, $0.013 | pass, 11 steps, $0.008 | |
-| astronomy-easy-5 | pass, 11 steps, $0.008 | pass, 11 steps, $0.008 | `format: lines` + skyfield udf; a `lag` self-join now avoidable with window functions |
-| wildfire-easy-2 | pass, 9 steps, $0.005 | pass, 8 steps, $0.005 | geopandas udf loader, `.to_wkt()`, sjoin inside the udf |
-| astronomy-hard-9 | 21 (24), 16 steps, $0.034 | 21, 12 steps, $0.040 | the task says `omni2.txt`, the lake has `omni2.text`; without the spec the model guessed the AP column |
-| **total** | **6/8, $0.092** | **6/8, $0.100** | |
+| task | native rule | native all | code mode | notes |
+|---|---|---|---|---|
+| archeology-easy-4 | pass, 7 steps, $0.005 | pass, 7 steps, $0.004 | pass, 9 steps, $0.006 | native: 15 steps / $0.011 before the line-form preview |
+| biomedical-easy-2 | 68.1 (68.5) | 68.1 | pass | `Case_excluded` convention; native looped 5 modifies before the `columns` guard, 2 after |
+| legal-hard-2 | pass, 12 steps, $0.009 | pass, 11 steps, $0.008 | pass, 9 steps, $0.007 | html table 1 joined to 52 csv files |
+| environment-hard-8 | pass, 8 steps, $0.013 | pass, 13 steps, $0.024 | pass, 7 steps, $0.007 | native: 9 previews in one turn, 8 scans in the next |
+| environment-hard-9 | pass, 8 steps, $0.013 | pass, 11 steps, $0.008 | pass, 6 steps, $0.007 | |
+| astronomy-easy-5 | pass, 11 steps, $0.008 | pass, 11 steps, $0.008 | pass, 10 steps, $0.009 | `format: lines` + skyfield udf |
+| wildfire-easy-2 | pass, 9 steps, $0.005 | pass, 8 steps, $0.005 | pass, 7 steps, $0.004 | geopandas udf loader, `.to_wkt()`, sjoin inside the udf |
+| astronomy-hard-9 | 13 (24), 21 steps, $0.033 | 21, 12 steps, $0.040 | no answer at the 26-step cap, $0.046 | see below |
+| **total** | **6/8, $0.090** | **6/8, $0.100** | **7/8, $0.089** | |
 
-Both misses are outside Scan: one answer convention, one wrong path in the
-task text. The path case is what the directory listing in the missing-file
-error is for; its rerun and a code-mode baseline on the same eight tasks are
-in progress. `wildfire-hard-21` (json) is unusable in this checkout: its
-`ZHVI.csv` is a 0-byte Kaggle placeholder.
+Scan itself is no longer the reason for any miss. `biomedical-easy-2` is an
+answer convention (exclude the 2 `Case_excluded` patients; code mode happened
+to apply it). `astronomy-hard-9` first failed on the task text's `omni2.txt`
+(the lake has `omni2.text`): the model never saw the format spec and guessed
+the AP column. With the directory listing in the missing-file error the rerun
+found `omni2.text` on its second call, read it as `format: lines`, filtered
+the field table out of it, and still answered 13 for 24 after 21 steps — the
+lag-correlation modelling is the hard part, and code mode did not finish it
+either. `wildfire-hard-21` (json) is unusable in this checkout: its `ZHVI.csv`
+is a 0-byte Kaggle placeholder.
+
+Two more traps the traces exposed and closed: the model passed the preview's
+` | ` cell separator back as `delim` (the tool description now says it is
+display-only), and asked for `format: "whitespace"` (now an alias of
+`delim: "whitespace"`).
 
 Scripts for §5–§6: `arm_table.py`, `scores.py`, `answers.py`,
 `verify_tools.py`, `gen_odd.ts` / `run_odd.py` (local execution of compiled

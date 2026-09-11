@@ -74,7 +74,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     signature:
       'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true), ' +
       'columns?: [name] (names when header=false), allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
-      'format?: auto|csv|lines|fwf (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths), widths?: [int], ' +
+      'format?: auto|csv|lines|fwf|whitespace (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths; whitespace = delim whitespace), widths?: [int], ' +
       'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table with cells joined by " | " for display)}',
     schema: {
       type: "object",
@@ -88,7 +88,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
         allText: { type: "boolean" },
         delim: str,
         comment: { type: "string", minLength: 1, maxLength: 1 },
-        format: { type: "string", enum: ["auto", "csv", "lines", "fwf"] },
+        format: { type: "string", enum: ["auto", "csv", "lines", "fwf", "whitespace"] },
         widths: { type: "array", items: { type: "integer", minimum: 1 }, minItems: 1 },
         sheet: { oneOf: [str, { type: "integer" }] },
         encoding: str,

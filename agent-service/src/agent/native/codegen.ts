@@ -77,7 +77,9 @@ const DUCK_PRELUDE = `    import duckdb
     _con = duckdb.connect()
 `;
 
-function compileScan(p: Record<string, any>): string {
+function compileScan(p0: Record<string, any>): string {
+  // `format: "whitespace"` is the natural way to ask for space-aligned columns; it means `delim: "whitespace"`.
+  const p: Record<string, any> = p0.format === "whitespace" ? { ...p0, format: "csv", delim: "whitespace" } : p0;
   const files = Array.isArray(p.files) ? p.files : [p.files];
   const header = p.header !== false;
   const skip = Number(p.skipLines ?? 0);

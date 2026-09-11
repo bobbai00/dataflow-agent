@@ -91,7 +91,7 @@ modify upstream refreshes the whole chain below it.
 | `allText` | bool | read every column as text (files whose numbers carry separators or footnotes; cast later with `compute`) |
 | `delim` | string | delimiter; `"whitespace"` for space-aligned columns |
 | `comment` | 1 char | skip lines starting with it |
-| `format` | auto \| csv \| lines \| fwf | `lines`: one row per line (`line_no`, `line`); `fwf`: fixed width, with `widths` |
+| `format` | auto \| csv \| lines \| fwf \| whitespace | `lines`: one row per line (`line_no`, `line`); `fwf`: fixed width, with `widths`; `whitespace` = `delim: "whitespace"` |
 | `widths` | int[] | fixed-width column widths |
 | `sheet` | string \| int | xlsx sheet name or index; html table index |
 | `encoding` | string | detected when omitted: utf-8, else cp1252 |

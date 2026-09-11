@@ -63,6 +63,7 @@ describe("native codegen", () => {
     expect(ws).toContain('names=["a","b"]');
     expect(ws).toContain("return _pandas_csv()");
     expect(ws).not.toContain("read_csv(' + flist"); // whitespace never goes to DuckDB
+    expect(scan({ files: "omni.dat", format: "whitespace", header: false })).toContain("sep=r'\\s+'"); // alias of delim whitespace
     const fwf = scan({ files: "x.txt", format: "fwf", widths: [4, 3, 8] });
     expect(fwf).toContain("pd.read_fwf(f, widths=[4,3,8]");
     const csv = scan({ files: "a.csv", skipLines: 2 });
