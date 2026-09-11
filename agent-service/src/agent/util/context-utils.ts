@@ -1942,7 +1942,8 @@ function buildFlowSection(
     }
 
     if (lines.length > 0) {
-      entries.push(`### \`${op.operatorID}\` (${op.operatorType})`);
+      // NATIVE operators name their typed operator (`Filter`), not the Python carrier.
+      entries.push(`### \`${op.operatorID}\` (${op.nativeOp?.type ?? op.operatorType})`);
       for (const l of lines) entries.push(l);
       entries.push("");
     }
