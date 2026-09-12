@@ -258,6 +258,28 @@ function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
  * to push churn to the tail) would cache better still, but it breaks dataflow
  * reading order on a graph-building task and is a separate, riskier experiment.
  */
+/**
+ * turnSplit — one user message per catalog / session entry and per step of the
+ * live turn, so finished turns are byte-stable messages and each step of the
+ * current turn APPENDS a message. Boundaries: `## Turn N`, `#### Step k`, and
+ * any top-level `# ` section. Returns [] when there is nothing to split.
+ */
+export function splitTurns(text: string): string[] {
+  const RE = /^(?:## Turn \d+[^\n]*|#### Step \d+[^\n]*|# [^\n]+)\s*$/gm;
+  const marks: number[] = [];
+  for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
+  if (marks.length < 1) return [];
+  const parts: string[] = [];
+  const head = text.slice(0, marks[0]).trimEnd();
+  if (head) parts.push(head);
+  for (let i = 0; i < marks.length; i++) {
+    const end = i + 1 < marks.length ? marks[i + 1] : text.length;
+    const chunk = text.slice(marks[i], end).trimEnd();
+    if (chunk) parts.push(chunk);
+  }
+  return parts;
+}
+
 export function splitOperators(text: string): string[] {
   const marks: number[] = [];
   // Code-mode blocks read `### Operator \`id\` (Type)`, native ones `### filter operator \`id\``.

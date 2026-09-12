@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildNativeFrames, splitOperators, splitTrailingState } from "./native-frames";
+import { buildNativeFrames, splitOperators, splitTrailingState, splitTurns } from "./native-frames";
 import type { ReActStep } from "../../../types/agent";
 
 const CTX = [
@@ -264,5 +264,39 @@ describe("multi-turn transcript", () => {
     expect(roles).toEqual(["user", "assistant", "tool", "user", "assistant", "tool"]);
     expect(r.messages[3].content).toBe("First follow-up question");
     expect(JSON.stringify(r.messages[2].content)).not.toContain("First follow-up question");
+  });
+});
+
+describe("turnSplit", () => {
+  test("one message per finished turn, per live step, and per top-level section", () => {
+    const text = [
+      "# Catalog",
+      "",
+      "## Turn 1",
+      "### Task",
+      "first",
+      "### Answer",
+      "42",
+      "",
+      "## Turn 2 (in progress)",
+      "### Task",
+      "second",
+      "",
+      "# Your Task",
+      "",
+      "Work on turn 2.",
+      "",
+      "### Steps",
+      "",
+      "#### Step 1",
+      "Action: - scan",
+      "Observation: ok",
+      "",
+      "#### Step 2",
+      "Action: - filter",
+    ].join("\n");
+    const parts = splitTurns(text);
+    expect(parts.map(p => p.split("\n")[0])).toEqual(["# Catalog", "## Turn 1", "## Turn 2 (in progress)", "# Your Task", "#### Step 1", "#### Step 2"]);
+    expect(parts.join("\n\n").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
   });
 });

@@ -98,6 +98,7 @@ import {
 } from "./tools/general-op-tools";
 import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
 import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
+import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
@@ -828,7 +829,7 @@ export class TexeraAgent {
       const operators: string[] = [];
       for (const step of steps) {
         for (const call of step.toolCalls ?? []) {
-          const opId = (call.input as any)?.operatorId;
+          const opId = writtenOperatorId(call.toolName, call.input);
           if (typeof opId === "string" && !operators.includes(opId)) operators.push(opId);
         }
       }
@@ -898,8 +899,8 @@ export class TexeraAgent {
     const built: string[] = [];
     for (const step of mine) {
       for (const call of step.toolCalls ?? []) {
-        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
-        const opId = (call.input as any)?.operatorId;
+        if (!WRITE_TOOL_NAMES.has(call.toolName) && !NATIVE_TOOL_NAMES.has(call.toolName)) continue;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
       }
     }
@@ -1043,7 +1044,7 @@ export class TexeraAgent {
         if (!msg) return touched;
         for (const step of agent.reActStepsByMessageId.get(msg) ?? []) {
           for (const call of step.toolCalls ?? []) {
-            const opId = (call.input as any)?.operatorId;
+            const opId = writtenOperatorId(call.toolName, call.input);
             if (typeof opId === "string") touched.add(opId);
           }
         }
@@ -1102,7 +1103,7 @@ export class TexeraAgent {
       const seen = new Set<string>();
       for (const step of steps) {
         for (const call of step.toolCalls ?? []) {
-          const opId = (call.input as any)?.operatorId;
+          const opId = writtenOperatorId(call.toolName, call.input);
           if (typeof opId !== "string" || seen.has(opId)) continue;
           seen.add(opId);
           operators.push(opId);

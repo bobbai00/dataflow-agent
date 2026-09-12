@@ -43,7 +43,7 @@ import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
-import { buildNativeFrames, splitTrailingState, splitOperators } from "./native-frames";
+import { buildNativeFrames, splitTrailingState, splitOperators, splitTurns } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -156,6 +156,16 @@ function buildMessages(
   stepByEvent: Map<number, ReActStep>,
 ): ModelMessage[] {
   if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
+  if (layout === "turnSplit") {
+    const parts = splitTurns(text);
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+    return [{ role: "user", content: text }];
+  }
   if (layout === "opSplit") {
     // An empty dataflow (step 1) still ends with the `# Current Dataflow`
     // header, so the first message is byte-identical from step 1 onwards.

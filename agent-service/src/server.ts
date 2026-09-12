@@ -261,7 +261,12 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       // message per operator block (opSplit) and DELTA ships the append-only
       // tool-call transcript (native), the two framings gpt-5.6-* can credit.
       messageLayout:
-        settings.messageLayout ?? (settings.contextMode === ContextMode.LATEST ? "opSplit" : "native"),
+        settings.messageLayout ??
+        (settings.versionedMode || settings.sessionTurns
+          ? "turnSplit"
+          : settings.contextMode === ContextMode.LATEST
+            ? "opSplit"
+            : "native"),
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,

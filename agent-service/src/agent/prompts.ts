@@ -547,12 +547,12 @@ const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, ver
 const NATIVE_LAYOUT_CATALOG = `This is a multi-turn session: the user sends requests about the same data one at a time, and the operators you build stay live across turns. Your context is a single **\`# Catalog\`**: one **\`## Turn N\`** entry per turn, oldest first; the last entry is the turn you are working on now.
 1. Each finished entry shows **\`### Task\`** (the request, verbatim — rules stated in any turn keep binding until a later turn changes them), **\`### Dataflow delta\`** (the operators that turn added, revised or deleted: \`#### filter operator \\\`id\\\` (added)\`, its \`Properties:\`, its \`Upstream:\` operators with the turn they come from, and \`Result: N rows x C cols — Schema: …\`) and **\`### Answer\`**.
 2. The current entry shows **\`### Task\`** and **\`### Steps\`**: each \`#### Step k\` is your action (one line per call, e.g. \`- add filter operator \\\`x\\\`; inputs: a; properties: {…}\`) and its observation (the operators that changed, with their results).
-3. **\`# Your Task\`** — the closing directive naming the current turn.
+3. **\`# Your Task\`** — the directive naming the current turn, right after its task.
 Reference earlier operators by id: an id always means its latest version. Revising an operator (calling its tool again with the same id) re-executes everything built on it. Answer only the current turn's task.`;
 
 const NATIVE_LAYOUT_SESSION = `This is a multi-turn session: the user sends requests about the same data one at a time, and the operators you build stay live across turns. Your input has two top-level sections:
 1. **\`# Session\`** — one **\`## Turn N\`** entry per turn, oldest first. A finished turn shows **\`### Task\`** (verbatim; its rules keep binding until changed), **\`### Steps\`** (each \`#### Step k\`: your action, one line per call such as \`- add filter operator \\\`x\\\`; inputs: a; properties: {…}\`, and its observation: the operators that changed, with \`Inputs:\` and results) and **\`### Final Answer\`**. The last entry, \`## Turn N (current turn)\`, is the task you are solving now.
-2. **\`# Your Task\`** — the closing directive naming the current turn.
+2. **\`# Your Task\`** — the directive naming the current turn, right after its task.
 Earlier turns' operators are live state: build on them by id. Answer only the current turn's task.`;
 
 const NATIVE_LAYOUT_DELTA = `1. **\`# User Task\`** — the user's request, verbatim.

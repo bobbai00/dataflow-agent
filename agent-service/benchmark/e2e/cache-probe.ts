@@ -95,7 +95,7 @@ async function main() {
     });
     const viewed = (s.plan as any).opsToViewResult[0] as string;
     const info = (r.operators ?? {})[viewed] as any;
-    const expectState = s.expectFresh.includes(viewed) ? "Completed" : "CompletedFromCache";
+    const expectState = (s.expectFresh as string[]).includes(viewed) ? "Completed" : "CompletedFromCache";
     const rows = info?.result?.length ?? 0;
     const ok = r.success && info?.state === expectState && rows > 0;
     if (!ok) failures++;

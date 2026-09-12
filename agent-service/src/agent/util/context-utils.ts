@@ -68,6 +68,17 @@ import { summarize, type OperatorRenderExtras } from "../context/summarize/summa
 import { formatNativeError, type FormatOperatorResultOptions } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
 
+/** The operator a tool call wrote: `operatorId` (code-mode tools) or, for the
+ *  typed operator tools of native mode, `id`. Undefined for read-only tools. */
+export function writtenOperatorId(toolName: string | undefined, input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const inp = input as Record<string, unknown>;
+  if (typeof inp.operatorId === "string" && inp.operatorId) return inp.operatorId;
+  if (toolName && (NATIVE_TOOL_NAMES.has(toolName) || toolName === "deleteOperator") && typeof inp.id === "string" && inp.id) return inp.id;
+  return undefined;
+}
+
+
 const log = createLogger("ContextAssembler");
 
 /* ============================================================================
@@ -95,7 +106,7 @@ export interface StatScopes {
 
 export interface AssembleContextOptions {
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opSplit";
+  messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
   /** Native message layout: called once per rendered agent event with the step
    *  that produced it, so the message builder can emit that step's REAL tool
    *  calls (true toolCallIds) instead of inferring them from the rendered text. */
@@ -983,7 +994,7 @@ function renderPriorTurnsIndex(prior: TaskGroup[]): string {
     const seen = new Set<string>();
     for (const node of task.nodes) {
       for (const call of node.step.toolCalls ?? []) {
-        const opId = (call.input as any)?.operatorId;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId !== "string" || seen.has(opId)) continue;
         seen.add(opId);
         touched.push(opId);
@@ -1070,8 +1081,8 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
   for (const node of fullPath) {
     if (node.step.role !== "agent" || !node.step.toolCalls) continue;
     for (const tc of node.step.toolCalls) {
-      if (tc.toolName !== "createOrModifyOperator") continue;
-      const opId = (tc.input as Record<string, unknown> | undefined)?.operatorId;
+      if (tc.toolName !== "createOrModifyOperator" && !NATIVE_TOOL_NAMES.has(tc.toolName)) continue;
+      const opId = writtenOperatorId(tc.toolName, tc.input);
       if (typeof opId === "string" && opId) counts.set(opId, (counts.get(opId) ?? 0) + 1);
     }
   }
@@ -1635,7 +1646,7 @@ function renderAgentEvents(
       for (const node of task.nodes) {
         if (node.step.role !== "agent") continue;
         for (const tc of node.step.toolCalls ?? []) {
-          const opId = (tc.input as Record<string, unknown> | undefined)?.operatorId;
+          const opId = writtenOperatorId(tc.toolName, tc.input);
           if (typeof opId === "string" && opId && tc.toolName !== "deleteOperator") {
             lastEdit.set(opId, node.eventIndex);
           }
@@ -2081,7 +2092,7 @@ function serializeTaskBody(
       const noChangeOutcome: string[] = [];
       calls.forEach((tc, i) => {
         const inp = tc.input as Record<string, unknown> | undefined;
-        const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
+        const opId = writtenOperatorId(tc.toolName, inp) ?? "";
         const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
         if (tc.toolName === "deleteOperator" && opId) {
           deletedOps.push(opId);
@@ -2449,7 +2460,7 @@ function renderSession(
     for (const node of task.nodes) {
       if (node.step.role !== "agent") continue;
       for (const call of node.step.toolCalls ?? []) {
-        const opId = (call.input as Record<string, unknown> | undefined)?.operatorId;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId === "string") touched.add(opId);
       }
     }
@@ -2496,6 +2507,13 @@ function renderSession(
   sections.push("### Task");
   if (latestUserContent) sections.push(latestUserContent.trim());
   sections.push("");
+  // turnSplit: directive with the task, before the growing step log (see the
+  // catalog renderer for why).
+  const directiveEarly = options.messageLayout === "turnSplit";
+  if (directiveEarly) {
+    sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
+    sections.push("");
+  }
 
   if (current.length > 0) {
     if (mode === ContextMode.DELTA) {
@@ -2527,7 +2545,7 @@ function renderSession(
     sections.push("");
   }
 
-  sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
+  if (!directiveEarly) sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
   return sections.join("\n").trimEnd();
 }
 
@@ -2600,7 +2618,7 @@ function renderVersionedCatalog(
       if (node.step.role !== "agent") continue;
       const flags = createFlagsByStep.get(node.step.id);
       for (const call of node.step.toolCalls ?? []) {
-        const opId = (call.input as any)?.operatorId;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId !== "string") continue;
         if (call.toolName === "deleteOperator") {
           verbs.set(opId, "deleted");
@@ -2711,6 +2729,14 @@ function renderVersionedCatalog(
   sections.push("### Task");
   if (latestUserContent) sections.push(latestUserContent.trim());
   sections.push("");
+  // turnSplit: the directive sits with the task, BEFORE the step log, so the
+  // prompt only ever grows at its tail (a directive after the steps would move
+  // every step and the provider's cache would credit nothing past the catalog).
+  const directiveEarly = options.messageLayout === "turnSplit";
+  if (directiveEarly) {
+    sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
+    sections.push("");
+  }
   // LATEST collapses the current turn's observations into one snapshot: the
   // step log keeps thoughts/actions (and recallState pull outputs, which have
   // no snapshot to collapse into), and a `### Dataflow` block carries every
@@ -2764,7 +2790,7 @@ function renderVersionedCatalog(
   }
 
   sections.push("");
-  sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
+  if (!directiveEarly) sections.push(renderYourTask(currentTurnNo, options.specAudit === true));
   return sections.join("\n").trimEnd();
 }
 
@@ -2944,7 +2970,7 @@ function renderCatalog(
       if (node.step.role !== "agent") continue;
       const flags = createFlagsByStep.get(node.step.id);
       for (const call of node.step.toolCalls ?? []) {
-        const opId = (call.input as any)?.operatorId;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId !== "string") continue;
         const isWrite =
           call.toolName === "createOrModifyOperator" ||
@@ -2980,7 +3006,7 @@ function renderCatalog(
       if (node.step.role !== "agent") continue;
       const flags = createFlagsByStep.get(node.step.id);
       for (const call of node.step.toolCalls ?? []) {
-        const opId = (call.input as any)?.operatorId;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId !== "string") continue;
         if (call.toolName === "deleteOperator") {
           verbs.set(opId, "deleted");
@@ -3110,7 +3136,7 @@ function serializeTurn(
     lines.push("Action:");
     for (const tc of step.toolCalls) {
       const inp = tc.input as Record<string, unknown> | undefined;
-      const opId = typeof inp?.operatorId === "string" ? (inp.operatorId as string) : "";
+      const opId = writtenOperatorId(tc.toolName, inp) ?? "";
       const foldFact = opId && tc.toolName === "createOrModifyOperator" ? revisionFolds?.get(opId) : undefined;
       const nativeLines = renderNativeToolCall(tc, createFlags);
       if (nativeLines) {
