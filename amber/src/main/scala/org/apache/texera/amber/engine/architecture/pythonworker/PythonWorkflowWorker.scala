@@ -202,6 +202,17 @@ class PythonWorkflowWorker(
         logger.error(s"$e - happened during shutdown")
     }
     try {
+      // Close the Flight server itself, not just its thread: the server holds
+      // a bound TCP socket, and leaking one per Python worker exhausted the
+      // ephemeral port range at ~28k cumulative executions — ServerSocket(0)
+      // then throws inside getFreeLocalPort and every new worker dies with
+      // "assertion failed" (empty executions campaign-wide).
+      if (pythonProxyServer != null) pythonProxyServer.close()
+    } catch {
+      case e: Exception =>
+        logger.error(s"$e - happened during proxy server close")
+    }
+    try {
       clientThreadExecutor.shutdownNow()
     } catch {
       case e: Exception =>
