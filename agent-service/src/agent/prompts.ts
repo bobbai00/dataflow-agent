@@ -511,7 +511,8 @@ Your own parameters are always shown under \`Properties\`. A result is shown whe
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   inspectEnabled = false,
-  resultSelection: ResultSelection = "all"
+  resultSelection: ResultSelection = "all",
+  layoutOpts: { versioned?: boolean; session?: boolean; recall?: boolean } = {}
 ): string {
   const shapes =
     resultSelection === "rule"
@@ -525,7 +526,14 @@ export function buildNativeModeSystemPrompt(
   const inspectLine = inspectEnabled
     ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
     : "";
-  const layout = contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST;
+  const recallLine = layoutOpts.recall
+    ? "\n- `recallState({turn})` — read-only: one earlier turn's request, answer and the operators it added or revised, with their parameters and result shapes (`includeOutputTableSample` chars of rows, `includeOutputTableColumnStats`). Use it when a value from an earlier turn decides this one; nothing is re-executed."
+    : "";
+  const layout = layoutOpts.versioned
+    ? NATIVE_LAYOUT_CATALOG + recallLine
+    : layoutOpts.session
+      ? NATIVE_LAYOUT_SESSION + recallLine
+      : (contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST) + recallLine;
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", layout)
     .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
@@ -535,6 +543,17 @@ export function buildNativeModeSystemPrompt(
 const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, verbatim.
 2. **\`# Current Dataflow\`** — one block per operator, headed \`### <type> operator \\\`id\\\`\` (e.g. \`### filter operator \\\`web_fraud\\\`\`), with \`Inputs:\` (upstream ids and their row counts), \`Properties:\` (your own parameters) and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
 3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
+
+const NATIVE_LAYOUT_CATALOG = `This is a multi-turn session: the user sends requests about the same data one at a time, and the operators you build stay live across turns. Your context is a single **\`# Catalog\`**: one **\`## Turn N\`** entry per turn, oldest first; the last entry is the turn you are working on now.
+1. Each finished entry shows **\`### Task\`** (the request, verbatim — rules stated in any turn keep binding until a later turn changes them), **\`### Dataflow delta\`** (the operators that turn added, revised or deleted: \`#### filter operator \\\`id\\\` (added)\`, its \`Properties:\`, its \`Upstream:\` operators with the turn they come from, and \`Result: N rows x C cols — Schema: …\`) and **\`### Answer\`**.
+2. The current entry shows **\`### Task\`** and **\`### Steps\`**: each \`#### Step k\` is your action (one line per call, e.g. \`- add filter operator \\\`x\\\`; inputs: a; properties: {…}\`) and its observation (the operators that changed, with their results).
+3. **\`# Your Task\`** — the closing directive naming the current turn.
+Reference earlier operators by id: an id always means its latest version. Revising an operator (calling its tool again with the same id) re-executes everything built on it. Answer only the current turn's task.`;
+
+const NATIVE_LAYOUT_SESSION = `This is a multi-turn session: the user sends requests about the same data one at a time, and the operators you build stay live across turns. Your input has two top-level sections:
+1. **\`# Session\`** — one **\`## Turn N\`** entry per turn, oldest first. A finished turn shows **\`### Task\`** (verbatim; its rules keep binding until changed), **\`### Steps\`** (each \`#### Step k\`: your action, one line per call such as \`- add filter operator \\\`x\\\`; inputs: a; properties: {…}\`, and its observation: the operators that changed, with \`Inputs:\` and results) and **\`### Final Answer\`**. The last entry, \`## Turn N (current turn)\`, is the task you are solving now.
+2. **\`# Your Task\`** — the closing directive naming the current turn.
+Earlier turns' operators are live state: build on them by id. Answer only the current turn's task.`;
 
 const NATIVE_LAYOUT_DELTA = `1. **\`# User Task\`** — the user's request, verbatim.
 2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took, one line per call: \`- add filter operator \\\`web_fraud\\\`; inputs: contributors; properties: {…}\` (\`modify\` when the id already existed, \`- delete operator \\\`x\\\`\`), and the **\`Observation:\`** it produced: \`- filter operator \\\`web_fraud\\\` added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table, \`Column Schema and stats\`, \`Output Table profile\`). A refused call appears as a one-line \`[ERROR] …\` outcome. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.

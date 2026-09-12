@@ -495,7 +495,12 @@ export class TexeraAgent {
       this.systemPrompt = buildNativeModeSystemPrompt(
         this.settings.contextMode,
         this.settings.enableInspectTool === true,
-        this.settings.resultSelection
+        this.settings.resultSelection,
+        {
+          versioned: this.settings.versionedMode === true,
+          session: this.settings.sessionTurns === true,
+          recall: this.settings.enableRecallTool === true,
+        }
       );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);

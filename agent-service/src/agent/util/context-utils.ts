@@ -2621,14 +2621,21 @@ function renderVersionedCatalog(
       const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
         if (verb === "deleted" && !survives.has(opId)) continue;
-        sections.push(`#### \`${opId}\` (${verb})`);
+        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
+        // Typed operators: the header names the type and the entry carries the
+        // parameters (the agent's own words) instead of a summary line.
+        const nat = op?.nativeOp;
+        sections.push(nat ? `#### ${nat.type.toLowerCase()} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`);
         if (verb === "deleted") {
           sections.push("");
           continue;
         }
-        const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
-        const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
-        if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
+        if (nat && nat.type !== "UDF") {
+          sections.push(`Properties: ${JSON.stringify(nat.properties)}`);
+        } else {
+          const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
+          if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
+        }
         // Upstream with version provenance: the defining turn of each input as
         // of THIS turn — the exact (operatorId, turn) pairs a later write's
         // `upstreams` should carry when it builds on this version's inputs.

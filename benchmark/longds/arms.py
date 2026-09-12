@@ -975,9 +975,35 @@ class LongDSLunaNativeRuleLatest(LongDSLunaNativeRuleDelta):
     _CONTEXT_MODE = "latest"
 
 
+class LongDSLunaNativeCatalog(LongDSLunaNativeRuleDelta):
+    """Native operators under the catalog layout (versioned mode: one frozen
+    entry per finished turn, recallState pull, operator-level recall)."""
+
+    _NAME = "LongDSLunaNativeCatalog"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("versioned_mode", True)
+        kwargs.setdefault("enable_recall_tool", True)
+        kwargs.setdefault("recall_operator_level", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
+class LongDSLunaNativeSession(LongDSLunaNativeRuleDelta):
+    """Native operators under the session layout (full step replay per turn,
+    `# Your Task` tail)."""
+
+    _NAME = "LongDSLunaNativeSession"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("session_turns", True)
+        super().__init__(verbose=verbose, *args, **kwargs)
+
+
 ARMS = {
     "luna-native-rule-delta": LongDSLunaNativeRuleDelta,
     "luna-native-rule-latest": LongDSLunaNativeRuleLatest,
+    "luna-native-catalog": LongDSLunaNativeCatalog,
+    "luna-native-session": LongDSLunaNativeSession,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,
