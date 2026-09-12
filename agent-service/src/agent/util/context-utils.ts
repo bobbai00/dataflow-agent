@@ -1645,7 +1645,7 @@ function renderAgentEvents(
     options.deltaLastEditByOp = lastEdit;
   }
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
-  for (const task of tasks) {
+  for (const [taskIndex, task] of tasks.entries()) {
     const body = serializeTaskBody(
       task,
       workflowState,
@@ -1656,7 +1656,8 @@ function renderAgentEvents(
       },
       latestUserStepId,
       createFlagsByStep,
-      omitObservation
+      omitObservation,
+      /*laterTurn=*/ taskIndex > 0
     );
     if (body) bodies.push(body);
   }
@@ -1994,7 +1995,9 @@ function serializeTaskBody(
   /** When true, render only Thought + Action per event and omit the Observation
    *  block. Used by LATEST's `# Agent Turns` section, where the per-operator
    *  results would just duplicate `# Current Dataflow`. DELTA leaves it false. */
-  omitObservation = false
+  omitObservation = false,
+  /** True for every task group after the first (a later user turn). */
+  laterTurn = false
 ): string {
   const lines: string[] = [];
 
@@ -2005,8 +2008,13 @@ function serializeTaskBody(
     if (options.keepFromEventIndex !== undefined && node.eventIndex < options.keepFromEventIndex) continue;
     if (node.step.role === "user") {
       // The latest user message is hoisted into the top-level `# User Task`
-      // block by the caller. Skip it here so it doesn't appear twice.
-      if (node.step.id === latestUserStepId) continue;
+      // block by the caller. Skip it here so it doesn't appear twice — except
+      // in the native transcript layout on a later turn: there the request
+      // must also be the LAST message of the transcript (the model answered
+      // "please provide the next question" to a `Continue.` 70k tokens after
+      // a request placed on top), and an inline copy at its chronological
+      // position keeps the prompt append-only within the turn.
+      if (node.step.id === latestUserStepId && !(options.messageLayout === "native" && laterTurn)) continue;
       lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;
@@ -3336,7 +3344,16 @@ function serializeSnapshotFull(
     options.resultSelection === "rule"
       ? selectResultShapes(workflow.operators, allLinks, id => snapshot.results.get(id)?.info)
       : retiredPreviews(workflow.operators, allLinks, id => snapshot.results.get(id)?.info);
-  for (const op of sortedOps) {
+  // NATIVE: blocks in creation order, not topological order. The provider's
+  // prompt cache only credits a step whose prompt EXTENDS an earlier prompt;
+  // a new source inserted before existing blocks (topological order) drops
+  // every step back to the system prompt (measured on a 3-turn session:
+  // 13-36% cached). Creation order is append-only, and the model built the
+  // DAG in that order anyway. Modified operators keep their position.
+  // (Gated on the operators themselves: the summarize path maps agentMode to
+  // GENERAL / CODE only, so `options.agentMode` never says NATIVE here.)
+  const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
+  for (const op of ordered) {
     lines.push(
       serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, shapes?.get(op.operatorID))
     );

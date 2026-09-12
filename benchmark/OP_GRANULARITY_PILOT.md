@@ -465,3 +465,49 @@ Verification, targeted reruns after the fixes (1 rep each):
 
 All four answers exact. The DELTA number is the one that changes the earlier
 picture: DELTA now caches like LATEST.
+
+## 8. Multi-turn (2026-09-11)
+
+LongDS task `sports/nfl_big_data_bowl_2023/task1`, first 3 of 42 turns, one
+agent and one workflow for the whole session, luna, arms
+`luna-native-rule-delta` / `luna-native-rule-latest` (`benchmark/longds/arms.py`).
+
+What carries over between turns without any change: the operators, their
+typed parameters, their materialized tables and statistics, the upsert-by-id
+tools (an earlier turn's operator can be modified by id), the delete guard,
+and the re-materialization of edited chains. In every session turn 2 read
+three or four turn-1 tables by id (`season_player_workspace`,
+`pressure_event_ledger`, the published lists) and turn 3 read turn 2's
+combined view; the DAG grew 23 → 49 → 61 operators (DELTA) and 42 → 62 → 80
+(LATEST).
+
+Three things did not work and were fixed:
+
+| problem | evidence | fix |
+|---|---|---|
+| DELTA: the new request was on top, the transcript ended with the previous turn's final answer and a `Continue.` user turn | turn 3 answered "Please provide the next question or analysis step." (1 step, 0 tool calls); the request sat 70k tokens earlier | on a later turn the request is also rendered inline at its chronological position, so it is the last message when the turn starts and stays in place as events append |
+| DELTA: an earlier turn's request was glued into the previous tool result | `## User Event 2` inside a `tool` message | rendered as a `user` message |
+| LATEST: topological block order inserted new sources before existing blocks | every step of turn 3 cached 13% with 55 of 63 messages identical | creation order (append-only) |
+
+The last one exposed how the provider's cache works: a step is credited only
+for an earlier prompt that is a prefix of the whole new prompt; identical
+messages after the first divergence earn nothing. Measured on the same
+session after the fix: cached 47% → 78%, cost $0.135 → $0.091, 3/3 turns
+answered both times. The remaining breaks are all shape flips of the rule
+itself (16 in 32 steps: a frontier block rendered full turns into a count or
+header line once consumed) and two error-then-fixed blocks. That is the open
+design question: a shape that flips costs the whole suffix for one step;
+keeping it full costs a cached block per step.
+
+DELTA after the fixes: 3/3 turns answered, every turn start ends with the
+user's request (no `Continue.`), step 2 of each turn extends step 1 (97%
+cached), session cached 76% → 88%, $0.090. Cross-turn reuse in both layouts:
+turn 2 read four turn-1 tables by id, turn 3 read three turn-2 tables; no
+earlier operator was modified.
+
+| arm, 3 turns | turns answered | cached | cost |
+|---|---|---|---|
+| DELTA native, before | 3/3 (turn 3 was a no-op in the first session) | 76–79% | $0.083–0.093 |
+| DELTA native, after | 3/3 | 88% | $0.090 |
+| LATEST native, before | 3/3 | 47% | $0.135 |
+| LATEST native, after | 3/3 | 78% | $0.091 |

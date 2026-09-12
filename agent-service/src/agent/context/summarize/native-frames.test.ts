@@ -232,3 +232,37 @@ describe("stable first message (prefix cache)", () => {
     expect(r.messages).toEqual([{ role: "user", content: "# User Task\nQ\n\n# Agent Events" }]);
   });
 });
+
+describe("multi-turn transcript", () => {
+  test("an earlier user turn becomes a user message after the tool result, not part of it", () => {
+    const text = [
+      "# User Task\nSecond question",
+      "",
+      "# Agent Events",
+      "",
+      "## Agent Event 1",
+      "Thought: look",
+      "Action:",
+      "- scan ...",
+      "Observation:",
+      "- scan operator `a` added",
+      "",
+      "## User Event 2",
+      "",
+      "First follow-up question",
+      "",
+      "## Agent Event 3",
+      "Action:",
+      "- filter ...",
+      "Observation:",
+      "- filter operator `b` added",
+    ].join("\n");
+    const step = (id: string, name: string): ReActStep =>
+      ({ id, role: "agent", content: "", toolCalls: [{ toolCallId: id, toolName: name, input: { id: name } }], toolResults: [{ toolCallId: id, output: "ok" }] }) as unknown as ReActStep;
+    const r = buildNativeFrames(text, new Map([[1, step("c1", "scan")], [3, step("c3", "filter")]]));
+    const roles = r.messages.map(m => m.role);
+    expect(roles).toEqual(["user", "assistant", "tool", "user", "assistant", "tool"]);
+    expect(r.messages[3].content).toBe("First follow-up question");
+    expect(JSON.stringify(r.messages[2].content)).not.toContain("First follow-up question");
+  });
+});

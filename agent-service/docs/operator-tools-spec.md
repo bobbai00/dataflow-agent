@@ -313,7 +313,12 @@ Observation:
 
 `updated` replaces `added` for a modify; a refused call keeps its error line.
 The transcript ends on the tool results of the last turn (no trailing user
-message), so each step's prompt is the previous prompt plus the new turn.
+message), so each step's prompt is the previous prompt plus the new turn. On a
+later user turn the new request is also rendered inline at its chronological
+position (after the previous turn's final answer), so the turn's first prompt
+ends with the request and the turn's later steps extend it. Earlier requests
+appear as `user` messages at their positions. In LATEST the blocks are in
+creation order for the same reason (append-only prompts).
 
 ## 7. Prompt
 
@@ -339,4 +344,5 @@ carried over from code mode minus the pandas-specific ones.
 
 Harness arms (`benchmark/Kramabench/systems/dataflow_system.py`):
 `DataflowSystemLunaNativeTools{Rule,All}Rep1` (LATEST) and
-`DataflowSystemLunaNativeToolsRuleDeltaRep1` (DELTA).
+`DataflowSystemLunaNativeToolsRuleDeltaRep1` (DELTA). Multi-turn
+(`benchmark/longds/arms.py`): `luna-native-rule-delta`, `luna-native-rule-latest`.

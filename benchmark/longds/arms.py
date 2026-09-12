@@ -935,7 +935,49 @@ class LongDSHaikuVersionedDelta(LongDSLunaSmokeVCatDelta):
     _NAME = "LongDSHaikuVersionedDelta"
 
 
+
+class LongDSLunaNativeRuleDelta(DataflowSystem):
+    """Typed operators, one tool per operator (agent_mode=native), result
+    selection rule, DELTA transcript. Same 2k / stats / d2 knobs as the
+    KramaBench NativeTools arms; 25 steps per turn; 10-min engine timeout."""
+
+    _NAME = "LongDSLunaNativeRuleDelta"
+    _CONTEXT_MODE = "delta"
+
+    def __init__(self, verbose: bool = False, *args, **kwargs):
+        kwargs.setdefault("agent_service_endpoint", AGENT_SERVICE_ENDPOINT)
+        super().__init__(
+            model_type="gpt-5.6-luna",
+            agent_mode="native",
+            context_mode=self._CONTEXT_MODE,
+            max_steps=25,
+            flow_level=1,
+            data_level=2,
+            column_stats=True,
+            attempt_reflection=True,
+            max_operator_result_char_limit=2000,
+            max_operator_result_cell_char_limit=3000,
+            enable_code_in_snapshot=True,
+            result_selection="rule",
+            execution_timeout_minutes=10,
+            context_window_tokens=0,
+            name=self._NAME,
+            verbose=verbose,
+            *args,
+            **kwargs,
+        )
+
+
+class LongDSLunaNativeRuleLatest(LongDSLunaNativeRuleDelta):
+    """Same as LongDSLunaNativeRuleDelta with the LATEST snapshot context."""
+
+    _NAME = "LongDSLunaNativeRuleLatest"
+    _CONTEXT_MODE = "latest"
+
+
 ARMS = {
+    "luna-native-rule-delta": LongDSLunaNativeRuleDelta,
+    "luna-native-rule-latest": LongDSLunaNativeRuleLatest,
     "haiku-delta-1k": LongDSHaikuDelta1k,
     "haiku-v32": LongDSHaikuVersioned2kD2V32,
     "haiku-session": LongDSHaikuSessionDelta,

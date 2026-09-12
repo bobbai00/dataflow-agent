@@ -143,6 +143,15 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
       }
     }
 
+    // An earlier user turn (`## User Event N`) is rendered between agent events;
+    // it belongs to the user, not to the previous tool result.
+    let userTurn = "";
+    const userAt = chunk.search(/^## User Event \d+\s*$/m);
+    if (userAt >= 0) {
+      userTurn = chunk.slice(userAt).replace(/^## User Event \d+\s*\n/, "").trim();
+      chunk = chunk.slice(0, userAt);
+    }
+
     const obsAt = chunk.search(/^Observation:\s*$/m);
     const head = (obsAt >= 0 ? chunk.slice(0, obsAt) : chunk).trimEnd();
     const observation = obsAt >= 0 ? chunk.slice(obsAt).trimEnd() : "";
@@ -159,6 +168,7 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
       const body = thought || head;
       if (body) messages.push({ role: "assistant", content: body });
       if (observation) messages.push({ role: "user", content: observation });
+      if (userTurn) messages.push({ role: "user", content: userTurn });
       if (trailing) messages.push({ role: "user", content: trailing });
       continue;
     }
@@ -195,6 +205,7 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     });
     converted++;
 
+    if (userTurn) messages.push({ role: "user", content: userTurn });
     if (trailing) messages.push({ role: "user", content: trailing });
   }
 

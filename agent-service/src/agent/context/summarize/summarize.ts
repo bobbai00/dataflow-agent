@@ -213,6 +213,9 @@ export function paramsToRenderOptions(
     statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
     resultSelection: params.resultSelection,
+    // The renderer needs the layout for one decision: in the native transcript
+    // a later turn's request is also rendered inline (see renderAgentEvents).
+    messageLayout: params.messageLayout,
     agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,

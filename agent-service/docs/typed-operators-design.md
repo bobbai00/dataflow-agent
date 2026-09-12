@@ -121,13 +121,26 @@ table, its `Column Schema and stats:` and `Output Table profile:`; a header
 shape stops after `Properties:`. UDF blocks show the code instead of
 properties.
 
-Both layouts keep the first message byte-identical from step 1: LATEST always
-ends it with the `# Current Dataflow / ## Operators` header and splits even a
-single operator; DELTA ends it at `# Agent Events`. The transcript ends on the
-tool results, never on a constant `Continue.` user turn: measured against
-LiteLLM, that trailing message limited the cache hit to system prompt + tools
-(4335 of 7656 tokens), without it the whole previous prompt is a hit (7647 of
-7783).
+The provider's prompt cache (gpt-5.6 through LiteLLM, measured) credits a step
+only for an earlier prompt that is a prefix of the whole new prompt. A shared
+prefix that stops inside an earlier prompt earns nothing beyond the system
+prompt, however long it is (3-turn session: 55 of 63 messages identical, 13%
+cached). Every layout decision below follows from that one rule:
+
+- the first message is byte-identical from step 1 (LATEST always ends it with
+  the `# Current Dataflow / ## Operators` header and splits even a single
+  operator; DELTA ends it at `# Agent Events`);
+- LATEST renders typed operators in creation order, not topological order, so
+  a new source is appended instead of inserted before existing blocks;
+- the DELTA transcript ends on the tool results, never on a constant
+  `Continue.` user turn (with it: 4335 of 7656 tokens cached; without: 7647 of
+  7783); on a later turn the new request is rendered inline at its
+  chronological position, so it is the last message when the turn starts and
+  stays in place as the turn's events append after it.
+
+What still breaks the prefix, by design: a block whose shape changes once a
+consumer arrives (full → count), a modified operator, a retired preview. Each
+costs the suffix after it for one step.
 
 **DELTA** is a transcript. The action is the tool call itself, in text form
 `- add filter operator `web_fraud`; inputs: contributors; properties: {...}`
