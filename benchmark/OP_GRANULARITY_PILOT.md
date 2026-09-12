@@ -511,3 +511,39 @@ earlier operator was modified.
 | DELTA native, after | 3/3 | 88% | $0.090 |
 | LATEST native, before | 3/3 | 47% | $0.135 |
 | LATEST native, after | 3/3 | 78% | $0.091 |
+
+### 8.1 Four layouts, one task, after the fixes (2026-09-12)
+
+Same task, first 3 turns, gpt-5.6-luna, each session run alone with a resource
+sentinel. Engine rebuilt with the three leak fixes cherry-picked from the
+campaign branch (`9effd3cd4` threads, `079ee3204` operator-cache teardown,
+`1e0163860` Flight sockets): Java listening sockets stayed at 10 through all
+four sessions (they had grown 57 → 295 over the previous four), threads flat
+at ~620, free memory flat at 53 GB.
+
+Two agent-service changes made the catalog and session layouts usable with
+typed operators: every place that identifies the operator a tool call wrote
+now accepts the typed tools' `id` (before, the catalog showed no operators
+from turn 1, `recallState` found nothing, and the native catalog run hit the
+25-step cap on two turns with empty answers), and both layouts are split into
+one message per finished turn and per live step, with the `# Your Task`
+directive moved before the step log (`messageLayout: "turnSplit"`, now their
+default).
+
+| arm | turns correct (gpt-5.2 judge) | steps per turn | input tokens | cached | steps extending the previous prompt | cost |
+|---|---|---|---|---|---|---|
+| code, full history (session) | 2/3 | 5 / 4 / 6 | 295k | 66% (was 34%) | 8 of 12 | $0.037 |
+| code, catalog (v33) | 1/3 | 7 / 10 / 10 | 497k | 84% (was 44%) | 14 of 24 | $0.047 (was $0.100) |
+| native, DELTA | 1/3 | 8 / 14 / 9 | 1,815k | 89% | 25 of 28 | $0.090 |
+| native, LATEST | 0/3 | 9 / 14 / 9 | 1,248k | 79% | 11 of 29 | $0.091 |
+| native, full history (session) | 1/3 | 11 / 16 / 8 | 2,011k | 82% (was 11%) | 24 of 32 | $0.127 (was $0.326) |
+| native, catalog | 1/3 | 7 / 22 / 14 | 1,308k | 86% (was 36%) | 33 of 40 | $0.084 (was $0.153, two empty turns) |
+
+Reading, with one repetition per cell: caching is now where the layouts'
+structure says it should be, and the remaining misses are the shape flips of
+the rule (LATEST) and the turn boundaries. Cost is a different story: on this
+multi-turn task the typed operators cost 2–3× the code-mode arms, because each
+turn takes two to three times the steps (typed chains of 8–22 operators per
+turn against one or two pandas blocks) and every step re-sends the session.
+Accuracy does not separate the arms at n = 1; the code-mode session arm's 2/3
+is one judge verdict away from the rest.
