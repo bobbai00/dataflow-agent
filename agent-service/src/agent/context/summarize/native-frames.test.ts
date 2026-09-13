@@ -296,7 +296,7 @@ describe("turnSplit", () => {
       "Action: - filter",
     ].join("\n");
     const parts = splitTurns(text);
-    expect(parts.map(p => p.split("\n")[0])).toEqual(["# Catalog", "## Turn 1", "## Turn 2 (in progress)", "# Your Task", "#### Step 1", "#### Step 2"]);
+    expect(parts.map(p => p.split("\n")[0])).toEqual(["# Catalog", "## Turn 1", "## Turn 2 (in progress)", "# Your Task", "### Steps", "#### Step 1", "#### Step 2"]);
     expect(parts.join("\n\n").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
   });
 });

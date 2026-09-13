@@ -372,6 +372,21 @@ function compileUnion(inputs: string[]): string {
   ].join("\n");
 }
 
+function compileUnpivot(p: Record<string, any>, inp: string): string {
+  const cols: string[] = Array.isArray(p.columns) ? p.columns.map(String) : [];
+  return [
+    `def process(${inp}):`,
+    "    import pandas as pd",
+    `    d = ${inp}`,
+    `    value_vars = ${py(cols)}`,
+    "    missing = [c for c in value_vars if c not in d.columns]",
+    "    if missing:",
+    "        raise ValueError('unpivot: columns not in the input: ' + ', '.join(missing) + '. Input columns: ' + ', '.join(map(str, d.columns)))",
+    "    id_vars = [c for c in d.columns if c not in value_vars]",
+    `    return pd.melt(d, id_vars=id_vars, value_vars=value_vars, var_name=${py(p.nameColumn ?? "variable")}, value_name=${py(p.valueColumn ?? "value")})`,
+  ].join("\n");
+}
+
 function compileDistinct(p: Record<string, any>, inp: string): string {
   const subset = Array.isArray(p.columns) ? `subset=${py(p.columns)}` : "";
   return [`def process(${inp}):`, `    return ${inp}.drop_duplicates(${subset}).reset_index(drop=True)`].join("\n");
@@ -426,6 +441,8 @@ export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
       return { operatorType: "DataProcessing", code: compileAggregate(p, inputs[0]) };
     case "Join":
       return { operatorType: "DataProcessing", code: compileJoin(p, inputs) };
+    case "Unpivot":
+      return { operatorType: "DataProcessing", code: compileUnpivot(p, inputs[0]) };
     case "Union":
       return { operatorType: "DataProcessing", code: compileUnion(inputs) };
     case "Distinct":

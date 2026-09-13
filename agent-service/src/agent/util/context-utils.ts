@@ -2149,12 +2149,15 @@ function serializeTaskBody(
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? "updated"}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
-        // `Inputs:` line — structure-consistent with LATEST. Rendered once, on
-        // the op's most-recent edit, from the LEAF snapshot's DAG (current
-        // wiring), via the same formatOperatorAdjacency LATEST uses. Skipped for
-        // ops no longer in the leaf (deleted/never-landed).
+        // `Inputs:` line — structure-consistent with LATEST, from the LEAF
+        // snapshot's DAG (current wiring) via the same formatOperatorAdjacency
+        // LATEST uses. Code mode: rendered once, on the op's most-recent edit
+        // (byte-parity with the golden renders). Typed operators: on EVERY event
+        // that changed the op — moving the line on a later edit rewrote an
+        // earlier observation and broke the prompt cache for everything after
+        // it. Skipped for ops no longer in the leaf.
         const leaf = options.deltaInputsLeaf;
-        if (leaf && options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex) {
+        if (leaf && (op.nativeOp ? true : options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex)) {
           const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
           if (leafOp) {
             const leafInfo = leaf.results.get(op.operatorID)?.info;
@@ -2625,7 +2628,8 @@ function renderVersionedCatalog(
         } else if (
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator"
+          call.toolName === "modifyOperator" ||
+          NATIVE_TOOL_NAMES.has(call.toolName)
         ) {
           if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
           else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
@@ -2975,7 +2979,8 @@ function renderCatalog(
         const isWrite =
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator";
+          call.toolName === "modifyOperator" ||
+          NATIVE_TOOL_NAMES.has(call.toolName);
         if (!isWrite || flags?.get(opId) === true) continue; // creation is not a revision
         const at = revisedLater.get(opId) ?? [];
         if (!at.includes(tn)) at.push(tn);
@@ -3010,7 +3015,12 @@ function renderCatalog(
         if (typeof opId !== "string") continue;
         if (call.toolName === "deleteOperator") {
           verbs.set(opId, "deleted");
-        } else if (call.toolName === "createOrModifyOperator" || call.toolName === "addOperator" || call.toolName === "modifyOperator") {
+        } else if (
+          call.toolName === "createOrModifyOperator" ||
+          call.toolName === "addOperator" ||
+          call.toolName === "modifyOperator" ||
+          NATIVE_TOOL_NAMES.has(call.toolName)
+        ) {
           // First touch in the turn decides added-vs-revised; a later edit in the
           // same turn does not demote an operator this turn introduced.
           if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");

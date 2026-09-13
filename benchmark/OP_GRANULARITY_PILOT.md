@@ -547,3 +547,39 @@ turn takes two to three times the steps (typed chains of 8–22 operators per
 turn against one or two pandas blocks) and every step re-sends the session.
 Accuracy does not separate the arms at n = 1; the code-mode session arm's 2/3
 is one judge verdict away from the rest.
+
+### 8.2 Catalog and session layouts with typed operators, second pass (2026-09-13)
+
+Three findings from the §8.1 traces, each fixed and re-run:
+
+- The catalog's "Dataflow delta" recognised only the code-mode write tools, so
+  a finished turn listed no typed operators and `recallState` guessed ids
+  (`No finished turn has a version of \`season_players\``). Typed tools are
+  writes in every verb loop now; entries read
+  `#### scan operator \`season_blockers_raw\` (added)` / `Properties: {…}` /
+  `Result: 86 rows x 12 cols, ~13k chars — Schema: …`.
+- Two prompt-cache breaks per turn came from the layout itself: the `### Steps`
+  header appeared at step 2 inside the directive's message, and the DELTA
+  `Inputs:` line moved to an operator's most recent edit, rewriting an earlier
+  observation. `### Steps` is its own message; typed operators carry the
+  `Inputs:` line on every edit (code-mode renders unchanged, golden tests).
+- Every native run built the wide-to-long pressure ledger as four `compute` /
+  `project` operators plus a `union`. `unpivot` (columns → rows, pandas melt)
+  is now an operator; no udf was needed anywhere in the four native runs and
+  window functions covered ranks and percentiles (102 `compute` calls with
+  `OVER`).
+
+| arm, 3 turns | correct (gpt-5.2 judge) | steps per turn | cached | steps extending the previous prompt | cost |
+|---|---|---|---|---|---|
+| native, catalog | 2/3 (was 1/3, before that two empty turns) | 10 / 11 / 10 (was 7 / 22 / 14) | 86% | 27 of 28 | $0.071 |
+| native, full history (session) | 1/3 | 10 / 12 / 21 | 90% | 33 of 40 | $0.126 |
+
+The only remaining non-extending step in the catalog run is the first step of
+each turn, where the finished-turn entry replaces the in-progress rendering.
+
+Engine result cache, checked directly: the cherry-picked regression probe
+(`agent-service/benchmark/e2e/cache-probe.ts`, 9 patterns) passes — unchanged
+operators complete from cache, the cache survives the 30 s idle teardown and a
+sub-plan re-execution. In the native sessions the per-step wall time stayed at
+10–13 s while the DAG grew from 14 to 102 operators, and the Java listening
+sockets stayed at 10 through six sessions after the leak fixes.

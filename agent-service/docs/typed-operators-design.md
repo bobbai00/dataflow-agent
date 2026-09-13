@@ -13,8 +13,8 @@ its statistics. Taking that literally fixes two things that used to be the
 model's choice:
 
 1. **Grain.** An operator is one relational operation with a small parameter
-   set: Scan, Filter, Project, Compute, Aggregate, Join, Union, Distinct, Sort,
-   Limit, and UDF for what those cannot do. The agent submits parameters, never
+   set: Scan, Filter, Project, Compute, Aggregate, Join, Union, Unpivot, Distinct,
+   Sort, Limit, and UDF for what those cannot do. The agent submits parameters, never
    code. The algebra decides where one operator ends and the next begins.
 2. **What to show.** A new table has a known parent table and a known operator.
    The operator type says what the operator *can* change; the engine's
@@ -44,6 +44,7 @@ operator the type fixes a priori what can move:
 | Aggregate | collapses | new | the numbers |
 | Join | drops or multiplies | both sides | match count, fan-out |
 | Union | adds | union by name | row count, column mismatch |
+| Unpivot | multiplies by the number of melted columns | keys + name + value | nothing beyond the count (the columns are in the parameters) |
 | Distinct | drops | same | how many duplicates there were |
 | Sort | same | same | nothing |
 | Limit | drops | same | nothing beyond `n` |

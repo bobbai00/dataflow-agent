@@ -265,7 +265,7 @@ function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
  * any top-level `# ` section. Returns [] when there is nothing to split.
  */
 export function splitTurns(text: string): string[] {
-  const RE = /^(?:## Turn \d+[^\n]*|#### Step \d+[^\n]*|# [^\n]+)\s*$/gm;
+  const RE = /^(?:## Turn \d+[^\n]*|### Steps|#### Step \d+[^\n]*|# [^\n]+)\s*$/gm;
   const marks: number[] = [];
   for (let m = RE.exec(text); m !== null; m = RE.exec(text)) marks.push(m.index);
   if (marks.length < 1) return [];

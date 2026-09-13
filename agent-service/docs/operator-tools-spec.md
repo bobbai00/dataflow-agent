@@ -17,6 +17,7 @@ are all generated from it.
 | `aggregate` | **id**, **input**, groupBy, **aggregations** `[{fn, col?, as?}]` | one row per group; no groupBy = one row |
 | `join` | **id**, **left**, **right**, on `[[leftCol, rightCol]]`, type inner \| left \| right \| full \| cross | no `on` = cross join; left = right = self-join |
 | `union` | **id**, **inputs** (2+) | stack by column name |
+| `unpivot` | **id**, **input**, **columns**, nameColumn, valueColumn | wide to long: one row per (input row, column) |
 | `distinct` | **id**, **input**, columns | one row per distinct combination (whole row when omitted) |
 | `sort` | **id**, **input**, **by** `[{col, desc?}]` | order rows |
 | `limit` | **id**, **input**, **n**, offset | first n rows |
@@ -34,6 +35,7 @@ compute(id, input, columns)   columns: {name: SQL scalar expression}; adds or re
 aggregate(id, input, groupBy?, aggregations)   aggregations: [{fn, col?, as?}], fn ∈ sum count avg min max median count_distinct string_agg first stddev; no groupBy = one row
 join(id, left, right, on?, type?)   on: [[leftCol, rightCol]], type inner|left|right|full|cross; omit `on` for a cross join; left = right for a self-join
 union(id, inputs)   stacks two or more tables by column name
+unpivot(id, input, columns, nameColumn?, valueColumn?)   wide → long: one row per (input row, column in `columns`); nameColumn/valueColumn name the two new columns
 distinct(id, input, columns?)   one row per distinct combination of columns (whole row when omitted)
 sort(id, input, by)   by: [{col, desc?}]
 limit(id, input, n, offset?)   first n rows after offset
@@ -177,6 +179,15 @@ the same id (self-join, e.g. a year against the previous year). Compiles to
 
 `inputs: [a, b, …]`, two or more; rows stacked, columns matched by name,
 missing columns null. Compiles to `pandas.concat`.
+
+### unpivot
+
+`columns: [col]` are melted: for every input row and every listed column, one
+output row with the other columns kept as keys, `nameColumn` (default
+`variable`) holding the column's name and `valueColumn` (default `value`) its
+value. Compiles to `pandas.melt`. Added after the multi-turn runs, where every
+native session built the same wide-to-long ledger as four `compute` /
+`project` operators plus a `union`.
 
 ### distinct
 

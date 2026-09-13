@@ -211,6 +211,23 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     schema: { type: "object", additionalProperties: false, properties: {} },
   },
   {
+    type: "Unpivot",
+    inputs: 1,
+    rowEffect: "add",
+    signature:
+      'Unpivot {columns: [col], nameColumn?: str (default "variable"), valueColumn?: str (default "value")}   wide → long: one output row per (input row, column in `columns`); the other columns are kept as keys',
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["columns"],
+      properties: {
+        columns: strList,
+        nameColumn: str,
+        valueColumn: str,
+      },
+    },
+  },
+  {
     type: "Distinct",
     inputs: 1,
     rowEffect: "drop",

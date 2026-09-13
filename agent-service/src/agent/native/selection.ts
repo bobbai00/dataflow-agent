@@ -171,6 +171,7 @@ function decide(
     case "Filter":
     case "Distinct":
     case "Union":
+    case "Unpivot":
     case "Limit":
       return { shape: "count" };
     case "Project":

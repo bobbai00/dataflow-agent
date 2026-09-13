@@ -82,6 +82,14 @@ describe("native codegen", () => {
     expect(code).toContain("d[_c] = d[_c].dt.total_seconds()");
   });
 
+  test("Unpivot melts the named columns and keeps the rest as keys", () => {
+    const r = compileNativeOp({ type: "Unpivot", properties: { columns: ["beat", "hit"], nameColumn: "event_type", valueColumn: "n" }, inputs: ["t"] });
+    expect(r.operatorType).toBe("DataProcessing");
+    expect(r.code).toContain('value_vars = ["beat","hit"]');
+    expect(r.code).toContain('var_name="event_type", value_name="n"');
+    expect(() => compileNativeOp({ type: "Unpivot", properties: { columns: ["a"] }, inputs: ["t", "u"] })).toThrow(/exactly one input/);
+  });
+
   test("Filter embeds the predicate as a Python string literal", () => {
     const r = compileNativeOp({ type: "Filter", inputs: ["t0"], properties: { predicate: `"Beach Name" = 'Wollaston' AND x IS NOT NULL` } });
     expect(r.operatorType).toBe("DataProcessing");

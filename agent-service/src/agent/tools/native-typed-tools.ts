@@ -144,6 +144,7 @@ const TOOL_NOTES: Record<string, string> = {
   Aggregate: "aggregations: [{fn, col?, as?}], fn ∈ sum count avg min max median count_distinct string_agg first stddev; no groupBy = one row",
   Join: "on: [[leftCol, rightCol]], type inner|left|right|full|cross; omit `on` for a cross join; left = right for a self-join",
   Union: "stacks two or more tables by column name",
+  Unpivot: "wide → long: one row per (input row, column in `columns`); nameColumn/valueColumn name the two new columns",
   Distinct: "one row per distinct combination of columns (whole row when omitted)",
   Sort: "by: [{col, desc?}]",
   Limit: "first n rows after offset",
@@ -233,6 +234,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   Join:
     "Join two tables on key pairs `on: [[leftCol, rightCol]]`, type inner|left|right|full. Same-named non-key columns from the right get suffix _right. Omit `on` (or type cross) to pair every row with every row, e.g. two one-row aggregates before a Compute. Self-join: pass the same id as left and right (e.g. year against year-1).",
   Union: "Stack two or more tables, matching columns by name.",
+  Unpivot:
+    "Wide to long: for each input row and each column in `columns`, one output row with the other columns kept as keys plus `nameColumn` (the column's name, default `variable`) and `valueColumn` (its value, default `value`). Use it instead of one compute/project per column followed by a union.",
   Distinct: "One row per distinct combination of `columns` (whole row when omitted).",
   Sort: "Order rows by columns.",
   Limit: "Keep the first n rows (after an optional offset).",
