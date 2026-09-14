@@ -230,10 +230,7 @@ describe("assembleContext — Latest", () => {
     expect(withTurns).toContain("Action:");
     // Thought + Action only — the Observation/results would duplicate the
     // `# Current Dataflow` core, so they are omitted from `# Agent Turns`.
-    const turnsSection = withTurns.slice(
-      withTurns.indexOf("# Agent Turns"),
-      withTurns.indexOf("# Current Dataflow")
-    );
+    const turnsSection = withTurns.slice(withTurns.indexOf("# Agent Turns"), withTurns.indexOf("# Current Dataflow"));
     expect(turnsSection).not.toContain("Observation:");
     expect(turnsSection).not.toContain("Output Table:"); // no result tables in the turns
     expect(withTurns).toContain("# Current Dataflow"); // latest core retained (with results)
@@ -242,18 +239,30 @@ describe("assembleContext — Latest", () => {
   test("agentTurns: the Action keeps event details (operatorId + code); results stay only in # Current Dataflow", () => {
     const sc = buildScenario([
       {
-        id: "init", stepId: 0, role: "agent", messageId: "m-init", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "m-init",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
       { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Count rows." },
       {
-        id: "a1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true,
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m",
+        parentId: "u",
+        isBegin: true,
         content: "Load the CSV.",
-        toolCalls: [{
-          toolName: "createOrModifyOperator", toolCallId: "t1",
-          input: { operatorId: "load_csv", code: "def load():\n    return pd.read_csv('data.csv')" },
-        }],
+        toolCalls: [
+          {
+            toolName: "createOrModifyOperator",
+            toolCallId: "t1",
+            input: { operatorId: "load_csv", code: "def load():\n    return pd.read_csv('data.csv')" },
+          },
+        ],
         toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
       },
     ]);
@@ -451,28 +460,53 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
   function fourEventScenario() {
     const sc = buildScenario([
       {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "mi",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
       { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
       {
-        id: "t1", stepId: 1, role: "agent", messageId: "m", parentId: "u", isBegin: true, content: "add src",
+        id: "t1",
+        stepId: 1,
+        role: "agent",
+        messageId: "m",
+        parentId: "u",
+        isBegin: true,
+        content: "add src",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c1", input: { operatorId: "src" } }],
         toolResults: [{ toolCallId: "c1", output: "ok", isError: false }],
       },
       {
-        id: "t2", stepId: 2, role: "agent", messageId: "m", parentId: "t1", content: "add filt",
+        id: "t2",
+        stepId: 2,
+        role: "agent",
+        messageId: "m",
+        parentId: "t1",
+        content: "add filt",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c2", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c2", output: "ok", isError: false }],
       },
       {
-        id: "t3", stepId: 3, role: "agent", messageId: "m", parentId: "t2", content: "fix filt v2",
+        id: "t3",
+        stepId: 3,
+        role: "agent",
+        messageId: "m",
+        parentId: "t2",
+        content: "fix filt v2",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c3", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c3", output: "ok", isError: false }],
       },
       {
-        id: "t4", stepId: 4, role: "agent", messageId: "m", parentId: "t3", content: "fix filt v3",
+        id: "t4",
+        stepId: 4,
+        role: "agent",
+        messageId: "m",
+        parentId: "t3",
+        content: "fix filt v3",
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c4", input: { operatorId: "filt" } }],
         toolResults: [{ toolCallId: "c4", output: "ok", isError: false }],
       },
@@ -484,7 +518,13 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
     const filtWf = (tag: number): any => ({
       operators: [makeOp("src"), makeOp("filt", "TestOp", { v: tag })],
       operatorPositions: {},
-      links: [{ linkID: "l", source: { operatorID: "src", portID: "output-0" }, target: { operatorID: "filt", portID: "input-0" } }],
+      links: [
+        {
+          linkID: "l",
+          source: { operatorID: "src", portID: "output-0" },
+          target: { operatorID: "filt", portID: "input-0" },
+        },
+      ],
       commentBoxes: [],
       settings: { dataTransferBatchSize: 400 },
     });
@@ -605,7 +645,11 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const filler = padChars > 0 ? " " + "x".repeat(padChars) : "";
     const steps: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
       {
-        id: "init", stepId: 0, role: "agent", messageId: "mi", content: "init",
+        id: "init",
+        stepId: 0,
+        role: "agent",
+        messageId: "mi",
+        content: "init",
         toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
         toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
       },
@@ -615,8 +659,13 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     opsPerEvent.forEach((op, i) => {
       const s = i + 1;
       steps.push({
-        id: `t${s}`, stepId: s, role: "agent", messageId: "m", parentId: parent,
-        isBegin: s === 1, content: `step ${s} on ${op}${filler}`,
+        id: `t${s}`,
+        stepId: s,
+        role: "agent",
+        messageId: "m",
+        parentId: parent,
+        isBegin: s === 1,
+        content: `step ${s} on ${op}${filler}`,
         toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${s}`, input: { operatorId: op } }],
         toolResults: [{ toolCallId: `c${s}`, output: "ok", isError: false }],
       });
@@ -653,10 +702,16 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const base = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG);
     const more = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op6", "op6"], BIG);
     const cBase = content(
-      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     const cMore = content(
-      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     expect(cBase).toContain("# Current Dataflow (settled operators");
     // The compacted prefix (deck) is identical — cache-friendly; only the raw
@@ -668,10 +723,16 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const before = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG); // frontier op6
     const after = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG); // frontier op7 → op6 settles
     const cBefore = content(
-      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     const cAfter = content(
-      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
+      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, {
+        ...opts,
+        staticCompaction: true,
+      })
     );
     // op6 was raw (frontier) before; after switching to op7 it joins the deck.
     expect(deckOf(cBefore)).not.toContain("op6");
@@ -713,7 +774,9 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
     const c = content(
       assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts, staticCompaction: true, compactionRule: "token",
+        ...opts,
+        staticCompaction: true,
+        compactionRule: "token",
       })
     );
     // token rule uses the generic (non-settled) header
@@ -1014,6 +1077,42 @@ describe("assembleContext — delta Action / Observation format", () => {
     expect(c).toContain("operatorId: tmp");
     // ...and the delete surfaces in the Observation.
     expect(c).toContain("- operator tmp deleted");
+  });
+
+  test("a REFUSED delete renders as `not deleted` with the reason, never as a delete", () => {
+    // `deleteOperator` is refused while another operator still reads the target
+    // (the consumer guard). The observation used to report those as deletes, so
+    // the model was told an operator was gone while it was still in the DAG —
+    // and still rendering in every later observation.
+    const { steps, storage, workflowState } = buildScenario([
+      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
+      {
+        id: "a1",
+        stepId: 1,
+        role: "agent",
+        parentId: "u",
+        messageId: "m1",
+        content: "add a consumer, then try to delete its input",
+        toolCalls: [
+          { toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "src" } },
+          { toolName: "deleteOperator", toolCallId: "t2", input: { operatorId: "src" } },
+        ],
+        toolResults: [
+          { toolCallId: "t1", output: "Added operator src", isError: false },
+          {
+            toolCallId: "t2",
+            output: "[ERROR] `src` still feeds `consumer`; re-point or delete those first.",
+            isError: true,
+          },
+        ],
+        isEnd: true,
+      },
+    ]);
+    // The operator SURVIVED the refused delete: that snapshot is the fact.
+    storage.createSnapshot("a1", makeWorkflow(["src"]));
+    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    expect(c).not.toContain("- operator src deleted");
+    expect(c).toContain("- operator src (not deleted): [ERROR] `src` still feeds `consumer`");
   });
 
   test("create → delete → re-create on same id reads as two separate `create`s", () => {

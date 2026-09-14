@@ -2105,7 +2105,18 @@ function serializeTaskBody(
         const opId = writtenOperatorId(tc.toolName, inp) ?? "";
         const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
         if (tc.toolName === "deleteOperator" && opId) {
-          deletedOps.push(opId);
+          // The CALL is not the fact; the post-step snapshot is. `deleteOperator`
+          // is refused when the operator still feeds a consumer, or when the id
+          // does not exist — reporting those as deletes told the model an
+          // operator was gone while it was still in the DAG (and still rendering
+          // in later observations).
+          // No snapshot for this step ⇒ no evidence either way; keep the prior
+          // behaviour rather than inventing a refusal.
+          if (node.snapshot?.workflow.operators.some(o => o.operatorID === opId) ?? false) {
+            noChangeOutcome.push(`- operator ${opId} (not deleted): ${conciseOutcome(results[i]?.output)}`);
+          } else {
+            deletedOps.push(opId);
+          }
         } else if (tc.toolName === "createOrModifyOperator" && opId) {
           actedVerb.set(opId, createFlags?.get(opId) ? "added" : "updated");
         } else if (batch) {
@@ -2693,9 +2704,13 @@ function renderVersionedCatalog(
     const leaf = lastSnapshotOf([task]);
     if (verbs.size > 0) {
       sections.push("### Dataflow delta");
-      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
-        if (verb === "deleted" && !survives.has(opId)) continue;
+        // Deleted and gone: a throwaway probe the turn ends without; listing it
+        // is noise. Deleted but still in the leaf: the service REFUSED the
+        // delete (the operator still feeds a consumer), so the turn changed
+        // nothing about it — labelling it `(deleted)` was a false statement
+        // about live state.
+        if (verb === "deleted") continue;
         const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
         // Typed operators: the header names the type and the entry carries the
         // parameters (the agent's own words) instead of a summary line.
@@ -3085,9 +3100,11 @@ function renderCatalog(
       const leaf = lastSnapshotOf([task]);
       // A throwaway probe created and deleted inside the same turn never existed
       // at the turn's end; listing it is noise the reader has to discount.
-      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
-        if (verb === "deleted" && !survives.has(opId)) continue;
+        // Gone → nothing to list; still in the leaf → the delete was refused and
+        // the turn changed nothing about that operator. Either way it is not a
+        // `- <id>` deletion entry.
+        if (verb === "deleted") continue;
         const mark = verb === "added" ? "+" : verb === "revised" ? "~" : "-";
         if (detail === "ids" || verb === "deleted") {
           lines.push(`  ${mark} ${opId}`);
