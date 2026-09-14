@@ -196,7 +196,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 2,
     rowEffect: "multiply",
     signature:
-      'Join {on?: [col] shared key names, or [[leftCol, rightCol]] pairs when the names differ, type?: inner|left|right|full|cross}   inputs = [left, right]; ' +
+      'Join {on?: "col" | [col] shared key names, or [[leftCol, rightCol]] pairs when the names differ, type?: inner|left|right|full|cross}   inputs = [left, right]; ' +
       "same-named non-key columns from the right get suffix _right; " +
       "omit `on` (or type cross) to pair every row with every row, e.g. to put two one-row results side by side before a Compute; " +
       "a self-join names the same operator twice in inputs (e.g. year against year-1)",
@@ -205,15 +205,21 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       additionalProperties: false,
       properties: {
         on: {
-          type: "array",
-          items: {
-            oneOf: [
-              // a key both sides name the same way
-              str,
-              // an explicit [left, right] pair, for names that differ
-              { type: "array", items: str, minItems: 2, maxItems: 2 },
-            ],
-          },
+          oneOf: [
+            // one key both sides name the same way
+            str,
+            {
+              type: "array",
+              items: {
+                oneOf: [
+                  // a key both sides name the same way
+                  str,
+                  // an explicit [left, right] pair, for names that differ
+                  { type: "array", items: str, minItems: 2, maxItems: 2 },
+                ],
+              },
+            },
+          ],
         },
         type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
       },

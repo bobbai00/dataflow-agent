@@ -201,6 +201,10 @@ describe("native codegen", () => {
     // model meant both keys (astronomy-easy-3: str compared with datetime).
     const shared = compileNativeOp({ type: "Join", inputs: ["l", "r"], properties: { on: ["sat_id", "date_key"] } });
     expect(shared.code).toContain('_left_on, _right_on = ["sat_id","date_key"], ["sat_id","date_key"]');
+    // a single shared key may be written bare: the model generalised from
+    // "an item may be a name" to "the parameter may be a name"
+    const bare = compileNativeOp({ type: "Join", inputs: ["l", "r"], properties: { on: "sat_id" } });
+    expect(bare.code).toContain('_left_on, _right_on = ["sat_id"], ["sat_id"]');
     const pairs = compileNativeOp({ type: "Join", inputs: ["l", "r"], properties: { on: [["k", "key"]] } });
     expect(pairs.code).toContain('_left_on, _right_on = ["k"], ["key"]');
     // the type guard, and the hint for the both-keys case

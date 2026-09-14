@@ -431,9 +431,8 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
   // joins both keys where both sides use the same names) as well as an explicit
   // [left, right] pair for genuinely different names. The pair-only form was
   // read as "left.sat_id = right.date_key" when the model meant both keys.
-  const on = ((p.on ?? []) as Array<string | [string, string]>).map(x =>
-    typeof x === "string" ? ([x, x] as [string, string]) : x
-  );
+  const onRaw = typeof p.on === "string" ? [p.on] : ((p.on ?? []) as Array<string | [string, string]>);
+  const on = onRaw.map(x => (typeof x === "string" ? ([x, x] as [string, string]) : x));
   if (on.length === 0 || p.type === "cross") {
     // Cross join: every left row paired with every right row (the way to put two
     // one-row results side by side before a Compute).
