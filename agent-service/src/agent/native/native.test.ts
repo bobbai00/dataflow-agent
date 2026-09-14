@@ -354,14 +354,14 @@ describe("scoped selection", () => {
   test("a frontier filter ships its count, the schema line and the predicate column only, no rows", () => {
     const ops = [op("plays", "Scan", []), op("recent", "Filter", ["plays"], { predicate: "year >= 2021" })];
     const shapes = selectScopedShapes(ops, links(ops), id => info(id === "plays" ? 1000 : 400, STATS));
-    expect(shapes.get("plays")).toEqual({ shape: "full", sample: 8 });
-    expect(shapes.get("recent")).toEqual({ shape: "full", columns: ["year"], sample: 0, schemaLine: true });
+    expect(shapes.get("plays")).toEqual({ shape: "full", budget: 1 });
+    expect(shapes.get("recent")).toEqual({ shape: "full", columns: ["year"], budget: 0, schemaLine: true });
   });
 
   test("a text predicate earns three matching rows; the literal is not read as a column", () => {
     const ops = [op("plays", "Scan", []), op("bears", "Filter", ["plays"], { predicate: "team LIKE '%Bears%'" })];
     const shapes = selectScopedShapes(ops, links(ops), () => info(10, STATS));
-    expect(shapes.get("bears")?.sample).toBe(3);
+    expect(shapes.get("bears")?.budget).toBe(0.2);
     expect(shapes.get("bears")?.columns).toEqual(["team"]);
   });
 
@@ -375,8 +375,8 @@ describe("scoped selection", () => {
     const shapes = selectScopedShapes(ops, links(ops), id => info(id === "by_team" ? 32 : 1000, stats));
     expect(shapes.get("yps")?.shape).toBe("full"); // input of an aggregate
     expect(shapes.get("yps")?.columns).toEqual(["yards_per_year", "yards", "year", "team"]);
-    expect(shapes.get("yps")?.sample).toBe(3);
-    expect(shapes.get("by_team")).toEqual({ shape: "full", sample: 20 }); // the table is the summary
+    expect(shapes.get("yps")?.budget).toBe(0.3);
+    expect(shapes.get("by_team")).toEqual({ shape: "full", budget: 1 }); // the table is the summary
   });
 
   test("count and header shapes pass through; a frontier limit shows its whole table", () => {
@@ -389,7 +389,7 @@ describe("scoped selection", () => {
     const shapes = selectScopedShapes(ops, links(ops), () => info(10, STATS));
     expect(shapes.get("recent")).toEqual({ shape: "count" });
     expect(shapes.get("top")).toEqual({ shape: "header" });
-    expect(shapes.get("few")).toEqual({ shape: "full", sample: 20 });
+    expect(shapes.get("few")).toEqual({ shape: "full", budget: 1 });
   });
 
   test("a join scopes to its key columns", () => {
@@ -400,7 +400,7 @@ describe("scoped selection", () => {
     ];
     const stats = { ...STATS, club: "(str): null=4, distinct=30" };
     const shapes = selectScopedShapes(ops, links(ops), () => info(50, stats));
-    expect(shapes.get("j")).toEqual({ shape: "full", columns: ["team", "club"], sample: 3, schemaLine: true });
+    expect(shapes.get("j")).toEqual({ shape: "full", columns: ["team", "club"], budget: 0.3, schemaLine: true });
   });
 
   test("profileDiff names what moved and stays silent when nothing did", () => {

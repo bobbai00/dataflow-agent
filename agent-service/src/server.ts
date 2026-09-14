@@ -243,6 +243,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+      maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
       compactKeepLastSteps: settings.compactKeepLastSteps,
       showCompactMeter: settings.enableCompactTool,
       staticCompaction: settings.staticCompaction,

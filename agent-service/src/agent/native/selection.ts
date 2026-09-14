@@ -59,9 +59,11 @@ export interface ShapeDecision {
    *  sample values render (the `Output Table` line and the Schema line stay
    *  complete). An empty list drops the stats block. Undefined = every column. */
   columns?: string[];
-  /** `scoped` selection, full shape only: sample rows to render; 0 = counts and
-   *  annotations only, no rows. Undefined = the arm's global cap. */
-  sample?: number;
+  /** `scoped` selection, full shape only: the share (0..1) of the arm's
+   *  per-operator result character budget (`maxOperatorResultCharLimit`) the
+   *  sample may use. 1 = the whole budget (no extra cap), 0 = counts and
+   *  annotations only, no rows. Undefined = the whole budget. */
+  budget?: number;
   /** `scoped` selection: render the complete `Schema:` line, so the column
    *  inventory stays visible when the stats block is scoped to a few columns. */
   schemaLine?: boolean;
@@ -253,21 +255,27 @@ function decideCompute(
  *  table again.
  * ========================================================================= */
 
-/** Sample rows per type; 0 = counts and annotations only, no rows. */
-const SCOPED_ROWS: Record<string, number> = {
-  Scan: 8,
-  UDF: 8,
-  Aggregate: 20,
-  Distinct: 20,
-  Limit: 20,
-  Join: 3,
-  Compute: 3,
-  Unpivot: 3,
-  Sort: 3,
+/** Share of the per-operator result character budget the sample may use, per
+ *  type. Scales with the arm's `maxOperatorResultCharLimit` instead of fixing
+ *  a row count: a scan keeps the whole budget, a compute a third of it (enough
+ *  rows to check the expression), a filter none (its count and the predicate
+ *  column's statistics are the evidence). 0 = counts and annotations only. */
+const SCOPED_BUDGET: Record<string, number> = {
+  Scan: 1,
+  UDF: 1,
+  Aggregate: 1,
+  Distinct: 1,
+  Limit: 1,
+  Join: 0.3,
+  Compute: 0.3,
+  Unpivot: 0.2,
+  Sort: 0.2,
   Filter: 0,
   Project: 0,
   Union: 0,
 };
+/** A Filter whose predicate matches text shows a few surviving rows. */
+const TEXT_FILTER_BUDGET = 0.2;
 
 /** Types whose table IS the summary: small, every column, no scoping. */
 const WHOLE_TABLE = new Set(["Scan", "UDF", "Aggregate", "Distinct", "Limit"]);
@@ -394,9 +402,9 @@ export function selectScopedShapes(
       out.set(op.operatorID, d);
       continue;
     }
-    const rows = SCOPED_ROWS[nat.type];
+    const budget = SCOPED_BUDGET[nat.type] ?? 1;
     if (WHOLE_TABLE.has(nat.type)) {
-      out.set(op.operatorID, { ...d, sample: rows });
+      out.set(op.operatorID, { ...d, budget });
       continue;
     }
     const own = new Set(columnsOf(info));
@@ -406,8 +414,8 @@ export function selectScopedShapes(
     for (const c of consumers.get(op.operatorID) ?? []) {
       for (const col of referencedColumns(c, own, "reads")) if (!scope.includes(col)) scope.push(col);
     }
-    const sample = nat.type === "Filter" && matchesText(op) ? 3 : rows;
-    out.set(op.operatorID, { ...d, columns: scope, sample, schemaLine: true });
+    const share = nat.type === "Filter" && matchesText(op) ? TEXT_FILTER_BUDGET : budget;
+    out.set(op.operatorID, { ...d, columns: scope, budget: share, schemaLine: true });
   }
   return out;
 }

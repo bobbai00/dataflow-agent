@@ -324,6 +324,10 @@ export interface AssembleContextOptions {
   /** Per-cell char cap (reused as the truncation limit for the surfaced print
    *  output block). Undefined ⇒ no cap. */
   maxOperatorResultCellCharLimit?: number;
+  /** The arm's per-operator result character budget (the engine-side sample
+   *  cap). The `scoped` selection expresses its per-type sample sizes as
+   *  shares of it. Undefined ⇒ 2000, the campaign default. */
+  maxOperatorResultCharLimit?: number;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
@@ -2263,7 +2267,13 @@ function serializeTaskBody(
               renderOptions,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
               ex,
-              shapeFormatOverrides(shape)
+              {
+                ...shapeFormatOverrides(shape, options),
+                // Typed operators already carry the consolidated `Inputs:` line
+                // above (formatOperatorAdjacency); repeating it inside the
+                // result was a duplicate on every observation.
+                ...(op.nativeOp ? { inputsInResult: false } : {}),
+              }
             )
           : "(not executed)";
         const rlines = resultText.split("\n");
@@ -3322,14 +3332,20 @@ function selectShapes(
   return retiredPreviews(operators, links, getInfo);
 }
 
-/** `scoped` selection: the render limits a full shape carries (columns, sample
- *  rows, the complete Schema line). Empty for every other shape. */
-function shapeFormatOverrides(shape?: ShapeDecision): Partial<FormatOperatorResultOptions> {
+/** `scoped` selection: the render limits a full shape carries (columns, the
+ *  sample's share of the result character budget, the complete Schema line).
+ *  Empty for every other shape. */
+function shapeFormatOverrides(
+  shape: ShapeDecision | undefined,
+  options: AssembleContextOptions
+): Partial<FormatOperatorResultOptions> {
   if (!shape || shape.shape !== "full") return {};
   const o: Partial<FormatOperatorResultOptions> = {};
   if (shape.columns) o.columns = shape.columns;
-  if (shape.sample === 0) o.detail = "shape";
-  else if (typeof shape.sample === "number") o.maxResultRows = shape.sample;
+  if (shape.budget === 0) o.detail = "shape";
+  else if (typeof shape.budget === "number" && shape.budget < 1) {
+    o.maxResultChars = Math.max(1, Math.round(shape.budget * (options.maxOperatorResultCharLimit ?? 2000)));
+  }
   if (shape.schemaLine) o.schemaInResult = true;
   return o;
 }
@@ -3813,7 +3829,7 @@ function serializeOperatorFull(
       // LATEST renders a single consolidated `Inputs:` (with counts) at the
       // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
       inputsInResult: false,
-      ...shapeFormatOverrides(shape),
+      ...shapeFormatOverrides(shape, options),
     });
   }
 

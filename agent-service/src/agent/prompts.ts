@@ -661,12 +661,12 @@ const NATIVE_SHAPES_SCOPED = `### Which results are shown
 
 Your own parameters are always shown under \`Properties\`. What a result shows depends on the operator's type and on the columns its parameters name:
 
-- **scan, udf** — the whole picture: 8 sample rows and \`Column Schema and stats\` for every column.
-- **aggregate, distinct, limit** — the table itself (up to 20 rows): it is its own summary.
-- **filter** — \`Output Table: N rows (from M rows)\`, the complete \`Schema\` line, and stats for the columns in the predicate (and the columns the next operator reads). Sample rows only when the predicate matches text.
-- **compute** — 3 sample rows of the source columns next to the new column, the \`Schema\` line, and stats for the new and source columns.
-- **join** — the row count against both inputs, 3 sample rows on the key columns, and the key columns' stats.
-- **project, sort, union, unpivot** — the row count and the \`Schema\` line (sort and unpivot: 3 rows).
+- **scan, udf** — the whole picture: the full sample and \`Column Schema and stats\` for every column.
+- **aggregate, distinct, limit** — the table itself: it is its own summary.
+- **filter** — \`Output Table: N rows (from M rows)\`, the complete \`Schema\` line, and stats for the columns in the predicate (and the columns the next operator reads). A short sample only when the predicate matches text.
+- **compute** — a short sample of the source columns next to the new column, the \`Schema\` line, and stats for the new and source columns.
+- **join** — the row count against both inputs, a short sample on the key columns, and the key columns' stats.
+- **project, sort, union, unpivot** — the row count and the \`Schema\` line (sort and unpivot: a short sample).
 
 Once another operator reads a table, a filter, distinct, union or limit collapses to its count line and a project or sort to nothing (its output is its input transformed exactly as \`Properties\` say).
 
