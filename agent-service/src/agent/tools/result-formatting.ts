@@ -158,12 +158,42 @@ function containsCellTruncation(value: unknown): boolean {
  *   `execution failed — … Execution error: up: (line N) … X` → `not executed — upstream \`up\` failed: X`
  *   `execution failed — … Error: The operation timed out.`   → `not executed — the execution timed out`
  */
+/** Engine type spellings → the vocabulary every Schema line already uses, so
+ *  the model reads one type system instead of three (ours, DuckDB's, pandas').
+ *  Measured: SQL type words reached the prompt in 54 of 104 tasks. */
+const ENGINE_TYPE_WORDS: Array<[RegExp, string]> = [
+  [/\b(?:VARCHAR|CHAR|TEXT|STRING)\b/g, "str"],
+  [/\b(?:BIGINT|HUGEINT|INTEGER|SMALLINT|TINYINT|UBIGINT|UINTEGER|DOUBLE|FLOAT|REAL|DECIMAL(?:\(\d+,\s*\d+\))?)\b/g, "numeric"],
+  // DuckDB names an untyped constant `INTEGER_LITERAL` / `VARCHAR_LITERAL`
+  [/\b(?:INTEGER|DECIMAL|DOUBLE)_LITERAL\b/g, "numeric literal"],
+  [/\bVARCHAR_LITERAL\b/g, "str literal"],
+  [/\b(?:int64|float64|int32|float32)\b/g, "numeric"],
+  [/\b(?:TIMESTAMP(?:_[A-Z]+)?|DATETIME|DATE|TIME)\b/g, "datetime"],
+  [/\bdatetime64\[[^\]]*\]/g, "datetime"],
+  [/\bBOOLEAN\b/g, "bool"],
+  [/\b(?:BLOB|BYTEA)\b/g, "binary"],
+];
+
+/** Rewrite one engine message into our terms: our type names, and none of the
+ *  engine's own vocabulary for where it went wrong. */
+export function normalizeEngineTypes(msg: string): string {
+  let out = msg;
+  for (const [rx, name] of ENGINE_TYPE_WORDS) out = out.replace(rx, name);
+  return out
+    .replace(/\b(?:Binder|Conversion|Parser|Catalog|Invalid Input) Error: /g, "")
+    .replace(/ in FROM clause/g, "")
+    .replace(/\bReferenced (table|column) /g, "column ")
+    .trim();
+}
+
 export function formatNativeError(operatorId: string, type: string, error: string): string {
   const strip = (s: string) =>
-    s
-      .replace(/\(line \d+\) `[^`]*` - /g, "")
-      .replace(/\b\w+(?:Exception|Error): (?=[\w ]+ Error: )/g, "")
-      .trim();
+    normalizeEngineTypes(
+      s
+        .replace(/\(line \d+\) `[^`]*` - /g, "")
+        .replace(/\b\w+(?:Exception|Error): (?=[\w ]+ Error: )/g, "")
+        .trim()
+    );
   const cascade = /execution failed[^\n]*\n\s*Execution error:\s*\n\s*([A-Za-z_][\w]*): ([\s\S]*)/.exec(error);
   if (cascade) return `not executed — upstream \`${cascade[1]}\` failed: ${strip(cascade[2]).split("\n")[0]}`;
   if (/execution failed[\s\S]*timed out/.test(error)) return "not executed — the execution timed out before this operator produced a result";

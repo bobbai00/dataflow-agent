@@ -72,8 +72,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 0,
     rowEffect: "create",
     signature:
-      'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true), ' +
-      'columns?: [name] (names when header=false), allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
+      'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true; ' +
+      'with header=false the columns come back named column0, column1, … — rename them with a following project), ' +
+      'allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
       'format?: auto|csv|lines|fwf|whitespace (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths; whitespace = delim whitespace), widths?: [int], ' +
       'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table with cells joined by " | " for display)}',
     schema: {
@@ -144,7 +145,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "collapse",
     signature:
       'Aggregate {groupBy?: [col], aggregations: [{fn, col?, as?}]}   fn: sum count avg min max median count_distinct string_agg first stddev; ' +
-      "count without col counts rows; no groupBy = one output row",
+      "count without col counts rows; no groupBy = one output row; " +
+      "sum/avg/median/stddev on a text column coerce it to numbers first (thousands separators and surrounding space removed, " +
+      "unparseable values become null and show in the null count), so numbers stored as text need no separate cast",
     schema: {
       type: "object",
       additionalProperties: false,
@@ -188,7 +191,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 2,
     rowEffect: "multiply",
     signature:
-      'Join {on?: [[leftCol, rightCol]], type?: inner|left|right|full|cross}   inputs = [left, right]; same-named non-key columns from the right get suffix _right; ' +
+      'Join {on?: [col] shared key names, or [[leftCol, rightCol]] pairs when the names differ, type?: inner|left|right|full|cross}   inputs = [left, right]; ' +
+      "same-named non-key columns from the right get suffix _right; " +
       "omit `on` (or type cross) to pair every row with every row, e.g. to put two one-row results side by side before a Compute; " +
       "a self-join names the same operator twice in inputs (e.g. year against year-1)",
     schema: {
@@ -197,7 +201,14 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       properties: {
         on: {
           type: "array",
-          items: { type: "array", items: str, minItems: 2, maxItems: 2 },
+          items: {
+            oneOf: [
+              // a key both sides name the same way
+              str,
+              // an explicit [left, right] pair, for names that differ
+              { type: "array", items: str, minItems: 2, maxItems: 2 },
+            ],
+          },
         },
         type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
       },

@@ -52,6 +52,30 @@ function py(v: unknown): string {
     .replace(/\bnull\b/g, "None");
 }
 
+/** The engine-native type vocabulary the renders use (`(str)`, `(numeric)`,
+ *  `(datetime)`, `(bool)`, `(binary)`), accepted inside CAST / TRY_CAST and
+ *  translated for the engine. The model reads these names off every Schema
+ *  line, so it should be able to write them too; SQL's own spellings keep
+ *  working. */
+const OUR_TYPE_TO_SQL: Record<string, string> = {
+  str: "VARCHAR",
+  string: "VARCHAR",
+  text: "VARCHAR",
+  numeric: "DOUBLE",
+  number: "DOUBLE",
+  datetime: "TIMESTAMP",
+  bool: "BOOLEAN",
+  binary: "BLOB",
+};
+
+/** Rewrite `CAST(x AS numeric)` / `TRY_CAST(x AS str)` into the engine's types. */
+export function translateTypes(expr: string): string {
+  return expr.replace(/\bAS\s+([A-Za-z_]+)\b/g, (m, word) => {
+    const sql = OUR_TYPE_TO_SQL[String(word).toLowerCase()];
+    return sql ? `AS ${sql}` : m;
+  });
+}
+
 /** Quote a column name as a DuckDB identifier. */
 function ident(name: string): string {
   return '"' + String(name).replace(/"/g, '""') + '"';
@@ -85,15 +109,26 @@ function compileScan(p0: Record<string, any>): string {
   const skip = Number(p.skipLines ?? 0);
   const allText = Boolean(p.allText);
   const encoding = typeof p.encoding === "string" && p.encoding.trim() ? p.encoding.trim() : null;
-  if (Array.isArray(p.columns) && header && !p.preview) {
+  if (Array.isArray(p.columns)) {
+    // A table always HAS column names: read off row 1, or generated as
+    // `column0`, `column1`, … when `header: false`. So a scan never fills a
+    // naming gap, it only reads; renaming and selecting are one operator each.
     throw new Error(
-      "`columns` names the columns of a header-less file and needs `header: false`. This scan keeps the file's header row: drop `columns` and add a `project` with `keep` to select columns."
+      "`scan` does not name or select columns. A header-less file (`header: false`) comes back as `column0`, `column1`, …; " +
+        "add a `project` after this scan with `rename: {column0: year, …}` to name them, and `keep` to select them."
     );
   }
   const sqlLit = (s: unknown) => "'" + String(s).replace(/'/g, "''") + "'";
   const L: string[] = [];
   L.push("def load():");
   L.push("    import glob, os, json, duckdb, pandas as pd");
+  // Placeholder names must be STRINGS and identical on every reader path: the
+  // pandas readers label a header-less file with the integers 0..N-1 while
+  // DuckDB labels it `column0`..`columnN-1`, so a `project` rename keyed
+  // "0" matched nothing and silently did nothing.
+  L.push("    def _norm(d):");
+  L.push("        d.columns = [c if isinstance(c, str) else 'column' + str(i) for i, c in enumerate(d.columns)]");
+  L.push("        return d");
   L.push(`    _pats = ${py(files)}`);
   L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
   // A wrong path is the most common Scan failure (the task text says `omni2.txt`,
@@ -183,7 +218,7 @@ function compileScan(p0: Record<string, any>): string {
   L.push("            with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh:");
   L.push(`                ls = [l.rstrip('\\n\\r') for l in fh][${skip}:]`);
   L.push("            parts.append(_tag(pd.DataFrame({'line_no': range(len(ls)), 'line': ls}), f))");
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'binary':");
   L.push("        raise ValueError(BINARY_HINT)");
   // ---- excel / html / json / parquet
@@ -195,12 +230,12 @@ function compileScan(p0: Record<string, any>): string {
       (allText ? ", dtype=str" : "") +
       "), f))"
   );
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'html':");
   L.push("        for f in files:");
   L.push(`            tables = pd.read_html(f, header=${header ? "0" : "None"}, skiprows=${skip || "None"})`);
   L.push(`            parts.append(_tag(tables[${py(typeof p.sheet === "number" ? p.sheet : 0)}], f))`);
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'json':");
   L.push("        for f in files:");
   L.push("            with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh: txt = fh.read()");
@@ -215,9 +250,9 @@ function compileScan(p0: Record<string, any>): string {
   L.push("            else:");
   L.push("                d = pd.json_normalize(j)");
   L.push("            parts.append(_tag(d, f))");
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'parquet':");
-  L.push("        return duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df()");
+  L.push("        return _norm(duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df())");
   // ---- pandas text readers: fixed width, whitespace-aligned, commented, non-utf-8
   const pdCommon =
     `header=${header ? "0" : "None"}, skiprows=${skip}` +
@@ -228,12 +263,12 @@ function compileScan(p0: Record<string, any>): string {
   L.push("    if fmt == 'fwf':");
   L.push("        for f in files:");
   L.push(`            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`);
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   const pandasCsv = p.delim === "whitespace" ? `sep=r'\\s+', engine='python'` : `sep=${py(p.delim ?? ",")}`;
   L.push("    def _pandas_csv():");
   L.push("        for f in files:");
   L.push(`            parts.append(_tag(pd.read_csv(f, ${pandasCsv}, ${pdCommon}), f))`);
-  L.push("        return pd.concat(parts, ignore_index=True, sort=False)");
+  L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   if (p.delim === "whitespace" || p.comment) {
     L.push("    return _pandas_csv()");
     return L.join("\n");
@@ -242,7 +277,6 @@ function compileScan(p0: Record<string, any>): string {
   L.push("        return _pandas_csv()");
   // ---- utf-8 delimited text: DuckDB read_csv over all files at once
   const opts: string[] = [`header=${header ? "true" : "false"}`, `skip=${skip}`, "union_by_name=true"];
-  if (Array.isArray(p.columns)) opts.push(`names=[${p.columns.map(sqlLit).join(", ")}]`);
   if (allText) opts.push("all_varchar=true");
   if (p.delim) opts.push(`delim=${sqlLit(p.delim)}`);
   if (p.fileColumn) opts.push("filename=true");
@@ -253,19 +287,21 @@ function compileScan(p0: Record<string, any>): string {
     L.push(`    d[${py(p.fileColumn)}] = d['filename'].map(os.path.basename)`);
     L.push("    d = d.drop(columns=['filename'])");
   }
-  L.push("    return d");
+  L.push("    return _norm(d)");
   return L.join("\n");
 }
 
-function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = []): string {
+function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = [], pre: string[] = []): string {
   // sqlBuilder: python lines that define `q` (the SQL string) — `t` is registered.
   // post: optional python lines run over the result frame `d` before returning.
+  // pre: optional python lines run over the INPUT frame `t` before registration.
   return [
     `def process(${inputName}):`,
     DUCK_PRELUDE.trimEnd(),
     `    t = _ready(${inputName})`,
     "    if t.shape[1] == 0:",
     "        return t",
+    ...pre,
     "    _con.register('t', t)",
     ...sqlBuilder,
     "    d = _con.sql(q).df()",
@@ -278,12 +314,15 @@ function sqlStage(inputName: string, sqlBuilder: string[], post: string[] = []):
 }
 
 function compileFilter(p: Record<string, any>, inp: string): string {
-  return sqlStage(inp, [`    q = 'SELECT * FROM t WHERE (' + ${py(String(p.predicate))} + ')'`]);
+  return sqlStage(inp, [`    q = 'SELECT * FROM t WHERE (' + ${py(translateTypes(String(p.predicate)))} + ')'`]);
 }
 
 function compileCompute(p: Record<string, any>, inp: string): string {
+  const cols = Object.fromEntries(
+    Object.entries((p.columns ?? {}) as Record<string, string>).map(([k, v]) => [k, translateTypes(String(v))])
+  );
   return sqlStage(inp, [
-    `    cols = ${py(p.columns)}`,
+    `    cols = ${py(cols)}`,
     "    qn = lambda c: '\"' + str(c).replace('\"', '\"\"') + '\"'",
     "    rep = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c in t.columns]",
     "    new = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c not in t.columns]",
@@ -318,14 +357,41 @@ function compileAggregate(p: Record<string, any>, inp: string): string {
   }
   const groupBy = keys.length > 0 ? ` GROUP BY ${keys.map(k => ident(k)).join(", ")}` : "";
   const q = `SELECT ${parts.join(", ")} FROM t${groupBy}`;
+  // Numbers stored as text are the norm in this corpus ("693,789", " 12 ").
+  // Coerce the targets of an arithmetic aggregation instead of failing with
+  // "No function matches sum(VARCHAR)"; thousands separators and surrounding
+  // space go first, unparseable values become null (and show up on the null
+  // count). Integer-valued input stays integral, so a sum still renders as
+  // 2111635 rather than 2111635.0.
+  const numericTargets = [
+    ...new Set(
+      (p.aggregations as Array<{ fn: string; col?: string }>)
+        .filter(a => ["sum", "avg", "mean", "median", "stddev"].includes(a.fn) && a.col)
+        .map(a => String(a.col))
+    ),
+  ];
+  const pre: string[] = [];
+  if (numericTargets.length > 0) {
+    pre.push("    import pandas as pd");
+    pre.push(`    for _c in ${py(numericTargets)}:`);
+    pre.push("        if _c in t.columns and t[_c].dtype == object:");
+    pre.push(
+      "            t[_c] = pd.to_numeric(t[_c].astype(str).str.replace(',', '', regex=False).str.strip(), errors='coerce')"
+    );
+  }
   // DuckDB sums integers into HUGEINT, which pandas receives as float64; give
   // integral results back their integer dtype so `243377` does not render as `243377.0`.
-  return sqlStage(inp, [`    q = ${py(q)}`], [
-    "    for c in d.columns:",
-    "        s = d[c]",
-    "        if s.dtype.kind == 'f' and s.notna().all() and len(s) and (s % 1 == 0).all() and s.abs().max() < 9.2e18:",
-    "            d[c] = s.astype('int64')",
-  ]);
+  return sqlStage(
+    inp,
+    [`    q = ${py(q)}`],
+    [
+      "    for c in d.columns:",
+      "        s = d[c]",
+      "        if s.dtype.kind == 'f' and s.notna().all() and len(s) and (s % 1 == 0).all() and s.abs().max() < 9.2e18:",
+      "            d[c] = s.astype('int64')",
+    ],
+    pre
+  );
 }
 
 function compileProject(p: Record<string, any>, inp: string): string {
@@ -344,7 +410,13 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
   // Self-join (the same table on both sides, e.g. year vs year-1): one
   // parameter, used twice.
   const params = l === r ? l : `${l}, ${r}`;
-  const on = (p.on ?? []) as Array<[string, string]>;
+  // `on` accepts a shared column name as a plain string (`on: ["sat_id", "date_key"]`
+  // joins both keys where both sides use the same names) as well as an explicit
+  // [left, right] pair for genuinely different names. The pair-only form was
+  // read as "left.sat_id = right.date_key" when the model meant both keys.
+  const on = ((p.on ?? []) as Array<string | [string, string]>).map(x =>
+    typeof x === "string" ? ([x, x] as [string, string]) : x
+  );
   if (on.length === 0 || p.type === "cross") {
     // Cross join: every left row paired with every right row (the way to put two
     // one-row results side by side before a Compute).
@@ -360,7 +432,24 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
   return [
     `def process(${params}):`,
     "    import pandas as pd",
-    `    return ${l}.merge(${r}, left_on=${py(leftOn)}, right_on=${py(rightOn)}, how=${py(how)}, suffixes=('', '_right'))`,
+    `    _left_on, _right_on = ${py(leftOn)}, ${py(rightOn)}`,
+    "    def _kind(s):",
+    "        k = s.dtype.kind",
+    "        return 'numeric' if k in 'iuf' else 'datetime' if k == 'M' else 'bool' if k == 'b' else 'str'",
+    "    for _lk, _rk in zip(_left_on, _right_on):",
+    `        if _lk not in ${l}.columns:`,
+    `            raise ValueError('join: left key ' + repr(_lk) + ' is not a column of ${l}. Its columns: ' + ', '.join(map(str, ${l}.columns)))`,
+    `        if _rk not in ${r}.columns:`,
+    `            raise ValueError('join: right key ' + repr(_rk) + ' is not a column of ${r}. Its columns: ' + ', '.join(map(str, ${r}.columns)))`,
+    `        _lt, _rt = _kind(${l}[_lk]), _kind(${r}[_rk])`,
+    "        if _lt != _rt:",
+    "            _hint = ''",
+    `            if _lk != _rk and _lk in ${r}.columns and _rk in ${l}.columns:`,
+    "                _hint = (' Both names exist on both sides: to join on both keys pass on: ['",
+    "                         + repr(_lk) + ', ' + repr(_rk) + '] instead of one [left, right] pair.')",
+    "            raise ValueError('join: key pair (' + repr(_lk) + ', ' + repr(_rk) + ') compares a ' + _lt",
+    "                             + ' column with a ' + _rt + ' column.' + _hint)",
+    `    return ${l}.merge(${r}, left_on=_left_on, right_on=_right_on, how=${py(how)}, suffixes=('', '_right'))`,
   ].join("\n");
 }
 

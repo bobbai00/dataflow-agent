@@ -142,7 +142,7 @@ const TOOL_NOTES: Record<string, string> = {
   Project: "keep / drop / rename columns; rows untouched",
   Compute: "columns: {name: SQL scalar expression}; adds or replaces columns; cannot add or drop rows",
   Aggregate: "aggregations: [{fn, col?, as?}], fn ∈ sum count avg min max median count_distinct string_agg first stddev; no groupBy = one row",
-  Join: "on: [[leftCol, rightCol]], type inner|left|right|full|cross; omit `on` for a cross join; left = right for a self-join",
+  Join: "on: shared key names [col, …], or [[leftCol, rightCol]] pairs when the names differ; type inner|left|right|full|cross; omit `on` for a cross join; left = right for a self-join",
   Union: "stacks two or more tables by column name",
   Unpivot: "wide → long: one row per (input row, column in `columns`); nameColumn/valueColumn name the two new columns",
   Distinct: "one row per distinct combination of columns (whole row when omitted)",
@@ -225,14 +225,14 @@ function consumersOf(workflowState: WorkflowState, operatorId: string): string[]
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   Scan:
-    "Read a file or glob of files into a table: csv/tsv/txt, xlsx/xls (`sheet`), html tables (`sheet` = table index), json/jsonl, parquet. Several files matching a glob are unioned by column name; `fileColumn` records the source file per row. Encoding is detected (utf-8 or cp1252) unless given. Use `preview: n` first on a file you have not seen: the first n RAW lines of each text file, or the first n rows of every xlsx sheet / html table (cells joined by ` | ` for display only; sheets and html tables have no delimiter to pass). Text that is not a delimited table: `delim: whitespace` for space-aligned columns, `comment: '#'` to skip comment lines, `format: fwf` with `widths` for fixed-width columns, `format: lines` for one row per line (then parse with compute: split_part, regexp_extract, TRY_CAST). Binary formats (gpkg, shp, npz, cdf) need a `udf` loader.",
+    "Read a file or glob of files into a table: csv/tsv/txt, xlsx/xls (`sheet`), html tables (`sheet` = table index), json/jsonl, parquet. Several files matching a glob are unioned by column name; `fileColumn` records the source file per row. Encoding is detected (utf-8 or cp1252) unless given. Use `preview: n` first on a file you have not seen: the first n RAW lines of each text file, or the first n rows of every xlsx sheet / html table (cells joined by ` | ` for display only; sheets and html tables have no delimiter to pass). Text that is not a delimited table: `delim: whitespace` for space-aligned columns, `comment: '#'` to skip comment lines, `format: fwf` with `widths` for fixed-width columns, `format: lines` for one row per line (then parse with compute: split_part, regexp_extract, TRY_CAST). With `header: false` the columns come back named `column0`, `column1`, … — follow with a `project` whose `rename` gives them real names; scan itself neither names nor selects columns. Binary formats (gpkg, shp, npz, cdf) need a `udf` loader.",
   Filter: "Keep the rows where the SQL boolean `predicate` is true. Only drops rows.",
   Project: "Keep, drop or rename columns. Rows untouched.",
   Compute: "Add columns, or replace existing ones, from SQL scalar expressions over the input columns (arithmetic, TRY_CAST, string and date functions, CASE WHEN). Cannot add or drop rows.",
   Aggregate:
-    "Group by keys and aggregate (sum count avg min max median count_distinct string_agg first stddev). No groupBy = one output row. `count` without col counts rows. Conditional counts: sum over a Compute'd CASE WHEN column.",
+    "Group by keys and aggregate (sum count avg min max median count_distinct string_agg first stddev). No groupBy = one output row. `count` without col counts rows. Conditional counts: sum over a Compute'd CASE WHEN column. `sum`/`avg`/`median`/`stddev` coerce a text column to numbers first (thousands separators and surrounding space removed; values that will not parse become null and show in the null count), so numbers stored as text need no separate cast.",
   Join:
-    "Join two tables on key pairs `on: [[leftCol, rightCol]]`, type inner|left|right|full. Same-named non-key columns from the right get suffix _right. Omit `on` (or type cross) to pair every row with every row, e.g. two one-row aggregates before a Compute. Self-join: pass the same id as left and right (e.g. year against year-1).",
+    "Join two tables. `on` is either the key names both sides share (`on: [\"sat_id\", \"date_key\"]` joins on both) or [leftColumn, rightColumn] pairs when the names differ; a key pair whose two columns have different types is refused with both types named. Type inner|left|right|full. Same-named non-key columns from the right get suffix _right. Omit `on` (or type cross) to pair every row with every row, e.g. two one-row aggregates before a Compute. Self-join: pass the same id as left and right (e.g. year against year-1).",
   Union: "Stack two or more tables, matching columns by name.",
   Unpivot:
     "Wide to long: for each input row and each column in `columns`, one output row with the other columns kept as keys plus `nameColumn` (the column's name, default `variable`) and `valueColumn` (its value, default `value`). Use it instead of one compute/project per column followed by a union.",
