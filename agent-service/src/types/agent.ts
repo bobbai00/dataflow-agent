@@ -117,8 +117,13 @@ export enum AgentMode {
  *            Aggregate/Join/UDF, and for frontier operators; a row-count line
  *            for Filter/Distinct/Union/Limit; header only for Project/Sort and
  *            for Compute whose columns' null/distinct counts did not move.
+ *  - "scoped": the rule, plus HOW MUCH of a shipped table: statistics and
+ *            sample values only for the columns the operator's parameters (and
+ *            its consumers') name, sample rows per type (scan 8, compute 3,
+ *            filter 0, aggregate all up to 20), and — in DELTA — an
+ *            upstream-caused re-execution as a one-line diff, not a table.
  */
-export type ResultSelection = "all" | "rule";
+export type ResultSelection = "all" | "rule" | "scoped";
 
 /**
  * Snapshot-selection policy for serializing the ReAct context (paper §5,
@@ -735,8 +740,8 @@ export interface AgentSettingsApi {
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
-  /** Native mode result selection: "all" (default) or "rule". */
-  resultSelection?: "all" | "rule";
+  /** Native mode result selection: "all" (default), "rule" or "scoped". */
+  resultSelection?: "all" | "rule" | "scoped";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
@@ -837,8 +842,8 @@ export interface UpdateAgentSettingsRequest {
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
-  /** Native mode result selection: "all" (default) or "rule". */
-  resultSelection?: "all" | "rule";
+  /** Native mode result selection: "all" (default), "rule" or "scoped". */
+  resultSelection?: "all" | "rule" | "scoped";
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;

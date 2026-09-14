@@ -29,7 +29,13 @@ import { AgentMode, ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { retiredPreviews, selectResultShapes, type ShapeDecision } from "../native/selection";
+import {
+  profileDiff,
+  retiredPreviews,
+  selectResultShapes,
+  selectScopedShapes,
+  type ShapeDecision,
+} from "../native/selection";
 import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
@@ -123,7 +129,7 @@ export interface AssembleContextOptions {
   /** NATIVE-mode result selection for the current snapshot: "all" (every
    *  executed operator renders its full result) or "rule" (ship only what the
    *  data decided — see native/selection.ts). */
-  resultSelection?: "all" | "rule";
+  resultSelection?: "all" | "rule" | "scoped";
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
@@ -2133,22 +2139,57 @@ function serializeTaskBody(
       // changed this step renders in the shape the rule gives it in the
       // post-step snapshot (full / count / header), same semantics as LATEST.
       const snapForShapes = node.snapshot;
-      const deltaShapes =
-        options.resultSelection === "rule"
-          ? selectResultShapes(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info)
-          : retiredPreviews(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info);
+      const deltaShapes = selectShapes(
+        options.resultSelection,
+        snapForShapes.workflow.operators,
+        snapForShapes.workflow.links,
+        id => snapForShapes.results.get(id)?.info
+      );
 
       const obs: string[] = [];
+      // `scoped`: operators that only re-executed (nothing about them changed)
+      // and whose profile did not move — one grouped line after the loop.
+      const rerunUnchanged: string[] = [];
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID)) continue;
+        // `scoped` selection, typed operators: compare this run with the
+        // previous run of the same operator.
+        //   - Re-executed because something upstream changed (not acted on
+        //     this step): ship the difference, not the table again — one line,
+        //     or a name on the grouped "unchanged" line. The frontier operator
+        //     (nothing reads it yet) is what the model acts on next and keeps
+        //     its full shape.
+        //   - Revised by the model (`updated`): the new version renders by its
+        //     type; a `change:` line says what moved against the old version.
+        // Both are decided from the two snapshots of THIS event and never
+        // rewritten later, so the prompt stays append-only.
+        const scoped = options.resultSelection === "scoped" && !!op.nativeOp;
+        const currInfo = node.snapshot.results.get(op.operatorID)?.info;
+        const prevInfo = prev?.results.get(op.operatorID)?.info;
+        const comparable = scoped && currInfo && !currInfo.error && prevInfo && !prevInfo.error;
+        if (comparable && !actedVerb.has(op.operatorID)) {
+          const isFrontier = !node.snapshot.workflow.links.some(l => l.source.operatorID === op.operatorID);
+          if (!isFrontier) {
+            const diff = profileDiff(prevInfo!, currInfo!);
+            if (!diff) {
+              rerunUnchanged.push(`${op.nativeOp!.type.toLowerCase()} \`${op.operatorID}\``);
+              continue;
+            }
+            obs.push(`- ${op.nativeOp!.type.toLowerCase()} operator \`${op.operatorID}\` re-executed: ${diff}`);
+            continue;
+          }
+        }
         // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
         obs.push(
           op.nativeOp
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? "updated"}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
+        if (comparable && actedVerb.get(op.operatorID) === "updated") {
+          obs.push(`  change: ${profileDiff(prevInfo!, currInfo!) ?? "none (same rows, same column profile)"}`);
+        }
         // `Inputs:` line — structure-consistent with LATEST, from the LEAF
         // snapshot's DAG (current wiring) via the same formatOperatorAdjacency
         // LATEST uses. Code mode: rendered once, on the op's most-recent edit
@@ -2221,7 +2262,8 @@ function serializeTaskBody(
               workflowState,
               renderOptions,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
-              ex
+              ex,
+              shapeFormatOverrides(shape)
             )
           : "(not executed)";
         const rlines = resultText.split("\n");
@@ -2232,6 +2274,7 @@ function serializeTaskBody(
           for (const l of rlines) obs.push(`    ${l}`);
         }
       }
+      if (rerunUnchanged.length > 0) obs.push(`- re-executed, unchanged: ${rerunUnchanged.join(", ")}`);
       obs.push(...noChangeOutcome);
 
       if (obs.length > 0) {
@@ -3265,17 +3308,45 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
  * agent sees the failing line in its own code right where the error is), even
  * though the same code also appears in the Action.
  */
+/** The shape map for one snapshot under the arm's `resultSelection`:
+ *  "rule" = whether a table ships; "scoped" = also how much of it; "all" =
+ *  only spent previews retire. */
+function selectShapes(
+  selection: AssembleContextOptions["resultSelection"],
+  operators: readonly OperatorPredicate[],
+  links: WorkflowContent["links"],
+  getInfo: (opId: string) => OperatorInfo | undefined
+): Map<string, ShapeDecision> {
+  if (selection === "rule") return selectResultShapes(operators, links, getInfo);
+  if (selection === "scoped") return selectScopedShapes(operators, links, getInfo);
+  return retiredPreviews(operators, links, getInfo);
+}
+
+/** `scoped` selection: the render limits a full shape carries (columns, sample
+ *  rows, the complete Schema line). Empty for every other shape. */
+function shapeFormatOverrides(shape?: ShapeDecision): Partial<FormatOperatorResultOptions> {
+  if (!shape || shape.shape !== "full") return {};
+  const o: Partial<FormatOperatorResultOptions> = {};
+  if (shape.columns) o.columns = shape.columns;
+  if (shape.sample === 0) o.detail = "shape";
+  else if (typeof shape.sample === "number") o.maxResultRows = shape.sample;
+  if (shape.schemaLine) o.schemaInResult = true;
+  return o;
+}
+
 function renderRawResult(
   operatorId: string,
   info: Parameters<typeof formatOperatorResult>[1],
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   resolveInputColumns?: (upstreamOpId: string) => number | undefined,
-  ex?: OperatorRenderExtras
+  ex?: OperatorRenderExtras,
+  overrides: Partial<FormatOperatorResultOptions> = {}
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
     ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, operatorId, workflowState)),
     resolveInputColumns,
+    ...overrides,
   });
   const text = raw.trim();
   return text.length > 0 ? text : "(no result)";
@@ -3383,10 +3454,12 @@ function serializeSnapshotFull(
   // NATIVE result selection: decide once per snapshot which operator results
   // ship in full, as a row count, or not at all (native/selection.ts).
   // Spent previews retire in every mode (probe retirement, not result selection).
-  const shapes =
-    options.resultSelection === "rule"
-      ? selectResultShapes(workflow.operators, allLinks, id => snapshot.results.get(id)?.info)
-      : retiredPreviews(workflow.operators, allLinks, id => snapshot.results.get(id)?.info);
+  const shapes = selectShapes(
+    options.resultSelection,
+    workflow.operators,
+    allLinks,
+    id => snapshot.results.get(id)?.info
+  );
   // NATIVE: blocks in creation order, not topological order. The provider's
   // prompt cache only credits a step whose prompt EXTENDS an earlier prompt;
   // a new source inserted before existing blocks (topological order) drops
@@ -3740,6 +3813,7 @@ function serializeOperatorFull(
       // LATEST renders a single consolidated `Inputs:` (with counts) at the
       // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
       inputsInResult: false,
+      ...shapeFormatOverrides(shape),
     });
   }
 

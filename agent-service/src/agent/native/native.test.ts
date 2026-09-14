@@ -25,7 +25,7 @@ import { defaultParseDeps, defaultProducedOpId } from "../tools/tool-call-schedu
 import { NATIVE_BY_TYPE } from "./catalog";
 import { compileNativeOp } from "./codegen";
 import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
-import { retiredPreviews, selectResultShapes } from "./selection";
+import { profileDiff, retiredPreviews, selectResultShapes, selectScopedShapes } from "./selection";
 import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
 
@@ -314,5 +314,114 @@ describe("result selection rule", () => {
     const shapes = selectResultShapes(ops, links([op("u", "UDF", ["s"])]), id => (id === "s" ? info(10) : undefined));
     expect(shapes.get("s")?.shape).toBe("full"); // consumed by a non-native operator
     expect(shapes.get("u")?.shape).toBe("full");
+  });
+});
+
+describe("scoped selection", () => {
+  const op = (
+    id: string,
+    type: string,
+    inputs: string[],
+    properties: Record<string, unknown> = {}
+  ): OperatorPredicate =>
+    ({
+      operatorID: id,
+      operatorType: type === "Scan" ? "DataLoading" : "DataProcessing",
+      operatorProperties: {},
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      isDisabled: false,
+      customDisplayName: id,
+      nativeOp: { type, properties, inputs },
+    }) as unknown as OperatorPredicate;
+  const links = (ops: OperatorPredicate[]) =>
+    ops.flatMap(o =>
+      (o.nativeOp?.inputs ?? []).map(src => ({
+        linkID: `${src}-->${o.operatorID}`,
+        source: { operatorID: src, portID: "output-0" },
+        target: { operatorID: o.operatorID, portID: "input-0" },
+      }))
+    );
+  const info = (rows: number, stats: Record<string, string>) =>
+    ({ outputTuples: rows, totalRowCount: rows, columnStats: stats }) as unknown as OperatorInfo;
+  const STATS = {
+    year: "(numeric): null=0, distinct=5, min=2019, max=2023",
+    team: "(str): null=0, distinct=32",
+    yards: "(numeric): null=3, distinct=120, min=-5, max=99",
+  };
+
+  test("a frontier filter ships its count, the schema line and the predicate column only, no rows", () => {
+    const ops = [op("plays", "Scan", []), op("recent", "Filter", ["plays"], { predicate: "year >= 2021" })];
+    const shapes = selectScopedShapes(ops, links(ops), id => info(id === "plays" ? 1000 : 400, STATS));
+    expect(shapes.get("plays")).toEqual({ shape: "full", sample: 8 });
+    expect(shapes.get("recent")).toEqual({ shape: "full", columns: ["year"], sample: 0, schemaLine: true });
+  });
+
+  test("a text predicate earns three matching rows; the literal is not read as a column", () => {
+    const ops = [op("plays", "Scan", []), op("bears", "Filter", ["plays"], { predicate: "team LIKE '%Bears%'" })];
+    const shapes = selectScopedShapes(ops, links(ops), () => info(10, STATS));
+    expect(shapes.get("bears")?.sample).toBe(3);
+    expect(shapes.get("bears")?.columns).toEqual(["team"]);
+  });
+
+  test("a compute ships the new column beside its sources; the consumer's keys join the scope", () => {
+    const ops = [
+      op("plays", "Scan", []),
+      op("yps", "Compute", ["plays"], { columns: { yards_per_year: "yards / year" } }),
+      op("by_team", "Aggregate", ["yps"], { groupBy: ["team"], aggregations: [{ fn: "avg", col: "yards_per_year" }] }),
+    ];
+    const stats = { ...STATS, yards_per_year: "(numeric): null=3, distinct=300" };
+    const shapes = selectScopedShapes(ops, links(ops), id => info(id === "by_team" ? 32 : 1000, stats));
+    expect(shapes.get("yps")?.shape).toBe("full"); // input of an aggregate
+    expect(shapes.get("yps")?.columns).toEqual(["yards_per_year", "yards", "year", "team"]);
+    expect(shapes.get("yps")?.sample).toBe(3);
+    expect(shapes.get("by_team")).toEqual({ shape: "full", sample: 20 }); // the table is the summary
+  });
+
+  test("count and header shapes pass through; a frontier limit shows its whole table", () => {
+    const ops = [
+      op("plays", "Scan", []),
+      op("recent", "Filter", ["plays"], { predicate: "year >= 2021" }),
+      op("top", "Sort", ["recent"], { by: [{ col: "yards", desc: true }] }),
+      op("few", "Limit", ["top"], { n: 10 }),
+    ];
+    const shapes = selectScopedShapes(ops, links(ops), () => info(10, STATS));
+    expect(shapes.get("recent")).toEqual({ shape: "count" });
+    expect(shapes.get("top")).toEqual({ shape: "header" });
+    expect(shapes.get("few")).toEqual({ shape: "full", sample: 20 });
+  });
+
+  test("a join scopes to its key columns", () => {
+    const ops = [
+      op("a", "Scan", []),
+      op("b", "Scan", []),
+      op("j", "Join", ["a", "b"], { on: [["team", "club"]], type: "left" }),
+    ];
+    const stats = { ...STATS, club: "(str): null=4, distinct=30" };
+    const shapes = selectScopedShapes(ops, links(ops), () => info(50, stats));
+    expect(shapes.get("j")).toEqual({ shape: "full", columns: ["team", "club"], sample: 3, schemaLine: true });
+  });
+
+  test("profileDiff names what moved and stays silent when nothing did", () => {
+    const before = info(660, { reports: "(str): null=0, distinct=342", state: "(str): null=0, distinct=50" });
+    const after = info(452, { reports: "(str): null=12, distinct=300", state: "(str): null=0, distinct=50" });
+    expect(profileDiff(before, after)).toBe('rows 660 → 452; "reports": null 0 → 12, distinct 342 → 300');
+    expect(profileDiff(before, before)).toBeUndefined();
+    const widened = info(660, {
+      reports: "(str): null=0, distinct=342",
+      state: "(str): null=0, distinct=50",
+      extra: "(str): null=0, distinct=1",
+    });
+    expect(profileDiff(before, widened)).toBe('+"extra"');
+    const shifted = info(660, {
+      reports: "(str): null=0, distinct=342",
+      state: "(str): null=0, distinct=50, min=AK, max=WY",
+    });
+    const shifted2 = info(660, {
+      reports: "(str): null=0, distinct=342",
+      state: "(str): null=0, distinct=50, min=AL, max=WY",
+    });
+    expect(profileDiff(shifted, shifted2)).toBe('"state": min AK → AL');
   });
 });

@@ -657,6 +657,22 @@ Your own parameters are always shown under \`Properties\`. A result is shown whe
 **Header** — no \`Result:\` line. project and sort, and a compute whose new or replaced columns kept the same null and distinct counts as their source: the table is the input table transformed exactly as \`Properties\` say. A compute whose column profile did move shows the moved facts on a count line (\`"reports": null 0 → 12\`).
 {{INSPECT_HINT}}`;
 
+const NATIVE_SHAPES_SCOPED = `### Which results are shown
+
+Your own parameters are always shown under \`Properties\`. What a result shows depends on the operator's type and on the columns its parameters name:
+
+- **scan, udf** — the whole picture: 8 sample rows and \`Column Schema and stats\` for every column.
+- **aggregate, distinct, limit** — the table itself (up to 20 rows): it is its own summary.
+- **filter** — \`Output Table: N rows (from M rows)\`, the complete \`Schema\` line, and stats for the columns in the predicate (and the columns the next operator reads). Sample rows only when the predicate matches text.
+- **compute** — 3 sample rows of the source columns next to the new column, the \`Schema\` line, and stats for the new and source columns.
+- **join** — the row count against both inputs, 3 sample rows on the key columns, and the key columns' stats.
+- **project, sort, union, unpivot** — the row count and the \`Schema\` line (sort and unpivot: 3 rows).
+
+Once another operator reads a table, a filter, distinct, union or limit collapses to its count line and a project or sort to nothing (its output is its input transformed exactly as \`Properties\` say).
+
+An operator that only re-executed because something upstream changed shows one line — what moved (\`rows 660 → 452\`, \`"x": null 0 → 12\`) or its name under \`re-executed, unchanged\`. An operator you revised shows \`change:\` against its previous version.
+{{INSPECT_HINT}}`;
+
 /**
  * Build the NATIVE-mode system prompt. `resultSelection` decides how the
  * context-format section describes result blocks (all vs the three shapes).
@@ -667,15 +683,15 @@ export function buildNativeModeSystemPrompt(
   resultSelection: ResultSelection = "all",
   layoutOpts: { versioned?: boolean; session?: boolean; recall?: boolean } = {}
 ): string {
+  const inspectHint = inspectEnabled
+    ? "\nAny Count or Header operator's full table can be opened with `inspectResult` — read-only, no re-execution."
+    : "";
   const shapes =
     resultSelection === "rule"
-      ? NATIVE_SHAPES_RULE.replace(
-          "{{INSPECT_HINT}}",
-          inspectEnabled
-            ? "\nAny Count or Header operator's full table can be opened with `inspectResult` — read-only, no re-execution."
-            : ""
-        )
-      : NATIVE_SHAPES_ALL;
+      ? NATIVE_SHAPES_RULE.replace("{{INSPECT_HINT}}", inspectHint)
+      : resultSelection === "scoped"
+        ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", inspectHint)
+        : NATIVE_SHAPES_ALL;
   const inspectLine = inspectEnabled
     ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
     : "";

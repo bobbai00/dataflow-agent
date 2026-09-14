@@ -635,3 +635,53 @@ describe("formatSchemaLine — compact typed schema (lever E)", () => {
     expect(without).not.toContain("Schema (");
   });
 });
+
+describe("scoped columns", () => {
+  const info = makeOpInfo({
+    outputTuples: 3,
+    totalRowCount: 3,
+    truncated: false,
+    result: [
+      { __row_index__: 0, year: 2021, team: "A", yards: 5 },
+      { __row_index__: 1, year: 2022, team: "B", yards: 7 },
+      { __row_index__: 2, year: 2023, team: "C", yards: 9 },
+    ],
+    columnStats: {
+      year: "(numeric): null=0, distinct=3",
+      team: "(str): null=0, distinct=3",
+      yards: "(numeric): null=0, distinct=3",
+    },
+  });
+
+  test("`columns` projects the sample and the stats block; the Schema line stays complete", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, {
+      columnStats: true,
+      schemaInResult: true,
+      columns: ["year"],
+      maxResultRows: 2,
+    });
+    expect(text).toMatch(/Schema \(3 cols\)/);
+    expect(text).toContain('- "year"');
+    expect(text).not.toContain('- "team"');
+    expect(text).not.toMatch(/\tteam/); // no team column in the TSV
+    expect(text).toMatch(/\tyear/);
+  });
+
+  test("an empty `columns` list drops the stats block and leaves the sample whole", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, { columnStats: true, columns: [], maxResultRows: 2 });
+    expect(text).not.toContain("Column Schema and stats");
+    expect(text).toMatch(/\tteam/);
+  });
+
+  test("detail shape with a scope keeps counts and the scoped stats, no rows", () => {
+    const text = formatOperatorResult("f", info, EMPTY_STATE, {
+      columnStats: true,
+      schemaInResult: true,
+      columns: ["year"],
+      detail: "shape",
+    });
+    expect(text).not.toMatch(/\t2021/);
+    expect(text).toContain('- "year"');
+    expect(text).not.toContain('- "yards"');
+  });
+});

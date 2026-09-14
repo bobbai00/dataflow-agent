@@ -122,6 +122,11 @@ export interface FormatOperatorResultOptions {
   /** Sample-based candidate functional-dependency line. */
   sampleFdHints?: boolean;
   /** Sample-based `Type anomaly:` line — text columns that are mostly numeric. */
+  /** Native `scoped` selection: restrict the TSV sample and the `Column Schema
+   *  and stats:` block to these columns (the ones the operator's parameters
+   *  name). The `Output Table` line and the `Schema:` line stay complete. An
+   *  empty list drops the stats block and leaves the sample unprojected. */
+  columns?: readonly string[];
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -165,6 +170,18 @@ export function formatNativeError(operatorId: string, type: string, error: strin
   const generic = /execution failed[^\n]*\n\s*Error:\s*\n\s*([\s\S]*)/.exec(error);
   if (generic) return `not executed — ${strip(generic[1]).split("\n")[0]}`;
   return `${type} \`${operatorId}\` failed: ${strip(error)}`;
+}
+
+/** The stats entries of `columns` plus every reserved `__…__` diagnostic key. */
+function pickColumnStats(
+  stats: Record<string, string> | undefined,
+  columns: readonly string[]
+): Record<string, string> | undefined {
+  if (!stats) return undefined;
+  const keep = new Set(columns);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(stats)) if (k.startsWith("__") || keep.has(k)) out[k] = v;
+  return out;
 }
 
 export function formatOperatorResult(
@@ -227,6 +244,15 @@ export function formatOperatorResult(
   // proxy. 0/undefined = no cap (current behavior). Cell-level trim is
   // unaffected (it happens downstream in the TSV renderer / backend).
   let sampleRows = serializableArray;
+  // Column scope: only the named columns (plus the row index) reach the TSV.
+  if (options.columns && options.columns.length > 0) {
+    const keep = new Set(options.columns);
+    sampleRows = sampleRows.map(row => {
+      const projected: Record<string, any> = {};
+      for (const k of Object.keys(row)) if (k === "__row_index__" || keep.has(k)) projected[k] = row[k];
+      return projected;
+    });
+  }
   const cap = options.maxResultRows ?? 0;
   if (cap > 0 && sampleRows.length > cap) {
     const head = Math.ceil(cap / 2);
@@ -300,9 +326,13 @@ export function formatOperatorResult(
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
+  const statsScoped = options.columns !== undefined;
+  const statsInfo = statsScoped
+    ? { ...opInfo, columnStats: pickColumnStats(opInfo.columnStats, options.columns!) }
+    : opInfo;
   const colStatsBlock =
-    options.columnStats && !completeSmallTableVisible
-      ? formatColumnStats(opInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
+    options.columnStats && !completeSmallTableVisible && !(statsScoped && options.columns!.length === 0)
+      ? formatColumnStats(statsInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
       : undefined;
   // `Schema (N cols): col (type), …` and the stats block both carry every
   // column's name and type; when both render, the Schema line is a pure echo

@@ -346,7 +346,7 @@ export const SummarizeParamsSchema = z.object({
   /** Native-mode result selection for the current snapshot (see
    *  AgentSettings.resultSelection): "all" renders every result block,
    *  "rule" ships only what the data decided. */
-  resultSelection: z.enum(["all", "rule"]).default("all"),
+  resultSelection: z.enum(["all", "rule", "scoped"]).default("all"),
   flow: FlowParamsSchema.default({}),
   operators: z
     .object({

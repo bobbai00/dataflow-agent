@@ -907,7 +907,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             maxOperatorEdits: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
-            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule")])),
+            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
