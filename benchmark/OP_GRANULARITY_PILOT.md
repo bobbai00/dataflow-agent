@@ -743,3 +743,28 @@ workload to read traces on.
 
 One rep each for native and the script agent; the Anchor band comes from five
 replicates and shows the noise to expect (about ±2.5 points).
+
+### 9.4 Fixes after review (2026-09-14) and the replicate runs
+
+Two problems came out of reading the §9 blocks together:
+
+- Sample sizes were fixed row counts per type (scan 8, compute 3, aggregate
+  20, …), which do not follow the arm's `maxOperatorResultCharLimit`. They are
+  now shares of that budget: scan, udf, aggregate, distinct and limit keep the
+  whole budget; join and compute 0.3; sort and unpivot 0.2; filter 0, or 0.2
+  when its predicate matches text; project and union 0. The share is applied
+  through the formatter's per-operator character cap, which keeps the header
+  plus the head and tail rows that fit, so a 2k arm and a 5k arm scale
+  together and no type ever exceeds the engine-side cap.
+- Every typed observation in DELTA carried the `Inputs:` line twice, once
+  under the verb line and once inside the result body. The body copy is gone.
+
+Provenance for the replicate runs: the `:3001` service changed hands at 23:30
+on 2026-09-13 (another session restarted it from the `multi-turn-optimization`
+worktree for its own long jobs). Rep1 of the scoped arm and the script agent's
+Rep0 both finished before that (22:05 and 22:54). Reps 2 and 3 of the scoped
+arm run against this worktree's own service on `:3007`, started from commit
+`d98734723`, and every task's `config.json` stamps that endpoint and SHA. The
+script agent does not use the service. Rep1 therefore differs from reps 2–3 in
+the two fixes above; if the three-rep band matters more than the single-rep
+pilot, Rep1 should be rerun on `d98734723`.

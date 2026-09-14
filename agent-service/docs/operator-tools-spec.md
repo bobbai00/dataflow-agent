@@ -260,7 +260,31 @@ code. The attention section uses the same text.
 ## 6. Rendering
 
 Result shapes (full / count / header) are decided by the rule in the design
-doc, §3. Formats:
+doc, §3. `resultSelection: "scoped"` keeps that decision and adds how much of a
+full table renders, from the operator's type and the columns its parameters
+name (`native/selection.ts`, `selectScopedShapes`):
+
+- Columns: statistics and sample values only for the columns the operator's
+  own parameters reference (filter predicate, compute sources and new columns,
+  join keys, group-by and aggregation columns, sort keys) plus the columns its
+  consumers read from it. The `Output Table` line and the complete `Schema`
+  line always render. Scan, udf, aggregate, distinct and limit keep every
+  column.
+- Sample size: a share of the arm's `maxOperatorResultCharLimit`, applied as
+  the formatter's per-operator character cap (header plus the head and tail
+  rows that fit). Scan, udf, aggregate, distinct, limit 1; join, compute 0.3;
+  sort, unpivot 0.2; filter 0 (0.2 when the predicate matches text); project,
+  union 0. Everything is decided once, when the result arrives, and never
+  rewritten, so the prompt stays append-only.
+- DELTA history (`profileDiff`, statistics of the two runs, not the tables): an
+  operator that re-executed because something upstream changed renders one
+  line of what moved (`rows 660 → 452`, `"x": null 0 → 12`, min / max, columns
+  added or dropped) or joins one `re-executed, unchanged: …` line; the frontier
+  operator keeps its full shape. An operator the model revised renders by its
+  type plus `change: …` against its previous run. Typed observations carry the
+  `Inputs:` line once, above the result.
+
+Formats:
 
 LATEST block (one user message per block, topological order):
 
@@ -349,7 +373,7 @@ rules (several operators per turn; no udf for what a tool does; ratios via
 cross join; preview before scan; non-delimited text via `whitespace` /
 `comment` / `fwf` / `lines`; binary via udf loader; fix in place with the same
 id; delete probes); the context layout for LATEST or DELTA; the result shapes
-in force (`all` or `rule`); the result-table format; the key principles
+in force (`all`, `rule` or `scoped`); the result-table format; the key principles
 carried over from code mode minus the pandas-specific ones.
 
 ## 8. Settings
@@ -357,7 +381,7 @@ carried over from code mode minus the pandas-specific ones.
 | setting | values | default |
 |---|---|---|
 | `agentMode` | `native` (this document), `code`, … | per request |
-| `resultSelection` | `all`, `rule` | `all` |
+| `resultSelection` | `all`, `rule`, `scoped` | `all` |
 | `contextMode` | `latest`, `delta` | per request |
 | `messageLayout` | `opSplit` (LATEST), `native` (DELTA) | chosen from `contextMode` when unset |
 | `execution_timeout_minutes` (harness) | idle timeout of one execution | 4; native arms use 10 (one Python hop over 320k rows ≈ 120 s) |
