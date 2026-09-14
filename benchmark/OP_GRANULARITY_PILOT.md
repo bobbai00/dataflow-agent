@@ -813,3 +813,87 @@ Read across three reps:
 - The two fixes did not move the totals (rep 2 equals rep 1 at 68.4%); the
   re-execution diff fired 5 times in rep 2 and never in rep 3, so on
   single-turn tasks that part of the design is idle.
+
+### 9.6 Native without the selection, and where the tokens and the money go
+
+`DataflowSystemLunaNativeAnchorRep1-2`: native typed operators, DELTA, 2k
+result characters, no statistics block, and `resultSelection: "all"` — native
+mode with none of the selection machinery. Two full replicates, service `:3007`
+at `8ad901541`, both 104 of 104 answered.
+
+| system (Luna) | reps | overall | cost | input tok | output tok | steps |
+|---|---|---|---|---|---|---|
+| native, no stats, no selection | 68.8, 71.6 (mean 70.2%) | | $0.58, $0.55 (mean $0.565) | 10.0M | 169k | 1,013 |
+| native, stats + scoped selection | 68.4, 68.4, 66.6 (mean 67.8%) | | $0.61, $0.60, $0.55 (mean $0.59) | 11.06M | 171k | 1,058 |
+| script agent (smolagents) | 61.5, 64.6, 65.6 (mean 63.9%) | | $1.01, $0.95, $0.97 (mean $0.98) | 12.26M | 482k | 1,911 |
+| code-mode Anchor (corpus) | 5 reps | 67.5–72.3 (mean 69.6%) | $0.71–0.88 | 5.9–6.8M | 201–249k | 746–839 |
+
+Per workload, native with no selection: archeology 33.3 / 41.7, astronomy 29.2 /
+37.5, biomedical 66.7 / 77.8, environment 65.0 / 70.0, legal 93.3 / 90.0,
+wildfire 76.7 / 85.4.
+
+So the plainest native configuration is the best native one measured: it beats
+the scoped arm by 2.4 points at 4% lower cost, matches the code-mode Anchor
+band, and beats the script agent by 6 points at 42% lower cost.
+
+**Why the selection did not pay.** Line-class decomposition of every task's
+final prompt:
+
+| class | no stats, no selection | stats + scoped |
+|---|---|---|
+| data rows | 49% (0.90M chars) | 33% (0.66M) |
+| statistics | none | 19% (0.38M) |
+| Schema lines | 11% | 10% |
+| shape / envelope | 5% | 5% |
+| operator headers + Properties | 3% | 3% |
+| everything else (system prompt, task, actions) | 31% | 30% |
+| per task | 17.5k chars | 19.5k chars |
+
+The scoping does what it was built to do: data rows fall 27%. But the scoped
+arm also carries the statistics channel, which the plain arm does not have at
+all, and the statistics cost more than the scoping saves. Net, the scoped
+prompt is 11% larger. Two changes were made at once and they cancelled, so the
+selection has still never been measured on its own: no arm has run "show
+everything, statistics on" at 2k over the full benchmark.
+
+**Where the money goes.** Solving the arms' token totals for the LiteLLM
+prices gives $0.20 per million fresh input tokens, $0.02 cached, $1.20 output
+(the 10x cached discount the cache probe measured). The bill then splits:
+
+| arm | fresh input | cached input | output |
+|---|---|---|---|
+| native | 30–33% | 31–35% | 35% |
+| script agent | 17% | 23% | 60% |
+
+Two consequences for any future selection work. Compressing history only
+touches the cached third, priced at a tenth. And native's entire cost advantage
+over the script agent is output: 169k tokens against 482k.
+
+### 9.7 The "hangs" are slow tasks, and the watchdog cannot tell
+
+The runner reports killed groups as "no progress, gpt-5.x hang". The traces say
+otherwise. In Rep2 the archeology group's agent started at 16:48, the harness
+killed the group at 17:03 for silence, and the agent completed normally at
+17:06 with 37 steps. A finished answer was discarded.
+
+The watchdog measures silence in the group's log, and the harness prints
+nothing while one task's agent runs, so a task slower than the window is
+indistinguishable from a hang. Because a group's tasks run in sequence, one
+slow task also destroys its group-mates: Rep2 lost six tasks, of which exactly
+one was slow and five never started.
+
+Duration against score, over three runs:
+
+| duration | tasks per run | mean score |
+|---|---|---|
+| under 2 min | 79–84 | 0.73–0.76 |
+| 2–5 min | 10–16 | 0.52–0.59 |
+| 5–10 min | 6 | 0.17–0.33 |
+| over 10 min | 2–3 | 0.00 in two runs of three |
+
+Almost no task reaches the 25-step cap, so this is engine execution time on
+large files, not a model loop; the script agent, which never touches the
+engine, never exceeds two and a half minutes. Ordered fixes: print a heartbeat
+while a task runs so the watchdog measures real silence; give each task its own
+deadline so one slow task cannot take out its group; and at the deadline ask
+the model to answer from what it has rather than recording nothing.
