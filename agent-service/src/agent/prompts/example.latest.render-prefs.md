@@ -23,6 +23,7 @@ Result:
   	customer_id	name	email	signup_date	tier
   0	C001	Alice	alice@example.com	2023-01-15	gold
   ...
+  Schema (4 cols): tier (str), customer_id (str), name (str), email (str)
   Column Schema and stats:
   - "tier" (str): null=0, distinct=3, top_5={"gold"=4200, "silver"=3800, "bronze"=2000}
   - "customer_id" (str): null=0, distinct=10000
@@ -37,6 +38,7 @@ Result:
   	order_id	customer_id	amount	order_date
   0	O001	C001	250.00	2024-11-05
   ...
+  Schema (3 cols): order_id (str), customer_id (str), amount (numeric)
   Column Schema and stats:
   - "order_id" (str): null=0, distinct=50000
   - "customer_id" (str): null=0, distinct=10000
@@ -60,6 +62,7 @@ Result:
   	customer_id	name	email	signup_date	tier	order_id	amount	order_date
   0	C001	Alice	alice@example.com	2023-01-15	gold	O4521	1200.00	2024-11-10
   ...
+  Schema (3 cols): customer_id (str), email (str), amount (numeric)
   Column Schema and stats:
   - "customer_id" (str): null=0, distinct=312
   - "email" (str): null=5, distinct=310
@@ -84,6 +87,7 @@ Result:
   2	C015	Carol	8150.00
   3	C008	David	7340.00
   4	C023	Eve	6290.00
+  Schema (3 cols): customer_id (str), name (str), total_spending (numeric)
   Column Schema and stats:
   - "customer_id" (str): null=0, distinct=5
   - "name" (str): null=0, distinct=5

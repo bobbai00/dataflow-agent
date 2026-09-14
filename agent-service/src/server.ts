@@ -228,6 +228,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      resultSelection: settings.resultSelection,
       includeOperatorProperties: settings.includeOperatorProperties,
       flowLevel: settings.flowLevel,
       dataLevel: settings.dataLevel,
@@ -256,7 +257,16 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       coercionTelemetry: settings.coercionTelemetry,
       rowLineage: settings.rowLineage,
       statScopes: settings.statScopes,
-      messageLayout: settings.messageLayout,
+      // Caching is not optional: unless an arm pins a layout, LATEST ships one
+      // message per operator block (opSplit) and DELTA ships the append-only
+      // tool-call transcript (native), the two framings gpt-5.6-* can credit.
+      messageLayout:
+        settings.messageLayout ??
+        (settings.versionedMode || settings.sessionTurns
+          ? "turnSplit"
+          : settings.contextMode === ContextMode.LATEST
+            ? "opSplit"
+            : "native"),
       versionedCatalog: settings.versionedMode,
       versionedHeads: settings.versionedHeads,
       sessionTurns: settings.sessionTurns,
@@ -575,6 +585,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     maxOperatorEdits: agentSettings.maxOperatorEdits,
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
+    resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
@@ -814,6 +825,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
           maxOperatorEdits: settings.maxOperatorEdits,
           allowedOperatorTypes: settings.allowedOperatorTypes,
           agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+          resultSelection: (settings as any).resultSelection,
           contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
           parallelToolCalls: settings.parallelToolCalls,
           includeOperatorProperties: settings.includeOperatorProperties,
@@ -894,7 +906,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
-            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
+            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
@@ -1254,6 +1267,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxOperatorEdits: settings.maxOperatorEdits,
         allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+        resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
         includeOperatorProperties: settings.includeOperatorProperties,

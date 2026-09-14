@@ -142,6 +142,31 @@ function containsCellTruncation(value: unknown): boolean {
   return false;
 }
 
+/**
+ * NATIVE operators: the engine's error text points into the GENERATED Python
+ * (`(line 21) \`d = _con.sql(q).df()\` - BinderException: …`), which the agent
+ * never wrote. Rewrite it in the agent's own terms: the typed operator, the
+ * engine message without the line pointer and exception class, and for a
+ * downstream operator that never ran, the upstream operator that failed.
+ *
+ *   `(line N) \`…\` - BinderException: Binder Error: X`      → `Filter \`id\` failed: Binder Error: X`
+ *   `execution failed — … Execution error: up: (line N) … X` → `not executed — upstream \`up\` failed: X`
+ *   `execution failed — … Error: The operation timed out.`   → `not executed — the execution timed out`
+ */
+export function formatNativeError(operatorId: string, type: string, error: string): string {
+  const strip = (s: string) =>
+    s
+      .replace(/\(line \d+\) `[^`]*` - /g, "")
+      .replace(/\b\w+(?:Exception|Error): (?=[\w ]+ Error: )/g, "")
+      .trim();
+  const cascade = /execution failed[^\n]*\n\s*Execution error:\s*\n\s*([A-Za-z_][\w]*): ([\s\S]*)/.exec(error);
+  if (cascade) return `not executed — upstream \`${cascade[1]}\` failed: ${strip(cascade[2]).split("\n")[0]}`;
+  if (/execution failed[\s\S]*timed out/.test(error)) return "not executed — the execution timed out before this operator produced a result";
+  const generic = /execution failed[^\n]*\n\s*Error:\s*\n\s*([\s\S]*)/.exec(error);
+  if (generic) return `not executed — ${strip(generic[1]).split("\n")[0]}`;
+  return `${type} \`${operatorId}\` failed: ${strip(error)}`;
+}
+
 export function formatOperatorResult(
   operatorId: string,
   opInfo: OperatorInfo,
@@ -160,6 +185,12 @@ export function formatOperatorResult(
     // operatorProperties — so the agent still sees exactly what code failed,
     // without the engine duplicating it into every error payload.
     const op = workflowState.getOperator(operatorId);
+    // NATIVE typed operators: the agent wrote parameters, not the generated
+    // code, so echo the parameters (the DuckDB/pandas message already names
+    // the failing column or expression).
+    if (op?.nativeOp && op.nativeOp.type !== "UDF") {
+      return `[ERROR] ${formatNativeError(operatorId, op.nativeOp.type, opInfo.error)}\nOperator properties: ${JSON.stringify(op.nativeOp.properties)}`;
+    }
     const code = String((op?.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
     const codeBlock = code ? `\nOperator code:\n${code}` : "";
     return `[ERROR] ${opInfo.error}${codeBlock}`;

@@ -360,6 +360,30 @@ export class WorkflowState {
    * downstream sink causes the backend to re-run the edited op and every
    * descendant on the path to that sink.
    */
+  /**
+   * Every enabled operator reachable downstream of `startOpId` (excluding it).
+   * NATIVE mode materializes all of these after an edit — a modified operator
+   * changes every table below it, and the typed render shows each of them —
+   * where code mode only re-materializes the sinks.
+   */
+  getDownstreamOperators(startOpId: string): string[] {
+    const allLinks = this.getAllLinks();
+    const visited = new Set<string>();
+    const stack: string[] = [startOpId];
+    while (stack.length > 0) {
+      const opId = stack.pop()!;
+      for (const link of allLinks) {
+        if (link.source.operatorID !== opId) continue;
+        const tgt = link.target.operatorID;
+        if (visited.has(tgt) || this.getOperator(tgt)?.isDisabled) continue;
+        visited.add(tgt);
+        stack.push(tgt);
+      }
+    }
+    visited.delete(startOpId);
+    return Array.from(visited);
+  }
+
   getDownstreamSinks(startOpId: string): string[] {
     const startOp = this.getOperator(startOpId);
     if (!startOp || startOp.isDisabled) return [];

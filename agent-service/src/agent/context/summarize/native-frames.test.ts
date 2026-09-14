@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildNativeFrames, splitTrailingState } from "./native-frames";
+import { buildNativeFrames, splitOperators, splitTrailingState, splitTurns } from "./native-frames";
 import type { ReActStep } from "../../../types/agent";
 
 const CTX = [
@@ -216,5 +216,87 @@ describe("splitTrailingState", () => {
     const text = render(2, "op_a: 10 rows");
     const { head, tail } = splitTrailingState(text);
     expect((head + "\n\n" + tail).replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
+  });
+});
+
+describe("stable first message (prefix cache)", () => {
+  test("splitOperators splits a single operator too", () => {
+    const text = "# User Task\nQ\n\n# Current Dataflow\n## Operators\n\n### scan operator `a`\nProperties: {}\nResult: x";
+    const parts = splitOperators(text);
+    expect(parts.length).toBe(2);
+    expect(parts[0]).toBe("# User Task\nQ\n\n# Current Dataflow\n## Operators");
+    expect(parts[1].startsWith("### scan operator `a`")).toBe(true);
+  });
+  test("buildNativeFrames drops the no-events placeholder so step 1 ends like every later prefix", () => {
+    const r = buildNativeFrames("# User Task\nQ\n\n# Agent Events\n\n(no agent actions yet)", new Map());
+    expect(r.messages).toEqual([{ role: "user", content: "# User Task\nQ\n\n# Agent Events" }]);
+  });
+});
+
+describe("multi-turn transcript", () => {
+  test("an earlier user turn becomes a user message after the tool result, not part of it", () => {
+    const text = [
+      "# User Task\nSecond question",
+      "",
+      "# Agent Events",
+      "",
+      "## Agent Event 1",
+      "Thought: look",
+      "Action:",
+      "- scan ...",
+      "Observation:",
+      "- scan operator `a` added",
+      "",
+      "## User Event 2",
+      "",
+      "First follow-up question",
+      "",
+      "## Agent Event 3",
+      "Action:",
+      "- filter ...",
+      "Observation:",
+      "- filter operator `b` added",
+    ].join("\n");
+    const step = (id: string, name: string): ReActStep =>
+      ({ id, role: "agent", content: "", toolCalls: [{ toolCallId: id, toolName: name, input: { id: name } }], toolResults: [{ toolCallId: id, output: "ok" }] }) as unknown as ReActStep;
+    const r = buildNativeFrames(text, new Map([[1, step("c1", "scan")], [3, step("c3", "filter")]]));
+    const roles = r.messages.map(m => m.role);
+    expect(roles).toEqual(["user", "assistant", "tool", "user", "assistant", "tool"]);
+    expect(r.messages[3].content).toBe("First follow-up question");
+    expect(JSON.stringify(r.messages[2].content)).not.toContain("First follow-up question");
+  });
+});
+
+describe("turnSplit", () => {
+  test("one message per finished turn, per live step, and per top-level section", () => {
+    const text = [
+      "# Catalog",
+      "",
+      "## Turn 1",
+      "### Task",
+      "first",
+      "### Answer",
+      "42",
+      "",
+      "## Turn 2 (in progress)",
+      "### Task",
+      "second",
+      "",
+      "# Your Task",
+      "",
+      "Work on turn 2.",
+      "",
+      "### Steps",
+      "",
+      "#### Step 1",
+      "Action: - scan",
+      "Observation: ok",
+      "",
+      "#### Step 2",
+      "Action: - filter",
+    ].join("\n");
+    const parts = splitTurns(text);
+    expect(parts.map(p => p.split("\n")[0])).toEqual(["# Catalog", "## Turn 1", "## Turn 2 (in progress)", "# Your Task", "### Steps", "#### Step 1", "#### Step 2"]);
+    expect(parts.join("\n\n").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
   });
 });

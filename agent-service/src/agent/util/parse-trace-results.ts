@@ -68,7 +68,8 @@ export interface ParsedOperatorResult {
   warnings?: string[];
 }
 
-const OPERATOR_HEADER = /(?:^|\n)#*\s*Operator\s+`([^`]+)`\s+\(([^)]+)\)/g;
+// `### Operator \`id\` (Type)` (code mode) or `### filter operator \`id\`` (native).
+const OPERATOR_HEADER = /(?:^|\n)#*\s*(?:Operator\s+`([^`]+)`\s+\(([^)]+)\)|(\w+) operator\s+`([^`]+)`)/g;
 
 /**
  * Pull every `Operator <id> (Type)` block out of one message content
@@ -83,7 +84,7 @@ export function parseTraceContext(content: string): Map<string, ParsedOperatorRe
   const matches: Array<{ opId: string; start: number; afterHeader: number }> = [];
   let m: RegExpExecArray | null;
   while ((m = OPERATOR_HEADER.exec(content)) !== null) {
-    matches.push({ opId: m[1], start: m.index, afterHeader: m.index + m[0].length });
+    matches.push({ opId: m[1] ?? m[4], start: m.index, afterHeader: m.index + m[0].length });
   }
   for (let i = 0; i < matches.length; i++) {
     const here = matches[i];

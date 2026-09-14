@@ -338,11 +338,19 @@ class WorkflowService(
     *
     * This method performs resource cleanup in the following sequence:
     *  1. Retrieves all document URIs associated with the executions
-    *  2. Invalidates cache entries produced by these executions (cache rows + cached docs + cache-linked operator_port_executions rows)
-    *  3. Clears URI references from the execution registry
-    *  4. Safely clears all result and console message documents
-    *  5. Expires Iceberg snapshots for runtime statistics
-    *  6. Deletes large binaries from MinIO
+    *  2. Clears URI references from the execution registry
+    *  3. Safely clears result and console message documents NOT referenced by the
+    *     operator-port cache
+    *  4. Expires Iceberg snapshots for runtime statistics
+    *  5. Deletes large binaries from MinIO
+    *
+    * Cache entries (operator_port_cache rows and the Iceberg tables they point to)
+    * deliberately SURVIVE this cleanup: this method runs from the idle-timeout
+    * lifecycle (default 30s), and a multi-turn agent session routinely idles longer
+    * than that between executions. Invalidating the cache here silently reduced
+    * cross-turn cache reuse to 30-second activity windows. The cache is instead
+    * invalidated on the explicit paths: execution deletion, workflow deletion
+    * (FK cascade), manual eviction, and compile-time fingerprint mismatch.
     *
     * @param executionIds execution identities to clean up resources for
     */
@@ -354,20 +362,15 @@ class WorkflowService(
     val runtimeStatsUris =
       executionIds.flatMap(eid => WorkflowExecutionsResource.getRuntimeStatsUriByExecutionId(eid).toList)
 
-    // Invalidate cache artifacts produced by these executions.
-    val cacheInvalidation = cacheService.invalidateCacheBySourceExecutionsWithArtifacts(executionIds)
-
     val resultUris = executionIds
       .flatMap(WorkflowExecutionsResource.getResultUrisByExecutionId)
-      .filterNot(cacheInvalidation.deletedResultUris.contains)
     val consoleMessagesUris =
       executionIds.flatMap(WorkflowExecutionsResource.getConsoleMessagesUriByExecutionId)
 
-    // Some result URIs surfaced above are cache-hit URIs that point to a different
-    // execution's Iceberg table; that other execution may still be referenced by a
-    // surviving operator_port_cache row. Skip clearing the underlying document for any
-    // URI that the cache still references, otherwise the next cache hit would resolve
-    // to a deleted table.
+    // Result URIs still referenced by operator_port_cache rows ARE the cache's
+    // backing data (either produced by these executions, or cache-hit URIs pointing
+    // at another execution's Iceberg table). Skip clearing those documents,
+    // otherwise the next cache hit would resolve to a deleted table.
     val urisStillCached = cacheService.lookupResultUrisInCache(resultUris)
 
     // Remove references from registry first

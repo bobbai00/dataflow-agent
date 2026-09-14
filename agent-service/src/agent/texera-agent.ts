@@ -97,6 +97,11 @@ import {
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
+import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
+import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
+import { writtenOperatorId } from "./util/context-utils";
+import { buildNativeModeSystemPrompt } from "./prompts";
+import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
@@ -135,6 +140,8 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_ADD_OPERATOR,
   TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
+  TOOL_NAME_ADD_OPERATORS,
+  ...NATIVE_TOOL_NAMES,
 ]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
@@ -240,12 +247,20 @@ export function computeOperatorAccess(
       modifiedOperatorIds: [],
     };
     const result = toolResults?.find(tr => tr.toolCallId === tc.toolCallId);
-    const inputOpId = typeof tc.input?.operatorId === "string" ? tc.input.operatorId : undefined;
+    // `operatorId` on the code / general tools; `id` on the typed-operator
+    // tools of native mode (and their deleteOperator).
+    const inputOpId = writtenOperatorId(tc.toolName, tc.input);
     if (result && !result.isError && result.output !== undefined && result.output !== null) {
       const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
-      const added = out.match(/Added operator ([A-Za-z0-9_-]+)/);
-      const modified = out.match(/Operator ([A-Za-z0-9_-]+) modified/);
-      const deleted = out.match(/Deleted operator:? ([A-Za-z0-9_-]+)/);
+      // Code / general receipts ("Added operator x", "Operator x modified",
+      // "Deleted operator: x") and native receipts ("added filter operator
+      // `x`; inputs: …", "modified …", "deleted operator `x`").
+      const added =
+        out.match(/Added operator ([A-Za-z0-9_-]+)/) ?? out.match(/\badded [a-z_]+ operator `([A-Za-z0-9_-]+)`/);
+      const modified =
+        out.match(/Operator ([A-Za-z0-9_-]+) modified/) ?? out.match(/\bmodified [a-z_]+ operator `([A-Za-z0-9_-]+)`/);
+      const deleted =
+        out.match(/Deleted operator:? ([A-Za-z0-9_-]+)/) ?? out.match(/\bdeleted operator `([A-Za-z0-9_-]+)`/);
       const executed = out.match(/Executed operator ([A-Za-z0-9_-]+)/);
       if (added) entry.addedOperatorIds.push(added[1]);
       else if (modified) entry.modifiedOperatorIds.push(modified[1]);
@@ -258,7 +273,8 @@ export function computeOperatorAccess(
         else if (
           tc.toolName === TOOL_NAME_MODIFY_OPERATOR ||
           tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR ||
-          tc.toolName === TOOL_NAME_DELETE_OPERATOR
+          tc.toolName === TOOL_NAME_DELETE_OPERATOR ||
+          NATIVE_TOOL_NAMES.has(tc.toolName)
         )
           entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
@@ -539,6 +555,17 @@ export class TexeraAgent {
         this.settings.contextMode,
         compactionEnabled
       );
+    } else if (this.settings.agentMode === AgentMode.NATIVE) {
+      this.systemPrompt = buildNativeModeSystemPrompt(
+        this.settings.contextMode,
+        this.settings.enableInspectTool === true,
+        this.settings.resultSelection,
+        {
+          versioned: this.settings.versionedMode === true,
+          session: this.settings.sessionTurns === true,
+          recall: this.settings.enableRecallTool === true,
+        }
+      );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -559,7 +586,7 @@ export class TexeraAgent {
     }
     // W2: append worked per-step best-practice examples (few-shot). Examples,
     // not just the instruction (which got poor .copy() adherence). Off by default.
-    if (this.settings.fewShotPrompt && this.settings.agentMode !== AgentMode.GENERAL && !this.systemPromptBuilder) {
+    if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
     this.settings.systemPrompt = this.systemPrompt;
@@ -622,6 +649,10 @@ export class TexeraAgent {
         this.isCodeShownToAgent(),
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
+    } else if (this.settings.agentMode === AgentMode.NATIVE) {
+      // Fixed-grain typed operators: one tool per operator type (upsert by id),
+      // plus a consumer-aware delete that replaces the generic one.
+      Object.assign(tools, createNativeTypedTools(this.workflowState, context));
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -869,7 +900,7 @@ export class TexeraAgent {
       const operators: string[] = [];
       for (const step of steps) {
         for (const call of step.toolCalls ?? []) {
-          const opId = (call.input as any)?.operatorId;
+          const opId = writtenOperatorId(call.toolName, call.input);
           if (typeof opId === "string" && !operators.includes(opId)) operators.push(opId);
         }
       }
@@ -939,8 +970,8 @@ export class TexeraAgent {
     const built: string[] = [];
     for (const step of mine) {
       for (const call of step.toolCalls ?? []) {
-        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
-        const opId = (call.input as any)?.operatorId;
+        if (!WRITE_TOOL_NAMES.has(call.toolName) && !NATIVE_TOOL_NAMES.has(call.toolName)) continue;
+        const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
       }
     }
@@ -1095,7 +1126,7 @@ export class TexeraAgent {
         if (!msg) return touched;
         for (const step of agent.reActStepsByMessageId.get(msg) ?? []) {
           for (const call of step.toolCalls ?? []) {
-            const opId = (call.input as any)?.operatorId;
+            const opId = writtenOperatorId(call.toolName, call.input);
             if (typeof opId === "string") touched.add(opId);
           }
         }
@@ -1154,7 +1185,7 @@ export class TexeraAgent {
       const seen = new Set<string>();
       for (const step of steps) {
         for (const call of step.toolCalls ?? []) {
-          const opId = (call.input as any)?.operatorId;
+          const opId = writtenOperatorId(call.toolName, call.input);
           if (typeof opId !== "string" || seen.has(opId)) continue;
           seen.add(opId);
           operators.push(opId);
@@ -1330,6 +1361,7 @@ export class TexeraAgent {
     maxOperatorEdits?: number;
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
+    resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     includeOperatorProperties?: boolean;
@@ -1418,6 +1450,12 @@ export class TexeraAgent {
     }
     if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
       this.settings.agentMode = updates.agentMode;
+      promptNeedsRebuild = true;
+    }
+    if (updates.resultSelection !== undefined && updates.resultSelection !== this.settings.resultSelection) {
+      // Render-time selection of result blocks; the native prompt describes the
+      // shapes the agent will see, so it rebuilds too.
+      this.settings.resultSelection = updates.resultSelection;
       promptNeedsRebuild = true;
     }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
@@ -2398,8 +2436,16 @@ export class TexeraAgent {
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
-      const operatorId = (tc.input as any)?.operatorId;
+      const operatorId =
+        (tc.input as any)?.operatorId ?? (NATIVE_TOOL_NAMES.has(tc.toolName) ? (tc.input as any)?.id : undefined);
       if (operatorId) editedOpIds.push(operatorId);
+      // NATIVE `addOperators`: one call adds a chain; every id it landed is an edit.
+      const batch = (tc.input as any)?.operators;
+      if (Array.isArray(batch)) {
+        for (const spec of batch) {
+          if (spec && typeof spec.id === "string" && this.workflowState.getOperator(spec.id)) editedOpIds.push(spec.id);
+        }
+      }
     }
     if (editedOpIds.length === 0) return;
 
@@ -2422,8 +2468,18 @@ export class TexeraAgent {
     const targets = new Set<string>();
     for (const opId of editedOpIds) {
       targets.add(opId);
-      for (const sink of this.workflowState.getDownstreamSinks(opId)) {
-        targets.add(sink);
+      if (this.settings.agentMode === AgentMode.NATIVE) {
+        // Typed chains are long and every operator below an edit is a table the
+        // render shows (or decides a shape from). Materialize all descendants,
+        // not just the sinks — otherwise an upstream modify leaves the
+        // intermediate blocks without a fresh Result (seen in the pilot).
+        for (const down of this.workflowState.getDownstreamOperators(opId)) {
+          targets.add(down);
+        }
+      } else {
+        for (const sink of this.workflowState.getDownstreamSinks(opId)) {
+          targets.add(sink);
+        }
       }
     }
     if (targets.size === 0) return;

@@ -43,7 +43,7 @@ import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
-import { buildNativeFrames, splitTrailingState } from "./native-frames";
+import { buildNativeFrames, splitTrailingState, splitOperators, splitTurns } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -156,6 +156,34 @@ function buildMessages(
   stepByEvent: Map<number, ReActStep>,
 ): ModelMessage[] {
   if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
+  if (layout === "turnSplit") {
+    const parts = splitTurns(text);
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+    return [{ role: "user", content: text }];
+  }
+  if (layout === "opSplit") {
+    // An empty dataflow (step 1) still ends with the `# Current Dataflow`
+    // header, so the first message is byte-identical from step 1 onwards.
+    if (!/^# Current Dataflow$/m.test(text) && !/^### /m.test(text)) {
+      return [{ role: "user", content: text.trimEnd() + "\n\n# Current Dataflow\n## Operators" }];
+    }
+    const parts = splitOperators(text);
+    // Same byte-parity contract as blockSplit: a framing change, never a
+    // content change. If the parts do not reconstruct the render, ship the
+    // single block rather than send the model something the renderer
+    // did not produce.
+    if (parts.length > 1) {
+      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+      if (norm(parts.join("\n\n")) === norm(text)) {
+        return parts.map(content => ({ role: "user" as const, content }));
+      }
+    }
+  }
   if (layout === "blockSplit") {
     const { head, tail } = splitTrailingState(text);
     // Structure must be preserved EXACTLY: blockSplit is a wire-framing change
@@ -194,6 +222,10 @@ export function paramsToRenderOptions(
     compilationResult,
     statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
+    resultSelection: params.resultSelection,
+    // The renderer needs the layout for one decision: in the native transcript
+    // a later turn's request is also rendered inline (see renderAgentEvents).
+    messageLayout: params.messageLayout,
     agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,

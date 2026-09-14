@@ -188,19 +188,48 @@ class PythonWorkflowWorker(
 
   override def postStop(): Unit = {
     super.postStop()
+    // Each step must run even if an earlier one throws: close() fails whenever
+    // the Python side is already gone (e.g. force-terminate), and bailing out
+    // of a single try block leaked both executor threads and could orphan the
+    // Python process. shutdownNow() (not shutdown()) because the proxy loops
+    // only exit via close() — if that failed they are still blocked and need
+    // the interrupt.
     try {
       // try to send shutdown command so that it can gracefully shutdown
       pythonProxyClient.close()
-
-      clientThreadExecutor.shutdown()
-
-      serverThreadExecutor.shutdown()
-
+    } catch {
+      case e: Exception =>
+        logger.error(s"$e - happened during shutdown")
+    }
+    try {
+      // Close the Flight server itself, not just its thread: the server holds
+      // a bound TCP socket, and leaking one per Python worker exhausted the
+      // ephemeral port range at ~28k cumulative executions — ServerSocket(0)
+      // then throws inside getFreeLocalPort and every new worker dies with
+      // "assertion failed" (empty executions campaign-wide).
+      if (pythonProxyServer != null) pythonProxyServer.close()
+    } catch {
+      case e: Exception =>
+        logger.error(s"$e - happened during proxy server close")
+    }
+    try {
+      clientThreadExecutor.shutdownNow()
+    } catch {
+      case e: Exception =>
+        logger.error(s"$e - happened during client executor shutdown")
+    }
+    try {
+      serverThreadExecutor.shutdownNow()
+    } catch {
+      case e: Exception =>
+        logger.error(s"$e - happened during server executor shutdown")
+    }
+    try {
       // destroy python process
       pythonServerProcess.destroy()
     } catch {
       case e: Exception =>
-        logger.error(s"$e - happened during shutdown")
+        logger.error(s"$e - happened during Python process destroy")
     }
   }
 

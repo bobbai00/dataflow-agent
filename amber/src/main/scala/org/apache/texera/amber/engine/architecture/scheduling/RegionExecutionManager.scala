@@ -85,6 +85,13 @@ object RegionExecutionManager {
   private[scheduling] val DefaultMaxTerminationAttempts: Int = 4
 
   private[scheduling] val DefaultKillRetryBaseBackoffMs: Long = 200L
+
+  // Shared across all regions and executions: a JavaTimer owns a java.util.Timer
+  // thread that lives until stop() is called, and nothing in a region's lifecycle
+  // stops a per-instance timer — one timer per RegionExecutionManager leaked its
+  // thread for the life of the JVM. Retry scheduling is sparse enough that every
+  // region can share this single daemon timer.
+  private[scheduling] val DefaultKillRetryTimer: Timer = new JavaTimer(true)
 }
 
 /**
@@ -126,7 +133,7 @@ class RegionExecutionManager(
     // attempts, waiting `killRetryBaseBackoffMs` before the first retry and doubling after each.
     maxTerminationAttempts: Int = RegionExecutionManager.DefaultMaxTerminationAttempts,
     killRetryBaseBackoffMs: Long = RegionExecutionManager.DefaultKillRetryBaseBackoffMs,
-    killRetryTimer: Timer = new JavaTimer(true),
+    killRetryTimer: Timer = RegionExecutionManager.DefaultKillRetryTimer,
     // Loop-back write addresses (Loop Start logical op id -> its input port's
     // state URI), shipped to every worker in InitializeExecutorRequest. See
     // WorkflowExecutionManager.loopStartStateUris.

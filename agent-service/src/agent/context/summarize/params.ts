@@ -343,6 +343,10 @@ export const SummarizeParamsSchema = z.object({
    *  current snapshot's operator blocks (needs a compilationResult input;
    *  legacy: GENERAL mode only). */
   compiledSchemas: z.boolean().default(false),
+  /** Native-mode result selection for the current snapshot (see
+   *  AgentSettings.resultSelection): "all" renders every result block,
+   *  "rule" ships only what the data decided. */
+  resultSelection: z.enum(["all", "rule"]).default("all"),
   flow: FlowParamsSchema.default({}),
   operators: z
     .object({
@@ -356,7 +360,7 @@ export const SummarizeParamsSchema = z.object({
    *  channel renders (source op / consumer op / everywhere / nowhere).
    *  Orthogonal to the flags that turn channels on — see AgentSettings.statScopes. */
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout: z.enum(["block", "blockSplit", "native"]).optional(),
+  messageLayout: z.enum(["block", "blockSplit", "native", "opSplit", "turnSplit"]).optional(),
   statScopes: z
     .object({
       columnStats: z.enum(["all", "source", "nonsource", "off"]).optional(),
@@ -494,6 +498,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     // event log with the live snapshot, not delete state.
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    resultSelection: options.resultSelection ?? "all",
     statScopes: options.statScopes,
     messageLayout: options.messageLayout,
     flow: {
