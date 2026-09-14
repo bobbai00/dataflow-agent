@@ -768,3 +768,48 @@ arm run against this worktree's own service on `:3007`, started from commit
 script agent does not use the service. Rep1 therefore differs from reps 2–3 in
 the two fixes above; if the three-rep band matters more than the single-rep
 pilot, Rep1 should be rerun on `d98734723`.
+
+### 9.5 Three replicates each: native scoped vs the script agent (2026-09-13/14)
+
+Same benchmark (104 tasks, oracle file subset), same scorer (KramaBench's own
+per-task metric), same pricing (LiteLLM with cache-read discounts), same model
+(gpt-5.6-luna), same step cap (25). Native reps 2–3 ran on this worktree's
+`:3007` service at `d98734723` (budget-share samples, single `Inputs:` line);
+rep 1 ran before those two fixes. Watchdog-lost tasks were recovered in
+isolation; `astronomy-hard-11` hung in every native rep (a first model call
+that never returns) and scores zero there.
+
+| system (Luna) | rep | overall | archeology | astronomy | biomedical | environment | legal | wildfire | answered | cost | input tok | output tok | steps |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| native scoped | 1 | 68.4% | 33.3 | 41.7 | 77.8 | 65.0 | 76.7 | 91.3 | 103 | $0.61 | 11.46M | 183k | 1,094 |
+| native scoped | 2 | 68.4% | 33.3 | 29.2 | 66.7 | 69.0 | 86.7 | 84.9 | 104 | $0.60 | 11.41M | 173k | 1,069 |
+| native scoped | 3 | 66.6% | 33.3 | 25.0 | 88.9 | 65.0 | 90.0 | 67.9 | 103 | $0.55 | 10.32M | 157k | 1,010 |
+| **native scoped, mean** | | **67.8%** | 33.3 | 32.0 | 77.8 | 66.3 | 84.5 | 81.4 | | **$0.59** | 11.06M | 171k | 1,058 |
+| script agent | 0 | 61.5% | 50.0 | 16.7 | 55.6 | 60.3 | 76.7 | 75.4 | 104 | $1.01 | 12.77M | 489k | 1,931 |
+| script agent | 1 | 64.6% | 41.7 | 20.8 | 55.6 | 60.3 | 80.0 | 88.5 | 104 | $0.95 | 11.90M | 474k | 1,951 |
+| script agent | 2 | 65.6% | 33.3 | 37.5 | 44.4 | 65.0 | 83.3 | 84.5 | 104 | $0.97 | 12.11M | 483k | 1,852 |
+| **script agent, mean** | | **63.9%** | 41.7 | 25.0 | 51.9 | 61.9 | 80.0 | 82.8 | | **$0.98** | 12.26M | 482k | 1,911 |
+| code-mode dataflow, Anchor (corpus) | 5 | 69.6% (67.5–72.3) | | | | | | | | $0.71–0.88 | 5.9–6.8M | 201–249k | 746–839 |
+
+Read across three reps:
+
+- Accuracy: native 66.6–68.4% (mean 67.8) against the script agent's
+  61.5–65.6% (mean 63.9). The bands do not overlap; the gap is about 4 points.
+  Against the code-mode Anchor band (67.5–72.3, mean 69.6) native sits at the
+  low end: same accuracy within noise, not above it.
+- Cost: native $0.55–0.61 per run (mean $0.59, $0.0057 per task), the script
+  agent $0.95–1.01 (mean $0.98), so native is 40% cheaper; against Anchor's
+  $0.71–0.88 it is 17–33% cheaper. Native and the script agent read about the
+  same number of input tokens (11.1M vs 12.3M); the script agent's extra cost
+  is output: 482k output tokens against 171k, 1,911 steps against 1,058,
+  because it recomputes state in code each step and often runs to the cap.
+- Cache: native 91–92% of input tokens cached across the three reps; 767 of
+  804 to 811 of 861 prompts extend the previous prompt byte for byte.
+- Per workload, native beats the script agent on biomedical (+26), astronomy
+  (+7), environment (+4) and legal (+4), ties wildfire (81 vs 83) and loses
+  archeology (33 vs 42). Archeology is flat at 33.3% in all three native reps,
+  which points at a systematic gap rather than noise; astronomy and wildfire
+  swing 17–23 points between reps in both systems.
+- The two fixes did not move the totals (rep 2 equals rep 1 at 68.4%); the
+  re-execution diff fired 5 times in rep 2 and never in rep 3, so on
+  single-turn tasks that part of the design is idle.
