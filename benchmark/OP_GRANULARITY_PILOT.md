@@ -583,3 +583,115 @@ operators complete from cache, the cache survives the 30 s idle teardown and a
 sub-plan re-execution. In the native sessions the per-step wall time stayed at
 10–13 s while the DAG grew from 14 to 102 operators, and the Java listening
 sockets stayed at 10 through six sessions after the leak fixes.
+
+## 9. Scoped observations (2026-09-13, branch `feat/single-turn-optimization`)
+
+The rule of §1 decides whether an operator's table ships: in full, as a row
+count, or as a header. `resultSelection: "scoped"` keeps that decision and adds
+how much of a shipped table the model sees. Everything is decided once, when
+the result arrives, from the operator's type and the columns its parameters
+name, and is never rewritten later, so the prompt only grows and the cache
+keeps crediting it.
+
+What the type decides:
+
+- scan and udf show the whole picture: 8 sample rows and statistics for every
+  column.
+- aggregate, distinct and limit show their table (up to 20 rows); it is its own
+  summary.
+- filter shows its row count, the complete `Schema` line, and statistics only
+  for the columns in its predicate plus the columns the next operator reads
+  from it. Sample rows (3) only when the predicate matches text.
+- compute shows 3 rows of the source columns next to the new column, the
+  `Schema` line, and statistics for the new and source columns.
+- join shows the row count against both inputs, 3 rows on the key columns, and
+  the key columns' statistics.
+- project, sort, union and unpivot show the row count and the `Schema` line
+  (sort and unpivot: 3 rows).
+
+What the history decides (DELTA only): an operator that re-executed because
+something upstream changed prints one line of what moved against its previous
+run (`rows 660 → 452`, `"x": null 0 → 12`, min/max, columns added or dropped)
+or its name under `re-executed, unchanged`; the newest operator keeps its full
+shape. An operator the model revised prints `change:` against its old version,
+e.g. `change: rows 12 → 30; "line_no": max 11 → 29; "line": distinct 12 → 28`.
+
+Code: `agent-service/src/agent/native/selection.ts` (`selectScopedShapes`,
+`referencedColumns`, `profileDiff`), the `columns` option of the result
+formatter, `selectShapes` / `shapeFormatOverrides` in the renderer, the
+`NATIVE_SHAPES_SCOPED` prompt text.
+
+### 9.1 Ten-task pilot, scoped vs the rule on the same code
+
+gpt-5.6-luna, native per-operator tools, DELTA, 2k chars, stats, 25 steps, the
+ten grain-split tasks, one rep each, arms run one after the other. Scores are
+KramaBench's own per-task metric.
+
+| task | scoped: score, steps, input tokens, cached, cost | rule: score, steps, input tokens, cached, cost |
+|---|---|---|
+| archeology-easy-10 | 1.00, 7, 50.5k, 95%, $0.0019 | 1.00, 7, 53.0k, 92%, $0.0021 |
+| archeology-hard-12 | 0.00, 10, 87.6k, 91%, $0.0055 | 0.00, 11, 95.0k, 93%, $0.0057 |
+| astronomy-easy-1 | 1.00, 15, 162.0k, 94%, $0.0085 | 1.00, 10, 100.2k, 93%, $0.0053 |
+| environment-easy-1 | 1.00, 9, 68.3k, 95%, $0.0029 | 1.00, 7, 52.7k, 94%, $0.0024 |
+| environment-hard-16 | 0.00, 10, 87.7k, 94%, $0.0041 | 0.00, 13, 141.5k, 93%, $0.0069 |
+| environment-hard-19 | 0.00, 14, 212.6k, 90%, $0.0107 | 0.00, 13, 247.7k, 89%, $0.0132 |
+| environment-hard-7 | 1.00, 9, 81.5k, 93%, $0.0043 | 0.00, 9, 91.5k, 92%, $0.0041 |
+| legal-easy-4 | 1.00, 8, 56.3k, 86%, $0.0032 | 1.00, 8, 57.1k, 86%, $0.0038 |
+| legal-hard-15 | 0.00, 9, 63.7k, 96%, $0.0027 | 0.00, 8, 62.0k, 94%, $0.0030 |
+| wildfire-hard-17 | 0.94, 9, 121.6k, 90%, $0.0064 | 1.00, 9, 129.4k, 88%, $0.0071 |
+| total | 5.94 / 10, 100 steps, 992k, 92%, $0.0504 | 5.00 / 10, 95 steps, 1,030k, 91%, $0.0536 |
+
+Read: same accuracy within noise (one flip each way: environment-hard-7 for
+scoped, wildfire-hard-17 partial against it), 4% fewer input tokens, 6% cheaper,
+the same cache rate. Both arms extend the previous prompt on nearly every step
+(scoped 78 of 80, rule 74 of 75); the misses are error-to-fixed rewrites. On the
+widest task (wildfire-hard-17, scans of 37 and 34 columns) the scoping cut the
+statistics lines from 233 to 130, but the two scans themselves are unscoped by
+design and dominate the tokens, so the saving there is 6%. No upstream-caused
+re-execution cascades occurred in these single-turn tasks, so the `re-executed`
+lines did not fire; the `change:` line fired on 5 revisions.
+
+Traces of both arms: `benchmark/Kramabench/system_scratch/{DataflowSystemLunaNativeToolsScopedDeltaRep1,DataflowSystemLunaNativeToolsRuleDeltaRep2}`
+(pilot copies kept in the session scratchpad, the scoped directory is
+overwritten by the full run below).
+
+### 9.2 Full KramaBench run (2026-09-13, 104 tasks, one rep)
+
+Same arm and settings as the pilot: gpt-5.6-luna, native per-operator tools,
+DELTA, `resultSelection: "scoped"`, 2k chars, stats, 25 steps, oracle file
+subset. Six workload groups in parallel, 15-minute stall watchdog; the five
+tasks whose first model call never returned (the known gpt-5.x hang the runner
+documents) were rerun in isolation with a 25-minute watchdog; four came back,
+`astronomy-hard-11` hung again and counts as zero. Wall clock 20:42–22:05
+including the reruns.
+
+Scores are KramaBench's own metric (`kb.py scores`; exact match, numeric
+tolerance, list and string approximations per task type):
+
+| workload | score | correct / tasks |
+|---|---|---|
+| archeology | 33.3% | 4.0 / 12 |
+| astronomy | 41.7% | 5.0 / 12 |
+| biomedical | 77.8% | 7.0 / 9 |
+| environment | 65.0% | 13.0 / 20 |
+| legal | 76.7% | 23.0 / 30 |
+| wildfire | 91.3% | 19.2 / 21 |
+| overall | 68.4% | 71.2 / 104 |
+
+Cost and size (`kb.py cost`, LiteLLM pricing with cache-read discounts, 103
+answered tasks):
+
+| total | per task | input tokens | output tokens | steps | cached | prompts extending the previous one |
+|---|---|---|---|---|---|---|
+| $0.61 | $0.0059 | 11.46M | 183k | 991 agent steps (1,094 incl. init) | 92% | 839 of 888 |
+
+Passed tasks cost $0.0048 each on average, failed ones $0.0077 (they run
+longer). Astronomy is the most expensive workload ($0.0109 per task) and, with
+archeology, the weakest. The `change:` line fired on 92 revisions across the
+run; the re-execution lines fired twice, as expected on single-turn tasks.
+
+What this number is not: the leaderboard entries of the older arms in this
+checkout (e.g. `DataflowSystemLunaLatest2kStatsCodeSplitRep1` at 14.3%) are
+partial runs scored over the full 104-task denominator and are not a baseline.
+The only same-code comparison is the ten-task pilot in §9.1 (scoped 5.94 vs
+rule 5.00). A full-run rule baseline on this code is the next measurement.
