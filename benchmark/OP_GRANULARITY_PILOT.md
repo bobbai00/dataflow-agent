@@ -690,8 +690,28 @@ longer). Astronomy is the most expensive workload ($0.0109 per task) and, with
 archeology, the weakest. The `change:` line fired on 92 revisions across the
 run; the re-execution lines fired twice, as expected on single-turn tasks.
 
-What this number is not: the leaderboard entries of the older arms in this
-checkout (e.g. `DataflowSystemLunaLatest2kStatsCodeSplitRep1` at 14.3%) are
-partial runs scored over the full 104-task denominator and are not a baseline.
-The only same-code comparison is the ten-task pilot in §9.1 (scoped 5.94 vs
-rule 5.00). A full-run rule baseline on this code is the next measurement.
+Reference points. The campaign corpus (`/home/bob/Desktop/bobflow/Kramabench`)
+holds five full-run replicates of the Luna code-mode Anchor arm (DELTA, 1k
+chars, schema only, the paper's default): 68.0 / 68.5 / 72.3 / 67.5 / 71.6%,
+mean 69.6%, at $0.71–0.88 per run ($0.0071–0.0085 per task, 5.9–6.8M input
+tokens, 746–839 steps, 100–103 tasks answered). Scoped native at 68.4% and
+$0.61 sits inside that band on accuracy and 14–31% below it on cost, with
+roughly twice the input tokens (more, smaller operators) paid at the cached
+rate. Per workload the two profiles differ: native wins wildfire (91.3 vs 67.0)
+and biomedical (77.8 vs 66.7) and loses environment (65.0 vs 78.3), astronomy
+(41.7 vs 50.0) and archeology (33.3 vs 41.7), the workloads with the largest
+files and the most Python-only work.
+
+The script agent (smolagents code agent, `CodeAgentSystemLunaChars2kGuided`)
+has no Luna full run anywhere: the corpus dirs exist with zero files. On the
+ten pilot tasks (2026-09-10) it scored 4.94/10 at $0.085 (1.17M input tokens,
+93% cached, 208 steps: it runs to the step cap because Luna never calls
+`final_answer`); scoped native on the same ten tasks inside this full run:
+5.00/10 at $0.051, 106 steps.
+
+The leaderboard entries of the other arms in this checkout (e.g.
+`DataflowSystemLunaLatest2kStatsCodeSplitRep1` at 14.3%) are partial runs
+scored over the full 104-task denominator and are not baselines. The only
+same-code comparison is the ten-task pilot in §9.1 (scoped 5.94 vs rule 5.00);
+a full-run rule baseline on this code, and the Luna script agent over 104
+tasks, are the next measurements.
