@@ -715,3 +715,31 @@ scored over the full 104-task denominator and are not baselines. The only
 same-code comparison is the ten-task pilot in §9.1 (scoped 5.94 vs rule 5.00);
 a full-run rule baseline on this code, and the Luna script agent over 104
 tasks, are the next measurements.
+
+### 9.3 The script agent over the full benchmark (2026-09-13, one rep)
+
+`CodeAgentSystemLunaChars2kGuidedRep0`: the smolagents code agent with
+gpt-5.6-luna, 2k-char observations, the guided prompt, run over all 104 tasks
+right after the native run (22:24–22:54, six workload groups in parallel, no
+watchdog kills, 104 of 104 answered). Same scorer, same pricing.
+
+| system (Luna) | overall | archeology | astronomy | biomedical | environment | legal | wildfire | cost | per task | input tokens | output tokens | steps |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| native, scoped (this branch) | 68.4% (71.2) | 33.3 | 41.7 | 77.8 | 65.0 | 76.7 | 91.3 | $0.61 | $0.0059 | 11.46M | 183k | 1,094 |
+| code-mode dataflow, Anchor (corpus, 5 reps) | 67.5–72.3%, mean 69.6 | | | | | | | $0.71–0.88 | $0.0071–0.0085 | 5.9–6.8M | 201–249k | 746–839 |
+| script agent | 61.5% (63.9) | 50.0 | 16.7 | 55.6 | 60.3 | 76.7 | 75.4 | $1.01 | $0.0097 | 12.77M | 489k | 1,931 |
+
+Outcome matrix, native scoped against the script agent over the 103 tasks both
+answered: both pass 48, native only 19, script only 11, both fail 25. On the 48
+tasks both pass, native is cheaper on 35. The script agent's cost is in its
+output: 489k output tokens against 183k, and 1,931 steps against 1,094, because
+it re-derives state in code every step and often runs to the 25-step cap.
+
+Where the systems differ: native wins wildfire (91 vs 75), biomedical (78 vs
+56), astronomy (42 vs 17) and environment (65 vs 60); the script agent wins
+archeology (50 vs 33); legal ties. Archeology is where native trails every
+reference (33 vs Anchor's 42 and the script agent's 50), so it is the first
+workload to read traces on.
+
+One rep each for native and the script agent; the Anchor band comes from five
+replicates and shows the noise to expect (about ±2.5 points).
