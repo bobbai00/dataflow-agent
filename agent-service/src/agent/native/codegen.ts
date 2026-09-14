@@ -110,12 +110,16 @@ function compileScan(p0: Record<string, any>): string {
   const allText = Boolean(p.allText);
   const encoding = typeof p.encoding === "string" && p.encoding.trim() ? p.encoding.trim() : null;
   if (Array.isArray(p.columns)) {
-    // A table always HAS column names: read off row 1, or generated as
-    // `column0`, `column1`, … when `header: false`. So a scan never fills a
-    // naming gap, it only reads; renaming and selecting are one operator each.
     throw new Error(
-      "`scan` does not name or select columns. A header-less file (`header: false`) comes back as `column0`, `column1`, …; " +
-        "add a `project` after this scan with `rename: {column0: year, …}` to name them, and `keep` to select them."
+      "`scan` has no `columns`. To NAME the columns of a header-less file use `names` (one per column, with `header: false`); " +
+        "to SELECT columns add a `project` with `keep` after this scan."
+    );
+  }
+  const names: string[] | null = Array.isArray(p.names) ? p.names.map(String) : null;
+  if (names && header) {
+    throw new Error(
+      "`names` names the columns of a header-less file and needs `header: false`. This scan keeps the file's header row, " +
+        "so the columns are already named: drop `names`, or add a `project` with `rename` to change the names it read."
     );
   }
   const sqlLit = (s: unknown) => "'" + String(s).replace(/'/g, "''") + "'";
@@ -128,6 +132,19 @@ function compileScan(p0: Record<string, any>): string {
   // "0" matched nothing and silently did nothing.
   L.push("    def _norm(d):");
   L.push("        d.columns = [c if isinstance(c, str) else 'column' + str(i) for i, c in enumerate(d.columns)]");
+  if (names) {
+    // `names` is applied AFTER the read, never handed to the reader: a short
+    // list passed as pandas `names=` silently folds the leading columns into
+    // the index and returns a wrong table. Here a wrong count cannot produce
+    // one — it is a refusal that names both numbers.
+    L.push(`        _names = ${py(names)}`);
+    L.push("        if len(_names) != len(d.columns):");
+    L.push(
+      "            raise ValueError('names: ' + str(len(_names)) + ' names given for ' + str(len(d.columns)) + " +
+        "' columns (' + ', '.join(map(str, d.columns)) + '). Give one name per column, or drop `names` and rename with a project.')"
+    );
+    L.push("        d.columns = _names");
+  }
   L.push("        return d");
   L.push(`    _pats = ${py(files)}`);
   L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");

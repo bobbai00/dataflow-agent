@@ -58,9 +58,19 @@ describe("native codegen", () => {
     expect(preview).toContain("xl.sheet_names"); // sheet heads for xlsx
     expect(preview).toContain("pd.read_html(files[0])"); // table heads for html
     expect(preview).toContain("' | '.join(cells)"); // one text line per sheet / table row
-    // scan neither names nor selects columns: a header-less file comes back as column0, column1, …
-    expect(() => scan({ files: "a.csv", columns: ["x"] })).toThrow(/does not name or select columns/);
-    expect(() => scan({ files: "a.csv", header: false, columns: ["x"] })).toThrow(/rename/);
+    // `columns` is gone: naming a header-less file is `names`, selecting is a project
+    expect(() => scan({ files: "a.csv", columns: ["x"] })).toThrow(/has no `columns`/);
+    expect(() => scan({ files: "a.csv", header: false, columns: ["x"] })).toThrow(/use `names`/);
+    // `names` needs header: false — with a header the columns already have names
+    expect(() => scan({ files: "a.csv", names: ["x"] })).toThrow(/needs `header: false`/);
+    // and it is applied AFTER the read, with a count check, so a short list
+    // cannot silently fold the leading columns into the index
+    const named = scan({ files: "a.csv", header: false, names: ["year", "count"] });
+    expect(named).toContain('_names = ["year","count"]');
+    expect(named).toContain("if len(_names) != len(d.columns):");
+    expect(named).toContain("names given for");
+    expect(named).toContain("d.columns = _names");
+    expect(named).not.toContain("names=["); // never handed to the reader
     // …and every reader path normalises those placeholders to strings
     expect(scan({ files: "a.csv" })).toContain("def _norm(d):");
     expect(scan({ files: "a.csv" })).toContain("'column' + str(i)");
