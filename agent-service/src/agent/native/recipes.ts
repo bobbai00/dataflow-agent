@@ -32,12 +32,17 @@ export interface RecipeReuse {
  */
 export class NativeRecipeStore {
   private recipes = new Map<string, Map<string, NativeOpView>>();
-  clear() { this.recipes.clear(); }
-  has(name: string) { return this.recipes.has(name); }
+  clear() {
+    this.recipes.clear();
+  }
+  has(name: string) {
+    return this.recipes.has(name);
+  }
   save(name: string, graph: Map<string, NativeOpView>) {
     if (!NATIVE_ID_RE.test(name)) throw new Error("Recipe name must be a valid operator-style identifier");
     if (this.has(name)) throw new Error(`Recipe '${name}' already exists; choose a new name.`);
-    const seen = new Set<string>(), active = new Set<string>();
+    const seen = new Set<string>(),
+      active = new Set<string>();
     const visit = (id: string) => {
       if (active.has(id)) throw new Error(`Recipe cycle at '${id}'`);
       if (seen.has(id)) return;
@@ -45,7 +50,8 @@ export class NativeRecipeStore {
       if (!view) throw new Error(`Recipe input '${id}' is missing`);
       active.add(id);
       view.inputs.forEach(visit);
-      active.delete(id); seen.add(id);
+      active.delete(id);
+      seen.add(id);
     };
     graph.forEach((_, id) => visit(id));
     this.recipes.set(name, structuredClone(graph));
@@ -62,22 +68,31 @@ export class NativeRecipeStore {
       if ((saved.get(old)!.version ?? "v1") !== (live.get(fresh)!.version ?? "v1"))
         throw new Error("Cannot bind across native catalog versions");
     }
-    const mapped = new Map<string, string>(), usedBindings = new Set<string>();
+    const mapped = new Map<string, string>(),
+      usedBindings = new Set<string>();
     const operators: Array<Record<string, unknown>> = [];
     const resolve = (id: string): string => {
       if (mapped.has(id)) return mapped.get(id)!;
       if (Object.hasOwn(request.bind, id)) {
-        usedBindings.add(id); mapped.set(id, request.bind[id]); return request.bind[id];
+        usedBindings.add(id);
+        mapped.set(id, request.bind[id]);
+        return request.bind[id];
       }
       const view = saved.get(id);
       if (!view) throw new Error(`Recipe has no node '${id}'`);
       const inputs = view.inputs.map(resolve);
       const current = live.get(id);
-      if (current && JSON.stringify(current) === JSON.stringify(view) && inputs.every((up, i) => up === view.inputs[i])) {
-        mapped.set(id, id); return id;
+      if (
+        current &&
+        JSON.stringify(current) === JSON.stringify(view) &&
+        inputs.every((up, i) => up === view.inputs[i])
+      ) {
+        mapped.set(id, id);
+        return id;
       }
       const fresh = `${request.prefix}_${id}`;
-      if (!NATIVE_ID_RE.test(fresh) || live.has(fresh)) throw new Error(`Replay output '${fresh}' exists or is invalid; choose a fresh prefix.`);
+      if (!NATIVE_ID_RE.test(fresh) || live.has(fresh))
+        throw new Error(`Replay output '${fresh}' exists or is invalid; choose a fresh prefix.`);
       const properties = structuredClone(view.properties);
       if (view.type === "UDF" && inputs.some((up, i) => up !== view.inputs[i])) {
         // Preserve arbitrary Python source, including strings and nested scopes.
@@ -87,12 +102,16 @@ export class NativeRecipeStore {
       const def = nativeOperators(view.version ?? "v1").find(def => def.type === view.type);
       if (!def) throw new Error(`Unknown recipe operator type '${view.type}'`);
       const spec: Record<string, unknown> = {
-        op: view.type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(), id: fresh, ...properties,
+        op: view.type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(),
+        id: fresh,
+        ...properties,
       };
       if (def.inputs === 1) spec.input = inputs[0];
       else if (def.inputs === 2) [spec.left, spec.right] = inputs;
       else if (def.inputs === "many") spec.inputs = inputs;
-      operators.push(spec); mapped.set(id, fresh); return fresh;
+      operators.push(spec);
+      mapped.set(id, fresh);
+      return fresh;
     };
     const targets = request.targets.map(resolve);
     for (const old of Object.keys(request.bind)) {

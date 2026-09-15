@@ -1,0 +1,156 @@
+[
+  {
+    "case": "cross_turn_cache",
+    "category": "both_pass_A_cheaper",
+    "primary_reason": "cache_effect",
+    "confidence": "high",
+    "first_divergence": {
+      "turn": 2,
+      "summary": "Chronological placement retains first user request; top placement rewrites it."
+    },
+    "evidence": [
+      {
+        "run": "seed41_batch_r0",
+        "turn": 9,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed41_batch_r0/t09/react_steps.json",
+        "summary": "First call reuses 6041 of 12670 input tokens."
+      },
+      {
+        "run": "seed41_batch_chronological_r0",
+        "turn": 9,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed41_batch_chronological_r0/t09/react_steps.json",
+        "summary": "Prior request frames remain fixed; full run is 9/9 at $0.00888902."
+      }
+    ],
+    "counterfactual": "A moving context prefix, or a different cache policy, would remove much of the measured saving.",
+    "pair": {
+      "A": "seed41_batch_chronological_r0",
+      "B": "seed41_batch_r0"
+    },
+    "scores": {
+      "A": 1.0,
+      "B": 1.0
+    },
+    "cost_usd": {
+      "A": 0.008889020000000001,
+      "B": 0.0156685
+    }
+  },
+  {
+    "case": "wrong_value_origin",
+    "category": "B_only",
+    "primary_reason": "wrong_transform",
+    "confidence": "high",
+    "first_divergence": {
+      "turn": 8,
+      "summary": "Joining old full rows on the left keeps old metric columns unsuffixed; saved aggregate consumes them."
+    },
+    "evidence": [
+      {
+        "run": "seed41_recipes_guided_chronological_r0",
+        "turn": 8,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed41_recipes_guided_chronological_r0/t08/react_steps.json",
+        "summary": "Correct source tables were selected but their membership/value roles were not enforced."
+      },
+      {
+        "run": "seed41_recipes_guided_chronological_r0",
+        "turn": 8,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed41_recipes_guided_chronological_r0/t08/evaluation.json",
+        "summary": "Actual West/North; required East/South."
+      },
+      {
+        "run": "seed41_code_functions_r0",
+        "turn": 8,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed41_code_functions_r0/t08/react_steps.json",
+        "summary": "Uses original customer IDs to select rows from the new export."
+      }
+    ],
+    "counterfactual": "Project membership to distinct keys, semijoin against new values, and validate metric-column origins.",
+    "pair": {
+      "A": "seed41_recipes_guided_chronological_r0",
+      "B": "seed41_code_functions_r0"
+    },
+    "scores": {
+      "A": 0,
+      "B": 1
+    },
+    "cost_usd": {
+      "A": 0.0010913,
+      "B": 0.0014950599999999999
+    }
+  },
+  {
+    "case": "numeric_answer_copy",
+    "category": "B_only",
+    "primary_reason": "verification",
+    "confidence": "high",
+    "first_divergence": {
+      "turn": 9,
+      "summary": "Correct materialized 42.999349200446275 becomes 43.0 in final JSON."
+    },
+    "evidence": [
+      {
+        "run": "seed43_batch_chronological_r0",
+        "turn": 9,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed43_batch_chronological_r0/t09/operator_results.json",
+        "summary": "The observed result contains the full correct numeric value."
+      },
+      {
+        "run": "seed43_batch_chronological_r0",
+        "turn": 9,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed43_batch_chronological_r0/t09/answer.json",
+        "summary": "The final answer loses required precision."
+      },
+      {
+        "run": "seed43_code_functions_r0",
+        "turn": 9,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed43_code_functions_r0/t09/react_steps.json",
+        "summary": "A computed object is returned directly through final_answer."
+      }
+    ],
+    "counterfactual": "A validated result-to-answer projection with explicit rounding removes this manual copying step.",
+    "pair": {
+      "A": "seed43_batch_chronological_r0",
+      "B": "seed43_code_functions_r0"
+    },
+    "scores": {
+      "A": 0,
+      "B": 1
+    },
+    "cost_usd": {
+      "A": 0.00098106,
+      "B": 0.0005742599999999999
+    }
+  },
+  {
+    "case": "recipe_patch_collision",
+    "category": "both_pass_B_cheaper",
+    "primary_reason": "tool_error_recovery",
+    "confidence": "high",
+    "first_divergence": {
+      "turn": 3,
+      "summary": "The model tries to clone and override the cloned metric in one batch; the prototype rejects generated ID collisions twice."
+    },
+    "evidence": [
+      {
+        "run": "seed42_recipes_guided_chronological_r0",
+        "turn": 3,
+        "artifact": "/tmp/dataflow-multiturn-research-20260915/runs/seed42_recipes_guided_chronological_r0/t03/react_steps.json",
+        "summary": "Two errors followed by separate clone and modify calls; five model calls."
+      }
+    ],
+    "counterfactual": "Expose an explicit fork-with-parameter-overrides operation and named recipe inputs.",
+    "pair": {
+      "A": "seed42_recipes_guided_chronological_r0",
+      "B": "seed42_batch_chronological_r0"
+    },
+    "scores": {
+      "A": 1,
+      "B": 1
+    },
+    "cost_usd": {
+      "A": 0.00205748,
+      "B": 0.00057816
+    }
+  }
+]

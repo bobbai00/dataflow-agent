@@ -380,7 +380,8 @@ export interface AgentSettings {
    * prefix across turns and only the (small) tail changes. Also puts the live
    * request closest to the generation point, which is where recency helps.
    */
-  userTaskPlacement: "top" | "bottom";
+  /** "chronological" renders each request once in its original DELTA frame. */
+  userTaskPlacement: "top" | "bottom" | "chronological";
   /**
    * How PRIOR turns of a multi-turn session are rendered (DELTA only; LATEST
    * never rendered prior turns at all).
@@ -807,7 +808,7 @@ export interface AgentSettingsApi {
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
   tunerConfig?: TunerConfig;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
-  userTaskPlacement?: "top" | "bottom";
+  userTaskPlacement?: "top" | "bottom" | "chronological";
   /** Prior-turn rendering: verbatim vs compact catalogue (see AgentSettings.turnHistory). */
   turnHistory?: "full" | "index";
   /** Expose the read-only recallState tool (see AgentSettings.enableRecallTool). */

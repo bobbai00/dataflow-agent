@@ -156,6 +156,28 @@ describe("native batch tools", () => {
 });
 
 describe("batch observation history", () => {
+  test("chronological requests keep the complete prior message prefix across turns", () => {
+    const state = new WorkflowState();
+    const steps: ReActStep[] = [{ id: "u1", messageId: "m1", stepId: 0, timestamp: 1, role: "user", content: "Initial question", isBegin: true, isEnd: true }];
+    const storage = new WorkflowSnapshotStorage(id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id));
+    const render = () => assembleContext(steps, state, storage, ContextMode.DELTA, {
+      agentMode: AgentMode.NATIVE, messageLayout: "native", userTaskPlacement: "chronological" as any,
+      flowLevel: 0, dataLevel: 0, columnStats: false,
+    });
+    const first = render();
+    steps.push({ id: "a1", parentId: "u1", messageId: "m1", stepId: 1, timestamp: 2, role: "agent", content: "First answer", isBegin: true, isEnd: true });
+    const completed = render();
+    expect(completed.slice(0, first.length)).toEqual(first);
+    steps.push({ id: "u2", parentId: "a1", messageId: "m2", stepId: 0, timestamp: 3, role: "user", content: "Different second question", isBegin: true, isEnd: true });
+    const next = render();
+    // A preview after the final answer may append a synthetic Continue; no
+    // model call was made with it, and the next real user request replaces it.
+    const history = completed.at(-1)?.content === "Continue." ? completed.slice(0, -1) : completed;
+    expect(next.slice(0, history.length)).toEqual(history);
+    expect(next.at(-1)?.content).toBe("Different second question");
+    expect(JSON.stringify(next).match(/Initial question/g)).toHaveLength(1);
+    expect(JSON.stringify(next).match(/Different second question/g)).toHaveLength(1);
+  });
   test("native DELTA inspection evidence stays in its event and keeps the old message prefix after later actions", async () => {
     const { execute, state } = setup();
     const steps: ReActStep[] = [];

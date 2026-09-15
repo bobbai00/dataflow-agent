@@ -133,10 +133,9 @@ export interface AssembleContextOptions {
   resultSelection?: "all" | "rule" | "scoped";
   /** Event-owned requests from dataflow batches, reconstructed from receipts. */
   batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
-  /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
-   *  keeps the history a byte-stable prefix across turns, which is what prompt
-   *  caching matches on; see AgentSettings.userTaskPlacement. */
-  userTaskPlacement?: "top" | "bottom";
+  /** Current request placement. "chronological" retains requests at their
+   *  original positions; see AgentSettings.userTaskPlacement. */
+  userTaskPlacement?: "top" | "bottom" | "chronological";
   /** DELTA: collapse PRIOR turns into a compact `# Prior Turns` catalogue and
    *  keep only the current turn's events raw. See AgentSettings.turnHistory. */
   turnHistoryIndex?: boolean;
@@ -1722,11 +1721,12 @@ function renderInterleaved(
 ): string {
   const sections: string[] = [];
   const taskAtBottom = options.userTaskPlacement === "bottom";
+  const chronological = options.userTaskPlacement === "chronological";
 
   // 1. # User Task — unless it was moved to the bottom, where it leaves the
   // history as a byte-stable prefix across turns (cache) and sits closest to
   // the generation point (recency).
-  if (latestUserContent && !taskAtBottom) {
+  if (latestUserContent && !taskAtBottom && !chronological) {
     sections.push("# User Task");
     sections.push("");
     sections.push(latestUserContent);
@@ -2061,7 +2061,11 @@ function serializeTaskBody(
       // "please provide the next question" to a `Continue.` 70k tokens after
       // a request placed on top), and an inline copy at its chronological
       // position keeps the prompt append-only within the turn.
-      if (node.step.id === latestUserStepId && !(options.messageLayout === "native" && laterTurn)) continue;
+      if (
+        node.step.id === latestUserStepId &&
+        options.userTaskPlacement !== "chronological" &&
+        !(options.messageLayout === "native" && laterTurn)
+      ) continue;
       lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;

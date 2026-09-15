@@ -28,6 +28,7 @@ parser.add_argument('out', type=Path)
 parser.add_argument('--kb-root', type=Path, required=True)
 parser.add_argument('--env-file', type=Path, required=True)
 parser.add_argument('--turn-limit', type=int, default=9)
+parser.add_argument('--functions', action='store_true', help='Control: encourage parameterized reusable computations')
 args = parser.parse_args()
 load_dotenv(args.env_file, override=False)
 sys.path.insert(0, str(args.kb_root.resolve()))
@@ -42,7 +43,7 @@ wrapper = CodeAgentWrapper(model_type='gpt-5.6-luna', max_steps=25,
     max_print_outputs_length=2000, use_custom_prompt=True, verbosity_level=0,
     api_base=os.getenv('CODE_AGENT_API_BASE', 'http://localhost:4000'),
     api_key=os.getenv('LITELLM_MASTER_KEY', 'dummy')).setup()
-write('config.json', dict(arm='code', model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
+write('config.json', dict(arm='code-functions' if args.functions else 'code', model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
      custom_prompt=True, session=spec, wrapper=str(args.kb_root / 'code_agent.py'),
      wrapper_sha256=hashlib.sha256((args.kb_root / 'code_agent.py').read_bytes()).hexdigest(),
      python=sys.version, cost_rates_usd_per_million=dict(input=.2, cached_input=.02, output=1.2)))
@@ -50,6 +51,8 @@ prior = 0
 for index, turn in enumerate(spec['turns'][:args.turn_limit], 1):
     directory = f't{index:02}'; (out / directory).mkdir()
     prompt = ('We are working through a multi-turn analysis. Keep useful state and reusable computations for later requests. Distinguish published results from definitions and data versions.\n\n' if index == 1 else '') + turn['prompt'] + '\nEnd by calling final_answer with the requested JSON, not by printing it.'
+    if index == 1 and args.functions:
+        prompt = 'Session working method: define reusable report functions parameterized by data, cohort, and formula, and retain them in your Python session. When a later request changes only an input or cohort, call the relevant saved function with that replacement instead of rewriting the computation. Keep immutable copies of published results distinct from definitions and data.\n\n' + prompt
     write(f'{directory}/prompt.json', dict(id=turn['id'], prompt=prompt))
     wrapper._model.reset_usage()
     started = time.monotonic()

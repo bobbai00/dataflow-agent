@@ -18,6 +18,7 @@ Generate: python study.py generate /tmp/study --seed 41
 Score:    python study.py score /tmp/study /tmp/run
 """
 import argparse
+import ast
 import csv
 import json
 import random
@@ -101,7 +102,15 @@ def parse_answer(value):
                     found.append(obj)
             except ValueError:
                 pass
-    return found[-1] if found else None
+    if found:
+        return found[-1]
+    # CodeAgentWrapper stringifies a legitimate final_answer(dict) into Python
+    # repr. Normalize this transport shape; do not call it an analysis failure.
+    try:
+        obj = ast.literal_eval(str(value).strip())
+        return obj if isinstance(obj, dict) and 'regions' in obj else None
+    except (ValueError, SyntaxError):
+        return None
 
 
 def score(directory, run):

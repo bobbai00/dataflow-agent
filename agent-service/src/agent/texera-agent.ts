@@ -1426,7 +1426,7 @@ export class TexeraAgent {
     enableCompactTool?: boolean;
     compactKeepLastSteps?: number;
     staticCompaction?: boolean;
-    userTaskPlacement?: "top" | "bottom";
+    userTaskPlacement?: "top" | "bottom" | "chronological";
     turnHistory?: "full" | "index";
     enableRecallTool?: boolean;
     indexRichTables?: number;

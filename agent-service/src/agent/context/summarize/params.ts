@@ -291,10 +291,9 @@ export const TrajectoryParamsSchema = z.object({
   renderPrefs: z.boolean().default(false),
   /** Grace (events) after the resolution before prior revisions fold. */
   foldGraceEvents: z.number().int().min(0).default(1),
-  /** Where the `# User Task` block goes. "bottom" keeps the history a
-   *  byte-stable prefix across turns, which is what prompt caching matches on;
-   *  "top" is the legacy placement. */
-  userTaskPlacement: z.enum(["top", "bottom"]).default("top"),
+  /** Placement of the current request. "chronological" keeps all requests in
+   *  their original native DELTA frames, without a moving task block. */
+  userTaskPlacement: z.enum(["top", "bottom", "chronological"]).default("top"),
   /** Prior turns of a multi-turn session: "full" replays every event forever,
    *  "index" collapses them into the `# Prior Turns` catalogue and keeps only the
    *  current turn raw (details then pulled with `recallState`). */
