@@ -22,7 +22,10 @@ import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./agent/native/settings";
-import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
+import {
+  operatorInfoToSummary,
+  type OperatorResultSummary as OperatorResultSummaryWs,
+} from "./api/operator-result-summary";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
@@ -1406,20 +1409,6 @@ interface WsMessage {
   messageSource?: "chat" | "feedback";
 }
 
-interface OperatorResultSummaryWs {
-  state: string;
-  inputTuples: number;
-  outputTuples: number;
-  inputPortShapes?: { portIndex: number; rows: number; columns: number }[];
-  outputColumns?: number;
-  error?: string;
-  warnings?: string[];
-  consoleLogCount?: number;
-  totalRowCount?: number;
-  sampleRecords?: Record<string, any>[];
-  columnStats?: Record<string, string>;
-}
-
 interface WsOutgoingMessage {
   type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot";
   step?: ReActStep;
@@ -1437,29 +1426,6 @@ interface WsOutgoingMessage {
   stepId?: string;
   /** For "snapshot" events: the freshly recorded workflow content. */
   workflow?: any;
-}
-
-/**
- * Render one `OperatorInfo` into the wire shape the dashboard + websocket
- * clients expect. Kept separate from `getOperatorResultSummaries` so the
- * snapshots-by-stepId endpoint can reuse it instead of dumping raw
- * `OperatorInfo` (which inverts the field names — `result` vs
- * `sampleRecords` — and skips the precomputed `outputColumns`).
- */
-function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
-  return {
-    state: info.state,
-    inputTuples: info.inputTuples,
-    outputTuples: info.outputTuples,
-    inputPortShapes: info.inputPortShapes,
-    outputColumns: info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
-    error: info.error,
-    warnings: info.warnings,
-    consoleLogCount: info.consoleLogs?.length,
-    totalRowCount: info.totalRowCount,
-    sampleRecords: info.result,
-    columnStats: info.columnStats,
-  };
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {

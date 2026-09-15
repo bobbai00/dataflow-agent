@@ -18,13 +18,16 @@
  */
 
 import type { SyncExecutionResult } from "../../types/execution";
+import type { LogicalPlan } from "../../types/workflow";
+import { executionFingerprints, producingExecution } from "./result-versions";
 
 /** V2 must not silently consume legacy NULL strings or rounded int64 numbers.
  * This negotiation concerns data correctness. Missing optional profiles are
  * handled separately and never turn a valid table into an execution failure. */
 export function prepareStructuredExecutionResult(
   response: SyncExecutionResult,
-  workflowId: number
+  workflowId: number,
+  plan?: LogicalPlan
 ): SyncExecutionResult {
   if (!response.success && !Object.values(response.operators).some(info => info.result != null)) return response;
   if (
@@ -54,6 +57,7 @@ export function prepareStructuredExecutionResult(
     };
   }
   const executionContext = { workflowId, executionId: response.executionId };
+  const fingerprints = plan ? executionFingerprints(plan) : undefined;
   return {
     ...response,
     operators: Object.fromEntries(
@@ -61,7 +65,26 @@ export function prepareStructuredExecutionResult(
         id,
         {
           ...info,
-          executionContext: { ...executionContext },
+          executionContext: {
+            ...executionContext,
+            ...fingerprints?.get(id),
+            ...(plan
+              ? {
+                  inputs: plan.links
+                    .filter(link => link.toOpId === id)
+                    .map(link => ({
+                      operatorId: link.fromOpId,
+                      inputPort: link.toPortId.id,
+                      outputPort: link.fromPortId.id,
+                      executionId: producingExecution({
+                        materialization:
+                          response.operators[link.fromOpId]?.materialization ??
+                          response.inputMaterializations?.[link.fromOpId],
+                      }),
+                    })),
+                }
+              : {}),
+          },
         },
       ])
     ),

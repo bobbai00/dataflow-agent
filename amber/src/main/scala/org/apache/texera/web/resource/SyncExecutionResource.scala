@@ -125,7 +125,8 @@ case class SyncExecutionResult(
     compilationErrors: Option[Map[String, String]],
     errors: Option[List[String]],
     executionId: Option[String] = None,
-    capabilities: Option[List[String]] = None
+    capabilities: Option[List[String]] = None,
+    inputMaterializations: Option[Map[String, ResultMaterialization]] = None
 )
 
 sealed trait TerminationReason
@@ -377,7 +378,19 @@ class SyncExecutionResource extends LazyLogging {
         errors = if (fatalErrors.nonEmpty) Some(fatalErrors) else None,
         executionId = if (request.structuredResults) Some(executionId.id.toString) else None,
         capabilities =
-          if (request.structuredResults) Some(StructuredResultTransport.capabilities) else None
+          if (request.structuredResults) Some(StructuredResultTransport.capabilities) else None,
+        inputMaterializations = Option.when(request.structuredResults) {
+          val states = executionService.executionStateStore.statsStore.getState.operatorInfo
+          StructuredResultTransport.inputMaterializations(
+            effectiveLogicalPlan.operators.map(_.operatorIdentifier.id),
+            states.collect { case (id, metrics) if metrics.operatorState == COMPLETED => id }.toSet,
+            states.collect {
+              case (id, metrics) if metrics.operatorState == COMPLETED_FROM_CACHE => id
+            }.toSet,
+            executionId.id.toString,
+            executionService.executionStateStore.cacheUsageStore.getState.cachedOutputs
+          )
+        }
       )
 
     } catch {

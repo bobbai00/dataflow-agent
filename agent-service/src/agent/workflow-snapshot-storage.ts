@@ -19,6 +19,7 @@
 
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
+import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -125,7 +126,10 @@ export class WorkflowSnapshotStorage {
    *   leaf for the given step. Used by all readers to resolve the
    *   associated snapshot through ReAct ancestors.
    */
-  constructor(private getAncestorPath: (reactStepId: string) => string[]) {
+  constructor(
+    private getAncestorPath: (reactStepId: string) => string[],
+    private getWorkflowId?: () => number | undefined
+  ) {
     this.rootSnapshotId = this.allocateRoot();
   }
 
@@ -190,11 +194,13 @@ export class WorkflowSnapshotStorage {
     }
 
     const id = this.generateSnapshotId();
+    const ownedWorkflow = structuredClone(workflow);
+    if (ownedWorkflow.operators.some(op => op.nativeOp?.version === "v2")) freezeSnapshotValue(ownedWorkflow);
     const snapshot: SnapshotData = {
       id,
       parentId: parentSnapshotId,
       reactStepId,
-      workflow,
+      workflow: ownedWorkflow,
       // Entries are carried forward by reference — ResultEntry is
       // immutable; overrides replace the entry, never mutate in place.
       results: inherited,
@@ -222,8 +228,52 @@ export class WorkflowSnapshotStorage {
           `Call createSnapshot first.`
       );
     }
+    const snapshot = this.snapshots.get(snapshotId)!;
+    const current = new Map([...snapshot.results].map(([id, entry]) => [id, entry.info]));
+    const snapshots = this.snapshots;
+    const historicalResults = function* () {
+      for (const candidate of snapshots.values()) {
+        const entry = candidate.results.get(operatorId);
+        if (entry) yield entry.info;
+      }
+    };
+    const bound = bindResultVersion(
+      snapshot.workflow,
+      operatorId,
+      structuredClone(info),
+      current,
+      this.getWorkflowId?.(),
+      historicalResults
+    );
+    if (!bound) return;
+    if (
+      bound.resultVersion ||
+      snapshot.workflow.operators.find(o => o.operatorID === operatorId)?.nativeOp?.version === "v2"
+    ) {
+      const invalidate = (root: string, includeRoot = false) => {
+        if (includeRoot) snapshot.results.delete(root);
+        const pending = [root];
+        const seen = new Set(pending);
+        for (const id of pending)
+          for (const link of snapshot.workflow.links) {
+            if (link.source.operatorID !== id || seen.has(link.target.operatorID)) continue;
+            seen.add(link.target.operatorID);
+            pending.push(link.target.operatorID);
+            snapshot.results.delete(link.target.operatorID);
+          }
+      };
+      for (const input of bound.executionContext?.inputs ?? []) {
+        const old = producingExecution(current.get(input.operatorId));
+        if (old && input.executionId && old !== input.executionId) invalidate(input.operatorId, true);
+      }
+      const previous = current.get(operatorId);
+      // A fresh materialization (even without an edit) supersedes downstream
+      // results tied to the old input. Historical snapshots are never changed.
+      if (bound.error || previous?.resultVersion?.id !== bound.resultVersion?.id) invalidate(operatorId);
+      freezeSnapshotValue(bound);
+    }
     // Descendants share immutable entries, never a caller's mutable response.
-    this.snapshots.get(snapshotId)!.results.set(operatorId, { info: structuredClone(info), sourceStepId: reactStepId });
+    snapshot.results.set(operatorId, { info: bound, sourceStepId: reactStepId });
   }
 
   // ── readers ──────────────────────────────────────────────────────────
@@ -514,6 +564,7 @@ function operatorPredicateEqual(a: OperatorPredicate, b: OperatorPredicate): boo
   if (JSON.stringify(a.operatorProperties) !== JSON.stringify(b.operatorProperties)) return false;
   if (JSON.stringify(a.inputPorts) !== JSON.stringify(b.inputPorts)) return false;
   if (JSON.stringify(a.outputPorts) !== JSON.stringify(b.outputPorts)) return false;
+  if (JSON.stringify(a.nativeOp) !== JSON.stringify(b.nativeOp)) return false;
   return true;
 }
 

@@ -377,7 +377,10 @@ export class TexeraAgent {
 
     this.workflowState = new WorkflowState();
     this.metadataStore = WorkflowSystemMetadata.getInstance();
-    this.snapshotStorage = new WorkflowSnapshotStorage(stepId => this.getAncestorPath(stepId));
+    this.snapshotStorage = new WorkflowSnapshotStorage(
+      stepId => this.getAncestorPath(stepId),
+      () => this.delegateConfig?.workflowId
+    );
 
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
