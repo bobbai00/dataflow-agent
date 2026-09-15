@@ -917,9 +917,12 @@ reuse the provisioned venv/dependencies locally; do not commit their symlinks.
 Freeze model, context mode/budget, maximum steps, task data, retry policy and
 backend configuration. The first seven arms are now registered in the
 [isolated harness pilot](../benchmark/Kramabench/docs/native-python-pilot.md),
-with names `DataflowSystemLunaPythonPilot<Arm>20260915Rep1`. Registration is
-locally tested; guarded orchestration, live qualification and results remain
-pending. A service port alone does not establish its source/build provenance.
+with names `DataflowSystemLunaPythonPilot<Arm>20260915Rep1`. Registration and
+the one-attempt capture/official-scoring path are locally tested. The production
+launch/admission guard, execution-record persistence, verified cleanup, live
+qualification and results remain pending. A service port alone does not establish
+its source/build provenance. See the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md)
+for corrected final-step accounting, partial usage and exact remaining gates.
 
 | Arm | Framework | Evidence |
 | --- | --- | --- |
@@ -988,7 +991,7 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
 | C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
 | C6 | Shape utilities and diagnostics locally verified; live/real-model qualification incomplete | `2674cd458`: five shape utilities and budgeted flow facts; see [shape checkpoint](checkpoints/native-python-dataflow-c6-shapes.md) for Python/codec qualification. `a8ba50f35`: revision-pinned diagnostics, rejected-edit control state, bounded authenticated inspection endpoint and persistent model pulls; latest full checks: 1,105 Bun tests and typecheck pass. Live shape/diagnostic fixtures are prepared, not run. See [C6 diagnostic checkpoint](checkpoints/native-python-dataflow-c6-diagnostics.md) for exact scope, security boundary and remaining gates |
-| C7 | Arms and measurement plumbing locally verified; pilot incomplete | Harness `c2fe10e`: seven registered arms, keyword-only V2 settings, pinned CUs and native trace counters (19 tests). `4febe3761`/`ed33e73de`: actual compiler-call phases and isolated execution recorder; 1,114 Bun tests, typecheck, 1,682 filtered Scala/JUnit tests, 50 compiler tests and engine packaging pass. Guarded runner, live/real-model gates and official one-attempt pilot/report remain required; no cost/accuracy benefit claimed. See [C7 measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md) |
+| C7 | Measurement and single-attempt paths locally verified; pilot incomplete | Harness `79cdec9`: seven arms, one-attempt capture, official Executor/Evaluator path, partial/frozen cost and corrected final-step usage/provenance (57 tests). See [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md). `4febe3761`/`ed33e73de`: compiler-call phases and recorder; prior 1,114 Bun tests, typecheck, 1,682 filtered Scala/JUnit tests, 50 compiler tests and packaging pass, documented in [measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md). Production guard, persistent recorder/verified cleanup, live/real-model gates and official pilot/report remain required; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
