@@ -75,6 +75,37 @@ reserved evidence. A live settings toggle applies to subsequent operator
 creation/updates; it does not rewrite already-generated workflow code. Use fresh
 agents/workflows for comparison arms.
 
+## Current shared-backend setup (after the pilot)
+
+The user confirmed separate agent services with a shared Texera backend. Agent
+3009 now targets `WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:8085`,
+the same execution service used by agent 3008. The compatible Python metadata
+hook and regression tests were deployed to that shared worker source in the
+`op-granularity` worktree at commit `7f4d59d20`; no shared JVM restart was needed.
+Ordinary operators without the opt-in DataFrame attribute are unchanged.
+
+A fresh no-LLM smoke passed against 8085: CREATE/GET/PATCH settings, prompt
+scope, Compute/Aggregate/Join measurements, and unchanged output schemas. The
+temporary CU-master on 8086 / actor 2553 was retired. Record 19 and the original
+pilot artifacts remain for provenance; it identifies the original isolated
+runtime, not the current shared execution endpoint. No benchmark task was
+rerun or overwritten during this switch.
+
+Use the supported launcher to manage only this worktree's agent service:
+
+```bash
+TEXERA_AGENT_SERVICE_PORT=3009 TEXERA_LOCAL_DEV_DIR=/tmp/texera-native-evidence-20260914 WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:8085 bin/local-dev.sh up agent-service --skip-build
+```
+
+From `agent-service/`, repeat the synthetic shared-worker check with:
+
+```bash
+WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:8085 TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3009 SMOKE_AGENT_TURN=0 bun run benchmark/e2e/native-flow-evidence.ts
+```
+
+The following isolated-runtime notes describe **the measured pilot**, not the
+current service placement. They are retained to reproduce its exact setup.
+
 ## Isolated runtime used for the 2026-09-14 pilot
 
 Worktree: `.claude/worktrees/native-dataflow-evidence`, branch
