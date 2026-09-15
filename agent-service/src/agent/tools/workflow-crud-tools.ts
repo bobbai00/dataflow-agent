@@ -35,6 +35,7 @@ export interface ToolContext {
     maxOperatorResultCharLimit?: number;
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
+    nativeFlowEvidence?: boolean;
   };
 }
 

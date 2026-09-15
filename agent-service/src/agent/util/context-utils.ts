@@ -73,6 +73,7 @@ import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import { formatNativeError, type FormatOperatorResultOptions } from "../tools/result-formatting";
 import { createLogger } from "../../logger";
+import { formatNativeFlowEvidence } from "../native/flow-evidence";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or, for the
  *  typed operator tools of native mode, `id`. Undefined for read-only tools. */
@@ -130,6 +131,7 @@ export interface AssembleContextOptions {
    *  executed operator renders its full result) or "rule" (ship only what the
    *  data decided — see native/selection.ts). */
   resultSelection?: "all" | "rule" | "scoped";
+  nativeFlowEvidence?: boolean;
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
@@ -2217,7 +2219,12 @@ function serializeTaskBody(
           const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
           if (leafOp) {
             const leafInfo = leaf.results.get(op.operatorID)?.info;
-            for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf)) obs.push(`  ${l}`);
+            const measuredJoin =
+              options.nativeFlowEvidence === true && leafOp.nativeOp?.type === "Join" &&
+              !!formatNativeFlowEvidence(leafInfo);
+            for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf, measuredJoin)) {
+              obs.push(`  ${l}`);
+            }
           }
         }
         // Revision fold (rank-3): a result earned under a superseded revision
@@ -2251,6 +2258,11 @@ function serializeTaskBody(
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
+        const flowEvidence =
+          renderOptions.nativeFlowEvidence && op.nativeOp ? formatNativeFlowEvidence(info) : undefined;
+        if (flowEvidence) {
+          for (const l of flowEvidence.split("\n")) obs.push(`  ${l}`);
+        }
         const shape = deltaShapes?.get(op.operatorID);
         if (shape && info && !info.error && shape.shape === "header") continue;
         if (shape && info && !info.error && shape.shape === "count") {
@@ -3702,7 +3714,8 @@ function formatOperatorAdjacency(
   op: OperatorPredicate,
   allLinks: WorkflowContent["links"],
   opInfo?: OperatorInfo,
-  snapshot?: SnapshotData
+  snapshot?: SnapshotData,
+  measuredJoin = false
 ): string[] {
   const lines: string[] = [];
   const inbound = allLinks
@@ -3742,7 +3755,10 @@ function formatOperatorAdjacency(
       .map(i => shapes.find(s => s.portIndex === i.port)?.rows)
       .filter((r): r is number => typeof r === "number" && r > 0);
     const out = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
-    if (inbound.length > 1 && inRows.length === inbound.length && typeof out === "number") {
+    // Preserve the legacy baseline rendering, but do not contradict exact
+    // semi-join measurements when the evidence arm has them. Output size is
+    // not enough to infer unmatched INPUT rows for a general many-to-many join.
+    if (!measuredJoin && inbound.length > 1 && inRows.length === inbound.length && typeof out === "number") {
       const smallest = Math.min(...inRows);
       if (out < smallest) {
         const pct = ((100 * out) / smallest).toFixed(0);
@@ -3882,7 +3898,9 @@ function serializeOperatorFull(
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
+  const measuredJoin =
+    options.nativeFlowEvidence === true && op.nativeOp?.type === "Join" && !!formatNativeFlowEvidence(info);
+  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot, measuredJoin)) lines.push(l);
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the
@@ -3949,6 +3967,9 @@ function serializeOperatorFull(
       | undefined;
     if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
+
+  const flowEvidence = options.nativeFlowEvidence && op.nativeOp ? formatNativeFlowEvidence(info) : undefined;
+  if (flowEvidence) lines.push(...flowEvidence.split("\n"));
 
   if (execText && (shape?.shape === "count" || (shape?.shape === "header" && shape.note))) {
     lines.push(`Result: ${execText}`);

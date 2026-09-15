@@ -37,6 +37,14 @@
  */
 
 import { NATIVE_BY_TYPE, NATIVE_ID_RE, type NativeOpView } from "./catalog";
+import { readFileSync } from "node:fs";
+
+const FLOW_EVIDENCE_PYTHON = readFileSync(new URL("./flow-evidence.py", import.meta.url), "utf8");
+
+export interface NativeCompileOptions {
+  /** Measure bounded relational evidence inside generated native operators. */
+  flowEvidence?: boolean;
+}
 
 export interface CompiledNativeOp {
   /** `DataLoading` for Scan (and a UDF whose code defines `load`), else `DataProcessing`. */
@@ -147,7 +155,9 @@ function compileScan(p0: Record<string, any>): string {
   }
   L.push("        return d");
   L.push(`    _pats = ${py(files)}`);
-  L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
+  L.push(
+    "    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))"
+  );
   // A wrong path is the most common Scan failure (the task text says `omni2.txt`,
   // the lake has `omni2.text`): name the directory's actual files in the error.
   L.push("    def _not_found(paths):");
@@ -156,10 +166,14 @@ function compileScan(p0: Record<string, any>): string {
   L.push("            d = os.path.dirname(q) or '.'");
   L.push("            if os.path.isdir(d):");
   L.push("                names = sorted(os.listdir(d))");
-  L.push("                hints.append(d + '/ contains: ' + ', '.join(names[:40]) + (' ...' if len(names) > 40 else ''))");
+  L.push(
+    "                hints.append(d + '/ contains: ' + ', '.join(names[:40]) + (' ...' if len(names) > 40 else ''))"
+  );
   L.push("            else:");
   L.push("                parent = os.path.dirname(d.rstrip('/')) or '.'");
-  L.push("                hints.append('no directory ' + d + (' (' + parent + '/ contains: ' + ', '.join(sorted(os.listdir(parent))[:40]) + ')' if os.path.isdir(parent) else ''))");
+  L.push(
+    "                hints.append('no directory ' + d + (' (' + parent + '/ contains: ' + ', '.join(sorted(os.listdir(parent))[:40]) + ')' if os.path.isdir(parent) else ''))"
+  );
   L.push("        raise FileNotFoundError('not found: ' + ', '.join(paths) + '. ' + ' | '.join(hints))");
   L.push("    if not files:");
   L.push("        _not_found(_pats)");
@@ -173,9 +187,13 @@ function compileScan(p0: Record<string, any>): string {
   L.push("        elif ext in ('.html', '.htm'): fmt = 'html'");
   L.push("        elif ext in ('.json', '.jsonl', '.ndjson'): fmt = 'json'");
   L.push("        elif ext == '.parquet': fmt = 'parquet'");
-  L.push("        elif ext in ('.gpkg', '.shp', '.npz', '.npy', '.cdf', '.nc', '.h5', '.hdf5', '.pkl', '.zip', '.gz', '.db', '.sqlite'): fmt = 'binary'");
+  L.push(
+    "        elif ext in ('.gpkg', '.shp', '.npz', '.npy', '.cdf', '.nc', '.h5', '.hdf5', '.pkl', '.zip', '.gz', '.db', '.sqlite'): fmt = 'binary'"
+  );
   L.push("        else: fmt = 'csv'");
-  L.push("    BINARY_HINT = 'binary format ' + ext + ': scan reads text tables, xlsx, html, json and parquet; read this file with a udf loader (geopandas.read_file for .gpkg/.shp, numpy.load for .npz, cdflib for .cdf)'");
+  L.push(
+    "    BINARY_HINT = 'binary format ' + ext + ': scan reads text tables, xlsx, html, json and parquet; read this file with a udf loader (geopandas.read_file for .gpkg/.shp, numpy.load for .npz, cdflib for .cdf)'"
+  );
   L.push(`    file_col = ${py(p.fileColumn ?? null)}`);
   L.push("    def _tag(d, f):");
   L.push("        if file_col: d[file_col] = os.path.basename(f)");
@@ -217,7 +235,9 @@ function compileScan(p0: Record<string, any>): string {
     L.push("                rows.append({'table': i, 'row_no': k, 'line': _row_line(r)})");
     L.push("        return pd.DataFrame(rows, columns=['table', 'row_no', 'line'])");
     L.push("    if fmt == 'binary':");
-    L.push("        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})");
+    L.push(
+      "        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})"
+    );
     L.push("    rows = []");
     L.push("    for f in files[:5]:");
     L.push("        with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh:");
@@ -262,14 +282,18 @@ function compileScan(p0: Record<string, any>): string {
   L.push("                j = [json.loads(l) for l in txt.splitlines() if l.strip()]");
   L.push("            if isinstance(j, dict) and all(not isinstance(v, (dict, list)) for v in j.values()):");
   L.push("                d = pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
-  L.push("            elif isinstance(j, dict) and all(isinstance(v, list) for v in j.values()) and len({len(v) for v in j.values()}) == 1:");
+  L.push(
+    "            elif isinstance(j, dict) and all(isinstance(v, list) for v in j.values()) and len({len(v) for v in j.values()}) == 1:"
+  );
   L.push("                d = pd.DataFrame(j)");
   L.push("            else:");
   L.push("                d = pd.json_normalize(j)");
   L.push("            parts.append(_tag(d, f))");
   L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'parquet':");
-  L.push("        return _norm(duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df())");
+  L.push(
+    "        return _norm(duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df())"
+  );
   // ---- pandas text readers: fixed width, whitespace-aligned, commented, non-utf-8
   const pdCommon =
     `header=${header ? "0" : "None"}, skiprows=${skip}` +
@@ -279,7 +303,9 @@ function compileScan(p0: Record<string, any>): string {
     ", encoding=_text_enc(f), encoding_errors='replace'";
   L.push("    if fmt == 'fwf':");
   L.push("        for f in files:");
-  L.push(`            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`);
+  L.push(
+    `            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`
+  );
   L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   const pandasCsv = p.delim === "whitespace" ? `sep=r'\\s+', engine='python'` : `sep=${py(p.delim ?? ",")}`;
   L.push("    def _pandas_csv():");
@@ -334,18 +360,29 @@ function compileFilter(p: Record<string, any>, inp: string): string {
   return sqlStage(inp, [`    q = 'SELECT * FROM t WHERE (' + ${py(translateTypes(String(p.predicate)))} + ')'`]);
 }
 
-function compileCompute(p: Record<string, any>, inp: string): string {
+function compileCompute(p: Record<string, any>, inp: string, evidence = false): string {
   const cols = Object.fromEntries(
     Object.entries((p.columns ?? {}) as Record<string, string>).map(([k, v]) => [k, translateTypes(String(v))])
   );
-  return sqlStage(inp, [
-    `    cols = ${py(cols)}`,
-    "    qn = lambda c: '\"' + str(c).replace('\"', '\"\"') + '\"'",
-    "    rep = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c in t.columns]",
-    "    new = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c not in t.columns]",
-    "    sel = '*' + (' REPLACE (' + ', '.join(rep) + ')' if rep else '')",
-    "    q = 'SELECT ' + sel + (', ' + ', '.join(new) if new else '') + ' FROM t'",
-  ]);
+  return sqlStage(
+    inp,
+    [
+      `    cols = ${py(cols)}`,
+      "    qn = lambda c: '\"' + str(c).replace('\"', '\"\"') + '\"'",
+      "    rep = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c in t.columns]",
+      "    new = [f'({e}) AS ' + qn(c) for c, e in cols.items() if c not in t.columns]",
+      "    sel = '*' + (' REPLACE (' + ', '.join(rep) + ')' if rep else '')",
+      ...(evidence
+        ? [
+            "    _flow_aliases, _flow_pairs = _native_flow_prepare_compute(t, cols)",
+            "    _flow_select = [qn(src) + ' AS ' + qn(alias) for src, alias in _flow_aliases.items()]",
+            "    new += _flow_select",
+          ]
+        : []),
+      "    q = 'SELECT ' + sel + (', ' + ', '.join(new) if new else '') + ' FROM t'",
+    ],
+    evidence ? ["    d = _native_flow_finish_compute(d, _flow_aliases, _flow_pairs)"] : []
+  );
 }
 
 const AGG_SQL: Record<string, (c: string | undefined) => string> = {
@@ -362,7 +399,7 @@ const AGG_SQL: Record<string, (c: string | undefined) => string> = {
   stddev: c => `STDDEV(${c})`,
 };
 
-function compileAggregate(p: Record<string, any>, inp: string): string {
+function compileAggregate(p: Record<string, any>, inp: string, evidence = false): string {
   const keys: string[] = Array.isArray(p.groupBy) ? p.groupBy : [];
   const parts: string[] = keys.map(k => ident(k));
   for (const a of p.aggregations as Array<{ fn: string; col?: string; as?: string }>) {
@@ -406,6 +443,7 @@ function compileAggregate(p: Record<string, any>, inp: string): string {
       "        s = d[c]",
       "        if s.dtype.kind == 'f' and s.notna().all() and len(s) and (s % 1 == 0).all() and s.abs().max() < 9.2e18:",
       "            d[c] = s.astype('int64')",
+      ...(evidence ? [`    _native_flow_aggregate(${inp}, d, ${py(p)})`] : []),
     ],
     pre
   );
@@ -422,7 +460,7 @@ function compileProject(p: Record<string, any>, inp: string): string {
 
 const JOIN_HOW: Record<string, string> = { inner: "inner", left: "left", right: "right", full: "outer" };
 
-function compileJoin(p: Record<string, any>, inputs: string[]): string {
+function compileJoin(p: Record<string, any>, inputs: string[], evidence = false): string {
   const [l, r] = inputs;
   // Self-join (the same table on both sides, e.g. year vs year-1): one
   // parameter, used twice.
@@ -439,7 +477,13 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
     return [
       `def process(${params}):`,
       "    import pandas as pd",
-      `    return ${l}.merge(${r}, how='cross', suffixes=('', '_right'))`,
+      ...(evidence
+        ? [
+            `    d = ${l}.merge(${r}, how='cross', suffixes=('', '_right'))`,
+            `    _native_flow_join(${l}, ${r}, d, ${py(p)})`,
+            "    return d",
+          ]
+        : [`    return ${l}.merge(${r}, how='cross', suffixes=('', '_right'))`]),
     ].join("\n");
   }
   const leftOn = on.map(x => x[0]);
@@ -465,7 +509,13 @@ function compileJoin(p: Record<string, any>, inputs: string[]): string {
     "                         + repr(_lk) + ', ' + repr(_rk) + '] instead of one [left, right] pair.')",
     "            raise ValueError('join: key pair (' + repr(_lk) + ', ' + repr(_rk) + ') compares a ' + _lt",
     "                             + ' column with a ' + _rt + ' column.' + _hint)",
-    `    return ${l}.merge(${r}, left_on=_left_on, right_on=_right_on, how=${py(how)}, suffixes=('', '_right'))`,
+    ...(evidence
+      ? [
+          `    d = ${l}.merge(${r}, left_on=_left_on, right_on=_right_on, how=${py(how)}, suffixes=('', '_right'))`,
+          `    _native_flow_join(${l}, ${r}, d, ${py(p)})`,
+          "    return d",
+        ]
+      : [`    return ${l}.merge(${r}, left_on=_left_on, right_on=_right_on, how=${py(how)}, suffixes=('', '_right'))`]),
   ].join("\n");
 }
 
@@ -514,7 +564,15 @@ function compileLimit(p: Record<string, any>, inp: string): string {
 
 /** Validate id / input shape and compile one native operator to Python. Throws on a
  *  malformed view — the tool turns that into an `[ERROR]` result for the agent. */
-export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
+export function compileNativeOp(view: NativeOpView, options: NativeCompileOptions = {}): CompiledNativeOp {
+  const compiled = compileNativeOpBody(view, options);
+  if (options.flowEvidence && ["Compute", "Aggregate", "Join"].includes(view.type)) {
+    compiled.code += "\n\n" + FLOW_EVIDENCE_PYTHON;
+  }
+  return compiled;
+}
+
+function compileNativeOpBody(view: NativeOpView, options: NativeCompileOptions): CompiledNativeOp {
   const def = NATIVE_BY_TYPE.get(view.type);
   if (!def) throw new Error(`unknown native operator type "${view.type}"`);
   const inputs = view.inputs ?? [];
@@ -541,11 +599,11 @@ export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
     case "Project":
       return { operatorType: "DataProcessing", code: compileProject(p, inputs[0]) };
     case "Compute":
-      return { operatorType: "DataProcessing", code: compileCompute(p, inputs[0]) };
+      return { operatorType: "DataProcessing", code: compileCompute(p, inputs[0], options.flowEvidence) };
     case "Aggregate":
-      return { operatorType: "DataProcessing", code: compileAggregate(p, inputs[0]) };
+      return { operatorType: "DataProcessing", code: compileAggregate(p, inputs[0], options.flowEvidence) };
     case "Join":
-      return { operatorType: "DataProcessing", code: compileJoin(p, inputs) };
+      return { operatorType: "DataProcessing", code: compileJoin(p, inputs, options.flowEvidence) };
     case "Unpivot":
       return { operatorType: "DataProcessing", code: compileUnpivot(p, inputs[0]) };
     case "Union":

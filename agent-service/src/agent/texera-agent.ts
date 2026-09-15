@@ -566,6 +566,17 @@ export class TexeraAgent {
           recall: this.settings.enableRecallTool === true,
         }
       );
+      if (this.settings.nativeFlowEvidence) {
+        this.systemPrompt +=
+          "\n\n## Flow evidence\n" +
+          "Some Compute, Aggregate and Join results include compact measurements over their full materialized input/output tables, " +
+          "not unread files or the whole data lake. These are facts about the current operator's population, not inferred user intent. " +
+          "For example, NULL becoming a non-null value can be intentional imputation; a grouping key associated with multiple " +
+          "other values can be a valid aggregation; join matched-input counts differ from output counts when keys repeat. " +
+          "Check the question before interpreting null transitions, grouping associations, population partitions or join mismatches as errors. " +
+          "Evidence is capped at four facts and 1,000 characters per operator; candidate-column and expression searches are limited. " +
+          "Absence of evidence does not prove correctness, and a measured mismatch does not by itself prescribe a correction.";
+      }
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -632,6 +643,7 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        nativeFlowEvidence: this.settings.nativeFlowEvidence,
       },
     };
 
@@ -737,6 +749,7 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        nativeFlowEvidence: this.settings.nativeFlowEvidence,
       },
     };
 
@@ -1362,6 +1375,7 @@ export class TexeraAgent {
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
     resultSelection?: ResultSelection;
+    nativeFlowEvidence?: boolean;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
     includeOperatorProperties?: boolean;
@@ -1456,6 +1470,13 @@ export class TexeraAgent {
       // Render-time selection of result blocks; the native prompt describes the
       // shapes the agent will see, so it rebuilds too.
       this.settings.resultSelection = updates.resultSelection;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.nativeFlowEvidence !== undefined &&
+      updates.nativeFlowEvidence !== this.settings.nativeFlowEvidence
+    ) {
+      this.settings.nativeFlowEvidence = updates.nativeFlowEvidence;
       promptNeedsRebuild = true;
     }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {

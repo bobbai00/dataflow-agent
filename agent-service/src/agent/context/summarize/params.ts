@@ -347,6 +347,7 @@ export const SummarizeParamsSchema = z.object({
    *  AgentSettings.resultSelection): "all" renders every result block,
    *  "rule" ships only what the data decided. */
   resultSelection: z.enum(["all", "rule", "scoped"]).default("all"),
+  nativeFlowEvidence: z.boolean().default(false),
   flow: FlowParamsSchema.default({}),
   operators: z
     .object({
@@ -499,6 +500,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
     compiledSchemas: options.agentMode === AgentMode.GENERAL,
     resultSelection: options.resultSelection ?? "all",
+    nativeFlowEvidence: options.nativeFlowEvidence === true,
     statScopes: options.statScopes,
     messageLayout: options.messageLayout,
     flow: {

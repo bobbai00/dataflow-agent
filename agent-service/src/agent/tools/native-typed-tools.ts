@@ -273,7 +273,7 @@ export function createNativeTypedTools(workflowState: WorkflowState, context?: T
         }
         let compiled;
         try {
-          compiled = compileNativeOp(view);
+          compiled = compileNativeOp(view, { flowEvidence: context?.settings?.nativeFlowEvidence === true });
         } catch (e: any) {
           return createErrorResult(`\`${id}\`: ${e?.message ?? String(e)}`);
         }

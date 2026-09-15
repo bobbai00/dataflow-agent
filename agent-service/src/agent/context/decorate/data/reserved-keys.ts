@@ -28,8 +28,10 @@ export const TABLE_HINTS_KEY = "__table_hints__";
 /** A7: multi-file load provenance — the file list the operator's glob actually
  *  matched (`files read: 53 [ALABAMA.csv, …]`). A FACT, not a column. */
 export const FILE_IO_KEY = "__file_io__";
+/** Opt-in measured input/output relationships from native generated code. */
+export const NATIVE_FLOW_EVIDENCE_KEY = "__native_flow_evidence__";
 // `__join_telemetry__` is a RETIRED producer key (the join-telemetry lever was
 // removed). Kept in the filter set as a bare literal so any stale / old-deploy
 // stats that still carry it are dropped from the schema render instead of
 // leaking as a fake column — defensive hygiene, not a live signal.
-export const RESERVED_STATS_KEYS = new Set(["__join_telemetry__", COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY, FILE_IO_KEY]);
+export const RESERVED_STATS_KEYS = new Set(["__join_telemetry__", COERCION_TELEMETRY_KEY, TABLE_HINTS_KEY, FILE_IO_KEY, NATIVE_FLOW_EVIDENCE_KEY]);

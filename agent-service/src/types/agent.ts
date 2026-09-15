@@ -176,6 +176,8 @@ export interface AgentSettings {
   agentMode: AgentMode;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
+  /** Measure and render compact native input/output evidence. Off by default. */
+  nativeFlowEvidence: boolean;
   contextMode: ContextMode;
   /**
    * When true, the model may emit multiple tool calls in a single assistant
@@ -612,6 +614,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ],
   agentMode: AgentMode.GENERAL,
   resultSelection: "all",
+  nativeFlowEvidence: false,
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
   // per event, and every materialized result carries its schema, structural
@@ -742,6 +745,7 @@ export interface AgentSettingsApi {
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
   resultSelection?: "all" | "rule" | "scoped";
+  nativeFlowEvidence?: boolean;
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;
@@ -844,6 +848,7 @@ export interface UpdateAgentSettingsRequest {
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
   resultSelection?: "all" | "rule" | "scoped";
+  nativeFlowEvidence?: boolean;
   attemptReflection?: boolean;
   thoughtReplay?: boolean;
   thoughtReplayK?: number;

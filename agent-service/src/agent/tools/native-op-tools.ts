@@ -175,7 +175,7 @@ export function createAddOperatorsTool(workflowState: WorkflowState, context?: T
         const view: NativeOpView = { type: spec.type, properties: spec.properties ?? {}, inputs };
         let compiled;
         try {
-          compiled = compileNativeOp(view);
+          compiled = compileNativeOp(view, { flowEvidence: context?.settings?.nativeFlowEvidence === true });
         } catch (e: any) {
           return createErrorResult(`"${spec.id}": ${e?.message ?? String(e)}.${where}`);
         }
@@ -245,7 +245,7 @@ export function createNativeModifyOperatorTool(workflowState: WorkflowState, con
       }
       let compiled;
       try {
-        compiled = compileNativeOp(view);
+        compiled = compileNativeOp(view, { flowEvidence: context?.settings?.nativeFlowEvidence === true });
       } catch (e: any) {
         return createErrorResult(`"${args.operatorId}": ${e?.message ?? String(e)}`);
       }

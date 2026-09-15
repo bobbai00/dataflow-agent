@@ -19,7 +19,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { TexeraAgent } from "./texera-agent";
-import { type ReActStep } from "../types/agent";
+import { AgentMode, type ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { OperatorInfo } from "../types/execution";
 import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
@@ -43,6 +43,24 @@ function makeAgent(): TexeraAgent {
     agentId: "test-agent",
   });
 }
+
+test("native evidence prompt states measured scope and is independently gated", () => {
+  const agent = makeAgent();
+  agent.updateSettings({ agentMode: AgentMode.NATIVE });
+  const baseline = agent.getSystemInfo().systemPrompt;
+  expect(baseline).not.toContain("## Flow evidence");
+  agent.updateSettings({ nativeFlowEvidence: true });
+  const measured = agent.getSystemInfo().systemPrompt;
+  expect(measured).toContain("full materialized input/output tables");
+  expect(measured).toContain("not unread files or the whole data lake");
+  expect(measured).toContain("not inferred user intent");
+  expect(measured).toContain("intentional imputation");
+  expect(measured).toContain("valid aggregation");
+  expect(measured).toContain("matched-input counts differ from output counts");
+  expect(measured).toContain("candidate-column and expression searches are limited");
+  agent.updateSettings({ nativeFlowEvidence: false });
+  expect(agent.getSystemInfo().systemPrompt).toEqual(baseline);
+});
 
 function makeStep(overrides: Partial<ReActStep> & Pick<ReActStep, "id">): ReActStep {
   return {
