@@ -22,8 +22,10 @@
 Status: implementation plan and proposed V2 contract, 2026-09-14.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
-The opt-in V2 catalog currently exposes the fourteen C2/C3 core operators;
-the rest of this document remains the target contract, not a rollout claim.
+The candidate opt-in V2 catalog now contains nineteen operators: the fourteen
+C2/C3 core operators plus five C6 shape utilities. C6 has local execution/codec
+tests but is not live-qualified or deployed. The rest of this document remains
+the target contract, not a rollout claim.
 
 ## 1. Scope and starting point
 
@@ -353,7 +355,10 @@ before/after are observations, not proof the scientific criterion is correct.
   order keys, row_number breaks ties stably. Missing order values sort last;
   missing partition keys form one partition. Calculate within partitions and
   restore input row order. No rolling/custom window callback yet; UDF handles
-  it until a demonstrated need justifies a separate contract.
+  it until a demonstrated need justifies a separate contract. All output names
+  must be new and unique; multiple window outputs read the original input.
+  Lag/lead preserve the referenced column's nullable scalar domain. Boundary
+  nulls and nulls propagated from existing cells are measured separately.
 
 ### 3.8 Small shape-changing operators, gated by tests and need
 
@@ -370,6 +375,8 @@ before/after are observations, not proof the scientific criterion is correct.
   literal), `keepSource?: boolean=true`. Split at most `len(into)-1` times;
   pad missing pieces with null, keep the remainder in the last output.
   Missing input gives all-null outputs. Reject non-string input and collisions.
+  Output names must be new even when `keepSource:false`; dropping a source is
+  not implicit permission to reuse its name. Empty-string pieces stay strings.
   Regex extraction stays in Transform/Derive, not a second regex mini-language.
 - **Explode**: `column`, `encoding: "json"`,
   `empty?: "drop" | "null_row"="drop"`. Parse JSON-array strings, output one
@@ -378,17 +385,31 @@ before/after are observations, not proof the scientific criterion is correct.
   non-array JSON and nonscalar elements fail clearly. Initial elements must be
   one compatible scalar type plus nulls. This deliberately avoids assuming
   arbitrary Python lists can pass the current engine's scalar-column transport.
+  C6 uses the same strict logical-domain policy as Union: int64/float64 and
+  bool/int64 mixing is rejected, not promoted. Normalize in UDF when intended.
+  Integers must fit int64; numeric elements must be finite; JSON NaN/Infinity
+  constants are invalid. Empty/all-null output has a nullable string domain
+  until a later execution supplies a nonnull element. Types may therefore change
+  on revision and must be observed/versioned. Empty parents can be dropped, so
+  Explode's row effect is `multiply` (may shrink or expand), not `add`.
 - **Unpivot**: `columns: string[]` (nonempty), `nameColumn?: string="variable"`,
   `valueColumn?: string="value"`. Other columns stay as keys. One output row
   per input row and selected column, including null cells; input-row order then
   selected-column order. Selected columns must share a compatible value type.
+  As with Union, distinct known logical types require an explicit cast. Untyped
+  all-null columns can adopt the other selected columns' type. Output names
+  cannot collide with retained keys or each other; selected names are removed.
 - **Pivot**: `index: string[]`, `columns: string`, `values: string`.
   Require unique `(index..., columns)` pairs; duplicates are an error with
   a witness, not an implicit aggregation. Aggregate first when intended. Null
   index values are valid keys, null pivot-column values are errors. Generated
   column names are strings; collisions are errors. Missing cells become null.
   Preserve first-seen row/key order and report the dynamic schema. Test empty
-  input and schema changes before exposing this operator.
+  input and schema changes before exposing this operator. `index`, `columns`
+  and `values` must reference distinct columns. An empty input yields zero rows
+  and only the index schema (zero columns when `index:[]`). Nonempty input with
+  `index:[]` yields one row. Empty generated names are rejected. Missing cells
+  count absent pairs, not input values that were already null.
 
 These are bounded table operations, not special-purpose analysis operators.
 Ship only after their individual execution/transport/empty-schema tests pass;
@@ -713,6 +734,18 @@ full source identity and port roles even when visible basename tags collide.
 Known projection/rename lineage can propagate; arbitrary callbacks declare
 dependencies, not symbolic proofs of their formulas.
 
+C6's local implementation records immediate-input mapping without an unbounded
+lineage graph. Explode retains at most sixteen `(inputPosition, elementPosition)`
+witnesses and an explicit completeness flag in internal metadata (a synthetic
+null row has no element position). Unpivot records the exact row-major mapping
+rule and selected-column order. These are positional identities within the
+declared input port, not user columns or claims of full source-file lineage.
+Window restores private positional identity after partition sorting; its
+measurements distinguish boundary nulls from all output nulls. Pivot measures
+unique pairs, index groups, generated columns and absent cells. C5 version and
+budget gates also apply to these facts; missing/inconsistent counters stay
+unavailable rather than being reconstructed from sampled rows.
+
 ### Result versions and invalidation
 
 Key every result/evidence bundle by workflow, operator-definition revision,
@@ -874,7 +907,8 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C3 | Core implemented and verified | `67f69e151` plus `efb45ea94` engine schema fix; fourteen V2 operators, expanded prompt/examples, dependent batch/revision/error/empty-input worker tests in DELTA/LATEST; see [C3 checkpoint](checkpoints/native-python-dataflow-c3.md) for exact gates, follow-up validation and deployment requirements |
 | C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
 | C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
-| C6–C7 | Planned, not implemented | Remaining shape operators, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
+| C6 | Shape utilities implemented and locally verified; integrated qualification incomplete | `2674cd458`: Window/Split/Explode/Unpivot/Pivot, budgeted flow facts, generated-code batch/revision tests, executed prompt examples and local engine codec tests. `e6a078f3f` fixes an independently reproduced parent enum-alias failure. Final checks: 1,080 Bun, typecheck, 129 native Python and 1,129 engine Python tests pass (one engine xfail). Live shape fixture is prepared, not run; expanded diagnostics and real-model qualification still pending. See [C6 shape checkpoint](checkpoints/native-python-dataflow-c6-shapes.md) |
+| C7 | Planned, not implemented | KramaBench one-task/attempt-per-arm pilot and real-input-message cost/accuracy audit remain required after correctness gates; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
