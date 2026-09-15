@@ -615,6 +615,7 @@ export class TexeraAgent {
       maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
       maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
       executionTimeoutMs: this.settings.executionTimeoutMs,
+      structuredResults: this.settings.nativeCatalogVersion === "v2",
     };
   }
 
@@ -646,6 +647,7 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        nativeProfileCollection: this.settings.nativeProfileCollection,
       },
     };
 
@@ -1383,6 +1385,7 @@ export class TexeraAgent {
     agentMode?: AgentMode;
     nativeToolMode?: "typed" | "batch";
     nativeCatalogVersion?: "v1" | "v2";
+    nativeProfileCollection?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1444,7 +1447,17 @@ export class TexeraAgent {
       nativeCatalogVersion: updates.nativeCatalogVersion ?? this.settings.nativeCatalogVersion,
       agentMode: updates.agentMode ?? this.settings.agentMode,
       nativeToolMode: updates.nativeToolMode ?? this.settings.nativeToolMode,
+      nativeProfileCollection: updates.nativeProfileCollection ?? this.settings.nativeProfileCollection,
     });
+    const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
+    if (
+      collection !== (this.settings.nativeProfileCollection ?? false) &&
+      (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
+    ) {
+      throw new NativeCatalogSettingsError(
+        "Changing profile collection requires a fresh agent and workflow; existing operators retain their compiled setting"
+      );
+    }
     if (catalogVersion !== (this.settings.nativeCatalogVersion ?? "v1")) {
       if (this.state !== AgentStateEnum.AVAILABLE)
         throw new NativeCatalogSettingsError("Cannot switch native catalog during an active turn");
@@ -1455,6 +1468,7 @@ export class TexeraAgent {
       }
     }
     let promptNeedsRebuild = false;
+    this.settings.nativeProfileCollection = collection;
 
     if (catalogVersion !== this.settings.nativeCatalogVersion) {
       this.settings.nativeCatalogVersion = catalogVersion;
@@ -2546,6 +2560,16 @@ export class TexeraAgent {
     }
     if (targets.size === 0) return;
 
+    // An aborted request can still finish remotely (or return after checkout).
+    // Capture ownership now; never route its data/profiles/errors via a later HEAD.
+    const owningStepId = this.head;
+    const owningSignal = this.abortController?.signal;
+    const stillOwned = () =>
+      owningStepId !== undefined &&
+      this.head === owningStepId &&
+      !owningSignal?.aborted &&
+      this.snapshotStorage.hasSnapshotFor(owningStepId);
+
     // One execution covers every edit in this step. `executeWorkflowAndPersist`
     // fires `onResult` for every operator that ran on the backend — including
     // ones reporting errors — so the snapshot at HEAD ends up consistent with
@@ -2556,13 +2580,12 @@ export class TexeraAgent {
     let failure: string | undefined;
     try {
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
-        abortSignal: this.abortController?.signal,
+        abortSignal: owningSignal,
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
+          if (!stillOwned()) return;
           produced.add(opId);
-          if (this.head !== undefined) {
-            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
-          }
+          this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });
       if (outcome && outcome.success === false) {
@@ -2579,12 +2602,12 @@ export class TexeraAgent {
     // and again. Measured: one cyclic edge made every execution fail for 15
     // turns, and the agent burned 5 whole step budgets rewriting working code
     // because nothing ever told it the ENGINE was refusing the plan.
-    if (failure && this.head !== undefined) {
+    if (failure && stillOwned()) {
       for (const opId of targets) {
         if (produced.has(opId)) continue;
-        const existing = this.snapshotStorage.getOperatorResult(this.head, opId);
+        const existing = this.snapshotStorage.getOperatorResult(owningStepId!, opId);
         if (existing && !existing.error) continue; // keep a real earlier result
-        this.snapshotStorage.setOperatorResult(this.head, opId, {
+        this.snapshotStorage.setOperatorResult(owningStepId!, opId, {
           operatorId: opId,
           state: "ExecutionFailed",
           inputTuples: 0,

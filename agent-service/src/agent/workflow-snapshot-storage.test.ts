@@ -80,6 +80,17 @@ function makeAbcdPath() {
 }
 
 describe("WorkflowSnapshotStorage — snapshot tree shape", () => {
+  test("stored result bodies cannot be mutated through a caller-owned reference", () => {
+    const storage = new WorkflowSnapshotStorage(makeAbcdPath());
+    storage.createSnapshot("A", makeWorkflow(["op1"]));
+    const info = { ...makeOperatorInfo("op1", 1), result: [{ x: 1 }], resultMetadata: { reserved: "frozen" } };
+    storage.setOperatorResult("A", "op1", info);
+    storage.createSnapshot("B", makeWorkflow(["op1"]));
+    info.result[0].x = 999;
+    info.resultMetadata.reserved = "changed";
+    expect(storage.getOperatorResult("A", "op1")!.result![0].x).toBe(1);
+    expect(storage.getOperatorResult("B", "op1")!.resultMetadata).toEqual({ reserved: "frozen" });
+  });
   test("the first createSnapshot lands under the empty root and is indexed under its ReAct step", () => {
     const s = new WorkflowSnapshotStorage(makeAbcdPath());
     const rootId = s.getRootSnapshotId();

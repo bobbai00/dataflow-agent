@@ -210,6 +210,48 @@ describe("native V2 Python contracts", () => {
     expect(agent.getSettings().nativeToolMode).toBe("batch");
   });
 
+  test("profile collection is opt-in, V2-only and cannot silently mix a populated graph", async () => {
+    const agent = new TexeraAgent({
+      agentId: "profile-settings",
+      modelType: "test",
+      driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
+      contextAssembler: () => [],
+    });
+    expect(agent.getSettings().nativeProfileCollection).toBe(false);
+    const before = agent.getSettings().maxSteps;
+    expect(() => agent.updateSettings({ nativeProfileCollection: true, maxSteps: 2 })).toThrow(/v2/i);
+    expect(agent.getSettings().maxSteps).toBe(before);
+    agent.updateSettings({
+      agentMode: AgentMode.NATIVE,
+      nativeToolMode: "batch",
+      nativeCatalogVersion: "v2",
+      nativeProfileCollection: true,
+    });
+    expect(agent.getSettings().nativeProfileCollection).toBe(true);
+    const internal = agent as any;
+    const state = internal.workflowState as WorkflowState;
+    const metadata = new WorkflowSystemMetadata();
+    metadata.seedCodeModeDefaults();
+    const enabled = createNativeBatchTools(
+      state,
+      { metadataStore: metadata, settings: { nativeProfileCollection: true } },
+      "v2"
+    ).dataflow;
+    await enabled.execute({ operators: [loader] });
+    expect(state.getOperator("source")!.nativeOp!.profileCollection).toBe(true);
+    expect(() => agent.updateSettings({ nativeProfileCollection: false, maxSteps: 2 })).toThrow(/fresh agent/i);
+    expect(agent.getSettings().nativeProfileCollection).toBe(true);
+    expect(agent.getSettings().maxSteps).toBe(before);
+    const python = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
+    const run = spawnSync(
+      python,
+      ["-c", "import sys,json\nns={}\nexec(sys.stdin.read(), ns)\nprint(json.dumps(ns['load']().attrs['native_v2']))"],
+      { input: state.getOperator("source")!.operatorProperties.code, encoding: "utf8" }
+    );
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout)).toMatchObject({ profileCollection: true, operatorType: "UDF", inputOperators: [] });
+  });
+
   test("V2 prompt examples validate, compile and extend the same graph across layouts", async () => {
     const validate = new Ajv({ strict: false }).compile(nativeBatchSchema("v2"));
     for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {

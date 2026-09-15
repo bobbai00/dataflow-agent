@@ -258,6 +258,7 @@ class DataProcessor(Runnable, Stoppable):
         # inference + (optional) port rewrite. Subsequent yields skip the
         # inference work and reuse whatever port schema is now active.
         self._schema_inferred: bool = False
+        self._table_profile = None
 
     def run(self) -> None:
         """
@@ -691,6 +692,47 @@ class DataProcessor(Runnable, Stoppable):
         except Exception:
             pass
         self._context.statistics_manager.set_result_statistics(stats)
+        self._publish_table_profile(df)
+
+    def _publish_table_profile(self, df: pandas.DataFrame) -> None:
+        metadata = df.attrs.get("native_v2")
+        if self._table_profile is None:
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("profileCollection") is not True
+            ):
+                return
+            try:
+                from core.util.table_profile import ProfileAccumulator
+
+                self._table_profile = ProfileAccumulator(
+                    self._context.worker_id, metadata
+                )
+            except Exception:
+                # A partial worker deployment must not fail a valid data result.
+                # Missing telemetry is reported as unavailable by the consumer.
+                return
+        try:
+            self._table_profile.add(df)
+        except Exception:
+            self._table_profile.fail("profiler_error")
+        self._store_table_profile()
+
+    def _store_table_profile(self) -> None:
+        if self._table_profile is not None:
+            try:
+                self._context.statistics_manager.set_profile_statistics(
+                    self._table_profile.key, self._table_profile.encode()
+                )
+            except Exception:
+                # Optional telemetry failure never fails the table execution.
+                # The consumer treats a missing envelope as unavailable.
+                pass
+
+    def finish_table_profile(self) -> None:
+        if self._table_profile is not None:
+            self._table_profile.finish()
+            self._store_table_profile()
 
     @staticmethod
     def _compute_column_stats(col: pandas.Series) -> str:

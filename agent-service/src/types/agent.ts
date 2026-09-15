@@ -178,6 +178,8 @@ export interface AgentSettings {
   nativeToolMode?: "typed" | "batch";
   /** Explicit Python catalog opt-in. Requires native + batch; V1 remains default. */
   nativeCatalogVersion?: "v1" | "v2";
+  /** Collect ordinary V2 profiles, independently of model-facing exposure. */
+  nativeProfileCollection?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -617,6 +619,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   agentMode: AgentMode.GENERAL,
   nativeToolMode: "typed",
   nativeCatalogVersion: "v1",
+  nativeProfileCollection: false,
   resultSelection: "all",
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
@@ -746,6 +749,7 @@ export interface AgentSettingsApi {
   nativeToolMode?: "typed" | "batch";
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
+  nativeProfileCollection?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -850,6 +854,7 @@ export interface UpdateAgentSettingsRequest {
   nativeToolMode?: "typed" | "batch";
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
+  nativeProfileCollection?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

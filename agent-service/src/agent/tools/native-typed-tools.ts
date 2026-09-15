@@ -295,6 +295,7 @@ export function createNativeTypedTools(
           );
         }
         const view = nativeViewOf(name, args, version)!;
+        if (version === "v2" && context?.settings?.nativeProfileCollection === true) view.profileCollection = true;
         const bad = validateProps(def, view.properties);
         if (bad) return createErrorResult(`\`${id}\`: ${bad}`);
         for (const up of view.inputs) {

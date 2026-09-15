@@ -155,6 +155,9 @@ class MainLoop(StoppableQueueBlockingRunnable):
                 self._check_exception()
                 return
         executor.close()
+        # The coordinator queries statistics once more on worker completion.
+        # Mark coverage complete only after all yields and close succeeded.
+        self.data_processor.finish_table_profile()
         # stop the data processing thread
         self.data_processor.stop()
         self.context.state_manager.transit_to(WorkerState.COMPLETED)

@@ -74,6 +74,7 @@ export interface OperatorPredicate {
     inputs: string[];
     version?: "v1" | "v2";
     revision?: string;
+    profileCollection?: boolean;
   };
 }
 

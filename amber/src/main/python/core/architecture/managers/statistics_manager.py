@@ -44,6 +44,9 @@ class StatisticsManager:
         # Per-column result statistics, JSON-encoded per column. Populated by
         # operators that compute column-level stats; empty otherwise.
         self._result_statistics: Dict[str, str] = {}
+        # Structured metadata is kept separately so a later legacy display-stat
+        # replacement cannot drop earlier yields' accumulated profile.
+        self._profile_statistics: Dict[str, str] = {}
 
     def get_statistics(self) -> WorkerStatistics:
         # Compile and return worker statistics
@@ -64,7 +67,7 @@ class StatisticsManager:
                 - self._data_processing_time
                 - self._control_processing_time,
             ),
-            dict(self._result_statistics),
+            {**self._result_statistics, **self._profile_statistics},
         )
 
     def set_result_statistics(self, stats: Dict[str, str]) -> None:
@@ -74,6 +77,9 @@ class StatisticsManager:
         profiler.
         """
         self._result_statistics = dict(stats)
+
+    def set_profile_statistics(self, key: str, payload: str) -> None:
+        self._profile_statistics[key] = payload
 
     def increase_input_statistics(self, port_id: PortIdentity, size: int) -> None:
         if size < 0:

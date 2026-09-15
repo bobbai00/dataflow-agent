@@ -155,7 +155,10 @@ object ExecutionResultService {
     * This function takes a collection of Tuples and converts each tuple into a JSON ObjectNode.
     * For binary data, it formats the bytes into a readable hex string representation with length info.
     * For string values longer than maxStringLength (100), it truncates them.
-    * NULL values are converted to the string "NULL".
+    * By default NULL values are converted to the string "NULL".
+    * The opt-in structured API instead preserves JSON nulls, uses decimal strings
+    * for int64 values outside JavaScript's safe range, and defers string truncation
+    * to the request's display budget. Its result schema describes those encodings.
     *
     * @param tuples The collection of Tuples to convert
     * @param isVisualization Whether this is for visualization rendering (affects string truncation)
@@ -163,7 +166,8 @@ object ExecutionResultService {
     */
   def convertTuplesToJson(
       tuples: Iterable[Tuple],
-      isVisualization: Boolean = false
+      isVisualization: Boolean = false,
+      structuredResults: Boolean = false
   ): List[ObjectNode] = {
     val maxStringLength = 100
 
@@ -174,7 +178,7 @@ object ExecutionResultService {
             val fieldValue = tuple.getField[AnyRef](idx)
 
             Option(fieldValue) match {
-              case None => "NULL"
+              case None => if (structuredResults) null else "NULL"
               case Some(value) =>
                 attr.getType match {
                   case AttributeType.BINARY =>
@@ -203,8 +207,9 @@ object ExecutionResultService {
                                   math.ceil(binaryPreviewLeadingBits.toDouble / BitsPerByte).toInt
                                 val trailingBytesNeeded =
                                   math.ceil(binaryPreviewTrailingBits.toDouble / BitsPerByte).toInt
-                                val leading = bytesToBinaryString(byteArray.take(leadingBytesNeeded))
-                                  .take(binaryPreviewLeadingBits)
+                                val leading =
+                                  bytesToBinaryString(byteArray.take(leadingBytesNeeded))
+                                    .take(binaryPreviewLeadingBits)
                                 val trailing = bytesToBinaryString(
                                   byteArray.takeRight(trailingBytesNeeded)
                                 ).takeRight(binaryPreviewTrailingBits)
@@ -220,10 +225,19 @@ object ExecutionResultService {
                     }
                   case AttributeType.STRING =>
                     val stringValue = value.asInstanceOf[String]
-                    if (stringValue.length > maxStringLength && !isVisualization)
+                    if (
+                      stringValue.length > maxStringLength && !isVisualization && !structuredResults
+                    )
                       stringValue.take(maxStringLength) + "..."
                     else
                       stringValue
+                  case AttributeType.LONG if structuredResults =>
+                    val number = value.asInstanceOf[java.lang.Long].longValue()
+                    if (number > 9007199254740991L || number < -9007199254740991L)
+                      number.toString
+                    else value
+                  case AttributeType.TIMESTAMP if structuredResults =>
+                    value.asInstanceOf[java.sql.Timestamp].toInstant.toString
                   case _ => value
                 }
             }

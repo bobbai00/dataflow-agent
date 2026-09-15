@@ -154,6 +154,18 @@ export function createNativeBatchTools(
         nativeBatchSchema(version) as any
       ),
       execute: async args => {
+        if (
+          version === "v2" &&
+          state
+            .getAllOperators()
+            .some(
+              op => (op.nativeOp?.profileCollection === true) !== (context?.settings?.nativeProfileCollection === true)
+            )
+        ) {
+          return createErrorResult(
+            "Profile collection differs from this workflow's compiled operators; use a fresh agent and workflow."
+          );
+        }
         if (state.getAllOperators().some(op => (op.nativeOp?.version ?? "v1") !== version)) {
           return createErrorResult(
             `Cannot mix native catalog versions; this batch is ${version}. Use a separate workflow or an explicit migration.`

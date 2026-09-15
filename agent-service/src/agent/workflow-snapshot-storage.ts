@@ -222,7 +222,8 @@ export class WorkflowSnapshotStorage {
           `Call createSnapshot first.`
       );
     }
-    this.snapshots.get(snapshotId)!.results.set(operatorId, { info, sourceStepId: reactStepId });
+    // Descendants share immutable entries, never a caller's mutable response.
+    this.snapshots.get(snapshotId)!.results.set(operatorId, { info: structuredClone(info), sourceStepId: reactStepId });
   }
 
   // ── readers ──────────────────────────────────────────────────────────

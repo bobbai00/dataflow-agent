@@ -328,6 +328,8 @@ export interface NativeOpView {
   /** Missing on historical V1 workflows. Never infer a version from the code. */
   version?: NativeCatalogVersion;
   revision?: string;
+  /** Internal execution setting, never a model-authored operator argument. */
+  profileCollection?: boolean;
   type: string;
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= `process()` parameter order). */

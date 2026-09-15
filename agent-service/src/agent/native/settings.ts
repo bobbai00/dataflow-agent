@@ -29,11 +29,18 @@ export function validateNativeCatalogSettings(
     nativeCatalogVersion?: string;
     agentMode?: string;
     nativeToolMode?: string;
+    nativeProfileCollection?: boolean;
   } = {}
 ): NativeCatalogVersion {
   const version = settings.nativeCatalogVersion ?? DEFAULT_AGENT_SETTINGS.nativeCatalogVersion ?? "v1";
   if (version !== "v1" && version !== "v2") {
     throw new NativeCatalogSettingsError("Unknown native catalog version");
+  }
+  if (settings.nativeProfileCollection !== undefined && typeof settings.nativeProfileCollection !== "boolean") {
+    throw new NativeCatalogSettingsError("nativeProfileCollection must be a boolean");
+  }
+  if (settings.nativeProfileCollection && version !== "v2") {
+    throw new NativeCatalogSettingsError("Native profile collection requires catalog v2");
   }
   if (
     version === "v2" &&

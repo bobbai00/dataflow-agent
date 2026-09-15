@@ -31,6 +31,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { createLogger } from "../../logger";
+import { prepareStructuredExecutionResult } from "../native/execution-transport";
 
 const log = createLogger("ExecutionTools");
 
@@ -43,6 +44,7 @@ export interface ExecutionConfig {
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   executionTimeoutMs?: number;
+  structuredResults?: boolean;
 }
 
 /**
@@ -335,6 +337,7 @@ async function executeWorkflowHttp(
 
   const request = {
     executionName: "agent-execution",
+    ...(config.structuredResults ? { structuredResults: true } : {}),
     logicalPlan: {
       operators: logicalPlan.operators,
       links: logicalPlan.links,
@@ -373,7 +376,8 @@ async function executeWorkflowHttp(
       throw new Error(`Execution request failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    return (await response.json()) as SyncExecutionResult;
+    const result = (await response.json()) as SyncExecutionResult;
+    return config.structuredResults ? prepareStructuredExecutionResult(result, workflowId) : result;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;

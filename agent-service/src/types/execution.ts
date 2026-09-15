@@ -45,6 +45,15 @@ export interface OperatorInfo {
   error?: string;
   warnings?: string[];
   columnStats?: Record<string, string>;
+  /** Reserved machine envelopes, separate from display-truncated columnStats. */
+  resultMetadata?: Record<string, string>;
+  metadataOmissions?: string[];
+  numWorkers?: number;
+  resultSchema?: Array<{ name: string; type: string; encoding: string }>;
+  /** Execution that retrieved this response; not a claim that cached data reran. */
+  executionContext?: { workflowId: number; executionId: string };
+  /** Actual producing execution (may predate retrieval); null means unknown. */
+  materialization?: { outputPort: number; executionId?: string | null; cached: boolean; subdagHash?: string | null };
 }
 
 export interface SyncExecutionResult {
@@ -53,4 +62,6 @@ export interface SyncExecutionResult {
   operators: Record<string, OperatorInfo>;
   compilationErrors?: Record<string, string>;
   errors?: string[];
+  executionId?: string;
+  capabilities?: string[];
 }
