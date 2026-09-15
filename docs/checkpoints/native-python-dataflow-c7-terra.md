@@ -1,4 +1,51 @@
-# C7: matched Terra arms and live runtime handoff
+# C7: matched Terra arms, live qualification and pilot results
+
+## Final checkpoint: 2026-09-15
+
+Completed on candidate `1c12044149da5a17c5c2f32c940c962762583133` and harness
+`1929be6841a9a7ff2ad9b7c87d2abdc7168d64c5`, descended from batch/observe
+`41cd8ae97e30edfec90c847886ed4068dd0fa9b0`. Both exact `gpt-5.6-terra` and
+`gpt-5.6-luna` used verified **medium reasoning**. The shared candidate master
+was updated/restarted with the user's permission and remains on 8085.
+
+The [completed 14-attempt report](../../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md)
+contains all seven arms for both models on `environment-easy-3`, one official
+attempt each. Every attempt is scored, comparison-eligible, and cleaned up;
+none was replaced. All 67 recorded backend requests compiled/executed, while
+nine Luna V2Control edits failed earlier argument validation. Total scored
+token cost was $0.239003 (cache-aware estimate, excluding qualification).
+
+BatchParent answered correctly on both models and was 24.7% cheaper on Luna,
+33.8% on Terra than V1Reference in this pilot. Data-only/flow-only/combined
+all answered 267 instead of 268; they do not demonstrate an accuracy benefit.
+The trace-backed report identifies wrong entity grouping, evidence budget/
+visibility limits, and Luna's invalid nested Derive arguments. No gold-specific
+fix or full campaign was added; V2/evidence remains opt-in.
+
+Final checks: **1,129 Bun tests**, typecheck, **184 harness tests**, six live
+worker suites/**20 DELTA/LATEST mode-setting cases**, and actual Terra-medium
+four-turn model smoke in both modes pass. Source/runtime-bound worker proof:
+`/tmp/native-python-live-master.i9nfol/campaign-5/worker-gates/worker-gates.json`.
+Final real-model proofs and all official owned-session records:
+`/tmp/native-python-live-master.i9nfol/campaign-6/`. A sanitized hash-bound
+[qualification summary](../../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/qualification.json)
+is committed with the report. Isolated agent ports 3011/3012/3013 are stopped;
+the shared backend is preserved.
+
+LATEST remains functionally correct but inefficient on the smoke's cached
+turn: six identical reads, five redundant, versus one read in DELTA. All had
+the original materialization/rows and no additional execution. Harness `1929be6`
+documents the pre-official-dispatch change from a universal one-batch assertion
+to a separate repeated-cache-read metric, strengthening per-read identity
+checks. Mutation turns still require one batch. Earlier failed smoke reports
+were preserved and new smokes were run; they were not reclassified as passes.
+
+The latest-action receipt change retains one bounded current-task status/target
+receipt without parameters or hidden table/error content. It complements the
+LATEST-only completed-snapshot prompt and leaves DELTA unchanged. This fixes
+the missing action-completion signal, not the remaining read redundancy.
+
+## Earlier implementation and live-qualification log
 
 2026-09-15, `feat/native-python-dataflow`, harness
 `8c5a6af0de5f5aaf50919a80647052b389340cc7`.

@@ -19,14 +19,17 @@
 
 # Python-native operators and budgeted dataflow evidence
 
-Status: implementation plan and proposed V2 contract, 2026-09-14.
+Status: implemented opt-in V2 contract and completed pilot, 2026-09-15.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
 The candidate opt-in V2 catalog now contains nineteen operators: the fourteen
-C2/C3 core operators plus five C6 shape utilities. C6 has local execution/codec
-tests and locally verified revision-pinned error inspection, but is not fully
-live-qualified or deployed. The rest of this document remains the target
-contract, not a rollout claim.
+C2/C3 core operators plus five C6 shape utilities. Matching-worker qualification
+passes in DELTA/LATEST, and Terra-medium passes both real-model smoke modes.
+The [14-attempt Luna/Terra pilot report](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md)
+contains official cost/accuracy and input-timed data/flow evidence. Batching +
+observe was cheaper and correct on both models in this one-task pilot; the
+evidence treatments did not improve accuracy. V2 remains opt-in, not a default
+rollout or a demonstrated general optimization win.
 
 ## 1. Scope and starting point
 
@@ -42,8 +45,10 @@ scheduler, forward references, existing-DAG edits, and DELTA/LATEST behavior.
 The [batching contract](native-batch-tools.md) remains applicable. Run separate
 agent services against the **same Texera backend**, with isolated workflows
 and computing-unit registrations. Keep the existing services on 3008/3009;
-reserve 3011 for this worktree after checking availability. No shared-backend
-restart or configuration change just to run an agent-service experiment.
+reserve 3011 for this worktree after checking availability. An agent-only launch
+must not restart shared backend services. For the candidate engine deployment,
+the user explicitly authorized updating/restarting the shared master; this was
+completed on 8085. Pilot references used isolated services on 3012 and 3013.
 
 This work has two independently measurable parts:
 
@@ -88,7 +93,8 @@ and in workflow snapshots. An absent version means V1. Initially require
 combinations at settings validation rather than silently changing the mode.
 This version gate is implemented in C2. Unsupported combinations return a
 client error without partially updating the agent. A rejected creation must
-not leave an agent registered. The full operator/evidence rollout is pending.
+not leave an agent registered. Operator/evidence qualification is complete;
+default rollout is withheld because the pilot does not establish a quality win.
 
 V2 tool schemas and prompts come from one versioned catalog. Do not present
 both SQL Compute and Python Derive to the same V2 agent. A new V2 workflow uses
@@ -102,7 +108,7 @@ callback support in a worker module only when its deployment/version handshake
 is available; initial generated helpers can be self-contained. A missing worker
 capability must fail explicitly, not execute with older semantics.
 
-## 3. Exact proposed tool and operator contracts
+## 3. Exact V2 tool and operator contracts
 
 ### 3.1 Common envelope
 
@@ -453,8 +459,14 @@ Principles to teach explicitly:
    receipts announce recomputation without leaking their table bodies.
 5. Use a cached observe/inspect for existing evidence; do not recreate a source
    just to display it. Inspect cannot conjure uncollected full-table data.
-6. Inspect the final answer operator before answering. Handle errors first;
+6. Observe the final answer operator before answering. Handle errors first;
    never use a stale successful result after a failed revision.
+7. A current result already visible from a completed observation can support
+   a direct final answer; do not repeat an edit or cached read just because
+   LATEST collapses the trajectory. LATEST renders the current dataflow and a
+   bounded current-task last-action receipt, not the whole action history.
+   The receipt contains statuses/targets, not parameters or hidden content.
+   DELTA continues to retain event-frozen observations.
 
 ### Example A: known chain with forward references (V2)
 
@@ -731,7 +743,9 @@ requires an explicit execution/inspection capability, not a hidden rerun.
 
 The selector and context integration are implemented in `7fe9e30cd`, with local
 tests described in the [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md).
-Live C5 qualification remains pending. V2 keeps the same batch/operator API;
+The live C5 eight-case matrix now passes at the final candidate, as recorded
+in the [Terra/live checkpoint](checkpoints/native-python-dataflow-c7-terra.md).
+V2 keeps the same batch/operator API;
 it does not gain a model-authored statistics tool or a second result budget.
 
 - `nativeProfileCollection` controls collection on fresh workflows.
@@ -932,9 +946,9 @@ comparison for both models; keep collection/framework controls separate.
 See the [Terra/live-runtime checkpoint](checkpoints/native-python-dataflow-c7-terra.md).
 
 Freeze model, context mode/budget, maximum steps, task data, retry policy and
-backend configuration. The first seven arms are now registered in the
+backend configuration. Seven arms for each of two models are registered in the
 [isolated harness pilot](../benchmark/Kramabench/docs/native-python-pilot.md),
-with names `DataflowSystemLunaPythonPilot<Arm>20260915Rep1`. Registration and
+with names `DataflowSystem{Luna|Terra}PythonPilot<Arm>20260915Rep1`. Registration and
 the one-attempt capture/official-scoring path are locally tested. Durable
 execution journals, scoped phase reports and source-pinned agent-only lifecycle
 checks are also implemented. Allocation journaling, verified owned-resource
@@ -942,9 +956,13 @@ cleanup and producing-result collector aggregation are now implemented; a real
 setup-only lifecycle smoke passes. Frozen input/source checks, strict guard
 returns, post-drain measurement finalization and owned single-arm orchestration
 are now integrated and locally tested; see the [session checkpoint](checkpoints/native-python-dataflow-c7-session.md).
-The production backend/worker and prior-live-gate qualification callback,
-worker/model qualification and pilot results remain pending. A service port alone does not establish its
-source/build provenance. See the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md)
+Production backend/worker qualification, prior-live-gate admission, the matching
+worker/model runs and all 14 official attempts are complete. The
+[final report](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md)
+records measured source SHAs, exact medium-reasoning routes, actual-input
+evidence witnesses, cache-aware cost and failures without replacement attempts.
+A service port alone does not establish source/build provenance.
+See the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md)
 for corrected final-step accounting/partial usage, and the
 [runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md) for the
 execution journal and source-pinned launcher. The latest
@@ -953,7 +971,7 @@ collector measurement semantics, live setup/cleanup, current tests and gates.
 
 | Arm | Framework | Evidence |
 | --- | --- | --- |
-| Historical native reference (`V1Reference`) | V1 original native/all/no-stats | Off |
+| Controlled live native reference (`V1Reference`) | Pre-batching V1 native/all/no-stats | Off |
 | Batch parent reference (`BatchParent`) | Pushed batching + explicit observe | Off |
 | Python framework control (`V2Control`) | V2 batching + explicit observe | Off, collection off |
 | Collector-only (`CollectorOnly`) | Same V2 | Off, collection on |
@@ -982,7 +1000,7 @@ The native trace helper now counts batch/operator/observe/partial-error events.
 Actual execution counts and phase measurements use the out-of-band recorder
 and the engine's explicit `phaseMetrics`, not tool receipts or heuristic state
 names; see the [C7 measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md).
-The pilot runner must still persist and bind this evidence to each attempt.
+The pilot runner persists and binds this evidence to each attempt.
 More batching can still cost more if the schema, generated arguments, reasoning
 or repeated repair grows; reduced round trips alone is not a win.
 
@@ -1015,10 +1033,10 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C1 | Implemented and verified | `821f01435`; preview offsets, prompt guidance, and real-backend regression smoke; see [C1 checkpoint](checkpoints/native-python-dataflow-c1.md) for exact scope, commands, outcomes and limitations |
 | C2 | Foundation implemented and verified | `1ffc49cf8`; opt-in Python callback catalog, runtime contracts and source-mapped diagnostics; 977 Bun tests, 34 Python tests, typecheck, DELTA/LATEST worker smoke pass; see [C2 checkpoint](checkpoints/native-python-dataflow-c2.md) for delivered scope and remaining diagnostic/telemetry work |
 | C3 | Core implemented and verified | `67f69e151` plus `efb45ea94` engine schema fix; fourteen V2 operators, expanded prompt/examples, dependent batch/revision/error/empty-input worker tests in DELTA/LATEST; see [C3 checkpoint](checkpoints/native-python-dataflow-c3.md) for exact gates, follow-up validation and deployment requirements |
-| C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
-| C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
-| C6 | Shape utilities, diagnostics and model-smoke protocol locally verified; live qualification incomplete | `2674cd458`: five shape utilities and budgeted flow facts; see [shape checkpoint](checkpoints/native-python-dataflow-c6-shapes.md). `a8ba50f35`: revision-pinned diagnostics, rejected-edit control state and bounded inspection; recorded 1,105 Bun tests/typecheck in the [diagnostic checkpoint](checkpoints/native-python-dataflow-c6-diagnostics.md). Harness `bdf83f5` + `fe514f9`: prepared four-turn real-model protocol and 15 fixture/mock tests; full harness **132 pass**. See [model-smoke checkpoint](checkpoints/native-python-dataflow-c6-model-smoke.md). Worker and real-model fixtures have not yet been run against the matching candidate build; production guard/outer integration remain required |
-| C7 | Owned runner integrated and locally verified; pilot incomplete | Harness `3f62a11`: frozen inputs, strict guard-return fix, post-drain measurement refresh and owned one-arm orchestration; **160 harness tests** pass. Actual-file negative preflight checks reach runtime admission and reject before authentication/allocation. See [session checkpoint](checkpoints/native-python-dataflow-c7-session.md). Harness `377c33c` provides collector accounting, allocation receipts and verified cleanup with an earlier actual setup-only smoke; see [resource checkpoint](checkpoints/native-python-dataflow-c7-resources.md). Earlier `6047f6a44` / harness `702cf44` provide the journal, phase reports and source-pinned launcher; recorded **1,120 Bun tests** and typecheck remain in the [runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md). One-attempt/frozen-cost work is in the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md); Scala/compiler results are in the [measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md). Production runtime/prior-live-gate qualification, worker/real-model runs and official pilot/report remain required; no cost/accuracy benefit claimed |
+| C4 | Implemented; matching-worker profile matrix passes | `76243c008` + `97de1e243` collection/transport/version binding, with the expanded four-case profile fixture passing at final candidate `1c1204414`. See [C4 version checkpoint](checkpoints/native-python-dataflow-c4-versions.md), [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md), and [final live evidence](checkpoints/native-python-dataflow-c7-terra.md). Pilot collector component timings are measured, not whole-attempt overhead |
+| C5 | Implemented; matching-worker evidence matrix passes | `7fe9e30cd` ordinary/flow facts, joint budget, DELTA/LATEST versioning and transport capability; eight live evidence cases pass at final candidate. [C5 design](checkpoints/native-python-dataflow-c5-selection.md). The pilot confirms actual data/flow delivery but no accuracy improvement; relevance and omission limits are in the final report |
+| C6 | Implemented and live-qualified; efficiency limitation retained | `2674cd458` [shape operators](checkpoints/native-python-dataflow-c6-shapes.md), `a8ba50f35` [diagnostics](checkpoints/native-python-dataflow-c6-diagnostics.md), final agent `1c1204414`: six worker suites/20 cases and Terra-medium four-turn real-model smoke pass in DELTA/LATEST. **1,129 Bun tests**, typecheck, **184 harness tests** pass. LATEST still made five redundant cached reads; the pre-dispatch audit amendment and preserved failures are documented in [final live checkpoint](checkpoints/native-python-dataflow-c7-terra.md) |
+| C7 | Completed one-task pilot; no broad optimization claim | Harness `1929be6`, candidate `1c1204414`: all **14 official attempts** scored and comparison-eligible, owned resources cleaned, **67/67 compilation and runtime requests pass**, plus nine preflight validation failures in Luna V2Control. Total scored-attempt token cost **$0.239003**. BatchParent correct/cheaper on both models; data-only/flow-only/combined do not improve accuracy. [Final report and reproducible audit](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md). Earlier [measurement](checkpoints/native-python-dataflow-c7-measurement.md), [runtime](checkpoints/native-python-dataflow-c7-runtime.md), [resource](checkpoints/native-python-dataflow-c7-resources.md), [attempt](checkpoints/native-python-dataflow-c7-attempts.md), and [session](checkpoints/native-python-dataflow-c7-session.md) checkpoints retain their historical test/protocol details |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
