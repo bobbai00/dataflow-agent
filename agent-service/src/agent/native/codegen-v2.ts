@@ -19,13 +19,17 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { deflateSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import type { NativeOpView } from "./catalog";
 import type { CompiledNativeOp } from "./codegen";
 import { NATIVE_V2_OPERATORS } from "./catalog-v2";
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-const runtimeSource = readFileSync(runtimePath, "utf8");
+// Each immutable version needs a self-contained worker payload. Encode the
+// unchanged runtime compactly so a modest DAG does not exceed the database's
+// full-text index input limit. Model-visible operator definitions stay typed.
+const runtimePayload = deflateSync(readFileSync(runtimePath), { level: 9 }).toString("base64");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 export function nativeRevision(view: NativeOpView): string {
@@ -91,7 +95,8 @@ export function compileNativeV2(view: NativeOpView, operatorId: string): Compile
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_v2_runtime__"}`,
-    `exec(${JSON.stringify(runtimeSource)}, ${prefix}_scope)`,
+    `import base64 as ${prefix}_base64, zlib as ${prefix}_zlib`,
+    `exec(${prefix}_zlib.decompress(${prefix}_base64.b64decode(${JSON.stringify(runtimePayload)})).decode("utf-8"), ${prefix}_scope)`,
   ].join("\n");
   return { operatorType: source ? "DataLoading" : "DataProcessing", code };
 }

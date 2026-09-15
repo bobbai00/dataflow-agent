@@ -28,6 +28,7 @@ import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { createInspectResultTool } from "./inspect-result-tool";
+import { AnalyticalStateStore } from "../native/analytical-state";
 import { NativeRecipeStore } from "../native/recipes";
 
 function setup() {
@@ -45,7 +46,8 @@ const aggregate = { op: "aggregate", id: "total", input: "selected", aggregation
 
 describe("native batch tools", () => {
   test("saved recipe expands through the real scheduler and preserves original inputs", async () => {
-    const state = new WorkflowState(), metadata = new WorkflowSystemMetadata();
+    const state = new WorkflowState(),
+      metadata = new WorkflowSystemMetadata();
     metadata.seedCodeModeDefaults();
     const tools = createNativeBatchTools(state, { metadataStore: metadata }, "v1", new NativeRecipeStore());
     await tools.dataflow.execute({ operators: [scan, filter, aggregate], save_as: "initial" });
@@ -158,17 +160,55 @@ describe("native batch tools", () => {
 describe("batch observation history", () => {
   test("chronological requests keep the complete prior message prefix across turns", () => {
     const state = new WorkflowState();
-    const steps: ReActStep[] = [{ id: "u1", messageId: "m1", stepId: 0, timestamp: 1, role: "user", content: "Initial question", isBegin: true, isEnd: true }];
-    const storage = new WorkflowSnapshotStorage(id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id));
-    const render = () => assembleContext(steps, state, storage, ContextMode.DELTA, {
-      agentMode: AgentMode.NATIVE, messageLayout: "native", userTaskPlacement: "chronological" as any,
-      flowLevel: 0, dataLevel: 0, columnStats: false,
-    });
+    const steps: ReActStep[] = [
+      {
+        id: "u1",
+        messageId: "m1",
+        stepId: 0,
+        timestamp: 1,
+        role: "user",
+        content: "Initial question",
+        isBegin: true,
+        isEnd: true,
+      },
+    ];
+    const storage = new WorkflowSnapshotStorage(id =>
+      steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
+    );
+    const render = () =>
+      assembleContext(steps, state, storage, ContextMode.DELTA, {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: "native",
+        userTaskPlacement: "chronological" as any,
+        flowLevel: 0,
+        dataLevel: 0,
+        columnStats: false,
+      });
     const first = render();
-    steps.push({ id: "a1", parentId: "u1", messageId: "m1", stepId: 1, timestamp: 2, role: "agent", content: "First answer", isBegin: true, isEnd: true });
+    steps.push({
+      id: "a1",
+      parentId: "u1",
+      messageId: "m1",
+      stepId: 1,
+      timestamp: 2,
+      role: "agent",
+      content: "First answer",
+      isBegin: true,
+      isEnd: true,
+    });
     const completed = render();
     expect(completed.slice(0, first.length)).toEqual(first);
-    steps.push({ id: "u2", parentId: "a1", messageId: "m2", stepId: 0, timestamp: 3, role: "user", content: "Different second question", isBegin: true, isEnd: true });
+    steps.push({
+      id: "u2",
+      parentId: "a1",
+      messageId: "m2",
+      stepId: 0,
+      timestamp: 3,
+      role: "user",
+      content: "Different second question",
+      isBegin: true,
+      isEnd: true,
+    });
     const next = render();
     // A preview after the final answer may append a synthetic Continue; no
     // model call was made with it, and the next real user request replaces it.
@@ -423,4 +463,29 @@ describe("batch observation history", () => {
       .join("\n");
     expect(withCompileError).toContain("compile_guard_marker");
   });
+});
+
+test("managed state schema and scheduler produce an execution-pending receipt", async () => {
+  const state = new WorkflowState(),
+    metadata = new WorkflowSystemMetadata(),
+    analyses = new AnalyticalStateStore();
+  metadata.seedCodeModeDefaults();
+  const tools = createNativeBatchTools(state, { metadataStore: metadata }, "v2", undefined, analyses);
+  const input = {
+    operators: [
+      { op: "udf", id: "sample", code: "def load():\n    import pandas as pd\n    return pd.DataFrame({'x':[1]})" },
+    ],
+    publish: { name: "report", outputs: { answer: "sample" } },
+    state_catalog: true,
+  };
+  expect(new Ajv({ strict: false }).compile(nativeBatchSchema("v2", false, true))(input)).toBe(true);
+  expect(new Ajv({ strict: false }).compile(nativeBatchSchema("v2"))(input)).toBe(false);
+  const result = await tools.dataflow.execute(input);
+  expect(result.state.status).toBe("pending");
+  expect(result.observe).toEqual(["sample"]);
+  expect(result.analyses.active).toEqual({});
+  const live = new Map(state.getAllOperators().map(op => [op.operatorID, op.nativeOp!]));
+  analyses.finish(result.state, live, new Map(), "engine failed");
+  expect(result.state.status).toBe("failed");
+  expect(analyses.catalog().active).toEqual({});
 });

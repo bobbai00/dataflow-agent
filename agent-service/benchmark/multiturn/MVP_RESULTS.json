@@ -1,0 +1,192 @@
+{
+  "primary": {
+    "code": {
+      "turns": 42,
+      "passed": 42,
+      "cost_usd": 0.04127826,
+      "llm_calls": 58
+    },
+    "state-v2": {
+      "turns": 42,
+      "passed": 39,
+      "cost_usd": 0.08056126,
+      "llm_calls": 122
+    }
+  },
+  "recovery": {
+    "turns": 46,
+    "passed": 46,
+    "cost_usd": 0.06827768000000001,
+    "llm_calls": 114
+  },
+  "all_runs": {
+    "turns": 130,
+    "passed": 127,
+    "cost_usd": 0.1901172,
+    "llm_calls": 294
+  },
+  "runs": [
+    {
+      "run": "code-mechanism-fanout_correction",
+      "arm": "code",
+      "recovery": false,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.0034301,
+      "llm_calls": 6
+    },
+    {
+      "run": "code-mechanism-membership_values",
+      "arm": "code",
+      "recovery": false,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.00375214,
+      "llm_calls": 9
+    },
+    {
+      "run": "code-mechanism-temporary_scope",
+      "arm": "code",
+      "recovery": false,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.0026546399999999998,
+      "llm_calls": 7
+    },
+    {
+      "run": "code-primary-41",
+      "arm": "code",
+      "recovery": false,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.009753739999999999,
+      "llm_calls": 12
+    },
+    {
+      "run": "code-primary-42",
+      "arm": "code",
+      "recovery": false,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.010141859999999999,
+      "llm_calls": 13
+    },
+    {
+      "run": "code-primary-43",
+      "arm": "code",
+      "recovery": false,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.011545779999999999,
+      "llm_calls": 11
+    },
+    {
+      "run": "state-mechanism-fanout_correction",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 5,
+      "passed": 4,
+      "cost_usd": 0.015041859999999999,
+      "llm_calls": 20
+    },
+    {
+      "run": "state-mechanism-membership_values",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.00759622,
+      "llm_calls": 15
+    },
+    {
+      "run": "state-mechanism-recovery1-fanout_correction",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.00796194,
+      "llm_calls": 15
+    },
+    {
+      "run": "state-mechanism-recovery2-fanout_correction",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.00681106,
+      "llm_calls": 13
+    },
+    {
+      "run": "state-mechanism-temporary_scope",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 5,
+      "passed": 5,
+      "cost_usd": 0.00636874,
+      "llm_calls": 13
+    },
+    {
+      "run": "state-primary-41",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.02211028,
+      "llm_calls": 27
+    },
+    {
+      "run": "state-primary-42",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 9,
+      "passed": 8,
+      "cost_usd": 0.0128674,
+      "llm_calls": 23
+    },
+    {
+      "run": "state-primary-43",
+      "arm": "state-v2",
+      "recovery": false,
+      "turns": 9,
+      "passed": 8,
+      "cost_usd": 0.01657676,
+      "llm_calls": 24
+    },
+    {
+      "run": "state-recovery1-42",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.01249308,
+      "llm_calls": 21
+    },
+    {
+      "run": "state-recovery1-43",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.01307376,
+      "llm_calls": 22
+    },
+    {
+      "run": "state-recovery2-42",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.01402754,
+      "llm_calls": 21
+    },
+    {
+      "run": "state-recovery2-43",
+      "arm": "state-v2",
+      "recovery": true,
+      "turns": 9,
+      "passed": 9,
+      "cost_usd": 0.0139103,
+      "llm_calls": 22
+    }
+  ]
+}

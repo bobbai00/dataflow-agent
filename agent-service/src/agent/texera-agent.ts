@@ -109,6 +109,7 @@ import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./nat
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
+import { AnalyticalStateStore, ANALYTICAL_STATE_GUIDANCE } from "./native/analytical-state";
 import { NativeRecipeStore, RECIPE_GUIDANCE } from "./native/recipes";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
@@ -348,6 +349,7 @@ export class TexeraAgent {
    *  always turn-tracked; only the versioned write path reads it for wiring. */
   readonly versionStore = new OperatorVersionStore();
   private readonly nativeRecipes = new NativeRecipeStore();
+  private readonly nativeAnalyses = new AnalyticalStateStore();
   /** Materializes referenced versions into wire-able nodes. Built lazily so it
    *  sees the WorkflowUtilService the agent constructs during setup. */
   private versionCheckout: VersionCheckout | undefined;
@@ -621,8 +623,18 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
-    if (this.settings.nativeRecipes && this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")
+    if (
+      this.settings.nativeRecipes &&
+      this.settings.agentMode === AgentMode.NATIVE &&
+      this.settings.nativeToolMode === "batch"
+    )
       this.systemPrompt += RECIPE_GUIDANCE;
+    if (
+      this.settings.nativeState &&
+      this.settings.agentMode === AgentMode.NATIVE &&
+      this.settings.nativeToolMode === "batch"
+    )
+      this.systemPrompt += ANALYTICAL_STATE_GUIDANCE;
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -691,7 +703,13 @@ export class TexeraAgent {
       Object.assign(
         tools,
         this.settings.nativeToolMode === "batch"
-          ? createNativeBatchTools(this.workflowState, context, this.settings.nativeCatalogVersion, this.settings.nativeRecipes ? this.nativeRecipes : undefined)
+          ? createNativeBatchTools(
+              this.workflowState,
+              context,
+              this.settings.nativeCatalogVersion,
+              this.settings.nativeRecipes ? this.nativeRecipes : undefined,
+              this.settings.nativeState ? this.nativeAnalyses : undefined
+            )
           : createNativeTypedTools(this.workflowState, context)
       );
     } else {
@@ -1313,6 +1331,10 @@ export class TexeraAgent {
   }
 
   checkout(stepId: string): boolean {
+    if (this.nativeAnalyses.hasState())
+      throw new Error(
+        "Published analysis state is session-local; use revise.base for historical analysis versions or clear the session before checkout"
+      );
     const step = this.stepsById.get(stepId);
     if (!step) return false;
     this.head = stepId;
@@ -1422,6 +1444,7 @@ export class TexeraAgent {
     nativeCatalogVersion?: "v1" | "v2";
     nativeProfileCollection?: boolean;
     nativeRecipes?: boolean;
+    nativeState?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1484,6 +1507,7 @@ export class TexeraAgent {
       agentMode: updates.agentMode ?? this.settings.agentMode,
       nativeToolMode: updates.nativeToolMode ?? this.settings.nativeToolMode,
       nativeProfileCollection: updates.nativeProfileCollection ?? this.settings.nativeProfileCollection,
+      nativeState: updates.nativeState ?? this.settings.nativeState,
     });
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     if (
@@ -1511,6 +1535,14 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
 
+    if (
+      this.nativeAnalyses.hasState() &&
+      ((updates.nativeState !== undefined && !updates.nativeState) ||
+        (updates.agentMode !== undefined && updates.agentMode !== AgentMode.NATIVE) ||
+        (updates.nativeToolMode !== undefined && updates.nativeToolMode !== "batch") ||
+        (updates.nativeCatalogVersion !== undefined && updates.nativeCatalogVersion !== "v2"))
+    )
+      throw new Error("Clear the session before disabling managed analytical state or changing its operator interface");
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
     }
@@ -1553,6 +1585,10 @@ export class TexeraAgent {
     }
     if (updates.nativeToolMode !== undefined && updates.nativeToolMode !== this.settings.nativeToolMode) {
       this.settings.nativeToolMode = updates.nativeToolMode;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeState !== undefined && updates.nativeState !== this.settings.nativeState) {
+      this.settings.nativeState = updates.nativeState;
       promptNeedsRebuild = true;
     }
     if (updates.nativeRecipes !== undefined && updates.nativeRecipes !== this.settings.nativeRecipes) {
@@ -2207,6 +2243,7 @@ export class TexeraAgent {
     this.head = undefined;
     this.snapshotStorage.clear();
     this.nativeRecipes.clear();
+    this.nativeAnalyses.clear();
   }
 
   /**
@@ -2546,7 +2583,45 @@ export class TexeraAgent {
       maxChars: this.settings.maxOperatorResultCharLimit,
       maxRows: this.settings.maxResultRows,
     };
-    await this.executePostStepChanges(toolCalls, toolResults);
+    let executionFailure: unknown;
+    try {
+      await this.executePostStepChanges(toolCalls, toolResults);
+    } catch (error) {
+      executionFailure = error;
+    }
+    const owned =
+      !!owningStepId &&
+      this.head === owningStepId &&
+      !owningSignal?.aborted &&
+      this.snapshotStorage.hasSnapshotFor(owningStepId);
+    const live = new Map(
+      this.workflowState.getAllOperators().flatMap(op => (op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []))
+    );
+    const results = owned
+      ? new Map(
+          [...this.snapshotStorage.getAssociatedSnapshot(owningStepId!).results].map(([id, value]) => [id, value.info])
+        )
+      : new Map();
+    for (const result of toolResults ?? []) {
+      const batch = asNativeBatchResult(result.output);
+      if (batch?.state) {
+        const rejected = batch.operators.some(op => op.status === "error" || op.status === "blocked");
+        this.nativeAnalyses.finish(
+          batch.state,
+          live,
+          results,
+          executionFailure
+            ? String(executionFailure)
+            : !owned
+              ? "Execution lost its owning step"
+              : rejected
+                ? "One or more requested operators were rejected"
+                : undefined
+        );
+        if (batch.analyses) batch.analyses = this.nativeAnalyses.catalog();
+      }
+    }
+    if (executionFailure) throw executionFailure;
     if (
       requested &&
       owningStepId &&

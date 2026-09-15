@@ -313,8 +313,10 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       return getTuner(settings.tunerConfig)
         .tune(dossier, latestTaskText(visibleSteps))
-        .then(({ params }) =>
-          summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params).messages
+        .then(
+          ({ params }) =>
+            summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+              .messages
         );
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
@@ -602,6 +604,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeCatalogVersion: agentSettings.nativeCatalogVersion,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeRecipes: agentSettings.nativeRecipes,
+    nativeState: agentSettings.nativeState,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -850,6 +853,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             nativeCatalogVersion: settings.nativeCatalogVersion,
             nativeProfileCollection: settings.nativeProfileCollection,
             nativeRecipes: settings.nativeRecipes,
+            nativeState: settings.nativeState,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -944,6 +948,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
             nativeProfileCollection: t.Optional(t.Boolean()),
             nativeRecipes: t.Optional(t.Boolean()),
+            nativeState: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1325,6 +1330,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         nativeCatalogVersion: settings.nativeCatalogVersion,
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeRecipes: settings.nativeRecipes,
+        nativeState: settings.nativeState,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1388,6 +1394,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeRecipes: t.Optional(t.Boolean()),
+        nativeState: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

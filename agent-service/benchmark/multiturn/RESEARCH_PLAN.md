@@ -19,15 +19,14 @@
 
 # Research plan: maintaining analytical state with executable dependencies
 
-Status: proposed next experiment; no new runtime implementation or model runs
-are represented by this document. Prepared 2026-09-15.
+Status: minimum state milestone and paired smoke campaign completed. See [MVP_REPORT.md](MVP_REPORT.md) for the implementation, 130 scored requests including recovery attempts, and the next experimental gates. The primary competitor is ordinary Code Agent; the full backend stack is isolated.
 
 ## 1. Claim and falsifiable hypotheses
 
 Can an executable dependency graph reduce the model work required to preserve,
 compose, and repair analytical state across a session?
 
-The treatment is automatic management of versioned dependencies. A catalog,
+The primary comparison is ordinary Code Agent versus Dataflow. Do not add reusable-function guidance or an artificial Python catalog. The treatment is automatic management of versioned dependencies. A catalog,
 function reuse, batching, or a cheaper prompt layout alone does not establish
 this contribution. Python may author or implement the same graph semantics.
 
@@ -59,11 +58,12 @@ chosen statistical formula or historical artifact is semantically correct.
 - Reuse committed parent features after a compatibility preflight, porting the
   chronological-history and research changes onto a pinned compatible base.
   Keep the previous study reproducible at its original commits and settings.
-- Isolate the research agent service on port `3021`, with its own launcher state,
-  workflows, and registrations. Check ownership and availability before launch.
-  Share the existing backend; do not restart it or alter another worktree.
-- Keep source changes under `agent-service/`, including research adapters and
-  tests. Reuse the LongDS harness and data read-only. New outputs belong to an
+- Isolate the complete backend stack: agent `3031`, engine HTTP `18085`, Pekko
+  `12552`, dashboard `18080`, compiling `19090`, and private infrastructure.
+  Use the `texera-multiturn-mvp` Compose project, private database and volumes,
+  and `/tmp/texera-multiturn-mvp` launcher state. Do not restart another stack.
+- Keep research logic under `agent-service/`; launcher and engine port configuration
+  changes are necessary for full isolation. Reuse the LongDS harness and data read-only. New outputs belong to an
   isolated run directory. A backend capability change is a separate experiment.
 
 Freeze the model route, reasoning setting, operator catalog, backend identity,
@@ -153,21 +153,19 @@ branch isolation, and correction affecting multiple maintained outputs. Keep
 the current customer diagnostic as a regression case rather than counting more
 random seeds as new task families.
 
-Use three arms:
+Use two primary arms:
 
 | Arm | Shared capabilities | Distinct treatment |
 | --- | --- | --- |
-| Code | Persistent Python, reusable functions, immutable named artifacts, catalog and inspection, chronological history | Agent manages composition and propagation in code |
-| Dataflow reference | Same artifact-facing information and history; native batching, reusable definitions, existing live-DAG execution | Agent manages historical composition and maintained-output updates through existing operations |
-| Dataflow treatment | Same reference capabilities | Runtime handles named bindings, version-preserving forks, and propagation across maintained outputs |
+| Code | Existing persistent Code Agent and its normal Python environment | No extra function guidance, memory registry, or restrictions on its own code |
+| Dataflow treatment | Native Python operators, data/flow evidence, versioned state operations | Runtime handles named bindings, version-preserving forks, and propagation across maintained outputs |
 
-Provide equivalent artifact descriptions, schemas, versions, access to complete
-data, and observation budgets. Do not hand either agent evaluator dependency
+Provide the same task, data, model, execution budget, and observation budget. Each system uses its own normal state interface. Do not hand either agent evaluator dependency
 labels, answers, or a solved recipe. Allow the code agent to write dependency
 helpers itself; include that setup and all later work in its cost.
 
-Keep prompt placement, evidence exposure, answer serialization, and model
-settings fixed across the Dataflow arms. Provide equivalent mechanical answer
+Record prompt placement, evidence exposure, answer serialization, and model
+settings. An internal Dataflow ablation is secondary to the Code Agent comparison. Provide equivalent mechanical answer
 return to code and Dataflow before scoring this comparison, with its effect
 reported separately from the graph treatment. The prior study's answer-copying
 failure must not be misattributed to dependency management.
@@ -195,9 +193,7 @@ receipts and failures. Earlier recall experiments lost code, values, or recalled
 outputs; verify the actual input messages before any model evaluation.
 
 Compare the qualified graph treatment with full history versus selected context.
-Give code equivalent catalog/retrieval facilities and a matched context policy;
-do not attribute a better generic memory interface to the graph runtime.
-If necessary use a small 2-by-2 comparison of runtime and context policy.
+Keep the ordinary Code Agent as the competitor. An internal graph/context ablation may identify the mechanism, but must not replace the primary comparison.
 
 Vary unrelated intervening turns and dependency breadth separately. Count the
 catalog, retrieval calls, selected content, and all cached/uncached tokens.
@@ -273,7 +269,7 @@ repair following detection. Broaden the study only after these limits are clear.
 3. Implement named bindings, version-preserving forks, active-reference updates,
    and compact execution receipts by extending the current recipe path.
 4. Demonstrate the acceptance fixture on the real backend without a model.
-5. Run the nine-session pilot (three distinct workflows, three arms) on Luna,
+5. Run the six-session pilot (three distinct workflows, two arms) on Luna,
    followed by the consistent failure-recovery rounds; audit the first divergences.
 
 Stop this work package with a reviewed mechanism report. Context compaction,

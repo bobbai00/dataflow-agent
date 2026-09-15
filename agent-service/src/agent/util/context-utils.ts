@@ -108,6 +108,8 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
       if (call.toolName === TOOL_NAME_DATAFLOW) {
         const batch = asNativeBatchResult(result.output);
         if (!batch) continue;
+        if (batch.state) lines.push(`Analysis receipt: ${JSON.stringify(batch.state)}`);
+        if (batch.analyses) lines.push(`Analysis catalog: ${JSON.stringify(batch.analyses)}`);
         const edits = batch.operators.length
           ? JSON.stringify(batch.operators.map(({ id, status }) => ({ id, status })))
           : "cached read";
@@ -2117,7 +2119,8 @@ function serializeTaskBody(
         node.step.id === latestUserStepId &&
         options.userTaskPlacement !== "chronological" &&
         !(options.messageLayout === "native" && laterTurn)
-      ) continue;
+      )
+        continue;
       lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;
@@ -2206,6 +2209,8 @@ function serializeTaskBody(
             } else
               noChangeOutcome.push(`- ${outcome.op} operator \`${outcome.id}\` ${outcome.status}: ${outcome.message}`);
           }
+          if (receipt?.state) noChangeOutcome.push(`Analysis receipt: ${JSON.stringify(receipt.state)}`);
+          if (receipt?.analyses) noChangeOutcome.push(`Analysis catalog: ${JSON.stringify(receipt.analyses)}`);
           for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
           return;
         }

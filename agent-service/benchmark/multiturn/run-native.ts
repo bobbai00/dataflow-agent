@@ -25,6 +25,7 @@ if (
   !outputPath ||
   ![
     "batch",
+    "state-v2",
     "recipes",
     "batch-bottom",
     "recipes-bottom",
@@ -39,7 +40,12 @@ if (existsSync(out)) throw new Error(`Refusing to overwrite ${out}`);
 mkdirSync(out, { recursive: true });
 const spec = await Bun.file(sessionPath).json();
 const settings = {
-  nativeCatalogVersion: "v1" as const,
+  nativeCatalogVersion: arm === "state-v2" ? ("v2" as const) : ("v1" as const),
+  nativeState: arm === "state-v2",
+  nativeProfileCollection: arm === "state-v2",
+  dataLevel: arm === "state-v2" ? 1 : 0,
+  flowLevel: arm === "state-v2" ? 1 : 0,
+  ...(arm === "state-v2" ? { userTaskPlacement: "chronological" as const } : {}),
   nativeRecipes: arm.startsWith("recipes"),
   ...(arm.endsWith("bottom") ? { userTaskPlacement: "bottom" as const } : {}),
   ...(arm.endsWith("chronological") ? { userTaskPlacement: "chronological" as const } : {}),
@@ -61,7 +67,7 @@ await write("config.json", {
   service: session.baseUrl,
   cost_rates_usd_per_million: { input: 0.2, cached_input: 0.02, output: 1.2 },
   cost_source:
-    "Repository Luna accounting; cached-aware, not an invoice. V1 uses shared legacy backend; V2 transport is unavailable.",
+    "Repository Luna accounting; cache-aware estimate, not an invoice. Read service and effective settings for stack identity.",
 });
 let prior = 0;
 try {
@@ -71,7 +77,7 @@ try {
     mkdirSync(`${out}/${dir}`);
     const prompt =
       (i === 0
-        ? "We are working through a multi-turn analysis. Keep useful state and reusable computations for later requests. Distinguish published results from definitions and data versions.\n\n" +
+        ? "We are working through a multi-turn analysis. Keep useful state for later requests. Distinguish published results from definitions and data versions.\n\n" +
           (arm.includes("guided")
             ? "Session working method: save useful report definitions with dataflow.save_as. When a later request changes only an input or cohort, select the relevant saved recipe and use dataflow.reuse to bind the replacement table, instead of rewriting its downstream operators. Example: operators:[{op:'filter',id:'subset',input:'raw',predicate:'flag = 1'}], reuse:{recipe:'initial',targets:['report'],bind:{raw:'subset'},prefix:'check'}. Choose the recipe and boundary from the actual request; this example supplies no task-specific answer.\n\n"
             : "")
@@ -122,6 +128,7 @@ try {
       cost_usd: ((input - cached) * 0.2 + cached * 0.02 + output * 1.2) / 1e6,
       elapsed_seconds: (Date.now() - start) / 1000,
       tool_calls: steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0),
+      state_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => c.input?.publish || c.input?.revise).length,
       reuse_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => c.input?.reuse).length,
       memory_steps: trace.length,
     };

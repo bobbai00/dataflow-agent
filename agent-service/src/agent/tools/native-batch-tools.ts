@@ -25,6 +25,7 @@ import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
+import { AnalyticalStateStore, type StateRequest, type StateReceipt } from "../native/analytical-state";
 import { NativeRecipeStore, type RecipeReuse } from "../native/recipes";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import {
@@ -54,6 +55,8 @@ export interface NativeBatchResult {
   operators: NativeBatchOutcome[];
   observe: string[];
   observationErrors: string[];
+  state?: StateReceipt;
+  analyses?: ReturnType<AnalyticalStateStore["catalog"]>;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -91,23 +94,97 @@ export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): st
 }
 
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
-export function nativeBatchSchema(version: NativeCatalogVersion = "v1", recipes = false): Record<string, unknown> {
+export function nativeBatchSchema(
+  version: NativeCatalogVersion = "v1",
+  recipes = false,
+  analyses = false
+): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
     properties: {
-      ...(recipes ? {
-        save_as: { type: "string", description: "Save the resulting graph's immutable operator definitions under a fresh name. Does not freeze source files or certify execution." },
-        reuse: {
-          type: "object", additionalProperties: false,
-          properties: {
-            recipe: { type: "string" },
-            targets: { type: "array", items: { type: "string" }, minItems: 1 },
-            bind: { type: "object", additionalProperties: { type: "string" }, description: "Saved node ID to replacement live table ID. Cuts off that node's saved ancestors." },
-            prefix: { type: "string", description: "Fresh prefix for cloned IDs: prefix_old_id. Targets are observed automatically." },
-          }, required: ["recipe", "targets", "bind", "prefix"],
-        },
-      } : {}),
+      ...(analyses
+        ? {
+            publish: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "outputs"],
+              properties: {
+                name: { type: "string" },
+                inputs: { type: "object", additionalProperties: { type: "string" } },
+                outputs: { type: "object", additionalProperties: { type: "string" }, minProperties: 1 },
+              },
+            },
+            revise: {
+              type: "object",
+              additionalProperties: false,
+              required: ["analysis", "scope"],
+              properties: {
+                analysis: { type: "string" },
+                base: { type: "string" },
+                scope: { type: "string", enum: ["active", "temporary"] },
+                bindings: {
+                  type: "object",
+                  additionalProperties: {
+                    anyOf: [
+                      { type: "string" },
+                      {
+                        type: "object",
+                        additionalProperties: false,
+                        required: ["operator"],
+                        properties: {
+                          operator: { type: "string" },
+                          membership: {
+                            type: "object",
+                            additionalProperties: false,
+                            required: ["operator", "keys"],
+                            properties: {
+                              operator: { type: "string" },
+                              keys: { type: "array", items: { type: "string" }, minItems: 1 },
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+                overrides: { type: "object", additionalProperties: { type: "object", additionalProperties: true } },
+              },
+            },
+            state_catalog: {
+              type: "boolean",
+              description:
+                "List active and historical analysis versions, formal inputs, logical nodes, and physical output IDs.",
+            },
+          }
+        : {}),
+      ...(recipes
+        ? {
+            save_as: {
+              type: "string",
+              description:
+                "Save the resulting graph's immutable operator definitions under a fresh name. Does not freeze source files or certify execution.",
+            },
+            reuse: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                recipe: { type: "string" },
+                targets: { type: "array", items: { type: "string" }, minItems: 1 },
+                bind: {
+                  type: "object",
+                  additionalProperties: { type: "string" },
+                  description: "Saved node ID to replacement live table ID. Cuts off that node's saved ancestors.",
+                },
+                prefix: {
+                  type: "string",
+                  description: "Fresh prefix for cloned IDs: prefix_old_id. Targets are observed automatically.",
+                },
+              },
+              required: ["recipe", "targets", "bind", "prefix"],
+            },
+          }
+        : {}),
       operators: {
         type: "array",
         description:
@@ -154,20 +231,37 @@ export function createNativeBatchTools(
   state: WorkflowState,
   context?: ToolContext,
   version: NativeCatalogVersion = "v1",
-  recipes?: NativeRecipeStore
+  recipes?: NativeRecipeStore,
+  analyses?: AnalyticalStateStore
 ): Record<string, any> {
   const typed = createNativeTypedTools(state, context, version);
   const validators = validatorsFor(version);
   return {
-    [TOOL_NAME_NATIVE_DELETE]: typed[TOOL_NAME_NATIVE_DELETE],
+    [TOOL_NAME_NATIVE_DELETE]: {
+      ...typed[TOOL_NAME_NATIVE_DELETE],
+      execute: async (args: { id: string }) => {
+        try {
+          analyses?.assertWritable([args.id]);
+        } catch (error: any) {
+          return createErrorResult(error.message);
+        }
+        return typed[TOOL_NAME_NATIVE_DELETE].execute(args);
+      },
+    },
     [TOOL_NAME_DATAFLOW]: tool({
       description:
         version === "v2"
           ? "Build or revise a stage using the Python V2 catalog. Batch dependent chains, forward references and existing-DAG edits in one call; the shared scheduler resolves their order. Explicitly list result IDs in observe; omitted/[] hides successes but never errors. operators:[] observes cached data without execution. Independent valid edits can succeed when another edit fails; its dependents are blocked."
           : "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
-      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[]; save_as?: string; reuse?: RecipeReuse }>(
-        nativeBatchSchema(version, !!recipes) as any
-      ),
+      inputSchema: jsonSchema<
+        {
+          operators: Array<Record<string, unknown>>;
+          observe?: string[];
+          save_as?: string;
+          reuse?: RecipeReuse;
+          state_catalog?: boolean;
+        } & StateRequest
+      >(nativeBatchSchema(version, !!recipes, !!analyses) as any),
       execute: async args => {
         if (
           version === "v2" &&
@@ -198,15 +292,49 @@ export function createNativeBatchTools(
           return createErrorResult("Choose a fresh valid recipe name");
         if (args.reuse) {
           try {
-            const live = new Map(state.getAllOperators().flatMap(op => op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []));
+            const live = new Map(
+              state.getAllOperators().flatMap(op => (op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []))
+            );
             for (const spec of args.operators) {
               const { op, ...params } = spec;
               const view = nativeViewOf(String(op), params, version);
               if (view) live.set(String(spec.id), view);
             }
             const expansion = recipes!.expand(args.reuse, live);
-            args = { ...args, operators: [...args.operators, ...expansion.operators], observe: [...(args.observe ?? []), ...expansion.targets] };
-          } catch (error: any) { return createErrorResult(error.message); }
+            args = {
+              ...args,
+              operators: [...args.operators, ...expansion.operators],
+              observe: [...(args.observe ?? []), ...expansion.targets],
+            };
+          } catch (error: any) {
+            return createErrorResult(error.message);
+          }
+        }
+        let receipt: StateReceipt | undefined;
+        try {
+          analyses?.assertWritable(args.operators.map(spec => String(spec?.id)));
+          if ((args.publish || args.revise || args.state_catalog) && (!analyses || version !== "v2"))
+            throw new Error("Versioned analyses require nativeState and the V2 catalog");
+          if (args.publish || args.revise) {
+            if (args.save_as || args.reuse) throw new Error("Choose versioned analyses or recipe reuse in one call");
+            const live = new Map(
+              state.getAllOperators().flatMap(op => (op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []))
+            );
+            for (const spec of args.operators) {
+              const { op, ...params } = spec;
+              const view = nativeViewOf(String(op), params, version);
+              if (view) live.set(String(spec.id), view);
+            }
+            const expansion = analyses!.prepare(args, live);
+            receipt = expansion.receipt;
+            args = {
+              ...args,
+              operators: [...args.operators, ...expansion.operators],
+              observe: [...(args.observe ?? []), ...Object.values(receipt.outputs)],
+            };
+          }
+        } catch (error: any) {
+          return createErrorResult(error.message);
         }
         const specs = args.operators.map((spec, index) => {
           const { op, ...params } = spec && typeof spec === "object" ? spec : {};
@@ -354,13 +482,21 @@ export function createNativeBatchTools(
         if (args.save_as) {
           if (outcomes.some(outcome => outcome?.status === "error" || outcome?.status === "blocked"))
             observationErrors.push(`Recipe '${args.save_as}' was not saved because an edit failed.`);
-          else recipes!.save(args.save_as, new Map(state.getAllOperators().flatMap(op => op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : [])));
+          else
+            recipes!.save(
+              args.save_as,
+              new Map(
+                state.getAllOperators().flatMap(op => (op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []))
+              )
+            );
         }
         return {
           kind: "native-batch",
           operators: outcomes as NativeBatchOutcome[],
           observe,
           observationErrors,
+          ...(receipt ? { state: receipt } : {}),
+          ...(args.state_catalog ? { analyses: analyses!.catalog() } : {}),
         } satisfies NativeBatchResult;
       },
     }),

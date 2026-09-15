@@ -30,6 +30,7 @@ export function validateNativeCatalogSettings(
     agentMode?: string;
     nativeToolMode?: string;
     nativeProfileCollection?: boolean;
+    nativeState?: boolean;
   } = {}
 ): NativeCatalogVersion {
   const version = settings.nativeCatalogVersion ?? DEFAULT_AGENT_SETTINGS.nativeCatalogVersion ?? "v1";
@@ -39,6 +40,8 @@ export function validateNativeCatalogSettings(
   if (settings.nativeProfileCollection !== undefined && typeof settings.nativeProfileCollection !== "boolean") {
     throw new NativeCatalogSettingsError("nativeProfileCollection must be a boolean");
   }
+  if (settings.nativeState && version !== "v2")
+    throw new NativeCatalogSettingsError("Managed analytical state requires catalog v2");
   if (settings.nativeProfileCollection && version !== "v2") {
     throw new NativeCatalogSettingsError("Native profile collection requires catalog v2");
   }
