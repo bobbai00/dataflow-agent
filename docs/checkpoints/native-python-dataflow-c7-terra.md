@@ -31,3 +31,20 @@ preview returned an empty cached value. A failing regression reproduces this;
 the untuned path is now synchronous while the opt-in tuner remains async.
 **1,124 Bun tests and typecheck pass** after the fix. The worker matrix is
 being rerun against the changed agent source before model/benchmark admission.
+
+Further live checks exposed two more readback defects: previews kept only the
+first message of a native transcript, and the settings API omitted the applied
+`messageLayout`. Both have regression tests. At root `81b80e980296c7757e796124445e3ad00014c850`,
+all six matching worker suites passed (20 mode/setting cases) and Terra-medium
+passed all four DELTA model-smoke turns, including input-timed observation and
+revision-pinned error inspection. Owned test resources were cleaned up.
+
+The LATEST real-model smoke failed: it rebuilt the correct three-operator batch
+25 times without answering. Actual model inputs contained the correct observed
+rows, so this is not a missing-table failure. The candidate now adds LATEST-only
+prompt guidance that the snapshot is completed work, and a visible current
+result can support a direct final answer. DELTA and V1 prompts are unchanged.
+**1,127 Bun tests and typecheck pass**; the failed live attempt is preserved under
+`/tmp/native-python-live-master.i9nfol/campaign-2/model-smoke-latest`.
+Matching-build worker/model gates must pass before official pilot dispatch;
+no official benchmark first attempt has been consumed at this checkpoint.

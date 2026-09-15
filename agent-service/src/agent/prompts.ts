@@ -684,9 +684,12 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
   const template = options.nativeCatalogVersion === "v2" ? NATIVE_PYTHON_TEMPLATE : NATIVE_BATCH_TEMPLATE;
+  const snapshotProgress = !delta && options.nativeCatalogVersion === "v2"
+    ? " These are already executed outcomes of your earlier actions, not a proposed workflow. Do not repeat a completed batch merely because its tool-call history is collapsed. A visible current result body has already been explicitly observed; if it already satisfies the task, answer directly without another tool call. Only a `result not requested` receipt needs a cached observe when its contents are necessary. A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
+    : "";
   return template
     .replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText(options.nativeCatalogVersion))
-    .replace("{{CONTEXT_LAYOUT}}", contextLayout)
+    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{INSPECTION_LOCATION}}", inspectionLocation)
     .replace("{{RECALL_TOOL}}", recall);

@@ -252,6 +252,17 @@ describe("native V2 Python contracts", () => {
     expect(JSON.parse(run.stdout)).toMatchObject({ profileCollection: true, operatorType: "UDF", inputOperators: [] });
   });
 
+  test("LATEST teaches completion from the executed snapshot without replaying a batch", () => {
+    const options = { batch: true, nativeCatalogVersion: "v2" as const };
+    const latest = buildNativeModeSystemPrompt(ContextMode.LATEST, false, "all", options);
+    expect(latest).toContain("already executed outcomes of your earlier actions");
+    expect(latest).toContain("Do not repeat a completed batch");
+    expect(latest).toContain("already satisfies the task, answer directly");
+    expect(latest).toContain("not requested");
+    const delta = buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", options);
+    expect(delta).not.toContain("Do not repeat a completed batch");
+  });
+
   test("V2 prompt examples validate, compile and extend the same graph across layouts", async () => {
     const validate = new Ajv({ strict: false }).compile(nativeBatchSchema("v2"));
     for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
