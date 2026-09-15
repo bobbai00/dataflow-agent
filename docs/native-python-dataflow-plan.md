@@ -925,6 +925,12 @@ or replace the required workflow/CU ownership and cleanup checks.
 
 ## 9. Evaluation: first prove correctness, then measure benefit
 
+The user-requested extension adds a matched `gpt-5.6-terra` replication at
+**medium reasoning** for every Luna arm, with separate result namespaces and
+model-specific pricing. Prioritize the no-evidence/data-only/flow-only/combined
+comparison for both models; keep collection/framework controls separate.
+See the [Terra/live-runtime checkpoint](checkpoints/native-python-dataflow-c7-terra.md).
+
 Freeze model, context mode/budget, maximum steps, task data, retry policy and
 backend configuration. The first seven arms are now registered in the
 [isolated harness pilot](../benchmark/Kramabench/docs/native-python-pilot.md),

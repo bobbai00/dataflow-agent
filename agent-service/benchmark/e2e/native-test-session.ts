@@ -26,6 +26,7 @@ import {
   deleteWorkflow,
   getReActSteps,
   getSnapshot,
+  getBackendConfig,
   login,
   terminateComputingUnit,
 } from "../../src/api";
@@ -35,6 +36,7 @@ import { assembleContext } from "../../src/agent/util/context-utils";
 import { AgentMode, ContextMode, type AgentSettingsApi, type ReActStep } from "../../src/types/agent";
 import type { OperatorInfo } from "../../src/types/execution";
 import { nativeDebugInput } from "./native-debug-input";
+import { assertNativeCleanupSafe } from "./native-cleanup";
 
 /** Real execution via debug; context is assembled from the service's actual
  * snapshots with production code. This is deliberately NOT an LLM input test. */
@@ -51,17 +53,25 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
   let priorResults: Record<string, unknown> = {};
 
   async function close() {
-    const results = await Promise.allSettled([
-      agentId ? deleteAgent(agentId, baseUrl) : Promise.resolve(),
-      wid === undefined ? Promise.resolve() : deleteWorkflow(token, wid),
-      cuid === undefined ? Promise.resolve() : terminateComputingUnit(token, cuid),
+    if (!agentId || wid === undefined || cuid === undefined)
+      throw new Error(`Native smoke setup unresolved; retaining resources ${JSON.stringify({ agentId, wid, cuid })}`);
+    const read = async (url: string) => {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      });
+      assert.ok(response.ok, `Native smoke cleanup preflight HTTP ${response.status}`);
+      return response.json();
+    };
+    const [agent, history] = await Promise.all([
+      read(`${baseUrl}/api/agents/${encodeURIComponent(agentId)}`),
+      read(`${getBackendConfig().apiEndpoint}/api/executions/${wid}`),
     ]);
-    const errors = results.filter(result => result.status === "rejected");
-    if (errors.length)
-      throw new AggregateError(
-        errors.map(result => (result as PromiseRejectedResult).reason),
-        "Native smoke cleanup failed"
-      );
+    assertNativeCleanupSafe(agent, history, { agentId, wid, cuid });
+    await deleteAgent(agentId, baseUrl);
+    await deleteWorkflow(token, wid);
+    await terminateComputingUnit(token, cuid);
   }
 
   try {
