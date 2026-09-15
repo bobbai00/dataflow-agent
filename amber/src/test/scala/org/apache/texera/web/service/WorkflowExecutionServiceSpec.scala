@@ -74,6 +74,7 @@ class WorkflowExecutionServiceSpec extends AnyFlatSpec with Matchers {
       null,
       new WorkflowContext(),
       null,
+      null, // cache service is also deliberately absent in this constructor test
       request,
       store,
       errorHandler,

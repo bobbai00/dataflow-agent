@@ -249,7 +249,7 @@ class PveResourceSpec
     PveManager.createNewPve(testCuid, queue, testPveName)
 
     val logs = queueText()
-    logs should include("[PVE][ERR] Failed to install requirements files")
+    logs should include("[PVE][ERR] Failed to install dependencies (exit=1)")
   }
 
   it should "refuse to install a package that is part of the system set" in {
