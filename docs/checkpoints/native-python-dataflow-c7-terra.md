@@ -48,3 +48,13 @@ result can support a direct final answer. DELTA and V1 prompts are unchanged.
 `/tmp/native-python-live-master.i9nfol/campaign-2/model-smoke-latest`.
 Matching-build worker/model gates must pass before official pilot dispatch;
 no official benchmark first attempt has been consumed at this checkpoint.
+
+The prompt-only change made LATEST's chain complete in two model steps, but
+the cached-read turn still repeated. LATEST now also retains one bounded,
+current-task last-action receipt: accepted/rejected edit statuses or the cached
+observe/inspection target, with no parameters, rows or diagnostic body. It is
+not a trajectory replay and does not claim tool completion means execution
+success. A new user task clears the receipt; DELTA is unchanged. Regression
+tests exercise rendering, task boundaries, pending calls, privacy and bounds.
+The failed cached-read smoke is retained under `campaign-4/model-smoke-latest`;
+all its resources and the isolated service were verified cleaned up.

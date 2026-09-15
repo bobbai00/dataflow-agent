@@ -92,6 +92,41 @@ export function writtenOperatorId(toolName: string | undefined, input: unknown):
   return undefined;
 }
 
+/** A bounded current-task receipt, not a trajectory or a table/diagnostic pull.
+ * LATEST replaces the wire history, so even a cached read needs an explicit
+ * completion marker. Tool completion does not imply successful execution. */
+export function latestNativeActionReceipt(steps: ReActStep[]): string | undefined {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    if (step.role === "user") return undefined;
+    if (step.role !== "agent" || !step.toolCalls?.length) continue;
+    const lines: string[] = [];
+    for (const call of step.toolCalls.slice(0, 4)) {
+      const result = step.toolResults?.find(item => item.toolCallId === call.toolCallId);
+      if (!result) continue;
+      const args = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
+      if (call.toolName === TOOL_NAME_DATAFLOW) {
+        const batch = asNativeBatchResult(result.output);
+        if (!batch) continue;
+        const edits = batch.operators.length
+          ? JSON.stringify(batch.operators.map(({ id, status }) => ({ id, status })))
+          : "cached read";
+        lines.push(
+          `dataflow completed: ${edits}; observe=${JSON.stringify(batch.observe)}; observation errors=${batch.observationErrors?.length ?? 0}.`
+        );
+      } else if (call.toolName === "inspectError" || call.toolName === "inspectResult") {
+        lines.push(
+          `${call.toolName} for ${JSON.stringify(args.operatorId)} completed; read the saved inspection, not another identical pull.`
+        );
+      }
+    }
+    if (!lines.length) return undefined;
+    const text = `Last completed action in this task: ${lines.join(" ")} Tool completion is not proof that every operator succeeded; use the current results and errors above.`;
+    return text.length <= 1200 ? text : text.slice(0, 1178) + " [receipt truncated]";
+  }
+  return undefined;
+}
+
 const log = createLogger("ContextAssembler");
 
 /* ============================================================================
@@ -826,6 +861,13 @@ export function renderContextCore(
       content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
       break;
     }
+  }
+
+  // Native mode survives the legacy summarize mapping as nativeOp metadata,
+  // not as agentMode (which only distinguishes compiled-schema rendering).
+  if (mode === ContextMode.LATEST && workflowState.getAllOperators().some(op => op.nativeOp)) {
+    const receipt = latestNativeActionReceipt(visibleSteps);
+    if (receipt) content += `\n\n${receipt}`;
   }
 
   // Context-budget meter (POC): the observable signal that lets the agent decide

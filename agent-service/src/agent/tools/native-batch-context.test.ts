@@ -20,7 +20,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgentMode, ContextMode, type ReActStep, type ResultSelection } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
-import { assembleContext } from "../util/context-utils";
+import { assembleContext, latestNativeActionReceipt } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
@@ -72,6 +72,51 @@ function fixture() {
 }
 
 describe("explicit batch observations across context modes", () => {
+  test("LATEST retains only the current task's last completed receipt", async () => {
+    const f = fixture();
+    await f.record("write", { operators: [source], observe: [] });
+    f.result("write", "source", "visible_after_pull");
+    await f.record("read", { operators: [], observe: ["source"] });
+    const render = (mode: ContextMode) =>
+      JSON.stringify(
+        assembleContext(f.steps, f.state, f.storage, mode, {
+          agentMode: AgentMode.NATIVE,
+        })
+      );
+    expect(render(ContextMode.LATEST)).toContain("Last completed action in this task:");
+    expect(render(ContextMode.LATEST)).toContain("cached read");
+    expect(render(ContextMode.LATEST)).toContain("visible_after_pull");
+    expect(render(ContextMode.DELTA)).not.toContain("Last completed action in this task:");
+    const receipt = latestNativeActionReceipt(f.steps)!;
+    expect(receipt).toContain('observe=["source"]');
+    expect(receipt).not.toContain("data/test.csv");
+    expect(receipt).not.toContain("visible_after_pull");
+    const next: ReActStep = { ...f.steps[1]!, id: "new-task", role: "user", toolCalls: [], toolResults: [] };
+    expect(latestNativeActionReceipt([...f.steps, next])).toBeUndefined();
+    expect(latestNativeActionReceipt([{ ...f.steps[1]!, toolResults: [] }])).toBeUndefined();
+  });
+
+  test("LATEST inspection receipt is bounded and does not echo diagnostic content", () => {
+    const step: ReActStep = {
+      id: "inspect",
+      messageId: "m",
+      stepId: 1,
+      timestamp: 1,
+      role: "agent",
+      content: "",
+      isBegin: false,
+      isEnd: false,
+      toolCalls: [{ toolName: "inspectError", toolCallId: "i", input: { operatorId: "filtered" } }],
+      toolResults: [{ toolCallId: "i", output: "PRIVATE_DIAGNOSTIC" }],
+    };
+    const receipt = latestNativeActionReceipt([step])!;
+    expect(receipt).toContain('inspectError for "filtered"');
+    expect(receipt).toContain("saved inspection");
+    expect(receipt).not.toContain("PRIVATE_DIAGNOSTIC");
+    step.toolCalls![0]!.input = { operatorId: "x".repeat(2000) };
+    expect(latestNativeActionReceipt([step])!.length).toBeLessThanOrEqual(1200);
+  });
+
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     for (const messageLayout of [undefined, "native", "block"] as const) {
       for (const resultSelection of ["all", "rule", "scoped"] as ResultSelection[]) {

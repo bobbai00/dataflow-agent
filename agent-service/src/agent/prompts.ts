@@ -659,8 +659,8 @@ interface NativePromptLayoutOptions {
 
 function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativePromptLayoutOptions): string {
   const delta = contextMode === ContextMode.DELTA;
-  const messageLayout = options.messageLayout ??
-    (options.versioned || options.session ? "turnSplit" : delta ? "native" : "opSplit");
+  const messageLayout =
+    options.messageLayout ?? (options.versioned || options.session ? "turnSplit" : delta ? "native" : "opSplit");
   const inlineInspection = delta && messageLayout === "native";
   const contextLayout = options.versioned
     ? "Your multi-turn context is a `# Catalog` of `## Turn N` entries: prior tasks, their dataflow changes, and answers, followed by the current task and step observations. LATEST collapses current execution results into `### Dataflow`; DELTA keeps event observations. An operator id refers to its current version. Answer only the current turn's task."
@@ -684,9 +684,10 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
   const template = options.nativeCatalogVersion === "v2" ? NATIVE_PYTHON_TEMPLATE : NATIVE_BATCH_TEMPLATE;
-  const snapshotProgress = !delta && options.nativeCatalogVersion === "v2"
-    ? " These are already executed outcomes of your earlier actions, not a proposed workflow. Do not repeat a completed batch merely because its tool-call history is collapsed. A visible current result body has already been explicitly observed; if it already satisfies the task, answer directly without another tool call. Only a `result not requested` receipt needs a cached observe when its contents are necessary. A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
-    : "";
+  const snapshotProgress =
+    !delta && options.nativeCatalogVersion === "v2"
+      ? " These are already executed outcomes of your earlier actions, not a proposed workflow. The compact `Last completed action in this task` receipt confirms which batch or read just completed; it does not assert that every operator succeeded. Do not repeat a completed batch merely because its tool-call history is collapsed. A visible current result body has already been explicitly observed; if it already satisfies the task, answer directly without another tool call. Only a `result not requested` receipt needs a cached observe when its contents are necessary. A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
+      : "";
   return template
     .replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText(options.nativeCatalogVersion))
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
@@ -757,7 +758,10 @@ export function buildNativeModeSystemPrompt(
       : (contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST) + recallLine;
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", layout)
-    .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
+    .replace(
+      "{{RESULT_SHAPES}}",
+      contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes
+    )
     .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
 }
 
