@@ -22,7 +22,7 @@
 Status: implementation plan and proposed V2 contract, 2026-09-14.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
-The opt-in V2 catalog currently exposes the seven C2 foundation operators;
+The opt-in V2 catalog currently exposes the fourteen C2/C3 core operators;
 the rest of this document remains the target contract, not a rollout claim.
 
 ## 1. Scope and starting point
@@ -200,6 +200,14 @@ checks, not an automatic whole-DataFrame shortcut.
   `fileColumn` adds a visible basename and must not overwrite an existing
   column; internal provenance keeps the full resolved identity separately.
   Preview is a diagnostic source, not the parsed full table.
+  Resolve/deduplicate paths and read them in canonical sorted order. CSV/FWF/
+  whitespace/HTML infer scalar values from text; `allText:true` disables that.
+  JSON/Parquet/Excel preserve explicit string cells such as `"001"` and `"true"`.
+  Text encoding uses an explicit `encoding` when supplied, otherwise BOM/UTF-8
+  detection with a strict CP1252 fallback, recording the choice. Literal
+  `NA`/`NULL` text is not automatically treated as missing. Multiple parsed
+  files use compatible-type column alignment; parsing options apply to every
+  selected file and incompatible options fail.
 - **Preview offset contract**: text returns at most `preview` physical lines
   per selected file starting at zero-based `skipLines`, preserving absolute
   `line_no`. Blank lines and comments count as physical lines. Excel returns
@@ -301,10 +309,13 @@ before/after are observations, not proof the scientific criterion is correct.
 - **Join**: `left: string`, `right: string`, `type?: "inner" | "left" | "right" |
   "full" | "cross"="inner"`; `on?: string | string[] | [string,string][]`.
   Non-cross joins require nonempty keys; never infer a cross join from a missing
-  `on`. Cross join forbids `on`. `nullsEqual?: boolean=false`,
+  `on`. Cross join forbids `on` and accepts only the default
+  `validate:"many_to_many"`; it has no equality keys whose uniqueness could
+  satisfy another validation policy. `nullsEqual?: boolean=false`,
   `rightSuffix?: string="_right"`, `validate?: "one_to_one" | "one_to_many" |
   "many_to_one" | "many_to_many"="many_to_many"`. Validate uniqueness on the
-  relevant nonnull keys before merge; explicit cardinality constraints failing
+  relevant eligible keys before merge (nonnull by default; null keys also
+  participate when `nullsEqual:true`); explicit cardinality constraints failing
   are errors. Missing keys/suffix collisions/type mismatches are errors.
   Self-joins retain ordered left/right port identity. No promised global row
   order; use Sort when needed. Generic evidence measures unmatched keys and
@@ -820,7 +831,8 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C0 | Committed and pushed | `4f8c7f88e`; plan committed alone before implementation |
 | C1 | Implemented and verified | `821f01435`; preview offsets, prompt guidance, and real-backend regression smoke; see [C1 checkpoint](checkpoints/native-python-dataflow-c1.md) for exact scope, commands, outcomes and limitations |
 | C2 | Foundation implemented and verified | `1ffc49cf8`; opt-in Python callback catalog, runtime contracts and source-mapped diagnostics; 977 Bun tests, 34 Python tests, typecheck, DELTA/LATEST worker smoke pass; see [C2 checkpoint](checkpoints/native-python-dataflow-c2.md) for delivered scope and remaining diagnostic/telemetry work |
-| C3–C7 | Planned, not implemented | Remaining core/shape operators, structured profile transport, flow evidence selection, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
+| C3 | Core implemented and verified | `67f69e151` plus `efb45ea94` engine schema fix; fourteen V2 operators, expanded prompt/examples, dependent batch/revision/error/empty-input worker tests in DELTA/LATEST; see [C3 checkpoint](checkpoints/native-python-dataflow-c3.md) for exact gates, follow-up validation and deployment requirements |
+| C4–C7 | Planned, not implemented | Structured profile transport, flow evidence selection, remaining shape operators, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
