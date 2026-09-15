@@ -1966,8 +1966,9 @@ export class TexeraAgent {
               offBranchTurns: this.offBranchTurns(visibleSteps),
             });
             lastPreparedMessages = processed;
-            const firstContent = processed[0]?.content;
-            this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
+            this.lastRenderedContext = processed
+              .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+              .join("\n\n");
             return { messages: processed };
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
@@ -2178,9 +2179,9 @@ export class TexeraAgent {
     // An async assembler (LLM tuner) can't be awaited in this sync preview —
     // return the content last rendered on the prepareStep path.
     if (processed instanceof Promise) return this.lastRenderedContext ?? "";
-    const first = processed[0];
-    if (!first) return "";
-    return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
+    return processed
+      .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+      .join("\n\n");
   }
 
   stop(): void {

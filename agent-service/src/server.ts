@@ -1442,7 +1442,7 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
-  /** Assembled next-step user-message content (markdown). Updated whenever
+  /** Assembled next-step transcript content (markdown/JSON). Updated whenever
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
   content?: string;

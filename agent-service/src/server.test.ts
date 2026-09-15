@@ -56,6 +56,34 @@ test("untuned production context preview is synchronous and current after debug"
   expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
 });
 
+test("context preview includes later native tool messages, not only the first user block", () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-native-transcript",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: () => [
+      { role: "user", content: "# Agent Events" },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c",
+            toolName: "dataflow",
+            output: { type: "text", value: "CALLBACK_RUNTIME" },
+          },
+        ],
+      },
+    ],
+  });
+  expect(agent.getNextStepContext()).toContain("# Agent Events");
+  expect(agent.getNextStepContext()).toContain("CALLBACK_RUNTIME");
+});
+
 function url(path: string): string {
   return `http://localhost${path}`;
 }
@@ -112,12 +140,21 @@ describe(`GET ${API}/healthcheck`, () => {
 
 describe(`POST ${API}/agents`, () => {
   test("native batch settings survive create and force provider parallel calls off", async () => {
-    const created = await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true } });
+    const created = await createAgent({
+      settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true },
+    });
     expect(created.status).toBe(200);
-    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(created);
+    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(
+      created
+    );
     expect(body.settings.nativeToolMode).toBe("batch");
     expect(body.settings.parallelToolCalls).toBe(false);
-    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { agentMode: "native", nativeToolMode: "typed", parallelToolCalls: true, resultSelection: "all" });
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
+      agentMode: "native",
+      nativeToolMode: "typed",
+      parallelToolCalls: true,
+      resultSelection: "all",
+    });
     expect(patched.status).toBe(200);
     const settings = await readJson<{ nativeToolMode: string; parallelToolCalls: boolean }>(patched);
     expect(settings.nativeToolMode).toBe("typed");
