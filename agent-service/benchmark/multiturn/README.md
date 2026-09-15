@@ -86,4 +86,5 @@ python agent-service/benchmark/multiturn/study.py score /tmp/study/seed41 /tmp/s
 - Calibration variants and failed hypotheses remain in the artifact directory. Do not pool them as independent benchmark cases or attribute a non-adopted feature's outcome to its algorithm.
 - Before freezing a failure comparison, use the same two additional recovery rounds for all affected arms, retaining original outcomes and costs. This exploratory study reports first-pass accuracy separately.
 
-See `REPORT.md` for measured outcomes and the next benchmark design.
+See [REPORT.md](REPORT.md) for measured outcomes and
+[RESEARCH_PLAN.md](RESEARCH_PLAN.md) for the next implementation and evaluation milestones.
