@@ -603,6 +603,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
+    messageLayout: agentSettings.messageLayout,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
     thoughtReplay: agentSettings.thoughtReplay,

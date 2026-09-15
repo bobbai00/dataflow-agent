@@ -139,6 +139,16 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("explicit message layout is echoed in create, info and settings", async () => {
+    const response = await createAgent({ settings: { messageLayout: "native" } });
+    const created = await readJson<any>(response);
+    expect(created.settings.messageLayout).toBe("native");
+    const info = await readJson<any>(await getJson(`${API}/agents/${created.id}`));
+    expect(info.settings.messageLayout).toBe("native");
+    const settings = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+    expect(settings.messageLayout).toBe("native");
+  });
+
   test("native batch settings survive create and force provider parallel calls off", async () => {
     const created = await createAgent({
       settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true },
