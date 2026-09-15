@@ -681,19 +681,21 @@ export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   inspectEnabled = false,
   resultSelection: ResultSelection = "all",
-  layoutOpts: { versioned?: boolean; session?: boolean; recall?: boolean } = {}
+  layoutOpts: { versioned?: boolean; session?: boolean; recall?: boolean; batch?: boolean } = {}
 ): string {
   const inspectHint = inspectEnabled
-    ? "\nAny Count or Header operator's full table can be opened with `inspectResult` — read-only, no re-execution."
+    ? "\nAny Count or Header operator's cached sample can be opened with `inspectResult` — read-only, no re-execution."
     : "";
   const shapes =
-    resultSelection === "rule"
+    layoutOpts.batch
+      ? "Detailed results appear only for the ids requested by that event's `observe`. All edited operators retain a compact execution receipt; a hidden result is still computed. Execution errors always appear, including errors from operators you did not request. Requested tables include a sample, plus schema/statistics when enabled. Each event preserves its own choices and result version."
+      : resultSelection === "rule"
       ? NATIVE_SHAPES_RULE.replace("{{INSPECT_HINT}}", inspectHint)
       : resultSelection === "scoped"
         ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", inspectHint)
         : NATIVE_SHAPES_ALL;
   const inspectLine = inspectEnabled
-    ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's already-computed table in more detail (more rows, the full stats, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Recent inspections stay visible under `# Inspections`."
+    ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's cached sample (more cached rows, full-table stats when collected, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Row filters search only the cached sample, not the full table; no sample match does not establish absence from the full result. Recent inspections stay visible under `# Inspections`."
     : "";
   const recallLine = layoutOpts.recall
     ? "\n- `recallState({turn})` — read-only: one earlier turn's request, answer and the operators it added or revised, with their parameters and result shapes (`includeOutputTableSample` chars of rows, `includeOutputTableColumnStats`). Use it when a value from an earlier turn decides this one; nothing is re-executed."
@@ -703,7 +705,20 @@ export function buildNativeModeSystemPrompt(
     : layoutOpts.session
       ? NATIVE_LAYOUT_SESSION + recallLine
       : (contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST) + recallLine;
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
+  let template = NATIVE_MODE_TEMPLATE;
+  if (layoutOpts.batch) {
+    template = template
+      .replace("and the current state is shown back to you", "and your requested results are shown back to you")
+      .replace("Each operator is one tool call: the tool is the operator type, its arguments are the operator's parameters.", "Use one `dataflow` call to submit a heterogeneous array of operators, with optional `observe` result ids. Each operator object has `op` (a lowercase catalog name), `id`, input references and its typed parameters. The names below describe operator objects inside `operators`, not separate callable tools.")
+      .replace("## Operators (one tool each)", "## Operator catalog for dataflow.operators")
+      .replace("Every call names the output table", "Every operator object names the output table")
+      .replace("Calling a tool again with an EXISTING id", "Submitting an operator again with an EXISTING id")
+      .replace("Emit the whole next stage as parallel tool calls in one turn — scan, filter, compute, aggregate — later calls may name ids created by earlier calls in the same turn. Everything executes once after the turn.", "Submit the whole next stage in one `dataflow({operators:[...], observe:[...]})` call — scan, filter, compute, aggregate. Operators can reference ids created anywhere in that batch; the service orders them by dependency and executes once. Request the results needed for your next decision. Omitted `observe` shows the batch's terminal outputs; `observe: []` gives receipts only. Any existing id may be requested. `operators: []` with `observe` reads cached results without execution.")
+      .replace("by calling its tool again", "by resubmitting it in dataflow")
+      .replace("`scan {id:", "`{op: \"scan\", id:");
+    template += `\n\n## Batch example\n\nFor a table already scanned as \`sales\`, one stage can be:\n\n\`dataflow({operators:[{op:"filter",id:"recent",input:"sales",predicate:"year = 2024"},{op:"aggregate",id:"total",input:"recent",aggregations:[{fn:"sum",col:"amount",as:"total_amount"}]}],observe:["total"]})\`\n\nOnly \`total\`'s detailed result appears. To inspect \`recent\` later, use \`inspectResult({operatorId:"recent"})\`. Its rows are limited to the cached sample; creating extra limit/project operators is unnecessary for inspecting that sample.\n\n${inspectLine}\n`;
+  }
+  return template.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", layout)
     .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
     .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");

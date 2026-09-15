@@ -99,6 +99,7 @@ import {
 } from "./tools/general-op-tools";
 import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
 import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
+import { asNativeBatchResult, createNativeBatchTools, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
@@ -141,6 +142,7 @@ const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
   TOOL_NAME_MODIFY_OPERATOR,
   TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
   TOOL_NAME_ADD_OPERATORS,
+  TOOL_NAME_DATAFLOW,
   ...NATIVE_TOOL_NAMES,
 ]);
 
@@ -247,6 +249,14 @@ export function computeOperatorAccess(
       modifiedOperatorIds: [],
     };
     const result = toolResults?.find(tr => tr.toolCallId === tc.toolCallId);
+    const batch = tc.toolName === TOOL_NAME_DATAFLOW ? asNativeBatchResult(result?.output) : undefined;
+    if (batch) {
+      entry.addedOperatorIds = batch.operators.filter(op => op.status === "added").map(op => op.id);
+      entry.modifiedOperatorIds = batch.operators.filter(op => op.status === "modified").map(op => op.id);
+      entry.viewedOperatorIds = [...batch.observe];
+      access[i] = entry;
+      return;
+    }
     // `operatorId` on the code / general tools; `id` on the typed-operator
     // tools of native mode (and their deleteOperator).
     const inputOpId = writtenOperatorId(tc.toolName, tc.input);
@@ -558,12 +568,13 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       this.systemPrompt = buildNativeModeSystemPrompt(
         this.settings.contextMode,
-        this.settings.enableInspectTool === true,
+        this.settings.enableInspectTool === true || this.settings.nativeToolMode === "batch",
         this.settings.resultSelection,
         {
           versioned: this.settings.versionedMode === true,
           session: this.settings.sessionTurns === true,
           recall: this.settings.enableRecallTool === true,
+          batch: this.settings.nativeToolMode === "batch",
         }
       );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
@@ -652,7 +663,9 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       // Fixed-grain typed operators: one tool per operator type (upsert by id),
       // plus a consumer-aware delete that replaces the generic one.
-      Object.assign(tools, createNativeTypedTools(this.workflowState, context));
+      Object.assign(tools, this.settings.nativeToolMode === "batch"
+        ? createNativeBatchTools(this.workflowState, context)
+        : createNativeTypedTools(this.workflowState, context));
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -661,7 +674,7 @@ export class TexeraAgent {
     // Opt-in read-only PULL tool (Direction B): lets the model re-inspect an
     // existing operator's cached result at more detail on demand. Reads the
     // result at the current HEAD; never mutates the DAG or re-executes.
-    if (this.settings.enableInspectTool) {
+    if (this.settings.enableInspectTool || (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")) {
       tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
         getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
         workflowState: this.workflowState,
@@ -741,6 +754,7 @@ export class TexeraAgent {
     };
 
     return {
+      [TOOL_NAME_DATAFLOW]: createNativeBatchTools(this.workflowState, context)[TOOL_NAME_DATAFLOW],
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
       [TOOL_NAME_ADD_OPERATOR]: createAddOperatorTool(this.workflowState, operatorSchemas, context),
       [TOOL_NAME_MODIFY_OPERATOR]: createModifyOperatorTool(this.workflowState, context),
@@ -1361,6 +1375,7 @@ export class TexeraAgent {
     maxOperatorEdits?: number;
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
+    nativeToolMode?: "typed" | "batch";
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1458,6 +1473,10 @@ export class TexeraAgent {
       this.settings.resultSelection = updates.resultSelection;
       promptNeedsRebuild = true;
     }
+    if (updates.nativeToolMode !== undefined && updates.nativeToolMode !== this.settings.nativeToolMode) {
+      this.settings.nativeToolMode = updates.nativeToolMode;
+      promptNeedsRebuild = true;
+    }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
       this.settings.contextMode = updates.contextMode;
       // Context mode now selects the prompt's Context-Format + Example sections
@@ -1470,6 +1489,9 @@ export class TexeraAgent {
       this.settings.parallelToolCalls = updates.parallelToolCalls;
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
+    }
+    if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
+      this.settings.parallelToolCalls = false;
     }
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
@@ -2431,8 +2453,15 @@ export class TexeraAgent {
     const editedOpIds: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i];
-      const tr = toolResults[i];
+      const tr = toolResults.find(result => result.toolCallId === tc.toolCallId);
       if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        const batch = asNativeBatchResult(tr?.output);
+        for (const outcome of batch?.operators ?? []) {
+          if (outcome.status === "added" || outcome.status === "modified") editedOpIds.push(outcome.id);
+        }
+        continue;
+      }
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;

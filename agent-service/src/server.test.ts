@@ -95,6 +95,23 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("native batch settings survive create and force provider parallel calls off", async () => {
+    const created = await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true } });
+    expect(created.status).toBe(200);
+    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(created);
+    expect(body.settings.nativeToolMode).toBe("batch");
+    expect(body.settings.parallelToolCalls).toBe(false);
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { agentMode: "native", nativeToolMode: "typed", parallelToolCalls: true, resultSelection: "all" });
+    expect(patched.status).toBe(200);
+    const settings = await readJson<{ nativeToolMode: string; parallelToolCalls: boolean }>(patched);
+    expect(settings.nativeToolMode).toBe("typed");
+    expect(settings.parallelToolCalls).toBe(true);
+  });
+
+  test("rejects unknown native tool modes", async () => {
+    expect((await createAgent({ settings: { agentMode: "native", nativeToolMode: "unknown" } })).status).toBe(400);
+  });
+
   test("creates an agent for the delegating user", async () => {
     const res = await createAgent({ modelType: "test-model", name: "Tester" });
     expect(res.status).toBe(200);

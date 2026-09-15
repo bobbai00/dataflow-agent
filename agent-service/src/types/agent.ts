@@ -174,6 +174,8 @@ export interface AgentSettings {
   maxOperatorEdits: number;
   allowedOperatorTypes: string[];
   agentMode: AgentMode;
+  /** Native operator interface. Batch also forces provider parallel calls off. */
+  nativeToolMode?: "typed" | "batch";
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -611,6 +613,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
     "DataProcessing",
   ],
   agentMode: AgentMode.GENERAL,
+  nativeToolMode: "typed",
   resultSelection: "all",
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
@@ -737,6 +740,7 @@ export interface AgentSettingsApi {
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general" | "native";
+  nativeToolMode?: "typed" | "batch";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
@@ -839,6 +843,7 @@ export interface UpdateAgentSettingsRequest {
   maxOperatorEdits?: number;
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general" | "native";
+  nativeToolMode?: "typed" | "batch";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;

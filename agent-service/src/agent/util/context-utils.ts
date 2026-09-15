@@ -37,6 +37,7 @@ import {
   type ShapeDecision,
 } from "../native/selection";
 import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
+import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
 import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
@@ -130,6 +131,8 @@ export interface AssembleContextOptions {
    *  executed operator renders its full result) or "rule" (ship only what the
    *  data decided — see native/selection.ts). */
   resultSelection?: "all" | "rule" | "scoped";
+  /** Event-owned requests from dataflow batches, reconstructed from receipts. */
+  batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
@@ -537,6 +540,15 @@ export function renderContextCore(
   }
 
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+  const batchObservations = new Map<string, ReadonlySet<string>>();
+  // Read-only steps inherit the last batch's display selection in LATEST;
+  // every DELTA event still resolves its own immutable request independently.
+  let lastObserved: ReadonlySet<string> | undefined;
+  for (const node of path) {
+    lastObserved = batchObservedIds(node.step) ?? lastObserved;
+    if (lastObserved && node.snapshot?.reactStepId) batchObservations.set(node.snapshot.reactStepId, lastObserved);
+  }
+  options.batchObservationsByStep = batchObservations;
 
   // The latest user-message content lives in its own top-of-prompt
   // `# User Task` block — single source of truth, always present, never
@@ -1050,6 +1062,15 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
     const eventFlags = new Map<string, boolean>();
     for (const tc of node.step.toolCalls) {
       const inp = (tc.input ?? {}) as Record<string, unknown>;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        const receipt = asNativeBatchResult(node.step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
+        for (const outcome of receipt?.operators ?? []) {
+          if (outcome.status !== "added" && outcome.status !== "modified") continue;
+          eventFlags.set(outcome.id, outcome.status === "added");
+          known.add(outcome.id);
+        }
+        continue;
+      }
       // NATIVE `addOperators`: every operator the batch LANDED (present in the
       // step's snapshot) is a create; a refused batch marks nothing.
       const batch = Array.isArray(inp.operators) ? (inp.operators as Array<Record<string, unknown>>) : undefined;
@@ -2100,9 +2121,23 @@ function serializeTaskBody(
       const actedVerb = new Map<string, string>();
       const deletedOps: string[] = [];
       const noChangeOutcome: string[] = [];
+      const requestedResults = batchObservedIds(node.step);
       calls.forEach((tc, i) => {
         const inp = tc.input as Record<string, unknown> | undefined;
         const opId = writtenOperatorId(tc.toolName, inp) ?? "";
+        if (tc.toolName === TOOL_NAME_DATAFLOW) {
+          const output = results.find(result => result.toolCallId === tc.toolCallId)?.output;
+          const receipt = asNativeBatchResult(output);
+          if (!receipt) noChangeOutcome.push(`- dataflow: ${conciseOutcome(output)}`);
+          for (const outcome of receipt?.operators ?? []) {
+            if (outcome.status === "added" || outcome.status === "modified") {
+              actedVerb.set(outcome.id, outcome.status === "added" ? "added" : "updated");
+              delta.add(outcome.id);
+            } else noChangeOutcome.push(`- ${outcome.op} operator \`${outcome.id}\` ${outcome.status}: ${outcome.message}`);
+          }
+          for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
+          return;
+        }
         const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
         if (tc.toolName === "deleteOperator" && opId) {
           // The CALL is not the fact; the post-step snapshot is. `deleteOperator`
@@ -2168,7 +2203,7 @@ function serializeTaskBody(
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
-        if (!delta.has(op.operatorID)) continue;
+        if (!delta.has(op.operatorID) && !requestedResults?.has(op.operatorID)) continue;
         // `scoped` selection, typed operators: compare this run with the
         // previous run of the same operator.
         //   - Re-executed because something upstream changed (not acted on
@@ -2180,7 +2215,7 @@ function serializeTaskBody(
         //     type; a `change:` line says what moved against the old version.
         // Both are decided from the two snapshots of THIS event and never
         // rewritten later, so the prompt stays append-only.
-        const scoped = options.resultSelection === "scoped" && !!op.nativeOp;
+        const scoped = !requestedResults && options.resultSelection === "scoped" && !!op.nativeOp;
         const currInfo = node.snapshot.results.get(op.operatorID)?.info;
         const prevInfo = prev?.results.get(op.operatorID)?.info;
         const comparable = scoped && currInfo && !currInfo.error && prevInfo && !prevInfo.error;
@@ -2199,9 +2234,18 @@ function serializeTaskBody(
         // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
         obs.push(
           op.nativeOp
-            ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? "updated"}`
+            ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated")}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
+        // Successful hidden outputs keep a compact receipt. Errors bypass the
+        // display choice and continue through the full error renderer below.
+        if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {
+          const rows = currInfo?.totalRowCount ?? currInfo?.outputTuples;
+          obs.push(currInfo
+            ? `  result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
+            : "  result: unavailable; result not requested");
+          continue;
+        }
         if (comparable && actedVerb.get(op.operatorID) === "updated") {
           obs.push(`  change: ${profileDiff(prevInfo!, currInfo!) ?? "none (same rows, same column profile)"}`);
         }
@@ -2212,7 +2256,7 @@ function serializeTaskBody(
         // that changed the op — moving the line on a later edit rewrote an
         // earlier observation and broke the prompt cache for everything after
         // it. Skipped for ops no longer in the leaf.
-        const leaf = options.deltaInputsLeaf;
+        const leaf = requestedResults ? node.snapshot : options.deltaInputsLeaf;
         if (leaf && (op.nativeOp ? true : options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex)) {
           const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
           if (leafOp) {
@@ -2251,7 +2295,7 @@ function serializeTaskBody(
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
-        const shape = deltaShapes?.get(op.operatorID);
+        const shape = requestedResults ? undefined : deltaShapes?.get(op.operatorID);
         if (shape && info && !info.error && shape.shape === "header") continue;
         if (shape && info && !info.error && shape.shape === "count") {
           obs.push(`  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`);
@@ -3243,6 +3287,17 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
+  if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(inp.operators)) {
+    const lines = ["- dataflow"];
+    for (const spec of inp.operators) {
+      if (!spec || typeof spec !== "object") continue;
+      const { op, ...params } = spec as Record<string, unknown>;
+      const nested = typeof op === "string" ? renderNativeToolCall({ toolName: op, input: params }, createFlags) : undefined;
+      lines.push(...(nested ?? [`- invalid operator: ${JSON.stringify(spec)}`]).map(line => `  ${line}`));
+    }
+    lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "terminal outputs (default)"}`);
+    return lines;
+  }
   const id = typeof inp.id === "string" ? inp.id : "";
   if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
   const type = nativeTypeForTool(tc.toolName);
@@ -3493,6 +3548,7 @@ function serializeSnapshotFull(
     allLinks,
     id => snapshot.results.get(id)?.info
   );
+  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
   // NATIVE: blocks in creation order, not topological order. The provider's
   // prompt cache only credits a step whose prompt EXTENDS an earlier prompt;
   // a new source inserted before existing blocks (topological order) drops
@@ -3503,8 +3559,23 @@ function serializeSnapshotFull(
   // GENERAL / CODE only, so `options.agentMode` never says NATIVE here.)
   const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
   for (const op of ordered) {
+    const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
+    if (requested && compilationError) {
+      lines.push(`${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``);
+      if (op.nativeOp) lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+      lines.push(`Result: [ERROR] compilation failed: ${compilationError.type}: ${compilationError.message}`, "");
+      continue;
+    }
+    if (requested && !requested.has(op.operatorID) && !snapshot.results.get(op.operatorID)?.info.error) {
+      const info = snapshot.results.get(op.operatorID)?.info;
+      const rows = info?.totalRowCount ?? info?.outputTuples;
+      lines.push(`${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``);
+      if (op.nativeOp) lines.push(`Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`, `Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+      lines.push(info ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested` : "Result: unavailable; result not requested", "");
+      continue;
+    }
     lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, shapes?.get(op.operatorID))
+      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, requested ? undefined : shapes?.get(op.operatorID))
     );
     lines.push("");
   }

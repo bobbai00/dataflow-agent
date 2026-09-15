@@ -245,6 +245,11 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 
 export const TOOL_NAME_NATIVE_DELETE = "deleteOperator";
 
+/** Shared by a standalone tool and the matching variant in a batch schema. */
+export function nativeToolDescription(def: NativeOperatorDef): string {
+  return `${TOOL_DESCRIPTIONS[def.type]} Signature: ${toolSignature(def)}`;
+}
+
 /** Build the eleven typed operator tools + the consumer-aware delete. */
 export function createNativeTypedTools(workflowState: WorkflowState, context?: ToolContext): Record<string, any> {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
@@ -254,7 +259,7 @@ export function createNativeTypedTools(workflowState: WorkflowState, context?: T
     const name = nativeToolName(def.type);
     const schema = nativeToolSchema(def);
     tools[name] = tool({
-      description: `${TOOL_DESCRIPTIONS[def.type]} Signature: ${toolSignature(def)}`,
+      description: nativeToolDescription(def),
       inputSchema: jsonSchema<Record<string, unknown>>(schema as any),
       execute: async (args: Record<string, unknown>) => {
         if (!workflowUtil) return createErrorResult("Metadata store not available for operator creation");

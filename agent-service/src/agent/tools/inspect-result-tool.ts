@@ -109,6 +109,7 @@ export function createInspectResultTool(deps: InspectResultDeps) {
       "Inspect an EXISTING operator's already-computed result in more detail, without re-running the workflow. " +
       "Use it to see more of a result the default view abbreviated: more sample rows, full per-column statistics, " +
       "a subset of columns of a wide table, or a targeted slice of rows. Read-only — it does not change the dataflow. " +
+      "Rows and row filters are limited to the cached sample, not the full stored table; no matching sampled rows does not establish that the full table has none. " +
       "For `where`, use `nonnumeric:<column>` to see the non-numeric values in a column that loaded as text " +
       "(the ones forcing a string dtype), `nulls:<column>` for empty/null rows, or `distinct:<column>` for one row per distinct value.",
     inputSchema: z.object({
@@ -158,7 +159,7 @@ export function createInspectResultTool(deps: InspectResultDeps) {
           (args.where ? ` (where ${args.where})` : "") +
           (args.columns ? ` (columns: ${args.columns.join(", ")})` : "") +
           ` — showing ${Math.min(rows.length, args.maxRows ?? 30)} of ${rows.length} matching sampled row(s), ${cols.length} column(s):`;
-        return `${header}\n${rendered}`;
+        return `${header}\nRow selection searches the cached sample only; rows outside that sample are not retrieved.\n${rendered}`;
       } catch (error: any) {
         return createErrorResult(error.message || String(error));
       }
