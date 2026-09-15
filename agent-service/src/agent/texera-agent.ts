@@ -100,6 +100,7 @@ import {
 import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
 import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
 import { asNativeBatchResult, createNativeBatchTools, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
+import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
@@ -575,6 +576,7 @@ export class TexeraAgent {
           session: this.settings.sessionTurns === true,
           recall: this.settings.enableRecallTool === true,
           batch: this.settings.nativeToolMode === "batch",
+          nativeCatalogVersion: this.settings.nativeCatalogVersion,
           messageLayout: this.settings.messageLayout,
         }
       );
@@ -664,9 +666,12 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       // Fixed-grain typed operators: one tool per operator type (upsert by id),
       // plus a consumer-aware delete that replaces the generic one.
-      Object.assign(tools, this.settings.nativeToolMode === "batch"
-        ? createNativeBatchTools(this.workflowState, context)
-        : createNativeTypedTools(this.workflowState, context));
+      Object.assign(
+        tools,
+        this.settings.nativeToolMode === "batch"
+          ? createNativeBatchTools(this.workflowState, context, this.settings.nativeCatalogVersion)
+          : createNativeTypedTools(this.workflowState, context)
+      );
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
@@ -1377,6 +1382,7 @@ export class TexeraAgent {
     allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
     nativeToolMode?: "typed" | "batch";
+    nativeCatalogVersion?: "v1" | "v2";
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1432,7 +1438,28 @@ export class TexeraAgent {
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
+    // Validate the effective combination before mutating ANY setting. In
+    // particular a rejected mode change must not leave the prompt/tools split.
+    const catalogVersion = validateNativeCatalogSettings({
+      nativeCatalogVersion: updates.nativeCatalogVersion ?? this.settings.nativeCatalogVersion,
+      agentMode: updates.agentMode ?? this.settings.agentMode,
+      nativeToolMode: updates.nativeToolMode ?? this.settings.nativeToolMode,
+    });
+    if (catalogVersion !== (this.settings.nativeCatalogVersion ?? "v1")) {
+      if (this.state !== AgentStateEnum.AVAILABLE)
+        throw new NativeCatalogSettingsError("Cannot switch native catalog during an active turn");
+      if (this.workflowState.getAllOperators().some(op => (op.nativeOp?.version ?? "v1") !== catalogVersion)) {
+        throw new NativeCatalogSettingsError(
+          "Cannot switch catalog for an existing workflow; explicit migration is required"
+        );
+      }
+    }
     let promptNeedsRebuild = false;
+
+    if (catalogVersion !== this.settings.nativeCatalogVersion) {
+      this.settings.nativeCatalogVersion = catalogVersion;
+      promptNeedsRebuild = true;
+    }
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;

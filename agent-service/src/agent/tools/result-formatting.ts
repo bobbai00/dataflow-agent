@@ -18,6 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../types/execution";
+import { parseNativeDiagnostic, formatNativeDiagnostic } from "../native/diagnostics";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { getVisibleResultHeaders } from "./tools-utility";
@@ -192,6 +193,14 @@ export function normalizeEngineTypes(msg: string): string {
 }
 
 export function formatNativeError(operatorId: string, type: string, error: string): string {
+  const diagnostic = parseNativeDiagnostic(error);
+  if (diagnostic) {
+    const label =
+      diagnostic.operatorId === operatorId
+        ? `${type} \`${operatorId}\` failed: `
+        : `not executed — upstream \`${diagnostic.operatorId}\` failed: `;
+    return label + formatNativeDiagnostic(diagnostic);
+  }
   const strip = (s: string) =>
     normalizeEngineTypes(
       s
@@ -420,8 +429,6 @@ export function formatOperatorResult(
     .filter(Boolean)
     .join("\n");
 }
-
-
 
 /**
  * `Lineage:` — rows consumed vs rows produced, from the engine's execution

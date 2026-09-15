@@ -36,6 +36,10 @@
  * output table, the measured statistics say whether it DID.
  */
 
+import { NATIVE_V2_OPERATORS } from "./catalog-v2";
+
+export type NativeCatalogVersion = "v1" | "v2";
+
 export type RowEffect =
   /** Scan: brings a table into existence. */
   | "create"
@@ -53,6 +57,7 @@ export type RowEffect =
   | "unknown";
 
 export interface NativeOperatorDef {
+  catalogVersion?: NativeCatalogVersion;
   type: string;
   /** Number of inputs: 0 (source), 1, 2 (join) or "many" (union). */
   inputs: 0 | 1 | 2 | "many";
@@ -320,6 +325,9 @@ export const NATIVE_BY_TYPE: ReadonlyMap<string, NativeOperatorDef> = new Map(NA
 
 /** The typed view carried on an operator predicate (`OperatorPredicate.nativeOp`). */
 export interface NativeOpView {
+  /** Missing on historical V1 workflows. Never infer a version from the code. */
+  version?: NativeCatalogVersion;
+  revision?: string;
   type: string;
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= `process()` parameter order). */
@@ -332,4 +340,8 @@ export const NATIVE_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** One line per operator for the system prompt. */
 export function nativeCatalogText(): string {
   return NATIVE_OPERATORS.map(d => d.signature).join("\n");
+}
+
+export function nativeOperators(version: NativeCatalogVersion = "v1"): readonly NativeOperatorDef[] {
+  return version === "v2" ? NATIVE_V2_OPERATORS : NATIVE_OPERATORS;
 }

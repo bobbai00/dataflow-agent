@@ -43,16 +43,28 @@ import { WorkflowUtilService } from "../util/workflow-utils";
 import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
 import { createToolResult, createErrorResult } from "./tools-utility";
 import type { ToolContext } from "./workflow-crud-tools";
-import { NATIVE_BY_TYPE, NATIVE_ID_RE, NATIVE_OPERATORS, type NativeOperatorDef, type NativeOpView } from "../native/catalog";
+import {
+  NATIVE_BY_TYPE,
+  NATIVE_ID_RE,
+  NATIVE_OPERATORS,
+  nativeOperators,
+  type NativeCatalogVersion,
+  type NativeOperatorDef,
+  type NativeOpView,
+} from "../native/catalog";
 import { compileNativeOp } from "../native/codegen";
+import { nativeRevision, validateNativeV2 } from "../native/codegen-v2";
 
 /** Tool name for a native type: `Filter` → `filter`. */
 export function nativeToolName(type: string): string {
-  return type.toLowerCase();
+  return type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
-export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set(NATIVE_OPERATORS.map(d => nativeToolName(d.type)));
-const TYPE_BY_TOOL: ReadonlyMap<string, NativeOperatorDef> = new Map(NATIVE_OPERATORS.map(d => [nativeToolName(d.type), d]));
+const allOperators = [...NATIVE_OPERATORS, ...nativeOperators("v2")];
+export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set(allOperators.map(d => nativeToolName(d.type)));
+const TYPE_BY_TOOL: ReadonlyMap<string, NativeOperatorDef> = new Map(
+  allOperators.map(d => [nativeToolName(d.type), d])
+);
 
 /** The native type behind a tool name, or undefined for non-native tools. */
 export function nativeTypeForTool(toolName: string): string | undefined {
@@ -66,18 +78,28 @@ export function nativeInputsOf(toolName: string, input: unknown): string[] {
   const a = input as Record<string, unknown>;
   if (def.inputs === 1) return typeof a.input === "string" ? [a.input] : [];
   if (def.inputs === 2) return [a.left, a.right].filter((x): x is string => typeof x === "string");
-  if (def.inputs === "many") return Array.isArray(a.inputs) ? (a.inputs as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  if (def.inputs === "many")
+    return Array.isArray(a.inputs) ? (a.inputs as unknown[]).filter((x): x is string => typeof x === "string") : [];
   return [];
 }
 
 /** The typed view (type, parameters, inputs) a native tool call describes. */
-export function nativeViewOf(toolName: string, input: Record<string, unknown>): NativeOpView | undefined {
-  const def = TYPE_BY_TOOL.get(toolName);
+export function nativeViewOf(
+  toolName: string,
+  input: Record<string, unknown>,
+  version: NativeCatalogVersion = "v1"
+): NativeOpView | undefined {
+  const def = nativeOperators(version).find(def => nativeToolName(def.type) === toolName);
   if (!def) return undefined;
   const { id: _id, input: _in, left: _l, right: _r, inputs: _ins, ...rest } = input;
   const properties: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) if (v !== undefined && v !== null) properties[k] = v;
-  return { type: def.type, properties, inputs: nativeInputsOf(toolName, input) };
+  const view: NativeOpView = { type: def.type, properties, inputs: nativeInputsOf(toolName, input) };
+  if (version === "v2") {
+    view.version = version;
+    view.revision = nativeRevision(view);
+  }
+  return view;
 }
 
 /** `inputs: a` / `inputs: left = a, right = b` — the phrase used in receipts and renders. */
@@ -158,7 +180,7 @@ export function toolSignature(def: NativeOperatorDef): string {
   const req = new Set(base.required ?? []);
   const params = Object.keys(base.properties ?? {}).map(k => (req.has(k) ? k : `${k}?`));
   const inputNames = Object.keys(ins.properties).map(k => (ins.required.includes(k) ? k : `${k}?`));
-  return `${nativeToolName(def.type)}(${["id", ...inputNames, ...params].join(", ")})   ${TOOL_NOTES[def.type] ?? ""}`.trimEnd();
+  return `${nativeToolName(def.type)}(${["id", ...inputNames, ...params].join(", ")})   ${def.catalogVersion === "v2" ? def.signature : (TOOL_NOTES[def.type] ?? "")}`.trimEnd();
 }
 
 /** The prompt catalog: one signature line per tool. */
@@ -181,10 +203,10 @@ export function nativeToolSchema(def: NativeOperatorDef): Record<string, unknown
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map<string, ReturnType<Ajv["compile"]>>();
-for (const def of NATIVE_OPERATORS) validators.set(def.type, ajv.compile(def.schema));
+for (const def of allOperators) validators.set(`${def.catalogVersion ?? "v1"}:${def.type}`, ajv.compile(def.schema));
 
 function validateProps(def: NativeOperatorDef, props: unknown): string | undefined {
-  const v = validators.get(def.type)!;
+  const v = validators.get(`${def.catalogVersion ?? "v1"}:${def.type}`)!;
   if (v(props)) return undefined;
   const errs = (v.errors ?? [])
     .map(e => `${e.instancePath || "parameters"} ${e.message ?? ""}`.trim())
@@ -224,38 +246,41 @@ function consumersOf(workflowState: WorkflowState, operatorId: string): string[]
  * ------------------------------------------------------------------------- */
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
-  Scan:
-    "Read a file or glob of files into a table: csv/tsv/txt, xlsx/xls (`sheet`), html tables (`sheet` = table index), json/jsonl, parquet. Several files matching a glob are unioned by column name; `fileColumn` records the source file per row. Encoding is detected (utf-8 or cp1252) unless given. Use `preview: n` first on a file you have not seen: the first n RAW lines of each text file, or the first n rows of every xlsx sheet / html table (cells joined by ` | ` for display only; sheets and html tables have no delimiter to pass). Text that is not a delimited table: `delim: whitespace` for space-aligned columns, `comment: '#'` to skip comment lines, `format: fwf` with `widths` for fixed-width columns, `format: lines` for one row per line (then parse with compute: split_part, regexp_extract, TRY_CAST). With `header: false` the columns come back named `column0`, `column1`, …; pass `names` (one per column) to name them as the file is read, or rename them later with a `project`. A `names` list whose length does not match the file is refused with both counts. Scan does not SELECT columns: use a `project` with `keep`. Binary formats (gpkg, shp, npz, cdf) need a `udf` loader.",
+  Scan: "Read a file or glob of files into a table: csv/tsv/txt, xlsx/xls (`sheet`), html tables (`sheet` = table index), json/jsonl, parquet. Several files matching a glob are unioned by column name; `fileColumn` records the source file per row. Encoding is detected (utf-8 or cp1252) unless given. Use `preview: n` first on a file you have not seen: the first n RAW lines of each text file, or the first n rows of every xlsx sheet / html table (cells joined by ` | ` for display only; sheets and html tables have no delimiter to pass). Text that is not a delimited table: `delim: whitespace` for space-aligned columns, `comment: '#'` to skip comment lines, `format: fwf` with `widths` for fixed-width columns, `format: lines` for one row per line (then parse with compute: split_part, regexp_extract, TRY_CAST). With `header: false` the columns come back named `column0`, `column1`, …; pass `names` (one per column) to name them as the file is read, or rename them later with a `project`. A `names` list whose length does not match the file is refused with both counts. Scan does not SELECT columns: use a `project` with `keep`. Binary formats (gpkg, shp, npz, cdf) need a `udf` loader.",
   Filter: "Keep the rows where the SQL boolean `predicate` is true. Only drops rows.",
   Project: "Keep, drop or rename columns. Rows untouched.",
-  Compute: "Add columns, or replace existing ones, from SQL scalar expressions over the input columns (arithmetic, TRY_CAST, string and date functions, CASE WHEN). Cannot add or drop rows.",
+  Compute:
+    "Add columns, or replace existing ones, from SQL scalar expressions over the input columns (arithmetic, TRY_CAST, string and date functions, CASE WHEN). Cannot add or drop rows.",
   Aggregate:
     "Group by keys and aggregate (sum count avg min max median count_distinct string_agg first stddev). No groupBy = one output row. `count` without col counts rows. Conditional counts: sum over a Compute'd CASE WHEN column. `sum`/`avg`/`median`/`stddev` coerce a text column to numbers first (thousands separators and surrounding space removed; values that will not parse become null and show in the null count), so numbers stored as text need no separate cast.",
-  Join:
-    "Join two tables. `on` is either the key names both sides share (`on: [\"sat_id\", \"date_key\"]` joins on both) or [leftColumn, rightColumn] pairs when the names differ; a key pair whose two columns have different types is refused with both types named. Type inner|left|right|full. Same-named non-key columns from the right get suffix _right. Omit `on` (or type cross) to pair every row with every row, e.g. two one-row aggregates before a Compute. Self-join: pass the same id as left and right (e.g. year against year-1).",
+  Join: 'Join two tables. `on` is either the key names both sides share (`on: ["sat_id", "date_key"]` joins on both) or [leftColumn, rightColumn] pairs when the names differ; a key pair whose two columns have different types is refused with both types named. Type inner|left|right|full. Same-named non-key columns from the right get suffix _right. Omit `on` (or type cross) to pair every row with every row, e.g. two one-row aggregates before a Compute. Self-join: pass the same id as left and right (e.g. year against year-1).',
   Union: "Stack two or more tables, matching columns by name.",
   Unpivot:
     "Wide to long: for each input row and each column in `columns`, one output row with the other columns kept as keys plus `nameColumn` (the column's name, default `variable`) and `valueColumn` (its value, default `value`). Use it instead of one compute/project per column followed by a union.",
   Distinct: "One row per distinct combination of `columns` (whole row when omitted).",
   Sort: "Order rows by columns.",
   Limit: "Keep the first n rows (after an optional offset).",
-  UDF:
-    "Python for what no other tool does: statistics and fitting, regex extraction, custom parsers, geospatial (geopandas), unusual file formats. `def process(<input ids>): ... return pd.DataFrame` with parameter names equal to `inputs` in order, or `def load(): ...` (no inputs) to read files with any library. ONE step per udf; never filter, join, group or sort inside it.",
+  UDF: "Python for what no other tool does: statistics and fitting, regex extraction, custom parsers, geospatial (geopandas), unusual file formats. `def process(<input ids>): ... return pd.DataFrame` with parameter names equal to `inputs` in order, or `def load(): ...` (no inputs) to read files with any library. ONE step per udf; never filter, join, group or sort inside it.",
 };
 
 export const TOOL_NAME_NATIVE_DELETE = "deleteOperator";
 
 /** Shared by a standalone tool and the matching variant in a batch schema. */
 export function nativeToolDescription(def: NativeOperatorDef): string {
+  if (def.catalogVersion === "v2") return def.signature;
   return `${TOOL_DESCRIPTIONS[def.type]} Signature: ${toolSignature(def)}`;
 }
 
 /** Build the eleven typed operator tools + the consumer-aware delete. */
-export function createNativeTypedTools(workflowState: WorkflowState, context?: ToolContext): Record<string, any> {
+export function createNativeTypedTools(
+  workflowState: WorkflowState,
+  context?: ToolContext,
+  version: NativeCatalogVersion = "v1"
+): Record<string, any> {
   const workflowUtil = context?.metadataStore ? new WorkflowUtilService(context.metadataStore, workflowState) : null;
   const tools: Record<string, any> = {};
 
-  for (const def of NATIVE_OPERATORS) {
+  for (const def of nativeOperators(version)) {
     const name = nativeToolName(def.type);
     const schema = nativeToolSchema(def);
     tools[name] = tool({
@@ -265,20 +290,28 @@ export function createNativeTypedTools(workflowState: WorkflowState, context?: T
         if (!workflowUtil) return createErrorResult("Metadata store not available for operator creation");
         const id = typeof args.id === "string" ? args.id : "";
         if (!NATIVE_ID_RE.test(id)) {
-          return createErrorResult(`Invalid operator id "${id}": use letters, digits and underscores, starting with a letter.`);
+          return createErrorResult(
+            `Invalid operator id "${id}": use letters, digits and underscores, starting with a letter.`
+          );
         }
-        const view = nativeViewOf(name, args)!;
+        const view = nativeViewOf(name, args, version)!;
         const bad = validateProps(def, view.properties);
         if (bad) return createErrorResult(`\`${id}\`: ${bad}`);
         for (const up of view.inputs) {
           if (up === id) return createErrorResult(`\`${id}\`: an operator cannot read its own output`);
           if (!workflowState.getOperator(up)) {
-            return createErrorResult(`\`${id}\`: input operator "${up}" does not exist (inputs are ids of existing operators, or of operators created earlier in this turn).`);
+            return createErrorResult(
+              `\`${id}\`: input operator "${up}" does not exist (inputs are ids of existing operators, or of operators created earlier in this turn).`
+            );
+          }
+          if ((workflowState.getOperator(up)?.nativeOp?.version ?? "v1") !== version) {
+            return createErrorResult(`\`${id}\`: cannot mix native catalog versions; input '${up}' is not ${version}.`);
           }
         }
         let compiled;
         try {
-          compiled = compileNativeOp(view);
+          if (version === "v2") await validateNativeV2(view, id);
+          compiled = compileNativeOp(view, id);
         } catch (e: any) {
           return createErrorResult(`\`${id}\`: ${e?.message ?? String(e)}`);
         }
@@ -288,6 +321,8 @@ export function createNativeTypedTools(workflowState: WorkflowState, context?: T
         if (existing) {
           // MODIFY: same id, new parameters/inputs. Keep the id and outgoing links.
           if (!existing.nativeOp) return createErrorResult(`\`${id}\` is not a typed operator; delete it first.`);
+          if ((existing.nativeOp.version ?? "v1") !== version)
+            return createErrorResult(`\`${id}\`: catalog version changes require an explicit migration.`);
           if (compiled.operatorType !== existing.operatorType) {
             return createErrorResult(
               `\`${id}\` is a ${existing.nativeOp.type} (a ${existing.operatorType}); it cannot become a ${def.type}. Delete it and add a new one.`

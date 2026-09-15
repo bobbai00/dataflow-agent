@@ -36,7 +36,8 @@
  * Python parses as string/dict/list literals verbatim.
  */
 
-import { NATIVE_BY_TYPE, NATIVE_ID_RE, type NativeOpView } from "./catalog";
+import { NATIVE_BY_TYPE, NATIVE_ID_RE, nativeOperators, type NativeOpView } from "./catalog";
+import { compileNativeV2 } from "./codegen-v2";
 
 export interface CompiledNativeOp {
   /** `DataLoading` for Scan (and a UDF whose code defines `load`), else `DataProcessing`. */
@@ -540,8 +541,11 @@ function compileLimit(p: Record<string, any>, inp: string): string {
 
 /** Validate id / input shape and compile one native operator to Python. Throws on a
  *  malformed view — the tool turns that into an `[ERROR]` result for the agent. */
-export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
-  const def = NATIVE_BY_TYPE.get(view.type);
+export function compileNativeOp(view: NativeOpView, operatorId = "operator"): CompiledNativeOp {
+  const def =
+    view.version === "v2"
+      ? nativeOperators("v2").find(candidate => candidate.type === view.type)
+      : NATIVE_BY_TYPE.get(view.type);
   if (!def) throw new Error(`unknown native operator type "${view.type}"`);
   const inputs = view.inputs ?? [];
   for (const id of inputs) {
@@ -558,6 +562,7 @@ export function compileNativeOp(view: NativeOpView): CompiledNativeOp {
   if (def.inputs === "many" && view.type === "Union" && inputs.length < 2) {
     throw new Error("Union needs at least two inputs");
   }
+  if (view.version === "v2") return compileNativeV2(view, operatorId);
   const p = view.properties as Record<string, any>;
   switch (view.type) {
     case "Scan":

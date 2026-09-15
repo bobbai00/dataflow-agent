@@ -176,6 +176,8 @@ export interface AgentSettings {
   agentMode: AgentMode;
   /** Native operator interface. Batch also forces provider parallel calls off. */
   nativeToolMode?: "typed" | "batch";
+  /** Explicit Python catalog opt-in. Requires native + batch; V1 remains default. */
+  nativeCatalogVersion?: "v1" | "v2";
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -614,6 +616,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ],
   agentMode: AgentMode.GENERAL,
   nativeToolMode: "typed",
+  nativeCatalogVersion: "v1",
   resultSelection: "all",
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
@@ -741,6 +744,7 @@ export interface AgentSettingsApi {
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general" | "native";
   nativeToolMode?: "typed" | "batch";
+  nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
@@ -844,6 +848,7 @@ export interface UpdateAgentSettingsRequest {
   allowedOperatorTypes?: string[];
   agentMode?: "code" | "general" | "native";
   nativeToolMode?: "typed" | "batch";
+  nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;

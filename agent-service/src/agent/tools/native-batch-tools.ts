@@ -20,11 +20,12 @@
 import Ajv from "ajv";
 import { jsonSchema, tool } from "ai";
 import type { ReActStep } from "../../types/agent";
-import { NATIVE_OPERATORS } from "../native/catalog";
+import { nativeOperators, type NativeCatalogVersion } from "../native/catalog";
 import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
+import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import {
   createNativeTypedTools,
   nativeInputsOf,
@@ -41,6 +42,7 @@ export interface NativeBatchOutcome {
   op: string;
   status: "added" | "modified" | "error" | "blocked";
   message: string;
+  diagnostic?: NativeDiagnostic;
 }
 
 /** Stored as the tool result on the owning ReAct event. Observation choices
@@ -74,18 +76,20 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
 /** Schematic object signatures, generated from the same catalog as validation.
  * The deprecated scan.columns field only exists to issue a migration error;
  * don't advertise it as an available scan operation. */
-export function nativeBatchCatalogText(): string {
-  return NATIVE_OPERATORS.map(def => {
-    const schema = nativeToolSchema(def) as { properties: Record<string, unknown>; required: string[] };
-    const fields = Object.keys(schema.properties)
-      .filter(name => !(def.type === "Scan" && name === "columns"))
-      .map(name => (schema.required.includes(name) ? name : `${name}?`));
-    return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}`;
-  }).join("\n");
+export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): string {
+  return nativeOperators(version)
+    .map(def => {
+      const schema = nativeToolSchema(def) as { properties: Record<string, unknown>; required: string[] };
+      const fields = Object.keys(schema.properties)
+        .filter(name => !(def.type === "Scan" && name === "columns"))
+        .map(name => (schema.required.includes(name) ? name : `${name}?`));
+      return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}${version === "v2" ? ` — ${def.signature}` : ""}`;
+    })
+    .join("\n");
 }
 
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
-export function nativeBatchSchema(): Record<string, unknown> {
+export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -95,7 +99,7 @@ export function nativeBatchSchema(): Record<string, unknown> {
         description:
           "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
         items: {
-          anyOf: NATIVE_OPERATORS.map(def => {
+          anyOf: nativeOperators(version).map(def => {
             const schema = nativeToolSchema(def) as any;
             return {
               ...schema,
@@ -118,21 +122,43 @@ export function nativeBatchSchema(): Record<string, unknown> {
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false });
-const validators = new Map(NATIVE_OPERATORS.map(def => [nativeToolName(def.type), ajv.compile(nativeToolSchema(def))]));
+const versionValidators = new Map<NativeCatalogVersion, Map<string, ReturnType<typeof ajv.compile>>>();
+function validatorsFor(version: NativeCatalogVersion) {
+  let validators = versionValidators.get(version);
+  if (!validators) {
+    validators = new Map(
+      nativeOperators(version).map(def => [nativeToolName(def.type), ajv.compile(nativeToolSchema(def))])
+    );
+    versionValidators.set(version, validators);
+  }
+  return validators;
+}
 
 /** Explicit mixed-operator batching. The existing typed upsert implementation
  * owns compilation and wiring; the normal post-step path owns execution. */
-export function createNativeBatchTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
-  const typed = createNativeTypedTools(state, context);
+export function createNativeBatchTools(
+  state: WorkflowState,
+  context?: ToolContext,
+  version: NativeCatalogVersion = "v1"
+): Record<string, any> {
+  const typed = createNativeTypedTools(state, context, version);
+  const validators = validatorsFor(version);
   return {
     [TOOL_NAME_NATIVE_DELETE]: typed[TOOL_NAME_NATIVE_DELETE],
     [TOOL_NAME_DATAFLOW]: tool({
       description:
-        "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
+        version === "v2"
+          ? "Build or revise a stage using the Python V2 catalog. Batch dependent chains, forward references and existing-DAG edits in one call; the shared scheduler resolves their order. Explicitly list result IDs in observe; omitted/[] hides successes but never errors. operators:[] observes cached data without execution. Independent valid edits can succeed when another edit fails; its dependents are blocked."
+          : "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
       inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
-        nativeBatchSchema() as any
+        nativeBatchSchema(version) as any
       ),
       execute: async args => {
+        if (state.getAllOperators().some(op => (op.nativeOp?.version ?? "v1") !== version)) {
+          return createErrorResult(
+            `Cannot mix native catalog versions; this batch is ${version}. Use a separate workflow or an explicit migration.`
+          );
+        }
         if (
           !Array.isArray(args?.operators) ||
           (args.observe !== undefined &&
@@ -151,7 +177,14 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
         });
         const outcomes: Array<NativeBatchOutcome | undefined> = specs.map(() => undefined);
         const fail = (index: number, message: string, status: "error" | "blocked" = "error") => {
-          outcomes[index] = { id: specs[index].id, op: specs[index].op, status, message };
+          const diagnostic = parseNativeDiagnostic(message);
+          outcomes[index] = {
+            id: specs[index].id,
+            op: specs[index].op,
+            status,
+            message: diagnostic ? formatNativeDiagnostic(diagnostic) : message,
+            ...(diagnostic ? { diagnostic } : {}),
+          };
         };
         const byId = new Map<string, number>();
         for (const spec of specs) {

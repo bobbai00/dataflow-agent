@@ -21,6 +21,7 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
+import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./agent/native/settings";
 import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
@@ -129,9 +130,10 @@ export function selectDetailedOperators(
   return keep;
 }
 
-function lastTouchTurnByOperator(
-  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
-): { lastTouch: Map<string, number>; turnCount: number } {
+function lastTouchTurnByOperator(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): {
+  lastTouch: Map<string, number>;
+  turnCount: number;
+} {
   const order: string[] = [];
   const seen = new Set<string>();
   for (const step of visibleSteps) {
@@ -587,6 +589,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
     nativeToolMode: agentSettings.nativeToolMode,
+    nativeCatalogVersion: agentSettings.nativeCatalogVersion,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     parallelToolCalls: agentSettings.parallelToolCalls,
@@ -749,7 +752,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     log.error({ err: error }, "request error");
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Body schema violations and malformed JSON are client errors, not 500s.
-    if (code === "VALIDATION" || code === "PARSE") {
+    if (code === "VALIDATION" || code === "PARSE" || error instanceof NativeCatalogSettingsError) {
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
     }
@@ -795,6 +798,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         throw new Error("Invalid or expired token");
       }
 
+      validateNativeCatalogSettings(settings);
+
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
         userToken,
@@ -805,86 +810,96 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
       const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
 
-      if (settings) {
-        log.info(
-          {
-            agentId,
+      try {
+        if (settings) {
+          log.info(
+            {
+              agentId,
+              maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
+              maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+            },
+            "applying initial agent settings"
+          );
+          agent.updateSettings({
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          },
-          "applying initial agent settings"
-        );
-        agent.updateSettings({
-          maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-          maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          operatorResultSerializationMode: settings.operatorResultSerializationMode
-            ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-            : undefined,
-          toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
-          executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
-          disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
-          maxSteps: settings.maxSteps,
-          maxOperatorEdits: settings.maxOperatorEdits,
-          allowedOperatorTypes: settings.allowedOperatorTypes,
-          agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-          nativeToolMode: settings.nativeToolMode,
-          resultSelection: (settings as any).resultSelection,
-          contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
-          parallelToolCalls: settings.parallelToolCalls,
-          includeOperatorProperties: settings.includeOperatorProperties,
-          thoughtReplay: settings.thoughtReplay,
-          agentTurns: settings.agentTurns,
-          contextWindowTokens: settings.contextWindowTokens,
-          compactionStrategy: settings.compactionStrategy,
-          deckSampleRatio: settings.deckSampleRatio,
-          errorReflection: settings.errorReflection,
-          errorReflectionThreshold: settings.errorReflectionThreshold,
-          thoughtReplayK: settings.thoughtReplayK,
-          fewShotPrompt: settings.fewShotPrompt,
-          maxResultRows: settings.maxResultRows,
-          flowLevel: settings.flowLevel,
-          dataLevel: settings.dataLevel,
-          attemptReflection: settings.attemptReflection,
-          columnStats: settings.columnStats,
-          valueFormat: settings.valueFormat,
-          dataHints: settings.dataHints,
-          toolDialect: settings.toolDialect,
-          summarizeParams: parseSummarizePatch(settings.summarizeParams),
-          selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-          frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-          foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
-            (settings as any).foldResolvedRevisionsConfig
-          ),
-          probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-          rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-          learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
-          enableInspectTool: (settings as any).enableInspectTool,
-          enableRenderPrefs: (settings as any).enableRenderPrefs,
-          enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
-          sourceProvenanceHint: (settings as any).sourceProvenanceHint,
-          enableCompactTool: (settings as any).enableCompactTool,
-          compactKeepLastSteps: (settings as any).compactKeepLastSteps,
-          staticCompaction: (settings as any).staticCompaction,
-          userTaskPlacement: (settings as any).userTaskPlacement,
-          turnHistory: (settings as any).turnHistory,
-          enableRecallTool: (settings as any).enableRecallTool,
-          recallMaxResultChars: (settings as any).recallMaxResultChars,
-          recallOperatorLevel: (settings as any).recallOperatorLevel,
-          specAudit: (settings as any).specAudit,
-          indexRichTables: (settings as any).indexRichTables,
-          indexDetailedOperators: (settings as any).indexDetailedOperators,
-          enableResumeTool: (settings as any).enableResumeTool,
-          enableAnswerGrounding: (settings as any).enableAnswerGrounding,
-          coercionTelemetry: (settings as any).coercionTelemetry,
-          rowLineage: (settings as any).rowLineage,
-          statScopes: (settings as any).statScopes,
-          messageLayout: (settings as any).messageLayout,
-          versionedMode: (settings as any).versionedMode,
-          versionedHeads: (settings as any).versionedHeads,
-          sessionTurns: (settings as any).sessionTurns,
-          indexThinObservations: (settings as any).indexThinObservations,
-          tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
-        });
+            operatorResultSerializationMode: settings.operatorResultSerializationMode
+              ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
+              : undefined,
+            toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
+            executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
+            disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
+            maxSteps: settings.maxSteps,
+            maxOperatorEdits: settings.maxOperatorEdits,
+            allowedOperatorTypes: settings.allowedOperatorTypes,
+            agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+            nativeToolMode: settings.nativeToolMode,
+            nativeCatalogVersion: settings.nativeCatalogVersion,
+            resultSelection: (settings as any).resultSelection,
+            contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+            parallelToolCalls: settings.parallelToolCalls,
+            includeOperatorProperties: settings.includeOperatorProperties,
+            thoughtReplay: settings.thoughtReplay,
+            agentTurns: settings.agentTurns,
+            contextWindowTokens: settings.contextWindowTokens,
+            compactionStrategy: settings.compactionStrategy,
+            deckSampleRatio: settings.deckSampleRatio,
+            errorReflection: settings.errorReflection,
+            errorReflectionThreshold: settings.errorReflectionThreshold,
+            thoughtReplayK: settings.thoughtReplayK,
+            fewShotPrompt: settings.fewShotPrompt,
+            maxResultRows: settings.maxResultRows,
+            flowLevel: settings.flowLevel,
+            dataLevel: settings.dataLevel,
+            attemptReflection: settings.attemptReflection,
+            columnStats: settings.columnStats,
+            valueFormat: settings.valueFormat,
+            dataHints: settings.dataHints,
+            toolDialect: settings.toolDialect,
+            summarizeParams: parseSummarizePatch(settings.summarizeParams),
+            selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+            frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+            foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
+              (settings as any).foldResolvedRevisionsConfig
+            ),
+            probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+            rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
+            learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
+            enableInspectTool: (settings as any).enableInspectTool,
+            enableRenderPrefs: (settings as any).enableRenderPrefs,
+            enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
+            sourceProvenanceHint: (settings as any).sourceProvenanceHint,
+            enableCompactTool: (settings as any).enableCompactTool,
+            compactKeepLastSteps: (settings as any).compactKeepLastSteps,
+            staticCompaction: (settings as any).staticCompaction,
+            userTaskPlacement: (settings as any).userTaskPlacement,
+            turnHistory: (settings as any).turnHistory,
+            enableRecallTool: (settings as any).enableRecallTool,
+            recallMaxResultChars: (settings as any).recallMaxResultChars,
+            recallOperatorLevel: (settings as any).recallOperatorLevel,
+            specAudit: (settings as any).specAudit,
+            indexRichTables: (settings as any).indexRichTables,
+            indexDetailedOperators: (settings as any).indexDetailedOperators,
+            enableResumeTool: (settings as any).enableResumeTool,
+            enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+            coercionTelemetry: (settings as any).coercionTelemetry,
+            rowLineage: (settings as any).rowLineage,
+            statScopes: (settings as any).statScopes,
+            messageLayout: (settings as any).messageLayout,
+            versionedMode: (settings as any).versionedMode,
+            versionedHeads: (settings as any).versionedHeads,
+            sessionTurns: (settings as any).sessionTurns,
+            indexThinObservations: (settings as any).indexThinObservations,
+            tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+          });
+        }
+      } catch (error) {
+        // Graph-dependent validation happens after bootstrap. A rejected
+        // initial configuration must not leave a registered, unusable agent.
+        agent.destroy();
+        agentStore.delete(agentId);
+        agentDrivers.delete(agentId);
+        throw error;
       }
 
       return getAgentInfo(agentId, agent);
@@ -911,6 +926,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             allowedOperatorTypes: t.Optional(t.Array(t.String())),
             agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
             nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
+            nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -1272,6 +1288,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         nativeToolMode: settings.nativeToolMode,
+        nativeCatalogVersion: settings.nativeCatalogVersion,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1332,6 +1349,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         allowedOperatorTypes: t.Optional(t.Array(t.String())),
         agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
         nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
+        nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),

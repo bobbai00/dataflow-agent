@@ -646,8 +646,10 @@ export function buildCodeModeSystemPrompt(
 const NATIVE_MODE_TEMPLATE: string = readFileSync(new URL("./prompts/native-mode.md", import.meta.url), "utf8");
 // The source license is not part of the model's instructions.
 const NATIVE_BATCH_TEMPLATE: string = rd("native-batch-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
+const NATIVE_PYTHON_TEMPLATE: string = rd("native-python-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
 interface NativePromptLayoutOptions {
+  nativeCatalogVersion?: "v1" | "v2";
   versioned?: boolean;
   session?: boolean;
   recall?: boolean;
@@ -669,18 +671,21 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
           ? "After `# User Task`, your history is a native tool-call transcript. Each dataflow tool-result contains its receipt and operator `Observation`: changes, requested outputs, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current state."
           : "After `# User Task`, `# Agent Events` contains each action and its `Observation`: changes, requested outputs, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current state."
         : "After `# User Task`, `# Current Dataflow` shows current operator parameters, input ids/counts, and selected execution results. Earlier execution events are collapsed into this snapshot. Current compilation and execution failures remain visible.";
-  const inspectionLocation = options.versioned || (options.session && inlineInspection)
-    ? "Saved inspection outputs appear with their original step observations in the current turn."
-    : inlineInspection
-      ? "Each saved inspection remains in its original event/tool-result frame after later edits; it is not refreshed from the live result."
-      : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
+  const inspectionLocation =
+    options.versioned || (options.session && inlineInspection)
+      ? "Saved inspection outputs appear with their original step observations in the current turn."
+      : inlineInspection
+        ? "Each saved inspection remains in its original event/tool-result frame after later edits; it is not refreshed from the live result."
+        : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
   const scope = delta
     ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the parameters/code echoed by an earlier failure."
     : "Detailed successful tables follow the most recent batch's requested set; read-only inspections do not change that set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
-  return NATIVE_BATCH_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText())
+  const template = options.nativeCatalogVersion === "v2" ? NATIVE_PYTHON_TEMPLATE : NATIVE_BATCH_TEMPLATE;
+  return template
+    .replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText(options.nativeCatalogVersion))
     .replace("{{CONTEXT_LAYOUT}}", contextLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{INSPECTION_LOCATION}}", inspectionLocation)

@@ -68,7 +68,13 @@ export interface OperatorPredicate {
    * sees the generated `code` in `operatorProperties`; this field is for the
    * renderer and result selection, and is never forwarded in execution payloads.
    */
-  readonly nativeOp?: { type: string; properties: Record<string, unknown>; inputs: string[] };
+  readonly nativeOp?: {
+    type: string;
+    properties: Record<string, unknown>;
+    inputs: string[];
+    version?: "v1" | "v2";
+    revision?: string;
+  };
 }
 
 export interface LogicalOperator {
