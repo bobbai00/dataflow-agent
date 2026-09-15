@@ -202,7 +202,7 @@ function getLearnedModel(): UtilityModel | null {
   return _learnedModel;
 }
 
-function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
+export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
   // One tuner per agent, built lazily and reused (it accumulates teacher-token
   // usage). Rebuilt if the teacher model id changes.
   let tuner: LLMContextTuner | undefined;
@@ -221,7 +221,9 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
   // into the individual decoration rungs via the catalog), plus the substrate /
   // select / prior knobs below. The per-rung decoration booleans are NOT a
   // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = async ({
+  // Ordinary renderers stay synchronous so debug/UI previews show the current
+  // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
+  const sdkContext: ContextAssembler = ({
     visibleSteps,
     workflowState,
     snapshotStorage,
@@ -309,9 +311,11 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     // tune() on any failure.
     if (settings.tunerConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const { params } = await getTuner(settings.tunerConfig).tune(dossier, latestTaskText(visibleSteps));
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return getTuner(settings.tunerConfig)
+        .tune(dossier, latestTaskText(visibleSteps))
+        .then(({ params }) =>
+          summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params).messages
+        );
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
     // params from the live dossier. The dossier is built once and reused.

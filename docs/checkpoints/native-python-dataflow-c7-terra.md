@@ -23,3 +23,11 @@ Next: matching-worker fixtures in DELTA/LATEST, actual model input audits,
 then the one-task official pilot. Prioritize the no-evidence/data-only/flow-only/
 combined factorial for Terra and Luna, followed by collector/framework controls.
 No benchmark score, cost or optimization benefit is claimed at this checkpoint.
+
+Live follow-up: Python-native and core worker suites passed in both modes.
+The evidence suite exposed an empty debug preview: the production SDK context
+assembler was always async, even with the LLM tuner disabled, so the synchronous
+preview returned an empty cached value. A failing regression reproduces this;
+the untuned path is now synchronous while the opt-in tuner remains async.
+**1,124 Bun tests and typecheck pass** after the fix. The worker matrix is
+being rerun against the changed agent source before model/benchmark admission.

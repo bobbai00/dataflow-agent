@@ -18,8 +18,9 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildApp, _resetAgentStoreForTests } from "./server";
+import { buildApp, buildContextAssembler, _resetAgentStoreForTests } from "./server";
 import { env } from "./config/env";
+import { TexeraAgent } from "./agent/texera-agent";
 
 const API = env.API_PREFIX;
 const app = buildApp();
@@ -39,6 +40,21 @@ function mintTestToken(): string {
 }
 
 const TOKEN = mintTestToken();
+
+test("untuned production context preview is synchronous and current after debug", async () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-regression",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: buildContextAssembler("vercel-tool-use", {} as never),
+  });
+  await agent.handleDebugInput("PREVIEW_CURRENT_TASK");
+  expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
+});
 
 function url(path: string): string {
   return `http://localhost${path}`;
