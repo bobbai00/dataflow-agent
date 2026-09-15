@@ -76,6 +76,12 @@ inspection tail. LATEST and non-native message layouts retain their existing
 inspection deck. Native DELTA error echoes likewise use the operator definition
 from the failing event, not its latest revision.
 
+Batch mode has a dedicated system-prompt template in
+`agent-service/src/agent/prompts/native-batch-mode.md`, with object signatures
+generated from the validation catalog. Its examples, execution/observation
+contract, and inspection placement follow the batch interface. The typed-mode
+prompt is unchanged; a 72-variant digest test guards its existing bytes.
+
 ## Verification
 
 From `agent-service/`:
@@ -83,6 +89,7 @@ From `agent-service/`:
 ```bash
 bun test src/agent/tools/native-batch-tools.test.ts src/server.test.ts
 bun test src/agent/tools/inspect-result-tool.test.ts
+bun test src/agent/prompts-native-batch.test.ts
 bun run typecheck
 TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3008 bun run benchmark/e2e/native-batch-run.ts
 ```

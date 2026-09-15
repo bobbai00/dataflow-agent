@@ -70,6 +70,19 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
   return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
 }
 
+/** Schematic object signatures, generated from the same catalog as validation.
+ * The deprecated scan.columns field only exists to issue a migration error;
+ * don't advertise it as an available scan operation. */
+export function nativeBatchCatalogText(): string {
+  return NATIVE_OPERATORS.map(def => {
+    const schema = nativeToolSchema(def) as { properties: Record<string, unknown>; required: string[] };
+    const fields = Object.keys(schema.properties)
+      .filter(name => !(def.type === "Scan" && name === "columns"))
+      .map(name => (schema.required.includes(name) ? name : `${name}?`));
+    return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}`;
+  }).join("\n");
+}
+
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
 export function nativeBatchSchema(): Record<string, unknown> {
   return {
@@ -114,7 +127,7 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
     [TOOL_NAME_NATIVE_DELETE]: typed[TOOL_NAME_NATIVE_DELETE],
     [TOOL_NAME_DATAFLOW]: tool({
       description:
-        "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. The catalog schemas define every parameter. Operators are dependency ordered and upserted by id. The workflow executes once after the call. observe chooses detailed result tables; omitted observe defaults to this batch's terminal outputs. Failures and compact receipts remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
+        "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. The catalog schemas define every parameter. Operators are dependency ordered and upserted by id. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. observe chooses detailed result tables; omitted observe defaults to this batch's terminal outputs. Failures and compact receipts remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
       inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
         nativeBatchSchema() as any
       ),

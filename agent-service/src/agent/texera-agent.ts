@@ -575,6 +575,7 @@ export class TexeraAgent {
           session: this.settings.sessionTurns === true,
           recall: this.settings.enableRecallTool === true,
           batch: this.settings.nativeToolMode === "batch",
+          messageLayout: this.settings.messageLayout,
         }
       );
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
@@ -1661,7 +1662,12 @@ export class TexeraAgent {
     if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
     if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
     if (updates.statScopes !== undefined) this.settings.statScopes = updates.statScopes;
-    if (updates.messageLayout !== undefined) this.settings.messageLayout = updates.messageLayout;
+    if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
+      this.settings.messageLayout = updates.messageLayout;
+      if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
+        promptNeedsRebuild = true;
+      }
+    }
     if (updates.versionedMode !== undefined && updates.versionedMode !== this.settings.versionedMode) {
       // Changes the write tool's schema (strict version params), the context
       // layout, AND the prompt fragment describing both. Tools are rebuilt at

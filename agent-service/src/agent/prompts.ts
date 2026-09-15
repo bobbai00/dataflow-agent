@@ -30,8 +30,9 @@
 
 import { readFileSync } from "node:fs";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { ContextMode, type LocalToolDialect, type ResultSelection } from "../types/agent";
+import { ContextMode, type AgentSettings, type LocalToolDialect, type ResultSelection } from "../types/agent";
 import { nativeToolCatalogText } from "./tools/native-typed-tools";
+import { nativeBatchCatalogText } from "./tools/native-batch-tools";
 
 const PYTHON_UDF_OPERATOR_TYPES = ["PythonUDFV2", "PythonUDFSourceV2"];
 /** Function-style Python operators: `DataLoading` (`def load()`, a source that
@@ -643,6 +644,48 @@ export function buildCodeModeSystemPrompt(
 // and validator cannot drift.
 // ============================================================================
 const NATIVE_MODE_TEMPLATE: string = readFileSync(new URL("./prompts/native-mode.md", import.meta.url), "utf8");
+// The source license is not part of the model's instructions.
+const NATIVE_BATCH_TEMPLATE: string = rd("native-batch-mode.md").replace(/^<!--[\s\S]*?-->\s*/, "");
+
+interface NativePromptLayoutOptions {
+  versioned?: boolean;
+  session?: boolean;
+  recall?: boolean;
+  batch?: boolean;
+  messageLayout?: AgentSettings["messageLayout"];
+}
+
+function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativePromptLayoutOptions): string {
+  const delta = contextMode === ContextMode.DELTA;
+  const messageLayout = options.messageLayout ??
+    (options.versioned || options.session ? "turnSplit" : delta ? "native" : "opSplit");
+  const inlineInspection = delta && messageLayout === "native";
+  const contextLayout = options.versioned
+    ? "Your multi-turn context is a `# Catalog` of `## Turn N` entries: prior tasks, their dataflow changes, and answers, followed by the current task and step observations. LATEST collapses current execution results into `### Dataflow`; DELTA keeps event observations. An operator id refers to its current version. Answer only the current turn's task."
+    : options.session
+      ? "Your multi-turn context groups requests and work under `# Session` / `## Turn N`, with a `# Your Task` directive for the current turn. Earlier operators remain live by id. DELTA retains step observations; LATEST shows the current dataflow. Answer only the current turn's task."
+      : delta
+        ? messageLayout === "native"
+          ? "After `# User Task`, your history is a native tool-call transcript. Each dataflow tool-result contains its receipt and operator `Observation`: changes, requested outputs, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current state."
+          : "After `# User Task`, `# Agent Events` contains each action and its `Observation`: changes, requested outputs, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current state."
+        : "After `# User Task`, `# Current Dataflow` shows current operator parameters, input ids/counts, and selected execution results. Earlier execution events are collapsed into this snapshot. Current compilation and execution failures remain visible.";
+  const inspectionLocation = options.versioned || (options.session && inlineInspection)
+    ? "Saved inspection outputs appear with their original step observations in the current turn."
+    : inlineInspection
+      ? "Each saved inspection remains in its original event/tool-result frame after later edits; it is not refreshed from the live result."
+      : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
+  const scope = delta
+    ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the parameters/code echoed by an earlier failure."
+    : "Detailed successful tables follow the most recent batch's requested set; read-only inspections do not change that set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
+  const recall = options.recall
+    ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
+    : "";
+  return NATIVE_BATCH_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText())
+    .replace("{{CONTEXT_LAYOUT}}", contextLayout)
+    .replace("{{OBSERVATION_SCOPE}}", scope)
+    .replace("{{INSPECTION_LOCATION}}", inspectionLocation)
+    .replace("{{RECALL_TOOL}}", recall);
+}
 
 const NATIVE_SHAPES_ALL = `Every executed operator shows its full result: \`Output Table\`, sample rows, \`Column Schema and stats\`, \`Output Table profile\`.`;
 
@@ -681,15 +724,14 @@ export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   inspectEnabled = false,
   resultSelection: ResultSelection = "all",
-  layoutOpts: { versioned?: boolean; session?: boolean; recall?: boolean; batch?: boolean } = {}
+  layoutOpts: NativePromptLayoutOptions = {}
 ): string {
+  if (layoutOpts.batch) return buildNativeBatchSystemPrompt(contextMode, layoutOpts);
   const inspectHint = inspectEnabled
     ? "\nAny Count or Header operator's cached sample can be opened with `inspectResult` — read-only, no re-execution."
     : "";
   const shapes =
-    layoutOpts.batch
-      ? "Detailed results appear only for the ids requested by that event's `observe`. All edited operators retain a compact execution receipt; a hidden result is still computed. Execution errors always appear, including errors from operators you did not request. Requested tables include a sample, plus schema/statistics when enabled. Each event preserves its own choices and result version."
-      : resultSelection === "rule"
+    resultSelection === "rule"
       ? NATIVE_SHAPES_RULE.replace("{{INSPECT_HINT}}", inspectHint)
       : resultSelection === "scoped"
         ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", inspectHint)
@@ -705,20 +747,7 @@ export function buildNativeModeSystemPrompt(
     : layoutOpts.session
       ? NATIVE_LAYOUT_SESSION + recallLine
       : (contextMode === ContextMode.DELTA ? NATIVE_LAYOUT_DELTA : NATIVE_LAYOUT_LATEST) + recallLine;
-  let template = NATIVE_MODE_TEMPLATE;
-  if (layoutOpts.batch) {
-    template = template
-      .replace("and the current state is shown back to you", "and your requested results are shown back to you")
-      .replace("Each operator is one tool call: the tool is the operator type, its arguments are the operator's parameters.", "Use one `dataflow` call to submit a heterogeneous array of operators, with optional `observe` result ids. Each operator object has `op` (a lowercase catalog name), `id`, input references and its typed parameters. The names below describe operator objects inside `operators`, not separate callable tools.")
-      .replace("## Operators (one tool each)", "## Operator catalog for dataflow.operators")
-      .replace("Every call names the output table", "Every operator object names the output table")
-      .replace("Calling a tool again with an EXISTING id", "Submitting an operator again with an EXISTING id")
-      .replace("Emit the whole next stage as parallel tool calls in one turn — scan, filter, compute, aggregate — later calls may name ids created by earlier calls in the same turn. Everything executes once after the turn.", "Submit the whole next stage in one `dataflow({operators:[...], observe:[...]})` call — scan, filter, compute, aggregate. Operators can reference ids created anywhere in that batch; the service orders them by dependency and executes once. Request the results needed for your next decision. Omitted `observe` shows the batch's terminal outputs; `observe: []` gives receipts only. Any existing id may be requested. `operators: []` with `observe` reads cached results without execution.")
-      .replace("by calling its tool again", "by resubmitting it in dataflow")
-      .replace("`scan {id:", "`{op: \"scan\", id:");
-    template += `\n\n## Batch example\n\nFor a table already scanned as \`sales\`, one stage can be:\n\n\`dataflow({operators:[{op:"filter",id:"recent",input:"sales",predicate:"year = 2024"},{op:"aggregate",id:"total",input:"recent",aggregations:[{fn:"sum",col:"amount",as:"total_amount"}]}],observe:["total"]})\`\n\nOnly \`total\`'s detailed result appears. To inspect \`recent\` later, use \`inspectResult({operatorId:"recent"})\`. Its rows are limited to the cached sample; creating extra limit/project operators is unnecessary for inspecting that sample.\n\n${inspectLine}\n`;
-  }
-  return template.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
+  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeToolCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", layout)
     .replace("{{RESULT_SHAPES}}", contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes)
     .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
