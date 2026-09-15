@@ -22,6 +22,8 @@
 Status: implementation plan and proposed V2 contract, 2026-09-14.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
+The opt-in V2 catalog currently exposes the seven C2 foundation operators;
+the rest of this document remains the target contract, not a rollout claim.
 
 ## 1. Scope and starting point
 
@@ -76,12 +78,14 @@ not reproducing its operator list or search/training procedure.
 
 ## 2. Versioning and compatibility
 
-Proposed setting: `nativeCatalogVersion: "v1" | "v2"`, default `"v1"` until
+Setting: `nativeCatalogVersion: "v1" | "v2"`, default `"v1"` until
 rollout gates pass. Persist the version in each operator's `nativeOp` metadata
 and in workflow snapshots. An absent version means V1. Initially require
 `agentMode: "native"` and `nativeToolMode: "batch"` for V2; reject unsupported
 combinations at settings validation rather than silently changing the mode.
-These are planned settings, not currently implemented configuration knobs.
+This version gate is implemented in C2. Unsupported combinations return a
+client error without partially updating the agent. A rejected creation must
+not leave an agent registered. The full operator/evidence rollout is pending.
 
 V2 tool schemas and prompts come from one versioned catalog. Do not present
 both SQL Compute and Python Derive to the same V2 agent. A new V2 workflow uses
@@ -815,7 +819,8 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | Parent | Verified | `feat/native-batch-observe` local and remote at `41cd8ae97` |
 | C0 | Committed and pushed | `4f8c7f88e`; plan committed alone before implementation |
 | C1 | Implemented and verified | `821f01435`; preview offsets, prompt guidance, and real-backend regression smoke; see [C1 checkpoint](checkpoints/native-python-dataflow-c1.md) for exact scope, commands, outcomes and limitations |
-| C2–C7 | Planned, not implemented | Follow the gates above; no V2/evidence availability or performance claims yet |
+| C2 | Foundation implemented and verified | `1ffc49cf8`; opt-in Python callback catalog, runtime contracts and source-mapped diagnostics; 977 Bun tests, 34 Python tests, typecheck, DELTA/LATEST worker smoke pass; see [C2 checkpoint](checkpoints/native-python-dataflow-c2.md) for delivered scope and remaining diagnostic/telemetry work |
+| C3–C7 | Planned, not implemented | Remaining core/shape operators, structured profile transport, flow evidence selection, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
