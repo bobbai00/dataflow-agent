@@ -34,6 +34,68 @@ const good = "def apply(row):\n    return row['x'] >= 2  # REPAIRED_SOURCE";
 for (const contextMode of ["delta", "latest"] as const) {
   const session = await nativeTestSession({ contextMode, messageLayout: "native", nativeProfileCollection: false });
   try {
+    await session.debug("Exercise native diagnostics and repeated validation repair in one task.");
+    const repeatRejected = async (
+      first: Awaited<ReturnType<typeof session.debug>>,
+      invalid: Record<string, unknown>,
+      probeId: string,
+      firstValue: number
+    ) => {
+      const firstError = (first.snapshot.results.answer as any).nativeError;
+      assert.doesNotMatch(firstError.diagnostic.hint ?? "", /Needs inspection/);
+      const repeated = await session.debug({ operators: [invalid], observe: [] });
+      const repeatedError = (repeated.snapshot.results.answer as any).nativeError;
+      assert.equal(repeatedError.diagnostic.code, firstError.diagnostic.code);
+      assert.match(repeatedError.diagnostic.message, /Repeated validation failure \(2\)/);
+      assert.match(repeatedError.diagnostic.message, /Schema example: /);
+      assert.match(repeatedError.diagnostic.hint, /Needs inspection.*inspectError/);
+      assert.equal(repeatedError.executionId, null);
+      assert.deepEqual(repeated.snapshot.workflow, first.snapshot.workflow, "invalid retry changed the DAG");
+      assert.match(repeated.serviceContext, /Repeated validation failure \(2\)/);
+      assert.match(repeated.serviceContext, /Schema example: /);
+      assert.match(repeated.serviceContext, /Needs inspection/);
+
+      const paused = await session.debug({
+        operators: [invalid, { op: "limit", id: probeId, input: "source", n: 1 }],
+        observe: [probeId],
+      });
+      const pausedError = (paused.snapshot.results.answer as any).nativeError;
+      assert.match(pausedError.diagnostic.message, /Identical invalid submission paused/);
+      assert.equal(pausedError.executionId, null);
+      assert.deepEqual(
+        paused.step.toolResults?.[0]?.output?.operators.map((outcome: any) => outcome.status),
+        ["error", "added"]
+      );
+      assert.ok(paused.snapshot.workflow);
+      assert.ok(first.snapshot.workflow);
+      assert.deepEqual(
+        paused.snapshot.workflow.operators.find(op => op.operatorID === "answer"),
+        first.snapshot.workflow.operators.find(op => op.operatorID === "answer"),
+        "paused submission replaced the accepted operator"
+      );
+      assert.deepEqual((paused.snapshot.results[probeId] as any).sampleRecords, [{ x: firstValue }]);
+      assert.match(paused.serviceContext, /Identical invalid submission paused/);
+
+      const acknowledged = await session.debug(
+        { operatorId: "answer", diagnosticId: pausedError.diagnosticId },
+        "inspectError"
+      );
+      assert.match(acknowledged.step.toolResults?.[0]?.output, /Current error inspection/);
+      assert.deepEqual(acknowledged.snapshot.results, paused.snapshot.results, "acknowledgement changed results");
+      assert.deepEqual(acknowledged.snapshot.workflow, paused.snapshot.workflow);
+      // A corrected submission is always eligible. This unchanged retry also
+      // verifies that inspecting the exact current diagnostic acknowledged it.
+      const retried = await session.debug({ operators: [invalid], observe: [] });
+      const retriedError = (retried.snapshot.results.answer as any).nativeError;
+      assert.equal(retriedError.diagnostic.code, firstError.diagnostic.code);
+      assert.doesNotMatch(retriedError.diagnostic.message, /Identical invalid submission paused/);
+      assert.doesNotMatch(retriedError.diagnostic.hint ?? "", /Needs inspection/);
+      assert.equal(retriedError.executionId, null);
+      assert.deepEqual(retried.snapshot.workflow, paused.snapshot.workflow);
+      assert.equal(retried.step.messageId, first.step.messageId, "retries must share one user task");
+      return retried;
+    };
+
     const initial = await session.debug({
       operators: [
         { op: "project", id: "final", input: "answer", keep: ["x"] },
@@ -97,16 +159,19 @@ for (const contextMode of ["delta", "latest"] as const) {
     );
     assert.deepEqual(pastPull.snapshot.results, repaired.snapshot.results);
 
+    const invalidPython = filter("def apply(row):\n    return REJECTED_SOURCE +");
     const rejected = await session.debug({
-      operators: [filter("def apply(row):\n    return REJECTED_SOURCE +")],
+      operators: [invalidPython],
       observe: [],
     });
-    const rejectedError = (rejected.snapshot.results.answer as any).nativeError;
+    let rejectedError = (rejected.snapshot.results.answer as any).nativeError;
     assert.equal(rejectedError.diagnostic.code, "PYTHON_SYNTAX");
     assert.equal(rejectedError.executionId, null);
     assert.equal(rejectedError.phase, "attempt");
     assert.deepEqual(rejected.snapshot.workflow, repaired.snapshot.workflow);
     assert.equal((rejected.snapshot.results.final as any)?.sampleRecords, undefined);
+    const pythonRetried = await repeatRejected(rejected, invalidPython, "python_repair_probe", 1);
+    rejectedError = (pythonRetried.snapshot.results.answer as any).nativeError;
     const deferred = await session.debug({
       operators: [{ op: "project", id: "new_answer", input: "final", keep: ["x"] }],
       observe: ["new_answer"],
@@ -125,13 +190,27 @@ for (const contextMode of ["delta", "latest"] as const) {
     // must retain the already-earned historical inspection after later edits.
     assert.match(restored.serviceContext, /Historical error inspection/);
     assert.match(restored.serviceContext, /CALLBACK_FAILURE_MARKER/);
+
+    const invalidSchema = { ...filter(good), columns: "x" };
+    const schemaRejected = await session.debug({ operators: [invalidSchema], observe: [] });
+    const schemaError = (schemaRejected.snapshot.results.answer as any).nativeError;
+    assert.equal(schemaError.diagnostic.code, "INVALID_ARGUMENTS");
+    assert.match(schemaError.diagnostic.message, /\/columns must be array/);
+    await repeatRejected(schemaRejected, invalidSchema, "schema_repair_probe", 2);
+    const schemaRepaired = await session.debug({ operators: [filter(good)], observe: ["new_answer"] });
+    assert.deepEqual((schemaRepaired.snapshot.results.new_answer as any).sampleRecords, [{ x: 2 }, { x: 3 }]);
+    assert.equal((await inspect({ operatorId: "answer" })).status, 404);
+    const trace = await session.trace();
     reports.push({
       contextMode,
       workflowId: session.workflowId,
       passed: true,
-      debugSteps: 9,
+      debugSteps: trace.steps.filter(step =>
+        step.toolCalls?.some(call => ["dataflow", "inspectError"].includes(call.toolName))
+      ).length,
       runtimeDiagnosticId: runtimeError.diagnosticId,
       rejectedDiagnosticId: rejectedError.diagnosticId,
+      schemaDiagnosticId: schemaError.diagnosticId,
       checks: [
         "real worker callback source and execution binding",
         "hidden failure visibility",
@@ -142,6 +221,9 @@ for (const contextMode of ["delta", "latest"] as const) {
         "independent upstream execution",
         "same-code repair",
         "persistent service context",
+        "repeated schema/preflight errors with compact repair examples",
+        "identical invalid submission pause with independent real-worker success",
+        "current diagnostic acknowledgement and successful correction",
       ],
     });
   } finally {

@@ -124,8 +124,10 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
       .join("\n");
   }
 
-  async function debug(args: Record<string, unknown>, tool = "dataflow") {
-    const debugInput = nativeDebugInput(tool, args);
+  // Plain text starts a user task, letting later Function calls share the
+  // production task boundary (including task-scoped validation repair state).
+  async function debug(args: Record<string, unknown> | string, tool = "dataflow") {
+    const debugInput = typeof args === "string" ? args : nativeDebugInput(tool, args);
     let completionAnswer = "";
     let serviceContext = "";
     const results = await new Promise<Record<string, any>>((resolve, reject) => {
@@ -170,10 +172,14 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
     });
     steps.splice(0, steps.length, ...(await getReActSteps(agentId!, baseUrl)).steps);
     const step = steps.at(-1)!;
-    assert.ok(
-      step.toolCalls?.some(call => call.toolName === tool),
-      `Debug endpoint did not record ${tool}: ${completionAnswer}`
-    );
+    if (typeof args === "string") {
+      assert.equal(step.role, "user", "Debug endpoint did not start a user task");
+      assert.equal(step.content, args);
+    } else
+      assert.ok(
+        step.toolCalls?.some(call => call.toolName === tool),
+        `Debug endpoint did not record ${tool}: ${completionAnswer}`
+      );
     const snapshot = await getSnapshot(agentId!, "head", baseUrl);
     assert.ok(snapshot.workflow);
     state.setWorkflowContent(snapshot.workflow);
