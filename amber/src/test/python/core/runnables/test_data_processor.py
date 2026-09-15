@@ -866,6 +866,30 @@ class TestMaybeApplyRuntimeSchema:
         assert second_stats["x"] != first_stats["x"]
         assert "null=1" in second_stats["x"]
 
+    def test_native_flow_evidence_uses_reserved_stats_without_a_data_column(self, context):
+        import json
+        dp, _ = _make_dp_with_empty_port(context)
+        df = _pd.DataFrame({"value": [1, 2]})
+        payload = {"version": 1, "facts": ["measured input/output relationship"]}
+        df.attrs["__native_flow_evidence__"] = payload
+        dp._maybe_apply_runtime_schema(df)
+        stats = context.statistics_manager._result_statistics
+        assert json.loads(stats["__native_flow_evidence__"]) == payload
+        assert list(df.columns) == ["value"]
+        assert context.output_manager.get_port().get_schema().get_attr_names() == ["value"]
+        dp._maybe_apply_runtime_schema(_pd.DataFrame({"value": [3]}))
+        assert "__native_flow_evidence__" not in context.statistics_manager._result_statistics
+
+    @pytest.mark.parametrize("payload", [None, "invalid", {"version": 2, "facts": []},
+                                         {"version": 1, "facts": [123]},
+                                         {"version": 1, "facts": ["x" * 17000]}])
+    def test_native_flow_evidence_rejects_invalid_or_unbounded_payloads(self, context, payload):
+        dp, _ = _make_dp_with_empty_port(context)
+        df = _pd.DataFrame({"value": [1]})
+        df.attrs["__native_flow_evidence__"] = payload
+        dp._maybe_apply_runtime_schema(df)
+        assert "__native_flow_evidence__" not in context.statistics_manager._result_statistics
+
     def test_non_dataframe_yield_is_noop(self, context):
         # Tuple-yielding UDFs hit this path (output is e.g. a Tuple, dict, or
         # None). The runtime schema hook must be a complete no-op for them

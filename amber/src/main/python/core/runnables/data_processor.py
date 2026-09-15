@@ -683,6 +683,26 @@ class DataProcessor(Runnable, Stoppable):
                 stats["__file_io__"] = " || ".join(fdiags)
         except Exception:
             pass
+        # Native input/output measurements are metadata, never an extra data
+        # column. Only generated operators opting into nativeFlowEvidence set
+        # this attribute; ordinary frames retain their existing stats verbatim.
+        # Validate and bound the envelope before passing it over the existing
+        # string-valued resultStatistics channel.
+        try:
+            import json
+            evidence = df.attrs.get("__native_flow_evidence__")
+            if (
+                isinstance(evidence, dict)
+                and evidence.get("version") == 1
+                and isinstance(evidence.get("facts"), list)
+                and len(evidence["facts"]) <= 4
+                and all(isinstance(f, str) for f in evidence["facts"])
+            ):
+                payload = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+                if len(payload) <= 16000:
+                    stats["__native_flow_evidence__"] = payload
+        except Exception:
+            pass
         self._context.statistics_manager.set_result_statistics(stats)
 
     @staticmethod
