@@ -966,7 +966,15 @@ amap_set SVC_UNZIP_DEST computing-unit-master ""
 amap_set SVC_HEALTH     computing-unit-master ""
 
 amap_set SVC_TYPE   agent-service bun
-amap_set SVC_PORT   agent-service 3001
+# Separate agent worktrees may share the Texera backend. Keep the listener
+# lookup, health checks and Bun's actual bind port in agreement so managing a
+# worktree never accidentally targets the default service on :3001.
+agent_service_port="${TEXERA_AGENT_SERVICE_PORT:-3001}"
+if [[ ! "$agent_service_port" =~ ^[1-9][0-9]{0,4}$ ]] || (( agent_service_port > 65535 )); then
+    printf 'TEXERA_AGENT_SERVICE_PORT must be an integer from 1 to 65535.\n' >&2
+    exit 2
+fi
+amap_set SVC_PORT   agent-service "$agent_service_port"
 amap_set SVC_CWD    agent-service "agent-service"
 amap_set SVC_HEALTH agent-service "/api/healthcheck"
 
@@ -2093,7 +2101,7 @@ start_one() {
                 _install_hint bun
                 return 1
             fi
-            ( cd "$cwd" && nohup bun run dev >"$log" 2>&1 </dev/null & )
+            ( cd "$cwd" && PORT="$(amap_get SVC_PORT "$svc")" nohup bun run dev >"$log" 2>&1 </dev/null & )
             ;;
         yarn)
             if ! command -v yarn >/dev/null 2>&1; then
