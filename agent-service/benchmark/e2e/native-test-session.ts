@@ -104,7 +104,11 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
       })
     ).id;
   } catch (error) {
-    await close();
+    try {
+      await close();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "Native smoke setup failed; unresolved resources retained");
+    }
     throw error;
   }
 
