@@ -229,6 +229,9 @@ export interface AssembleContextOptions {
   /** Internal (computed): the `# Inspections` section re-rendering the agent's
    *  inspectResult pulls so they persist across steps. Undefined ⇒ no pulls. */
   inspectionsRendered?: string;
+  /** Internal: native DELTA pulls live at their event, keeping the wire
+   *  transcript append-only instead of moving a trailing inspection deck. */
+  inlineInspections?: boolean;
   /** Grace (events) after the resolution before prior revisions fold. Default 1. */
   foldGraceEvents?: number;
   /** Internal (computed): per-event per-operator revision-fold facts. */
@@ -581,12 +584,14 @@ export function renderContextCore(
   if (options.errorReflection && mode === ContextMode.LATEST) {
     options.errorReflectionMap = buildErrorReflection(path);
   }
+  options.inlineInspections = mode === ContextMode.DELTA && options.messageLayout === "native";
   let content: string;
   switch (mode) {
     case ContextMode.DELTA: {
-      // On-demand pulls persist in DELTA too (appended by renderInterleaved;
-      // the interleaved events carry the CALL but drop the tool output).
-      options.inspectionsRendered = buildInspectionsSection(path);
+      // Native tool frames keep each pull at its immutable event. Other layouts
+      // retain the established tail deck; a moving tail would otherwise stop
+      // the native transcript's reusable prefix at the first inspection.
+      options.inspectionsRendered = options.inlineInspections ? undefined : buildInspectionsSection(path);
       options.recalledStateRendered = buildRecalledStateSection(tasks);
       // Write-time render prefs (DELTA): a landed version's prefs govern the
       // observations rendered while it was active — historical ranges, so an
@@ -2068,7 +2073,7 @@ function serializeTaskBody(
     );
     lines.push("");
 
-    // VERSIONED MODE: a read-only pull's OUTPUT persists inline, as an
+    // VERSIONED MODE / NATIVE DELTA: a read-only pull's OUTPUT persists inline, as an
     // ordinary observation — snapshot or not (a pull writes nothing, so it
     // never owns a snapshot and the block below never fires for it). One rule,
     // "every action's observation stays", replaces the `# Recalled State`
@@ -2078,15 +2083,22 @@ function serializeTaskBody(
     // drops operator observations (they collapse into `### Dataflow`) but a
     // pull's output has no snapshot to collapse into — dropping it would
     // reintroduce the evaporation bug there.
-    if (options.versionedCatalog) {
+    if (options.versionedCatalog || options.inlineInspections) {
       const calls = node.step.toolCalls ?? [];
       const results = node.step.toolResults ?? [];
       const pulls: string[] = [];
       calls.forEach((tc, i) => {
-        if (tc.toolName !== "recallState" && tc.toolName !== "inspectResult") return;
-        const out = stringifyOutput(results[i]?.output).trimEnd();
+        const inlineInspection = options.inlineInspections && tc.toolName === "inspectResult";
+        if (
+          !inlineInspection &&
+          !(options.versionedCatalog && (tc.toolName === "recallState" || tc.toolName === "inspectResult"))
+        ) return;
+        const output = inlineInspection
+          ? results.find(result => result.toolCallId === tc.toolCallId)?.output
+          : results[i]?.output;
+        const out = stringifyOutput(output).trimEnd();
         if (out.length === 0) return;
-        if (out.startsWith("[ERROR]")) pulls.push(`- ${tc.toolName}: ${conciseOutcome(out)}`);
+        if (out.startsWith("[ERROR]") && !inlineInspection) pulls.push(`- ${tc.toolName}: ${conciseOutcome(out)}`);
         else pulls.push(`- ${tc.toolName} output:\n${out.replace(/^#/gm, "####")}`);
       });
       if (pulls.length > 0) {
@@ -2123,6 +2135,7 @@ function serializeTaskBody(
       const noChangeOutcome: string[] = [];
       const requestedResults = batchObservedIds(node.step);
       calls.forEach((tc, i) => {
+        if (options.inlineInspections && tc.toolName === "inspectResult") return;
         const inp = tc.input as Record<string, unknown> | undefined;
         const opId = writtenOperatorId(tc.toolName, inp) ?? "";
         if (tc.toolName === TOOL_NAME_DATAFLOW) {

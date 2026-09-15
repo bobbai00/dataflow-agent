@@ -27,6 +27,7 @@ import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
+import { createInspectResultTool } from "./inspect-result-tool";
 
 function setup() {
   const state = new WorkflowState();
@@ -140,6 +141,76 @@ describe("native batch tools", () => {
 });
 
 describe("batch observation history", () => {
+  test("native DELTA inspection evidence stays in its event and keeps the old message prefix after later actions", async () => {
+    const { execute, state } = setup();
+    const steps: ReActStep[] = [];
+    const storage = new WorkflowSnapshotStorage(id =>
+      steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
+    );
+    const record = (id: string, toolName: string, input: unknown, output: unknown) => {
+      steps.push({
+        id,
+        parentId: steps.at(-1)?.id,
+        messageId: "m",
+        stepId: steps.length + 1,
+        timestamp: 1,
+        role: "agent",
+        content: "",
+        isBegin: false,
+        isEnd: false,
+        toolCalls: [{ toolName, toolCallId: id, input }],
+        toolResults: [{ toolCallId: id, output }],
+      });
+      storage.createSnapshot(id, state.getWorkflowContent());
+    };
+    const render = (mode = ContextMode.DELTA, messageLayout: "native" | "block" = "native") =>
+      assembleContext(steps, state, storage, mode, {
+        agentMode: AgentMode.NATIVE,
+        resultSelection: "all",
+        messageLayout,
+      });
+    const args = { operators: [scan], observe: [] };
+    record("s1", "dataflow", args, await execute(args));
+    let cached: OperatorInfo = {
+      state: "Completed",
+      inputTuples: 0,
+      outputTuples: 100,
+      totalRowCount: 100,
+      resultMode: "table",
+      truncated: true,
+      result: [{ value: "first_pull_sample_marker" }],
+      columnStats: { value: "(str): null=0, distinct=90" },
+    };
+    storage.setOperatorResult("s1", "source", cached);
+    const inspect = createInspectResultTool({ getResult: () => cached, workflowState: state });
+    const inspectArgs = { operatorId: "source", columns: ["value"], stats: true };
+    record("s2", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    const before = render();
+    const frame = before
+      .filter(m => m.role === "tool")
+      .flatMap(m => (Array.isArray(m.content) ? m.content : []))
+      .find(p => p.type === "tool-result" && p.toolCallId === "s2");
+    expect(JSON.stringify(frame)).toContain("first_pull_sample_marker");
+    expect(JSON.stringify(frame)).toContain("distinct=90");
+    expect(JSON.stringify(before)).not.toContain("# Inspections");
+    // A later upsert changes both the live result and operator definition, but
+    // the original inspection is an immutable output of the earlier tool call.
+    const revision = { operators: [{ ...scan, files: "data/revised.csv" }], observe: [] };
+    record("s3", "dataflow", revision, await execute(revision));
+    cached = { ...cached, result: [{ value: "second_pull_sample_marker" }] };
+    storage.setOperatorResult("s3", "source", cached);
+    expect(render().slice(0, before.length)).toEqual(before);
+    record("s4", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    expect(render().slice(0, before.length)).toEqual(before);
+    expect(JSON.stringify(render())).toContain("second_pull_sample_marker");
+    expect(state.deleteOperator("source")).toBe(true);
+    record("s5", "deleteOperator", { id: "source" }, "deleted");
+    expect(render().slice(0, before.length)).toEqual(before);
+    // LATEST and non-native message layouts keep their established tail deck.
+    expect(JSON.stringify(render(ContextMode.LATEST))).toContain("# Inspections");
+    expect(JSON.stringify(render(ContextMode.DELTA, "block"))).toContain("# Inspections");
+  });
+
   for (const scenario of [
     {
       name: "typed properties",

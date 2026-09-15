@@ -67,12 +67,22 @@ sample is absent from the complete result. On-demand `stats: true` can reveal
 statistics even when automatic `columnStats` is false; pilot analyses should
 record those requests separately.
 
+Column-specific inspection scopes the sample, schema, and column statistics
+to the requested columns (an empty or omitted list keeps all columns). Statistics
+describe the full operator output, not the filtered sample. In native DELTA
+message layout each inspection's saved output stays at its original event/tool
+frame, including after later operator revisions or deletion; there is no moving
+inspection tail. LATEST and non-native message layouts retain their existing
+inspection deck. Native DELTA error echoes likewise use the operator definition
+from the failing event, not its latest revision.
+
 ## Verification
 
 From `agent-service/`:
 
 ```bash
 bun test src/agent/tools/native-batch-tools.test.ts src/server.test.ts
+bun test src/agent/tools/inspect-result-tool.test.ts
 bun run typecheck
 TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3008 bun run benchmark/e2e/native-batch-run.ts
 ```

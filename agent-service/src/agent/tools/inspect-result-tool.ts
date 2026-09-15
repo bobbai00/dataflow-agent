@@ -80,13 +80,11 @@ function applyWhere(rows: Record<string, any>[], where: string | undefined): Rec
 /** Project the sample rows to a subset of columns (keeps __row_index__). */
 function projectColumns(rows: Record<string, any>[], columns: string[] | undefined): Record<string, any>[] {
   if (!columns || columns.length === 0) return rows;
-  const keep = new Set(columns);
   return rows.map(r => {
     const o: Record<string, any> = {};
     if ("__row_index__" in r) o.__row_index__ = r.__row_index__;
     for (const c of columns) if (c in r) o[c] = r[c];
     // silently ignore requested columns not present; the schema line will show truth
-    void keep;
     return o;
   });
 }
@@ -120,8 +118,14 @@ export function createInspectResultTool(deps: InspectResultDeps) {
         .min(1)
         .optional()
         .describe("How many sample rows to show (default 30; capped by what is cached)."),
-      columns: z.array(z.string()).optional().describe("Only show these columns (useful for very wide tables)."),
-      stats: z.boolean().optional().describe("Include the full per-column schema + statistics block."),
+      columns: z
+        .array(z.string())
+        .optional()
+        .describe("Only show these columns in samples, schema, and statistics. Empty or omitted keeps all columns."),
+      stats: z
+        .boolean()
+        .optional()
+        .describe("Include full-output column statistics, restricted to the requested columns."),
       where: z.string().optional().describe("Focus rows: nonnumeric:<col> | nulls:<col> | distinct:<col>."),
     }),
     execute: async (args: {
@@ -146,7 +150,14 @@ export function createInspectResultTool(deps: InspectResultDeps) {
         let rows = Array.isArray(info.result) ? (info.result as Record<string, any>[]) : [];
         rows = applyWhere(rows, args.where);
         rows = projectColumns(rows, args.columns);
-        const focused: OperatorInfo = { ...info, result: rows };
+        // Project worker schema/stats as well as sample rows. Passing only
+        // projected rows leaves the original wide-table stats attached, leaking
+        // unrelated columns back into this explicitly scoped inspection.
+        const columnStats =
+          args.columns?.length && info.columnStats
+            ? Object.fromEntries(Object.entries(info.columnStats).filter(([name]) => args.columns!.includes(name)))
+            : info.columnStats;
+        const focused: OperatorInfo = { ...info, result: rows, columnStats };
         const cols = rows.length > 0 ? Object.keys(rows[0]).filter(k => !HIDDEN.has(k)) : [];
         const rendered = formatOperatorResult(args.operatorId, focused, deps.workflowState, {
           maxResultRows: args.maxRows ?? 30,
@@ -159,7 +170,11 @@ export function createInspectResultTool(deps: InspectResultDeps) {
           (args.where ? ` (where ${args.where})` : "") +
           (args.columns ? ` (columns: ${args.columns.join(", ")})` : "") +
           ` — showing ${Math.min(rows.length, args.maxRows ?? 30)} of ${rows.length} matching sampled row(s), ${cols.length} column(s):`;
-        return `${header}\nRow selection searches the cached sample only; rows outside that sample are not retrieved.\n${rendered}`;
+        const statsScope =
+          args.stats === true && columnStats && Object.keys(columnStats).length > 0
+            ? "Column statistics describe the full operator output; row filters affect the cached sample only.\n"
+            : "";
+        return `${header}\nRow selection searches the cached sample only; rows outside that sample are not retrieved.\n${statsScope}${rendered}`;
       } catch (error: any) {
         return createErrorResult(error.message || String(error));
       }

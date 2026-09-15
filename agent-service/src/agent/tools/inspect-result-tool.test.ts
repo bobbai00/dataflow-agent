@@ -93,6 +93,41 @@ describe("inspectResult tool", () => {
     expect(out).toContain("Schema (1 cols): region");
   });
 
+  test("requested columns scope worker schema and statistics without changing the cached result", async () => {
+    const cached: OperatorInfo = {
+      ...SALES,
+      totalRowCount: 100,
+      truncated: true,
+      columnStats: {
+        region: '(str): null=0, distinct=3, top_5={"West"=40,"East"=40,"North"=20}',
+        amount: "(str): null=0, distinct=95",
+        note: "(str): null=10, distinct=2",
+      },
+    };
+    const original = JSON.stringify(cached);
+    const t = toolFor({ sales: cached });
+    for (const stats of [true, false]) {
+      const out: string = await (t as any).execute({ operatorId: "sales", columns: ["region"], stats });
+      expect(out).toContain("Schema (1 cols): region (str)");
+      expect(out).not.toContain("amount");
+      expect(out).not.toContain("note");
+      if (stats) {
+        expect(out).toContain("distinct=3");
+        expect(out).toContain("full operator output");
+      } else expect(out).not.toContain("distinct=3");
+    }
+    const noRows: string = await (t as any).execute({
+      operatorId: "sales",
+      columns: ["region"],
+      where: "nulls:region",
+      stats: true,
+    });
+    expect(noRows).toContain("0 of 0 matching sampled row(s)");
+    expect(noRows).toContain("Schema (1 cols): region (str)");
+    expect(noRows).toContain("distinct=3");
+    expect(noRows).not.toContain("amount");
+    expect(JSON.stringify(cached)).toBe(original);
+  });
 
   test("missing operator → [ERROR] result, no throw", async () => {
     const t = toolFor({});
