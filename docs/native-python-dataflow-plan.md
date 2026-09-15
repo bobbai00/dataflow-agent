@@ -636,6 +636,46 @@ not dump all upstream tables. Existing cached inspection only exposes collected
 samples/stats. If a requested metric was not collected, say so; computing it
 requires an explicit execution/inspection capability, not a hidden rerun.
 
+### 6.3 Implemented C5 exposure and budget contract
+
+The selector and context integration are implemented in `7fe9e30cd`, with local
+tests described in the [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md).
+Live C5 qualification remains pending. V2 keeps the same batch/operator API;
+it does not gain a model-authored statistics tool or a second result budget.
+
+- `nativeProfileCollection` controls collection on fresh workflows.
+- A positive `dataLevel` or `columnStats:true` enables selected data profiles;
+  a positive `flowLevel` enables selected flow evidence. For clean data-only,
+  flow-only and combined ablations, set `columnStats:false` and use 0/1 levels.
+  The Python framework control sets both levels to 0 and collection off; a
+  collector-only control keeps both levels at 0 with collection on.
+- All successful V2 result bodies use the same typed rendering path, including
+  evidence-off arms. Their counts, schema, samples, facts and version labels
+  share `maxOperatorResultCharLimit`. Complete small tables outrank redundant
+  output profiles. Otherwise schema relevance, atomic sample rows and facts
+  participate in a deterministic greedy selection with auditable omissions.
+  This is not a learned or globally optimal selector.
+- `Data measurement` labels ordinary profile facts and their full/partial
+  coverage. `Flow guarantee` labels an enforced contract; `Flow measurement`
+  labels version-matched counters and input/output comparisons. Native
+  operational counters can remain exact when optional column collection is
+  partial; missing counters cannot be reconstructed from marginal profiles.
+- DELTA records the selection after each successful explicit observation,
+  including cached reads. Settings/relevance changes do not rewrite it.
+  Compaction can only shorten it and cannot expose an unobserved success.
+  LATEST renders the current explicit observe set using current settings.
+- Snapshot API responses may include event-owned `nativeObservations`: result
+  and input version references, exposure options, rendered text, selected and
+  omitted IDs/reasons, and atomic render chunks. This audit record is not
+  automatically exposed for unobserved operators. V2 cached inspection with
+  `stats:true` also uses structured profiles and the same result budget.
+
+V2 now also requires backend capability `schema-fields-only-v1`. This prevents
+synthetic row indices or name-based visualization handling from overwriting
+schema-declared user columns. An older C4 typed backend is rejected explicitly;
+build and deploy the matching engine/API before starting V2 live qualification.
+Legacy/V1 transport and successful-result formatting remain compatible.
+
 ## 7. Flow optimization: inputs + semantics + measured outputs
 
 Flow evidence is derived by joining version-matched input/output metadata with
@@ -833,7 +873,8 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C2 | Foundation implemented and verified | `1ffc49cf8`; opt-in Python callback catalog, runtime contracts and source-mapped diagnostics; 977 Bun tests, 34 Python tests, typecheck, DELTA/LATEST worker smoke pass; see [C2 checkpoint](checkpoints/native-python-dataflow-c2.md) for delivered scope and remaining diagnostic/telemetry work |
 | C3 | Core implemented and verified | `67f69e151` plus `efb45ea94` engine schema fix; fourteen V2 operators, expanded prompt/examples, dependent batch/revision/error/empty-input worker tests in DELTA/LATEST; see [C3 checkpoint](checkpoints/native-python-dataflow-c3.md) for exact gates, follow-up validation and deployment requirements |
 | C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
-| C5–C7 | Planned, not implemented | Flow evidence selection, remaining shape operators, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
+| C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
+| C6–C7 | Planned, not implemented | Remaining shape operators, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
