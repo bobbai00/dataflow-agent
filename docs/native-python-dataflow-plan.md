@@ -926,13 +926,17 @@ backend configuration. The first seven arms are now registered in the
 with names `DataflowSystemLunaPythonPilot<Arm>20260915Rep1`. Registration and
 the one-attempt capture/official-scoring path are locally tested. Durable
 execution journals, scoped phase reports and source-pinned agent-only lifecycle
-checks are also implemented. The production admission manifest/guard, allocation
-journaling, verified resource cleanup, collector aggregation, live qualification
-and results remain pending. A service port alone does not establish its
+checks are also implemented. Allocation journaling, verified owned-resource
+cleanup and producing-result collector aggregation are now implemented; a real
+setup-only lifecycle smoke passes. The production admission manifest/guard,
+complete outer orchestration, worker/model qualification and pilot results
+remain pending. A service port alone does not establish its
 source/build provenance. See the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md)
 for corrected final-step accounting/partial usage, and the
-[runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md) for exact
-current tests, lifecycle evidence and remaining gates.
+[runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md) for the
+execution journal and source-pinned launcher. The latest
+[resource checkpoint](checkpoints/native-python-dataflow-c7-resources.md) records
+collector measurement semantics, live setup/cleanup, current tests and gates.
 
 | Arm | Framework | Evidence |
 | --- | --- | --- |
@@ -1001,7 +1005,7 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
 | C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
 | C6 | Shape utilities and diagnostics locally verified; live/real-model qualification incomplete | `2674cd458`: five shape utilities and budgeted flow facts; see [shape checkpoint](checkpoints/native-python-dataflow-c6-shapes.md) for Python/codec qualification. `a8ba50f35`: revision-pinned diagnostics, rejected-edit control state, bounded authenticated inspection endpoint and persistent model pulls; latest full checks: 1,105 Bun tests and typecheck pass. Live shape/diagnostic fixtures are prepared, not run. See [C6 diagnostic checkpoint](checkpoints/native-python-dataflow-c6-diagnostics.md) for exact scope, security boundary and remaining gates |
-| C7 | Durable measurements and isolated agent lifecycle verified; pilot incomplete | `6047f6a44` / harness `702cf44`: persistent start/finish journal, scoped phase denominators, source-pinned agent-only launch/verify/empty-stop; **1,120 Bun tests**, typecheck and **78 harness tests** pass. The real agent lifecycle smoke and controlled journal/report fixture pass; see [runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md). Earlier one-attempt/frozen-cost work is in the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md); earlier Scala/compiler results remain in the [measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md). Production guard, allocation/resource cleanup, collector aggregation, live/real-model gates and official pilot/report remain required; no cost/accuracy benefit claimed |
+| C7 | Collector reporting and owned setup/cleanup verified; pilot incomplete | Harness `377c33c`: producing-result collector accounting, fsynced allocation receipts, scoped terminal/ownership cleanup and actual setup-only smoke pass; **117 harness tests** pass. See [resource checkpoint](checkpoints/native-python-dataflow-c7-resources.md). Earlier `6047f6a44` / harness `702cf44` provide the durable request journal, scoped phase reports and source-pinned launcher; recorded **1,120 Bun tests** and typecheck remain in the [runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md). One-attempt/frozen-cost work is in the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md); Scala/compiler results are in the [measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md). Production guard/outer integration, worker/real-model gates and official pilot/report remain required; no cost/accuracy benefit claimed |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
