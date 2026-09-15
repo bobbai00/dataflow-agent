@@ -2327,7 +2327,9 @@ function serializeTaskBody(
                 // Typed operators already carry the consolidated `Inputs:` line
                 // above (formatOperatorAdjacency); repeating it inside the
                 // result was a duplicate on every observation.
-                ...(op.nativeOp ? { inputsInResult: false } : {}),
+                // The same event owns the failing parameters / UDF code. A
+                // later edit must not rewrite an earlier error's tool frame.
+                ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
               }
             )
           : "(not executed)";

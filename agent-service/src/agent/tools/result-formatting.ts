@@ -18,6 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../types/execution";
+import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
@@ -37,6 +38,10 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
 
 export interface FormatOperatorResultOptions {
+  /** The operator definition that earned this result. Historical observations
+   *  must echo failed parameters/code from their snapshot, not a later edit
+   *  (or deletion) in the live DAG. Undefined keeps the current-state lookup. */
+  operatorAtEvent?: OperatorPredicate;
   /** When true, prepend a compact `Schema:` line listing every output column
    *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
    *  the result-row headers (names only). A cheaper, complete substitute for
@@ -231,7 +236,7 @@ export function formatOperatorResult(
     // the operator's code is appended HERE, from the DAG's own
     // operatorProperties — so the agent still sees exactly what code failed,
     // without the engine duplicating it into every error payload.
-    const op = workflowState.getOperator(operatorId);
+    const op = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
     // NATIVE typed operators: the agent wrote parameters, not the generated
     // code, so echo the parameters (the DuckDB/pandas message already names
     // the failing column or expression).

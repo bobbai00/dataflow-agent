@@ -140,6 +140,95 @@ describe("native batch tools", () => {
 });
 
 describe("batch observation history", () => {
+  for (const scenario of [
+    {
+      name: "typed properties",
+      original: { op: "distinct", id: "broken", input: "source", columns: ["Source"] },
+      revision: { op: "distinct", id: "broken", input: "source", columns: ["source"] },
+      failedDefinition: 'Operator properties: {"columns":["Source"]}',
+      currentDefinition: 'Operator properties: {"columns":["source"]}',
+    },
+    {
+      name: "UDF source code",
+      original: {
+        op: "udf",
+        id: "broken",
+        inputs: ["source"],
+        code: 'def process(source):\n    raise RuntimeError("old failure")',
+      },
+      revision: {
+        op: "udf",
+        id: "broken",
+        inputs: ["source"],
+        code: "def process(source):\n    return source.copy()",
+      },
+      failedDefinition: 'raise RuntimeError("old failure")',
+      currentDefinition: "return source.copy()",
+    },
+  ]) {
+    test(`DELTA binds failed ${scenario.name} to the event after revision and deletion`, async () => {
+      const { execute, state } = setup();
+      const steps: ReActStep[] = [];
+      const storage = new WorkflowSnapshotStorage(id =>
+        steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
+      );
+      const record = (id: string, toolName: string, input: unknown, output: unknown) => {
+        steps.push({
+          id,
+          parentId: steps.at(-1)?.id,
+          messageId: "m",
+          stepId: steps.length + 1,
+          timestamp: 1,
+          role: "agent",
+          content: "",
+          isBegin: false,
+          isEnd: false,
+          toolCalls: [{ toolName, toolCallId: id, input }],
+          toolResults: [{ toolCallId: id, output }],
+        });
+        storage.createSnapshot(id, state.getWorkflowContent());
+      };
+      const firstToolFrame = () => {
+        const messages = assembleContext(steps, state, storage, ContextMode.DELTA, {
+          agentMode: AgentMode.NATIVE,
+          resultSelection: "all",
+          messageLayout: "native",
+        });
+        const result = messages
+          .filter(m => m.role === "tool")
+          .flatMap(m => (Array.isArray(m.content) ? m.content : []))
+          .find(p => p.type === "tool-result" && p.toolCallId === "s1");
+        expect(result).toBeDefined();
+        return JSON.stringify(result);
+      };
+      const firstArgs = { operators: [scan, scenario.original], observe: [] };
+      const first = await execute(firstArgs);
+      expect(first.operators.every(o => o.status === "added")).toBe(true);
+      record("s1", "dataflow", firstArgs, first);
+      storage.setOperatorResult("s1", "broken", {
+        state: "Failed",
+        inputTuples: 0,
+        outputTuples: 0,
+        resultMode: "table",
+        error: "original_failure_marker",
+      });
+      const before = firstToolFrame();
+      // JSON escapes the native tool result, so normalize both expected strings
+      // the same way without depending on the observation's indentation.
+      expect(before).toContain("original_failure_marker");
+      expect(before).toContain(scenario.failedDefinition.replaceAll('"', '\\"'));
+      expect(before).not.toContain(scenario.currentDefinition.replaceAll('"', '\\"'));
+      const revisedArgs = { operators: [scenario.revision], observe: [] };
+      const revised = await execute(revisedArgs);
+      expect(revised.operators[0].status).toBe("modified");
+      record("s2", "dataflow", revisedArgs, revised);
+      expect(firstToolFrame()).toBe(before);
+      expect(state.deleteOperator("broken")).toBe(true);
+      record("s3", "deleteOperator", { id: "broken" }, "deleted");
+      expect(firstToolFrame()).toBe(before);
+    });
+  }
+
   test("DELTA keeps each request at its event, shows hidden execution receipts and errors, and supports cached observations", async () => {
     const { execute, state } = setup();
     const steps: ReActStep[] = [];
