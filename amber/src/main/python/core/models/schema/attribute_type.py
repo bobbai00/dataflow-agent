@@ -44,6 +44,11 @@ class AttributeType(Enum):
     LIST = 9
     STRUCT = 10
 
+    # Java/UI names are aliases, not new wire types. Keep INT/BOOL canonical
+    # so Python iteration, numeric values and Arrow/schema mappings stay stable.
+    INTEGER = INT
+    BOOLEAN = BOOL
+
 
 RAW_TYPE_MAPPING = bidict(
     {
