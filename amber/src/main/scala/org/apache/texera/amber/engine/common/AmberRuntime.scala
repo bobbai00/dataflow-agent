@@ -79,9 +79,9 @@ object AmberRuntime {
 
     val masterConfig = ConfigFactory
       .parseString(s"""
-        pekko.remote.artery.canonical.port = 2552
+        pekko.remote.artery.canonical.port = ${AmberConfig.masterPort}
         pekko.remote.artery.canonical.hostname = $localIpAddress
-        pekko.cluster.seed-nodes = [ "pekko://Amber@$localIpAddress:2552" ]
+        pekko.cluster.seed-nodes = [ "pekko://Amber@$localIpAddress:${AmberConfig.masterPort}" ]
         """)
       .withFallback(pekkoConfig)
       .resolve()
@@ -91,7 +91,8 @@ object AmberRuntime {
 
   def pekkoConfig: Config = PekkoConfig.pekkoConfig
 
-  private def createMasterAddress(addr: String): Address = Address("pekko", "Amber", addr, 2552)
+  private def createMasterAddress(addr: String): Address =
+    Address("pekko", "Amber", addr, AmberConfig.masterPort)
 
   def startActorWorker(mainNodeAddress: Option[String]): Unit = {
     val addr = mainNodeAddress.getOrElse("localhost")
@@ -103,7 +104,7 @@ object AmberRuntime {
       .parseString(s"""
         pekko.remote.artery.canonical.hostname = $localIpAddress
         pekko.remote.artery.canonical.port = 0
-        pekko.cluster.seed-nodes = [ "pekko://Amber@$addr:2552" ]
+        pekko.cluster.seed-nodes = [ "pekko://Amber@$addr:${AmberConfig.masterPort}" ]
         """)
       .withFallback(pekkoConfig)
       .resolve()
