@@ -915,15 +915,20 @@ reuse the provisioned venv/dependencies locally; do not commit their symlinks.
 ## 9. Evaluation: first prove correctness, then measure benefit
 
 Freeze model, context mode/budget, maximum steps, task data, retry policy and
-backend configuration. Suggested arms (names are proposed, not registered):
+backend configuration. The first seven arms are now registered in the
+[isolated harness pilot](../benchmark/Kramabench/docs/native-python-pilot.md),
+with names `DataflowSystemLunaPythonPilot<Arm>20260915Rep1`. Registration is
+locally tested; guarded orchestration, live qualification and results remain
+pending. A service port alone does not establish its source/build provenance.
 
 | Arm | Framework | Evidence |
 | --- | --- | --- |
-| Historical native reference | V1 original native/all/no-stats | Off |
-| Batch parent reference | Pushed batching + explicit observe | Off |
-| Python framework control | V2 batching + explicit observe | Off |
-| Data-only | Same V2 | Ordinary selected profiles only |
-| Flow-only | Same V2 | Selected input/output/semantic facts only |
+| Historical native reference (`V1Reference`) | V1 original native/all/no-stats | Off |
+| Batch parent reference (`BatchParent`) | Pushed batching + explicit observe | Off |
+| Python framework control (`V2Control`) | V2 batching + explicit observe | Off, collection off |
+| Collector-only (`CollectorOnly`) | Same V2 | Off, collection on |
+| Data-only (`DataOnly`) | Same V2 | Ordinary selected profiles only |
+| Flow-only (`FlowOnly`) | Same V2 | Selected input/output/semantic facts only |
 | Combined | Same V2 | Joint budgeted selection |
 
 Keep measurement and exposure knobs separate: a collector-only control can
@@ -943,6 +948,11 @@ Use the existing KramaBench helpers (`load_cost_stats`, `react_metrics`,
 `stats.json.cost_usd`, including cache discounts. Report input/cached/output
 tokens, steps, batch sizes, observe requests, execution/inspection calls,
 operator churn, errors/repairs, collection overhead and elapsed time separately.
+The native trace helper now counts batch/operator/observe/partial-error events.
+Actual execution counts and phase measurements use the out-of-band recorder
+and the engine's explicit `phaseMetrics`, not tool receipts or heuristic state
+names; see the [C7 measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md).
+The pilot runner must still persist and bind this evidence to each attempt.
 More batching can still cost more if the schema, generated arguments, reasoning
 or repeated repair grows; reduced round trips alone is not a win.
 
@@ -978,7 +988,7 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C4 | Version binding and core live matrix verified; expanded repair rerun pending | `76243c008` plus `97de1e243`: collection/transport, version-bound persistence, cached input origins, DELTA/LATEST collection-on/off live matrix and bounded-overhead measurement; expanded historical/error-repair fixture awaits a shared-backend idle window. See [C4 version/live checkpoint](checkpoints/native-python-dataflow-c4-versions.md) and the earlier [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md) |
 | C5 | Integrated and locally verified; live qualification pending | `7fe9e30cd`: ordinary/flow evidence, joint budget, event-frozen DELTA, current LATEST, scoped cached inspection and reserved-column transport/capability fix; 1,074 Bun tests, typecheck, 1,675 Scala/JUnit tests and engine dist pass. The prepared live evidence fixture is not yet run. See [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md) |
 | C6 | Shape utilities and diagnostics locally verified; live/real-model qualification incomplete | `2674cd458`: five shape utilities and budgeted flow facts; see [shape checkpoint](checkpoints/native-python-dataflow-c6-shapes.md) for Python/codec qualification. `a8ba50f35`: revision-pinned diagnostics, rejected-edit control state, bounded authenticated inspection endpoint and persistent model pulls; latest full checks: 1,105 Bun tests and typecheck pass. Live shape/diagnostic fixtures are prepared, not run. See [C6 diagnostic checkpoint](checkpoints/native-python-dataflow-c6-diagnostics.md) for exact scope, security boundary and remaining gates |
-| C7 | Planned, not implemented | KramaBench one-task/attempt-per-arm pilot and real-input-message cost/accuracy audit remain required after correctness gates; no cost/accuracy benefit claimed |
+| C7 | Arms and measurement plumbing locally verified; pilot incomplete | Harness `c2fe10e`: seven registered arms, keyword-only V2 settings, pinned CUs and native trace counters (19 tests). `4febe3761`/`ed33e73de`: actual compiler-call phases and isolated execution recorder; 1,114 Bun tests, typecheck, 1,682 filtered Scala/JUnit tests, 50 compiler tests and engine packaging pass. Guarded runner, live/real-model gates and official one-attempt pilot/report remain required; no cost/accuracy benefit claimed. See [C7 measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md) |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
