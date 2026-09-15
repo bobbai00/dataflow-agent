@@ -103,6 +103,7 @@ import { asNativeBatchResult, createNativeBatchTools, TOOL_NAME_DATAFLOW } from 
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
+import { NativeRecipeStore, RECIPE_GUIDANCE } from "./native/recipes";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
@@ -334,6 +335,7 @@ export class TexeraAgent {
   /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
    *  always turn-tracked; only the versioned write path reads it for wiring. */
   readonly versionStore = new OperatorVersionStore();
+  private readonly nativeRecipes = new NativeRecipeStore();
   /** Materializes referenced versions into wire-able nodes. Built lazily so it
    *  sees the WorkflowUtilService the agent constructs during setup. */
   private versionCheckout: VersionCheckout | undefined;
@@ -603,6 +605,8 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
+    if (this.settings.nativeRecipes && this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")
+      this.systemPrompt += RECIPE_GUIDANCE;
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -671,7 +675,7 @@ export class TexeraAgent {
       Object.assign(
         tools,
         this.settings.nativeToolMode === "batch"
-          ? createNativeBatchTools(this.workflowState, context, this.settings.nativeCatalogVersion)
+          ? createNativeBatchTools(this.workflowState, context, this.settings.nativeCatalogVersion, this.settings.nativeRecipes ? this.nativeRecipes : undefined)
           : createNativeTypedTools(this.workflowState, context)
       );
     } else {
@@ -1386,6 +1390,7 @@ export class TexeraAgent {
     nativeToolMode?: "typed" | "batch";
     nativeCatalogVersion?: "v1" | "v2";
     nativeProfileCollection?: boolean;
+    nativeRecipes?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1517,6 +1522,10 @@ export class TexeraAgent {
     }
     if (updates.nativeToolMode !== undefined && updates.nativeToolMode !== this.settings.nativeToolMode) {
       this.settings.nativeToolMode = updates.nativeToolMode;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeRecipes !== undefined && updates.nativeRecipes !== this.settings.nativeRecipes) {
+      this.settings.nativeRecipes = updates.nativeRecipes;
       promptNeedsRebuild = true;
     }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
@@ -2165,6 +2174,7 @@ export class TexeraAgent {
     this.currentMessageId = undefined;
     this.head = undefined;
     this.snapshotStorage.clear();
+    this.nativeRecipes.clear();
   }
 
   /**

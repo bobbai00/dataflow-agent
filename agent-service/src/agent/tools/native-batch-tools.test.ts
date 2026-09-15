@@ -28,6 +28,7 @@ import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import { createInspectResultTool } from "./inspect-result-tool";
+import { NativeRecipeStore } from "../native/recipes";
 
 function setup() {
   const state = new WorkflowState();
@@ -43,6 +44,20 @@ const filter = { op: "filter", id: "selected", input: "source", predicate: "x > 
 const aggregate = { op: "aggregate", id: "total", input: "selected", aggregations: [{ fn: "count" }] };
 
 describe("native batch tools", () => {
+  test("saved recipe expands through the real scheduler and preserves original inputs", async () => {
+    const state = new WorkflowState(), metadata = new WorkflowSystemMetadata();
+    metadata.seedCodeModeDefaults();
+    const tools = createNativeBatchTools(state, { metadataStore: metadata }, "v1", new NativeRecipeStore());
+    await tools.dataflow.execute({ operators: [scan, filter, aggregate], save_as: "initial" });
+    const result = await tools.dataflow.execute({
+      operators: [{ ...scan, id: "fresh", files: "v2.csv" }],
+      reuse: { recipe: "initial", targets: ["total"], bind: { source: "fresh" }, prefix: "local" },
+    });
+    expect(result.operators.map((op: any) => op.status)).toEqual(["added", "added", "added"]);
+    expect(result.observe).toEqual(["local_total"]);
+    expect(state.getOperator("local_selected")?.nativeOp?.inputs).toEqual(["fresh"]);
+    expect(state.getOperator("selected")?.nativeOp?.inputs).toEqual(["source"]);
+  });
   test("schema retains typed catalog parameters without colliding with join.type", () => {
     const validate = new Ajv({ strict: false }).compile(nativeBatchSchema());
     expect(

@@ -25,6 +25,7 @@ import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
+import { NativeRecipeStore, type RecipeReuse } from "../native/recipes";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import {
   createNativeTypedTools,
@@ -32,6 +33,7 @@ import {
   nativeToolDescription,
   nativeToolName,
   nativeToolSchema,
+  nativeViewOf,
   TOOL_NAME_NATIVE_DELETE,
 } from "./native-typed-tools";
 
@@ -89,11 +91,23 @@ export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): st
 }
 
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
-export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<string, unknown> {
+export function nativeBatchSchema(version: NativeCatalogVersion = "v1", recipes = false): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
     properties: {
+      ...(recipes ? {
+        save_as: { type: "string", description: "Save the resulting graph's immutable operator definitions under a fresh name. Does not freeze source files or certify execution." },
+        reuse: {
+          type: "object", additionalProperties: false,
+          properties: {
+            recipe: { type: "string" },
+            targets: { type: "array", items: { type: "string" }, minItems: 1 },
+            bind: { type: "object", additionalProperties: { type: "string" }, description: "Saved node ID to replacement live table ID. Cuts off that node's saved ancestors." },
+            prefix: { type: "string", description: "Fresh prefix for cloned IDs: prefix_old_id. Targets are observed automatically." },
+          }, required: ["recipe", "targets", "bind", "prefix"],
+        },
+      } : {}),
       operators: {
         type: "array",
         description:
@@ -139,7 +153,8 @@ function validatorsFor(version: NativeCatalogVersion) {
 export function createNativeBatchTools(
   state: WorkflowState,
   context?: ToolContext,
-  version: NativeCatalogVersion = "v1"
+  version: NativeCatalogVersion = "v1",
+  recipes?: NativeRecipeStore
 ): Record<string, any> {
   const typed = createNativeTypedTools(state, context, version);
   const validators = validatorsFor(version);
@@ -150,8 +165,8 @@ export function createNativeBatchTools(
         version === "v2"
           ? "Build or revise a stage using the Python V2 catalog. Batch dependent chains, forward references and existing-DAG edits in one call; the shared scheduler resolves their order. Explicitly list result IDs in observe; omitted/[] hides successes but never errors. operators:[] observes cached data without execution. Independent valid edits can succeed when another edit fails; its dependents are blocked."
           : "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
-      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
-        nativeBatchSchema(version) as any
+      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[]; save_as?: string; reuse?: RecipeReuse }>(
+        nativeBatchSchema(version, !!recipes) as any
       ),
       execute: async args => {
         if (
@@ -177,6 +192,21 @@ export function createNativeBatchTools(
             (!Array.isArray(args.observe) || args.observe.some(id => typeof id !== "string")))
         ) {
           return createErrorResult("dataflow requires operators: array and optional observe: string[]");
+        }
+        if ((args.save_as || args.reuse) && !recipes) return createErrorResult("Native recipes are disabled");
+        if (args.save_as && (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(args.save_as) || recipes!.has(args.save_as)))
+          return createErrorResult("Choose a fresh valid recipe name");
+        if (args.reuse) {
+          try {
+            const live = new Map(state.getAllOperators().flatMap(op => op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : []));
+            for (const spec of args.operators) {
+              const { op, ...params } = spec;
+              const view = nativeViewOf(String(op), params, version);
+              if (view) live.set(String(spec.id), view);
+            }
+            const expansion = recipes!.expand(args.reuse, live);
+            args = { ...args, operators: [...args.operators, ...expansion.operators], observe: [...(args.observe ?? []), ...expansion.targets] };
+          } catch (error: any) { return createErrorResult(error.message); }
         }
         const specs = args.operators.map((spec, index) => {
           const { op, ...params } = spec && typeof spec === "object" ? spec : {};
@@ -321,6 +351,11 @@ export function createNativeBatchTools(
           observationErrors.push(`Cannot observe '${id}': operator does not exist.`);
           return false;
         });
+        if (args.save_as) {
+          if (outcomes.some(outcome => outcome?.status === "error" || outcome?.status === "blocked"))
+            observationErrors.push(`Recipe '${args.save_as}' was not saved because an edit failed.`);
+          else recipes!.save(args.save_as, new Map(state.getAllOperators().flatMap(op => op.nativeOp ? [[op.operatorID, op.nativeOp] as const] : [])));
+        }
         return {
           kind: "native-batch",
           operators: outcomes as NativeBatchOutcome[],

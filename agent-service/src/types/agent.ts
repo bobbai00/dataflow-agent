@@ -180,6 +180,8 @@ export interface AgentSettings {
   nativeCatalogVersion?: "v1" | "v2";
   /** Collect ordinary V2 profiles, independently of model-facing exposure. */
   nativeProfileCollection?: boolean;
+  /** Experimental immutable definition reuse for native batch sessions. */
+  nativeRecipes?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -620,6 +622,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeToolMode: "typed",
   nativeCatalogVersion: "v1",
   nativeProfileCollection: false,
+  nativeRecipes: false,
   resultSelection: "all",
   // DELTA + the observation channel below is the campaign-measured configuration
   // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
@@ -750,6 +753,8 @@ export interface AgentSettingsApi {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  /** Experimental immutable definition reuse for native batch sessions. */
+  nativeRecipes?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -855,6 +860,8 @@ export interface UpdateAgentSettingsRequest {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  /** Experimental immutable definition reuse for native batch sessions. */
+  nativeRecipes?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
