@@ -54,6 +54,33 @@ const operator = (
  * enters in subsequent checkpoints together with its runtime and E2E tests. */
 export const NATIVE_V2_OPERATORS: readonly NativeOperatorDef[] = [
   operator(
+    "Scan",
+    0,
+    "create",
+    "Scan reads files/globs with Python readers. allText preserves codes and null-like text; empty text cells are missing. names requires header:false and exact width. Preview is raw discovery, not a full parsed table: skipLines is a physical offset (HTML preview skips data rows). Duplicate headers, mismatched options and fileColumn collisions fail.",
+    object(
+      {
+        files: { oneOf: [str, list(str)] },
+        format: {
+          type: "string",
+          enum: ["auto", "csv", "lines", "fwf", "whitespace", "excel", "html", "json", "parquet"],
+        },
+        skipLines: { type: "integer", minimum: 0 },
+        header: { type: "boolean" },
+        names: nonemptyNames,
+        allText: { type: "boolean" },
+        delim: str,
+        comment: { type: "string", minLength: 1, maxLength: 1 },
+        widths: list({ type: "integer", minimum: 1 }),
+        sheet: { oneOf: [str, { type: "integer", minimum: 0 }] },
+        encoding: str,
+        fileColumn: str,
+        preview: { type: "integer", minimum: 1, maximum: 200 },
+      },
+      ["files"]
+    )
+  ),
+  operator(
     "Project",
     1,
     "none",
@@ -134,6 +161,89 @@ export const NATIVE_V2_OPERATORS: readonly NativeOperatorDef[] = [
       },
       ["columns", "func"]
     )
+  ),
+  operator(
+    "Aggregate",
+    1,
+    "collapse",
+    "Aggregate by groupBy (default []), preserving first-seen groups including null keys. aggregations is [{fn,col?,as}]. Only count may omit col (row count); other reductions ignore nulls except first, which includes them. All-null sums are null; stddev is sample/ddof=1. Numeric reducers require numeric columns. No SQL or custom reducers.",
+    object(
+      {
+        groupBy: names,
+        aggregations: list(
+          object(
+            {
+              fn: {
+                type: "string",
+                enum: ["count", "count_distinct", "sum", "mean", "min", "max", "median", "stddev", "first"],
+              },
+              col: str,
+              as: str,
+            },
+            ["fn", "as"]
+          )
+        ),
+      },
+      ["aggregations"]
+    )
+  ),
+  operator(
+    "Join",
+    2,
+    "multiply",
+    "Join left/right using shared key names or [left,right] pairs. Non-cross joins require on; cross forbids it. nullsEqual defaults false. validate checks eligible-key cardinality and fails on violations. rightSuffix defaults _right; collisions/type mismatches fail. Equal-name paired keys coalesce; other right overlaps are suffixed. Sort if output order matters.",
+    object({
+      type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
+      on: {
+        oneOf: [
+          str,
+          nonemptyNames,
+          {
+            type: "array",
+            minItems: 1,
+            uniqueItems: true,
+            items: { type: "array", minItems: 2, maxItems: 2, items: str },
+          },
+        ],
+      },
+      nullsEqual: { type: "boolean" },
+      rightSuffix: { type: "string" },
+      validate: { type: "string", enum: ["one_to_one", "one_to_many", "many_to_one", "many_to_many"] },
+    })
+  ),
+  operator(
+    "Union",
+    "many",
+    "add",
+    "Union preserves all rows in input-port order. schema:strict (default) requires matching named schemas; align fills missing columns with null in first-seen column order. Incompatible logical types require explicit casts; there is no deduplication.",
+    object({ schema: { type: "string", enum: ["strict", "align"] } })
+  ),
+  operator(
+    "Distinct",
+    1,
+    "drop",
+    "Distinct by columns or the whole row when omitted. Missing values compare equal. keep:first (default) or last retains the chosen whole row in relative input order.",
+    object({ columns: nonemptyNames, keep: { type: "string", enum: ["first", "last"] } })
+  ),
+  operator(
+    "Sort",
+    1,
+    "none",
+    "Sort by [{col,desc?}] with stable ties; desc defaults false and nulls defaults last. Rows are unchanged.",
+    object(
+      {
+        by: list(object({ col: str, desc: { type: "boolean" } }, ["col"])),
+        nulls: { type: "string", enum: ["first", "last"] },
+      },
+      ["by"]
+    )
+  ),
+  operator(
+    "Limit",
+    1,
+    "drop",
+    "Limit takes n rows after offset (default 0), preserving order/schema; an offset beyond EOF returns an empty table. Sort first for a meaningful top-k.",
+    object({ n: { type: "integer", minimum: 1 }, offset: { type: "integer", minimum: 0 } }, ["n"])
   ),
   operator(
     "UDF",

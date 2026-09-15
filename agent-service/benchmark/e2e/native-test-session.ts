@@ -34,6 +34,7 @@ import { WorkflowSnapshotStorage } from "../../src/agent/workflow-snapshot-stora
 import { assembleContext } from "../../src/agent/util/context-utils";
 import { AgentMode, ContextMode, type AgentSettingsApi, type ReActStep } from "../../src/types/agent";
 import type { OperatorInfo } from "../../src/types/execution";
+import { nativeDebugInput } from "./native-debug-input";
 
 /** Real execution via debug; context is assembled from the service's actual
  * snapshots with production code. This is deliberately NOT an LLM input test. */
@@ -110,6 +111,8 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
   }
 
   async function debug(args: Record<string, unknown>, tool = "dataflow") {
+    const debugInput = nativeDebugInput(tool, args);
+    let completionAnswer = "";
     const results = await new Promise<Record<string, any>>((resolve, reject) => {
       const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
       let sent = false,
@@ -132,13 +135,14 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
           ws.send(
             JSON.stringify({
               type: "debug",
-              content: `Function(name=${JSON.stringify(tool)}, arguments=${JSON.stringify(JSON.stringify(args))})`,
+              content: debugInput,
             })
           );
         } else if (frame.type === "error") finish(new Error(frame.error));
         else if (frame.type === "complete") {
           completed = true;
           result = frame.operatorResults;
+          completionAnswer = frame.answer ?? "";
         } else if (frame.type === "nextContext" && completed) finish();
       };
       ws.onerror = () => finish(new Error("Native smoke WebSocket error"));
@@ -148,6 +152,10 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
     });
     steps.splice(0, steps.length, ...(await getReActSteps(agentId!, baseUrl)).steps);
     const step = steps.at(-1)!;
+    assert.ok(
+      step.toolCalls?.some(call => call.toolName === tool),
+      `Debug endpoint did not record ${tool}: ${completionAnswer}`
+    );
     const snapshot = await getSnapshot(agentId!, "head", baseUrl);
     assert.ok(snapshot.workflow);
     state.setWorkflowContent(snapshot.workflow);

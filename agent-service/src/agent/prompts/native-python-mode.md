@@ -42,6 +42,14 @@ Invalid edits and errors remain visible without observe. The batch is not an ato
 - Multiple columns in one Transform/Derive read the ORIGINAL input, not another column just defined in that same operator. Put dependent calculations in separate operators in ONE batch; this exposes the dependency without extra model round trips.
 - UDF is the escape hatch for unavailable operations, unusual formats and special-purpose analyses, not a separate statistics tool. Return one pandas DataFrame with unique string columns and compatible scalar values. Define `load()` for a source or `process(input_id, ...)` using exact ordered input IDs. Import packages explicitly; do not assume an unlisted package is installed. Arbitrary UDFs have no known semantic row/column-preservation guarantee.
 
+## Reading and combining tables
+
+- Scan preview shows raw lines/sheet rows, not parsed full-source data. Do not assume a preview describes the full source. `skipLines` is an absolute physical offset for text/Excel; HTML preview skips data rows and shows its synthetic header only at offset zero. Text previews cap at five files; workbook/HTML previews use the first matching file. Parquet/other binary previews show file pointers, not decoded text, and cannot take an offset. Explicitly load the full source after discovery.
+- For full Scan, `allText:true` preserves codes such as `001`; Cast selected columns afterwards. Empty text cells are missing, but literal `NA`/`NULL` strings are preserved. `names` requires `header:false` and one name per column. Do not ignore duplicate-header or option errors. `widths` is only for FWF; `sheet` is an Excel sheet or numeric HTML table index. Use UDF when the file genuinely needs a custom parser.
+- Aggregate: count without col counts rows; count with col counts nonnull values. Mean/stddev denominators exclude nulls; stddev is sample standard deviation. An all-null sum is null, not zero. Null grouping keys form a group. `first` includes an initial null. No-group aggregation yields one row on empty input; grouped empty input has zero groups.
+- Join requires explicit keys unless `type:"cross"`. Null keys do not match by default; use `nullsEqual: true` only when matching missing keys is intended. Cardinality validation includes all eligible keys (including null keys when explicitly equal). A many-to-one failure means the lookup is not unique: inspect and repair the key/population, not automatically deduplicate it. Equal-name paired keys coalesce; other overlapping right columns receive `rightSuffix`.
+- Union retains rows in port order. Strict mode matches named schemas; align fills absent columns with null. Incompatible types require Cast. Distinct removes rows by the declared key/whole row; Sort has stable ties, and Limit alone is not a meaningful top-k rule.
+
 ## Examples
 
 These small example tables stand for inputs whose columns and semantics have already been verified.
@@ -98,6 +106,36 @@ The unchanged answer -> scaled -> rounded definitions must recompute before fina
 
 ```json
 {"operators":[],"observe":["values","final"]}
+```
+
+6. Discover a later part of a file before choosing parsing options:
+
+```json
+{"operators":[{"op":"scan","id":"raw_preview","files":"data/sales_a.csv","preview":8,"skipLines":80}],"observe":["raw_preview"]}
+```
+
+7. Once both input schemas and the grouping population are known, batch loading, combining, aggregation, labeling and ranking:
+
+```json
+{
+  "operators": [
+    {"op":"limit","id":"top_region","input":"ranked_regions","n":1},
+    {"op":"sort","id":"ranked_regions","input":"labeled_regions","by":[{"col":"total","desc":true}]},
+    {"op":"join","id":"labeled_regions","left":"region_totals","right":"region_names","on":"region","type":"left","validate":"many_to_one"},
+    {"op":"aggregate","id":"region_totals","input":"sales","groupBy":["region"],"aggregations":[{"fn":"sum","col":"amount","as":"total"},{"fn":"count","col":"amount","as":"nonnull_amounts"}]},
+    {"op":"union","id":"sales","inputs":["sales_a","sales_b"],"schema":"strict"},
+    {"op":"scan","id":"sales_a","files":"data/sales_a.csv"},
+    {"op":"scan","id":"sales_b","files":"data/sales_b.csv"},
+    {"op":"scan","id":"region_names","files":"data/region_names.csv"}
+  ],
+  "observe": ["top_region"]
+}
+```
+
+8. A table can fill both join roles. This example checks the shape of a keyed self-join; left/right remain distinct roles even though they read the same cached input:
+
+```json
+{"operators":[{"op":"join","id":"region_pairs","left":"region_totals","right":"region_totals","on":"region","validate":"one_to_one","rightSuffix":"_comparison"}],"observe":["region_pairs"]}
 ```
 
 ## Evidence and errors
