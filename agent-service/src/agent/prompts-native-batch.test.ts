@@ -22,9 +22,11 @@ import { createHash } from "node:crypto";
 import Ajv from "ajv";
 import { AgentMode, ContextMode, type ResultSelection } from "../types/agent";
 import { buildNativeModeSystemPrompt } from "./prompts";
-import { nativeBatchSchema } from "./tools/native-batch-tools";
+import { createNativeBatchTools, nativeBatchSchema } from "./tools/native-batch-tools";
 import { NATIVE_OPERATORS } from "./native/catalog";
 import { TexeraAgent } from "./texera-agent";
+import { WorkflowState } from "./workflow-state";
+import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
 const modes = [ContextMode.DELTA, ContextMode.LATEST];
 const selections: ResultSelection[] = ["all", "rule", "scoped"];
@@ -67,7 +69,11 @@ describe("native batch system prompt", () => {
           expect(prompt).not.toContain("the whole dataflow executes");
           expect(prompt).toContain("one post-step execution phase");
           expect(prompt).toContain("separate backend requests");
-          expect(prompt).toContain("terminal outputs among successfully submitted operators");
+          expect(prompt).toContain("explicitly include its id in `observe`");
+          expect(prompt).toContain("Omitted `observe` or `observe: []`");
+          expect(prompt).not.toContain("terminal outputs among successfully submitted operators");
+          expect(prompt).toContain("dependent operators in one batch");
+          expect(prompt).toContain("round trips");
           expect(prompt).toContain("observe: []");
           expect(prompt).toContain("stats: true");
           expect(prompt).toContain("cached sample");
@@ -75,8 +81,11 @@ describe("native batch system prompt", () => {
           expect(prompt.includes("recallState")).toBe(layout.recall === true);
           for (const op of NATIVE_OPERATORS) expect(prompt).toContain(`{op: "${op.type.toLowerCase()}"`);
           const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
-          expect(examples.length).toBeGreaterThanOrEqual(2);
-          for (const example of examples) expect(validate(example)).toBe(true);
+          expect(examples.length).toBeGreaterThanOrEqual(5);
+          for (const example of examples) {
+            expect(validate(example)).toBe(true);
+            expect(Array.isArray(example.observe)).toBe(true);
+          }
         }
       }
     }
@@ -94,6 +103,27 @@ describe("native batch system prompt", () => {
         "# Inspections"
       );
     }
+  });
+
+  test("the prompt's examples compile and wire together against the existing DAG", async () => {
+    const state = new WorkflowState();
+    const metadata = new WorkflowSystemMetadata();
+    metadata.seedCodeModeDefaults();
+    const batch = createNativeBatchTools(state, { metadataStore: metadata }).dataflow;
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { batch: true });
+    const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+    for (const example of examples) {
+      const receipt = await batch.execute(example);
+      expect(receipt.operators.every((o: { status: string }) => ["added", "modified"].includes(o.status))).toBe(true);
+      expect(receipt.observationErrors).toEqual([]);
+      expect(receipt.observe).toEqual(example.observe);
+    }
+    expect(state.getOperator("recent")?.nativeOp?.properties.predicate).toBe("year = 2025");
+    expect(state.getOperator("share")?.nativeOp?.inputs).toEqual(["totals"]);
+    expect(state.getOperator("totals")?.nativeOp?.inputs).toEqual(["total", "all_sales"]);
+    expect(state.getAllLinks().some(l => l.source.operatorID === "recent" && l.target.operatorID === "total")).toBe(
+      true
+    );
   });
 
   test("runtime mode/layout changes rebuild the matching prompt and expose only the batch mutation surface", () => {

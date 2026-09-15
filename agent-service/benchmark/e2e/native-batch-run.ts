@@ -81,7 +81,11 @@ async function observationFromService(): Promise<string> {
     } as OperatorInfo);
   }
   priorResults = snap.results;
-  return assembleContext(mirroredSteps, mirroredState, mirroredStorage, ContextMode.DELTA, {
+  return renderMirroredContext(ContextMode.DELTA);
+}
+
+function renderMirroredContext(mode: ContextMode): string {
+  return assembleContext(mirroredSteps, mirroredState, mirroredStorage, mode, {
     agentMode: AgentMode.NATIVE,
     resultSelection: "all",
     flowLevel: 0,
@@ -183,6 +187,34 @@ try {
   );
   const inspection = await debug("inspectResult", { operatorId: "positive", maxRows: 2 });
   assert.match(inspection.context, /cached sample only/);
+  // Revise an upstream and add a forward-referenced chain through its existing
+  // descendant in the same call. No observe means all successful bodies hide.
+  const revision = await debug("dataflow", {
+    operators: [
+      { op: "project", id: "answer", input: "tagged_total", keep: ["sum_x", "tag"] },
+      { op: "compute", id: "tagged_total", input: "total", columns: { tag: "'RECOMPUTED_SENTINEL'" } },
+      { op: "filter", id: "positive", input: "source", predicate: "x > 1" },
+    ],
+  });
+  assert.equal(revision.results.total.sampleRecords[0].sum_x, 3, "existing downstream aggregate was not refreshed");
+  assert.equal(revision.results.answer.sampleRecords[0].sum_x, 3, "new dependent chain saw an old result");
+  const revisionObservation = revision.context.slice(revision.context.lastIndexOf("Observation:"));
+  assert.match(revisionObservation, /total.*re-executed/);
+  assert.match(revisionObservation, /result not requested/);
+  assert.ok(!revisionObservation.includes("RECOMPUTED_SENTINEL"));
+  // LATEST still includes the current DAG, but no successful table bodies.
+  const latestHidden = renderMirroredContext(ContextMode.LATEST);
+  for (const id of ["source", "positive", "total", "tagged_total", "answer"]) assert.ok(latestHidden.includes(id));
+  // Previously requested inspections intentionally retain their saved content
+  // in a separate deck; only the current dataflow follows the latest observe.
+  const currentDataflow = latestHidden.split("# Inspections")[0];
+  assert.ok(!currentDataflow.includes("Output Table:"), "LATEST exposed a result without observe");
+  const revisedSnapshot = await getSnapshot(agentId, "head", baseUrl);
+  const observed = await debug("dataflow", { operators: [], observe: ["answer"] });
+  assert.match(observed.context.slice(observed.context.lastIndexOf("Observation:")), /RECOMPUTED_SENTINEL/);
+  assert.match(renderMirroredContext(ContextMode.LATEST).split("# Inspections")[0], /Output Table:/);
+  const readSnapshot = await getSnapshot(agentId, "head", baseUrl);
+  assert.deepEqual(readSnapshot.results, revisedSnapshot.results, "observe-only call recomputed the workflow");
   const partial = await debug("dataflow", {
     operators: [
       { op: "filter", id: "invalid", input: "source", predicate: 4 },
@@ -215,6 +247,10 @@ try {
           "requested output only",
           "read without rerun",
           "cached sample inspection",
+          "upstream revision plus new dependent chain on existing DAG",
+          "downstream result refreshed despite unchanged aggregate row count",
+          "omitted observe hides successful bodies in DELTA and LATEST",
+          "explicit observe retrieves the refreshed result without recomputation",
           "partial edit outcomes",
           "unrequested execution error",
         ],

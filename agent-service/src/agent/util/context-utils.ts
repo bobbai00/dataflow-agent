@@ -3310,7 +3310,9 @@ function renderNativeToolCall(
       const nested = typeof op === "string" ? renderNativeToolCall({ toolName: op, input: params }, createFlags) : undefined;
       lines.push(...(nested ?? [`- invalid operator: ${JSON.stringify(spec)}`]).map(line => `  ${line}`));
     }
-    lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "terminal outputs (default)"}`);
+    // Describe the submitted action, not an inferred default: saved receipts
+    // from older runs may have resolved an omitted observe differently.
+    lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "omitted"}`);
     return lines;
   }
   const id = typeof inp.id === "string" ? inp.id : "";

@@ -52,7 +52,7 @@ describe("native batch tools", () => {
     expect(validate({ operators: [{ op: "filter", id: "x", input: "source" }] })).toBe(false);
   });
 
-  test("one heterogeneous batch orders forward references and observes terminal outputs by default", async () => {
+  test("one heterogeneous batch orders forward references without implicitly observing any output", async () => {
     const { execute, state } = setup();
     const result = await execute({ operators: [aggregate, filter, scan] });
     expect(result.operators.map(o => [o.id, o.status])).toEqual([
@@ -60,7 +60,7 @@ describe("native batch tools", () => {
       ["selected", "added"],
       ["source", "added"],
     ]);
-    expect(result.observe).toEqual(["total"]);
+    expect(result.observe).toEqual([]);
     expect(state.getAllOperators().map(o => o.operatorID)).toEqual(["source", "selected", "total"]);
     expect(state.getAllLinks().length).toBe(2);
   });

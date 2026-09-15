@@ -31,22 +31,29 @@ Use meaningful snake_case ids. One-input operators use `input`; joins use `left`
 
 Submitting an existing id replaces its parameters and inputs while preserving downstream consumers. Supply the complete revised specification, not a parameter patch. Duplicate ids in one batch and dataflow cycles are refused. Independent valid edits can succeed when another edit fails; consumers of a refused revision are blocked. Read each operator's outcome, not just whether the tool call returned.
 
-A batch with successful edits triggers one post-step execution phase. Changed operators and affected descendants are materialized; disconnected branches may use separate backend requests. An execution error can prevent downstream results. `observe` changes visibility, not computation or materialization:
+A batch with successful edits triggers one post-step execution phase. Changed operators and affected descendants are materialized; disconnected branches may use separate backend requests. An execution error can prevent downstream results. `observe` is an argument to `dataflow`, not a separate tool. To see an operator's result content in the dataflow observation, you must explicitly include its id in `observe`. It changes visibility, not computation or materialization:
 
-- Omitted `observe`: detailed results for terminal outputs among successfully submitted operators.
 - `observe: ["id", ...]`: detailed results for these ids, including existing computed operators.
-- `observe: []`: compact execution receipts without successful table bodies.
+- Omitted `observe` or `observe: []`: compact execution receipts without successful table bodies, even for terminal outputs.
 - `operators: []` with `observe`: read cached results without executing the workflow.
 
-Errors remain visible even when their results were not requested. Hidden successful results say `result not requested`; that does not mean unexecuted. Unknown observation ids produce an observation error.
+Errors remain visible even when their results were not requested. Hidden successful results say `result not requested`; that does not mean unexecuted. When an upstream edit causes downstream re-execution, the downstream receipt reports execution, not whether its values changed. Explicitly observe that downstream id if you need its new contents; never infer them from its previous result or an unchanged row count. Unknown observation ids produce an observation error.
 
-## Build a stage, then observe its decision points
+## Batching principles
 
-Batch a chain once its inputs, columns, and operations are known. Pause at a genuine data-dependent choice instead of guessing a schema. For example, after a table is already loaded as `sales`, call `dataflow` with:
+- Submit dependent operators in one batch once their inputs, columns, and operations are known. A scan -> filter -> aggregate chain does not require three model turns: reducing round trips and repeated context can save cost.
+- Extend the existing dataflow by referencing live ids. New operators can depend on one another, on existing tables, or on an existing operator revised in the same batch. The shared dependency scheduler connects producers before consumers; array order need not be topological.
+- Batch independent branches and their join/union together when their definitions are already known. Request just the outputs needed to answer or make the next decision; include an intermediate id in `observe` when checking it will affect your next action.
+- Stop at genuine data-dependent choices, such as an unknown header, ambiguous join key, or parsing failure. Observe the relevant evidence, then batch the next known chain. Do not guess parameters just to make a larger batch.
+
+## Examples
+
+1. Known file layout and columns: create a complete chain in one `dataflow` call. These example paths/columns stand for inputs you have already verified.
 
 ```json
 {
   "operators": [
+    {"op": "scan", "id": "sales", "files": "data/sales.csv"},
     {"op": "filter", "id": "recent", "input": "sales", "predicate": "year = 2024"},
     {"op": "aggregate", "id": "total", "input": "recent", "aggregations": [{"fn": "sum", "col": "amount", "as": "total_amount"}]}
   ],
@@ -54,13 +61,51 @@ Batch a chain once its inputs, columns, and operations are known. Pause at a gen
 }
 ```
 
-Both operators execute; only `total` has a detailed successful result. To view `recent` later without a new computation, call `dataflow` with:
+All three operators execute; only `total` has a detailed successful result. Intermediate results are cached without being shown.
+
+2. Extend that existing dataflow with two summaries and a dependent join/compute. This deliberately lists a consumer before its producers; the scheduler resolves the references.
 
 ```json
-{"operators": [], "observe": ["recent"]}
+{
+  "operators": [
+    {"op": "compute", "id": "share", "input": "totals", "columns": {"fraction": "total_amount / NULLIF(all_amount, 0)"}},
+    {"op": "join", "id": "totals", "left": "total", "right": "all_sales", "type": "cross"},
+    {"op": "aggregate", "id": "all_sales", "input": "sales", "aggregations": [{"fn": "sum", "col": "amount", "as": "all_amount"}]}
+  ],
+  "observe": ["share"]
+}
 ```
 
-`inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a read-only alternative when you need a targeted view of an existing cached result. `columns` scopes rows, schema, and statistics; empty/omitted keeps all columns. `where` accepts `distinct:<col>`, `nulls:<col>`, or `nonnumeric:<col>`. Request `stats: true` only when collected full-output column statistics are useful; they can be retrieved even when automatic statistics are off. Statistics describe the full operator output, not the row-filtered sample.
+`total` already exists; `all_sales` is a new branch. Joining these one-row summaries and computing their ratio need no intermediate round trip.
+
+3. Revise an upstream filter and add a dependent branch in one batch, keeping existing downstream operators. Observe the new branch and the already-existing downstream answer after recomputation.
+
+```json
+{
+  "operators": [
+    {"op": "filter", "id": "recent", "input": "sales", "predicate": "year = 2025"},
+    {"op": "aggregate", "id": "by_region", "input": "recent", "groupBy": ["region"], "aggregations": [{"fn": "sum", "col": "amount", "as": "regional_amount"}]},
+    {"op": "sort", "id": "ranked", "input": "by_region", "by": [{"col": "regional_amount", "desc": true}]}
+  ],
+  "observe": ["ranked", "share"]
+}
+```
+
+The unchanged `total -> totals -> share` chain is affected by the `recent` revision. Its new `share` content is shown only because `share` is in `observe`.
+
+4. Build a known branch without showing its table yet. This still executes and returns receipts; use it only when no result content is needed for the current decision.
+
+```json
+{"operators": [{"op": "project", "id": "amounts", "input": "recent", "keep": ["amount"]}], "observe": []}
+```
+
+5. Retrieve intermediate results later without editing operators or recomputing them:
+
+```json
+{"operators": [], "observe": ["recent", "amounts"]}
+```
+
+`inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a separate explicit, read-only request for a targeted view of an existing cached result. It does not change the batch's `observe` selection. `columns` scopes rows, schema, and statistics; empty/omitted keeps all columns. `where` accepts `distinct:<col>`, `nulls:<col>`, or `nonnumeric:<col>`. Request `stats: true` only when collected full-output column statistics are useful; they can be retrieved even when automatic statistics are off. Statistics describe the full operator output, not the row-filtered sample.
 
 Inspection and observation show only the cached sample: increasing `maxRows` cannot fetch uncached rows, and no matching sampled rows does not prove absence from the full table. For a full-table filter, distinct operation, or aggregate, submit that operator through `dataflow`. {{INSPECTION_LOCATION}}
 
@@ -77,7 +122,7 @@ Requested results contain an `Output Table` count and a tab-separated sample; `.
 
 ## Operator guidance
 
-- Reuse existing tables. For an unfamiliar file, start with a scan object using `preview: 12`; inspect the raw header/delimiter and then submit its real scan. A preview's schema describes raw lines, not the eventual data columns. Use `skipLines`, `header`, and `sheet` when needed. Use `names` to name a headerless file's columns and a project object's `keep` to select columns; `scan.columns` is rejected.
+- Reuse existing tables. For an unfamiliar file, start with a scan object using `preview: 12` and include its id in `observe`; check the raw header/delimiter and then submit its real scan. A preview's schema describes raw lines, not the eventual data columns. Use `skipLines`, `header`, and `sheet` when needed. Use `names` to name a headerless file's columns and a project object's `keep` to select columns; `scan.columns` is rejected.
 - Preserve the task's paths verbatim. A list or glob in `files` reads like-formatted files together; `fileColumn` records each row's source. Text may need `delim: "whitespace"`, `comment`, `format: "fwf"` with `widths`, or `format: "lines"` followed by filter/compute objects. A filename extension does not establish its layout.
 - Expressions and predicates use DuckDB SQL without a FROM clause. Double-quote column names with spaces/punctuation and single-quote string literals. Use `IS NULL`, not `= NULL`. `TRY_CAST(x AS numeric)` returns NULL on parse failure; use `str` or `datetime` for other targets and clean separators before casting. Check lost values rather than treating failed casts as zeros. Use window functions in compute for ranks or previous-row differences.
 - Keep filtering, joining, grouping, sorting, deduplication, and scalar arithmetic in their native operator kinds. Use UDF only for unsupported parsing/formats, statistical fitting, geospatial operations, or other computation the catalog cannot express. A UDF returns a DataFrame: `def process(a, b)` uses input ids in order, or `def load()` has no inputs. Return tabular data, not geometry objects.

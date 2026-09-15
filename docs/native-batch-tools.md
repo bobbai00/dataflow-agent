@@ -38,7 +38,10 @@ the operator; `type` remains the join's inner/left/right/full/cross parameter.
 ```
 
 Every operator is an upsert by ID. A batch may mix operator kinds and contain
-forward references; the service applies it in dependency order and invokes
+forward references. It uses the same `ToolCallScheduler` as parallel tool calls
+(stable topological order, serial mutations), not a separate batch executor.
+Dependency extraction also follows unchanged existing nodes to find pending
+upstream edits. The service applies the edits in that order and invokes
 one post-step execution phase. As before, the executor may send separate
 backend requests for disconnected branches. Duplicate IDs and cycles
 (including cycles through existing operators) are refused. Independent valid
@@ -48,15 +51,22 @@ tool receipt identifies each added, modified, erroneous, or blocked operator.
 
 `observe` controls displayed results, not computation or materialization:
 
-- Omitted: show terminal outputs among the successfully submitted operators.
 - IDs: show those outputs, including existing operators.
-- Empty array: compact execution receipts only.
+- Omitted or empty array: compact execution receipts only, even for terminal outputs.
 - `operators: []` with `observe`: read already-computed results without execution.
+
+To receive successful result content, explicitly include its ID in `observe`.
+This replaces the prototype's implicit terminal-output default; older saved
+receipts retain their recorded observation choices.
 
 Execution errors always appear. DELTA history retains the observations chosen
 by each original event. Changing a later request does not reveal an earlier
-hidden result. LATEST applies the most recent batch's requested set and also
-surfaces current compilation failures. A requested output bypasses rule/scoped
+hidden result. Upstream revisions invalidate and refresh affected downstream
+results; DELTA reports their re-execution even without `observe`. The receipt
+is not a claim that values changed, and the new contents remain hidden until
+explicitly requested. LATEST renders the current DAG with the most recent
+batch's requested set, retaining definitions/receipts for other operators and
+surfacing current compilation failures. A requested output bypasses rule/scoped
 table selection; ordinary sample budgets and the configured statistics switch
 still apply. Neither execution scope nor cached sample size changes.
 
@@ -79,7 +89,11 @@ from the failing event, not its latest revision.
 Batch mode has a dedicated system-prompt template in
 `agent-service/src/agent/prompts/native-batch-mode.md`, with object signatures
 generated from the validation catalog. Its examples, execution/observation
-contract, and inspection placement follow the batch interface. The typed-mode
+contract, and inspection placement follow the batch interface. Five examples
+cover a complete dependent chain, forward references and fan-in alongside an
+existing DAG, revision plus a new branch, receipt-only edits, and cached reads.
+The principles encourage batching known operations to reduce model round trips,
+while pausing for evidence at genuine data-dependent choices. The typed-mode
 prompt is unchanged; a 72-variant digest test guards its existing bytes.
 
 ## Verification
@@ -88,6 +102,8 @@ From `agent-service/`:
 
 ```bash
 bun test src/agent/tools/native-batch-tools.test.ts src/server.test.ts
+bun test src/agent/tools/native-batch-scheduler.test.ts src/agent/tools/tool-call-scheduler.test.ts
+bun test src/agent/tools/native-batch-context.test.ts
 bun test src/agent/tools/inspect-result-tool.test.ts
 bun test src/agent/prompts-native-batch.test.ts
 bun run typecheck
@@ -99,6 +115,9 @@ running. It creates and removes its own workflow, agent, and computing unit;
 it makes no LLM calls. It checks heterogeneous batches, materialization of
 hidden outputs, reads without re-execution, sampled inspection, partial edit
 failure, and an unrequested runtime failure after a previous successful result.
+It also revises an upstream while adding a dependent chain through an existing
+aggregate, verifies fresh downstream values, and checks explicit result
+visibility in both DELTA and LATEST.
 The debug transport bypasses LLM context assembly, so the smoke renders the
 returned trace and snapshots locally through the production assembler. Real
 agent runs record the actual model observations in `inputMessages`.

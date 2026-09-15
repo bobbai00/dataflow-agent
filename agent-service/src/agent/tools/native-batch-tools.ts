@@ -24,6 +24,7 @@ import { NATIVE_OPERATORS } from "../native/catalog";
 import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
+import { ToolCallScheduler } from "./tool-call-scheduler";
 import {
   createNativeTypedTools,
   nativeInputsOf,
@@ -92,7 +93,7 @@ export function nativeBatchSchema(): Record<string, unknown> {
       operators: {
         type: "array",
         description:
-          "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Input ids can reference another item in this batch. Use [] to request already-computed results without edits.",
+          "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
         items: {
           anyOf: NATIVE_OPERATORS.map(def => {
             const schema = nativeToolSchema(def) as any;
@@ -109,7 +110,7 @@ export function nativeBatchSchema(): Record<string, unknown> {
         type: "array",
         items: { type: "string" },
         description:
-          "Operator ids whose results you want to see after execution (including existing ids). Omit to show terminal outputs of this batch. [] requests only receipts. All edits still execute; errors always appear. Later use inspectResult for more cached sample rows.",
+          "Explicitly list every operator id whose result content you want to see, including existing or re-executed downstream operators. Omitted or [] returns compact receipts only, with no successful table bodies. All edits still execute; errors always appear. Use operators:[] with observe to retrieve cached results later.",
       },
     },
     required: ["operators"],
@@ -127,7 +128,7 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
     [TOOL_NAME_NATIVE_DELETE]: typed[TOOL_NAME_NATIVE_DELETE],
     [TOOL_NAME_DATAFLOW]: tool({
       description:
-        "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. The catalog schemas define every parameter. Operators are dependency ordered and upserted by id. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. observe chooses detailed result tables; omitted observe defaults to this batch's terminal outputs. Failures and compact receipts remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
+        "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
       inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
         nativeBatchSchema() as any
       ),
@@ -211,11 +212,13 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
           if (cycle.has(spec.id) && !outcomes[spec.index])
             fail(spec.index, `Edit creates a dataflow cycle involving '${spec.id}'.`);
 
-        // Walk through existing nodes as well: a dependent cannot silently use
-        // an old upstream result after that upstream's requested revision failed.
-        const apply = async (index: number): Promise<void> => {
-          if (outcomes[index]) return;
-          const spec = specs[index];
+        // Resolve batch producers through unchanged existing nodes too. This
+        // supplies edges to the SAME scheduler used for parallel tool calls;
+        // it does not determine execution order itself. Keep the resolved edges
+        // for failure propagation so an old upstream version cannot mask a
+        // refused revision.
+        const dependenciesById = new Map<string, string[]>();
+        for (const spec of specs) {
           const seen = new Set<string>();
           const dependencies: string[] = [];
           const collect = (id: string) => {
@@ -225,11 +228,14 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
             else for (const up of inputs.get(id) ?? []) collect(up);
           };
           for (const id of inputs.get(spec.id) ?? []) collect(id);
-          for (const id of dependencies) {
-            const dependency = byId.get(id)!;
-            await apply(dependency);
-            const outcome = outcomes[dependency]!;
-            if (outcome.status === "error" || outcome.status === "blocked") {
+          dependenciesById.set(spec.id, dependencies);
+        }
+        const apply = async (index: number): Promise<void> => {
+          if (outcomes[index]) return;
+          const spec = specs[index];
+          for (const id of dependenciesById.get(spec.id) ?? []) {
+            const outcome = outcomes[byId.get(id)!];
+            if (!outcome || outcome.status === "error" || outcome.status === "blocked") {
               fail(
                 index,
                 `Input '${id}' was not updated successfully in this batch; dependent edit skipped.`,
@@ -248,15 +254,22 @@ export function createNativeBatchTools(state: WorkflowState, context?: ToolConte
             fail(index, error?.message ?? String(error));
           }
         };
-        for (const spec of specs) await apply(spec.index);
-        const landed = outcomes.filter(
-          (outcome): outcome is NativeBatchOutcome =>
-            !!outcome && (outcome.status === "added" || outcome.status === "modified")
+        const scheduler = new ToolCallScheduler({
+          parseDeps: (_toolName, input) => dependenciesById.get(input.id) ?? [],
+        });
+        // Submit together, just like SDK parallel calls. The scheduler itself
+        // serializes the actual mutations in stable topological order. This is
+        // internal scheduling, not provider parallel tool calling or execution.
+        await Promise.all(
+          specs.map(spec =>
+            scheduler
+              .wrap(spec.op, {
+                execute: (_input: unknown, _options: unknown) => apply(spec.index),
+              })
+              .execute(spec.params, undefined)
+          )
         );
-        const used = new Set(
-          landed.flatMap(outcome => nativeInputsOf(outcome.op, specs[byId.get(outcome.id)!].params))
-        );
-        const requested = args.observe ?? landed.filter(outcome => !used.has(outcome.id)).map(outcome => outcome.id);
+        const requested = args.observe ?? [];
         const observationErrors: string[] = [];
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
