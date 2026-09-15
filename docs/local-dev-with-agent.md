@@ -95,6 +95,21 @@ bin/local-dev.sh down            # stop everything
 
 Logs live under `/tmp/texera-local-dev/logs/<service>.log`.
 
+### Separate agent worktrees
+
+Agent-service worktrees can share the running Texera backend while using
+different HTTP ports. Set `TEXERA_AGENT_SERVICE_PORT` in each worktree's
+repo-root `.env`, and use a separate launcher state directory:
+
+```bash
+TEXERA_LOCAL_DEV_DIR=/tmp/texera-native-batch bin/local-dev.sh up agent-service --skip-build
+```
+
+The launcher passes that port to Bun and uses it for status, health checks,
+and stopping the service. Keep the same state directory for later commands.
+For example, use port 3008 in one worktree and 3009 in another. This isolates
+agent processes and logs; JVM services and Docker infrastructure remain shared.
+
 ## The agent
 
 The agent-service reads its backend endpoints from `agent-service/.env`
