@@ -64,6 +64,8 @@ try {
           const frozen = first.snapshot.nativeObservations!.answer;
           assert.ok(frozen.text.length <= 1200);
           assert.equal(frozen.text.includes("groups=1 from 2 rows"), flow);
+          assert.equal(frozen.text.includes("Flow upstream selected@"), flow);
+          assert.equal(frozen.text.includes("kept=2/4"), flow);
           assert.ok(
             first.serviceContext.includes("Complete table"),
             "service did not render the observed complete answer"

@@ -22,6 +22,7 @@ import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
 import { collectNativeEvidence, restrictNativeObservation, selectNativeObservation } from "./evidence";
+import { downstreamRelevantColumns } from "./evidence-lineage";
 
 function column(rows = 5, nulls = 1): ProfileColumn {
   return {
@@ -429,6 +430,157 @@ test("projection rename targets participate in output-column relevance", () => {
   f.info.result = [Object.fromEntries(names.map(name => [name, 1]))];
   f.info.tableProfile!.columns = Object.fromEntries(names.map(name => [name, column(3)]));
   expect(observe(f, { flow: false, maxChars: 550 }).selected).toContain("data.column.renamed_value.counts");
+});
+
+test("downstream dependencies cross renames and derives without parsing callbacks", () => {
+  const f = fixture("Scan", {});
+  const columns = [...Array.from({ length: 60 }, (_, i) => `c${i}`), "z_amount"];
+  f.info.resultSchema = columns.map(name => ({ name, type: "int64", encoding: "number-or-decimal-string" }));
+  f.info.result = [Object.fromEntries(columns.map(name => [name, 1]))];
+  f.info.tableProfile!.columns = Object.fromEntries(columns.map(name => [name, column(3)]));
+  const downstream = (id: string, type: string, input: string, properties: Record<string, unknown>) => {
+    const op = { ...structuredClone(f.op), operatorID: id };
+    Object.assign(op.nativeOp!, { type, inputs: [input], properties });
+    f.workflow.operators.push(op);
+    return op;
+  };
+  downstream("pass", "Project", "answer", {});
+  downstream("project", "Project", "pass", { rename: { z_amount: "amount" } });
+  downstream("derive", "Derive", "project", {
+    columns: [{ as: "total", inputs: ["amount"], func: "lambda value: value * 2" }],
+  });
+  downstream("filter", "Filter", "derive", { columns: ["total"] });
+  const selection = observe(f, { flow: false, maxChars: 550 });
+  expect(selection.selected).toContain("data.column.z_amount.counts");
+  expect(selection.text).not.toContain("lambda");
+  // Opaque UDF code cannot establish column lineage, even if names match.
+  f.workflow.operators[1].nativeOp!.type = "UDF";
+  f.workflow.operators[1].nativeOp!.properties = { code: "secret callback" };
+  expect(observe(f, { flow: false, maxChars: 550 }).selected).not.toContain("data.column.z_amount.counts");
+});
+
+test("broad count coverage precedes extra samples when there is no declared plan", () => {
+  const f = fixture("Scan", {});
+  f.info.totalRowCount = 100;
+  f.info.result = Array.from({ length: 20 }, (_, i) => ({ x: i, y: i, z: i }));
+  f.info.resultSchema = ["x", "y", "z"].map(name => ({ name, type: "int64", encoding: "number" }));
+  f.info.tableProfile!.columns = { x: column(100), y: column(100), z: column(100) };
+  const selection = observe(f, { flow: false, maxChars: 850 });
+  for (const name of ["x", "y", "z"]) expect(selection.selected).toContain(`data.column.${name}.counts`);
+  expect(selection.text.length).toBeLessThanOrEqual(850);
+  const lastCount = Math.max(...selection.selected.map((id, i) => (id.endsWith(".counts") ? i : -1)));
+  const secondSample = selection.selected.findIndex(id => id.startsWith("sample.") && id !== "sample.0");
+  expect(secondSample < 0 || secondSample > lastCount).toBe(true);
+});
+
+test("lineage walk bounds wide fan-out, not only visited queue entries", () => {
+  const f = fixture("Scan", {});
+  for (let i = 0; i < 500; i++) {
+    const op = { ...structuredClone(f.op), operatorID: `consumer_${i}` };
+    Object.assign(op.nativeOp!, { type: "Project", inputs: ["answer"], properties: {} });
+    f.workflow.operators.push(op);
+  }
+  let reads = 0;
+  downstreamRelevantColumns(f, () => {
+    reads++;
+    return [];
+  });
+  expect(reads).toBeLessThanOrEqual(65);
+});
+
+test("join suffix inversion cannot mistake a left column for a coalesced right key", () => {
+  const f = fixture("Join", { on: "id", rightSuffix: "_right" });
+  f.results.get("left")!.resultSchema = ["id", "id_right"].map(name => ({ name, type: "int64", encoding: "number" }));
+  f.results.get("right")!.resultSchema = [{ name: "id", type: "int64", encoding: "number" }];
+  const consumer = { ...structuredClone(f.op), operatorID: "consumer" };
+  Object.assign(consumer.nativeOp!, { type: "Filter", inputs: ["answer"], properties: { columns: ["id_right"] } });
+  f.workflow.operators.push(consumer);
+  const right = f.workflow.operators.find(op => op.operatorID === "right")!;
+  const relevant = downstreamRelevantColumns({ ...f, op: right, info: f.results.get("right")! }, op =>
+    op.operatorID === "consumer" ? ["id_right"] : []
+  );
+  expect(relevant.has("id")).toBe(false);
+});
+
+function calculationFixture() {
+  const f = fixture("Aggregate", { groupBy: [], aggregations: [{ fn: "count", as: "total" }] });
+  const grouped = f.workflow.operators[0];
+  Object.assign(grouped.nativeOp!, {
+    type: "Aggregate",
+    inputs: ["raw"],
+    properties: { groupBy: ["account", "region"], aggregations: [{ fn: "count", as: "events" }] },
+  });
+  const raw = { ...structuredClone(grouped), operatorID: "raw" };
+  Object.assign(raw.nativeOp!, { type: "Scan", inputs: [], properties: {} });
+  f.workflow.operators.unshift(raw);
+  const groupedInfo = f.results.get("left")!;
+  const rawInfo = structuredClone(groupedInfo);
+  Object.assign(rawInfo.resultVersion!, { id: "raw".padEnd(64, "0"), operatorId: "raw", inputs: [] });
+  rawInfo.tableProfile!.resultVersion = rawInfo.resultVersion!.id;
+  rawInfo.totalRowCount = rawInfo.tableProfile!.rowCount = 10;
+  rawInfo.result = [{ x: "UNOBSERVED_ROW_CANARY" }];
+  f.results.set("raw", rawInfo);
+  groupedInfo.resultVersion!.inputs = [
+    { inputIndex: 0, operatorId: "raw", outputPort: 0, resultVersion: rawInfo.resultVersion!.id },
+  ];
+  groupedInfo.tableProfile!.native = {
+    operatorType: "Aggregate",
+    inputOperators: ["raw"],
+    inputRows: [10],
+    outputRows: 5,
+    operations: {
+      groupCount: 5,
+      groupSizes: { min: 2, max: 2, total: 10 },
+      aggregateNonNull: { events: { total: 10, min: 2, max: 2 } },
+    },
+  };
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 1;
+  f.info.result = [{ total: 5 }];
+  f.info.resultSchema = [{ name: "total", type: "int64", encoding: "number" }];
+  f.info.truncated = false;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 1,
+    operations: {
+      groupCount: 1,
+      groupSizes: { min: 5, max: 5, total: 5 },
+      aggregateNonNull: { total: { total: 5, min: 5, max: 5 } },
+    },
+  });
+  return f;
+}
+
+test("observed final count includes bound upstream group grain, not hidden tables", () => {
+  const f = calculationFixture();
+  const selection = observe(f, { data: false });
+  expect(selection.text).toContain('group keys=["account","region"]');
+  expect(selection.text).toContain("groups=5 from 10 rows");
+  expect(selection.text).toContain("row denominator=10/10");
+  expect(selection.text).not.toContain("UNOBSERVED_ROW_CANARY");
+  expect(selection.text).not.toContain("Data measurement");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(true);
+  expect(observe(f, { flow: false }).text).not.toContain("account");
+  expect(selection.text.length).toBeLessThanOrEqual(2000);
+});
+
+test("upstream summaries stop at stale edges and opaque UDFs", () => {
+  const f = calculationFixture();
+  f.info.resultVersion!.inputs[0].resultVersion = "older";
+  expect(observe(f).text).not.toContain("account");
+  f.info.resultVersion!.inputs[0].resultVersion = f.results.get("left")!.resultVersion!.id;
+  f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!.type = "UDF";
+  const text = observe(f).text;
+  expect(text).toContain("mapping unknown");
+  expect(text).not.toContain("groups=5 from 10 rows");
+  expect(text).not.toContain("UNOBSERVED_ROW_CANARY");
+});
+
+test("an observed UDF itself is an opaque calculation boundary", () => {
+  const f = calculationFixture();
+  f.op.nativeOp!.type = "UDF";
+  const selection = observe(f);
+  expect(selection.text).toContain("mapping unknown");
+  expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(false);
+  expect(selection.text).not.toContain("account");
 });
 
 test("missing evidence is not an execution error and never triggers hidden work", () => {

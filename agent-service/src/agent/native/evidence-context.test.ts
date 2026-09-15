@@ -171,6 +171,39 @@ const filter = {
   func: "def apply(row):\n    return row['x'] > 0",
 };
 
+for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+  test(`upstream summaries ${mode}: observe pins hidden calculation, revisions do not leak`, async () => {
+    const f = fixture();
+    const render = () =>
+      JSON.stringify(
+        assembleContext(f.steps, f.state, f.storage, mode, {
+          agentMode: AgentMode.NATIVE,
+          dataLevel: 0,
+          flowLevel: 1,
+          columnStats: false,
+          maxOperatorResultCharLimit: 2000,
+        })
+      );
+    await f.record("A", [{ op: "project", id: "final", input: "selected", keep: ["x"] }, filter, source], ["final"]);
+    f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
+    f.capture("A", ["final"], false, true);
+    const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
+    expect(frozen.text).toContain("Flow upstream selected@");
+    expect(frozen.text).toContain("kept=3/5");
+    expect(frozen.text).not.toContain("-100");
+    expect(render()).toContain("kept=3/5");
+    await f.record("B", [{ ...filter, func: "def apply(row):\n    return row['x'] > 10" }]);
+    f.persist("B", { selected: [20, 30], final: [20, 30] }, "101");
+    f.capture("B", [], false, true);
+    expect(render()).not.toContain("kept=2/5");
+    expect(render().includes("kept=3/5")).toBe(mode === ContextMode.DELTA);
+    await f.record("C", [], ["final"]);
+    f.capture("C", ["final"], false, true);
+    expect(render()).toContain("kept=2/5");
+    expect(f.storage.getAssociatedSnapshot("A").nativeObservations!.final).toEqual(frozen);
+  });
+}
+
 for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
   for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
     test(`V2 evidence ${mode}/${messageLayout ?? "default"}: explicit observe, revision, error, cached read`, async () => {

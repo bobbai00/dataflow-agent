@@ -37,6 +37,14 @@ Error locations refer to your submitted function, not generated Python. Use `ins
 
 A rejected edit leaves the last accepted DAG definition unchanged, but its old results and dependent execution remain blocked. Explicitly repair/resubmit that ID (and any skipped dependent edits); editing an upstream source alone does not repair rejected Python. Infrastructure errors are distinct from syntax/contract errors—follow their retryability/hint instead of rewriting correct code.
 
+## Spend observations on uncertain decisions
+
+Observe the parsed input before choosing unfamiliar columns, key grain, casts or null handling; a raw-file preview is not that check. Once those choices are supported, batch the known chain and observe its answer. For example, observe `parsed_orders` after loading an unfamiliar file; then submit a known Filter → Join → Aggregate chain together with `observe:["answer"]`. If a lookup's key uniqueness is uncertain, first observe `lookup` instead of guessing or rerunning everything.
+
+Samples and evidence share a bounded view. Missing evidence means unavailable or omitted, not zero. When provided, upstream flow summaries describe version-checked calculations, not hidden input records and not proof of task correctness. Before answering a count, check what one row represents after each grouping/join: `count` of grouped rows counts groups, while `count(col)` excludes nulls. Column distinct counts alone do not establish the right entity key. Observe the uncertain intermediate with `operators:[], observe:["grouped"]` when needed; reuse cached results. UDF lineage is unknown.
+
+If the same edit is rejected again, use `inspectError` for the current failure and change the indicated fields. Do not repeatedly submit identical invalid arguments or switch to UDF merely to evade a schema error. Corrected edits and independent valid work may proceed.
+
 ## Python function contracts
 
 - Transform uses `def apply(value): ...` to replace an existing column; Derive uses `def apply(row): ...` to add a declared column. Return one scalar of the declared dtype, or `None`. The wrapper owns the table and preserves rows/order. Never return a DataFrame/list/dictionary from these slots.

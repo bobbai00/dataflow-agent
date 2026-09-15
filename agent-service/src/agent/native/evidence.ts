@@ -21,6 +21,7 @@ import type { OperatorInfo, ResultVersion } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { nativeOperators } from "./catalog";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
+import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
 
 export interface NativeEvidenceContext {
   op: OperatorPredicate;
@@ -103,12 +104,7 @@ function declaredColumns(op: OperatorPredicate): string[] {
 }
 
 function relevance(context: NativeEvidenceContext): Set<string> {
-  return new Set([
-    ...declaredColumns(context.op),
-    ...context.workflow.operators
-      .filter(o => o.nativeOp?.inputs.includes(context.op.operatorID))
-      .flatMap(declaredColumns),
-  ]);
+  return downstreamRelevantColumns(context, declaredColumns);
 }
 
 function validProfile(info: OperatorInfo): boolean {
@@ -144,6 +140,56 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   facts: NativeEvidenceFact[];
   omissions: string[];
 } {
+  const result = collectLocalEvidence(context);
+  const queue = (context.op.nativeOp?.type === "UDF" ? [] : boundInputs(context)).map(input => ({ input, depth: 1 }));
+  const seen = new Set([context.op.operatorID]);
+  let summaries = 0;
+  for (let visited = 0; queue.length && visited < 32 && summaries < 3; visited++) {
+    const { input, depth } = queue.shift()!;
+    const { op, info } = input;
+    if (seen.has(op.operatorID)) continue;
+    seen.add(op.operatorID);
+    const view = op.nativeOp!;
+    const p = view.properties;
+    const semantic: Record<string, string> = {
+      Aggregate: `Aggregate group keys=${json(p.groupBy ?? [])}`,
+      Join: `Join type=${p.type ?? "inner"}, keys=${json(p.on ?? [])}`,
+      Filter: `Filter predicate columns=${json(p.columns ?? [])}`,
+      Distinct: `Distinct keys=${p.columns === undefined ? "whole row" : json(p.columns)}`,
+      Limit: `Limit n=${p.n}, offset=${p.offset ?? 0}`,
+      Union: "Union concatenates inputs without deduplication",
+      Explode: `Explode column=${json(p.column)}`,
+      Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
+      Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
+      UDF: "UDF row/column mapping unknown; upstream calculation summary stops here",
+    };
+    if (semantic[view.type]) {
+      const local = collectLocalEvidence(input);
+      const measurements = local.facts
+        .filter(f => f.family === "flow" && f.kind === "measurement" && f.priority >= 94)
+        .slice(0, view.type === "Aggregate" ? 2 : 1);
+      const version = info.resultVersion!;
+      result.facts.push({
+        id: `flow.upstream.${op.operatorID}.${version.id}`,
+        family: "flow",
+        kind: measurements.length ? "measurement" : view.type === "UDF" ? "warning" : "guarantee",
+        text: `Flow upstream ${op.operatorID}@${version.id.slice(0, 16)}: declared ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
+        priority: 98 - depth / 10,
+      });
+      summaries++;
+    }
+    if (view.type === "UDF") continue;
+    if (depth < 8) queue.push(...boundInputs(input).map(next => ({ input: next, depth: depth + 1 })));
+    else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
+  }
+  if (queue.length) result.omissions.push("upstream_summary_bound");
+  return result;
+}
+
+function collectLocalEvidence(context: NativeEvidenceContext): {
+  facts: NativeEvidenceFact[];
+  omissions: string[];
+} {
   const { op, info, resolveInput, workflow } = context;
   const view = op.nativeOp;
   const version = info.resultVersion;
@@ -175,13 +221,13 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   if (profile) {
     for (const [name, c] of Object.entries(profile.columns).sort(([a], [b]) => lexical(a, b))) {
       if (context.columns?.length && !context.columns.includes(name)) continue;
-      const priority = relevant.has(name) ? 85 : 45;
+      const priority = relevant.has(name) ? 85 : 80;
       const scope = columnScope(info, c);
       add(
         `data.column.${name}.counts`,
         "data",
         "measurement",
-        `${json(name)} (${scope}): null=${fraction(c.nullCount, c.rowsProcessed)}, nonnull=${c.nonnullCount}; distinct(nonnull)=${c.distinctCount ?? "unknown"}${c.distinctCount === null ? "" : `; uniqueness=${fraction(c.distinctCount, c.nonnullCount)}`}.`,
+        `${json(name)} (${scope}): null=${fraction(c.nullCount, c.rowsProcessed)}, nonnull=${c.nonnullCount}; distinct(nonnull)=${c.distinctCount ?? "unknown"}.`,
         priority
       );
       if (c.min && c.max)
@@ -190,7 +236,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
           "data",
           "measurement",
           `${json(name)} (${scope}): range=[${scalarText(c.min)}, ${scalarText(c.max)}].`,
-          priority - 8
+          priority - 23
         );
       if (c.frequencies) {
         const f = c.frequencies;
@@ -199,7 +245,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
           "data",
           "measurement",
           `${json(name)} (${scope}): ${f.truncated ? "top values (not exhaustive)" : "nonnull values"}=${f.values.map(v => `${scalarText(v.value)}:${v.count}`).join(", ")}; other=${f.otherCount}.`,
-          priority - 6
+          priority - 20
         );
       }
     }
@@ -576,7 +622,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
             "flow",
             "measurement",
             `source=${json(s.path)}, format=${json(s.format)}, sizeBytes=${s.sizeBytes ?? "unknown"}, mtimeNs=${json(s.mtimeNs ?? "unknown")}; parse/coverage=${json(Object.fromEntries(Object.entries(s).filter(([k]) => !["path", "format", "sizeBytes", "mtimeNs"].includes(k))))}.`,
-            80
+            30
           );
       }
     } else omissions.push("scan_coverage_unavailable");
@@ -714,7 +760,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
           family: "data",
           kind: "measurement",
           text: `Sample stored row ${i + 1}: ${rowLine(rows[i], fields)}`,
-          priority: rank === 0 ? 105 : 65 - rank,
+          priority: rank === 0 ? 105 : 35 - rank,
         });
     }
     result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });

@@ -20,6 +20,12 @@
 # Python-native operators and budgeted dataflow evidence
 
 Status: implemented opt-in V2 contract and completed pilot, 2026-09-15.
+
+The user subsequently authorized targeted evidence/repair improvements and a
+four-arm, 104-task Luna/Terra-medium campaign. See the
+[C8 implementation and full-workload protocol](checkpoints/native-python-dataflow-c8-campaign.md)
+for exact behavior, tests, input corrections and comparison limits. Its live
+gates and benchmark results must be recorded before claiming an improvement.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
 The candidate opt-in V2 catalog now contains nineteen operators: the fourteen
