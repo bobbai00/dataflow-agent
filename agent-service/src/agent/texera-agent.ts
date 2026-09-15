@@ -99,7 +99,7 @@ import {
 } from "./tools/general-op-tools";
 import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
 import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
-import { asNativeBatchResult, createNativeBatchTools, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
+import { asNativeBatchResult, batchObservedIds, createNativeBatchTools, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
@@ -689,6 +689,7 @@ export class TexeraAgent {
       tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
         getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
         workflowState: this.workflowState,
+        maxResultChars: () => this.settings.maxOperatorResultCharLimit,
       });
     }
 
@@ -2493,6 +2494,34 @@ export class TexeraAgent {
    * an LLM-emitted one.
    */
   private async runPostStepExecution(
+    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
+  ): Promise<void> {
+    const owningStepId = this.head;
+    const owningSignal = this.abortController?.signal;
+    const requested = batchObservedIds({ toolCalls, toolResults } as Pick<ReActStep, "toolCalls" | "toolResults">);
+    // Capture exposure settings before awaiting the engine. Changing settings
+    // while the request is in flight must not rewrite this event's selection.
+    const options = {
+      data: (this.settings.dataLevel ?? 0) > 0 || this.settings.columnStats === true,
+      flow: (this.settings.flowLevel ?? 0) > 0,
+      maxChars: this.settings.maxOperatorResultCharLimit,
+      maxRows: this.settings.maxResultRows,
+    };
+    await this.executePostStepChanges(toolCalls, toolResults);
+    if (
+      requested &&
+      owningStepId &&
+      this.head === owningStepId &&
+      !owningSignal?.aborted &&
+      this.settings.nativeCatalogVersion === "v2" &&
+      this.snapshotStorage.hasSnapshotFor(owningStepId)
+    ) {
+      this.snapshotStorage.captureNativeObservations(owningStepId, requested, options);
+    }
+  }
+
+  private async executePostStepChanges(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
   ): Promise<void> {

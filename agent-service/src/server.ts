@@ -1110,6 +1110,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       workflow: workflowEntry?.value ?? null,
       workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
       results,
+      ...(storage.getAssociatedSnapshot(resolvedStepId).nativeObservations !== undefined
+        ? { nativeObservations: storage.getAssociatedSnapshot(resolvedStepId).nativeObservations }
+        : {}),
     };
   })
 

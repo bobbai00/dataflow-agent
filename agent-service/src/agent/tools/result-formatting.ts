@@ -20,6 +20,13 @@
 import type { OperatorInfo } from "../../types/execution";
 import { parseNativeDiagnostic, formatNativeDiagnostic } from "../native/diagnostics";
 import type { OperatorPredicate } from "../../types/workflow";
+import {
+  restrictNativeObservation,
+  selectNativeObservation,
+  type NativeEvidenceContext,
+  type NativeObservation,
+  type NativeObservationOptions,
+} from "../native/evidence";
 import type { WorkflowState } from "../workflow-state";
 import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
@@ -39,6 +46,10 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
 
 export interface FormatOperatorResultOptions {
+  /** V2 evidence shares the result body budget. A recorded DELTA frame wins
+   * over today's exposure settings; only explicit compaction may shorten it. */
+  nativeEvidence?: Pick<NativeEvidenceContext, "workflow" | "resolveInput"> &
+    NativeObservationOptions & { frozen?: NativeObservation; compact?: boolean };
   /** The operator definition that earned this result. Historical observations
    *  must echo failed parameters/code from their snapshot, not a later edit
    *  (or deletion) in the live DAG. Undefined keeps the current-state lookup. */
@@ -259,6 +270,31 @@ export function formatOperatorResult(
 
   if (!opInfo.result || !Array.isArray(opInfo.result)) {
     return "(no result data)";
+  }
+
+  const nativeOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
+  if (nativeOp?.nativeOp?.version === "v2") {
+    const evidence = options.nativeEvidence;
+    if (evidence?.frozen)
+      return restrictNativeObservation(
+        evidence.frozen,
+        evidence.compact
+          ? { maxChars: options.maxResultChars, maxRows: options.maxResultRows, detail: options.detail }
+          : {}
+      );
+    const budget = evidence?.maxChars ?? 2000;
+    return selectNativeObservation({
+      workflow: evidence?.workflow ?? workflowState.getWorkflowContent(),
+      resolveInput: evidence?.resolveInput ?? (() => undefined),
+      op: nativeOp,
+      info: opInfo,
+      data: evidence?.data ?? false,
+      flow: evidence?.flow ?? false,
+      maxChars: options.maxResultChars && options.maxResultChars > 0 ? Math.min(budget, options.maxResultChars) : budget,
+      maxRows: options.maxResultRows,
+      columns: options.columns,
+      detail: options.detail,
+    }).text;
   }
 
   const jsonArray = opInfo.result as Record<string, any>[];

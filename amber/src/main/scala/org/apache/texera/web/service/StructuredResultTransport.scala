@@ -20,6 +20,7 @@
 package org.apache.texera.web.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.texera.amber.core.tuple.{AttributeType, Schema}
 import org.apache.texera.web.model.websocket.event.CachedPortUsage
 
@@ -46,9 +47,16 @@ case class PartitionedStatistics(
   */
 object StructuredResultTransport {
   val capabilities: List[String] =
-    List("table-profile-v1", "typed-scalar-v1", "input-materialization-v1")
+    List("table-profile-v1", "typed-scalar-v1", "input-materialization-v1", "schema-fields-only-v1")
   private val profileKey = "__texera_profile_v1__:[0-9a-f]{32}".r
   private val mapper = new ObjectMapper()
+
+  /** V2 rows contain only schema-declared user fields. Legacy clients still
+    * receive their synthetic index, but it cannot overwrite a V2 user column.
+    */
+  def annotateSampleRow(row: ObjectNode, index: Int, structuredResults: Boolean): Unit = {
+    if (!structuredResults) row.put("__row_index__", index)
+  }
 
   /** Input identities must not depend on which table bodies were requested.
     * Completed fresh outputs use this execution; cache hits retain their origin.

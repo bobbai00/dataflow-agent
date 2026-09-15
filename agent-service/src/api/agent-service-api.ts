@@ -20,6 +20,7 @@
 import { env } from "../config/env";
 import type { AgentInfo, AgentSettingsApi, ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
+import type { NativeObservation } from "../agent/native/evidence";
 
 /**
  * Client for the agent-service's own HTTP + WebSocket surface.
@@ -111,6 +112,8 @@ export interface AgentSnapshot {
   workflow: WorkflowContent | null;
   workflowSourceStepId: string | null;
   results: Record<string, unknown>;
+  /** Event-pinned V2 successful observations, including selection audit data. */
+  nativeObservations?: Record<string, NativeObservation>;
 }
 
 export interface CurrentWorkflowResponse {

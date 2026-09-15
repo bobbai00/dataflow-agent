@@ -113,6 +113,7 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
   async function debug(args: Record<string, unknown>, tool = "dataflow") {
     const debugInput = nativeDebugInput(tool, args);
     let completionAnswer = "";
+    let serviceContext = "";
     const results = await new Promise<Record<string, any>>((resolve, reject) => {
       const ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/agents/${agentId}/react`);
       let sent = false,
@@ -143,7 +144,10 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
           completed = true;
           result = frame.operatorResults;
           completionAnswer = frame.answer ?? "";
-        } else if (frame.type === "nextContext" && completed) finish();
+        } else if (frame.type === "nextContext" && completed) {
+          serviceContext = typeof frame.content === "string" ? frame.content : JSON.stringify(frame.content);
+          finish();
+        }
       };
       ws.onerror = () => finish(new Error("Native smoke WebSocket error"));
       ws.onclose = () => {
@@ -174,7 +178,7 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
     const delta = render(ContextMode.DELTA);
     const latest = render(ContextMode.LATEST);
     const observation = delta.slice(delta.lastIndexOf("Observation:"));
-    return { results, snapshot, step, delta, latest, observation };
+    return { results, snapshot, step, delta, latest, observation, serviceContext };
   }
 
   return {

@@ -334,6 +334,9 @@ export const FlowParamsSchema = z.object({
 export type FlowParams = z.infer<typeof FlowParamsSchema>;
 
 export const SummarizeParamsSchema = z.object({
+  /** Settings-derived V2 exposure survives the legacy flag expansion, which
+   * otherwise loses the original data/flow arm and engine result budget. */
+  nativeEvidence: z.object({ data: z.boolean(), flow: z.boolean(), maxChars: z.number().int().min(0) }).optional(),
   trajectory: TrajectoryParamsSchema.default({}),
   /** Render the `# Current Dataflow` snapshot section (every operator's block).
    *  The legacy DELTA shape sets this false — state lives inline in the
@@ -464,6 +467,11 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
   const isLatest = mode === ContextMode.LATEST;
 
   return SummarizeParamsSchema.parse({
+    nativeEvidence: options.nativeEvidence ?? {
+      data: (options.dataLevel ?? 0) > 0 || options.columnStats === true,
+      flow: (options.flowLevel ?? 0) > 0,
+      maxChars: options.maxOperatorResultCharLimit ?? 2000,
+    },
     trajectory: {
       events: isLatest ? "none" : "interleaved",
       observations: "delta",

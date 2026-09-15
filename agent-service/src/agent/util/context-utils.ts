@@ -334,6 +334,11 @@ export interface AssembleContextOptions {
    *  cap). The `scoped` selection expresses its per-type sample sizes as
    *  shares of it. Undefined ⇒ 2000, the campaign default. */
   maxOperatorResultCharLimit?: number;
+  /** V2 exposure/budget carried through summarize's legacy mapping. This is
+   * derived from the existing data/flow settings, not a second budget. */
+  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number };
+  /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
+  nativeObservationCompaction?: boolean;
   /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
    *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
    *  computed name-agnostically by the worker. Render-time only. Default false. */
@@ -2323,7 +2328,7 @@ function serializeTaskBody(
         // discards it. This is that missing half: emitted at the observation's
         // own indent, PARALLEL to `result:` rather than inside it, which is the
         // same relationship it has to `Result:` in LATEST.
-        const fileIoFact = renderOptions.fileIoFacts && info ? formatFileIo(info) : undefined;
+        const fileIoFact = op.nativeOp?.version !== "v2" && renderOptions.fileIoFacts && info ? formatFileIo(info) : undefined;
         if (fileIoFact) {
           for (const l of fileIoFact.split("\n")) obs.push(`  ${l}`);
         }
@@ -2343,6 +2348,7 @@ function serializeTaskBody(
                 // The same event owns the failing parameters / UDF code. A
                 // later edit must not rewrite an earlier error's tool frame.
                 ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
+                nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, node.snapshot, renderOptions, true, !!ex),
               }
             )
           : "(not executed)";
@@ -3519,6 +3525,7 @@ function serializeSnapshotCompact(
     const perOpOptions: AssembleContextOptions = {
       ...options,
       maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
+      nativeObservationCompaction: true,
     };
     lines.push(
       serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel)
@@ -3668,6 +3675,27 @@ function inScope(scope: StatScope | undefined, isSource: boolean): boolean {
   return scope === "source" ? isSource : !isSource;
 }
 
+function nativeEvidenceAtSnapshot(
+  operatorId: string,
+  snapshot: SnapshotData,
+  options: AssembleContextOptions,
+  historical: boolean,
+  compact = false
+): FormatOperatorResultOptions["nativeEvidence"] {
+  const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
+  return {
+    workflow: snapshot.workflow,
+    resolveInput: id => snapshot.results.get(id)?.info,
+    // Imported old events have no recorded exposure settings: do not invent
+    // evidence that was never present in their model-facing observations.
+    data: !historical && (options.nativeEvidence?.data ?? ((options.dataLevel ?? 0) > 0 || options.columnStats === true)),
+    flow: !historical && (options.nativeEvidence?.flow ?? (options.flowLevel ?? 0) > 0),
+    maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
+    frozen,
+    compact: compact || options.nativeObservationCompaction === true,
+  };
+}
+
 function legacyFormatOptions(
   options: AssembleContextOptions,
   operatorId?: string,
@@ -3792,6 +3820,12 @@ function formatOperatorAdjacency(
   opInfo?: OperatorInfo,
   snapshot?: SnapshotData
 ): string[] {
+  // V2 measured relationships belong inside the observed result's budget.
+  // Do not infer unmatched rows from output/min(input), or expose these
+  // legacy heuristics in the evidence-off framework control.
+  if (op.nativeOp?.version === "v2") {
+    return op.nativeOp.inputs.length ? ["Inputs: " + op.nativeOp.inputs.join(", ")] : [];
+  }
   const lines: string[] = [];
   const inbound = allLinks
     .filter(l => l.target.operatorID === op.operatorID)
@@ -3911,6 +3945,21 @@ function serializeOperatorFull(
   shape?: ShapeDecision
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
+  // Visibility is a serializer invariant, not only a full-snapshot caller
+  // convention. Compact decks and historical layouts use this path too.
+  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
+  if (requested && !requested.has(op.operatorID) && !info?.error) {
+    const rows = info?.totalRowCount ?? info?.outputTuples;
+    return [
+      `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``,
+      ...(op.nativeOp
+        ? [`Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`, `Properties: ${JSON.stringify(op.nativeOp.properties)}`]
+        : []),
+      info
+        ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
+        : "Result: unavailable; result not requested",
+    ].join("\n");
+  }
   // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
   // history). Absent on the legacy path — rendering is then byte-identical to
   // the pre-summarize assembler.
@@ -3935,6 +3984,8 @@ function serializeOperatorFull(
       // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
       inputsInResult: false,
       ...shapeFormatOverrides(shape, options),
+      operatorAtEvent: op,
+      nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, !isCurrent, !!ex),
     });
   }
 
@@ -4000,7 +4051,7 @@ function serializeOperatorFull(
   // input, since loaders have no `Inputs:` line. Emitted here so both consumed
   // facts sit TOGETHER, above `Code:` and above `Result:`; everything indented
   // under `Result:` describes the output.
-  if (options.fileIoFacts && info) {
+  if (op.nativeOp?.version !== "v2" && options.fileIoFacts && info) {
     const fio = formatFileIo(info);
     if (fio) lines.push(fio);
   }

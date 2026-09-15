@@ -25,7 +25,7 @@ const result = (): SyncExecutionResult => ({
   success: true,
   state: "Completed",
   executionId: "123",
-  capabilities: ["table-profile-v1", "typed-scalar-v1"],
+  capabilities: ["table-profile-v1", "typed-scalar-v1", "schema-fields-only-v1"],
   operators: {
     source: {
       state: "Completed",
@@ -53,6 +53,15 @@ test("an old backend cannot silently claim V2 scalar semantics", () => {
   expect(parsed.state).toBe("CapabilityMissing");
   expect(parsed.operators.source.result).toBeUndefined();
   expect(parsed.operators.source.error).toContain("typed-scalar-v1");
+});
+
+test("V2 refuses older typed backends that can overwrite user schema fields", () => {
+  const response = result();
+  response.capabilities = ["typed-scalar-v1", "table-profile-v1", "input-materialization-v1"];
+  const parsed = prepareStructuredExecutionResult(response, 17);
+  expect(parsed.state).toBe("CapabilityMissing");
+  expect(parsed.operators.source.result).toBeUndefined();
+  expect(parsed.operators.source.error).toContain("schema-fields-only-v1");
 });
 
 test("pre-execution syntax errors retain their diagnostics without requiring a capability response", () => {

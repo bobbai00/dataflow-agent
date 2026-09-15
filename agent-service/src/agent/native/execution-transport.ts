@@ -33,11 +33,12 @@ export function prepareStructuredExecutionResult(
   if (
     !Array.isArray(response.capabilities) ||
     !response.capabilities.includes("typed-scalar-v1") ||
+    !response.capabilities.includes("schema-fields-only-v1") ||
     typeof response.executionId !== "string" ||
     !/^\d{1,20}$/.test(response.executionId)
   ) {
     const error =
-      "V2 requires a backend with typed-scalar-v1 and execution identity support; deploy the matching engine/API before retrying.";
+      "V2 requires a backend with typed-scalar-v1, schema-fields-only-v1 and execution identity support; deploy the matching engine/API before retrying.";
     return {
       ...response,
       success: false,

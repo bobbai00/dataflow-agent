@@ -650,7 +650,7 @@ class SyncExecutionResource extends LazyLogging {
           // A single tuple with html-content / json-content is a visualization payload —
           // the frontend renders it as an iframe rather than a table.
           val firstTuple = tupleIterator.next()
-          if (totalCount == 1 && isVisualizationTuple(firstTuple)) {
+          if (totalCount == 1 && isVisualizationTuple(firstTuple, structuredResults)) {
             val jsonResults =
               ExecutionResultService.convertTuplesToJson(List(firstTuple), isVisualization = true)
             jsonResults.foreach(
@@ -674,7 +674,7 @@ class SyncExecutionResource extends LazyLogging {
             .head
           val truncatedFirst =
             truncateSingleTuple(firstJson, maxOperatorResultCellCharLimit, resultSchema)
-          truncatedFirst.put("__row_index__", rowIndex)
+          StructuredResultTransport.annotateSampleRow(truncatedFirst, rowIndex, structuredResults)
           val firstSize = estimateTupleSize(truncatedFirst, mapper)
 
           if (firstSize >= maxOperatorResultCharLimit) {
@@ -704,7 +704,7 @@ class SyncExecutionResource extends LazyLogging {
               .head
             val truncatedTuple =
               truncateSingleTuple(jsonTuple, maxOperatorResultCellCharLimit, resultSchema)
-            truncatedTuple.put("__row_index__", rowIndex)
+            StructuredResultTransport.annotateSampleRow(truncatedTuple, rowIndex, structuredResults)
             val tupleSize = estimateTupleSize(truncatedTuple, mapper)
 
             if (frontSize + tupleSize <= halfLimit) {
@@ -724,7 +724,7 @@ class SyncExecutionResource extends LazyLogging {
                   .convertTuplesToJson(List(t), structuredResults = structuredResults)
                   .head
                 val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit, resultSchema)
-                tt.put("__row_index__", rowIndex)
+                StructuredResultTransport.annotateSampleRow(tt, rowIndex, structuredResults)
                 val ts = estimateTupleSize(tt, mapper)
 
                 backBuffer += ((tt, ts))
@@ -763,7 +763,7 @@ class SyncExecutionResource extends LazyLogging {
                 .convertTuplesToJson(List(t), structuredResults = structuredResults)
                 .head
               val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit, resultSchema)
-              tt.put("__row_index__", rowIndex)
+              StructuredResultTransport.annotateSampleRow(tt, rowIndex, structuredResults)
               val ts = estimateTupleSize(tt, mapper)
 
               backBuffer += ((tt, ts))
@@ -936,7 +936,11 @@ class SyncExecutionResource extends LazyLogging {
     }
   }
 
-  private def isVisualizationTuple(tuple: Tuple): Boolean = {
+  private[web] def isVisualizationTuple(
+      tuple: Tuple,
+      structuredResults: Boolean = false
+  ): Boolean = {
+    if (structuredResults) return false
     try {
       val schema = tuple.getSchema
       val fieldNames = schema.getAttributes.map(_.getName)

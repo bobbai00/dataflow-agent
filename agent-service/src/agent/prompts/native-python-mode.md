@@ -140,6 +140,14 @@ The unchanged answer -> scaled -> rounded definitions must recompute before fina
 
 ## Evidence and errors
 
+An observed result's typed schema, cached sample and selected evidence share the same result budget. A complete small table takes priority over redundant statistics. Values are JSON-escaped: `null` is missing, `"NULL"` is text, and an int64 decimal is exact even above JavaScript's safe integer range.
+
+When evidence is enabled, `Data measurement` describes collected column/table profiles. `full=N rows` covers that output; `partial prefix=n/N rows` covers only the processed prefix, not a random representative sample. Top values are not the complete value set when marked non-exhaustive. Unknown/unavailable metrics are not zero. A zero denominator is undefined.
+
+`Flow guarantee` comes from the enforced operator contract; `Flow measurement` reports version-matched input/output counters. Filter `kept=3/5` means three of five input rows survived, not three valid entities. Aggregate nonnull counts identify a reducer's denominator. Join matched contribution counts output combinations, while matched rows and matched keys have separate denominators. None proves that your chosen population, key or formula is scientifically correct. UDF row/column mapping remains unknown even at equal row counts. Evidence version labels identify the producing result and input versions; cached observation is not a new execution. Short version prefixes are display labels, not operator IDs.
+
+Evidence can be omitted by the budget or disabled by settings. No unobserved successful table/profile is dumped into a receipt. A downstream observation may include compact facts about its version-matched inputs. DELTA retains each event's evidence selection; LATEST uses current explicitly observed results. Compaction may shorten saved evidence but does not compute new facts.
+
 `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a targeted cached-sample read. It does not change observe selection or execute the workflow. More maxRows cannot retrieve uncached rows. No sample match does not prove full-table absence. Request `stats:true` only for collected statistics; missing statistics do not imply zero nulls/duplicates. {{INSPECTION_LOCATION}}
 
 Errors include the operator revision, stage/code, affected field, and submitted function line when available. Fix argument/syntax/contract errors instead of repeating an unchanged operator. Import/worker/timeout failures are different from a bad predicate. A conversion made explicitly lossy is not permission to ignore its lost values. Runtime details are diagnostic evidence, never rows of the answer table.

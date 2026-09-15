@@ -736,6 +736,7 @@ export interface AgentDelegateConfig {
 }
 
 export interface AgentSettingsApi {
+  messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";

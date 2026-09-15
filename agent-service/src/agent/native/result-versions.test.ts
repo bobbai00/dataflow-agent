@@ -127,7 +127,7 @@ function response(wf: WorkflowContent, executionId = "100", values = wf.operator
     success: true,
     state: "Completed",
     executionId,
-    capabilities: ["typed-scalar-v1", "table-profile-v1"],
+    capabilities: ["typed-scalar-v1", "table-profile-v1", "schema-fields-only-v1"],
     operators: Object.fromEntries(wf.operators.map((o, i) => [o.operatorID, values[i]]).reverse()),
   };
   return prepareStructuredExecutionResult(raw, 17, workflowExecutionPlan(wf));
@@ -434,7 +434,7 @@ test("an unchanged cached input can be version-bound without requesting its tabl
     success: true,
     state: "Completed",
     executionId: "101",
-    capabilities: ["typed-scalar-v1", "table-profile-v1"],
+    capabilities: ["typed-scalar-v1", "table-profile-v1", "schema-fields-only-v1"],
     operators: { answer: info(changed.operators[1], "101") },
     inputMaterializations: { source: { outputPort: 0, executionId: "100", cached: true } },
   };

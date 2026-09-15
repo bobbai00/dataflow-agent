@@ -20,6 +20,7 @@
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
+import { selectNativeObservation, type NativeObservation, type NativeObservationOptions } from "./native/evidence";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -66,6 +67,9 @@ export interface SnapshotData {
   reactStepId: string | undefined;
   workflow: WorkflowContent;
   results: Map<string, ResultEntry>;
+  /** Successful explicit observations earned by this event, never inherited.
+   * Undefined marks pre-feature/imported snapshots without an exposure record. */
+  nativeObservations?: Readonly<Record<string, NativeObservation>>;
 }
 
 function createEmptyWorkflow(): WorkflowContent {
@@ -158,6 +162,33 @@ export class WorkflowSnapshotStorage {
   }
 
   // ── writers ──────────────────────────────────────────────────────────
+
+  /** Finalize the successful observation frame after execution (including a
+   * cached observe with no execution). DELTA replays this exact selection even
+   * after settings, downstream relevance, or the current DAG have changed. */
+  captureNativeObservations(reactStepId: string, ids: Iterable<string>, options: NativeObservationOptions): void {
+    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
+    if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
+    const snapshot = this.snapshots.get(snapshotId)!;
+    if (snapshot.nativeObservations !== undefined) return;
+    const observations: Array<[string, NativeObservation]> = [];
+    for (const id of new Set(ids)) {
+      const op = snapshot.workflow.operators.find(o => o.operatorID === id);
+      const info = snapshot.results.get(id)?.info;
+      if (op?.nativeOp?.version !== "v2" || !info || info.error) continue;
+      observations.push([
+        id,
+        selectNativeObservation({
+          ...options,
+          op,
+          info,
+          workflow: snapshot.workflow,
+          resolveInput: input => snapshot.results.get(input)?.info,
+        }),
+      ]);
+    }
+    snapshot.nativeObservations = freezeSnapshotValue(Object.fromEntries(observations));
+  }
 
   /**
    * Create a snapshot owned by `reactStepId`. The parent snapshot is the
