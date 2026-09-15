@@ -18,7 +18,7 @@
 import typing
 from loguru import logger
 from pyarrow import Table
-from typing import Union
+from typing import Callable, Optional, Union
 
 from core.architecture.sendsemantics.broad_cast_partitioner import (
     BroadcastPartitioner,
@@ -41,6 +41,7 @@ from core.models import (
     DataPayload,
     State,
     StateFrame,
+    Schema,
 )
 from core.models.internal_queue import DataElement, ECMElement
 from core.storage.document_factory import DocumentFactory
@@ -78,6 +79,7 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         queue: InternalQueue,
         worker_actor_id: ActorVirtualIdentity,
         partitioning: Partitioning,
+        on_schema: Optional[Callable[[Schema], None]] = None,
     ):
         """
         Args:
@@ -99,6 +101,7 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         self._finished = False
         self.materialization = None
         self.tuple_schema = None
+        self.on_schema = on_schema
         self._partitioning_to_partitioner: dict[
             type(Partitioning), type(Partitioner)
         ] = {
@@ -153,6 +156,10 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
             self.materialization, self.tuple_schema = DocumentFactory.open_document(
                 VFSURIFactory.result_uri(self.uri)
             )
+            # The materialized table is authoritative for dynamic outputs.
+            # Publish its schema even when no tuple/batch will be emitted.
+            if self.on_schema is not None:
+                self.on_schema(self.tuple_schema)
             self.emit_ecm("StartChannel", EmbeddedControlMessageType.NO_ALIGNMENT)
 
             state_document, _ = DocumentFactory.open_document(

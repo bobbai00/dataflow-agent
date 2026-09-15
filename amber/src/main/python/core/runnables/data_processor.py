@@ -33,6 +33,7 @@ from core.models import ExceptionInfo, State, TupleLike, InternalMarker, Schema
 from core.models.internal_marker import StartChannel, EndChannel
 from core.models.schema.attribute_type import AttributeType
 from core.models.table import all_output_to_tuple
+from core.models.operator import TableOperator
 from core.util import Stoppable
 from core.util.console_message.replace_print import replace_print
 from core.util.console_message.timestamp import current_time_in_local_timezone
@@ -295,6 +296,12 @@ class DataProcessor(Runnable, Stoppable):
             if isinstance(internal_marker, StartChannel):
                 self._set_output_state(executor.produce_state_on_start(port_id))
             elif isinstance(internal_marker, EndChannel):
+                # Empty streams still carry a port schema. Tuples cannot
+                # convey it when no rows arrive, so pass the latest runtime
+                # schema before table/state callbacks materialize the buffer.
+                input_port = self._context.tuple_processing_manager.current_input_port_id
+                if isinstance(executor, TableOperator) and input_port is not None:
+                    executor._set_input_schema(port_id, self._context.input_manager.get_port(input_port).get_schema())
                 self._set_output_state(executor.produce_state_on_finish(port_id))
                 # Flush the state to MainLoop before producing tuples so the
                 # state and the tuple stream don't share a single switch.

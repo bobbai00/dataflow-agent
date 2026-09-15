@@ -22,9 +22,29 @@ import pytest
 from pandas import RangeIndex
 
 from core.models import Table, Tuple
+from core.models.schema.schema import Schema
 
 
 class TestTable:
+    def test_empty_tuple_table_retains_declared_schema(self):
+        schema = Schema(raw_schema={"id": "LONG", "name": "STRING", "flag": "BOOLEAN"})
+        table = Table([], schema=schema)
+        assert list(table.columns) == ["id", "name", "flag"]
+        assert str(table["id"].dtype) == "Int64"
+        assert str(table["flag"].dtype) == "boolean"
+        assert table.empty
+
+    def test_schemaful_nullable_integer_table_never_rounds_through_float(self):
+        schema = Schema(raw_schema={"id": "LONG", "flag": "BOOLEAN"})
+        table = Table(
+            [Tuple({"id": 9007199254740993, "flag": True}), Tuple({"id": None, "flag": None})],
+            schema=schema,
+        )
+        assert table["id"].iloc[0] == 9007199254740993
+        assert str(table["id"].dtype) == "Int64"
+        assert pandas.isna(table["id"].iloc[1])
+        assert str(table["flag"].dtype) == "boolean"
+
     @pytest.fixture
     def a_timestamp(self):
         return datetime.datetime.now()
@@ -119,9 +139,7 @@ class TestTable:
         assert table == target_table
         assert list(table.as_tuples()) == target_tuples
 
-    def test_table_from_list_of_series(
-        self, target_table, a_timestamp, target_raw_tuples, target_tuples
-    ):
+    def test_table_from_list_of_series(self, target_table, a_timestamp, target_raw_tuples, target_tuples):
         table = Table([pandas.Series(raw_tuple) for raw_tuple in target_raw_tuples])
 
         assert table == target_table

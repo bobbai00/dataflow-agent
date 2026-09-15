@@ -24,6 +24,7 @@ from typing import Iterator, List, Mapping, Optional, Union, MutableMapping, Pro
 
 from . import Table, TableLike, Tuple, TupleLike, Batch, BatchLike
 from .state import State
+from .schema import Schema
 from .table import all_output_to_tuple, table_from_ipc_bytes, table_to_ipc_bytes
 
 import base64
@@ -273,6 +274,11 @@ class TableOperator(TupleOperatorV2):
         super().__init__()
         self._Operator__internal_is_source: bool = False
         self.__table_data: Mapping[int, List[Tuple]] = defaultdict(list)
+        self.__input_schemas: MutableMapping[int, Schema] = {}
+
+    def _set_input_schema(self, port: int, schema: Schema) -> None:
+        """Runtime-only port metadata, including dynamically discovered schemas."""
+        self.__input_schemas[port] = schema
 
     @overrides.final
     def process_tuple(self, tuple_: Tuple, port: int) -> Iterator[Optional[TupleLike]]:
@@ -280,7 +286,7 @@ class TableOperator(TupleOperatorV2):
         yield
 
     def on_finish(self, port: int) -> Iterator[Optional[TableLike]]:
-        table = Table(self.__table_data[port])
+        table = self._buffered_table(port)
         yield from self.process_table(table, port)
 
     def _buffered_table(self, port: int) -> Table:
@@ -292,7 +298,7 @@ class TableOperator(TupleOperatorV2):
         ``self.__table_data`` resolves via normal name mangling, so a future
         rename of ``TableOperator`` keeps callers transparent.
         """
-        return Table(self.__table_data[port])
+        return Table(self.__table_data[port], schema=self.__input_schemas.get(port))
 
     @abstractmethod
     def process_table(self, table: Table, port: int) -> Iterator[Optional[TableLike]]:
