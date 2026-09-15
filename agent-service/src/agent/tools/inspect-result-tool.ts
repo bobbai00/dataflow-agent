@@ -58,18 +58,19 @@ function cleanNumeric(s: string): boolean {
 /** Apply a `where` focus to the cached sample rows. Read-only; over the sample
  *  the service holds (v1). Supported: `nonnumeric:<col>`, `nulls:<col>`,
  *  `distinct:<col>`. Unknown/absent ⇒ rows unchanged. */
-function applyWhere(rows: Record<string, any>[], where: string | undefined): Record<string, any>[] {
+function applyWhere(rows: Record<string, any>[], where: string | undefined, structured = false): Record<string, any>[] {
   if (!where) return rows;
   const m = /^(nonnumeric|nulls|distinct):(.+)$/.exec(where.trim());
   if (!m) return rows;
   const [, mode, col] = m;
-  if (mode === "nulls") return rows.filter(r => r[col] === null || r[col] === undefined || r[col] === "");
+  if (mode === "nulls")
+    return rows.filter(r => r[col] === null || (!structured && (r[col] === undefined || r[col] === "")));
   if (mode === "nonnumeric") return rows.filter(r => typeof r[col] === "string" && !cleanNumeric(r[col]));
   // distinct: one row per distinct value of col (first occurrence).
   const seen = new Set<string>();
   const out: Record<string, any>[] = [];
   for (const r of rows) {
-    const k = String(r[col]);
+    const k = structured ? JSON.stringify([typeof r[col], r[col]]) : String(r[col]);
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(r);
@@ -93,6 +94,8 @@ export interface InspectResultDeps {
   /** Resolve the operator's current cached result at HEAD (or undefined). */
   getResult: (operatorId: string) => OperatorInfo | undefined;
   workflowState: WorkflowState;
+  /** V2 inspection uses the same existing per-result budget as observations. */
+  maxResultChars?: () => number;
 }
 
 /**
@@ -145,6 +148,44 @@ export function createInspectResultTool(deps: InspectResultDeps) {
         if (info.error) {
           // Errors are already fully surfaced; re-show the error verbatim.
           return formatOperatorResult(args.operatorId, info, deps.workflowState, {});
+        }
+        const op = deps.workflowState.getOperator(args.operatorId);
+        if (op?.nativeOp?.version === "v2") {
+          const schema = info.resultSchema ?? [];
+          const requested = args.columns?.length ? args.columns : schema.map(c => c.name);
+          const whereColumn = /^(?:nonnumeric|nulls|distinct):(.+)$/.exec(args.where?.trim() ?? "")?.[1];
+          for (const name of [...requested, ...(whereColumn ? [whereColumn] : [])]) {
+            if (!schema.some(c => c.name === name))
+              return createErrorResult(`Unknown inspection column ${JSON.stringify(name)}.`);
+          }
+          const rows = applyWhere(info.result ?? [], args.where, true);
+          const focused: OperatorInfo = {
+            ...info,
+            result: rows,
+            resultSchema: schema.filter(c => requested.includes(c.name)),
+            truncated: info.truncated || rows.length !== info.result?.length || requested.length !== schema.length,
+          };
+          const missing =
+            args.stats &&
+            (!info.tableProfile ||
+              info.tableProfile.status === "unavailable" ||
+              info.tableProfile.resultVersion !== info.resultVersion?.id);
+          const header = `Inspection of ${JSON.stringify(args.operatorId)}: ${rows.length} matching cached row(s) available; filters search the sample, not the full table.${missing ? " Requested statistics unavailable for this result version." : ""}`;
+          const budget = Math.max(0, Math.floor(deps.maxResultChars?.() ?? 2000));
+          if (header.length >= budget) return budget >= 9 ? "[omitted]" : "…".slice(0, budget);
+          const rendered = formatOperatorResult(args.operatorId, focused, deps.workflowState, {
+            operatorAtEvent: op,
+            maxResultRows: args.maxRows ?? 30,
+            columns: args.columns,
+            nativeEvidence: {
+              workflow: deps.workflowState.getWorkflowContent(),
+              resolveInput: deps.getResult,
+              data: args.stats === true,
+              flow: false,
+              maxChars: budget - header.length - 1,
+            },
+          });
+          return `${header}\n${rendered}`;
         }
         // Re-render the cached sample with the requested focus/detail.
         let rows = Array.isArray(info.result) ? (info.result as Record<string, any>[]) : [];

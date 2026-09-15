@@ -132,3 +132,8 @@ model_list:
       model: openai/gpt-5.6-tara
       api_key: "os.environ/OPENAI_API_KEY"
       reasoning_effort: medium
+  - model_name: gpt-5.6-terra
+    litellm_params:
+      model: openai/gpt-5.6-terra
+      api_key: "os.environ/OPENAI_API_KEY"
+      reasoning_effort: medium

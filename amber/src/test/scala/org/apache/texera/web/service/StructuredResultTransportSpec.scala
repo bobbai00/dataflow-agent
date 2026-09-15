@@ -27,6 +27,47 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class StructuredResultTransportSpec extends AnyFlatSpec with Matchers {
+  "Structured table annotations" should "never overwrite or inject a user column" in {
+    StructuredResultTransport.capabilities should contain("schema-fields-only-v1")
+    val mapper = new ObjectMapper()
+    val row = mapper.createObjectNode().put("__row_index__", "user value")
+    StructuredResultTransport.annotateSampleRow(row, 42, structuredResults = true)
+    row.get("__row_index__").asText() shouldBe "user value"
+    val ordinary = mapper.createObjectNode().put("x", 3)
+    StructuredResultTransport.annotateSampleRow(ordinary, 42, structuredResults = true)
+    ordinary.has("__row_index__") shouldBe false
+    StructuredResultTransport.annotateSampleRow(ordinary, 42, structuredResults = false)
+    ordinary.get("__row_index__").asInt() shouldBe 42
+  }
+
+  it should "not classify a V2 user table as visualization based on column names" in {
+    val tuple = Tuple
+      .builder(Schema(List(new Attribute("html-content", AttributeType.STRING))))
+      .addSequentially(Array[Any]("<p>user data</p>"))
+      .build()
+    val resource = new SyncExecutionResource()
+    resource.isVisualizationTuple(tuple, structuredResults = true) shouldBe false
+    resource.isVisualizationTuple(tuple, structuredResults = false) shouldBe true
+  }
+
+  "Input provenance" should "include unrequested cached sources without table content" in {
+    val cached = CachedPortUsage("gpid", "source", "main", 0, false, "hash", Some(2L), Some(41L))
+    val result = StructuredResultTransport.inputMaterializations(
+      List("source", "answer", "unfinished", "unknown_cache"),
+      Set("answer"),
+      Set("unknown_cache"),
+      "42",
+      List(cached)
+    )
+    result("source").executionId shouldBe Some("41")
+    result("source").cached shouldBe true
+    result("answer").executionId shouldBe Some("42")
+    result("answer").cached shouldBe false
+    result should not contain key("unfinished")
+    result("unknown_cache").executionId shouldBe None
+    result("unknown_cache").cached shouldBe true
+  }
+
   private val metadataKey = "__texera_profile_v1__:" + ("a" * 32)
   private val envelope =
     """{"protocol":"texera.table-profile","version":1,"operatorId":"source","operatorRevision":"0123456789abcdef","producerId":"0123456789abcdef0123456789abcdef"}"""

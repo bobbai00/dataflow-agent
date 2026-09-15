@@ -102,6 +102,18 @@ export function nativeViewOf(
   return view;
 }
 
+/** Diagnostic-only identity for a rejected submission, including unknown ops.
+ * The fallback has no claimed operator semantics and is never compiled or
+ * inserted in the DAG. Known ops use exactly the normal revision calculation. */
+export function rejectedNativeViewOf(toolName: unknown, input: Record<string, unknown>): NativeOpView {
+  const known = typeof toolName === "string" ? nativeViewOf(toolName, input, "v2") : undefined;
+  if (known) return known;
+  const { id: _id, ...submitted } = input;
+  const view: NativeOpView = { version: "v2", type: "Unknown", properties: { op: toolName, ...submitted }, inputs: [] };
+  view.revision = nativeRevision(view);
+  return view;
+}
+
 /** `inputs: a` / `inputs: left = a, right = b` — the phrase used in receipts and renders. */
 export function describeInputs(type: string, inputs: string[]): string {
   if (inputs.length === 0) return "";
@@ -129,7 +141,11 @@ const ID_SCHEMA = {
 };
 
 function inputArgSchema(def: NativeOperatorDef): { properties: Record<string, unknown>; required: string[] } {
-  if (def.inputs === 1) return { properties: { input: { type: "string", description: "Id of the operator whose output table this reads." } }, required: ["input"] };
+  if (def.inputs === 1)
+    return {
+      properties: { input: { type: "string", description: "Id of the operator whose output table this reads." } },
+      required: ["input"],
+    };
   if (def.inputs === 2) {
     return {
       properties: {
@@ -163,7 +179,8 @@ const TOOL_NOTES: Record<string, string> = {
   Filter: "keeps rows where the SQL boolean predicate is true",
   Project: "keep / drop / rename columns; rows untouched",
   Compute: "columns: {name: SQL scalar expression}; adds or replaces columns; cannot add or drop rows",
-  Aggregate: "aggregations: [{fn, col?, as?}], fn ∈ sum count avg min max median count_distinct string_agg first stddev; no groupBy = one row",
+  Aggregate:
+    "aggregations: [{fn, col?, as?}], fn ∈ sum count avg min max median count_distinct string_agg first stddev; no groupBy = one row",
   Join: "on: shared key names [col, …], or [[leftCol, rightCol]] pairs when the names differ; type inner|left|right|full|cross; omit `on` for a cross join; left = right for a self-join",
   Union: "stacks two or more tables by column name",
   Unpivot: "wide → long: one row per (input row, column in `columns`); nameColumn/valueColumn name the two new columns",
@@ -238,7 +255,14 @@ function wireInputs(workflowState: WorkflowState, operatorId: string, inputs: st
 }
 
 function consumersOf(workflowState: WorkflowState, operatorId: string): string[] {
-  return [...new Set(workflowState.getAllLinks().filter(l => l.source.operatorID === operatorId).map(l => l.target.operatorID))];
+  return [
+    ...new Set(
+      workflowState
+        .getAllLinks()
+        .filter(l => l.source.operatorID === operatorId)
+        .map(l => l.target.operatorID)
+    ),
+  ];
 }
 
 /* ----------------------------------------------------------------------------

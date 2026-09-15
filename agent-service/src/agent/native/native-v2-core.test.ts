@@ -68,6 +68,10 @@ describe("V2 focused core", () => {
     expect(prompt).toContain("count without col counts rows");
     expect(prompt).toContain("nullsEqual: true");
     expect(prompt).toContain("Do not assume a preview describes the full source");
+    expect(prompt).toContain("Data measurement");
+    expect(prompt).toContain("partial prefix");
+    expect(prompt).toContain("Flow guarantee");
+    expect(prompt).toContain("same result budget");
     expect([...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].length).toBeGreaterThanOrEqual(8);
   });
   test("core schemas accept structured arguments and reject ambiguous or legacy forms", () => {

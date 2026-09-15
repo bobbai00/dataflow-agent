@@ -1,0 +1,784 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import type { OperatorInfo, ResultVersion } from "../../types/execution";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
+import { nativeOperators } from "./catalog";
+import type { ProfileColumn, ProfileScalar } from "./profiles";
+
+export interface NativeEvidenceContext {
+  op: OperatorPredicate;
+  info: OperatorInfo;
+  /** The event's immutable DAG, never a later live definition. */
+  workflow: WorkflowContent;
+  resolveInput: (id: string) => OperatorInfo | undefined;
+  /** Explicit inspection scope; this is not a materialized-table projection. */
+  columns?: readonly string[];
+}
+
+export interface NativeEvidenceFact {
+  id: string;
+  family: "data" | "flow";
+  kind: "guarantee" | "measurement" | "warning";
+  text: string;
+  priority: number;
+}
+
+export interface NativeObservationOptions {
+  data: boolean;
+  flow: boolean;
+  maxChars: number;
+  maxRows?: number;
+  detail?: "shape" | "sample";
+  columns?: readonly string[];
+}
+
+/** Audit metadata is not appended to model text. Full version references are
+ * retained here; short prefixes in text are display labels, not cache keys. */
+export interface NativeObservation {
+  version: 1;
+  resultVersion: string | null;
+  inputs: ResultVersion["inputs"];
+  options: NativeObservationOptions;
+  text: string;
+  selected: string[];
+  /** Atomic render units retained for monotone historical compaction. */
+  chunks: Array<{ id: string; text: string }>;
+  omitted: Array<{ id: string; reason: "budget" | "disabled" | "unavailable" | "redundant_complete_table" }>;
+}
+
+const own = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
+const record = (x: unknown): Record<string, any> =>
+  x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, any>) : {};
+const count = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
+const names = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v): v is string => typeof v === "string") : []);
+const json = (x: unknown) => JSON.stringify(x);
+const fraction = (n: number, d: number) => `${n}/${d}${d === 0 ? " (undefined)" : ""}`;
+const scalarText = (x: ProfileScalar) => (x.type === "int64" ? x.value : json(x.value));
+const lexical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Declared dependencies only: no SQL/source parsing or benchmark vocabulary. */
+function declaredColumns(op: OperatorPredicate): string[] {
+  const p = op.nativeOp?.properties ?? {};
+  const result = [...names(p.keep), ...names(p.drop), ...names(p.groupBy), ...names(p.partitionBy), ...names(p.index)];
+  for (const value of [p.column, p.values, p.columns, p.nameColumn, p.valueColumn])
+    if (typeof value === "string") result.push(value);
+  result.push(...names(p.into));
+  if (op.nativeOp?.type === "Unpivot")
+    result.push(String(p.nameColumn ?? "variable"), String(p.valueColumn ?? "value"));
+  result.push(...Object.keys(record(p.values)), ...Object.keys(record(p.rename)), ...names(p.columns));
+  result.push(...names(Object.values(record(p.rename))));
+  for (const item of Array.isArray(p.columns) ? p.columns : []) {
+    const c = record(item);
+    for (const value of [c.column, c.col, c.as]) if (typeof value === "string") result.push(value);
+    result.push(...names(c.inputs));
+  }
+  for (const item of [
+    ...(Array.isArray(p.by) ? p.by : []),
+    ...(Array.isArray(p.orderBy) ? p.orderBy : []),
+    ...(Array.isArray(p.aggregations) ? p.aggregations : []),
+  ]) {
+    const c = record(item);
+    for (const value of [c.col, c.as]) if (typeof value === "string") result.push(value);
+  }
+  if (typeof p.on === "string") result.push(p.on);
+  for (const key of Array.isArray(p.on) ? p.on : []) result.push(...(typeof key === "string" ? [key] : names(key)));
+  return result;
+}
+
+function relevance(context: NativeEvidenceContext): Set<string> {
+  return new Set([
+    ...declaredColumns(context.op),
+    ...context.workflow.operators
+      .filter(o => o.nativeOp?.inputs.includes(context.op.operatorID))
+      .flatMap(declaredColumns),
+  ]);
+}
+
+function validProfile(info: OperatorInfo): boolean {
+  return (
+    !!info.resultVersion?.complete &&
+    !info.error &&
+    !!info.tableProfile &&
+    info.tableProfile.status !== "unavailable" &&
+    info.tableProfile.resultVersion === info.resultVersion.id
+  );
+}
+
+function fullColumn(info: OperatorInfo, c: ProfileColumn): boolean {
+  const coverage = info.tableProfile?.coverage;
+  return (
+    validProfile(info) &&
+    count(info.totalRowCount) &&
+    c.rowsProcessed === info.totalRowCount &&
+    coverage?.expectedWorkers !== null &&
+    coverage?.expectedWorkers === coverage?.receivedWorkers
+  );
+}
+
+function columnScope(info: OperatorInfo, c: ProfileColumn): string {
+  return fullColumn(info, c)
+    ? `full=${c.rowsProcessed} rows`
+    : `partial prefix=${c.rowsProcessed}/${info.totalRowCount ?? "?"} rows`;
+}
+
+/** Consumes structured, version-bound profiles only. No execution, hidden
+ * fetch, human-stat-string parsing, or inference of Python semantics. */
+export function collectNativeEvidence(context: NativeEvidenceContext): {
+  facts: NativeEvidenceFact[];
+  omissions: string[];
+} {
+  const { op, info, resolveInput, workflow } = context;
+  const view = op.nativeOp;
+  const version = info.resultVersion;
+  const facts: NativeEvidenceFact[] = [];
+  const omissions: string[] = [];
+  const add = (
+    id: string,
+    family: NativeEvidenceFact["family"],
+    kind: NativeEvidenceFact["kind"],
+    text: string,
+    priority: number
+  ) => facts.push({ id, family, kind, text: `${family === "flow" ? "Flow" : "Data"} ${kind}: ${text}`, priority });
+  if (
+    info.error ||
+    view?.version !== "v2" ||
+    !version?.complete ||
+    version.operatorId !== op.operatorID ||
+    version.operatorRevision !== view.revision
+  ) {
+    return { facts, omissions: ["result_binding_unavailable"] };
+  }
+  const def = nativeOperators("v2").find(o => o.type === view.type);
+  if (!def) return { facts, omissions: ["operator_contract_unavailable"] };
+  const p = view.properties;
+  const relevant = relevance(context);
+  const profile = validProfile(info) ? info.tableProfile : undefined;
+  if (!profile) omissions.push("profile_unavailable");
+
+  if (profile) {
+    for (const [name, c] of Object.entries(profile.columns).sort(([a], [b]) => lexical(a, b))) {
+      if (context.columns?.length && !context.columns.includes(name)) continue;
+      const priority = relevant.has(name) ? 85 : 45;
+      const scope = columnScope(info, c);
+      add(
+        `data.column.${name}.counts`,
+        "data",
+        "measurement",
+        `${json(name)} (${scope}): null=${fraction(c.nullCount, c.rowsProcessed)}, nonnull=${c.nonnullCount}; distinct(nonnull)=${c.distinctCount ?? "unknown"}${c.distinctCount === null ? "" : `; uniqueness=${fraction(c.distinctCount, c.nonnullCount)}`}.`,
+        priority
+      );
+      if (c.min && c.max)
+        add(
+          `data.column.${name}.range`,
+          "data",
+          "measurement",
+          `${json(name)} (${scope}): range=[${scalarText(c.min)}, ${scalarText(c.max)}].`,
+          priority - 8
+        );
+      if (c.frequencies) {
+        const f = c.frequencies;
+        add(
+          `data.column.${name}.values`,
+          "data",
+          "measurement",
+          `${json(name)} (${scope}): ${f.truncated ? "top values (not exhaustive)" : "nonnull values"}=${f.values.map(v => `${scalarText(v.value)}:${v.count}`).join(", ")}; other=${f.otherCount}.`,
+          priority - 6
+        );
+      }
+    }
+    const s = profile.structure;
+    const scope = profile.coverage.complete
+      ? "full table"
+      : `partial prefix=${profile.coverage.rowsProcessed}/${info.totalRowCount ?? "?"} rows`;
+    if (
+      !context.columns?.length &&
+      ((s.duplicateRows ?? 0) > 0 || (s.allNullRows ?? 0) > 0 || s.allNullColumns.length)
+    ) {
+      add(
+        "data.structure",
+        "data",
+        "measurement",
+        `${scope}: duplicate rows=${s.duplicateRows ?? "unknown"}, all-null rows=${s.allNullRows ?? "unknown"}, all-null columns=${json(s.allNullColumns)}.`,
+        82
+      );
+    }
+    omissions.push(...profile.omissions);
+  }
+
+  const contract: Record<string, string> = {
+    Scan: "source creation; preview is not the full parsed source",
+    Project: `row identities preserved, same order; selection/rename=${json(p)}`,
+    Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
+    FillNull: `row identities preserved, same order; only missing cells in ${json(Object.keys(record(p.values)))} may change`,
+    Transform: `row identities preserved, same order; only declared columns ${json(names((Array.isArray(p.columns) ? p.columns : []).map(c => record(c).column)))} change`,
+    Derive: `row identities preserved, same order; declared dependencies=${json((Array.isArray(p.columns) ? p.columns : []).map(c => ({ output: record(c).as, inputs: record(c).inputs })))}`,
+    Filter: `stable subset of input rows; predicate columns=${json(p.columns ?? [])}; nulls=${p.nulls ?? "drop"}`,
+    Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
+    Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
+    Union: "concatenation preserves all rows and input-port order; no deduplication",
+    Distinct: `stable retained subset; keys=${p.columns === undefined ? "whole row" : json(p.columns)}; keep=${p.keep ?? "first"}`,
+    Limit: `stable positional slice; offset=${p.offset ?? 0}, n=${p.n}; not a top-k claim without Sort`,
+    Sort: `row identities preserved; stable sort by=${json(p.by ?? [])}; nulls=${p.nulls ?? "last"}`,
+    Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
+    Split: `row identities preserved, same order; ${json(p.column)} split literally into=${json(p.into)}, missing pieces padded with null`,
+    Explode: `JSON-array elements in parent/element order, other columns repeated; empty=${p.empty ?? "drop"}; parent identity is internal, not a user column`,
+    Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
+    Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
+    UDF: "row/column mapping unknown; equal row counts do not prove preservation",
+  };
+  if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
+
+  const inputs = view.inputs.map(resolveInput);
+  const inputsMatch =
+    version.inputs.length === view.inputs.length &&
+    inputs.every((input, i) => {
+      const ref = version.inputs[i];
+      const inputOp = workflow.operators.find(o => o.operatorID === view.inputs[i]);
+      return (
+        !!input &&
+        !input.error &&
+        input.resultVersion?.complete &&
+        ref.inputIndex === i &&
+        ref.operatorId === view.inputs[i] &&
+        ref.resultVersion === input.resultVersion.id &&
+        ref.outputPort === input.resultVersion.outputPort &&
+        input.resultVersion.workflowId === version.workflowId &&
+        inputOp?.nativeOp?.revision === input.resultVersion.operatorRevision
+      );
+    });
+  if (!inputsMatch) omissions.push("input_versions_unavailable");
+  const n = profile?.native;
+  const inputRows = inputs.map(input => input?.totalRowCount);
+  const outputRows = info.totalRowCount;
+  const operational =
+    inputsMatch &&
+    n?.operatorType === view.type &&
+    json(n.inputOperators) === json(view.inputs) &&
+    count(outputRows) &&
+    outputRows === n.outputRows &&
+    profile?.rowCount === outputRows &&
+    n.inputRows?.length === inputs.length &&
+    inputRows.every((rows, i) => count(rows) && rows === n.inputRows![i]) &&
+    (n.rowEffect === undefined || n.rowEffect === def.rowEffect);
+  if (!operational) return { facts, omissions: [...new Set([...omissions, "operational_metadata_unavailable"])] };
+  const ns = inputRows as number[];
+  const out = outputRows as number;
+  const operations = n!.operations ?? {};
+  if (view.type === "Filter") {
+    const input = inputs[0]!;
+    if (validProfile(input))
+      for (const name of names(p.columns)) {
+        if (context.columns?.length && !context.columns.includes(name)) continue;
+        const before = own(input.tableProfile!.columns, name) ? input.tableProfile!.columns[name] : undefined;
+        const after = own(profile!.columns, name) ? profile!.columns[name] : undefined;
+        if (before && after)
+          add(
+            `flow.filter.column.${name}`,
+            "flow",
+            "measurement",
+            `predicate column ${json(name)}: input (${columnScope(input, before)}) null=${fraction(before.nullCount, before.rowsProcessed)}, distinct(nonnull)=${before.distinctCount ?? "unknown"}; output (${columnScope(info, after)}) null=${fraction(after.nullCount, after.rowsProcessed)}, distinct(nonnull)=${after.distinctCount ?? "unknown"}.`,
+            88
+          );
+      }
+    const { keptRows, rejectedRows, nullPredicates } = operations;
+    if (
+      count(keptRows) &&
+      count(rejectedRows) &&
+      count(nullPredicates) &&
+      keptRows === out &&
+      keptRows + rejectedRows === ns[0] &&
+      nullPredicates <= ns[0] &&
+      ((p.nulls ?? "drop") !== "error" || nullPredicates === 0) &&
+      ((p.nulls ?? "drop") !== "drop" || nullPredicates <= rejectedRows) &&
+      (p.nulls !== "keep" || nullPredicates <= keptRows)
+    ) {
+      add(
+        "flow.filter",
+        "flow",
+        "measurement",
+        `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (nulls=${p.nulls ?? "drop"}).`,
+        96
+      );
+    } else omissions.push("invalid_filter_counters");
+  } else if (view.type === "Aggregate") {
+    const size = record(operations.groupSizes);
+    const emptyGroups = out === 0 && ns[0] === 0 && size.min === null && size.max === null;
+    if (
+      operations.groupCount === out &&
+      size.total === ns[0] &&
+      (emptyGroups ||
+        (count(size.min) &&
+          count(size.max) &&
+          size.min <= size.max &&
+          size.max <= ns[0] &&
+          out > 0 &&
+          size.min * out <= ns[0] &&
+          size.max * out >= ns[0]))
+    ) {
+      add(
+        "flow.aggregate",
+        "flow",
+        "measurement",
+        `Aggregate groups=${out} from ${ns[0]} rows; group size min=${size.min ?? "undefined"}, max=${size.max ?? "undefined"}.`,
+        96
+      );
+      for (const agg of Array.isArray(p.aggregations) ? p.aggregations : []) {
+        const a = record(agg),
+          denom = record(record(operations.aggregateNonNull)[a.as]);
+        if (
+          typeof a.as === "string" &&
+          count(denom.total) &&
+          denom.total <= ns[0] &&
+          ((emptyGroups && denom.total === 0 && denom.min === null && denom.max === null) ||
+            (count(denom.min) &&
+              count(denom.max) &&
+              denom.min <= denom.max &&
+              denom.min * out <= denom.total &&
+              denom.max * out >= denom.total))
+        ) {
+          add(
+            `flow.aggregate.${a.as}`,
+            "flow",
+            "measurement",
+            `${json(a.as)} ${a.fn === "count" && a.col === undefined ? "row denominator" : "nonnull"}=${fraction(denom.total, ns[0])}; per-group min=${denom.min ?? "undefined"}, max=${denom.max ?? "undefined"}; reducer=${a.fn}${a.fn === "first" ? " (first includes null)" : ""}.`,
+            95
+          );
+        } else omissions.push("aggregate_denominator_unavailable");
+      }
+    } else omissions.push("invalid_aggregate_counters");
+  } else if (view.type === "Join") {
+    const join = record(operations.join);
+    const type = p.type ?? "inner";
+    if (type === "cross") {
+      if (
+        join.type === "cross" &&
+        join.leftRows === ns[0] &&
+        join.rightRows === ns[1] &&
+        count(ns[0] * ns[1]) &&
+        join.matchedOutputRows === out &&
+        out === ns[0] * ns[1]
+      )
+        add("flow.join.cross", "flow", "measurement", `Cross join output=${ns[0]}*${ns[1]}=${out} rows.`, 96);
+      else omissions.push("invalid_join_counters");
+    } else {
+      const sides = [record(join.left), record(join.right)];
+      const valid =
+        join.type === type &&
+        join.nullsEqual === (p.nullsEqual ?? false) &&
+        join.validate === (p.validate ?? "many_to_many") &&
+        count(join.matchedOutputRows) &&
+        sides.every(
+          (s, i) =>
+            [
+              "rows",
+              "eligibleRows",
+              "nullKeyRows",
+              "distinctKeys",
+              "matchedRows",
+              "unmatchedRows",
+              "matchedKeys",
+              "unmatchedKeys",
+              "maxMultiplicity",
+            ].every(k => count(s[k])) &&
+            s.rows === ns[i] &&
+            s.nullKeyRows <= s.rows &&
+            s.eligibleRows === (join.nullsEqual ? s.rows : s.rows - s.nullKeyRows) &&
+            s.matchedRows + s.unmatchedRows === s.rows &&
+            s.matchedRows <= s.eligibleRows &&
+            s.matchedKeys + s.unmatchedKeys === s.distinctKeys &&
+            s.distinctKeys <= s.eligibleRows &&
+            s.matchedKeys <= s.matchedRows &&
+            s.maxMultiplicity <= s.eligibleRows &&
+            s.matchedRows <= join.matchedOutputRows
+        ) &&
+        sides[0].matchedKeys === sides[1].matchedKeys &&
+        join.matchedOutputRows +
+          (["left", "full"].includes(type as string) ? sides[0].unmatchedRows : 0) +
+          (["right", "full"].includes(type as string) ? sides[1].unmatchedRows : 0) ===
+          out;
+      if (valid) {
+        add(
+          "flow.join.output",
+          "flow",
+          "measurement",
+          `Join matched contribution=${join.matchedOutputRows} (sum L(k)*R(k)); output=${out}, including outer unmatched rows as declared.`,
+          96
+        );
+        sides.forEach((s, i) =>
+          add(
+            `flow.join.${i}`,
+            "flow",
+            "measurement",
+            `${i ? "right" : "left"} matched rows=${fraction(s.matchedRows, s.rows)}, unmatched rows=${s.unmatchedRows}; matched keys=${fraction(s.matchedKeys, s.distinctKeys)}, unmatched keys=${s.unmatchedKeys}; null-key rows=${s.nullKeyRows}, max eligible multiplicity=${s.maxMultiplicity}.`,
+            95
+          )
+        );
+      } else omissions.push("invalid_join_counters");
+    }
+  } else if (view.type === "Union") {
+    const sum = ns.reduce((a, b) => a + b, 0);
+    if (count(sum) && sum === out) {
+      add(
+        "flow.union",
+        "flow",
+        "measurement",
+        `Union input rows=${json(ns)}, sum=${sum}, output=${out}; aligned missing columns by port=${json(operations.alignedMissingColumns ?? "unknown")}.`,
+        94
+      );
+    } else omissions.push("invalid_union_counters");
+  } else if (view.type === "Window") {
+    const window = record(operations.window);
+    if (
+      out === ns[0] &&
+      count(window.partitions) &&
+      count(window.tieRows) &&
+      (out === 0 ? window.partitions === 0 : window.partitions >= 1 && window.partitions <= out) &&
+      window.tieRows <= out - window.partitions
+    ) {
+      add(
+        "flow.window",
+        "flow",
+        "measurement",
+        `Window preserved=${out} rows; partitions=${window.partitions}, ties beyond first=${window.tieRows}.`,
+        94
+      );
+      for (const item of Array.isArray(p.columns) ? p.columns : []) {
+        const c = record(item);
+        if (!["lag", "lead"].includes(c.fn) || typeof c.as !== "string") continue;
+        const counter = record(record(window.outputs)[c.as]);
+        if (
+          count(counter.boundaryNulls) &&
+          count(counter.nullOutputs) &&
+          counter.boundaryNulls >= window.partitions &&
+          counter.boundaryNulls <= counter.nullOutputs &&
+          counter.nullOutputs <= out &&
+          (Number(c.offset ?? 1) < out || counter.boundaryNulls === out)
+        ) {
+          add(
+            `flow.window.${c.as}`,
+            "flow",
+            "measurement",
+            `${json(c.as)} boundary nulls=${fraction(counter.boundaryNulls, out)}, total nulls=${fraction(counter.nullOutputs, out)}; existing null cells may also propagate.`,
+            93
+          );
+        } else omissions.push("window_output_counters_unavailable");
+      }
+    } else omissions.push("invalid_window_counters");
+  } else if (view.type === "Explode") {
+    const x = record(operations.explode);
+    if (
+      [x.emptyParents, x.arrayElements, x.nullElements, x.maxElements].every(count) &&
+      x.emptyParents <= ns[0] &&
+      x.nullElements <= x.arrayElements &&
+      x.maxElements <= x.arrayElements &&
+      x.arrayElements >= ns[0] - x.emptyParents &&
+      (x.arrayElements === 0 ? x.maxElements === 0 : x.maxElements > 0) &&
+      x.arrayElements <= (ns[0] - x.emptyParents) * x.maxElements &&
+      x.arrayElements + (p.empty === "null_row" ? x.emptyParents : 0) === out
+    ) {
+      add(
+        "flow.explode",
+        "flow",
+        "measurement",
+        `Explode output=${out} from ${ns[0]} parents; array elements=${x.arrayElements}, null elements=${x.nullElements}; empty/null parents=${x.emptyParents} (empty=${p.empty ?? "drop"}), max elements per parent=${x.maxElements}.`,
+        94
+      );
+    } else omissions.push("invalid_explode_counters");
+  } else if (view.type === "Unpivot") {
+    const x = record(operations.unpivot),
+      columns = names(p.columns);
+    if (
+      columns.length > 0 &&
+      new Set(columns).size === columns.length &&
+      x.selectedColumns === columns.length &&
+      count(ns[0] * columns.length) &&
+      out === ns[0] * columns.length &&
+      count(x.nullCells) &&
+      x.nullCells <= out
+    ) {
+      add(
+        "flow.unpivot",
+        "flow",
+        "measurement",
+        `Unpivot output=${ns[0]}*${columns.length}=${out} rows; retained null cells=${x.nullCells}.`,
+        94
+      );
+    } else omissions.push("invalid_unpivot_counters");
+  } else if (view.type === "Pivot") {
+    const x = record(operations.pivot);
+    if (
+      [x.uniquePairs, x.indexGroups, x.generatedColumns, x.missingCells].every(count) &&
+      x.uniquePairs === ns[0] &&
+      x.indexGroups === out &&
+      out <= ns[0] &&
+      x.generatedColumns <= ns[0] &&
+      (ns[0] === 0 ? out === 0 && x.generatedColumns === 0 : out > 0 && x.generatedColumns > 0) &&
+      (names(p.index).length > 0 || out === (ns[0] ? 1 : 0)) &&
+      count(out * x.generatedColumns) &&
+      x.missingCells + x.uniquePairs === out * x.generatedColumns
+    ) {
+      add(
+        "flow.pivot",
+        "flow",
+        "measurement",
+        `Pivot unique pairs=${x.uniquePairs}, index groups=${out}, generated columns=${x.generatedColumns}, absent cells=${x.missingCells} (filled null, separate from null input values).`,
+        94
+      );
+    } else omissions.push("invalid_pivot_counters");
+  } else if (["Distinct", "Limit"].includes(view.type)) {
+    if (count(operations.removedRows) && operations.removedRows + out === ns[0])
+      add(
+        "flow.removed",
+        "flow",
+        "measurement",
+        `${view.type} retained=${fraction(out, ns[0])}, removed=${operations.removedRows}.`,
+        94
+      );
+    else omissions.push("invalid_removal_counters");
+  } else if (view.type === "Scan") {
+    const scan = record(operations.scan);
+    if (
+      typeof scan.preview === "boolean" &&
+      count(scan.resolvedFiles) &&
+      count(scan.selectedFiles) &&
+      count(scan.omittedFiles) &&
+      scan.selectedFiles + scan.omittedFiles === scan.resolvedFiles
+    ) {
+      add(
+        "flow.scan",
+        "flow",
+        "measurement",
+        `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
+        96
+      );
+      for (const [i, source] of (Array.isArray(scan.sources) ? scan.sources : []).entries()) {
+        const s = record(source);
+        if (typeof s.path === "string")
+          add(
+            `flow.scan.source.${i}`,
+            "flow",
+            "measurement",
+            `source=${json(s.path)}, format=${json(s.format)}, sizeBytes=${s.sizeBytes ?? "unknown"}, mtimeNs=${json(s.mtimeNs ?? "unknown")}; parse/coverage=${json(Object.fromEntries(Object.entries(s).filter(([k]) => !["path", "format", "sizeBytes", "mtimeNs"].includes(k))))}.`,
+            80
+          );
+      }
+    } else omissions.push("scan_coverage_unavailable");
+  } else if (view.type === "UDF") {
+    add(
+      "flow.udf.counts",
+      "flow",
+      "measurement",
+      `UDF input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
+      75
+    );
+  }
+  if (["Cast", "Transform", "Derive", "FillNull"].includes(view.type) && ns[0] === out) {
+    if (view.type === "Cast")
+      for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
+        if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0))
+          add(
+            `flow.cast.${name}`,
+            "flow",
+            "measurement",
+            `${json(name)} conversion failures=${failures}/${ns[0]} rows (errors=${p.errors ?? "raise"}).`,
+            failures ? 100 : 50
+          );
+      }
+    const input = inputs[0]!;
+    for (const [name, after] of Object.entries(profile!.columns)) {
+      const before = own(input.tableProfile?.columns ?? {}, name) ? input.tableProfile!.columns[name] : undefined;
+      if (relevant.has(name) && before && fullColumn(input, before) && fullColumn(info, after))
+        add(
+          `flow.nulls.${name}`,
+          "flow",
+          "measurement",
+          `${json(name)} nulls before=${before.nullCount}/${ns[0]}, after=${after.nullCount}/${out}, delta=${after.nullCount - before.nullCount}; row-preserving contract, not a claim of cellwise equivalence.`,
+          90
+        );
+    }
+  }
+  return { facts, omissions: [...new Set(omissions)] };
+}
+
+function cellText(value: unknown, type: string): string {
+  if (value === null) return "null";
+  if (type === "int64" && typeof value === "string" && /^-?(0|[1-9]\d*)$/.test(value)) return value;
+  return json(value) ?? "[unavailable]";
+}
+
+/** One budget covers the successful result, including schema, samples,
+ * version labels and evidence. Errors use the separate diagnostic path. */
+export function selectNativeObservation(context: NativeEvidenceContext & NativeObservationOptions): NativeObservation {
+  const { op, info, data, flow } = context;
+  const maxChars = Number.isFinite(context.maxChars) ? Math.max(0, Math.floor(context.maxChars)) : 2000;
+  const result: NativeObservation = {
+    version: 1,
+    resultVersion: info.resultVersion?.id ?? null,
+    inputs: structuredClone(info.resultVersion?.inputs ?? []),
+    options: {
+      data,
+      flow,
+      maxChars,
+      maxRows: context.maxRows,
+      detail: context.detail,
+      columns: context.columns ? [...context.columns] : undefined,
+    },
+    text: "",
+    selected: [],
+    chunks: [],
+    omitted: [],
+  };
+  const lines: string[] = [];
+  const append = (text: string, id: string): boolean => {
+    if (lines.join("\n").length + (lines.length ? 1 : 0) + text.length > maxChars) return false;
+    lines.push(text);
+    result.selected.push(id);
+    result.chunks.push({ id, text });
+    return true;
+  };
+  const rows = info.result ?? [];
+  const schema =
+    info.resultSchema ?? Object.keys(rows[0] ?? {}).map(name => ({ name, type: "unknown", encoding: "unknown" }));
+  const total = count(info.totalRowCount) ? info.totalRowCount : undefined;
+  const summary = `Output Table: ${total ?? "?"} rows, ${schema.length} cols`;
+  if (!append(summary, "table.shape")) {
+    result.text = maxChars >= 9 ? "[omitted]" : "…".slice(0, maxChars);
+    result.omitted.push({ id: "table", reason: "budget" });
+    return result;
+  }
+  const rowLimit = context.maxRows && context.maxRows > 0 ? Math.floor(context.maxRows) : rows.length;
+  const schemaLine = (fields: typeof schema) => `Columns: ${fields.map(c => `${json(c.name)}:${c.type}`).join("\t")}`;
+  const rowLine = (row: Record<string, unknown>, fields: typeof schema) =>
+    fields.map(c => cellText(own(row, c.name) ? row[c.name] : undefined, c.type)).join("\t");
+  const complete =
+    context.detail !== "shape" &&
+    !!info.resultSchema &&
+    total !== undefined &&
+    total === rows.length &&
+    info.truncated === false &&
+    rowLimit >= rows.length &&
+    (!context.columns?.length || schema.every(c => context.columns!.includes(c.name))) &&
+    rows.every(row =>
+      schema.every(
+        c => own(row, c.name) && !(typeof row[c.name] === "string" && row[c.name].includes("...[truncated]..."))
+      )
+    );
+  const table = [schemaLine(schema), "Complete table (all rows):", ...rows.map(row => rowLine(row, schema))].join("\n");
+  const completeVisible = complete && append(table, "table.complete");
+  const evidence = collectNativeEvidence(context);
+  result.omitted.push(...evidence.omissions.map(id => ({ id, reason: "unavailable" as const })));
+  const candidates: NativeEvidenceFact[] = [];
+  if (!completeVisible) {
+    const relevant = relevance(context);
+    const allowed = schema.filter(c => !context.columns?.length || context.columns.includes(c.name));
+    const ranked = [...allowed].sort(
+      (a, b) => Number(relevant.has(b.name)) - Number(relevant.has(a.name)) || lexical(a.name, b.name)
+    );
+    const selected: typeof schema = [];
+    const schemaBudget = Math.max(0, Math.floor(maxChars * 0.3));
+    for (const c of ranked)
+      if (schemaLine([...selected, c]).length + (selected.length + 1 === schema.length ? 0 : 24) <= schemaBudget)
+        selected.push(c);
+    // Keep the declared schema order within the selected column subset.
+    const fields = schema.filter(c => selected.includes(c));
+    if (fields.length)
+      append(
+        `${schemaLine(fields)}${fields.length === schema.length ? "" : ` (shown=${fields.length}/${schema.length})`}`,
+        "table.schema"
+      );
+    else append("Columns omitted: budget", "table.schema_omitted");
+    if (context.detail !== "shape" && fields.length) {
+      const order = Array.from({ length: rows.length }, (_, i) =>
+        i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)
+      ).slice(0, rowLimit);
+      for (const [rank, i] of order.entries())
+        candidates.push({
+          id: `sample.${i}`,
+          family: "data",
+          kind: "measurement",
+          text: `Sample stored row ${i + 1}: ${rowLine(rows[i], fields)}`,
+          priority: rank === 0 ? 105 : 65 - rank,
+        });
+    }
+    result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });
+  }
+  for (const fact of evidence.facts) {
+    if (!(fact.family === "data" ? data : flow)) result.omitted.push({ id: fact.id, reason: "disabled" });
+    else if (completeVisible && fact.family === "data")
+      result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
+    else candidates.push(fact);
+  }
+  const v = info.resultVersion;
+  const binding = v
+    ? `Evidence version: ${op.operatorID}@${v.id.slice(0, 16)} (execution=${v.executionId ?? "unknown"}); inputs=${v.inputs.map(ref => `${ref.inputIndex}:${ref.operatorId}@${ref.resultVersion?.slice(0, 16) ?? "unknown"}`).join(",") || "none"}`
+    : "Evidence version unavailable";
+  let bound = false;
+  for (const fact of candidates.sort((a, b) => b.priority - a.priority || lexical(a.id, b.id))) {
+    const sample = fact.id.startsWith("sample.");
+    const text = !sample && !bound ? `${binding}\n${fact.text}` : fact.text;
+    if (append(text, fact.id)) {
+      if (!sample) bound = true;
+    } else result.omitted.push({ id: fact.id, reason: "budget" });
+  }
+  if (!completeVisible) append("View incomplete; unshown rows/columns or evidence omitted.", "view.omissions");
+  result.text = lines.join("\n");
+  return result;
+}
+
+/** Historical compaction is subtractive: it may drop rows or tail chunks,
+ * never extract fresh profiles or use a later DAG to choose new evidence. */
+export function restrictNativeObservation(
+  observation: NativeObservation,
+  limits: { maxChars?: number; maxRows?: number; detail?: "sample" | "shape" }
+): string {
+  const budget =
+    limits.maxChars !== undefined && limits.maxChars > 0
+      ? Math.min(observation.options.maxChars, limits.maxChars)
+      : observation.options.maxChars;
+  const rowLimit = limits.maxRows && limits.maxRows > 0 ? Math.floor(limits.maxRows) : Infinity;
+  if (budget >= observation.text.length && rowLimit === Infinity && limits.detail !== "shape") return observation.text;
+  const chunks: string[] = [];
+  let sampleRows = 0;
+  for (const chunk of observation.chunks) {
+    if (chunk.id.startsWith("sample.") && (limits.detail === "shape" || sampleRows++ >= rowLimit)) continue;
+    let text = chunk.text;
+    if (chunk.id === "table.complete") {
+      const [schema, , ...rows] = text.split("\n");
+      if (limits.detail === "shape") text = schema;
+      else if (rowLimit < rows.length)
+        text = [
+          schema,
+          `Sample from recorded table (${rowLimit}/${rows.length} rows):`,
+          ...rows.slice(0, rowLimit),
+        ].join("\n");
+    }
+    chunks.push(text);
+  }
+  const text = chunks.join("\n");
+  if (text.length <= budget) return text;
+  const notice = "Observation shortened; details omitted.";
+  const selected: string[] = [];
+  for (const chunk of chunks) {
+    if ([...selected, chunk, notice].join("\n").length > budget) break;
+    selected.push(chunk);
+  }
+  if (notice.length <= budget) return [...selected, notice].join("\n");
+  return "[omitted]".length <= budget ? "[omitted]" : "…".slice(0, budget);
+}

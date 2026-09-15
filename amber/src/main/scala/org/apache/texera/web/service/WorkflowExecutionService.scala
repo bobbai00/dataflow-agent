@@ -88,6 +88,9 @@ class WorkflowExecutionService(
 ) extends SubscriptionManager
     with LazyLogging {
 
+  private val phaseTracker = new ExecutionPhaseTracker()
+  def phaseMetrics: ExecutionPhaseMetrics = phaseTracker.snapshot
+
   // Wire error/state reporting first, before any other construction work, so a
   // fatalErrors update (recorded by errorHandler) always has an emitter.
   // Construction itself does no external work and cannot throw; the throwing
@@ -183,12 +186,15 @@ class WorkflowExecutionService(
     */
   def executeWorkflow(): Unit = {
     try {
-      val compilationResult = new WorkflowCompiler(workflowContext)
-        .compile(request.logicalPlan, CompilationErrorHandling.Strict)
+      val compilationResult = phaseTracker.observeCompilation {
+        new WorkflowCompiler(workflowContext)
+          .compile(request.logicalPlan, CompilationErrorHandling.Strict)
+      }
       workflow = Workflow.fromCompilationResult(workflowContext, compilationResult)
       val cachedOutputsByPort = computeCachedOutputs(workflow.physicalPlan)
-      val cachedOutputs = cachedOutputsByPort.map { case (gpid, cached) =>
-        gpid.serializeAsString -> cached
+      val cachedOutputs = cachedOutputsByPort.map {
+        case (gpid, cached) =>
+          gpid.serializeAsString -> cached
       }
       workflowContext.workflowSettings =
         workflowContext.workflowSettings.copy(cachedOutputs = cachedOutputs)
@@ -214,14 +220,13 @@ class WorkflowExecutionService(
     executionReconfigurationService =
       new ExecutionReconfigurationService(client, executionStateStore, workflow)
     executionStatsService = new ExecutionStatsService(client, executionStateStore, workflow.context)
-    executionCacheService =
-      new ExecutionCacheService(
-        client,
-        cacheService,
-        workflow.context,
-        workflow.physicalPlan,
-        executionStateStore
-      )
+    executionCacheService = new ExecutionCacheService(
+      client,
+      cacheService,
+      workflow.context,
+      workflow.physicalPlan,
+      executionStateStore
+    )
     executionRuntimeService = new ExecutionRuntimeService(
       client,
       executionStateStore,
@@ -250,6 +255,7 @@ class WorkflowExecutionService(
     executionStateStore.statsStore.updateState(stats =>
       stats.withStartTimeStamp(System.currentTimeMillis())
     )
+    phaseTracker.markRuntimeStartAttempted()
     client.coordinatorInterface
       .startWorkflow(EmptyRequest(), ())
       .onFailure(err => {

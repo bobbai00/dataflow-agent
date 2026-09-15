@@ -22,9 +22,14 @@ import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./agent/native/settings";
-import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
+import {
+  operatorInfoToSummary,
+  type OperatorResultSummary as OperatorResultSummaryWs,
+} from "./api/operator-result-summary";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
+import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
+import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -52,11 +57,7 @@ import {
   ProbeRetirementConfigSchema,
   type ProbeRetirementConfig,
 } from "./agent/context/selector/probe-retirement";
-import {
-  applyRolePolicy,
-  RolePolicyConfigSchema,
-  type RolePolicyConfig,
-} from "./agent/context/selector/role-policy";
+import { applyRolePolicy, RolePolicyConfigSchema, type RolePolicyConfig } from "./agent/context/selector/role-policy";
 import {
   FoldResolvedRevisionsConfigSchema,
   type FoldResolvedRevisionsConfig,
@@ -157,7 +158,9 @@ function lastTouchTurnByOperator(visibleSteps: Array<{ messageId: string; toolCa
 /** Operator ids touched by the turn in progress (the newest messageId group) —
  *  the ones that render RICH under the turn-history index while everything
  *  older renders as a one-line entry. */
-function currentTurnOperatorIds(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): string[] {
+function currentTurnOperatorIds(
+  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
+): string[] {
   if (visibleSteps.length === 0) return [];
   const lastMessageId = visibleSteps[visibleSteps.length - 1].messageId;
   const ids = new Set<string>();
@@ -199,7 +202,7 @@ function getLearnedModel(): UtilityModel | null {
   return _learnedModel;
 }
 
-function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
+export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
   // One tuner per agent, built lazily and reused (it accumulates teacher-token
   // usage). Rebuilt if the teacher model id changes.
   let tuner: LLMContextTuner | undefined;
@@ -218,7 +221,9 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
   // into the individual decoration rungs via the catalog), plus the substrate /
   // select / prior knobs below. The per-rung decoration booleans are NOT a
   // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = async ({
+  // Ordinary renderers stay synchronous so debug/UI previews show the current
+  // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
+  const sdkContext: ContextAssembler = ({
     visibleSteps,
     workflowState,
     snapshotStorage,
@@ -306,9 +311,11 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     // tune() on any failure.
     if (settings.tunerConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const { params } = await getTuner(settings.tunerConfig).tune(dossier, latestTaskText(visibleSteps));
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return getTuner(settings.tunerConfig)
+        .tune(dossier, latestTaskText(visibleSteps))
+        .then(({ params }) =>
+          summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params).messages
+        );
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
     // params from the live dossier. The dossier is built once and reused.
@@ -416,9 +423,12 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           // Upstream inputs get VALUES as the budget allows — knowing an input
           // table's numbers matters more often than knowing how it was produced,
           // and code is the half the model can cheapest recall on demand.
-          upstream.reverse().slice(0, Math.max(0, TABLE_CAP)).forEach(id => {
-            overrides[id] = { result: { latest: { detail: "sample" } } };
-          });
+          upstream
+            .reverse()
+            .slice(0, Math.max(0, TABLE_CAP))
+            .forEach(id => {
+              overrides[id] = { result: { latest: { detail: "sample" } } };
+            });
           // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
           // index lists every operator ever built: on my_uber_drivers the model
           // had created 737 by turn 30, and their index entries alone were 360 KB
@@ -594,6 +604,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeRecipes: agentSettings.nativeRecipes,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
+    messageLayout: agentSettings.messageLayout,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
     thoughtReplay: agentSettings.thoughtReplay,
@@ -970,24 +981,24 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
-      userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom"), t.Literal("chronological")])),
-      turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
-      enableRecallTool: t.Optional(t.Boolean()),
-      recallMaxResultChars: t.Optional(t.Number()),
-      recallOperatorLevel: t.Optional(t.Boolean()),
-      specAudit: t.Optional(t.Boolean()),
-      indexRichTables: t.Optional(t.Number()),
-      indexDetailedOperators: t.Optional(t.Number()),
-      enableResumeTool: t.Optional(t.Boolean()),
-      enableAnswerGrounding: t.Optional(t.Boolean()),
-      coercionTelemetry: t.Optional(t.Boolean()),
-      rowLineage: t.Optional(t.Boolean()),
-      statScopes: t.Optional(t.Any()),
-      messageLayout: t.Optional(t.String()),
-      versionedMode: t.Optional(t.Boolean()),
-      versionedHeads: t.Optional(t.Boolean()),
-      sessionTurns: t.Optional(t.Boolean()),
-      indexThinObservations: t.Optional(t.Boolean()),
+            userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom"), t.Literal("chronological")])),
+            turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
+            enableRecallTool: t.Optional(t.Boolean()),
+            recallMaxResultChars: t.Optional(t.Number()),
+            recallOperatorLevel: t.Optional(t.Boolean()),
+            specAudit: t.Optional(t.Boolean()),
+            indexRichTables: t.Optional(t.Number()),
+            indexDetailedOperators: t.Optional(t.Number()),
+            enableResumeTool: t.Optional(t.Boolean()),
+            enableAnswerGrounding: t.Optional(t.Boolean()),
+            coercionTelemetry: t.Optional(t.Boolean()),
+            rowLineage: t.Optional(t.Boolean()),
+            statScopes: t.Optional(t.Any()),
+            messageLayout: t.Optional(t.String()),
+            versionedMode: t.Optional(t.Boolean()),
+            versionedHeads: t.Optional(t.Boolean()),
+            sessionTurns: t.Optional(t.Boolean()),
+            indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1037,6 +1048,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
+  .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
+    const agent = getAgent(id);
+    const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
+    if (!authorization.ok) {
+      set.status = authorization.status;
+      return { error: authorization.error };
+    }
+    const query = inspectErrorSchema.safeParse(body);
+    if (!query.success) {
+      set.status = 400;
+      return { error: "Expected operatorId and optional revision/diagnosticId; no other fields are accepted." };
+    }
+    const inspection = agent.getSnapshotStorage().inspectNativeError(agent.getHead(), query.data);
+    if (!inspection.found) set.status = 404;
+    return inspection;
+  })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
@@ -1110,6 +1137,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       workflow: workflowEntry?.value ?? null,
       workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
       results,
+      ...(storage.getAssociatedSnapshot(resolvedStepId).nativeObservations !== undefined
+        ? { nativeObservations: storage.getAssociatedSnapshot(resolvedStepId).nativeObservations }
+        : {}),
     };
   })
 
@@ -1162,9 +1192,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       const result = await agent.sendMessage(content, messageSource);
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const lastWithContent = [...steps]
-        .reverse()
-        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
       broadcastNextContext(id, agent);
       return {
         status: "complete",
@@ -1411,20 +1439,6 @@ interface WsMessage {
   messageSource?: "chat" | "feedback";
 }
 
-interface OperatorResultSummaryWs {
-  state: string;
-  inputTuples: number;
-  outputTuples: number;
-  inputPortShapes?: { portIndex: number; rows: number; columns: number }[];
-  outputColumns?: number;
-  error?: string;
-  warnings?: string[];
-  consoleLogCount?: number;
-  totalRowCount?: number;
-  sampleRecords?: Record<string, any>[];
-  columnStats?: Record<string, string>;
-}
-
 interface WsOutgoingMessage {
   type: "step" | "state" | "error" | "complete" | "init" | "headChange" | "nextContext" | "snapshot";
   step?: ReActStep;
@@ -1434,7 +1448,7 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
-  /** Assembled next-step user-message content (markdown). Updated whenever
+  /** Assembled next-step transcript content (markdown/JSON). Updated whenever
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
   content?: string;
@@ -1442,29 +1456,6 @@ interface WsOutgoingMessage {
   stepId?: string;
   /** For "snapshot" events: the freshly recorded workflow content. */
   workflow?: any;
-}
-
-/**
- * Render one `OperatorInfo` into the wire shape the dashboard + websocket
- * clients expect. Kept separate from `getOperatorResultSummaries` so the
- * snapshots-by-stepId endpoint can reuse it instead of dumping raw
- * `OperatorInfo` (which inverts the field names — `result` vs
- * `sampleRecords` — and skips the precomputed `outputColumns`).
- */
-function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
-  return {
-    state: info.state,
-    inputTuples: info.inputTuples,
-    outputTuples: info.outputTuples,
-    inputPortShapes: info.inputPortShapes,
-    outputColumns: info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
-    error: info.error,
-    warnings: info.warnings,
-    consoleLogCount: info.consoleLogs?.length,
-    totalRowCount: info.totalRowCount,
-    sampleRecords: info.result,
-    columnStats: info.columnStats,
-  };
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {

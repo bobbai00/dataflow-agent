@@ -143,7 +143,7 @@ ROW_EFFECTS = {
     "Limit": "drop",
     "Window": "none",
     "Split": "none",
-    "Explode": "add",
+    "Explode": "multiply",
     "Unpivot": "add",
     "Pivot": "collapse",
     "UDF": "unknown",
@@ -222,6 +222,66 @@ def validate_native(spec):
         _join_keys(spec)
     elif kind == "Scan":
         _validate_scan_options(spec, None if props.get("format", "auto") == "auto" else props["format"])
+    elif kind == "Window":
+        if not props.get("orderBy") or not props.get("columns"):
+            raise _error(spec, "WINDOW_ARGUMENT", "Provide nonempty orderBy and columns.", stage="validate")
+        outputs = []
+        for i, item in enumerate(props["columns"]):
+            fn = item.get("fn")
+            valid = fn in ("lag", "lead", "row_number", "rank", "dense_rank") and bool(item.get("as"))
+            if fn in ("lag", "lead"):
+                offset = item.get("offset", 1)
+                valid = valid and bool(item.get("col")) and type(offset) is int and offset > 0
+            else:
+                valid = valid and "col" not in item and "offset" not in item
+            if not valid:
+                raise _error(
+                    spec,
+                    "WINDOW_ARGUMENT",
+                    "lag/lead require col and a positive offset (default 1); row_number/rank/dense_rank forbid col/offset. Each output needs as.",
+                    stage="validate",
+                    field=f"columns[{i}]",
+                )
+            outputs.append(item["as"])
+        if len(outputs) != len(set(outputs)):
+            raise _error(
+                spec, "COLUMN_COLLISION", "Window output names must be unique.", stage="validate", field="columns"
+            )
+    elif kind == "Split":
+        names = props.get("into", [])
+        if len(names) < 2 or not isinstance(props.get("separator"), str) or not props["separator"]:
+            raise _error(
+                spec,
+                "SPLIT_ARGUMENT",
+                "Provide at least two output names and a nonempty literal separator.",
+                stage="validate",
+            )
+        if len(names) != len(set(names)):
+            raise _error(spec, "COLUMN_COLLISION", "Split output names must be unique.", stage="validate", field="into")
+    elif kind == "Explode":
+        if props.get("encoding") != "json" or props.get("empty", "drop") not in ("drop", "null_row"):
+            raise _error(
+                spec, "EXPLODE_ARGUMENT", "encoding must be json; empty is drop or null_row.", stage="validate"
+            )
+    elif kind == "Unpivot":
+        if not props.get("columns"):
+            raise _error(
+                spec, "UNPIVOT_ARGUMENT", "Provide nonempty columns to unpivot.", stage="validate", field="columns"
+            )
+    elif kind == "Pivot":
+        keys = props.get("index", [])
+        if (
+            "index" not in props
+            or not props.get("columns")
+            or not props.get("values")
+            or len(set([*keys, props["columns"], props["values"]])) != len(keys) + 2
+        ):
+            raise _error(
+                spec,
+                "PIVOT_ARGUMENT",
+                "index, columns and values must reference distinct columns; index may be [].",
+                stage="validate",
+            )
 
 
 def _caught(spec, error, source, field, entry):
@@ -1323,6 +1383,282 @@ def _project(spec, source):
     return output.reset_index(drop=True)
 
 
+def _new_columns(spec, frame, names, field):
+    if len(names) != len(set(names)) or any(name in frame.columns for name in names):
+        raise _error(
+            spec,
+            "COLUMN_COLLISION",
+            f"New output names must be unique and not overwrite existing columns: {names!r}.",
+            field=field,
+        )
+
+
+def _window(spec, source, operations):
+    props = spec["properties"]
+    partitions, ordering, columns = props.get("partitionBy", []), props["orderBy"], props["columns"]
+    _columns(spec, source, partitions, "partitionBy")
+    _columns(spec, source, [item["col"] for item in ordering], "orderBy")
+    _new_columns(spec, source, [item["as"] for item in columns], "columns")
+    for i, item in enumerate(columns):
+        if "col" in item:
+            _columns(spec, source, [item["col"]], f"columns[{i}].col")
+    # Private positional identity, independent of arbitrary/duplicate user indexes.
+    # Restore this order after calculating within each stably sorted partition.
+    frame = source.reset_index(drop=True)
+    output = frame.copy()
+    values = {item["as"]: [None] * len(frame) for item in columns}
+    counters = {item["as"]: {"boundaryNulls": 0, "nullOutputs": 0} for item in columns if item["fn"] in ("lag", "lead")}
+    groups = _groups(frame, partitions) if len(frame) else []
+    tie_rows = 0
+    for _, positions in groups:
+        ordered = frame.iloc[positions]
+        for item in reversed(ordering):
+            ordered = ordered.sort_values(
+                item["col"], ascending=not item.get("desc", False), na_position="last", kind="stable"
+            )
+        order = ordered.index.tolist()
+        order_keys = _key_rows(ordered, [item["col"] for item in ordering])
+        ranks, dense_ranks, rank, dense = [], [], 0, 0
+        for i, key in enumerate(order_keys):
+            if i == 0 or key != order_keys[i - 1]:
+                rank, dense = i + 1, dense + 1
+            else:
+                tie_rows += 1
+            ranks.append(rank)
+            dense_ranks.append(dense)
+        for item in columns:
+            fn, name = item["fn"], item["as"]
+            for i, position in enumerate(order):
+                if fn in ("lag", "lead"):
+                    other = i + item.get("offset", 1) * (-1 if fn == "lag" else 1)
+                    boundary = not 0 <= other < len(order)
+                    value = None if boundary else _scalar(frame[item["col"]].iloc[order[other]])
+                    counters[name]["boundaryNulls"] += int(boundary)
+                    counters[name]["nullOutputs"] += int(value is None)
+                else:
+                    value = i + 1 if fn == "row_number" else ranks[i] if fn == "rank" else dense_ranks[i]
+                values[name][position] = value
+    for item in columns:
+        dtype = _nullable(frame[item["col"]]).dtype if item["fn"] in ("lag", "lead") else "Int64"
+        output[item["as"]] = pd.Series(values[item["as"]], dtype=dtype)
+    operations["window"] = {"partitions": len(groups), "tieRows": tie_rows, "outputs": counters}
+    operations["columnDependencies"] = {
+        item["as"]: list(
+            dict.fromkeys([*partitions, *(key["col"] for key in ordering), *([item["col"]] if "col" in item else [])])
+        )
+        for item in columns
+    }
+    return output
+
+
+def _split(spec, source, operations):
+    props = spec["properties"]
+    name, into = props["column"], props["into"]
+    _columns(spec, source, [name], "column")
+    # Even with keepSource:false do not silently reuse/overwrite an input name.
+    _new_columns(spec, source, into, "into")
+    parts = {key: [] for key in into}
+    for position, cell in enumerate(source[name]):
+        value = _scalar(cell)
+        if value is not None and not isinstance(value, str):
+            raise _error(
+                spec,
+                "SPLIT_TYPE",
+                f"Column {name!r}, row {position}: expected string or null, got {type(value).__name__}. Cast explicitly if intended.",
+                field="column",
+            )
+        split = value.split(props["separator"], len(into) - 1) if value is not None else []
+        for i, key in enumerate(into):
+            parts[key].append(split[i] if i < len(split) else None)
+    output = source.copy().reset_index(drop=True)
+    if not props.get("keepSource", True):
+        output = output.drop(columns=[name])
+    for key in into:
+        output[key] = _series(parts[key], "str")
+    operations["columnDependencies"] = {key: [name] for key in into}
+    return output
+
+
+def _explode(spec, source, operations):
+    props, name = spec["properties"], spec["properties"]["column"]
+    _columns(spec, source, [name], "column")
+    parents, values, sample = [], [], []
+    domain, empty_parents, null_elements, elements, maximum = None, 0, 0, 0, 0
+
+    def invalid_constant(value):
+        raise ValueError(f"Non-JSON constant {value}")
+
+    for position, cell in enumerate(source[name]):
+        value = _scalar(cell)
+        if value is None:
+            array = []
+        elif not isinstance(value, str):
+            raise _error(
+                spec,
+                "EXPLODE_TYPE",
+                f"Column {name!r}, row {position}: expected a JSON-array string or null.",
+                field="column",
+            )
+        else:
+            try:
+                array = json.loads(value, parse_constant=invalid_constant)
+            except (ValueError, RecursionError) as error:
+                raise _error(
+                    spec,
+                    "EXPLODE_JSON",
+                    f"Column {name!r}, row {position}: invalid JSON array ({str(error)[:100]}).",
+                    field="column",
+                ) from error
+            if not isinstance(array, list):
+                raise _error(
+                    spec,
+                    "EXPLODE_TYPE",
+                    f"Column {name!r}, row {position}: JSON must contain an array, not {type(array).__name__}.",
+                    field="column",
+                )
+        maximum = max(maximum, len(array))
+        elements += len(array)
+        null_elements += sum(item is None for item in array)
+        empty_parents += int(not array)
+        if not array:
+            if props.get("empty", "drop") == "drop":
+                continue
+            entries = [(None, None)]
+        else:
+            entries = enumerate(array)
+        for element, value in entries:
+            if value is not None:
+                kind = (
+                    "bool"
+                    if isinstance(value, bool)
+                    else (
+                        "int64"
+                        if isinstance(value, int)
+                        else "float64" if isinstance(value, float) else "str" if isinstance(value, str) else None
+                    )
+                )
+                try:
+                    if kind is None or (domain is not None and domain != kind):
+                        raise TypeError("elements must share one scalar type plus nulls; normalize arrays in UDF first")
+                    value = _convert(value, kind)
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise _error(
+                        spec,
+                        "EXPLODE_TYPE",
+                        f"Column {name!r}, row {position}, element {element}: {error}.",
+                        field="column",
+                    ) from error
+                domain = kind
+            parents.append(position)
+            values.append(value)
+            if len(sample) < 16:
+                sample.append({"inputPosition": position, "elementPosition": element})
+    output = source.iloc[parents].copy().reset_index(drop=True)
+    output[name] = _series(values, domain or "str")
+    operations["explode"] = {
+        "emptyParents": empty_parents,
+        "arrayElements": elements,
+        "nullElements": null_elements,
+        "maxElements": maximum,
+    }
+    operations["rowMapping"] = {
+        "inputPort": 0,
+        "kind": "array_elements",
+        "sample": sample,
+        "complete": len(values) <= len(sample),
+    }
+    operations["columnDependencies"] = {name: [name]}
+    return output
+
+
+def _unpivot(spec, source, operations):
+    props = spec["properties"]
+    columns = props["columns"]
+    _columns(spec, source, columns, "columns")
+    keys = [name for name in source.columns if name not in columns]
+    name, value = props.get("nameColumn", "variable"), props.get("valueColumn", "value")
+    _new_columns(spec, source[keys], [name, value], "nameColumn/valueColumn")
+    kinds = {_logical_dtype(source[column]) for column in columns} - {None}
+    if len(kinds) > 1:
+        raise _error(
+            spec,
+            "UNPIVOT_TYPE",
+            f"Selected columns have incompatible types {sorted(kinds)}; cast to one type before unpivot.",
+            field="columns",
+        )
+    domain = next(iter(kinds), "str")
+    # Never construct a mixed row Series (iterrows) or coerce integer/null values
+    # through float64; both can corrupt exact int64 values before transport.
+    values = [_scalar(item) for row in source[columns].itertuples(index=False, name=None) for item in row]
+    parents = [i for i in range(len(source)) for _ in columns]
+    output = source[keys].iloc[parents].copy().reset_index(drop=True)
+    output[name] = _series(columns * len(source), "str")
+    output[value] = _series(values, domain)
+    operations["unpivot"] = {"selectedColumns": len(columns), "nullCells": sum(item is None for item in values)}
+    operations["rowMapping"] = {
+        "inputPort": 0,
+        "kind": "row_major_columns",
+        "columns": list(columns),
+        "outputsPerInput": len(columns),
+    }
+    operations["columnDependencies"] = {name: list(columns), value: list(columns)}
+    return output
+
+
+def _pivot(spec, source, operations):
+    props = spec["properties"]
+    keys, column, value = props["index"], props["columns"], props["values"]
+    _columns(spec, source, [*keys, column, value], "index/columns/values")
+    key_rows = _key_rows(source, keys) if keys else [()] * len(source)
+    groups, generated, seen, row_positions = {}, {}, {}, []
+    for position, (key, cell) in enumerate(zip(key_rows, source[column])):
+        category = _scalar(cell)
+        if category is None:
+            raise _error(
+                spec,
+                "PIVOT_NULL_KEY",
+                f"Null pivot-column value in {column!r}, row {position}; choose its meaning explicitly before pivot.",
+                field="columns",
+            )
+        if category not in generated:
+            name = str(category)
+            if not name or name in keys or name in generated.values():
+                raise _error(
+                    spec,
+                    "COLUMN_COLLISION",
+                    f"Pivot key at row {position} creates unusable/colliding output name {name!r}.",
+                    field="columns",
+                )
+            generated[category] = name
+        pair = (key, category)
+        if pair in seen:
+            raise _error(
+                spec,
+                "PIVOT_DUPLICATE",
+                f"Duplicate (index, pivot key) at rows {seen[pair]} and {position}: {str(pair)[:100]}. Aggregate first if combining duplicates is intended.",
+                field="index/columns",
+            )
+        seen[pair] = position
+        if key not in groups:
+            groups[key] = len(groups)
+            row_positions.append(position)
+    output = source[keys].iloc[row_positions].copy().reset_index(drop=True)
+    domain = _nullable(source[value]).dtype
+    cells = {name: [None] * len(groups) for name in generated.values()}
+    for (key, category), position in seen.items():
+        cells[generated[category]][groups[key]] = _scalar(source[value].iloc[position])
+    for name, values in cells.items():
+        output[name] = pd.Series(values, dtype=domain)
+    operations["pivot"] = {
+        "uniquePairs": len(seen),
+        "indexGroups": len(groups),
+        "generatedColumns": len(generated),
+        "missingCells": len(groups) * len(generated) - len(seen),
+    }
+    operations["columnDependencies"] = {name: [*keys, column, value] for name in generated.values()}
+    return output
+
+
 def execute_native(spec, inputs):
     global pd, np
     import pandas as pd
@@ -1352,6 +1688,16 @@ def execute_native(spec, inputs):
         output = _join(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
         output = _union(spec, inputs, operations)
+    elif kind == "Window":
+        output = _window(spec, source, operations)
+    elif kind == "Split":
+        output = _split(spec, source, operations)
+    elif kind == "Explode":
+        output = _explode(spec, source, operations)
+    elif kind == "Unpivot":
+        output = _unpivot(spec, source, operations)
+    elif kind == "Pivot":
+        output = _pivot(spec, source, operations)
     elif kind == "Distinct":
         columns = props.get("columns", list(source.columns))
         _columns(spec, source, columns, "columns")

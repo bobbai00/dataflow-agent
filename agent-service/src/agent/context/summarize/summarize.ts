@@ -220,6 +220,7 @@ export function paramsToRenderOptions(
   const interleaved = params.trajectory.events === "interleaved";
   return {
     compilationResult,
+    nativeEvidence: params.nativeEvidence,
     statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
     resultSelection: params.resultSelection,

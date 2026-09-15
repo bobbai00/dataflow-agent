@@ -246,6 +246,69 @@ export const NATIVE_V2_OPERATORS: readonly NativeOperatorDef[] = [
     object({ n: { type: "integer", minimum: 1 }, offset: { type: "integer", minimum: 0 } }, ["n"])
   ),
   operator(
+    "Window",
+    1,
+    "none",
+    "Window within partitionBy (default []), stably sorting orderBy with nulls last, then restore input row order. columns:[{fn,col?,as,offset?}]: lag/lead require col, offset is positive (default 1); row_number/rank/dense_rank forbid col/offset. Ranks are one-based; null partition keys group together. Adds unique new columns, no rolling/custom callback.",
+    object(
+      {
+        partitionBy: names,
+        orderBy: list(object({ col: str, desc: { type: "boolean" } }, ["col"])),
+        columns: list(
+          object(
+            {
+              fn: { type: "string", enum: ["lag", "lead", "row_number", "rank", "dense_rank"] },
+              col: str,
+              as: str,
+              offset: { type: "integer", minimum: 1 },
+            },
+            ["fn", "as"]
+          )
+        ),
+      },
+      ["orderBy", "columns"]
+    )
+  ),
+  operator(
+    "Split",
+    1,
+    "none",
+    "Split string column on a nonempty literal separator into at least two unique new columns. At most len(into)-1 splits; pad absent pieces with null, preserve the remainder in the last column. Null input produces null outputs. keepSource defaults true. Non-string inputs and name collisions fail, even when dropping the source. No regex.",
+    object({ column: str, into: { ...names, minItems: 2 }, separator: str, keepSource: { type: "boolean" } }, [
+      "column",
+      "into",
+      "separator",
+    ])
+  ),
+  operator(
+    "Explode",
+    1,
+    "multiply",
+    "Explode JSON-array strings in column, replacing that column with scalar elements in array order and repeating other cells. encoding:json is required; empty:drop (default) removes null/empty parents, null_row keeps one null row. All nonnull elements must have one exact scalar type across parents (no int/float or bool/int mixing). Malformed/nested/nonfinite/out-of-range values fail. Empty/all-null elements yield a nullable string column; observe dynamic types.",
+    object(
+      {
+        column: str,
+        encoding: { const: "json", type: "string" },
+        empty: { type: "string", enum: ["drop", "null_row"] },
+      },
+      ["column", "encoding"]
+    )
+  ),
+  operator(
+    "Unpivot",
+    1,
+    "add",
+    "Unpivot selected columns to nameColumn (default variable) and valueColumn (default value); other columns remain keys. One output per input row then selected-column order, including null cells. Selected columns need compatible logical types; cast first on mismatch. New names cannot collide with retained keys or each other.",
+    object({ columns: nonemptyNames, nameColumn: str, valueColumn: str }, ["columns"])
+  ),
+  operator(
+    "Pivot",
+    1,
+    "collapse",
+    "Pivot unique (index...,columns) pairs to wide columns holding values. index may be []; all referenced columns must be distinct. Duplicate pairs fail: Aggregate first if intended. Null index keys are valid, null pivot keys or generated-name collisions fail. Preserve first-seen index/key order, fill absent cells with null, and observe the dynamic schema. Empty input yields only the index schema and zero rows.",
+    object({ index: names, columns: str, values: str }, ["index", "columns", "values"])
+  ),
+  operator(
     "UDF",
     "many",
     "unknown",

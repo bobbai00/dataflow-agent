@@ -20,6 +20,8 @@
 import { env } from "../config/env";
 import type { AgentInfo, AgentSettingsApi, ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
+import type { NativeObservation } from "../agent/native/evidence";
+import type { NativeErrorQuery, NativeErrorSummary } from "../agent/native/diagnostics";
 
 /**
  * Client for the agent-service's own HTTP + WebSocket surface.
@@ -94,14 +96,13 @@ export async function clearAgentHistory(agentId: string, baseUrl?: string): Prom
   }
 }
 
-export async function getReActSteps(
-  agentId: string,
-  baseUrl?: string
-): Promise<{ steps: ReActStep[]; state: string }> {
+export async function getReActSteps(agentId: string, baseUrl?: string): Promise<{ steps: ReActStep[]; state: string }> {
   const response = await fetch(`${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/react-steps`);
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Failed to fetch react-steps for ${agentId}: ${response.status} ${response.statusText} - ${errorText}`);
+    throw new Error(
+      `Failed to fetch react-steps for ${agentId}: ${response.status} ${response.statusText} - ${errorText}`
+    );
   }
   return (await response.json()) as { steps: ReActStep[]; state: string };
 }
@@ -111,6 +112,42 @@ export interface AgentSnapshot {
   workflow: WorkflowContent | null;
   workflowSourceStepId: string | null;
   results: Record<string, unknown>;
+  /** Event-pinned V2 successful observations, including selection audit data. */
+  nativeObservations?: Record<string, NativeObservation>;
+}
+
+export interface AgentErrorInspection {
+  found: boolean;
+  text: string;
+  summary?: NativeErrorSummary;
+}
+
+/** Read a bounded diagnostic using the caller's current workflow permission.
+ * No token in URL/body and no fallback to the service's delegated credential. */
+export async function inspectAgentError(
+  agentId: string,
+  query: NativeErrorQuery,
+  userToken: string,
+  baseUrl?: string
+): Promise<AgentErrorInspection> {
+  const response = await fetch(`${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/inspect-error`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${userToken}` },
+    body: JSON.stringify(query),
+  });
+  if (!response.ok && response.status !== 404)
+    throw new Error(`Diagnostic inspection failed (HTTP ${response.status}).`);
+  const body = await response.json();
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("found" in body) ||
+    typeof body.found !== "boolean" ||
+    !("text" in body) ||
+    typeof body.text !== "string"
+  )
+    throw new Error(`Diagnostic inspection unavailable (HTTP ${response.status}).`);
+  return body as AgentErrorInspection;
 }
 
 export interface CurrentWorkflowResponse {
@@ -133,11 +170,7 @@ export async function getCurrentWorkflow(agentId: string, baseUrl?: string): Pro
   return (await response.json()) as CurrentWorkflowResponse;
 }
 
-export async function getSnapshot(
-  agentId: string,
-  stepId: string | "head",
-  baseUrl?: string
-): Promise<AgentSnapshot> {
+export async function getSnapshot(agentId: string, stepId: string | "head", baseUrl?: string): Promise<AgentSnapshot> {
   const response = await fetch(
     `${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/snapshots/${encodeURIComponent(stepId)}`
   );
@@ -182,16 +215,7 @@ interface RunAgentTurnOptions {
 }
 
 interface IncomingFrame {
-  type:
-    | "init"
-    | "step"
-    | "state"
-    | "complete"
-    | "error"
-    | "headChange"
-    | "nextContext"
-    | "snapshot"
-    | string;
+  type: "init" | "step" | "state" | "complete" | "error" | "headChange" | "nextContext" | "snapshot" | string;
   step?: ReActStep;
   steps?: ReActStep[];
   state?: string;
@@ -238,9 +262,7 @@ export function runAgentTurn(
       }
       clearTimeout(timer);
 
-      const steps = orderedStepIds
-        .map(id => stepsByMessageId.get(id))
-        .filter((s): s is ReActStep => Boolean(s));
+      const steps = orderedStepIds.map(id => stepsByMessageId.get(id)).filter((s): s is ReActStep => Boolean(s));
 
       // Prefer the step the server explicitly flagged as terminal (`isEnd`).
       // Fall back to the last agent step that has free-text content even if

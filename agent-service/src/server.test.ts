@@ -18,8 +18,9 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildApp, _resetAgentStoreForTests } from "./server";
+import { buildApp, buildContextAssembler, _resetAgentStoreForTests } from "./server";
 import { env } from "./config/env";
+import { TexeraAgent } from "./agent/texera-agent";
 
 const API = env.API_PREFIX;
 const app = buildApp();
@@ -39,6 +40,49 @@ function mintTestToken(): string {
 }
 
 const TOKEN = mintTestToken();
+
+test("untuned production context preview is synchronous and current after debug", async () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-regression",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: buildContextAssembler("vercel-tool-use", {} as never),
+  });
+  await agent.handleDebugInput("PREVIEW_CURRENT_TASK");
+  expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
+});
+
+test("context preview includes later native tool messages, not only the first user block", () => {
+  const agent = new TexeraAgent({
+    agentId: "preview-native-transcript",
+    modelType: "test",
+    driver: {
+      runTurn: async () => {
+        throw new Error("No LLM allowed in preview test");
+      },
+    },
+    contextAssembler: () => [
+      { role: "user", content: "# Agent Events" },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c",
+            toolName: "dataflow",
+            output: { type: "text", value: "CALLBACK_RUNTIME" },
+          },
+        ],
+      },
+    ],
+  });
+  expect(agent.getNextStepContext()).toContain("# Agent Events");
+  expect(agent.getNextStepContext()).toContain("CALLBACK_RUNTIME");
+});
 
 function url(path: string): string {
   return `http://localhost${path}`;
@@ -95,13 +139,32 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("explicit message layout is echoed in create, info and settings", async () => {
+    const response = await createAgent({ settings: { messageLayout: "native" } });
+    const created = await readJson<any>(response);
+    expect(created.settings.messageLayout).toBe("native");
+    const info = await readJson<any>(await getJson(`${API}/agents/${created.id}`));
+    expect(info.settings.messageLayout).toBe("native");
+    const settings = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+    expect(settings.messageLayout).toBe("native");
+  });
+
   test("native batch settings survive create and force provider parallel calls off", async () => {
-    const created = await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true } });
+    const created = await createAgent({
+      settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true },
+    });
     expect(created.status).toBe(200);
-    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(created);
+    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(
+      created
+    );
     expect(body.settings.nativeToolMode).toBe("batch");
     expect(body.settings.parallelToolCalls).toBe(false);
-    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { agentMode: "native", nativeToolMode: "typed", parallelToolCalls: true, resultSelection: "all" });
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
+      agentMode: "native",
+      nativeToolMode: "typed",
+      parallelToolCalls: true,
+      resultSelection: "all",
+    });
     expect(patched.status).toBe(200);
     const settings = await readJson<{ nativeToolMode: string; parallelToolCalls: boolean }>(patched);
     expect(settings.nativeToolMode).toBe("typed");

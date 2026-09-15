@@ -20,6 +20,7 @@
 package org.apache.texera.web.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.texera.amber.core.tuple.{AttributeType, Schema}
 import org.apache.texera.web.model.websocket.event.CachedPortUsage
 
@@ -45,9 +46,38 @@ case class PartitionedStatistics(
   * Full semantic validation/partition merging belongs to the consuming agent.
   */
 object StructuredResultTransport {
-  val capabilities: List[String] = List("table-profile-v1", "typed-scalar-v1")
+  val capabilities: List[String] =
+    List("table-profile-v1", "typed-scalar-v1", "input-materialization-v1", "schema-fields-only-v1")
   private val profileKey = "__texera_profile_v1__:[0-9a-f]{32}".r
   private val mapper = new ObjectMapper()
+
+  /** V2 rows contain only schema-declared user fields. Legacy clients still
+    * receive their synthetic index, but it cannot overwrite a V2 user column.
+    */
+  def annotateSampleRow(row: ObjectNode, index: Int, structuredResults: Boolean): Unit = {
+    if (!structuredResults) row.put("__row_index__", index)
+  }
+
+  /** Input identities must not depend on which table bodies were requested.
+    * Completed fresh outputs use this execution; cache hits retain their origin.
+    * Never assign a fresh producer to a skipped/failed/unknown-cache operator.
+    */
+  def inputMaterializations(
+      operatorIds: Iterable[String],
+      completed: Set[String],
+      completedFromCache: Set[String],
+      retrievalExecutionId: String,
+      cachedOutputs: List[CachedPortUsage]
+  ): Map[String, ResultMaterialization] = {
+    val cachedIds = cachedOutputs.filter(c => c.portId == 0 && !c.internal).map(_.logicalOpId).toSet
+    operatorIds.flatMap { id =>
+      if (cachedIds.contains(id) || completed.contains(id))
+        Some(id -> materialization(id, retrievalExecutionId, cachedOutputs))
+      else if (completedFromCache.contains(id))
+        Some(id -> ResultMaterialization(0, None, true, None))
+      else None
+    }.toMap
+  }
 
   /** A cache hit was materialized by its source execution, not this retrieval.
     * Unknown or ambiguous cache provenance stays unknown. Never expose URIs.

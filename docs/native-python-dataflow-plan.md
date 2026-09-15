@@ -19,11 +19,17 @@
 
 # Python-native operators and budgeted dataflow evidence
 
-Status: implementation plan and proposed V2 contract, 2026-09-14.
+Status: implemented opt-in V2 contract and completed pilot, 2026-09-15.
 The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
-The opt-in V2 catalog currently exposes the fourteen C2/C3 core operators;
-the rest of this document remains the target contract, not a rollout claim.
+The candidate opt-in V2 catalog now contains nineteen operators: the fourteen
+C2/C3 core operators plus five C6 shape utilities. Matching-worker qualification
+passes in DELTA/LATEST, and Terra-medium passes both real-model smoke modes.
+The [14-attempt Luna/Terra pilot report](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md)
+contains official cost/accuracy and input-timed data/flow evidence. Batching +
+observe was cheaper and correct on both models in this one-task pilot; the
+evidence treatments did not improve accuracy. V2 remains opt-in, not a default
+rollout or a demonstrated general optimization win.
 
 ## 1. Scope and starting point
 
@@ -39,8 +45,10 @@ scheduler, forward references, existing-DAG edits, and DELTA/LATEST behavior.
 The [batching contract](native-batch-tools.md) remains applicable. Run separate
 agent services against the **same Texera backend**, with isolated workflows
 and computing-unit registrations. Keep the existing services on 3008/3009;
-reserve 3011 for this worktree after checking availability. No shared-backend
-restart or configuration change just to run an agent-service experiment.
+reserve 3011 for this worktree after checking availability. An agent-only launch
+must not restart shared backend services. For the candidate engine deployment,
+the user explicitly authorized updating/restarting the shared master; this was
+completed on 8085. Pilot references used isolated services on 3012 and 3013.
 
 This work has two independently measurable parts:
 
@@ -85,7 +93,8 @@ and in workflow snapshots. An absent version means V1. Initially require
 combinations at settings validation rather than silently changing the mode.
 This version gate is implemented in C2. Unsupported combinations return a
 client error without partially updating the agent. A rejected creation must
-not leave an agent registered. The full operator/evidence rollout is pending.
+not leave an agent registered. Operator/evidence qualification is complete;
+default rollout is withheld because the pilot does not establish a quality win.
 
 V2 tool schemas and prompts come from one versioned catalog. Do not present
 both SQL Compute and Python Derive to the same V2 agent. A new V2 workflow uses
@@ -99,7 +108,7 @@ callback support in a worker module only when its deployment/version handshake
 is available; initial generated helpers can be self-contained. A missing worker
 capability must fail explicitly, not execute with older semantics.
 
-## 3. Exact proposed tool and operator contracts
+## 3. Exact V2 tool and operator contracts
 
 ### 3.1 Common envelope
 
@@ -353,7 +362,10 @@ before/after are observations, not proof the scientific criterion is correct.
   order keys, row_number breaks ties stably. Missing order values sort last;
   missing partition keys form one partition. Calculate within partitions and
   restore input row order. No rolling/custom window callback yet; UDF handles
-  it until a demonstrated need justifies a separate contract.
+  it until a demonstrated need justifies a separate contract. All output names
+  must be new and unique; multiple window outputs read the original input.
+  Lag/lead preserve the referenced column's nullable scalar domain. Boundary
+  nulls and nulls propagated from existing cells are measured separately.
 
 ### 3.8 Small shape-changing operators, gated by tests and need
 
@@ -370,6 +382,8 @@ before/after are observations, not proof the scientific criterion is correct.
   literal), `keepSource?: boolean=true`. Split at most `len(into)-1` times;
   pad missing pieces with null, keep the remainder in the last output.
   Missing input gives all-null outputs. Reject non-string input and collisions.
+  Output names must be new even when `keepSource:false`; dropping a source is
+  not implicit permission to reuse its name. Empty-string pieces stay strings.
   Regex extraction stays in Transform/Derive, not a second regex mini-language.
 - **Explode**: `column`, `encoding: "json"`,
   `empty?: "drop" | "null_row"="drop"`. Parse JSON-array strings, output one
@@ -378,17 +392,31 @@ before/after are observations, not proof the scientific criterion is correct.
   non-array JSON and nonscalar elements fail clearly. Initial elements must be
   one compatible scalar type plus nulls. This deliberately avoids assuming
   arbitrary Python lists can pass the current engine's scalar-column transport.
+  C6 uses the same strict logical-domain policy as Union: int64/float64 and
+  bool/int64 mixing is rejected, not promoted. Normalize in UDF when intended.
+  Integers must fit int64; numeric elements must be finite; JSON NaN/Infinity
+  constants are invalid. Empty/all-null output has a nullable string domain
+  until a later execution supplies a nonnull element. Types may therefore change
+  on revision and must be observed/versioned. Empty parents can be dropped, so
+  Explode's row effect is `multiply` (may shrink or expand), not `add`.
 - **Unpivot**: `columns: string[]` (nonempty), `nameColumn?: string="variable"`,
   `valueColumn?: string="value"`. Other columns stay as keys. One output row
   per input row and selected column, including null cells; input-row order then
   selected-column order. Selected columns must share a compatible value type.
+  As with Union, distinct known logical types require an explicit cast. Untyped
+  all-null columns can adopt the other selected columns' type. Output names
+  cannot collide with retained keys or each other; selected names are removed.
 - **Pivot**: `index: string[]`, `columns: string`, `values: string`.
   Require unique `(index..., columns)` pairs; duplicates are an error with
   a witness, not an implicit aggregation. Aggregate first when intended. Null
   index values are valid keys, null pivot-column values are errors. Generated
   column names are strings; collisions are errors. Missing cells become null.
   Preserve first-seen row/key order and report the dynamic schema. Test empty
-  input and schema changes before exposing this operator.
+  input and schema changes before exposing this operator. `index`, `columns`
+  and `values` must reference distinct columns. An empty input yields zero rows
+  and only the index schema (zero columns when `index:[]`). Nonempty input with
+  `index:[]` yields one row. Empty generated names are rejected. Missing cells
+  count absent pairs, not input values that were already null.
 
 These are bounded table operations, not special-purpose analysis operators.
 Ship only after their individual execution/transport/empty-schema tests pass;
@@ -431,8 +459,14 @@ Principles to teach explicitly:
    receipts announce recomputation without leaking their table bodies.
 5. Use a cached observe/inspect for existing evidence; do not recreate a source
    just to display it. Inspect cannot conjure uncollected full-table data.
-6. Inspect the final answer operator before answering. Handle errors first;
+6. Observe the final answer operator before answering. Handle errors first;
    never use a stale successful result after a failed revision.
+7. A current result already visible from a completed observation can support
+   a direct final answer; do not repeat an edit or cached read just because
+   LATEST collapses the trajectory. LATEST renders the current dataflow and a
+   bounded current-task last-action receipt, not the whole action history.
+   The receipt contains statuses/targets, not parameters or hidden content.
+   DELTA continues to retain event-frozen observations.
 
 ### Example A: known chain with forward references (V2)
 
@@ -500,35 +534,47 @@ The current batch path already exposes errors independently of `observe`.
 Preserve that behavior and add structured, revision-specific diagnostics before
 exposing new callback operators.
 
-### 5.1 Proposed error envelope
+### 5.1 Implemented V2 diagnostic envelope
+
+The existing error transport remains a string with a `NATIVE_ERROR_V2:` payload.
+Snapshot storage binds that payload to the event and adds a sanitized
+`nativeError` summary to the normal operator-result API. For example:
 
 ```json
 {
-  "operatorId": "typed",
-  "operatorRevision": "rev-7",
-  "executionId": "exec-12",
-  "status": "error",
-  "error": {
-    "version": 1,
-    "code": "CAST_INVALID_VALUE",
-    "stage": "execute",
-    "message": "Cannot cast column value to float64.",
-    "field": "columns[0]",
-    "input": {"operatorId": "source", "revision": "rev-3", "port": 0},
-    "witnesses": [{"column": "value", "value": "unknown"}],
-    "hint": "Normalize the value or explicitly choose errors: null.",
-    "diagnosticId": "diag-42"
+  "nativeError": {
+    "diagnosticId": "diag_0123456789abcdef01234567",
+    "operatorId": "typed",
+    "operatorRevision": "c8c41aa9b80450d1",
+    "stepId": "step-12",
+    "executionId": "12",
+    "phase": "execution",
+    "diagnostic": {
+      "version": 1,
+      "operatorId": "typed",
+      "operatorRevision": "c8c41aa9b80450d1",
+      "code": "CAST_INVALID_VALUE",
+      "stage": "execute",
+      "message": "Cannot cast 'value' to float64: invalid numeric value. Normalize the input or explicitly set errors:null.",
+      "field": "columns[0]"
+    }
   }
 }
 ```
 
-Fields above are the proposed machine-readable contract, not the current
-serialized error format. `executionId` is absent for pre-execution validation;
-`field`, `input`, `witnesses`, and `hint` are optional when not relevant.
-Callback failures additionally include `source: {entry:"apply", line:3,
-column:5, excerpt:"..."}` with coordinates in the **submitted function**, not
-the generated wrapper. Each diagnostic is pinned to the exact operator
-revision/source; no looking up today's code for yesterday's DELTA error.
+`phase:"attempt"` identifies a rejected submitted definition which never
+replaced the stored DAG. Its `executionId` is null; execution-phase diagnostics
+also use null when execution identity is unavailable, not an invented ID.
+`field`, `source`, `hint`, and `retryable` are optional. Default repair hints are
+selected by code while rendering if the payload has no hint. Callback failures
+include `source: {entry:"apply", line:3, column:5, excerpt:"..."}` in the
+**submitted function**, not the generated wrapper. Lines are one-based. The
+outer identity owns the failed/blocked operator; a propagated diagnostic can
+identify an upstream origin, verified against the same event's workflow.
+Unknown/stale bindings withhold source attribution. Relevant bad values can
+appear in a bounded message; this is not a new general-purpose witness or
+statistics API. Consumed-input version references live in the private record
+and expanded text only when the execution binding actually proves them.
 
 | Stage / class | Examples | Expected response |
 | --- | --- | --- |
@@ -547,10 +593,11 @@ Rules:
 - Reserve a separate bounded diagnostic budget; never truncate away operator
   identity, error code, stage, or the essential repair message. Long values and
   extra witnesses may be elided with an explicit marker.
-- Preserve raw sanitized traceback, generated code/source map and context in
-  existing execution logs/snapshot diagnostic storage. Plan an authenticated
-  `inspectError({operatorId, revision?})` for bounded expanded diagnostics;
-  do not repurpose successful-table inspection or expose environment dumps.
+- Preserve bounded sanitized traceback and submitted-source context in private
+  snapshot diagnostics. Accepted generated code/source maps remain in their
+  immutable workflow snapshots; rejected preflight submissions have no generated
+  execution to reconstruct. Use the `inspectError` contract below for expanded
+  diagnostics, not successful-table inspection or an environment dump.
 - A failed new revision supersedes its old success. Downstream results tied to
   the old revision cannot render as fresh. Independent branches may complete.
 - An exception is not an output row. A generic UDF returning a user-defined
@@ -564,6 +611,62 @@ Rules:
   errors, missing columns, or contract violations.
 - Diagnose failures without exposing credentials, global variables, or unrelated
   records. Witnesses are limited to relevant authorized input columns.
+
+### 5.2 Error inspection, budgets and rejected-edit state
+
+The V2 batch tool set adds `inspectError({operatorId, revision?, diagnosticId?})`.
+It reads this agent's retained records only, never runs the engine, modifies a
+workflow, creates a workflow snapshot, or returns successful table content.
+Only `operatorId` means the current unresolved error. After repair, specify an
+exact revision or diagnostic ID to inspect history. Revision lookup selects
+the newest retained matching failure on the active branch; `diagnosticId`
+disambiguates repeated executions and can address another retained branch of
+the same agent. IDs are SHA-256-derived from the captured event/diagnostic,
+not an authorization mechanism. Missing/pruned records are unavailable, never
+reconstructed from today's code. A saved tool output is replayed as an event
+fact: inline for native DELTA, or in the existing bounded inspection history
+for other layouts/LATEST. It does not change to say "success" after repair.
+
+The separate allowances are **1,200 detail characters per normal diagnostic
+render** and **4,000 per expanded inspection**, not a whole-step or token
+budget. The mandatory identity envelope is outside those allowances and is
+never silently shortened. Ordinary message/hint/source excerpts have smaller
+component caps; expanded inspection can show up to 1,600 message characters,
+five submitted-source lines, and verified input-version references. Extra
+detail is explicitly marked omitted. Private records retain at most 16,384
+traceback characters and a 12,000-character submitted-source prefix, with
+completeness flags; generated-runtime prefixes are not passed off as useful
+expanded error excerpts. Credential-shaped strings and the known delegated
+token are redacted without shifting source line numbers. This is defense in
+depth, not a claim to recognize every possible secret embedded in arbitrary
+user text. No environment enumeration, console dump, or table scan is performed.
+
+Rejected definitions are separate control state from materialized tables.
+Their old successes and dependent outputs are unavailable even though the last
+accepted DAG definition remains visible. A later consumer cannot silently
+execute that older definition, and an upstream rerun does not forgive a syntax
+rejection. Independent targets can still execute. An explicit accepted
+resubmission—including deliberately restoring identical accepted code—clears
+the rejection and allows fresh execution; skipped dependent edits must be
+resubmitted too. Historical snapshots/diagnostics remain unchanged.
+
+External access is `POST /api/agents/:id/inspect-error` with the same query JSON
+and the caller's Bearer token. It requires the agent owner, a bound workflow,
+and a successful authenticated Texera workflow-read check. Decoding a JWT alone
+is not signature verification; Texera's protected route verifies the supplied
+token and current read permission. No stored-token fallback, redirects, raw
+backend error body, or cached authorization is used. The check times out after
+five seconds and fails closed. Responses: 200 for a retained diagnostic, 404
+for unavailable history, 400 for invalid arguments, 401/403 for rejected access,
+503 when permission verification is unavailable. The ordinary snapshot/result
+API includes only the sanitized summary, not private records.
+
+This new endpoint does **not** harden the pre-existing trusted-local agent REST
+and WebSocket surfaces, which already expose workflows/traces and can drive
+model tools. Protect those surfaces at deployment; do not treat this endpoint
+alone as a multi-tenant security boundary. In-loop `inspectError` is scoped by
+the existing delegated agent session and cannot select another agent or log
+path. Full agent-service authentication is outside this operator experiment.
 
 ## 6. Data optimization: ordinary profiles, selectively exposed
 
@@ -636,6 +739,48 @@ not dump all upstream tables. Existing cached inspection only exposes collected
 samples/stats. If a requested metric was not collected, say so; computing it
 requires an explicit execution/inspection capability, not a hidden rerun.
 
+### 6.3 Implemented C5 exposure and budget contract
+
+The selector and context integration are implemented in `7fe9e30cd`, with local
+tests described in the [C5 checkpoint](checkpoints/native-python-dataflow-c5-selection.md).
+The live C5 eight-case matrix now passes at the final candidate, as recorded
+in the [Terra/live checkpoint](checkpoints/native-python-dataflow-c7-terra.md).
+V2 keeps the same batch/operator API;
+it does not gain a model-authored statistics tool or a second result budget.
+
+- `nativeProfileCollection` controls collection on fresh workflows.
+- A positive `dataLevel` or `columnStats:true` enables selected data profiles;
+  a positive `flowLevel` enables selected flow evidence. For clean data-only,
+  flow-only and combined ablations, set `columnStats:false` and use 0/1 levels.
+  The Python framework control sets both levels to 0 and collection off; a
+  collector-only control keeps both levels at 0 with collection on.
+- All successful V2 result bodies use the same typed rendering path, including
+  evidence-off arms. Their counts, schema, samples, facts and version labels
+  share `maxOperatorResultCharLimit`. Complete small tables outrank redundant
+  output profiles. Otherwise schema relevance, atomic sample rows and facts
+  participate in a deterministic greedy selection with auditable omissions.
+  This is not a learned or globally optimal selector.
+- `Data measurement` labels ordinary profile facts and their full/partial
+  coverage. `Flow guarantee` labels an enforced contract; `Flow measurement`
+  labels version-matched counters and input/output comparisons. Native
+  operational counters can remain exact when optional column collection is
+  partial; missing counters cannot be reconstructed from marginal profiles.
+- DELTA records the selection after each successful explicit observation,
+  including cached reads. Settings/relevance changes do not rewrite it.
+  Compaction can only shorten it and cannot expose an unobserved success.
+  LATEST renders the current explicit observe set using current settings.
+- Snapshot API responses may include event-owned `nativeObservations`: result
+  and input version references, exposure options, rendered text, selected and
+  omitted IDs/reasons, and atomic render chunks. This audit record is not
+  automatically exposed for unobserved operators. V2 cached inspection with
+  `stats:true` also uses structured profiles and the same result budget.
+
+V2 now also requires backend capability `schema-fields-only-v1`. This prevents
+synthetic row indices or name-based visualization handling from overwriting
+schema-declared user columns. An older C4 typed backend is rejected explicitly;
+build and deploy the matching engine/API before starting V2 live qualification.
+Legacy/V1 transport and successful-result formatting remain compatible.
+
 ## 7. Flow optimization: inputs + semantics + measured outputs
 
 Flow evidence is derived by joining version-matched input/output metadata with
@@ -672,6 +817,18 @@ counters; do not retain an unbounded full lineage graph per output row. Carry
 full source identity and port roles even when visible basename tags collide.
 Known projection/rename lineage can propagate; arbitrary callbacks declare
 dependencies, not symbolic proofs of their formulas.
+
+C6's local implementation records immediate-input mapping without an unbounded
+lineage graph. Explode retains at most sixteen `(inputPosition, elementPosition)`
+witnesses and an explicit completeness flag in internal metadata (a synthetic
+null row has no element position). Unpivot records the exact row-major mapping
+rule and selected-column order. These are positional identities within the
+declared input port, not user columns or claims of full source-file lineage.
+Window restores private positional identity after partition sorting; its
+measurements distinguish boundary nulls from all output nulls. Pivot measures
+unique pairs, index groups, generated columns and absent cells. C5 version and
+budget gates also apply to these facts; missing/inconsistent counters stay
+unavailable rather than being reconstructed from sampled rows.
 
 ### Result versions and invalidation
 
@@ -748,6 +905,11 @@ of the V2 catalog or evidence optimization.
 7. **Real LLM E2E**: model receives V2 prompt/tools, batches a dependent chain,
    explicitly observes its answer and repairs one injected recoverable failure.
    Capture `inputMessages` to prove actual visibility, not just stored snapshots.
+   The four-turn chain/cached-observe/failure/repair protocol and input-timed
+   audit are now implemented in the harness. They are locally tested with
+   fixtures/mocks, **not yet run live**; see the
+   [model-smoke checkpoint](checkpoints/native-python-dataflow-c6-model-smoke.md).
+   Matching live qualification and caller-owned setup/cleanup remain required.
 8. **Regression**: `bun test`, `bun run typecheck`; changed Python modules via
    pytest, changed Scala modules via their sbt project tests. Record preexisting
    failures separately by reproducing on the parent; do not call a failing suite
@@ -769,18 +931,52 @@ this document, committed fixtures, or logs. Configure private `.env` files as
 described in [local development](local-dev-with-agent.md). The worktree may
 reuse the provisioned venv/dependencies locally; do not commit their symlinks.
 
+The harness now provides a source-pinned wrapper around this same agent-only
+launcher, with fresh private state, live verification and verified empty-service
+shutdown. See the [runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md)
+for its real lifecycle smoke and limits. It does not update the shared backend
+or replace the required workflow/CU ownership and cleanup checks.
+
 ## 9. Evaluation: first prove correctness, then measure benefit
 
+The user-requested extension adds a matched `gpt-5.6-terra` replication at
+**medium reasoning** for every Luna arm, with separate result namespaces and
+model-specific pricing. Prioritize the no-evidence/data-only/flow-only/combined
+comparison for both models; keep collection/framework controls separate.
+See the [Terra/live-runtime checkpoint](checkpoints/native-python-dataflow-c7-terra.md).
+
 Freeze model, context mode/budget, maximum steps, task data, retry policy and
-backend configuration. Suggested arms (names are proposed, not registered):
+backend configuration. Seven arms for each of two models are registered in the
+[isolated harness pilot](../benchmark/Kramabench/docs/native-python-pilot.md),
+with names `DataflowSystem{Luna|Terra}PythonPilot<Arm>20260915Rep1`. Registration and
+the one-attempt capture/official-scoring path are locally tested. Durable
+execution journals, scoped phase reports and source-pinned agent-only lifecycle
+checks are also implemented. Allocation journaling, verified owned-resource
+cleanup and producing-result collector aggregation are now implemented; a real
+setup-only lifecycle smoke passes. Frozen input/source checks, strict guard
+returns, post-drain measurement finalization and owned single-arm orchestration
+are now integrated and locally tested; see the [session checkpoint](checkpoints/native-python-dataflow-c7-session.md).
+Production backend/worker qualification, prior-live-gate admission, the matching
+worker/model runs and all 14 official attempts are complete. The
+[final report](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md)
+records measured source SHAs, exact medium-reasoning routes, actual-input
+evidence witnesses, cache-aware cost and failures without replacement attempts.
+A service port alone does not establish source/build provenance.
+See the [attempt checkpoint](checkpoints/native-python-dataflow-c7-attempts.md)
+for corrected final-step accounting/partial usage, and the
+[runtime checkpoint](checkpoints/native-python-dataflow-c7-runtime.md) for the
+execution journal and source-pinned launcher. The latest
+[resource checkpoint](checkpoints/native-python-dataflow-c7-resources.md) records
+collector measurement semantics, live setup/cleanup, current tests and gates.
 
 | Arm | Framework | Evidence |
 | --- | --- | --- |
-| Historical native reference | V1 original native/all/no-stats | Off |
-| Batch parent reference | Pushed batching + explicit observe | Off |
-| Python framework control | V2 batching + explicit observe | Off |
-| Data-only | Same V2 | Ordinary selected profiles only |
-| Flow-only | Same V2 | Selected input/output/semantic facts only |
+| Controlled live native reference (`V1Reference`) | Pre-batching V1 native/all/no-stats | Off |
+| Batch parent reference (`BatchParent`) | Pushed batching + explicit observe | Off |
+| Python framework control (`V2Control`) | V2 batching + explicit observe | Off, collection off |
+| Collector-only (`CollectorOnly`) | Same V2 | Off, collection on |
+| Data-only (`DataOnly`) | Same V2 | Ordinary selected profiles only |
+| Flow-only (`FlowOnly`) | Same V2 | Selected input/output/semantic facts only |
 | Combined | Same V2 | Joint budgeted selection |
 
 Keep measurement and exposure knobs separate: a collector-only control can
@@ -800,6 +996,11 @@ Use the existing KramaBench helpers (`load_cost_stats`, `react_metrics`,
 `stats.json.cost_usd`, including cache discounts. Report input/cached/output
 tokens, steps, batch sizes, observe requests, execution/inspection calls,
 operator churn, errors/repairs, collection overhead and elapsed time separately.
+The native trace helper now counts batch/operator/observe/partial-error events.
+Actual execution counts and phase measurements use the out-of-band recorder
+and the engine's explicit `phaseMetrics`, not tool receipts or heuristic state
+names; see the [C7 measurement checkpoint](checkpoints/native-python-dataflow-c7-measurement.md).
+The pilot runner persists and binds this evidence to each attempt.
 More batching can still cost more if the schema, generated arguments, reasoning
 or repeated repair grows; reduced round trips alone is not a win.
 
@@ -832,8 +1033,10 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | C1 | Implemented and verified | `821f01435`; preview offsets, prompt guidance, and real-backend regression smoke; see [C1 checkpoint](checkpoints/native-python-dataflow-c1.md) for exact scope, commands, outcomes and limitations |
 | C2 | Foundation implemented and verified | `1ffc49cf8`; opt-in Python callback catalog, runtime contracts and source-mapped diagnostics; 977 Bun tests, 34 Python tests, typecheck, DELTA/LATEST worker smoke pass; see [C2 checkpoint](checkpoints/native-python-dataflow-c2.md) for delivered scope and remaining diagnostic/telemetry work |
 | C3 | Core implemented and verified | `67f69e151` plus `efb45ea94` engine schema fix; fourteen V2 operators, expanded prompt/examples, dependent batch/revision/error/empty-input worker tests in DELTA/LATEST; see [C3 checkpoint](checkpoints/native-python-dataflow-c3.md) for exact gates, follow-up validation and deployment requirements |
-| C4 | In progress; not qualified end to end | `76243c008`: collector, structured API/decoder, opt-in collection and late-result ownership tests implemented; full version-bound persistence, live execution and overhead checks remain; see [C4 progress](checkpoints/native-python-dataflow-c4-progress.md) |
-| C5–C7 | Planned, not implemented | Flow evidence selection, remaining shape operators, expanded diagnostics, real-model qualification and KramaBench evaluation remain required; no cost/accuracy benefit claimed |
+| C4 | Implemented; matching-worker profile matrix passes | `76243c008` + `97de1e243` collection/transport/version binding, with the expanded four-case profile fixture passing at final candidate `1c1204414`. See [C4 version checkpoint](checkpoints/native-python-dataflow-c4-versions.md), [transport checkpoint](checkpoints/native-python-dataflow-c4-progress.md), and [final live evidence](checkpoints/native-python-dataflow-c7-terra.md). Pilot collector component timings are measured, not whole-attempt overhead |
+| C5 | Implemented; matching-worker evidence matrix passes | `7fe9e30cd` ordinary/flow facts, joint budget, DELTA/LATEST versioning and transport capability; eight live evidence cases pass at final candidate. [C5 design](checkpoints/native-python-dataflow-c5-selection.md). The pilot confirms actual data/flow delivery but no accuracy improvement; relevance and omission limits are in the final report |
+| C6 | Implemented and live-qualified; efficiency limitation retained | `2674cd458` [shape operators](checkpoints/native-python-dataflow-c6-shapes.md), `a8ba50f35` [diagnostics](checkpoints/native-python-dataflow-c6-diagnostics.md), final agent `1c1204414`: six worker suites/20 cases and Terra-medium four-turn real-model smoke pass in DELTA/LATEST. **1,129 Bun tests**, typecheck, **184 harness tests** pass. LATEST still made five redundant cached reads; the pre-dispatch audit amendment and preserved failures are documented in [final live checkpoint](checkpoints/native-python-dataflow-c7-terra.md) |
+| C7 | Completed one-task pilot; no broad optimization claim | Harness `1929be6`, candidate `1c1204414`: all **14 official attempts** scored and comparison-eligible, owned resources cleaned, **67/67 compilation and runtime requests pass**, plus nine preflight validation failures in Luna V2Control. Total scored-attempt token cost **$0.239003**. BatchParent correct/cheaper on both models; data-only/flow-only/combined do not improve accuracy. [Final report and reproducible audit](../benchmark/Kramabench/judgment_runs/native_python_dataflow_20260915/REPORT.md). Earlier [measurement](checkpoints/native-python-dataflow-c7-measurement.md), [runtime](checkpoints/native-python-dataflow-c7-runtime.md), [resource](checkpoints/native-python-dataflow-c7-resources.md), [attempt](checkpoints/native-python-dataflow-c7-attempts.md), and [session](checkpoints/native-python-dataflow-c7-session.md) checkpoints retain their historical test/protocol details |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
 results, environment/artifact paths, known limits and the next bounded task.
