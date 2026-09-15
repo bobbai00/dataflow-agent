@@ -217,3 +217,115 @@ test("network failure stays unknown and a full recorder refuses new forwarding",
     await recorder.close();
   }
 });
+
+test("start evidence is emitted before forwarding and completion is a separate event", async () => {
+  const events: any[] = [];
+  let release!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>(resolve => (release = resolve));
+  const admitted = new Promise<void>(resolve => (entered = resolve));
+  const backend = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch() {
+      expect(events.map(event => event.kind)).toEqual(["request_started"]);
+      entered();
+      await waiting;
+      return Response.json({ success: true, state: "Completed", phaseMetrics: phases("passed", true) });
+    },
+  });
+  const recorder = startExecutionRecorder({
+    backend: backend.url.origin,
+    computingUnitIds: [7],
+    onEvent(event) {
+      events.push(event);
+    },
+  });
+  const response = fetch(`${recorder.url}/api/execution/42/7/run`, { method: "POST", body: "{}" });
+  try {
+    await admitted;
+    expect(recorder.pending()).toBe(1);
+    expect(recorder.records()).toEqual([]);
+    expect(events[0].record).not.toHaveProperty("compilation");
+    const status = (await (await fetch(`${recorder.url}/__recorder/status`)).json()) as ReturnType<
+      typeof recorder.status
+    >;
+    expect(status.instanceId).toBe(recorder.instanceId);
+    expect(status.pending).toBe(1);
+    expect(status.persistenceFailed).toBe(false);
+    release();
+    expect((await response).status).toBe(200);
+    expect(events.map(event => event.kind)).toEqual(["request_started", "request_finished"]);
+    expect(events[0].record.requestId).toBe(events[1].record.requestId);
+    expect(events[1].record.execution).toBe("passed");
+  } finally {
+    release();
+    await response;
+    await recorder.close();
+    await backend.stop(true);
+  }
+});
+
+test("a failed start journal blocks forwarding and poisons subsequent admission", async () => {
+  let calls = 0;
+  const backend = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch() {
+      calls++;
+      return Response.json({});
+    },
+  });
+  const recorder = startExecutionRecorder({
+    backend: backend.url.origin,
+    computingUnitIds: [7],
+    onEvent() {
+      throw new Error("private journal failure");
+    },
+  });
+  try {
+    for (let index = 0; index < 2; index++) {
+      const response = await fetch(`${recorder.url}/api/execution/42/7/run`, { method: "POST", body: "{}" });
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("private");
+    }
+    expect(calls).toBe(0);
+    expect(recorder.records()).toEqual([]);
+    expect(recorder.status().persistenceFailed).toBe(true);
+  } finally {
+    await recorder.close();
+    await backend.stop(true);
+  }
+});
+
+test("a failed finish journal preserves the real response but rejects new executions", async () => {
+  let calls = 0;
+  const result = { success: true, state: "Completed", phaseMetrics: phases("passed", true) };
+  const backend = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch() {
+      calls++;
+      return Response.json(result);
+    },
+  });
+  const recorder = startExecutionRecorder({
+    backend: backend.url.origin,
+    computingUnitIds: [7],
+    onEvent(event) {
+      if (event.kind === "request_finished") throw new Error("disk full");
+    },
+  });
+  try {
+    const response = await fetch(`${recorder.url}/api/execution/42/7/run`, { method: "POST", body: "{}" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(result);
+    expect(recorder.records()[0].transport).toBe("response");
+    expect(recorder.status().persistenceFailed).toBe(true);
+    expect((await fetch(`${recorder.url}/api/execution/42/7/run`, { method: "POST", body: "{}" })).status).toBe(503);
+    expect(calls).toBe(1);
+  } finally {
+    await recorder.close();
+    await backend.stop(true);
+  }
+});

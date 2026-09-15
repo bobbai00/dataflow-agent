@@ -105,6 +105,23 @@ export interface ExecutionRequestRecord extends ReturnType<typeof engineMeasurem
   structuredResults: boolean;
 }
 
+export type ExecutionRequestStart = Pick<
+  ExecutionRequestRecord,
+  | "version"
+  | "requestId"
+  | "workflowId"
+  | "computingUnitId"
+  | "startedAt"
+  | "operatorCount"
+  | "targetOperatorIds"
+  | "requestSummaryTruncated"
+  | "structuredResults"
+>;
+
+export type ExecutionRecorderEvent =
+  | { version: 1; instanceId: string; kind: "request_started"; record: ExecutionRequestStart }
+  | { version: 1; instanceId: string; kind: "request_finished"; record: ExecutionRequestRecord };
+
 /** Test/evaluation-only loopback proxy, shared by reference and candidate agents.
  * Set their WORKFLOW_EXECUTION_SERVICE_ENDPOINT to its URL (and unset any
  * EXECUTION_ENDPOINT_TEMPLATE). It starts NO Texera service or computing unit.
@@ -114,13 +131,18 @@ export interface ExecutionRequestRecord extends ReturnType<typeof engineMeasurem
  *
  * One record is one forwarded HTTP request, not one operator/batch. An abort
  * does NOT prove that the backend stopped; never automatically retry it.
- * A caller must persist records in its run bundle and account for unknowns.
+ * A synchronous onEvent sink can fsync start evidence before forwarding and
+ * completion evidence afterward. A start without a finish is unknown, not
+ * backend termination. No source/token/row content enters either event.
  */
 export function startExecutionRecorder(options: {
   backend: string;
   computingUnitIds: readonly number[];
   port?: number;
   maxRequests?: number;
+  /** Must finish persistence synchronously. A rejected/async sink disables
+   * further admission; a finish failure does not alter the backend response. */
+  onEvent?: (event: ExecutionRecorderEvent) => undefined;
 }) {
   const backend = new URL(options.backend);
   if (
@@ -141,7 +163,43 @@ export function startExecutionRecorder(options: {
   const maxRequests = options.maxRequests ?? 1000;
   if (!Number.isSafeInteger(maxRequests) || maxRequests <= 0) throw new Error("Invalid recorder request limit");
   const records: ExecutionRequestRecord[] = [];
+  const instanceId = crypto.randomUUID();
   let pending = 0;
+  let persistenceFailed = false;
+  let accepting = true;
+  const status = () => ({
+    version: 1 as const,
+    kind: "execution-recorder" as const,
+    instanceId,
+    backend: backend.origin,
+    computingUnitIds: [...units].sort((a, b) => a - b),
+    maxRequests,
+    pending,
+    completed: records.length,
+    accepting: accepting && !persistenceFailed,
+    sinkConfigured: options.onEvent !== undefined,
+    persistenceFailed,
+  });
+  const emit = (event: ExecutionRecorderEvent): boolean => {
+    if (!options.onEvent) return true;
+    try {
+      const result: unknown = options.onEvent(structuredClone(event));
+      if (result !== undefined) {
+        // An async callback is not a durability barrier. Avoid an unhandled
+        // rejection (which may print raw exception text), then fail closed.
+        if (result instanceof Promise) result.catch(() => {});
+        throw new Error("Execution journal sink must be synchronous");
+      }
+      return true;
+    } catch {
+      persistenceFailed = true;
+      return false;
+    }
+  };
+  const finish = (record: ExecutionRequestRecord) => {
+    records.push(record);
+    emit({ version: 1, instanceId, kind: "request_finished", record });
+  };
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: options.port ?? 0,
@@ -151,6 +209,10 @@ export function startExecutionRecorder(options: {
     maxRequestBodySize: 20 * 1024 * 1024,
     async fetch(request) {
       const url = new URL(request.url);
+      // Read-only loopback health for the outer launch/attempt guard. No
+      // credentials, source code, response bodies or arbitrary proxy routes.
+      if (request.method === "GET" && !url.search && url.pathname === "/__recorder/status")
+        return Response.json(status());
       const path = /^\/api\/execution\/([1-9]\d*)\/([1-9]\d*)\/run$/.exec(url.pathname);
       const workflowId = Number(path?.[1]),
         computingUnitId = Number(path?.[2]);
@@ -163,6 +225,8 @@ export function startExecutionRecorder(options: {
       ) {
         return new Response("Not a registered pilot execution route", { status: 403 });
       }
+      if (!accepting || persistenceFailed)
+        return new Response("Execution recorder is not accepting work; do not automatically retry", { status: 503 });
       if (records.length + pending >= maxRequests)
         return new Response("Recorder request limit reached", { status: 503 });
       pending++;
@@ -201,6 +265,8 @@ export function startExecutionRecorder(options: {
           const value = request.headers.get(name);
           if (value) headers.set(name, value);
         }
+        if (!emit({ version: 1, instanceId, kind: "request_started", record: base }))
+          return new Response("Execution journal unavailable; do not automatically retry", { status: 503 });
         forwarded = true;
         const response = await fetch(`${backend.origin}${url.pathname}`, {
           method: "POST",
@@ -230,7 +296,7 @@ export function startExecutionRecorder(options: {
           statusText: response.statusText,
           headers: responseHeaders,
         });
-        records.push({
+        finish({
           ...base,
           elapsedMs: performance.now() - started,
           httpStatus: response.status,
@@ -240,7 +306,7 @@ export function startExecutionRecorder(options: {
         return forwardedResponse;
       } catch {
         if (forwarded)
-          records.push({
+          finish({
             ...base,
             elapsedMs: performance.now() - started,
             httpStatus: null,
@@ -255,8 +321,16 @@ export function startExecutionRecorder(options: {
   });
   return {
     url: server.url.origin,
+    instanceId,
+    status,
     records: (): ExecutionRequestRecord[] => structuredClone(records),
     pending: () => pending,
-    close: () => server.stop(false),
+    stopAccepting: () => {
+      accepting = false;
+    },
+    close: () => {
+      accepting = false;
+      return server.stop(false);
+    },
   };
 }
