@@ -223,3 +223,8 @@ def test_join_and_union_do_not_round_nullable_object_integers():
     right = pd.DataFrame({"id": [large]})
     for result in (execute("Join", left, right, on="id"), execute("Union", left, right)):
         assert result["id"].iloc[0] == large
+
+
+def test_cross_join_cannot_silently_ignore_a_key_cardinality_constraint():
+    with pytest.raises(runtime.NativeError, match="JOIN_KEYS"):
+        execute("Join", pd.DataFrame({"a": [1, 2]}), pd.DataFrame({"b": [3, 4]}), type="cross", validate="one_to_one")

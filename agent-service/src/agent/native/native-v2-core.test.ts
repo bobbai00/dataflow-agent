@@ -37,6 +37,20 @@ function batch() {
 }
 
 describe("V2 focused core", () => {
+  test("cross-join key constraints fail before mutation instead of being ignored", async () => {
+    const { state, dataflow } = batch();
+    const result = await dataflow.execute({
+      operators: [
+        { op: "join", id: "crossed", left: "source", right: "source", type: "cross", validate: "one_to_one" },
+        { op: "scan", id: "source", files: "data/placeholder.csv" },
+      ],
+      observe: [],
+    });
+    expect(result.operators[0].status).toBe("error");
+    expect(result.operators[0].diagnostic).toMatchObject({ code: "JOIN_KEYS", stage: "validate", field: "validate" });
+    expect(state.getOperator("crossed")).toBeUndefined();
+    expect(state.getOperator("source")).toBeDefined();
+  });
   test("worker smoke encodes Python debug literals without rewriting source strings", () => {
     const args = {
       operators: [{ op: "sort", id: "s", by: [{ col: "v", desc: true }] }],

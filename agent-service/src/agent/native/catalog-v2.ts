@@ -191,7 +191,7 @@ export const NATIVE_V2_OPERATORS: readonly NativeOperatorDef[] = [
     "Join",
     2,
     "multiply",
-    "Join left/right using shared key names or [left,right] pairs. Non-cross joins require on; cross forbids it. nullsEqual defaults false. validate checks eligible-key cardinality and fails on violations. rightSuffix defaults _right; collisions/type mismatches fail. Equal-name paired keys coalesce; other right overlaps are suffixed. Sort if output order matters.",
+    "Join left/right using shared key names or [left,right] pairs. Non-cross joins require on; cross forbids on and only accepts validate:many_to_many. nullsEqual defaults false. validate checks eligible-key cardinality and fails on violations. rightSuffix defaults _right; collisions/type mismatches fail. Equal-name paired keys coalesce; other right overlaps are suffixed. Sort if output order matters.",
     object({
       type: { type: "string", enum: ["inner", "left", "right", "full", "cross"] },
       on: {

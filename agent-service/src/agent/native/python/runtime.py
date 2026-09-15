@@ -520,6 +520,14 @@ def _aggregate(spec, frame, operations):
 def _join_keys(spec):
     props = spec["properties"]
     if props.get("type", "inner") == "cross":
+        if props.get("validate", "many_to_many") != "many_to_many":
+            raise _error(
+                spec,
+                "JOIN_KEYS",
+                "Cross join has no equality keys to validate; use many_to_many or an explicit keyed join.",
+                stage="validate",
+                field="validate",
+            )
         if "on" in props:
             raise _error(
                 spec,
