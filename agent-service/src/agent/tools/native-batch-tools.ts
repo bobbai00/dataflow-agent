@@ -26,12 +26,14 @@ import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
+import { NativeValidationRepair } from "../native/validation-repair";
 import {
   createNativeTypedTools,
   nativeInputsOf,
   nativeToolDescription,
   nativeToolName,
   nativeToolSchema,
+  rejectedNativeViewOf,
   TOOL_NAME_NATIVE_DELETE,
 } from "./native-typed-tools";
 
@@ -143,8 +145,18 @@ export function createNativeBatchTools(
 ): Record<string, any> {
   const typed = createNativeTypedTools(state, context, version);
   const validators = validatorsFor(version);
+  const repair = version === "v2" ? (context?.nativeValidationRepair ?? new NativeValidationRepair()) : undefined;
+  const schemas = new Map(nativeOperators(version).map(def => [nativeToolName(def.type), nativeToolSchema(def)]));
+  const deleteTool = typed[TOOL_NAME_NATIVE_DELETE];
   return {
-    [TOOL_NAME_NATIVE_DELETE]: typed[TOOL_NAME_NATIVE_DELETE],
+    [TOOL_NAME_NATIVE_DELETE]: {
+      ...deleteTool,
+      execute: async (args: { id: string }) => {
+        const result = await deleteTool.execute(args);
+        if (typeof result === "string" && !result.startsWith("[ERROR]")) repair?.clear(args.id);
+        return result;
+      },
+    },
     [TOOL_NAME_DATAFLOW]: tool({
       description:
         version === "v2"
@@ -154,6 +166,7 @@ export function createNativeBatchTools(
         nativeBatchSchema(version) as any
       ),
       execute: async args => {
+        const repairEpoch = repair?.epoch;
         if (
           version === "v2" &&
           state
@@ -188,8 +201,12 @@ export function createNativeBatchTools(
           };
         });
         const outcomes: Array<NativeBatchOutcome | undefined> = specs.map(() => undefined);
-        const fail = (index: number, message: string, status: "error" | "blocked" = "error") => {
-          const diagnostic = parseNativeDiagnostic(message);
+        const fail = (
+          index: number,
+          message: string,
+          status: "error" | "blocked" = "error",
+          diagnostic = parseNativeDiagnostic(message)
+        ) => {
           outcomes[index] = {
             id: specs[index].id,
             op: specs[index].op,
@@ -204,17 +221,49 @@ export function createNativeBatchTools(
             fail(byId.get(spec.id)!, `Duplicate id '${spec.id}' in one batch; submit each id once.`);
             fail(spec.index, `Duplicate id '${spec.id}' in one batch; submit each id once.`);
           } else byId.set(spec.id, spec.index);
+        }
+        for (const spec of specs) {
           if (outcomes[spec.index]) continue;
+          const paused = repair?.blocked(spec.op, spec.params);
+          if (paused) {
+            fail(spec.index, "", "error", {
+              ...paused,
+              operatorRevision: rejectedNativeViewOf(spec.op, spec.params).revision!,
+            });
+            continue;
+          }
           const validate = validators.get(spec.op);
           if (!validate) fail(spec.index, `Unknown op '${spec.op}'. Available: ${[...validators.keys()].join(", ")}.`);
           else if (!validate(spec.params)) {
-            fail(
-              spec.index,
-              `Invalid ${spec.op} parameters: ${(validate.errors ?? [])
-                .map(e => `${e.instancePath || "parameters"} ${e.message}`)
-                .slice(0, 4)
-                .join("; ")}`
+            const errors = validate.errors ?? [];
+            const fieldOf = (error: (typeof errors)[number]) => {
+              const name = error.params.missingProperty ?? error.params.additionalProperty;
+              return `${error.instancePath}${name ? `/${name}` : ""}` || "parameters";
+            };
+            const message = `Invalid ${spec.op} parameters: ${errors
+              .map(
+                e =>
+                  `${repair ? fieldOf(e) : e.instancePath || "parameters"} ${e.message}${repair && e.params.allowedValues ? `: ${JSON.stringify(e.params.allowedValues)}` : ""}`
+              )
+              .slice(0, 4)
+              .join("; ")}`;
+            const diagnostic = repair?.record(
+              spec.op,
+              spec.params,
+              {
+                version: 1,
+                operatorId: spec.id,
+                operatorRevision: rejectedNativeViewOf(spec.op, spec.params).revision!,
+                code: "INVALID_ARGUMENTS",
+                stage: "validate",
+                message,
+                field: errors[0] ? fieldOf(errors[0]) : "parameters",
+                retryable: false,
+              },
+              schemas.get(spec.op)!,
+              JSON.stringify(errors.map(e => [e.instancePath, e.keyword, e.params]).sort())
             );
+            fail(spec.index, message, "error", diagnostic);
           }
         }
 
@@ -293,8 +342,19 @@ export function createNativeBatchTools(
             const existed = !!state.getOperator(spec.id);
             const result = await typed[spec.op].execute(spec.params);
             const message = typeof result === "string" ? result : JSON.stringify(result);
-            if (message.startsWith("[ERROR]")) fail(index, message.slice(8));
-            else outcomes[index] = { id: spec.id, op: spec.op, status: existed ? "modified" : "added", message };
+            if (message.startsWith("[ERROR]")) {
+              let diagnostic = parseNativeDiagnostic(message);
+              if (
+                repair?.epoch === repairEpoch &&
+                diagnostic &&
+                (diagnostic.stage === "validate" || diagnostic.stage === "compile")
+              )
+                diagnostic = repair?.record(spec.op, spec.params, diagnostic, schemas.get(spec.op)!) ?? diagnostic;
+              fail(index, message.slice(8), "error", diagnostic);
+            } else {
+              if (repair?.epoch === repairEpoch) repair?.clear(spec.id);
+              outcomes[index] = { id: spec.id, op: spec.op, status: existed ? "modified" : "added", message };
+            }
           } catch (error: any) {
             fail(index, error?.message ?? String(error));
           }

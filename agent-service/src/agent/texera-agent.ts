@@ -107,6 +107,7 @@ import {
 } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
 import { formatNativeDiagnostic } from "./native/diagnostics";
+import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
@@ -343,6 +344,7 @@ export class TexeraAgent {
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
+  private readonly nativeValidationRepair = new NativeValidationRepair();
   /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
    *  always turn-tracked; only the versioned write path reads it for wiring. */
   readonly versionStore = new OperatorVersionStore();
@@ -659,6 +661,7 @@ export class TexeraAgent {
 
     const context: ToolContext = {
       metadataStore: this.metadataStore,
+      nativeValidationRepair: this.nativeValidationRepair,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
@@ -714,9 +717,15 @@ export class TexeraAgent {
       this.settings.nativeToolMode === "batch" &&
       this.settings.nativeCatalogVersion === "v2"
     ) {
-      tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query =>
-        this.snapshotStorage.inspectNativeError(this.head, query)
-      );
+      tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query => {
+        const inspected = this.snapshotStorage.inspectNativeError(this.head, query);
+        if (inspected.summary) {
+          const current = this.snapshotStorage.inspectNativeError(this.head, { operatorId: query.operatorId });
+          if (current.summary?.diagnosticId === inspected.summary.diagnosticId)
+            this.nativeValidationRepair.acknowledge(inspected.summary);
+        }
+        return inspected;
+      });
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1053,6 +1062,7 @@ export class TexeraAgent {
       };
     userStep.parentId = baseStepId;
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(baseStepId));
+    this.nativeValidationRepair.clear();
 
     const ops = (this.snapshotStorage.getWorkflow(baseStepId).operators ?? []).length;
     return {
@@ -1316,6 +1326,7 @@ export class TexeraAgent {
     // total — if no action-bearing ancestor owns a snapshot on this branch
     // we fall through to the empty root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
+    this.nativeValidationRepair.clear();
     return true;
   }
 
@@ -1895,6 +1906,8 @@ export class TexeraAgent {
 
     await this.refreshWorkflowFromBackend();
 
+    this.nativeValidationRepair.clear();
+
     this.abortController = new AbortController();
 
     this.state = AgentStateEnum.GENERATING;
@@ -2192,6 +2205,7 @@ export class TexeraAgent {
   }
 
   clearHistory(): void {
+    this.nativeValidationRepair.clear();
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
     this.currentMessageId = undefined;
@@ -2465,6 +2479,7 @@ export class TexeraAgent {
     // no action-bearing ancestor recorded one, we land on the empty
     // root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(headStep.id));
+    this.nativeValidationRepair.clear();
 
     // Recompute stepCounter from the largest numeric segment in any imported
     // id of the form `step-<agentId>-<n>-<ts>`, so subsequent generateStepId()
@@ -2579,6 +2594,7 @@ export class TexeraAgent {
             "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
           );
           outcome.diagnostic = summary.diagnostic;
+          if (typeof op === "string") this.nativeValidationRepair.bind(op, params, summary);
           outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId} (rejected edit; DAG definition unchanged)`;
         }
       }
@@ -2852,6 +2868,7 @@ export class TexeraAgent {
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
+        this.nativeValidationRepair.clear();
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
@@ -2891,6 +2908,7 @@ export class TexeraAgent {
         isBegin = false;
       } else {
         messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+        this.nativeValidationRepair.clear();
         stepId = 0;
         isBegin = true;
       }
