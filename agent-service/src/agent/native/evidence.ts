@@ -77,7 +77,11 @@ const lexical = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 function declaredColumns(op: OperatorPredicate): string[] {
   const p = op.nativeOp?.properties ?? {};
   const result = [...names(p.keep), ...names(p.drop), ...names(p.groupBy), ...names(p.partitionBy), ...names(p.index)];
-  for (const value of [p.column, p.values]) if (typeof value === "string") result.push(value);
+  for (const value of [p.column, p.values, p.columns, p.nameColumn, p.valueColumn])
+    if (typeof value === "string") result.push(value);
+  result.push(...names(p.into));
+  if (op.nativeOp?.type === "Unpivot")
+    result.push(String(p.nameColumn ?? "variable"), String(p.valueColumn ?? "value"));
   result.push(...Object.keys(record(p.values)), ...Object.keys(record(p.rename)), ...names(p.columns));
   result.push(...names(Object.values(record(p.rename))));
   for (const item of Array.isArray(p.columns) ? p.columns : []) {
@@ -232,6 +236,11 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
     Distinct: `stable retained subset; keys=${p.columns === undefined ? "whole row" : json(p.columns)}; keep=${p.keep ?? "first"}`,
     Limit: `stable positional slice; offset=${p.offset ?? 0}, n=${p.n}; not a top-k claim without Sort`,
     Sort: `row identities preserved; stable sort by=${json(p.by ?? [])}; nulls=${p.nulls ?? "last"}`,
+    Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
+    Split: `row identities preserved, same order; ${json(p.column)} split literally into=${json(p.into)}, missing pieces padded with null`,
+    Explode: `JSON-array elements in parent/element order, other columns repeated; empty=${p.empty ?? "drop"}; parent identity is internal, not a user column`,
+    Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
+    Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
     UDF: "row/column mapping unknown; equal row counts do not prove preservation",
   };
   if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
@@ -434,6 +443,105 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
         94
       );
     } else omissions.push("invalid_union_counters");
+  } else if (view.type === "Window") {
+    const window = record(operations.window);
+    if (
+      out === ns[0] &&
+      count(window.partitions) &&
+      count(window.tieRows) &&
+      (out === 0 ? window.partitions === 0 : window.partitions >= 1 && window.partitions <= out) &&
+      window.tieRows <= out - window.partitions
+    ) {
+      add(
+        "flow.window",
+        "flow",
+        "measurement",
+        `Window preserved=${out} rows; partitions=${window.partitions}, ties beyond first=${window.tieRows}.`,
+        94
+      );
+      for (const item of Array.isArray(p.columns) ? p.columns : []) {
+        const c = record(item);
+        if (!["lag", "lead"].includes(c.fn) || typeof c.as !== "string") continue;
+        const counter = record(record(window.outputs)[c.as]);
+        if (
+          count(counter.boundaryNulls) &&
+          count(counter.nullOutputs) &&
+          counter.boundaryNulls >= window.partitions &&
+          counter.boundaryNulls <= counter.nullOutputs &&
+          counter.nullOutputs <= out &&
+          (Number(c.offset ?? 1) < out || counter.boundaryNulls === out)
+        ) {
+          add(
+            `flow.window.${c.as}`,
+            "flow",
+            "measurement",
+            `${json(c.as)} boundary nulls=${fraction(counter.boundaryNulls, out)}, total nulls=${fraction(counter.nullOutputs, out)}; existing null cells may also propagate.`,
+            93
+          );
+        } else omissions.push("window_output_counters_unavailable");
+      }
+    } else omissions.push("invalid_window_counters");
+  } else if (view.type === "Explode") {
+    const x = record(operations.explode);
+    if (
+      [x.emptyParents, x.arrayElements, x.nullElements, x.maxElements].every(count) &&
+      x.emptyParents <= ns[0] &&
+      x.nullElements <= x.arrayElements &&
+      x.maxElements <= x.arrayElements &&
+      x.arrayElements >= ns[0] - x.emptyParents &&
+      (x.arrayElements === 0 ? x.maxElements === 0 : x.maxElements > 0) &&
+      x.arrayElements <= (ns[0] - x.emptyParents) * x.maxElements &&
+      x.arrayElements + (p.empty === "null_row" ? x.emptyParents : 0) === out
+    ) {
+      add(
+        "flow.explode",
+        "flow",
+        "measurement",
+        `Explode output=${out} from ${ns[0]} parents; array elements=${x.arrayElements}, null elements=${x.nullElements}; empty/null parents=${x.emptyParents} (empty=${p.empty ?? "drop"}), max elements per parent=${x.maxElements}.`,
+        94
+      );
+    } else omissions.push("invalid_explode_counters");
+  } else if (view.type === "Unpivot") {
+    const x = record(operations.unpivot),
+      columns = names(p.columns);
+    if (
+      columns.length > 0 &&
+      new Set(columns).size === columns.length &&
+      x.selectedColumns === columns.length &&
+      count(ns[0] * columns.length) &&
+      out === ns[0] * columns.length &&
+      count(x.nullCells) &&
+      x.nullCells <= out
+    ) {
+      add(
+        "flow.unpivot",
+        "flow",
+        "measurement",
+        `Unpivot output=${ns[0]}*${columns.length}=${out} rows; retained null cells=${x.nullCells}.`,
+        94
+      );
+    } else omissions.push("invalid_unpivot_counters");
+  } else if (view.type === "Pivot") {
+    const x = record(operations.pivot);
+    if (
+      [x.uniquePairs, x.indexGroups, x.generatedColumns, x.missingCells].every(count) &&
+      x.uniquePairs === ns[0] &&
+      x.indexGroups === out &&
+      out <= ns[0] &&
+      x.generatedColumns <= ns[0] &&
+      (ns[0] === 0 ? out === 0 && x.generatedColumns === 0 : out > 0 && x.generatedColumns > 0) &&
+      (names(p.index).length > 0 || out === (ns[0] ? 1 : 0)) &&
+      count(out * x.generatedColumns) &&
+      x.missingCells + x.uniquePairs === out * x.generatedColumns
+    ) {
+      add(
+        "flow.pivot",
+        "flow",
+        "measurement",
+        `Pivot unique pairs=${x.uniquePairs}, index groups=${out}, generated columns=${x.generatedColumns}, absent cells=${x.missingCells} (filled null, separate from null input values).`,
+        94
+      );
+    } else omissions.push("invalid_pivot_counters");
   } else if (["Distinct", "Limit"].includes(view.type)) {
     if (count(operations.removedRows) && operations.removedRows + out === ns[0])
       add(

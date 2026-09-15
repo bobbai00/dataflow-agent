@@ -137,6 +137,54 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("shape measurements validate their row equations and reject stale or inconsistent counters", () => {
+  for (const [kind, properties, rows, operations, validFact, corrupt] of [
+    [
+      "Explode",
+      { column: "x", encoding: "json" },
+      6,
+      { explode: { emptyParents: 2, arrayElements: 6, nullElements: 1, maxElements: 3 } },
+      "flow.explode",
+      { explode: { emptyParents: 2, arrayElements: 99, nullElements: 1, maxElements: 3 } },
+    ],
+    [
+      "Unpivot",
+      { columns: ["x", "y"] },
+      10,
+      { unpivot: { selectedColumns: 2, nullCells: 1 } },
+      "flow.unpivot",
+      { unpivot: { selectedColumns: 1, nullCells: 1 } },
+    ],
+    [
+      "Window",
+      { orderBy: [{ col: "x" }], columns: [{ fn: "lag", col: "x", as: "previous" }] },
+      5,
+      { window: { partitions: 2, tieRows: 1, outputs: { previous: { boundaryNulls: 2, nullOutputs: 3 } } } },
+      "flow.window",
+      { window: { partitions: 2, tieRows: 6, outputs: {} } },
+    ],
+    [
+      "Pivot",
+      { index: [], columns: "key", values: "x" },
+      1,
+      { pivot: { uniquePairs: 5, indexGroups: 1, generatedColumns: 5, missingCells: 0 } },
+      "flow.pivot",
+      { pivot: { uniquePairs: 5, indexGroups: 1, generatedColumns: 5, missingCells: 1 } },
+    ],
+  ] as const) {
+    const f = fixture(kind, properties);
+    f.info.totalRowCount = f.info.tableProfile!.rowCount = rows;
+    Object.assign(f.info.tableProfile!.native!, { outputRows: rows, operations });
+    expect(collectNativeEvidence(f).facts.some(fact => fact.id === validFact)).toBe(true);
+    f.results.get("left")!.resultVersion!.id = "stale";
+    expect(collectNativeEvidence(f).facts.some(fact => fact.id === validFact)).toBe(false);
+    f.results.get("left")!.resultVersion!.id = "left".padEnd(64, "0");
+    f.info.tableProfile!.native!.operations = corrupt;
+    expect(collectNativeEvidence(f).facts.some(fact => fact.id === validFact)).toBe(false);
+    expect(collectNativeEvidence(f).omissions).toContain(`invalid_${kind.toLowerCase()}_counters`);
+  }
+});
+
 test("filter uses exact kept/input denominator and declared null policy", () => {
   const f = fixture();
   const facts = collectNativeEvidence(f).facts;

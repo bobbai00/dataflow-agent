@@ -49,6 +49,9 @@ Invalid edits and errors remain visible without observe. The batch is not an ato
 - Aggregate: count without col counts rows; count with col counts nonnull values. Mean/stddev denominators exclude nulls; stddev is sample standard deviation. An all-null sum is null, not zero. Null grouping keys form a group. `first` includes an initial null. No-group aggregation yields one row on empty input; grouped empty input has zero groups.
 - Join requires explicit keys unless `type:"cross"`; cross joins have no equality keys and accept only the default `validate:"many_to_many"`. Null keys do not match by default; use `nullsEqual: true` only when matching missing keys is intended. Cardinality validation includes all eligible keys (including null keys when explicitly equal). A many-to-one failure means the lookup is not unique: inspect and repair the key/population, not automatically deduplicate it. Equal-name paired keys coalesce; other overlapping right columns receive `rightSuffix`.
 - Union retains rows in port order. Strict mode matches named schemas; align fills absent columns with null. Incompatible types require Cast. Distinct removes rows by the declared key/whole row; Sort has stable ties, and Limit alone is not a meaningful top-k rule.
+- Window calculates lag/lead or one-based ranks within explicit partitions and order keys, then restore input row order. Missing partition keys group together; missing order values sort last. Stable ties do not invent a temporal order: include a tie-break key when the task requires one. lag/lead can be null at a boundary or because the referenced cell is null. Use UDF for rolling/custom windows.
+- Split uses a literal separator, not a regular expression; it pads missing pieces with null and keeps the remaining suffix in the final output. Explode accepts JSON-array strings, not Python list syntax or arbitrary nested values. It replaces that column with one scalar domain plus nulls; mixed int/float domains require explicit normalization. `empty:"drop"` removes null/empty parents; `"null_row"` keeps one null row. An empty/all-null expansion has a nullable string domain until later execution provides a nonnull element.
+- Unpivot keeps null cells and emits input-row order, then selected-column order. Pivot does not combine duplicate pairs: Aggregate first if the task calls for that. Pivot preserves first-seen row/key order, allows null index values, and rejects null pivot keys or generated-name collisions. Dynamic pivot columns come from the current data; explicitly observe before choosing unfamiliar output columns. Empty pivot input produces only index columns and zero rows.
 
 ## Examples
 
@@ -136,6 +139,35 @@ The unchanged answer -> scaled -> rounded definitions must recompute before fina
 
 ```json
 {"operators":[{"op":"join","id":"region_pairs","left":"region_totals","right":"region_totals","on":"region","validate":"one_to_one","rightSuffix":"_comparison"}],"observe":["region_pairs"]}
+```
+
+9. Batch wide-to-long reshaping, a partitioned lag, and a dependent difference once the year columns are known. The two years are deliberately fixed-width strings so lexical ordering matches the intended chronology:
+
+```json
+{
+  "operators": [
+    {"op":"derive","id":"changes","input":"prior","columns":[{"as":"change","inputs":["amount","previous"],"dtype":"float64","func":"def apply(row):\n    return None if row['amount'] is None or row['previous'] is None else float(row['amount'] - row['previous'])"}]},
+    {"op":"window","id":"prior","input":"years","partitionBy":["entity"],"orderBy":[{"col":"year"}],"columns":[{"fn":"lag","col":"amount","as":"previous"}]},
+    {"op":"unpivot","id":"years","input":"annual","columns":["2024","2025"],"nameColumn":"year","valueColumn":"amount"},
+    {"op":"udf","id":"annual","code":"def load():\n    import pandas as pd\n    return pd.DataFrame({'entity':['A'], '2024':[10], '2025':[15]})"}
+  ],
+  "observe": ["changes"]
+}
+```
+
+10. Split a known label format, expand JSON measurements, aggregate intentionally, then pivot the unique category totals. Only the final dynamic schema/result is requested:
+
+```json
+{
+  "operators": [
+    {"op":"pivot","id":"category_totals","input":"totals","index":["entity"],"columns":"category","values":"total"},
+    {"op":"aggregate","id":"totals","input":"expanded","groupBy":["entity","category"],"aggregations":[{"fn":"sum","col":"measurements","as":"total"}]},
+    {"op":"explode","id":"expanded","input":"labels","column":"measurements","encoding":"json","empty":"drop"},
+    {"op":"split","id":"labels","input":"encoded","column":"label","into":["entity","category"],"separator":":","keepSource":false},
+    {"op":"udf","id":"encoded","code":"def load():\n    import pandas as pd\n    return pd.DataFrame({'label':['A:x','A:y'], 'measurements':['[2,3]','[4]']})"}
+  ],
+  "observe": ["category_totals"]
+}
 ```
 
 ## Evidence and errors
