@@ -114,8 +114,10 @@ capability must fail explicitly, not execute with older semantics.
   blocked dependencies, and errors remain visible without it.
 - `op` and `id` are required for every edit. IDs follow the existing Python
   identifier validation and identify both additions and revisions.
-- Sources have no input; unary operators require `input`; joins require
-  `inputs: [left, right]`; union and UDF use ordered `inputs`.
+- Retain the existing input-reference fields: sources have no input; unary
+  operators require `input`; joins require `left` and `right`; union and UDF
+  use ordered `inputs`. Internally a join still has ordered `[left, right]`
+  ports, including when both refer to the same upstream ID.
 - Unknown fields are rejected. Lists of column names must not contain
   duplicates. Referenced columns must exist; output names must be unique.
 - Forward references and references to unchanged existing operators are legal.
@@ -274,7 +276,7 @@ before/after are observations, not proof the scientific criterion is correct.
 ```json
 [
   {"op": "aggregate", "id": "totals", "input": "eligible", "groupBy": ["region"], "aggregations": [{"fn": "sum", "col": "value", "as": "total"}, {"fn": "count", "as": "rows"}]},
-  {"op": "join", "id": "labeled", "inputs": ["totals", "labels"], "on": [["region", "region_id"]], "type": "left", "validate": "many_to_one"},
+  {"op": "join", "id": "labeled", "left": "totals", "right": "labels", "on": [["region", "region_id"]], "type": "left", "validate": "many_to_one"},
   {"op": "union", "id": "combined", "inputs": ["part_a", "part_b"], "schema": "strict"}
 ]
 ```
@@ -292,7 +294,7 @@ before/after are observations, not proof the scientific criterion is correct.
   an empty input yields zero rows with a declared schema. Preserve first-seen
   group order. No custom reducer callback in the first version; use UDF for
   special-purpose statistics. No SQL aggregate expressions.
-- **Join**: `inputs: [left, right]`, `type?: "inner" | "left" | "right" |
+- **Join**: `left: string`, `right: string`, `type?: "inner" | "left" | "right" |
   "full" | "cross"="inner"`; `on?: string | string[] | [string,string][]`.
   Non-cross joins require nonempty keys; never infer a cross join from a missing
   `on`. Cross join forbids `on`. `nullsEqual?: boolean=false`,
@@ -811,8 +813,8 @@ of source commits; commit only sanitized compact checkpoint evidence.
 | Checkpoint | Status | Evidence / next action |
 | --- | --- | --- |
 | Parent | Verified | `feat/native-batch-observe` local and remote at `41cd8ae97` |
-| C0 | Document drafted | Commit this file alone, push `feat/native-python-dataflow` |
-| C1 | Next | Add failing executed-Python preview-offset tests before changing code; exercise the real shared backend on an isolated agent port |
+| C0 | Committed and pushed | `4f8c7f88e`; plan committed alone before implementation |
+| C1 | Implemented and verified | `821f01435`; preview offsets, prompt guidance, and real-backend regression smoke; see [C1 checkpoint](checkpoints/native-python-dataflow-c1.md) for exact scope, commands, outcomes and limitations |
 | C2–C7 | Planned, not implemented | Follow the gates above; no V2/evidence availability or performance claims yet |
 
 Update this ledger at each checkpoint with commit reference, exact test commands,
