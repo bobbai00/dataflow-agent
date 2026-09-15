@@ -78,6 +78,9 @@ describe("native batch system prompt", () => {
           expect(prompt).toContain("stats: true");
           expect(prompt).toContain("cached sample");
           expect(prompt).toContain("no matching sampled rows does not prove absence");
+          expect(prompt).toContain("preview: 8, skipLines: 80");
+          expect(prompt).toContain("absolute zero-based");
+          expect(prompt).toContain("only offset 0 includes its synthetic header");
           expect(prompt.includes("recallState")).toBe(layout.recall === true);
           for (const op of NATIVE_OPERATORS) expect(prompt).toContain(`{op: "${op.type.toLowerCase()}"`);
           const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));

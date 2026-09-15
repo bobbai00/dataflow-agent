@@ -73,18 +73,24 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "create",
     signature:
       'Scan {files: "path or glob (csv/tsv/txt/xlsx/html/json/parquet)", skipLines?: int, header?: bool (default true; ' +
-      'with header=false the columns come back named column0, column1, …), names?: [name] (one per column, only with header=false; ' +
-      'a wrong count is refused), ' +
+      "with header=false the columns come back named column0, column1, …), names?: [name] (one per column, only with header=false; " +
+      "a wrong count is refused), " +
       'allText?: bool (read every column as text), delim?: str ("whitespace" for space-aligned text), comment?: str (skip lines starting with this char), ' +
-      'format?: auto|csv|lines|fwf|whitespace (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths; whitespace = delim whitespace), widths?: [int], ' +
-      'sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), preview?: int (the first n RAW lines of each text file, or the first n rows of every sheet / html table with cells joined by " | " for display)}',
+      "format?: auto|csv|lines|fwf|whitespace (lines: every line of the file becomes a row to parse with compute; fwf: fixed-width columns, with widths; whitespace = delim whitespace), widths?: [int], " +
+      "sheet?: str|int (xlsx sheet, or html table index), encoding?: str (detected when omitted), fileColumn?: str (add the source file name as this column), " +
+      'preview?: int (n RAW lines / sheet rows starting at skipLines, with absolute zero-based line_no / row_no; cells joined by " | "; ' +
+      "html: skipLines skips data rows, row_no is one-based, and only offset 0 includes a synthetic header row; binary pointer previews reject nonzero skipLines)}",
     schema: {
       type: "object",
       additionalProperties: false,
       required: ["files"],
       properties: {
         files: { oneOf: [str, strList] },
-        skipLines: { type: "integer", minimum: 0 },
+        skipLines: {
+          type: "integer",
+          minimum: 0,
+          description: "Rows to skip before reading; also applies to preview (HTML skips data rows).",
+        },
         header: { type: "boolean" },
         // names for a header-less file, applied after the read with a count
         // check; `columns` stays in the schema only so the compiler can refuse
@@ -119,7 +125,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Project",
     inputs: 1,
     rowEffect: "none",
-    signature: 'Project {keep?: [col], drop?: [col], rename?: {old: new}}   columns only; rows untouched',
+    signature: "Project {keep?: [col], drop?: [col], rename?: {old: new}}   columns only; rows untouched",
     schema: {
       type: "object",
       additionalProperties: false,
@@ -149,7 +155,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "collapse",
     signature:
-      'Aggregate {groupBy?: [col], aggregations: [{fn, col?, as?}]}   fn: sum count avg min max median count_distinct string_agg first stddev; ' +
+      "Aggregate {groupBy?: [col], aggregations: [{fn, col?, as?}]}   fn: sum count avg min max median count_distinct string_agg first stddev; " +
       "count without col counts rows; no groupBy = one output row; " +
       "sum/avg/median/stddev on a text column coerce it to numbers first (thousands separators and surrounding space removed, " +
       "unparseable values become null and show in the null count), so numbers stored as text need no separate cast",

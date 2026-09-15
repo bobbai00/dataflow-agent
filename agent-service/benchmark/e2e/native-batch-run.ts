@@ -21,6 +21,9 @@
  * TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3008 bun run benchmark/e2e/native-batch-run.ts
  */
 import { strict as assert } from "node:assert";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createAgent,
   createComputingUnit,
@@ -48,6 +51,7 @@ const cu = await createComputingUnit(token, `batch-smoke-${stamp}`, {
 const cuid = cu.computingUnit.cuid;
 let wid: number | undefined;
 let agentId: string | undefined;
+let fixtureDir: string | undefined;
 const mirroredSteps: ReActStep[] = [];
 const mirroredState = new WorkflowState();
 const mirroredStorage = new WorkflowSnapshotStorage(id =>
@@ -215,6 +219,78 @@ try {
   assert.match(renderMirroredContext(ContextMode.LATEST).split("# Inspections")[0], /Output Table:/);
   const readSnapshot = await getSnapshot(agentId, "head", baseUrl);
   assert.deepEqual(readSnapshot.results, revisedSnapshot.results, "observe-only call recomputed the workflow");
+
+  // The agent and local shared backend see the same filesystem. Keep fixtures
+  // scoped to this run, and execute the real generated Scan code in a worker.
+  fixtureDir = mkdtempSync(join(tmpdir(), "native-batch-preview-"));
+  const previewPath = join(fixtureDir, "window.txt");
+  writeFileSync(previewPath, "START_ONLY\nHEADER_ONLY\nWINDOW_TWO\nWINDOW_THREE\nWINDOW_FOUR\n");
+  const previewWindow = await debug("dataflow", {
+    operators: [
+      { op: "project", id: "window_lines", input: "window", keep: ["line_no", "line"] },
+      { op: "scan", id: "window", files: previewPath, preview: 2, skipLines: 2 },
+    ],
+    observe: ["window_lines"],
+  });
+  assert.deepEqual(
+    previewWindow.results.window_lines?.sampleRecords.map((row: any) => [row.line_no, row.line]),
+    [
+      [2, "WINDOW_TWO"],
+      [3, "WINDOW_THREE"],
+    ],
+    "Scan preview ignored skipLines or lost absolute positions"
+  );
+  const movedWindow = await debug("dataflow", {
+    operators: [{ op: "scan", id: "window", files: previewPath, preview: 2, skipLines: 3 }],
+    observe: [],
+  });
+  assert.deepEqual(
+    movedWindow.results.window_lines?.sampleRecords.map((row: any) => [row.line_no, row.line]),
+    [
+      [3, "WINDOW_THREE"],
+      [4, "WINDOW_FOUR"],
+    ],
+    "same-shaped Scan revision did not refresh the existing descendant"
+  );
+  const movedObservation = movedWindow.context.slice(movedWindow.context.lastIndexOf("Observation:"));
+  assert.match(movedObservation, /window_lines.*re-executed/);
+  assert.ok(!movedObservation.includes("WINDOW_FOUR"), "hidden preview leaked in DELTA");
+  assert.ok(
+    !renderMirroredContext(ContextMode.LATEST).split("# Inspections")[0].includes("WINDOW_FOUR"),
+    "hidden preview leaked in LATEST"
+  );
+  const beforeWindowRead = await getSnapshot(agentId, "head", baseUrl);
+  const windowRead = await debug("dataflow", { operators: [], observe: ["window_lines"] });
+  const afterWindowRead = await getSnapshot(agentId, "head", baseUrl);
+  assert.deepEqual(afterWindowRead.results, beforeWindowRead.results, "preview observation triggered execution");
+  assert.match(windowRead.context.slice(windowRead.context.lastIndexOf("Observation:")), /WINDOW_FOUR/);
+  assert.match(renderMirroredContext(ContextMode.LATEST).split("# Inspections")[0], /WINDOW_FOUR/);
+  // A failed Scan revision must surface despite observe:[] and supersede its
+  // successful table. Repairing that same ID must refresh the dependent again.
+  const missingWindow = await debug("dataflow", {
+    operators: [{ op: "scan", id: "window", files: join(fixtureDir, "missing.txt"), preview: 2, skipLines: 3 }],
+    observe: [],
+  });
+  assert.ok(missingWindow.results.window?.error, "failed Scan revision retained a success");
+  const missingObservation = missingWindow.context.slice(missingWindow.context.lastIndexOf("Observation:"));
+  assert.match(missingObservation, /Scan `window` failed:/);
+  assert.match(missingObservation, /missing\.txt/);
+  assert.match(renderMirroredContext(ContextMode.LATEST), /Scan `window` failed:/);
+  assert.match(renderMirroredContext(ContextMode.LATEST), /missing\.txt/);
+  assert.ok(!missingObservation.includes("WINDOW_FOUR"), "failed revision exposed its old successful data");
+  const repairedWindow = await debug("dataflow", {
+    operators: [{ op: "scan", id: "window", files: previewPath, preview: 2, skipLines: 2 }],
+    observe: ["window_lines"],
+  });
+  assert.ok(!repairedWindow.results.window?.error, "repaired Scan still has an error");
+  assert.deepEqual(
+    repairedWindow.results.window_lines?.sampleRecords.map((row: any) => [row.line_no, row.line]),
+    [
+      [2, "WINDOW_TWO"],
+      [3, "WINDOW_THREE"],
+    ],
+    "repair did not recompute the existing dependent"
+  );
   const partial = await debug("dataflow", {
     operators: [
       { op: "filter", id: "invalid", input: "source", predicate: 4 },
@@ -251,6 +327,12 @@ try {
           "downstream result refreshed despite unchanged aggregate row count",
           "omitted observe hides successful bodies in DELTA and LATEST",
           "explicit observe retrieves the refreshed result without recomputation",
+          "Scan preview offset and absolute source positions through a real worker",
+          "same-shaped preview revision refreshes the existing descendant",
+          "preview bodies hidden without observe in DELTA and LATEST",
+          "cached preview observation without recomputation",
+          "unrequested Scan failure replaces prior success and remains visible",
+          "Scan repair with the same ID refreshes its existing dependent",
           "partial edit outcomes",
           "unrequested execution error",
         ],
@@ -260,7 +342,21 @@ try {
     )
   );
 } finally {
-  if (agentId) await deleteAgent(agentId, baseUrl);
-  if (wid !== undefined) await deleteWorkflow(token, wid);
-  await terminateComputingUnit(token, cuid);
+  try {
+    // Attempt all cleanup even if one endpoint fails; never touch another
+    // test's workflow or the shared Texera service itself.
+    const cleanup = await Promise.allSettled([
+      agentId ? deleteAgent(agentId, baseUrl) : Promise.resolve(),
+      wid !== undefined ? deleteWorkflow(token, wid) : Promise.resolve(),
+      terminateComputingUnit(token, cuid),
+    ]);
+    for (const result of cleanup) {
+      if (result.status === "rejected") {
+        console.error("Smoke cleanup failed:", result.reason);
+        process.exitCode = 1;
+      }
+    }
+  } finally {
+    if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
+  }
 }

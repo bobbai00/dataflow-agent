@@ -147,7 +147,9 @@ function compileScan(p0: Record<string, any>): string {
   }
   L.push("        return d");
   L.push(`    _pats = ${py(files)}`);
-  L.push("    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))");
+  L.push(
+    "    files = sorted(set(f for pat in _pats for f in (glob.glob(pat) if any(ch in pat for ch in '*?[') else [pat])))"
+  );
   // A wrong path is the most common Scan failure (the task text says `omni2.txt`,
   // the lake has `omni2.text`): name the directory's actual files in the error.
   L.push("    def _not_found(paths):");
@@ -156,10 +158,14 @@ function compileScan(p0: Record<string, any>): string {
   L.push("            d = os.path.dirname(q) or '.'");
   L.push("            if os.path.isdir(d):");
   L.push("                names = sorted(os.listdir(d))");
-  L.push("                hints.append(d + '/ contains: ' + ', '.join(names[:40]) + (' ...' if len(names) > 40 else ''))");
+  L.push(
+    "                hints.append(d + '/ contains: ' + ', '.join(names[:40]) + (' ...' if len(names) > 40 else ''))"
+  );
   L.push("            else:");
   L.push("                parent = os.path.dirname(d.rstrip('/')) or '.'");
-  L.push("                hints.append('no directory ' + d + (' (' + parent + '/ contains: ' + ', '.join(sorted(os.listdir(parent))[:40]) + ')' if os.path.isdir(parent) else ''))");
+  L.push(
+    "                hints.append('no directory ' + d + (' (' + parent + '/ contains: ' + ', '.join(sorted(os.listdir(parent))[:40]) + ')' if os.path.isdir(parent) else ''))"
+  );
   L.push("        raise FileNotFoundError('not found: ' + ', '.join(paths) + '. ' + ' | '.join(hints))");
   L.push("    if not files:");
   L.push("        _not_found(_pats)");
@@ -173,9 +179,13 @@ function compileScan(p0: Record<string, any>): string {
   L.push("        elif ext in ('.html', '.htm'): fmt = 'html'");
   L.push("        elif ext in ('.json', '.jsonl', '.ndjson'): fmt = 'json'");
   L.push("        elif ext == '.parquet': fmt = 'parquet'");
-  L.push("        elif ext in ('.gpkg', '.shp', '.npz', '.npy', '.cdf', '.nc', '.h5', '.hdf5', '.pkl', '.zip', '.gz', '.db', '.sqlite'): fmt = 'binary'");
+  L.push(
+    "        elif ext in ('.gpkg', '.shp', '.npz', '.npy', '.cdf', '.nc', '.h5', '.hdf5', '.pkl', '.zip', '.gz', '.db', '.sqlite'): fmt = 'binary'"
+  );
   L.push("        else: fmt = 'csv'");
-  L.push("    BINARY_HINT = 'binary format ' + ext + ': scan reads text tables, xlsx, html, json and parquet; read this file with a udf loader (geopandas.read_file for .gpkg/.shp, numpy.load for .npz, cdflib for .cdf)'");
+  L.push(
+    "    BINARY_HINT = 'binary format ' + ext + ': scan reads text tables, xlsx, html, json and parquet; read this file with a udf loader (geopandas.read_file for .gpkg/.shp, numpy.load for .npz, cdflib for .cdf)'"
+  );
   L.push(`    file_col = ${py(p.fileColumn ?? null)}`);
   L.push("    def _tag(d, f):");
   L.push("        if file_col: d[file_col] = os.path.basename(f)");
@@ -192,8 +202,11 @@ function compileScan(p0: Record<string, any>): string {
   L.push("        except UnicodeDecodeError:");
   L.push("            return 'cp1252'");
   if (p.preview) {
-    // ---- preview: raw lines for text; sheet / table heads for excel and html; a pointer for binary
+    // Preview windows keep their source positions so the agent can discover
+    // later headers/records without repeatedly receiving the start of a file.
     L.push(`    n = ${Number(p.preview)}`);
+    L.push(`    skip = ${skip}`);
+    L.push("    from itertools import islice");
     // A sheet or html row becomes one text line (cells joined by ' | ', trailing
     // empty cells dropped), so the preview reads like the raw-line preview of a
     // csv and shows where the header row is.
@@ -203,27 +216,34 @@ function compileScan(p0: Record<string, any>): string {
     L.push("        return ' | '.join(cells)");
     L.push("    if fmt == 'excel':");
     L.push("        rows = []");
-    L.push("        xl = pd.ExcelFile(files[0])");
-    L.push("        for sh in xl.sheet_names:");
-    L.push("            d = xl.parse(sh, header=None, nrows=n, dtype=str)");
-    L.push("            for i, r in enumerate(d.itertuples(index=False)):");
-    L.push("                rows.append({'sheet': sh, 'row_no': i, 'line': _row_line(r)})");
+    L.push("        with pd.ExcelFile(files[0]) as xl:");
+    L.push("            for sh in xl.sheet_names:");
+    L.push("                d = xl.parse(sh, header=None, skiprows=skip, nrows=n, dtype=str)");
+    L.push("                for i, r in enumerate(d.itertuples(index=False), skip):");
+    L.push("                    rows.append({'sheet': sh, 'row_no': i, 'line': _row_line(r)})");
     L.push("        return pd.DataFrame(rows, columns=['sheet', 'row_no', 'line'])");
     L.push("    if fmt == 'html':");
     L.push("        rows = []");
     L.push("        for i, t in enumerate(pd.read_html(files[0])):");
-    L.push("            rows.append({'table': i, 'row_no': 0, 'line': _row_line([str(c) for c in t.columns])})");
-    L.push("            for k, r in enumerate(t.head(n).itertuples(index=False), 1):");
+    // Preserve the zero-offset synthetic header. Later windows only contain
+    // data rows; their one-based row_no is independent of the window offset.
+    L.push("            if skip == 0:");
+    L.push("                rows.append({'table': i, 'row_no': 0, 'line': _row_line([str(c) for c in t.columns])})");
+    L.push("            for k, r in enumerate(t.iloc[skip:skip + n].itertuples(index=False), skip + 1):");
     L.push("                rows.append({'table': i, 'row_no': k, 'line': _row_line(r)})");
     L.push("        return pd.DataFrame(rows, columns=['table', 'row_no', 'line'])");
     L.push("    if fmt == 'binary':");
-    L.push("        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})");
+    L.push("        if skip:");
+    L.push(
+      "            raise ValueError('skipLines is not supported for binary pointer previews; omit skipLines to inspect the file metadata, or use a udf loader to read its contents')"
+    );
+    L.push(
+      "        return pd.DataFrame({'file': [os.path.basename(f) for f in files], 'size_bytes': [os.path.getsize(f) for f in files], 'note': [BINARY_HINT] * len(files)})"
+    );
     L.push("    rows = []");
     L.push("    for f in files[:5]:");
     L.push("        with open(f, 'r', encoding=_text_enc(f), errors='replace') as fh:");
-    L.push("            for i, line in enumerate(fh):");
-    L.push("                if i >= n:");
-    L.push("                    break");
+    L.push("            for i, line in enumerate(islice(fh, skip, skip + n), skip):");
     L.push("                rows.append({'file': os.path.basename(f), 'line_no': i, 'line': line.rstrip('\\n\\r')})");
     L.push("    return pd.DataFrame(rows, columns=['file', 'line_no', 'line'])");
     return L.join("\n");
@@ -262,14 +282,18 @@ function compileScan(p0: Record<string, any>): string {
   L.push("                j = [json.loads(l) for l in txt.splitlines() if l.strip()]");
   L.push("            if isinstance(j, dict) and all(not isinstance(v, (dict, list)) for v in j.values()):");
   L.push("                d = pd.DataFrame({'key': list(j.keys()), 'value': list(j.values())})");
-  L.push("            elif isinstance(j, dict) and all(isinstance(v, list) for v in j.values()) and len({len(v) for v in j.values()}) == 1:");
+  L.push(
+    "            elif isinstance(j, dict) and all(isinstance(v, list) for v in j.values()) and len({len(v) for v in j.values()}) == 1:"
+  );
   L.push("                d = pd.DataFrame(j)");
   L.push("            else:");
   L.push("                d = pd.json_normalize(j)");
   L.push("            parts.append(_tag(d, f))");
   L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   L.push("    if fmt == 'parquet':");
-  L.push("        return _norm(duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df())");
+  L.push(
+    "        return _norm(duckdb.connect().sql('SELECT * FROM read_parquet([' + ', '.join(\"'\" + f.replace(\"'\", \"''\") + \"'\" for f in files) + '], union_by_name=true)').df())"
+  );
   // ---- pandas text readers: fixed width, whitespace-aligned, commented, non-utf-8
   const pdCommon =
     `header=${header ? "0" : "None"}, skiprows=${skip}` +
@@ -279,7 +303,9 @@ function compileScan(p0: Record<string, any>): string {
     ", encoding=_text_enc(f), encoding_errors='replace'";
   L.push("    if fmt == 'fwf':");
   L.push("        for f in files:");
-  L.push(`            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`);
+  L.push(
+    `            parts.append(_tag(pd.read_fwf(f${Array.isArray(p.widths) ? `, widths=${py(p.widths)}` : ""}, ${pdCommon}), f))`
+  );
   L.push("        return _norm(pd.concat(parts, ignore_index=True, sort=False))");
   const pandasCsv = p.delim === "whitespace" ? `sep=r'\\s+', engine='python'` : `sep=${py(p.delim ?? ",")}`;
   L.push("    def _pandas_csv():");
