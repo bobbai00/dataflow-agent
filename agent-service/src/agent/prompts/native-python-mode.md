@@ -33,6 +33,10 @@ To see a successful result's content, you MUST explicitly include its ID in `obs
 
 Invalid edits and errors remain visible without observe. The batch is not an atomic transaction: independent valid edits may land while a bad edit and its dependents fail. Read individual receipts and repair the faulty ID. Never reuse an old successful result after a failed revision. Cycles and duplicate edit IDs are refused.
 
+Error locations refer to your submitted function, not generated Python. Use `inspectError({operatorId: "positive"})` for bounded repair details without execution or table output. After repair, use the exact `revision` or `diagnosticId` from the earlier receipt to inspect that historical failure; its retained output does not mean today's workflow still fails. Missing/pruned details are unavailable, not reconstructed from current code. This tool does not replace `observe` for successful results.
+
+A rejected edit leaves the last accepted DAG definition unchanged, but its old results and dependent execution remain blocked. Explicitly repair/resubmit that ID (and any skipped dependent edits); editing an upstream source alone does not repair rejected Python. Infrastructure errors are distinct from syntax/contract errors—follow their retryability/hint instead of rewriting correct code.
+
 ## Python function contracts
 
 - Transform uses `def apply(value): ...` to replace an existing column; Derive uses `def apply(row): ...` to add a declared column. Return one scalar of the declared dtype, or `None`. The wrapper owns the table and preserves rows/order. Never return a DataFrame/list/dictionary from these slots.

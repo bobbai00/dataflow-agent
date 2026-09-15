@@ -28,6 +28,8 @@ import {
 } from "./api/operator-result-summary";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
+import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
+import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -55,11 +57,7 @@ import {
   ProbeRetirementConfigSchema,
   type ProbeRetirementConfig,
 } from "./agent/context/selector/probe-retirement";
-import {
-  applyRolePolicy,
-  RolePolicyConfigSchema,
-  type RolePolicyConfig,
-} from "./agent/context/selector/role-policy";
+import { applyRolePolicy, RolePolicyConfigSchema, type RolePolicyConfig } from "./agent/context/selector/role-policy";
 import {
   FoldResolvedRevisionsConfigSchema,
   type FoldResolvedRevisionsConfig,
@@ -160,7 +158,9 @@ function lastTouchTurnByOperator(visibleSteps: Array<{ messageId: string; toolCa
 /** Operator ids touched by the turn in progress (the newest messageId group) —
  *  the ones that render RICH under the turn-history index while everything
  *  older renders as a one-line entry. */
-function currentTurnOperatorIds(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): string[] {
+function currentTurnOperatorIds(
+  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
+): string[] {
   if (visibleSteps.length === 0) return [];
   const lastMessageId = visibleSteps[visibleSteps.length - 1].messageId;
   const ids = new Set<string>();
@@ -419,9 +419,12 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           // Upstream inputs get VALUES as the budget allows — knowing an input
           // table's numbers matters more often than knowing how it was produced,
           // and code is the half the model can cheapest recall on demand.
-          upstream.reverse().slice(0, Math.max(0, TABLE_CAP)).forEach(id => {
-            overrides[id] = { result: { latest: { detail: "sample" } } };
-          });
+          upstream
+            .reverse()
+            .slice(0, Math.max(0, TABLE_CAP))
+            .forEach(id => {
+              overrides[id] = { result: { latest: { detail: "sample" } } };
+            });
           // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
           // index lists every operator ever built: on my_uber_drivers the model
           // had created 737 by turn 30, and their index entries alone were 360 KB
@@ -970,24 +973,24 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
-      userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-      turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
-      enableRecallTool: t.Optional(t.Boolean()),
-      recallMaxResultChars: t.Optional(t.Number()),
-      recallOperatorLevel: t.Optional(t.Boolean()),
-      specAudit: t.Optional(t.Boolean()),
-      indexRichTables: t.Optional(t.Number()),
-      indexDetailedOperators: t.Optional(t.Number()),
-      enableResumeTool: t.Optional(t.Boolean()),
-      enableAnswerGrounding: t.Optional(t.Boolean()),
-      coercionTelemetry: t.Optional(t.Boolean()),
-      rowLineage: t.Optional(t.Boolean()),
-      statScopes: t.Optional(t.Any()),
-      messageLayout: t.Optional(t.String()),
-      versionedMode: t.Optional(t.Boolean()),
-      versionedHeads: t.Optional(t.Boolean()),
-      sessionTurns: t.Optional(t.Boolean()),
-      indexThinObservations: t.Optional(t.Boolean()),
+            userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
+            turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
+            enableRecallTool: t.Optional(t.Boolean()),
+            recallMaxResultChars: t.Optional(t.Number()),
+            recallOperatorLevel: t.Optional(t.Boolean()),
+            specAudit: t.Optional(t.Boolean()),
+            indexRichTables: t.Optional(t.Number()),
+            indexDetailedOperators: t.Optional(t.Number()),
+            enableResumeTool: t.Optional(t.Boolean()),
+            enableAnswerGrounding: t.Optional(t.Boolean()),
+            coercionTelemetry: t.Optional(t.Boolean()),
+            rowLineage: t.Optional(t.Boolean()),
+            statScopes: t.Optional(t.Any()),
+            messageLayout: t.Optional(t.String()),
+            versionedMode: t.Optional(t.Boolean()),
+            versionedHeads: t.Optional(t.Boolean()),
+            sessionTurns: t.Optional(t.Boolean()),
+            indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1037,6 +1040,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
+  .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
+    const agent = getAgent(id);
+    const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
+    if (!authorization.ok) {
+      set.status = authorization.status;
+      return { error: authorization.error };
+    }
+    const query = inspectErrorSchema.safeParse(body);
+    if (!query.success) {
+      set.status = 400;
+      return { error: "Expected operatorId and optional revision/diagnosticId; no other fields are accepted." };
+    }
+    const inspection = agent.getSnapshotStorage().inspectNativeError(agent.getHead(), query.data);
+    if (!inspection.found) set.status = 404;
+    return inspection;
+  })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
@@ -1165,9 +1184,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       const result = await agent.sendMessage(content, messageSource);
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const lastWithContent = [...steps]
-        .reverse()
-        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
       broadcastNextContext(id, agent);
       return {
         status: "complete",

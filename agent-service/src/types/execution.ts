@@ -18,6 +18,7 @@
  */
 
 import type { TableProfile } from "../agent/native/profiles";
+import type { NativeErrorSummary } from "../agent/native/diagnostics";
 
 export interface ResultVersion {
   version: 1;
@@ -62,6 +63,8 @@ export interface OperatorInfo {
   truncated?: boolean;
   consoleLogs?: ConsoleMessage[];
   error?: string;
+  /** Sanitized identity/repair envelope; expanded records stay in snapshot storage. */
+  nativeError?: NativeErrorSummary;
   warnings?: string[];
   columnStats?: Record<string, string>;
   /** Reserved machine envelopes, separate from display-truncated columnStats. */

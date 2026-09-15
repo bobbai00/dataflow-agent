@@ -24,8 +24,9 @@ The checkpoint ledger at the end is the authority on what is implemented.
 Examples labeled V2 are **not yet accepted by the running legacy catalog**.
 The candidate opt-in V2 catalog now contains nineteen operators: the fourteen
 C2/C3 core operators plus five C6 shape utilities. C6 has local execution/codec
-tests but is not live-qualified or deployed. The rest of this document remains
-the target contract, not a rollout claim.
+tests and locally verified revision-pinned error inspection, but is not fully
+live-qualified or deployed. The rest of this document remains the target
+contract, not a rollout claim.
 
 ## 1. Scope and starting point
 
@@ -521,35 +522,47 @@ The current batch path already exposes errors independently of `observe`.
 Preserve that behavior and add structured, revision-specific diagnostics before
 exposing new callback operators.
 
-### 5.1 Proposed error envelope
+### 5.1 Implemented V2 diagnostic envelope
+
+The existing error transport remains a string with a `NATIVE_ERROR_V2:` payload.
+Snapshot storage binds that payload to the event and adds a sanitized
+`nativeError` summary to the normal operator-result API. For example:
 
 ```json
 {
-  "operatorId": "typed",
-  "operatorRevision": "rev-7",
-  "executionId": "exec-12",
-  "status": "error",
-  "error": {
-    "version": 1,
-    "code": "CAST_INVALID_VALUE",
-    "stage": "execute",
-    "message": "Cannot cast column value to float64.",
-    "field": "columns[0]",
-    "input": {"operatorId": "source", "revision": "rev-3", "port": 0},
-    "witnesses": [{"column": "value", "value": "unknown"}],
-    "hint": "Normalize the value or explicitly choose errors: null.",
-    "diagnosticId": "diag-42"
+  "nativeError": {
+    "diagnosticId": "diag_0123456789abcdef01234567",
+    "operatorId": "typed",
+    "operatorRevision": "c8c41aa9b80450d1",
+    "stepId": "step-12",
+    "executionId": "12",
+    "phase": "execution",
+    "diagnostic": {
+      "version": 1,
+      "operatorId": "typed",
+      "operatorRevision": "c8c41aa9b80450d1",
+      "code": "CAST_INVALID_VALUE",
+      "stage": "execute",
+      "message": "Cannot cast 'value' to float64: invalid numeric value. Normalize the input or explicitly set errors:null.",
+      "field": "columns[0]"
+    }
   }
 }
 ```
 
-Fields above are the proposed machine-readable contract, not the current
-serialized error format. `executionId` is absent for pre-execution validation;
-`field`, `input`, `witnesses`, and `hint` are optional when not relevant.
-Callback failures additionally include `source: {entry:"apply", line:3,
-column:5, excerpt:"..."}` with coordinates in the **submitted function**, not
-the generated wrapper. Each diagnostic is pinned to the exact operator
-revision/source; no looking up today's code for yesterday's DELTA error.
+`phase:"attempt"` identifies a rejected submitted definition which never
+replaced the stored DAG. Its `executionId` is null; execution-phase diagnostics
+also use null when execution identity is unavailable, not an invented ID.
+`field`, `source`, `hint`, and `retryable` are optional. Default repair hints are
+selected by code while rendering if the payload has no hint. Callback failures
+include `source: {entry:"apply", line:3, column:5, excerpt:"..."}` in the
+**submitted function**, not the generated wrapper. Lines are one-based. The
+outer identity owns the failed/blocked operator; a propagated diagnostic can
+identify an upstream origin, verified against the same event's workflow.
+Unknown/stale bindings withhold source attribution. Relevant bad values can
+appear in a bounded message; this is not a new general-purpose witness or
+statistics API. Consumed-input version references live in the private record
+and expanded text only when the execution binding actually proves them.
 
 | Stage / class | Examples | Expected response |
 | --- | --- | --- |
@@ -568,10 +581,11 @@ Rules:
 - Reserve a separate bounded diagnostic budget; never truncate away operator
   identity, error code, stage, or the essential repair message. Long values and
   extra witnesses may be elided with an explicit marker.
-- Preserve raw sanitized traceback, generated code/source map and context in
-  existing execution logs/snapshot diagnostic storage. Plan an authenticated
-  `inspectError({operatorId, revision?})` for bounded expanded diagnostics;
-  do not repurpose successful-table inspection or expose environment dumps.
+- Preserve bounded sanitized traceback and submitted-source context in private
+  snapshot diagnostics. Accepted generated code/source maps remain in their
+  immutable workflow snapshots; rejected preflight submissions have no generated
+  execution to reconstruct. Use the `inspectError` contract below for expanded
+  diagnostics, not successful-table inspection or an environment dump.
 - A failed new revision supersedes its old success. Downstream results tied to
   the old revision cannot render as fresh. Independent branches may complete.
 - An exception is not an output row. A generic UDF returning a user-defined
@@ -585,6 +599,62 @@ Rules:
   errors, missing columns, or contract violations.
 - Diagnose failures without exposing credentials, global variables, or unrelated
   records. Witnesses are limited to relevant authorized input columns.
+
+### 5.2 Error inspection, budgets and rejected-edit state
+
+The V2 batch tool set adds `inspectError({operatorId, revision?, diagnosticId?})`.
+It reads this agent's retained records only, never runs the engine, modifies a
+workflow, creates a workflow snapshot, or returns successful table content.
+Only `operatorId` means the current unresolved error. After repair, specify an
+exact revision or diagnostic ID to inspect history. Revision lookup selects
+the newest retained matching failure on the active branch; `diagnosticId`
+disambiguates repeated executions and can address another retained branch of
+the same agent. IDs are SHA-256-derived from the captured event/diagnostic,
+not an authorization mechanism. Missing/pruned records are unavailable, never
+reconstructed from today's code. A saved tool output is replayed as an event
+fact: inline for native DELTA, or in the existing bounded inspection history
+for other layouts/LATEST. It does not change to say "success" after repair.
+
+The separate allowances are **1,200 detail characters per normal diagnostic
+render** and **4,000 per expanded inspection**, not a whole-step or token
+budget. The mandatory identity envelope is outside those allowances and is
+never silently shortened. Ordinary message/hint/source excerpts have smaller
+component caps; expanded inspection can show up to 1,600 message characters,
+five submitted-source lines, and verified input-version references. Extra
+detail is explicitly marked omitted. Private records retain at most 16,384
+traceback characters and a 12,000-character submitted-source prefix, with
+completeness flags; generated-runtime prefixes are not passed off as useful
+expanded error excerpts. Credential-shaped strings and the known delegated
+token are redacted without shifting source line numbers. This is defense in
+depth, not a claim to recognize every possible secret embedded in arbitrary
+user text. No environment enumeration, console dump, or table scan is performed.
+
+Rejected definitions are separate control state from materialized tables.
+Their old successes and dependent outputs are unavailable even though the last
+accepted DAG definition remains visible. A later consumer cannot silently
+execute that older definition, and an upstream rerun does not forgive a syntax
+rejection. Independent targets can still execute. An explicit accepted
+resubmission—including deliberately restoring identical accepted code—clears
+the rejection and allows fresh execution; skipped dependent edits must be
+resubmitted too. Historical snapshots/diagnostics remain unchanged.
+
+External access is `POST /api/agents/:id/inspect-error` with the same query JSON
+and the caller's Bearer token. It requires the agent owner, a bound workflow,
+and a successful authenticated Texera workflow-read check. Decoding a JWT alone
+is not signature verification; Texera's protected route verifies the supplied
+token and current read permission. No stored-token fallback, redirects, raw
+backend error body, or cached authorization is used. The check times out after
+five seconds and fails closed. Responses: 200 for a retained diagnostic, 404
+for unavailable history, 400 for invalid arguments, 401/403 for rejected access,
+503 when permission verification is unavailable. The ordinary snapshot/result
+API includes only the sanitized summary, not private records.
+
+This new endpoint does **not** harden the pre-existing trusted-local agent REST
+and WebSocket surfaces, which already expose workflows/traces and can drive
+model tools. Protect those surfaces at deployment; do not treat this endpoint
+alone as a multi-tenant security boundary. In-loop `inspectError` is scoped by
+the existing delegated agent session and cannot select another agent or log
+path. Full agent-service authentication is outside this operator experiment.
 
 ## 6. Data optimization: ordinary profiles, selectively exposed
 

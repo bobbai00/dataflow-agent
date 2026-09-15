@@ -98,14 +98,21 @@ import {
   TOOL_NAME_MODIFY_OPERATOR,
 } from "./tools/general-op-tools";
 import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
-import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
-import { asNativeBatchResult, batchObservedIds, createNativeBatchTools, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
+import { createNativeTypedTools, rejectedNativeViewOf, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
+import {
+  asNativeBatchResult,
+  batchObservedIds,
+  createNativeBatchTools,
+  TOOL_NAME_DATAFLOW,
+} from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
+import { formatNativeDiagnostic } from "./native/diagnostics";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
+import { createInspectErrorTool, TOOL_NAME_INSPECT_ERROR } from "./tools/inspect-error-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import {
   createRecallStateTool,
@@ -290,7 +297,12 @@ export function computeOperatorAccess(
           entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
       }
-    } else if (inputOpId && (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR || tc.toolName === TOOL_NAME_INSPECT_RESULT)) {
+    } else if (
+      inputOpId &&
+      (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR ||
+        tc.toolName === TOOL_NAME_INSPECT_RESULT ||
+        tc.toolName === TOOL_NAME_INSPECT_ERROR)
+    ) {
       // A failed read still tells the UI which operator the model looked at.
       entry.viewedOperatorIds.push(inputOpId);
     }
@@ -379,7 +391,8 @@ export class TexeraAgent {
     this.metadataStore = WorkflowSystemMetadata.getInstance();
     this.snapshotStorage = new WorkflowSnapshotStorage(
       stepId => this.getAncestorPath(stepId),
-      () => this.delegateConfig?.workflowId
+      () => this.delegateConfig?.workflowId,
+      () => (this.delegateConfig?.userToken ? [this.delegateConfig.userToken] : [])
     );
 
     this.settings = {
@@ -685,12 +698,25 @@ export class TexeraAgent {
     // Opt-in read-only PULL tool (Direction B): lets the model re-inspect an
     // existing operator's cached result at more detail on demand. Reads the
     // result at the current HEAD; never mutates the DAG or re-executes.
-    if (this.settings.enableInspectTool || (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")) {
+    if (
+      this.settings.enableInspectTool ||
+      (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")
+    ) {
       tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
         getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
         workflowState: this.workflowState,
         maxResultChars: () => this.settings.maxOperatorResultCharLimit,
       });
+    }
+
+    if (
+      this.settings.agentMode === AgentMode.NATIVE &&
+      this.settings.nativeToolMode === "batch" &&
+      this.settings.nativeCatalogVersion === "v2"
+    ) {
+      tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query =>
+        this.snapshotStorage.inspectNativeError(this.head, query)
+      );
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1326,6 +1352,7 @@ export class TexeraAgent {
     if (head === undefined) return;
     const step = this.stepsById.get(head);
     if (!step?.toolCalls || step.toolCalls.length === 0) return;
+    if (step.toolCalls.every(call => call.toolName === TOOL_NAME_INSPECT_ERROR)) return;
     if (this.snapshotStorage.hasSnapshotFor(head)) return;
     this.snapshotStorage.createSnapshot(head, content);
     this.snapshotCallback?.(head, content);
@@ -2517,6 +2544,44 @@ export class TexeraAgent {
       this.settings.nativeCatalogVersion === "v2" &&
       this.snapshotStorage.hasSnapshotFor(owningStepId)
     ) {
+      for (const call of toolCalls ?? []) {
+        if (call.toolName !== TOOL_NAME_DATAFLOW || !Array.isArray(call.input?.operators)) continue;
+        const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
+        for (const [index, outcome] of (batch?.operators ?? []).entries()) {
+          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
+          const spec = call.input.operators[index];
+          if (!spec || typeof spec !== "object" || typeof spec.id !== "string" || !spec.id) continue;
+          const { op, ...params } = spec;
+          const view = rejectedNativeViewOf(op, params);
+          const diagnostic = outcome.diagnostic ?? {
+            version: 1 as const,
+            operatorId: spec.id,
+            operatorRevision: view.revision!,
+            code: outcome.status === "blocked" ? "UPSTREAM_FAILED" : "EDIT_REJECTED",
+            stage: outcome.status === "blocked" ? ("dependency" as const) : ("validate" as const),
+            message: outcome.message,
+            hint: "Repair the rejected arguments/upstream dependency and resubmit; the DAG definition was not changed.",
+            retryable: false,
+          };
+          const summary = this.snapshotStorage.captureNativeAttemptDiagnostic(
+            owningStepId,
+            {
+              operatorID: spec.id,
+              operatorType: "DataProcessing",
+              operatorVersion: "1",
+              operatorProperties: {},
+              inputPorts: [],
+              outputPorts: [],
+              showAdvanced: false,
+              nativeOp: view,
+            },
+            "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
+          );
+          outcome.diagnostic = summary.diagnostic;
+          outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId} (rejected edit; DAG definition unchanged)`;
+        }
+      }
+      this.snapshotStorage.restoreNativeRejectedEdits(owningStepId);
       this.snapshotStorage.captureNativeObservations(owningStepId, requested, options);
     }
   }
@@ -2525,8 +2590,7 @@ export class TexeraAgent {
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
   ): Promise<void> {
-    const execConfig = this.buildExecutionConfig();
-    if (!execConfig || !toolCalls || !toolResults) return;
+    if (!toolCalls || !toolResults) return;
 
     // Collect every operator successfully edited in this step.
     const editedOpIds: string[] = [];
@@ -2556,6 +2620,11 @@ export class TexeraAgent {
       }
     }
     if (editedOpIds.length === 0) return;
+    if (this.head && this.settings.nativeCatalogVersion === "v2") {
+      this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
+    }
+    const execConfig = this.buildExecutionConfig();
+    if (!execConfig) return;
 
     // WRITE THROUGH TO THE VERSION STORE — every mode. The store is the only
     // place a version is a thing rather than an inference; recording here (on
@@ -2590,8 +2659,6 @@ export class TexeraAgent {
         }
       }
     }
-    if (targets.size === 0) return;
-
     // An aborted request can still finish remotely (or return after checkout).
     // Capture ownership now; never route its data/profiles/errors via a later HEAD.
     const owningStepId = this.head;
@@ -2601,6 +2668,75 @@ export class TexeraAgent {
       this.head === owningStepId &&
       !owningSignal?.aborted &&
       this.snapshotStorage.hasSnapshotFor(owningStepId);
+
+    // A rejected edit never entered the DAG. Executing a later consumer across
+    // it would silently use the last accepted definition instead of the model's
+    // requested computation. Keep independent branches runnable, but require an
+    // explicit accepted repair for each rejected root (including same-ID/same-code).
+    const blocked = new Map<string, { root: string; revision: string }>();
+    if (owningStepId && this.settings.nativeCatalogVersion === "v2") {
+      const roots = new Map(
+        Object.entries(this.snapshotStorage.getAssociatedSnapshot(owningStepId).nativeRejectedEdits ?? {}).map(
+          ([id, summary]) => [id, summary.operatorRevision]
+        )
+      );
+      for (const call of toolCalls) {
+        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
+        const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === call.toolCallId)?.output);
+        for (const [index, outcome] of (batch?.operators ?? []).entries()) {
+          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
+          const spec = call.input?.operators?.[index];
+          if (!spec || typeof spec !== "object") continue;
+          const { op, ...params } = spec;
+          const revision = rejectedNativeViewOf(op, params).revision;
+          if (revision) roots.set(outcome.id, revision);
+        }
+      }
+      for (const [root, revision] of roots) {
+        for (const id of [root, ...this.workflowState.getDownstreamOperators(root)]) {
+          if (targets.delete(id)) blocked.set(id, { root, revision });
+        }
+      }
+    }
+    const persistBlocked = () => {
+      if (!stillOwned()) return;
+      // Upstream-first writes: each error invalidates its descendants; writing
+      // a downstream first and its parent last would erase the blocked receipt.
+      const pending = new Map(blocked);
+      while (pending.size) {
+        const id =
+          [...pending.keys()].find(
+            id =>
+              !this.workflowState
+                .getAllLinks()
+                .some(link => link.target.operatorID === id && pending.has(link.source.operatorID))
+          ) ?? pending.keys().next().value!;
+        const cause = pending.get(id)!;
+        pending.delete(id);
+        const op = this.workflowState.getOperator(id);
+        if (!op?.nativeOp) continue;
+        this.snapshotStorage.setOperatorResult(owningStepId!, id, {
+          state: "Blocked",
+          inputTuples: 0,
+          outputTuples: 0,
+          resultMode: "table",
+          error:
+            "NATIVE_ERROR_V2:" +
+            JSON.stringify({
+              version: 1,
+              operatorId: id,
+              operatorRevision: op.nativeOp.revision,
+              code: "UPSTREAM_FAILED",
+              stage: "dependency",
+              message: `Not executed: ${cause.root} revision ${cause.revision} was rejected. Explicitly repair/resubmit that operator before using its downstream results.`,
+            }),
+        });
+      }
+    };
+    if (targets.size === 0) {
+      persistBlocked();
+      return;
+    }
 
     // One execution covers every edit in this step. `executeWorkflowAndPersist`
     // fires `onResult` for every operator that ran on the backend — including
@@ -2649,6 +2785,7 @@ export class TexeraAgent {
         } as any);
       }
     }
+    persistBlocked();
   }
 
   /**

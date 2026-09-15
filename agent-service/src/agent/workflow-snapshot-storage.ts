@@ -21,6 +21,13 @@ import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
 import { selectNativeObservation, type NativeObservation, type NativeObservationOptions } from "./native/evidence";
+import {
+  captureNativeDiagnostic,
+  diagnosticSummary,
+  renderNativeErrorInspection,
+  type NativeDiagnosticRecord,
+} from "./native/diagnostic-record";
+import type { NativeErrorQuery, NativeErrorSummary } from "./native/diagnostics";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -70,6 +77,12 @@ export interface SnapshotData {
   /** Successful explicit observations earned by this event, never inherited.
    * Undefined marks pre-feature/imported snapshots without an exposure record. */
   nativeObservations?: Readonly<Record<string, NativeObservation>>;
+  /** Private event-owned diagnostics. Never inherited or added to the ordinary
+   * unauthenticated snapshot response; expanded reads use inspectError. */
+  nativeDiagnostics?: Readonly<Record<string, NativeDiagnosticRecord>>;
+  /** Unrepaired rejected definitions are control state, not result evidence.
+   * Upstream result invalidation must not silently forgive a syntax rejection. */
+  nativeRejectedEdits?: Readonly<Record<string, NativeErrorSummary>>;
 }
 
 function createEmptyWorkflow(): WorkflowContent {
@@ -132,7 +145,8 @@ export class WorkflowSnapshotStorage {
    */
   constructor(
     private getAncestorPath: (reactStepId: string) => string[],
-    private getWorkflowId?: () => number | undefined
+    private getWorkflowId?: () => number | undefined,
+    private getDiagnosticSecrets?: () => readonly string[]
   ) {
     this.rootSnapshotId = this.allocateRoot();
   }
@@ -235,9 +249,23 @@ export class WorkflowSnapshotStorage {
       // Entries are carried forward by reference — ResultEntry is
       // immutable; overrides replace the entry, never mutate in place.
       results: inherited,
+      ...(parentSnap.nativeRejectedEdits
+        ? {
+            nativeRejectedEdits: freezeSnapshotValue(
+              Object.fromEntries(
+                Object.entries(parentSnap.nativeRejectedEdits).filter(([opId]) => {
+                  const old = parentSnap.workflow.operators.find(op => op.operatorID === opId)?.nativeOp?.revision;
+                  const current = workflow.operators.find(op => op.operatorID === opId)?.nativeOp?.revision;
+                  return old === current;
+                })
+              )
+            ),
+          }
+        : {}),
     };
     this.snapshots.set(id, snapshot);
     this.snapshotByReactStepId.set(reactStepId, id);
+    this.restoreNativeRejectedEdits(reactStepId);
     return snapshot;
   }
 
@@ -277,6 +305,12 @@ export class WorkflowSnapshotStorage {
       historicalResults
     );
     if (!bound) return;
+    delete bound.nativeError;
+    const nativeOp = snapshot.workflow.operators.find(op => op.operatorID === operatorId);
+    if (bound.error && nativeOp?.nativeOp?.version === "v2") {
+      bound.nativeError = this.recordNativeFailure(snapshot, nativeOp, bound);
+      bound.error = "NATIVE_ERROR_V2:" + JSON.stringify(bound.nativeError.diagnostic);
+    }
     if (
       bound.resultVersion ||
       snapshot.workflow.operators.find(o => o.operatorID === operatorId)?.nativeOp?.version === "v2"
@@ -305,6 +339,177 @@ export class WorkflowSnapshotStorage {
     }
     // Descendants share immutable entries, never a caller's mutable response.
     snapshot.results.set(operatorId, { info: bound, sourceStepId: reactStepId });
+  }
+
+  private recordNativeFailure(
+    snapshot: SnapshotData,
+    op: OperatorPredicate,
+    info: OperatorInfo,
+    phase: NativeErrorSummary["phase"] = "execution"
+  ): NativeErrorSummary {
+    const record = freezeSnapshotValue(
+      captureNativeDiagnostic({
+        stepId: snapshot.reactStepId!,
+        op,
+        workflow: snapshot.workflow,
+        info,
+        phase,
+        resolveInput: id => snapshot.results.get(id)?.info,
+        secrets: this.getDiagnosticSecrets?.(),
+      })
+    );
+    snapshot.nativeDiagnostics = freezeSnapshotValue({ ...snapshot.nativeDiagnostics, [record.diagnosticId]: record });
+    return freezeSnapshotValue(diagnosticSummary(record));
+  }
+
+  /** Record a rejected submitted definition without putting it in the DAG.
+   * Current successes from this operator/descendants must not masquerade as
+   * the rejected computation. Historical snapshots remain untouched. */
+  captureNativeAttemptDiagnostic(reactStepId: string, attempted: OperatorPredicate, error: string): NativeErrorSummary {
+    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
+    if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
+    const snapshot = this.snapshots.get(snapshotId)!;
+    const info: OperatorInfo = { state: "Failed", resultMode: "table", inputTuples: 0, outputTuples: 0, error };
+    const summary = this.recordNativeFailure(snapshot, attempted, info, "attempt");
+    snapshot.nativeRejectedEdits = freezeSnapshotValue({
+      ...snapshot.nativeRejectedEdits,
+      [attempted.operatorID]: summary,
+    });
+    info.nativeError = summary;
+    // Keep only sanitized diagnostic text in the normal result API. The private
+    // record owns its bounded raw traceback and submitted-source context.
+    info.error = "NATIVE_ERROR_V2:" + JSON.stringify(summary.diagnostic);
+    snapshot.results.set(attempted.operatorID, { info: freezeSnapshotValue(info), sourceStepId: reactStepId });
+    const pending = [attempted.operatorID],
+      seen = new Set(pending);
+    for (const id of pending)
+      for (const link of snapshot.workflow.links) {
+        const child = link.target.operatorID;
+        if (link.source.operatorID !== id || seen.has(child)) continue;
+        seen.add(child);
+        pending.push(child);
+        const previous = snapshot.results.get(child);
+        if (previous?.sourceStepId === reactStepId && previous.info.nativeError?.phase === "attempt") continue;
+        const op = snapshot.workflow.operators.find(item => item.operatorID === child);
+        if (!op?.nativeOp) {
+          snapshot.results.delete(child);
+          continue;
+        }
+        const blocked: OperatorInfo = {
+          state: "Blocked",
+          resultMode: "table",
+          inputTuples: 0,
+          outputTuples: 0,
+          error:
+            "NATIVE_ERROR_V2:" +
+            JSON.stringify({
+              version: 1,
+              operatorId: child,
+              operatorRevision: op.nativeOp.revision ?? "unversioned",
+              code: "UPSTREAM_FAILED",
+              stage: "dependency",
+              message: `Not executed: upstream ${attempted.operatorID} revision ${summary.operatorRevision} was rejected; previous values are unavailable until repair.`,
+            }),
+        };
+        blocked.nativeError = this.recordNativeFailure(snapshot, op, blocked);
+        snapshot.results.set(child, { info: freezeSnapshotValue(blocked), sourceStepId: reactStepId });
+      }
+    return summary;
+  }
+
+  /** An accepted explicit resubmission also repairs a rejected attempt when
+   * it deliberately restores the unchanged stored definition. It earns no
+   * successful result until execution completes. */
+  clearNativeRejectedEdits(reactStepId: string, acceptedIds: Iterable<string>): void {
+    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
+    if (!snapshotId) return;
+    const snapshot = this.snapshots.get(snapshotId)!;
+    if (!snapshot.nativeRejectedEdits) return;
+    const remaining = { ...snapshot.nativeRejectedEdits };
+    for (const id of acceptedIds) {
+      if (!Object.hasOwn(remaining, id)) continue;
+      delete remaining[id];
+      const pending = [id],
+        seen = new Set(pending);
+      for (const root of pending) {
+        snapshot.results.delete(root);
+        for (const link of snapshot.workflow.links)
+          if (link.source.operatorID === root && !seen.has(link.target.operatorID)) {
+            seen.add(link.target.operatorID);
+            pending.push(link.target.operatorID);
+          }
+      }
+    }
+    snapshot.nativeRejectedEdits = freezeSnapshotValue(remaining);
+  }
+
+  /** A new input materialization can invalidate cached outputs, not the fact
+   * that a submitted definition was rejected. Reuse that event's immutable
+   * diagnostic identity/source; do not invent a fresh execution or error. */
+  restoreNativeRejectedEdits(reactStepId: string): void {
+    const snapshotId = this.snapshotByReactStepId.get(reactStepId);
+    if (!snapshotId) return;
+    const snapshot = this.snapshots.get(snapshotId)!;
+    for (const [id, summary] of Object.entries(snapshot.nativeRejectedEdits ?? {})) {
+      const info: OperatorInfo = {
+        state: "Failed",
+        resultMode: "table",
+        inputTuples: 0,
+        outputTuples: 0,
+        error: "NATIVE_ERROR_V2:" + JSON.stringify(summary.diagnostic),
+        nativeError: summary,
+      };
+      snapshot.results.set(id, { info: freezeSnapshotValue(info), sourceStepId: summary.stepId });
+    }
+  }
+
+  inspectNativeError(
+    reactStepId: string | undefined,
+    query: NativeErrorQuery
+  ): {
+    found: boolean;
+    text: string;
+    summary?: NativeErrorSummary;
+  } {
+    const rejected = this.getAssociatedSnapshot(reactStepId).nativeRejectedEdits;
+    const current =
+      (rejected && Object.hasOwn(rejected, query.operatorId) ? rejected[query.operatorId] : undefined) ??
+      this.getOperatorResult(reactStepId, query.operatorId)?.nativeError;
+    let selected: NativeDiagnosticRecord | undefined;
+    const matches = (record: NativeDiagnosticRecord) =>
+      record.operatorId === query.operatorId &&
+      (query.revision === undefined || record.operatorRevision === query.revision);
+    if (query.diagnosticId || (!query.revision && current)) {
+      const id = query.diagnosticId ?? current!.diagnosticId;
+      for (const snapshot of this.snapshots.values()) {
+        const record = snapshot.nativeDiagnostics?.[id];
+        if (record && matches(record)) {
+          selected = record;
+          break;
+        }
+      }
+    } else if (query.revision && reactStepId) {
+      // Revision-only lookup follows the active branch. An explicit diagnostic
+      // ID can identify another retained branch without ambiguous rerun lookup.
+      for (const stepId of [...this.getAncestorPath(reactStepId)].reverse()) {
+        const owned = this.snapshotByReactStepId.get(stepId);
+        if (!owned) continue;
+        selected = Object.values(this.snapshots.get(owned)!.nativeDiagnostics ?? {})
+          .reverse()
+          .find(matches);
+        if (selected) break;
+      }
+    }
+    if (!selected)
+      return {
+        found: false,
+        text: "[ERROR] No matching retained diagnostic. Without revision/diagnosticId, only the current error is inspected; repaired results do not imply a current failure.",
+      };
+    return {
+      found: true,
+      text: renderNativeErrorInspection(selected, selected.diagnosticId !== current?.diagnosticId),
+      summary: diagnosticSummary(selected),
+    };
   }
 
   // ── readers ──────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ export interface OperatorResultSummary extends Pick<
   | "materialization"
   | "resultVersion"
   | "tableProfile"
+  | "nativeError"
 > {
   outputColumns?: number;
   consoleLogCount?: number;
@@ -53,6 +54,7 @@ export function operatorInfoToSummary(info: OperatorInfo): OperatorResultSummary
       info.resultSchema?.length ??
       (info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined),
     error: info.error,
+    ...(info.nativeError ? { nativeError: info.nativeError } : {}),
     warnings: info.warnings,
     consoleLogCount: info.consoleLogs?.length,
     totalRowCount: info.totalRowCount,

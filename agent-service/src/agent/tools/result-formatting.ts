@@ -18,7 +18,7 @@
  */
 
 import type { OperatorInfo } from "../../types/execution";
-import { parseNativeDiagnostic, formatNativeDiagnostic } from "../native/diagnostics";
+import { parseNativeDiagnostic, formatNativeDiagnostic, resolveNativeDiagnostic } from "../native/diagnostics";
 import type { OperatorPredicate } from "../../types/workflow";
 import {
   restrictNativeObservation,
@@ -43,7 +43,14 @@ import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sa
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export { formatSchemaLine, formatColumnStats, formatValueFormatHints, formatTableHints, formatFileIo, formatReservedDiag };
+export {
+  formatSchemaLine,
+  formatColumnStats,
+  formatValueFormatHints,
+  formatTableHints,
+  formatFileIo,
+  formatReservedDiag,
+};
 
 export interface FormatOperatorResultOptions {
   /** V2 evidence shares the result body budget. A recorded DELTA frame wins
@@ -180,7 +187,10 @@ function containsCellTruncation(value: unknown): boolean {
  *  Measured: SQL type words reached the prompt in 54 of 104 tasks. */
 const ENGINE_TYPE_WORDS: Array<[RegExp, string]> = [
   [/\b(?:VARCHAR|CHAR|TEXT|STRING)\b/g, "str"],
-  [/\b(?:BIGINT|HUGEINT|INTEGER|SMALLINT|TINYINT|UBIGINT|UINTEGER|DOUBLE|FLOAT|REAL|DECIMAL(?:\(\d+,\s*\d+\))?)\b/g, "numeric"],
+  [
+    /\b(?:BIGINT|HUGEINT|INTEGER|SMALLINT|TINYINT|UBIGINT|UINTEGER|DOUBLE|FLOAT|REAL|DECIMAL(?:\(\d+,\s*\d+\))?)\b/g,
+    "numeric",
+  ],
   // DuckDB names an untyped constant `INTEGER_LITERAL` / `VARCHAR_LITERAL`
   [/\b(?:INTEGER|DECIMAL|DOUBLE)_LITERAL\b/g, "numeric literal"],
   [/\bVARCHAR_LITERAL\b/g, "str literal"],
@@ -221,7 +231,8 @@ export function formatNativeError(operatorId: string, type: string, error: strin
     );
   const cascade = /execution failed[^\n]*\n\s*Execution error:\s*\n\s*([A-Za-z_][\w]*): ([\s\S]*)/.exec(error);
   if (cascade) return `not executed — upstream \`${cascade[1]}\` failed: ${strip(cascade[2]).split("\n")[0]}`;
-  if (/execution failed[\s\S]*timed out/.test(error)) return "not executed — the execution timed out before this operator produced a result";
+  if (/execution failed[\s\S]*timed out/.test(error))
+    return "not executed — the execution timed out before this operator produced a result";
   const generic = /execution failed[^\n]*\n\s*Error:\s*\n\s*([\s\S]*)/.exec(error);
   if (generic) return `not executed — ${strip(generic[1]).split("\n")[0]}`;
   return `${type} \`${operatorId}\` failed: ${strip(error)}`;
@@ -245,6 +256,22 @@ export function formatOperatorResult(
   workflowState: WorkflowState,
   options: FormatOperatorResultOptions = {}
 ): string {
+  const eventOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
+  if (opInfo.error && eventOp?.nativeOp?.version === "v2") {
+    const diagnostic =
+      opInfo.nativeError?.diagnostic ??
+      resolveNativeDiagnostic(
+        eventOp,
+        opInfo.error,
+        id =>
+          options.nativeEvidence?.workflow.operators.find(op => op.operatorID === id) ?? workflowState.getOperator(id)
+      );
+    const label =
+      diagnostic.operatorId === operatorId
+        ? `${eventOp.nativeOp.type} \`${operatorId}\` failed`
+        : `${eventOp.nativeOp.type} \`${operatorId}\` not executed; upstream \`${diagnostic.operatorId}\` failed`;
+    return `[ERROR] ${label}: ${formatNativeDiagnostic(diagnostic)}${opInfo.nativeError ? `\nDiagnostic: ${opInfo.nativeError.diagnosticId}${opInfo.nativeError.phase === "attempt" ? " (rejected edit; DAG definition unchanged)" : ""}` : ""}`;
+  }
   if (opInfo.error && options.detail === "shape") {
     // Shape-level error render: the first line carries the exception; the
     // traceback + code echo are the "sample-level" detail.
@@ -290,7 +317,8 @@ export function formatOperatorResult(
       info: opInfo,
       data: evidence?.data ?? false,
       flow: evidence?.flow ?? false,
-      maxChars: options.maxResultChars && options.maxResultChars > 0 ? Math.min(budget, options.maxResultChars) : budget,
+      maxChars:
+        options.maxResultChars && options.maxResultChars > 0 ? Math.min(budget, options.maxResultChars) : budget,
       maxRows: options.maxResultRows,
       columns: options.columns,
       detail: options.detail,
@@ -421,9 +449,7 @@ export function formatOperatorResult(
   // stats block subsumes it.
   const schemaEchoesStats = options.statsDensity === "anomaly" && colStatsBlock !== undefined;
   const schemaLine =
-    options.schemaInResult && !schemaEchoesStats
-      ? formatSchemaLine(opInfo, options.schemaTypes !== false)
-      : undefined;
+    options.schemaInResult && !schemaEchoesStats ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
   const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
   const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
   const lineageLine = options.rowLineage ? formatRowLineage(opInfo) : undefined;
@@ -507,7 +533,8 @@ export function estimateTableChars(opInfo: OperatorInfo): number | undefined {
     cols.reduce((n, c) => n + String(r[c] ?? "").length, 0) + cols.length; // + tabs/newline
   const sampled = rows.slice(0, 50);
   const mean = sampled.reduce((n, r) => n + line(r as Record<string, unknown>), 0) / sampled.length;
-  const total = typeof opInfo.totalRowCount === "number" && opInfo.totalRowCount > 0 ? opInfo.totalRowCount : rows.length;
+  const total =
+    typeof opInfo.totalRowCount === "number" && opInfo.totalRowCount > 0 ? opInfo.totalRowCount : rows.length;
   const header = cols.join("\t").length + 1;
   return Math.round(header + mean * total);
 }

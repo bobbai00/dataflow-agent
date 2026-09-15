@@ -272,6 +272,9 @@ describe("native V2 Python contracts", () => {
         expect(prompt).not.toContain('op: "compute"');
         expect(prompt).toContain("MUST explicitly include its ID in `observe`");
         expect(prompt).toContain("including dependencies through unchanged existing operators");
+        expect(prompt).toContain("inspectError");
+        expect(prompt).toContain("diagnosticId");
+        expect(prompt).toContain("submitted function");
         expect(prompt.includes("recallState")).toBe("recall" in layout);
         if (mode === ContextMode.LATEST) expect(prompt).toContain("most recent batch's requested set");
         const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
