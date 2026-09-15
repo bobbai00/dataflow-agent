@@ -957,7 +957,18 @@ amap_set SVC_HEALTH     texera-web "/api/healthcheck"
 # its launcher). Source-dir and canary-jar lookups treat it identically to
 # texera-web — see _svc_src_dirs / svc_src_changed / svc_artifact_mtime.
 amap_set SVC_TYPE       computing-unit-master jvm
-amap_set SVC_PORT       computing-unit-master 8085
+# A separate local worker needs both an HTTP listener and a disjoint Pekko
+# seed/listener. Changing only HTTP would collide with, or join, the shared CU.
+export TEXERA_CU_MASTER_PORT="${TEXERA_CU_MASTER_PORT:-8085}"
+export TEXERA_CU_MASTER_ACTOR_PORT="${TEXERA_CU_MASTER_ACTOR_PORT:-2552}"
+for cu_port_setting in TEXERA_CU_MASTER_PORT TEXERA_CU_MASTER_ACTOR_PORT; do
+    cu_port_value="${!cu_port_setting}"
+    if [[ ! "$cu_port_value" =~ ^[1-9][0-9]{0,4}$ ]] || (( cu_port_value > 65535 )); then
+        printf '%s must be an integer from 1 to 65535.\n' "$cu_port_setting" >&2
+        exit 2
+    fi
+done
+amap_set SVC_PORT       computing-unit-master "$TEXERA_CU_MASTER_PORT"
 amap_set SVC_SBT        computing-unit-master ""
 amap_set SVC_LAUNCHER   computing-unit-master "target/amber-${TEXERA_VERSION}/bin/computing-unit-master"
 amap_set SVC_CWD        computing-unit-master "amber"

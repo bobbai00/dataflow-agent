@@ -110,6 +110,30 @@ and stopping the service. Keep the same state directory for later commands.
 For example, use port 3008 in one worktree and 3009 in another. This isolates
 agent processes and logs; JVM services and Docker infrastructure remain shared.
 
+To test Python worker changes in a separate worktree, also isolate the local
+computing unit. Set `TEXERA_CU_MASTER_PORT=8086` and
+`TEXERA_CU_MASTER_ACTOR_PORT=2553` in that worktree's root `.env`, together with
+`WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:8086`. The defaults remain
+8085/2552. The actor port controls both the Pekko listener and its seed address;
+changing only HTTP is insufficient. Cluster workers must use the same actor
+port as their intended master. Use a distinct computing-unit record whose URI
+points to the isolated HTTP endpoint.
+
+```bash
+TEXERA_LOCAL_DEV_DIR=/tmp/texera-native-evidence bin/local-dev.sh up computing-unit-master --skip-build
+TEXERA_LOCAL_DEV_DIR=/tmp/texera-native-evidence bin/local-dev.sh up agent-service --skip-build
+```
+
+Build the worktree first, or supply its own verified distribution. Never build
+through a target symlink into a different worktree. Match the shared compiler's
+storage catalog settings (`STORAGE_ICEBERG_CATALOG_TYPE=rest` if it uses REST);
+otherwise result URIs resolve against the wrong catalog. Start and stop only
+the two named services, not the shared stack. An already-running Bun process
+needs a targeted down/up to pick up changed environment variables.
+
+The bounded-evidence prototype's narrow-build reproduction and live checks are
+documented in [native-flow-evidence.md](native-flow-evidence.md).
+
 ## The agent
 
 The agent-service reads its backend endpoints from `agent-service/.env`

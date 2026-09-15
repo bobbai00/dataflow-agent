@@ -33,6 +33,18 @@ import scala.concurrent.duration.FiniteDuration
 
 object AmberRuntime {
 
+  private[common] def parseMasterActorPort(value: Option[String]): Int = {
+    val text = value.getOrElse("2552")
+    require(
+      text.matches("[1-9][0-9]{0,4}") && text.toInt <= 65535,
+      "TEXERA_CU_MASTER_ACTOR_PORT must be an integer from 1 to 65535"
+    )
+    text.toInt
+  }
+
+  private lazy val masterActorPort =
+    parseMasterActorPort(sys.env.get("TEXERA_CU_MASTER_ACTOR_PORT"))
+
   private var _serde: Serialization = _
   private var _actorSystem: ActorSystem = _
 
@@ -77,21 +89,24 @@ object AmberRuntime {
       localIpAddress = getNodeIpAddress
     }
 
-    val masterConfig = ConfigFactory
+    AmberConfig.masterNodeAddr = createMasterAddress(localIpAddress)
+    createAmberSystem(actorMasterConfig(localIpAddress, masterActorPort))
+  }
+
+  private[common] def actorMasterConfig(localIpAddress: String, port: Int): Config =
+    ConfigFactory
       .parseString(s"""
-        pekko.remote.artery.canonical.port = 2552
+        pekko.remote.artery.canonical.port = $port
         pekko.remote.artery.canonical.hostname = $localIpAddress
-        pekko.cluster.seed-nodes = [ "pekko://Amber@$localIpAddress:2552" ]
+        pekko.cluster.seed-nodes = [ "pekko://Amber@$localIpAddress:$port" ]
         """)
       .withFallback(pekkoConfig)
       .resolve()
-    AmberConfig.masterNodeAddr = createMasterAddress(localIpAddress)
-    createAmberSystem(masterConfig)
-  }
 
   def pekkoConfig: Config = PekkoConfig.pekkoConfig
 
-  private def createMasterAddress(addr: String): Address = Address("pekko", "Amber", addr, 2552)
+  private def createMasterAddress(addr: String): Address =
+    Address("pekko", "Amber", addr, masterActorPort)
 
   def startActorWorker(mainNodeAddress: Option[String]): Unit = {
     val addr = mainNodeAddress.getOrElse("localhost")
@@ -103,7 +118,7 @@ object AmberRuntime {
       .parseString(s"""
         pekko.remote.artery.canonical.hostname = $localIpAddress
         pekko.remote.artery.canonical.port = 0
-        pekko.cluster.seed-nodes = [ "pekko://Amber@$addr:2552" ]
+        pekko.cluster.seed-nodes = [ "pekko://Amber@$addr:$masterActorPort" ]
         """)
       .withFallback(pekkoConfig)
       .resolve()
