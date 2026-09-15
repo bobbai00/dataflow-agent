@@ -54,11 +54,13 @@ import org.apache.texera.common.compiler.model.LogicalLink
 import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource
 import org.apache.texera.web.service.{
+  ExecutionPhaseMetrics,
   ExecutionResultService,
   ResultField,
   ResultMaterialization,
   StructuredResultTransport,
-  WorkflowService
+  WorkflowService,
+  WorkflowExecutionService
 }
 import org.apache.texera.web.storage.ExecutionStateStore.updateWorkflowState
 
@@ -126,7 +128,8 @@ case class SyncExecutionResult(
     errors: Option[List[String]],
     executionId: Option[String] = None,
     capabilities: Option[List[String]] = None,
-    inputMaterializations: Option[Map[String, ResultMaterialization]] = None
+    inputMaterializations: Option[Map[String, ResultMaterialization]] = None,
+    phaseMetrics: Option[ExecutionPhaseMetrics] = None
 )
 
 sealed trait TerminationReason
@@ -165,6 +168,9 @@ class SyncExecutionResource extends LazyLogging {
         s"maxOperatorResultCellCharLimit=${request.maxOperatorResultCellCharLimit} (capped to $maxOperatorResultCellCharLimit)"
     )
 
+    // Kept request-local, never recovered from a previous run's cache/store.
+    // Early authorization/initialization/HTTP failures have unknown phases.
+    var activeExecution: Option[WorkflowExecutionService] = None
     try {
       val workflowService = WorkflowService.getOrCreate(
         WorkflowIdentity(workflowId),
@@ -206,6 +212,7 @@ class SyncExecutionResource extends LazyLogging {
           errors = Some(List("Failed to initialize execution service"))
         )
       }
+      activeExecution = Some(executionService)
 
       // Snapshot before subscribing — handles the race where a fast execution finishes
       // before the Observable below sees any state change.
@@ -285,7 +292,9 @@ class SyncExecutionResource extends LazyLogging {
                 state = "Killed",
                 operators = Map.empty,
                 compilationErrors = None,
-                errors = Some(List(s"Timeout after $timeoutSeconds seconds"))
+                errors = Some(List(s"Timeout after $timeoutSeconds seconds")),
+                executionId = Some(executionService.workflowContext.executionId.id.toString),
+                phaseMetrics = Some(executionService.phaseMetrics)
               )
             case e: Exception =>
               logger.error(s"Error waiting for execution: ${e.getMessage}", e)
@@ -294,7 +303,9 @@ class SyncExecutionResource extends LazyLogging {
                 state = "Error",
                 operators = Map.empty,
                 compilationErrors = None,
-                errors = Some(List(e.getMessage))
+                errors = Some(List(e.getMessage)),
+                executionId = Some(executionService.workflowContext.executionId.id.toString),
+                phaseMetrics = Some(executionService.phaseMetrics)
               )
           }
         }
@@ -376,7 +387,8 @@ class SyncExecutionResource extends LazyLogging {
         operators = operatorInfos,
         compilationErrors = None,
         errors = if (fatalErrors.nonEmpty) Some(fatalErrors) else None,
-        executionId = if (request.structuredResults) Some(executionId.id.toString) else None,
+        executionId = Some(executionId.id.toString),
+        phaseMetrics = Some(executionService.phaseMetrics),
         capabilities =
           if (request.structuredResults) Some(StructuredResultTransport.capabilities) else None,
         inputMaterializations = Option.when(request.structuredResults) {
@@ -396,7 +408,10 @@ class SyncExecutionResource extends LazyLogging {
     } catch {
       case e: Exception =>
         logger.error(s"Sync execution error: ${e.getMessage}", e)
-        handleExecutionError(e)
+        handleExecutionError(e).copy(
+          executionId = activeExecution.map(_.workflowContext.executionId.id.toString),
+          phaseMetrics = activeExecution.map(_.phaseMetrics)
+        )
     }
   }
 

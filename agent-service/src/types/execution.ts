@@ -93,6 +93,14 @@ export interface SyncExecutionResult {
   compilationErrors?: Record<string, string>;
   errors?: string[];
   executionId?: string;
+  /** Actual engine call-site measurements; absent means unknown on older backends.
+   * Separate from Python callback preflight and heuristic display state strings. */
+  phaseMetrics?: {
+    version: 1;
+    compilation: "not_attempted" | "running" | "passed" | "failed";
+    compilationDurationMs: number | null;
+    runtimeStartAttempted: boolean;
+  };
   capabilities?: string[];
   /** Producing identities for inputs whose table bodies were not requested. */
   inputMaterializations?: Record<string, NonNullable<OperatorInfo["materialization"]>>;
