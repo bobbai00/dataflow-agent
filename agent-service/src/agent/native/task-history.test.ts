@@ -45,6 +45,30 @@ const source = {
 } as any;
 
 describe("task history", () => {
+  test("records a cache hit using its original producing execution", async () => {
+    const retained: string[] = [];
+    const history = new TaskHistory(async (_id, result) => {
+      retained.push(result.materialization!.executionId!);
+      return artifact("11");
+    });
+    await history.seal(
+      3,
+      [source],
+      new Map([
+        [
+          "source",
+          {
+            ...info("11"),
+            state: "CompletedFromCache",
+            executionContext: { workflowId: 1, executionId: "22" },
+            materialization: { executionId: "11", outputPort: 0, cached: true },
+          },
+        ],
+      ])
+    );
+    expect(retained).toEqual(["11"]);
+    expect(history.resolve({ operator: "source", atTask: 3 }).artifact.path).toBe("/tmp/archive/11.arrow");
+  });
   test("freezes complete materializations, reuses unchanged data, and never falls forward", async () => {
     const calls: string[] = [];
     const history = new TaskHistory(async (_id, result) => {

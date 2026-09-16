@@ -97,21 +97,39 @@ try {
   assert.deepEqual(rows(mixed, "old_udf"), [{ id: 1234, value: 2468 }]);
   assert.deepEqual(mixed.snapshot.results.total?.resultVersion, currentVersion);
   assert.ok(!mixed.serviceContext.includes("/retained-results/"), "archive storage paths leaked into model context");
-  const oldVersion = mixed.snapshot.results.original_total?.resultVersion;
   await session.debug("Submit a failed current revision.");
+  const cached = await run({
+    operators: [aggregate("original_total", { operator: "eligible", atTask: 1 })],
+    observe: ["original_total"],
+  });
+  assert.equal(cached.snapshot.results.original_total?.state, "CompletedFromCache");
   const failed = await run({
     operators: [{ ...filter(1800), columns: ["missing"], func: "def apply(row):\n    return row['missing'] > 0" }],
     observe: ["total"],
   });
   assert.ok(failed.snapshot.results.eligible?.error);
   assert.ok(failed.snapshot.results.total?.error);
-  assert.deepEqual(failed.snapshot.results.original_total?.resultVersion, oldVersion);
+  assert.deepEqual(
+    failed.snapshot.results.original_total?.resultVersion,
+    cached.snapshot.results.original_total?.resultVersion
+  );
+  assert.equal(
+    cached.snapshot.results.original_total?.materialization.executionId,
+    mixed.snapshot.results.original_total?.materialization.executionId
+  );
   await session.debug("Verify missing historical success cannot bind to current data.");
   const denied = await run({ operators: [aggregate("bad_history", { operator: "eligible", atTask: 4 })] });
   assert.match(JSON.stringify(denied.step.toolResults), /unavailable/);
   assert.ok(!denied.snapshot.workflow?.operators.some((op: any) => op.operatorID === "bad_history"));
   const recovered = await run({ operators: [], observe: ["original_total"] });
   assert.deepEqual(rows(recovered, "original_total"), [{ n: 1000, total: 2999000 }]);
+  const cachedHistory = await run({
+    operators: [
+      { op: "project", id: "cached_history", input: { operator: "original_total", atTask: 4 }, keep: ["n", "total"] },
+    ],
+    observe: ["cached_history"],
+  });
+  assert.deepEqual(rows(cachedHistory, "cached_history"), [{ n: 1000, total: 2999000 }]);
   const summary = {
     passed: true,
     requests: count,
@@ -124,6 +142,7 @@ try {
       "failed current revision blocks descendants",
       "failed task has no successful history binding",
       "historical dependency remains unchanged",
+      "cache hits retain their original producing execution and can be task inputs",
       "archive paths hidden",
     ],
   };

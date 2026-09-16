@@ -48,7 +48,7 @@ def generate(root):
             tasks.append((f'detour_{i}','Separately, sum visits in {visits.csv}. Preserve our default operating report. Return JSON visits.',dict(visits=sum(r['visits'] for r in visits))))
         else:
             extra=i%7
-            tasks.append((f'update_{i}',f'Set additional handling cost to {extra} per shipped unit, on top of each row original cost. This replaces the previous handling surcharge. Retain the returns correction and original full population. Update all default reports. Return JSON profit, units, orders.',report(extra)))
+            tasks.append((f'update_{i}',f'Set additional handling cost to {extra} per unit in the original units column, INCLUDING units later returned, on top of each row original cost. This replaces the previous handling surcharge. Retain the returns correction and original full population. Update all default reports. Return JSON profit, units, orders.',report(extra)))
     tasks.append(('compare','Report the current default profit, units and orders. Include baseline_profit from our original publication and delta=current profit minus that original profit. Return JSON profit, units, orders, baseline_profit, delta.',{**report(extra),'baseline_profit':initial['profit'],'delta':report(extra)['profit']-initial['profit']}))
     write_case(root,'repeated_corrections',{'orders.csv':orders,'visits.csv':visits},tasks)
     controls=[];files={}

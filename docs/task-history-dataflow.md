@@ -36,8 +36,8 @@ All default false and require native batch catalog V2:
 
 | Setting | Purpose |
 | --- | --- |
-| `nativeCompactPrompt` | Catalog notation generated from the validating schemas; shorter wire schema; runtime validation stays strict. |
-| `nativeDirectReturn` | Optional `return:{operator,format:"records"\|"row"\|"value",column?}` finishes with complete successful JSON data from the same batch. |
+| `nativeCompactPrompt` | Generated catalog semantics and a fully typed wire schema with repeated descriptions removed. Runtime validation stays strict. |
+| `nativeDirectReturn` | Optional `return:{operator,format:"records"\|"columns"\|"row"\|"value"\|"json",column?}` finishes with complete successful JSON data from the same batch. |
 | `nativeTaskContext` | Prior requests/answers, compact current operator catalog, current-task observations, and complete definitions of selected dependencies. |
 | `nativeTaskHistory` | Automatic full-data retention and `atTask` inputs. Must be selected before the first task/operators. |
 
@@ -45,6 +45,10 @@ All default false and require native batch catalog V2:
 ambiguous scalar/row requests continue the normal repair loop. The model can
 still answer in prose. Direct return is a general agent optimization; the
 dependency boundary is the Dataflow-specific mechanism under investigation.
+`columns` returns an object of column arrays. `json` validates and returns an
+entire JSON document stored in one string cell, preserving its exact numeric text.
+Ordinary string cells are never silently decoded. Successful engine cache hits
+are eligible both for direct return and for historical retention.
 
 Task context preserves prior user requests and answers. It does not replay prior
 tool actions/reasoning. Catalog cards include input references, a bounded
@@ -52,6 +56,10 @@ definition preview, current schema/status, and available historical task ranges.
 Normal edits and `observe` select operators; the renderer follows their actual
 ancestors for full definitions and stops at historical sources. There is no
 mandatory extra context-selection inference. UDF internals remain opaque.
+Completed tasks form stable user/answer message pairs. Current graph context
+comes next, then the active request and its actions/observations. This permits
+prefix caching and leaves the actual observation last during a task.
+Definitions use the public operator syntax (`filter`, `input`, `left`/`right`).
 
 ## Scope and lifecycle
 
@@ -106,3 +114,32 @@ not aggregate token counts alone. Model cost uses the repository's Luna rates
 (input $0.20/M, cached input $0.02/M, output $1.20/M), with reasoning already included
 in output. These are accounting assumptions, not invoices. No universal cost or
 accuracy advantage is assumed.
+
+The initial development campaign exposed three interface problems: a missing
+`CompletedFromCache` success case, internal rather than public catalog syntax,
+and a loose compact wire schema that discarded nested type constraints. Those
+runs are retained separately from the corrected milestone. The 20-task fixture
+also originally said "per shipped unit"; the corrected version explicitly
+includes returned units in the handling-cost denominator for both agents.
+
+`prepare-task-longds.py` prepares the real 15-task GitHub-language session with
+the original public questions and explicit JSON formats shared by both arms.
+It omits no requested quantities and gives neither arm answers or dependency
+annotations. This is an adapted diagnostic, not an official LongDS score.
+Its gold Python reproduces 15/15 published answers after supplying the missing
+notebook display helper `format_decimal_json` as an identity function (upstream
+already rounds before that helper).
+
+Reproducible runners (source the isolated profile first):
+
+```bash
+python3 agent-service/benchmark/multiturn/task-study.py generate /tmp/new-fixtures
+python3 agent-service/benchmark/multiturn/run-task-study.py \
+  --fixtures /tmp/new-fixtures --out /tmp/new-campaign \
+  --kb-root /path/to/benchmark/Kramabench --env-file /path/to/.env
+```
+
+The coordinator records fixture hashes, revision, per-session traces, usage,
+primary results, and two fresh recovery sessions for every failed primary
+session. It refuses to overwrite artifacts. Keep the watched agent service's
+implementation fixed until the campaign finishes.

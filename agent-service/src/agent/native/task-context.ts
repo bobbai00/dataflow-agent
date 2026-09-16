@@ -20,12 +20,24 @@ import type { OperatorPredicate } from "../../types/workflow";
 import { asNativeBatchResult } from "../tools/native-batch-tools";
 import { formatNativeError } from "../tools/result-formatting";
 import type { TaskHistory } from "./task-history";
+import { nativeOperators } from "./catalog";
+import { nativeToolName } from "../tools/native-typed-tools";
 
 const clip = (value: string, limit: number) =>
   value.length <= limit ? value : value.slice(0, limit) + " …[details available via observe]";
 function definition(op: OperatorPredicate) {
   const view = op.nativeOp;
-  return { id: op.operatorID, op: view?.type, inputs: view?.taskInputs ?? view?.inputs ?? [], ...view?.properties };
+  const inputs = view?.taskInputs ?? view?.inputs ?? [];
+  const arity = nativeOperators(view?.version).find(def => def.type === view?.type)?.inputs;
+  const references =
+    arity === 1
+      ? { input: inputs[0] }
+      : arity === 2
+        ? { left: inputs[0], right: inputs[1] }
+        : arity === "many"
+          ? { inputs }
+          : {};
+  return { id: op.operatorID, op: nativeToolName(view?.type ?? op.operatorType), ...references, ...view?.properties };
 }
 function ranges(numbers: number[]): string {
   const result: string[] = [];
@@ -48,20 +60,23 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
   if (!current) return [];
   const number = (messageId: string) =>
     input.turnNumberByMessageId?.get(messageId) ?? tasks.findIndex(step => step.messageId === messageId) + 1;
-  const prior = tasks.slice(0, -1).map(step => {
-    const answer = visibleSteps.findLast(s => s.messageId === step.messageId && s.role === "agent" && s.isEnd)?.content;
-    return `Task ${number(step.messageId)}: ${step.content}${answer ? `\nAnswer: ${answer}` : ""}`;
-  });
   const messages: ModelMessage[] = [];
-  if (prior.length) messages.push({ role: "user", content: `# Earlier session tasks\n${prior.join("\n\n")}` });
-  messages.push({ role: "user", content: `# Task ${number(current.messageId)}\n${current.content}` });
+  for (const step of tasks.slice(0, -1)) {
+    const answer = visibleSteps.findLast(s => s.messageId === step.messageId && s.role === "agent" && s.isEnd)?.content;
+    messages.push({ role: "user", content: `# Task ${number(step.messageId)}\n${step.content}` });
+    if (answer) messages.push({ role: "assistant", content: answer });
+  }
+  // Stable completed-task messages can share a cache prefix. Current state
+  // precedes the active request/actions so the last message is the actual
+  // observation, rather than a new user message restating the graph.
+  const active: ModelMessage[] = [{ role: "user", content: `# Task ${number(current.messageId)}\n${current.content}` }];
   const selected = new Set<string>();
   for (const step of visibleSteps.filter(s => s.messageId === current.messageId && s.role === "agent")) {
     if (!step.toolCalls?.length) {
-      if (step.content) messages.push({ role: "assistant", content: step.content });
+      if (step.content) active.push({ role: "assistant", content: step.content });
       continue;
     }
-    messages.push({
+    active.push({
       role: "assistant",
       content: [
         ...(step.content ? [{ type: "text" as const, text: step.content }] : []),
@@ -107,7 +122,7 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
         output: { type: "text" as const, value: text },
       };
     });
-    messages.push({ role: "tool", content: outputs });
+    active.push({ role: "tool", content: outputs });
   }
   const head = visibleSteps.at(-1)?.id;
   const catalog = state
@@ -143,5 +158,5 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
     role: "user",
     content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}\n\n# Selected dependency definitions\n${details.join("\n") || "Select existing inputs through normal dataflow edits or observe to retrieve details."}`,
   });
-  return messages;
+  return [...messages, ...active];
 }

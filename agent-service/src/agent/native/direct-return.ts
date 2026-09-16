@@ -14,11 +14,11 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import type { OperatorInfo } from "../../types/execution";
+import { isSuccessfulOperatorResult, type OperatorInfo } from "../../types/execution";
 
 export interface DirectReturn {
   operator: string;
-  format: "records" | "row" | "value";
+  format: "records" | "columns" | "row" | "value" | "json";
   column?: string;
 }
 export const directReturnSchema = {
@@ -32,10 +32,11 @@ export const directReturnSchema = {
     },
     format: {
       type: "string",
-      enum: ["records", "row", "value"],
-      description: "records = array of rows; row = exactly one row; value = one named cell in exactly one row.",
+      enum: ["records", "columns", "row", "value", "json"],
+      description:
+        "records = array of rows; columns = object of column arrays; row = exactly one row; value = one named cell; json = JSON document in one named string cell. value/json require exactly one row.",
     },
-    column: { type: "string", description: "Required only for value." },
+    column: { type: "string", description: "Required for value/json." },
   },
 };
 
@@ -43,8 +44,7 @@ export const directReturnSchema = {
 export function resolveDirectReturn(request: DirectReturn, info?: OperatorInfo): string {
   if (
     !info ||
-    info.error ||
-    !["Completed", "COMPLETED", "Cached", "CACHED"].includes(info.state) ||
+    !isSuccessfulOperatorResult(info) ||
     info.resultMode !== "table" ||
     !Array.isArray(info.result) ||
     info.truncated !== false ||
@@ -65,9 +65,17 @@ export function resolveDirectReturn(request: DirectReturn, info?: OperatorInfo):
     )
   );
   if (request.format === "records") return JSON.stringify(rows);
+  if (request.format === "columns")
+    return JSON.stringify(Object.fromEntries(columns.map(column => [column, rows.map(row => row[column])])));
   if (rows.length !== 1) throw new Error(`${request.format} requires exactly one row`);
   if (request.format === "row") return JSON.stringify(rows[0]);
-  if (request.format !== "value" || !request.column || !columns.includes(request.column))
-    throw new Error("value requires an existing column");
-  return JSON.stringify(rows[0]![request.column]);
+  if (!["value", "json"].includes(request.format) || !request.column || !columns.includes(request.column))
+    throw new Error("value/json require an existing column");
+  const value = rows[0]![request.column];
+  if (request.format === "json") {
+    if (typeof value !== "string") throw new Error("json requires a string cell containing a JSON document");
+    JSON.parse(value); // Validate only: re-encoding could round exact int64 text.
+    return value;
+  }
+  return JSON.stringify(value);
 }

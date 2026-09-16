@@ -31,6 +31,36 @@ test("returns a complete computed row or scalar without asking a model to copy i
   expect(resolveDirectReturn({ operator: "total", format: "row" }, info)).toBe('{"profit":90}');
   expect(resolveDirectReturn({ operator: "total", format: "value", column: "profit" }, info)).toBe("90");
 });
+test("engine cache hits are successful materializations", () => {
+  expect(resolveDirectReturn({ operator: "total", format: "row" }, { ...info, state: "CompletedFromCache" })).toBe(
+    '{"profit":90}'
+  );
+});
+test("column orientation preserves typed arrays without nested table cells", () => {
+  expect(resolveDirectReturn({ operator: "total", format: "columns" }, info)).toBe('{"profit":[90]}');
+  expect(
+    resolveDirectReturn(
+      { operator: "total", format: "columns" },
+      {
+        ...info,
+        result: [],
+        totalRowCount: 0,
+        displayedRows: 0,
+      }
+    )
+  ).toBe('{"profit":[]}');
+});
+test("JSON decoding is explicit, validates syntax, and preserves exact numeric text", () => {
+  const text = '{"large":9007199254740993,"items":[1,null],"nested":{"x":2}}';
+  const request = { operator: "answer", format: "json" as const, column: "profit" };
+  expect(resolveDirectReturn(request, { ...info, result: [{ profit: text }] })).toBe(text);
+  for (const value of [90, "not JSON", '{"x":NaN}'])
+    expect(() => resolveDirectReturn(request, { ...info, result: [{ profit: value }] })).toThrow();
+  // Ordinary string columns must not be silently parsed into another type.
+  expect(resolveDirectReturn({ ...request, format: "row" }, { ...info, result: [{ profit: "[1,2]" }] })).toBe(
+    '{"profit":"[1,2]"}'
+  );
+});
 test("refuses truncated, failed, ambiguous and missing results", () => {
   const request = { operator: "total", format: "row" as const };
   for (const result of [

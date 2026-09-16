@@ -16,7 +16,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { OperatorInfo } from "../../types/execution";
+import { isSuccessfulOperatorResult, type OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
@@ -72,13 +72,7 @@ export class TaskHistory {
     for (const operator of operators) {
       if (operator.taskSource) continue;
       const info = results.get(operator.operatorID);
-      if (
-        !info ||
-        info.error ||
-        !info.resultVersion?.id ||
-        !info.materialization?.executionId ||
-        !["Completed", "COMPLETED", "Cached", "CACHED"].includes(info.state)
-      )
+      if (!info || !isSuccessfulOperatorResult(info) || !info.resultVersion?.id || !info.materialization?.executionId)
         continue;
       try {
         const key = info.resultVersion.id;

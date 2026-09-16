@@ -100,7 +100,7 @@ export function nativeBatchSchema(
   version: NativeCatalogVersion = "v1",
   options: { taskHistory?: boolean; directReturn?: boolean; compact?: boolean } = {}
 ): Record<string, unknown> {
-  return {
+  const schema = {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -108,26 +108,17 @@ export function nativeBatchSchema(
         type: "array",
         description:
           "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
-        items: options.compact
-          ? {
-              type: "object",
-              additionalProperties: true,
-              required: ["op", "id"],
-              properties: { op: { type: "string" }, id: { type: "string" } },
-              description:
-                "Catalog operator with its input references and parameters at the top level; see the catalog in the system instructions.",
-            }
-          : {
-              anyOf: nativeOperators(version).map(def => {
-                const schema = nativeToolSchema(def, options.taskHistory) as any;
-                return {
-                  ...schema,
-                  description: nativeToolDescription(def),
-                  properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
-                  required: ["op", ...schema.required],
-                };
-              }),
-            },
+        items: {
+          anyOf: nativeOperators(version).map(def => {
+            const schema = nativeToolSchema(def, options.taskHistory) as any;
+            return {
+              ...schema,
+              description: nativeToolDescription(def),
+              properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
+              required: ["op", ...schema.required],
+            };
+          }),
+        },
       },
       observe: {
         type: "array",
@@ -139,6 +130,20 @@ export function nativeBatchSchema(
     },
     required: ["operators"],
   };
+  // Keep the complete discriminated type contract. Real runs with a loose
+  // schema put trailing JSON inside Python callbacks and arrays.
+  // Compact only prose already covered by the generated catalog prompt.
+  const compact = (value: any): any =>
+    Array.isArray(value)
+      ? value.map(compact)
+      : value && typeof value === "object"
+        ? Object.fromEntries(
+            Object.entries(value)
+              .filter(([key]) => !["description", "title", "$comment", "examples"].includes(key))
+              .map(([key, item]) => [key, compact(item)])
+          )
+        : value;
+  return options.compact ? compact(schema) : schema;
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false });

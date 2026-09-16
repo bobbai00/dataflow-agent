@@ -86,6 +86,13 @@ export interface OperatorInfo {
   tableProfile?: TableProfile & { resultVersion: string };
 }
 
+/** The engine reports reused successful tables as CompletedFromCache. */
+export function isSuccessfulOperatorResult(info: Pick<OperatorInfo, "state" | "error"> | undefined): boolean {
+  return (
+    !!info && !info.error && ["Completed", "CompletedFromCache", "COMPLETED", "Cached", "CACHED"].includes(info.state)
+  );
+}
+
 export interface SyncExecutionResult {
   success: boolean;
   state: string;

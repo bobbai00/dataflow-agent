@@ -18,13 +18,29 @@ import { test, expect } from "bun:test";
 import { taskModePrompt } from "./task-prompt";
 import { nativeViewOf } from "../tools/native-typed-tools";
 import { createHash } from "node:crypto";
+import Ajv from "ajv";
+import { nativeBatchSchema } from "../tools/native-batch-tools";
+test("compact wire schema still constrains the public operator names", () => {
+  const validate = new Ajv({ strict: false }).compile(nativeBatchSchema("v2", { compact: true }));
+  const filter = {
+    op: "filter",
+    id: "subset",
+    input: "source",
+    columns: ["value"],
+    func: "def apply(row):\n    return row['value'] > 0",
+  };
+  expect(validate({ operators: [filter] })).toBe(true);
+  expect(validate({ operators: [{ ...filter, op: "Filter" }] })).toBe(false);
+  expect(validate({ operators: [{ ...filter, columns: [{ func: "wrong shape" }] }] })).toBe(false);
+});
 test("compact catalog preserves object fields alongside anyOf requirements", () => {
-  const line = taskModePrompt(true, true)
-    .split("\n")
-    .find(line => line.startsWith("project "))!;
-  expect(line).toContain("keep?:[string]");
-  expect(line).toContain("rename?:object");
-  expect(line).toContain("input:string");
+  const schema = nativeBatchSchema("v2", { compact: true }) as any;
+  const project = schema.properties.operators.items.anyOf.find((item: any) => item.properties.op.const === "project");
+  expect(project.properties.keep.items.type).toBe("string");
+  expect(project.properties.rename.type).toBe("object");
+  expect(project.anyOf).toEqual([{ required: ["keep"] }, { required: ["drop"] }, { required: ["rename"] }]);
+  expect(JSON.stringify(schema)).not.toContain('"description"');
+  expect(taskModePrompt(true, true)).toContain("Project selects keep");
 });
 test("historical attempt and resolved execution have the same definition identity", () => {
   const ref = { operator: "total", atTask: 1 };
