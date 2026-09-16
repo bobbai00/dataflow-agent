@@ -2,6 +2,10 @@
 
 Research branch based on `refactor/evidence-only-context` (`c5620b9b4`).
 
+Measured results and limitations:
+[first milestone report](../agent-service/benchmark/multiturn/TASK_HISTORY_REPORT.md).
+This configuration has not yet met the lower-cost objective.
+
 ## Contract
 
 Each user request is a numbered **task** in the current session. Native inputs
@@ -94,6 +98,10 @@ Docker project/volumes/network: `texera-task-history`.
 Rebuild engine changes through `bin/local-dev.sh up texera-web --build`;
 `computing-unit-master` shares that distribution and has no separate build.
 Set `TEXERA_LOCAL_DEV_PROFILE` on every launcher invocation.
+On a fresh worktree, verify both `data` and `amber/data -> ../data` resolve:
+the engine's working directory is `amber`. A shell-level check from the repo
+root does not establish that the worker can read the same relative path.
+Generate Python protos before the first engine run, as required by `AGENTS.md`.
 
 ## Validation and experiment protocol
 
@@ -102,6 +110,11 @@ Arrow tables, exact int64/null/empty data, strict direct return, selected contex
 and settings validation. A live smoke replaces source bytes, edits the current
 source/cohort, consumes a historical middle row outside every saved preview, joins
 original membership to current values, and checks failure isolation.
+
+`task-coverage-smoke.ts` additionally drives scripted actions through the real
+agent loop and engine. It rejects a discovery-derived aggregate, accepts it
+after replacing the current scan with a full scan, and still rejects the old
+partial result selected through `atTask`. It makes no paid model calls.
 
 Primary comparison: six diagnostic sessions / 50 user tasks, fresh persistent
 smolagents CodeAgent versus native Dataflow, GPT-5.6 Luna, 25 model steps per task,

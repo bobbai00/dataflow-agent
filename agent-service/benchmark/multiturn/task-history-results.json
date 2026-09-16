@@ -1,0 +1,1272 @@
+{
+  "evaluated_service_revision": "f6d70360a",
+  "base_revision": "c5620b9b4",
+  "diagnostics": {
+    "cost_basis": "Recorded token usage, repository Luna accounting rates; excludes infrastructure. Calls without returned usage may be missing, so failures can make costs lower bounds.",
+    "rates_usd_per_million": {
+      "uncached_input": 0.2,
+      "cached_input": 0.02,
+      "output": 1.2
+    },
+    "code": {
+      "primary": {
+        "sessions": [
+          {
+            "artifact": "v2-code/code-fanout_correction",
+            "family": "fanout_correction",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 19294,
+            "cached_tokens": 17073,
+            "output_tokens": 1366,
+            "reasoning_tokens": 281,
+            "llm_calls": 6,
+            "cost_usd": 0.00242486,
+            "elapsed_seconds": 17.476193109934684,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 2221,
+            "uncached_input_usd": 0.00044420000000000006,
+            "cached_input_usd": 0.00034146,
+            "output_usd": 0.0016392
+          },
+          {
+            "artifact": "v2-code/code-independent_control",
+            "family": "independent_control",
+            "tasks": 6,
+            "passed": 6,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 18596,
+            "cached_tokens": 16697,
+            "output_tokens": 1399,
+            "reasoning_tokens": 362,
+            "llm_calls": 6,
+            "cost_usd": 0.00239254,
+            "elapsed_seconds": 16.381965201930143,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 1899,
+            "uncached_input_usd": 0.0003798,
+            "cached_input_usd": 0.00033394,
+            "output_usd": 0.0016788
+          },
+          {
+            "artifact": "v2-code/code-customer_reports",
+            "family": "customer_reports",
+            "tasks": 9,
+            "passed": 9,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 61354,
+            "cached_tokens": 53950,
+            "output_tokens": 6455,
+            "reasoning_tokens": 1198,
+            "llm_calls": 11,
+            "cost_usd": 0.0103058,
+            "elapsed_seconds": 55.404489190957975,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 7404,
+            "uncached_input_usd": 0.0014808000000000002,
+            "cached_input_usd": 0.001079,
+            "output_usd": 0.007746
+          },
+          {
+            "artifact": "v2-code/code-membership_values",
+            "family": "membership_values",
+            "tasks": 5,
+            "passed": 4,
+            "failed_tasks": [5],
+            "answer_errors": [],
+            "input_tokens": 24139,
+            "cached_tokens": 22155,
+            "output_tokens": 1707,
+            "reasoning_tokens": 725,
+            "llm_calls": 8,
+            "cost_usd": 0.0028883000000000003,
+            "elapsed_seconds": 22.95561781799188,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 1984,
+            "uncached_input_usd": 0.0003968,
+            "cached_input_usd": 0.00044310000000000004,
+            "output_usd": 0.0020484
+          },
+          {
+            "artifact": "v2-code/code-temporary_scope",
+            "family": "temporary_scope",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 34966,
+            "cached_tokens": 31314,
+            "output_tokens": 2015,
+            "reasoning_tokens": 491,
+            "llm_calls": 9,
+            "cost_usd": 0.0037746800000000003,
+            "elapsed_seconds": 25.523537321889307,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 3652,
+            "uncached_input_usd": 0.0007304000000000001,
+            "cached_input_usd": 0.00062628,
+            "output_usd": 0.002418
+          },
+          {
+            "artifact": "v2-code/code-repeated_corrections",
+            "family": "repeated_corrections",
+            "tasks": 20,
+            "passed": 20,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 130336,
+            "cached_tokens": 122993,
+            "output_tokens": 5066,
+            "reasoning_tokens": 1921,
+            "llm_calls": 22,
+            "cost_usd": 0.01000766,
+            "elapsed_seconds": 64.27017195906956,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 7343,
+            "uncached_input_usd": 0.0014686000000000002,
+            "cached_input_usd": 0.00245986,
+            "output_usd": 0.0060792
+          }
+        ],
+        "totals": {
+          "tasks": 50,
+          "passed": 49,
+          "input_tokens": 288685,
+          "cached_tokens": 264182,
+          "uncached_tokens": 24503,
+          "output_tokens": 18008,
+          "reasoning_tokens": 4978,
+          "llm_calls": 62,
+          "cost_usd": 0.03179384,
+          "uncached_input_usd": 0.004900600000000001,
+          "cached_input_usd": 0.00528364,
+          "output_usd": 0.0216096,
+          "elapsed_seconds": 202.01197460177355,
+          "historical_inputs": 0,
+          "direct_returns": 0
+        }
+      },
+      "recoveries": {
+        "sessions": [
+          {
+            "artifact": "v2-code/recovery1-code-membership_values",
+            "family": "membership_values",
+            "tasks": 5,
+            "passed": 4,
+            "failed_tasks": [5],
+            "answer_errors": [],
+            "input_tokens": 17872,
+            "cached_tokens": 16116,
+            "output_tokens": 1399,
+            "reasoning_tokens": 495,
+            "llm_calls": 6,
+            "cost_usd": 0.00235232,
+            "elapsed_seconds": 18.11387902102433,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 1756,
+            "uncached_input_usd": 0.0003512,
+            "cached_input_usd": 0.00032232,
+            "output_usd": 0.0016788
+          },
+          {
+            "artifact": "v2-code/recovery2-code-membership_values",
+            "family": "membership_values",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 23750,
+            "cached_tokens": 22035,
+            "output_tokens": 1261,
+            "reasoning_tokens": 651,
+            "llm_calls": 8,
+            "cost_usd": 0.0022969,
+            "elapsed_seconds": 19.619331106892787,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 1715,
+            "uncached_input_usd": 0.000343,
+            "cached_input_usd": 0.0004407,
+            "output_usd": 0.0015132000000000001
+          }
+        ],
+        "totals": {
+          "tasks": 10,
+          "passed": 9,
+          "input_tokens": 41622,
+          "cached_tokens": 38151,
+          "uncached_tokens": 3471,
+          "output_tokens": 2660,
+          "reasoning_tokens": 1146,
+          "llm_calls": 14,
+          "cost_usd": 0.004649220000000001,
+          "uncached_input_usd": 0.0006942000000000001,
+          "cached_input_usd": 0.00076302,
+          "output_usd": 0.0031920000000000004,
+          "elapsed_seconds": 37.73321012791712,
+          "historical_inputs": 0,
+          "direct_returns": 0
+        }
+      }
+    },
+    "dataflow": {
+      "primary": {
+        "sessions": [
+          {
+            "artifact": "v3-tasks/tasks-membership_values",
+            "family": "membership_values",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 46986,
+            "cached_tokens": 39846,
+            "output_tokens": 2062,
+            "reasoning_tokens": 904,
+            "llm_calls": 9,
+            "cost_usd": 0.004699320000000001,
+            "elapsed_seconds": 66.251,
+            "historical_inputs": 2,
+            "direct_returns": 5,
+            "uncached_tokens": 7140,
+            "uncached_input_usd": 0.001428,
+            "cached_input_usd": 0.0007969200000000001,
+            "output_usd": 0.0024744000000000003
+          },
+          {
+            "artifact": "v3-tasks/tasks-repeated_corrections",
+            "family": "repeated_corrections",
+            "tasks": 20,
+            "passed": 17,
+            "failed_tasks": [3, 4, 6],
+            "answer_errors": [],
+            "input_tokens": 242120,
+            "cached_tokens": 161728,
+            "output_tokens": 7249,
+            "reasoning_tokens": 3016,
+            "llm_calls": 39,
+            "cost_usd": 0.02801176,
+            "elapsed_seconds": 203.36700000000002,
+            "historical_inputs": 0,
+            "direct_returns": 15,
+            "uncached_tokens": 80392,
+            "uncached_input_usd": 0.016078400000000003,
+            "cached_input_usd": 0.00323456,
+            "output_usd": 0.0086988
+          },
+          {
+            "artifact": "v3-tasks/tasks-customer_reports",
+            "family": "customer_reports",
+            "tasks": 9,
+            "passed": 9,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 121082,
+            "cached_tokens": 72352,
+            "output_tokens": 6183,
+            "reasoning_tokens": 2005,
+            "llm_calls": 17,
+            "cost_usd": 0.01861264,
+            "elapsed_seconds": 155.46,
+            "historical_inputs": 2,
+            "direct_returns": 8,
+            "uncached_tokens": 48730,
+            "uncached_input_usd": 0.009746,
+            "cached_input_usd": 0.00144704,
+            "output_usd": 0.007419599999999999
+          },
+          {
+            "artifact": "v3-tasks/tasks-fanout_correction",
+            "family": "fanout_correction",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 49783,
+            "cached_tokens": 38304,
+            "output_tokens": 2911,
+            "reasoning_tokens": 942,
+            "llm_calls": 9,
+            "cost_usd": 0.00655508,
+            "elapsed_seconds": 92.72099999999999,
+            "historical_inputs": 2,
+            "direct_returns": 5,
+            "uncached_tokens": 11479,
+            "uncached_input_usd": 0.0022958,
+            "cached_input_usd": 0.00076608,
+            "output_usd": 0.0034931999999999997
+          },
+          {
+            "artifact": "v3-tasks/tasks-independent_control",
+            "family": "independent_control",
+            "tasks": 6,
+            "passed": 6,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 46420,
+            "cached_tokens": 38304,
+            "output_tokens": 1899,
+            "reasoning_tokens": 476,
+            "llm_calls": 9,
+            "cost_usd": 0.00466808,
+            "elapsed_seconds": 55.605999999999995,
+            "historical_inputs": 0,
+            "direct_returns": 6,
+            "uncached_tokens": 8116,
+            "uncached_input_usd": 0.0016232,
+            "cached_input_usd": 0.00076608,
+            "output_usd": 0.0022787999999999997
+          },
+          {
+            "artifact": "v3-tasks/tasks-temporary_scope",
+            "family": "temporary_scope",
+            "tasks": 5,
+            "passed": 4,
+            "failed_tasks": [1],
+            "answer_errors": [
+              {
+                "task": 1,
+                "error": "Error: The operation timed out."
+              }
+            ],
+            "input_tokens": 54128,
+            "cached_tokens": 43994,
+            "output_tokens": 2880,
+            "reasoning_tokens": 1051,
+            "llm_calls": 10,
+            "cost_usd": 0.006362680000000001,
+            "elapsed_seconds": 356.65199999999993,
+            "historical_inputs": 0,
+            "direct_returns": 4,
+            "uncached_tokens": 10134,
+            "uncached_input_usd": 0.0020268,
+            "cached_input_usd": 0.00087988,
+            "output_usd": 0.003456
+          }
+        ],
+        "totals": {
+          "tasks": 50,
+          "passed": 46,
+          "input_tokens": 560519,
+          "cached_tokens": 394528,
+          "uncached_tokens": 165991,
+          "output_tokens": 23184,
+          "reasoning_tokens": 8394,
+          "llm_calls": 93,
+          "cost_usd": 0.06890956,
+          "uncached_input_usd": 0.033198200000000004,
+          "cached_input_usd": 0.00789056,
+          "output_usd": 0.0278208,
+          "elapsed_seconds": 930.057,
+          "historical_inputs": 6,
+          "direct_returns": 43
+        }
+      },
+      "recoveries": {
+        "sessions": [
+          {
+            "artifact": "v3-tasks/recovery1-tasks-repeated_corrections",
+            "family": "repeated_corrections",
+            "tasks": 20,
+            "passed": 20,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 136610,
+            "cached_tokens": 102267,
+            "output_tokens": 5343,
+            "reasoning_tokens": 1873,
+            "llm_calls": 24,
+            "cost_usd": 0.015325540000000002,
+            "elapsed_seconds": 160.561,
+            "historical_inputs": 0,
+            "direct_returns": 20,
+            "uncached_tokens": 34343,
+            "uncached_input_usd": 0.006868600000000001,
+            "cached_input_usd": 0.00204534,
+            "output_usd": 0.006411599999999999
+          },
+          {
+            "artifact": "v3-tasks/recovery2-tasks-repeated_corrections",
+            "family": "repeated_corrections",
+            "tasks": 20,
+            "passed": 20,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 219854,
+            "cached_tokens": 159290,
+            "output_tokens": 6262,
+            "reasoning_tokens": 2250,
+            "llm_calls": 37,
+            "cost_usd": 0.022812999999999996,
+            "elapsed_seconds": 170.62599999999998,
+            "historical_inputs": 1,
+            "direct_returns": 15,
+            "uncached_tokens": 60564,
+            "uncached_input_usd": 0.012112800000000002,
+            "cached_input_usd": 0.0031858000000000004,
+            "output_usd": 0.007514399999999999
+          },
+          {
+            "artifact": "v3-tasks/recovery1-tasks-temporary_scope",
+            "family": "temporary_scope",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 50866,
+            "cached_tokens": 38426,
+            "output_tokens": 2882,
+            "reasoning_tokens": 1028,
+            "llm_calls": 9,
+            "cost_usd": 0.00671492,
+            "elapsed_seconds": 72.792,
+            "historical_inputs": 0,
+            "direct_returns": 5,
+            "uncached_tokens": 12440,
+            "uncached_input_usd": 0.002488,
+            "cached_input_usd": 0.00076852,
+            "output_usd": 0.0034584
+          },
+          {
+            "artifact": "v3-tasks/recovery2-tasks-temporary_scope",
+            "family": "temporary_scope",
+            "tasks": 5,
+            "passed": 5,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 40729,
+            "cached_tokens": 34170,
+            "output_tokens": 2041,
+            "reasoning_tokens": 785,
+            "llm_calls": 8,
+            "cost_usd": 0.0044444,
+            "elapsed_seconds": 48.307,
+            "historical_inputs": 2,
+            "direct_returns": 5,
+            "uncached_tokens": 6559,
+            "uncached_input_usd": 0.0013118000000000001,
+            "cached_input_usd": 0.0006834,
+            "output_usd": 0.0024492
+          }
+        ],
+        "totals": {
+          "tasks": 50,
+          "passed": 50,
+          "input_tokens": 448059,
+          "cached_tokens": 334153,
+          "uncached_tokens": 113906,
+          "output_tokens": 16528,
+          "reasoning_tokens": 5936,
+          "llm_calls": 78,
+          "cost_usd": 0.04929786,
+          "uncached_input_usd": 0.0227812,
+          "cached_input_usd": 0.00668306,
+          "output_usd": 0.019833599999999996,
+          "elapsed_seconds": 452.28600000000006,
+          "historical_inputs": 3,
+          "direct_returns": 45
+        }
+      }
+    },
+    "pairs": [
+      {
+        "family": "customer_reports",
+        "task": 1,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0008884200000000001,
+        "dataflow_cost_usd": 0.0028924800000000002
+      },
+      {
+        "family": "customer_reports",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00067146,
+        "dataflow_cost_usd": 0.00097324
+      },
+      {
+        "family": "customer_reports",
+        "task": 3,
+        "category": "both_pass_dataflow_cheaper",
+        "code_cost_usd": 0.0008890999999999999,
+        "dataflow_cost_usd": 0.0007393199999999999
+      },
+      {
+        "family": "customer_reports",
+        "task": 4,
+        "category": "both_pass_dataflow_cheaper",
+        "code_cost_usd": 0.0016549800000000001,
+        "dataflow_cost_usd": 0.00101732
+      },
+      {
+        "family": "customer_reports",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00104698,
+        "dataflow_cost_usd": 0.0011849200000000001
+      },
+      {
+        "family": "customer_reports",
+        "task": 6,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00139832,
+        "dataflow_cost_usd": 0.00414796
+      },
+      {
+        "family": "customer_reports",
+        "task": 7,
+        "category": "both_pass_dataflow_cheaper",
+        "code_cost_usd": 0.0010827200000000001,
+        "dataflow_cost_usd": 0.00100632
+      },
+      {
+        "family": "customer_reports",
+        "task": 8,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0013792,
+        "dataflow_cost_usd": 0.00475856
+      },
+      {
+        "family": "customer_reports",
+        "task": 9,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0012946199999999998,
+        "dataflow_cost_usd": 0.00189252
+      },
+      {
+        "family": "fanout_correction",
+        "task": 1,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0005985399999999999,
+        "dataflow_cost_usd": 0.00256608
+      },
+      {
+        "family": "fanout_correction",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00048078,
+        "dataflow_cost_usd": 0.00137744
+      },
+      {
+        "family": "fanout_correction",
+        "task": 3,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00047392,
+        "dataflow_cost_usd": 0.00054372
+      },
+      {
+        "family": "fanout_correction",
+        "task": 4,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00034228,
+        "dataflow_cost_usd": 0.0006721200000000001
+      },
+      {
+        "family": "fanout_correction",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00052934,
+        "dataflow_cost_usd": 0.00139572
+      },
+      {
+        "family": "independent_control",
+        "task": 1,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00024894,
+        "dataflow_cost_usd": 0.00170108
+      },
+      {
+        "family": "independent_control",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00030292000000000003,
+        "dataflow_cost_usd": 0.00045972000000000005
+      },
+      {
+        "family": "independent_control",
+        "task": 3,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00037992,
+        "dataflow_cost_usd": 0.0005153199999999999
+      },
+      {
+        "family": "independent_control",
+        "task": 4,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0003372,
+        "dataflow_cost_usd": 0.0006209200000000001
+      },
+      {
+        "family": "independent_control",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0005389199999999999,
+        "dataflow_cost_usd": 0.00066812
+      },
+      {
+        "family": "independent_control",
+        "task": 6,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00058464,
+        "dataflow_cost_usd": 0.0007029200000000001
+      },
+      {
+        "family": "membership_values",
+        "task": 1,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00125174,
+        "dataflow_cost_usd": 0.0014807199999999998
+      },
+      {
+        "family": "membership_values",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00029976,
+        "dataflow_cost_usd": 0.00039272000000000005
+      },
+      {
+        "family": "membership_values",
+        "task": 3,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00038646000000000004,
+        "dataflow_cost_usd": 0.0011452400000000003
+      },
+      {
+        "family": "membership_values",
+        "task": 4,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0003190600000000001,
+        "dataflow_cost_usd": 0.00057072
+      },
+      {
+        "family": "membership_values",
+        "task": 5,
+        "category": "dataflow_only",
+        "code_cost_usd": 0.00063128,
+        "dataflow_cost_usd": 0.0011099200000000001
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 1,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0013482799999999999,
+        "dataflow_cost_usd": 0.00277104
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00044554,
+        "dataflow_cost_usd": 0.0008246400000000001
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 3,
+        "category": "code_only",
+        "code_cost_usd": 0.00047312,
+        "dataflow_cost_usd": 0.00108684
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 4,
+        "category": "code_only",
+        "code_cost_usd": 0.00043646000000000006,
+        "dataflow_cost_usd": 0.00138724
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00035410000000000004,
+        "dataflow_cost_usd": 0.00172616
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 6,
+        "category": "code_only",
+        "code_cost_usd": 0.00043553999999999994,
+        "dataflow_cost_usd": 0.00139424
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 7,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00054424,
+        "dataflow_cost_usd": 0.0005885199999999999
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 8,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00054938,
+        "dataflow_cost_usd": 0.00128344
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 9,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00044965999999999995,
+        "dataflow_cost_usd": 0.00084512
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 10,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00039348000000000003,
+        "dataflow_cost_usd": 0.00106544
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 11,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00065522,
+        "dataflow_cost_usd": 0.00149104
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 12,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00050154,
+        "dataflow_cost_usd": 0.0006319200000000001
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 13,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0003935,
+        "dataflow_cost_usd": 0.00158284
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 14,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00038177999999999997,
+        "dataflow_cost_usd": 0.00162384
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 15,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00033596000000000006,
+        "dataflow_cost_usd": 0.00123744
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 16,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00046514000000000006,
+        "dataflow_cost_usd": 0.00161824
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 17,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0004018,
+        "dataflow_cost_usd": 0.00156044
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 18,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00037372,
+        "dataflow_cost_usd": 0.0016020399999999999
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 19,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00040418,
+        "dataflow_cost_usd": 0.0016238399999999999
+      },
+      {
+        "family": "repeated_corrections",
+        "task": 20,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00066502,
+        "dataflow_cost_usd": 0.0020674400000000002
+      },
+      {
+        "family": "temporary_scope",
+        "task": 1,
+        "category": "code_only",
+        "code_cost_usd": 0.00115992,
+        "dataflow_cost_usd": 0.00021812
+      },
+      {
+        "family": "temporary_scope",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00026827999999999997,
+        "dataflow_cost_usd": 0.00221316
+      },
+      {
+        "family": "temporary_scope",
+        "task": 3,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0012331,
+        "dataflow_cost_usd": 0.0012526400000000002
+      },
+      {
+        "family": "temporary_scope",
+        "task": 4,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00077976,
+        "dataflow_cost_usd": 0.00086152
+      },
+      {
+        "family": "temporary_scope",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00033362,
+        "dataflow_cost_usd": 0.00181724
+      }
+    ],
+    "categories": {
+      "both_pass_code_cheaper": 42,
+      "both_pass_dataflow_cheaper": 3,
+      "code_only": 4,
+      "dataflow_only": 1
+    },
+    "dataflow_cost_ratio": 2.1673871416601456
+  },
+  "longds_adapted": {
+    "cost_basis": "Recorded token usage, repository Luna accounting rates; excludes infrastructure. Calls without returned usage may be missing, so failures can make costs lower bounds.",
+    "rates_usd_per_million": {
+      "uncached_input": 0.2,
+      "cached_input": 0.02,
+      "output": 1.2
+    },
+    "code": {
+      "primary": {
+        "sessions": [
+          {
+            "artifact": "holdout/code-longds_github",
+            "family": "longds_github",
+            "tasks": 15,
+            "passed": 15,
+            "failed_tasks": [],
+            "answer_errors": [],
+            "input_tokens": 172849,
+            "cached_tokens": 157515,
+            "output_tokens": 8427,
+            "reasoning_tokens": 2870,
+            "llm_calls": 19,
+            "cost_usd": 0.0163295,
+            "elapsed_seconds": 87.65624481707346,
+            "historical_inputs": 0,
+            "direct_returns": 0,
+            "uncached_tokens": 15334,
+            "uncached_input_usd": 0.0030668,
+            "cached_input_usd": 0.0031503,
+            "output_usd": 0.010112399999999999
+          }
+        ],
+        "totals": {
+          "tasks": 15,
+          "passed": 15,
+          "input_tokens": 172849,
+          "cached_tokens": 157515,
+          "uncached_tokens": 15334,
+          "output_tokens": 8427,
+          "reasoning_tokens": 2870,
+          "llm_calls": 19,
+          "cost_usd": 0.0163295,
+          "uncached_input_usd": 0.0030668,
+          "cached_input_usd": 0.0031503,
+          "output_usd": 0.010112399999999999,
+          "elapsed_seconds": 87.65624481707346,
+          "historical_inputs": 0,
+          "direct_returns": 0
+        }
+      },
+      "recoveries": {
+        "sessions": [],
+        "totals": {
+          "tasks": 0,
+          "passed": 0,
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "uncached_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "llm_calls": 0,
+          "cost_usd": 0,
+          "uncached_input_usd": 0,
+          "cached_input_usd": 0,
+          "output_usd": 0,
+          "elapsed_seconds": 0,
+          "historical_inputs": 0,
+          "direct_returns": 0
+        }
+      }
+    },
+    "dataflow": {
+      "primary": {
+        "sessions": [
+          {
+            "artifact": "v3-holdout/tasks-longds_github",
+            "family": "longds_github",
+            "tasks": 15,
+            "passed": 14,
+            "failed_tasks": [1],
+            "answer_errors": [],
+            "input_tokens": 154304,
+            "cached_tokens": 82185,
+            "output_tokens": 8094,
+            "reasoning_tokens": 1818,
+            "llm_calls": 19,
+            "cost_usd": 0.025780300000000003,
+            "elapsed_seconds": 169.835,
+            "historical_inputs": 0,
+            "direct_returns": 14,
+            "uncached_tokens": 72119,
+            "uncached_input_usd": 0.0144238,
+            "cached_input_usd": 0.0016437000000000001,
+            "output_usd": 0.009712799999999999
+          }
+        ],
+        "totals": {
+          "tasks": 15,
+          "passed": 14,
+          "input_tokens": 154304,
+          "cached_tokens": 82185,
+          "uncached_tokens": 72119,
+          "output_tokens": 8094,
+          "reasoning_tokens": 1818,
+          "llm_calls": 19,
+          "cost_usd": 0.025780300000000003,
+          "uncached_input_usd": 0.0144238,
+          "cached_input_usd": 0.0016437000000000001,
+          "output_usd": 0.009712799999999999,
+          "elapsed_seconds": 169.835,
+          "historical_inputs": 0,
+          "direct_returns": 14
+        }
+      },
+      "recoveries": {
+        "sessions": [
+          {
+            "artifact": "v3-holdout/recovery1-tasks-longds_github",
+            "family": "longds_github",
+            "tasks": 15,
+            "passed": 11,
+            "failed_tasks": [1, 8, 13, 15],
+            "answer_errors": [],
+            "input_tokens": 213391,
+            "cached_tokens": 127470,
+            "output_tokens": 11072,
+            "reasoning_tokens": 1928,
+            "llm_calls": 25,
+            "cost_usd": 0.03302,
+            "elapsed_seconds": 210.839,
+            "historical_inputs": 0,
+            "direct_returns": 14,
+            "uncached_tokens": 85921,
+            "uncached_input_usd": 0.0171842,
+            "cached_input_usd": 0.0025494000000000003,
+            "output_usd": 0.0132864
+          },
+          {
+            "artifact": "v3-holdout/recovery2-tasks-longds_github",
+            "family": "longds_github",
+            "tasks": 15,
+            "passed": 14,
+            "failed_tasks": [13],
+            "answer_errors": [],
+            "input_tokens": 184640,
+            "cached_tokens": 96283,
+            "output_tokens": 8266,
+            "reasoning_tokens": 2059,
+            "llm_calls": 22,
+            "cost_usd": 0.02951626,
+            "elapsed_seconds": 182.142,
+            "historical_inputs": 0,
+            "direct_returns": 15,
+            "uncached_tokens": 88357,
+            "uncached_input_usd": 0.0176714,
+            "cached_input_usd": 0.00192566,
+            "output_usd": 0.0099192
+          }
+        ],
+        "totals": {
+          "tasks": 30,
+          "passed": 25,
+          "input_tokens": 398031,
+          "cached_tokens": 223753,
+          "uncached_tokens": 174278,
+          "output_tokens": 19338,
+          "reasoning_tokens": 3987,
+          "llm_calls": 47,
+          "cost_usd": 0.06253626,
+          "uncached_input_usd": 0.0348556,
+          "cached_input_usd": 0.00447506,
+          "output_usd": 0.0232056,
+          "elapsed_seconds": 392.981,
+          "historical_inputs": 0,
+          "direct_returns": 29
+        }
+      }
+    },
+    "pairs": [
+      {
+        "family": "longds_github",
+        "task": 1,
+        "category": "code_only",
+        "code_cost_usd": 0.00253688,
+        "dataflow_cost_usd": 0.0010673199999999999
+      },
+      {
+        "family": "longds_github",
+        "task": 2,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00043884,
+        "dataflow_cost_usd": 0.00135618
+      },
+      {
+        "family": "longds_github",
+        "task": 3,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00041089999999999996,
+        "dataflow_cost_usd": 0.00084552
+      },
+      {
+        "family": "longds_github",
+        "task": 4,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00067402,
+        "dataflow_cost_usd": 0.00128892
+      },
+      {
+        "family": "longds_github",
+        "task": 5,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00085958,
+        "dataflow_cost_usd": 0.0013471199999999998
+      },
+      {
+        "family": "longds_github",
+        "task": 6,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0006452000000000001,
+        "dataflow_cost_usd": 0.0010083199999999998
+      },
+      {
+        "family": "longds_github",
+        "task": 7,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00064148,
+        "dataflow_cost_usd": 0.00127652
+      },
+      {
+        "family": "longds_github",
+        "task": 8,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00121888,
+        "dataflow_cost_usd": 0.00134152
+      },
+      {
+        "family": "longds_github",
+        "task": 9,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0009503,
+        "dataflow_cost_usd": 0.00166912
+      },
+      {
+        "family": "longds_github",
+        "task": 10,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00103266,
+        "dataflow_cost_usd": 0.00192012
+      },
+      {
+        "family": "longds_github",
+        "task": 11,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0008281,
+        "dataflow_cost_usd": 0.00162252
+      },
+      {
+        "family": "longds_github",
+        "task": 12,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.00103448,
+        "dataflow_cost_usd": 0.00428636
+      },
+      {
+        "family": "longds_github",
+        "task": 13,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0010436199999999999,
+        "dataflow_cost_usd": 0.00190352
+      },
+      {
+        "family": "longds_github",
+        "task": 14,
+        "category": "both_pass_dataflow_cheaper",
+        "code_cost_usd": 0.0024518999999999995,
+        "dataflow_cost_usd": 0.00221212
+      },
+      {
+        "family": "longds_github",
+        "task": 15,
+        "category": "both_pass_code_cheaper",
+        "code_cost_usd": 0.0015626599999999998,
+        "dataflow_cost_usd": 0.00263512
+      }
+    ],
+    "categories": {
+      "both_pass_code_cheaper": 13,
+      "both_pass_dataflow_cheaper": 1,
+      "code_only": 1
+    },
+    "dataflow_cost_ratio": 1.578756238709085
+  },
+  "history_disabled": {
+    "primary": {
+      "sessions": [
+        {
+          "artifact": "v3-no-history/context-membership_values",
+          "family": "membership_values",
+          "tasks": 5,
+          "passed": 4,
+          "failed_tasks": [5],
+          "answer_errors": [],
+          "input_tokens": 50927,
+          "cached_tokens": 36720,
+          "output_tokens": 2293,
+          "reasoning_tokens": 891,
+          "llm_calls": 11,
+          "cost_usd": 0.0063274,
+          "elapsed_seconds": 72.134,
+          "historical_inputs": 0,
+          "direct_returns": 4,
+          "uncached_tokens": 14207,
+          "uncached_input_usd": 0.0028414,
+          "cached_input_usd": 0.0007344,
+          "output_usd": 0.0027516
+        },
+        {
+          "artifact": "v3-no-history/context-temporary_scope",
+          "family": "temporary_scope",
+          "tasks": 5,
+          "passed": 5,
+          "failed_tasks": [],
+          "answer_errors": [],
+          "input_tokens": 54962,
+          "cached_tokens": 40392,
+          "output_tokens": 2621,
+          "reasoning_tokens": 830,
+          "llm_calls": 11,
+          "cost_usd": 0.00686704,
+          "elapsed_seconds": 63.861999999999995,
+          "historical_inputs": 0,
+          "direct_returns": 4,
+          "uncached_tokens": 14570,
+          "uncached_input_usd": 0.002914,
+          "cached_input_usd": 0.00080784,
+          "output_usd": 0.0031452
+        }
+      ],
+      "totals": {
+        "tasks": 10,
+        "passed": 9,
+        "input_tokens": 105889,
+        "cached_tokens": 77112,
+        "uncached_tokens": 28777,
+        "output_tokens": 4914,
+        "reasoning_tokens": 1721,
+        "llm_calls": 22,
+        "cost_usd": 0.01319444,
+        "uncached_input_usd": 0.0057554,
+        "cached_input_usd": 0.0015422399999999998,
+        "output_usd": 0.0058968,
+        "elapsed_seconds": 135.99599999999998,
+        "historical_inputs": 0,
+        "direct_returns": 8
+      }
+    },
+    "recoveries": {
+      "sessions": [
+        {
+          "artifact": "v3-no-history/recovery1-context-membership_values",
+          "family": "membership_values",
+          "tasks": 5,
+          "passed": 5,
+          "failed_tasks": [],
+          "answer_errors": [],
+          "input_tokens": 47618,
+          "cached_tokens": 38148,
+          "output_tokens": 2516,
+          "reasoning_tokens": 1052,
+          "llm_calls": 10,
+          "cost_usd": 0.0056761599999999995,
+          "elapsed_seconds": 70.081,
+          "historical_inputs": 0,
+          "direct_returns": 5,
+          "uncached_tokens": 9470,
+          "uncached_input_usd": 0.001894,
+          "cached_input_usd": 0.00076296,
+          "output_usd": 0.0030191999999999997
+        },
+        {
+          "artifact": "v3-no-history/recovery2-context-membership_values",
+          "family": "membership_values",
+          "tasks": 5,
+          "passed": 5,
+          "failed_tasks": [],
+          "answer_errors": [],
+          "input_tokens": 40759,
+          "cached_tokens": 33166,
+          "output_tokens": 2283,
+          "reasoning_tokens": 926,
+          "llm_calls": 9,
+          "cost_usd": 0.0049215199999999995,
+          "elapsed_seconds": 67.715,
+          "historical_inputs": 0,
+          "direct_returns": 4,
+          "uncached_tokens": 7593,
+          "uncached_input_usd": 0.0015186000000000002,
+          "cached_input_usd": 0.00066332,
+          "output_usd": 0.0027396
+        }
+      ],
+      "totals": {
+        "tasks": 10,
+        "passed": 10,
+        "input_tokens": 88377,
+        "cached_tokens": 71314,
+        "uncached_tokens": 17063,
+        "output_tokens": 4799,
+        "reasoning_tokens": 1978,
+        "llm_calls": 19,
+        "cost_usd": 0.010597679999999998,
+        "uncached_input_usd": 0.0034126,
+        "cached_input_usd": 0.00142628,
+        "output_usd": 0.0057588,
+        "elapsed_seconds": 137.796,
+        "historical_inputs": 0,
+        "direct_returns": 9
+      }
+    }
+  },
+  "storage": {
+    "retained_arrow_files": 1219,
+    "retained_arrow_bytes": 4437782
+  },
+  "limits": [
+    "Primary scores are not replaced by recoveries.",
+    "LongDS is a JSON-contract adaptation of one session, not an official score.",
+    "Accounting rates are not invoices; calls missing usage make costs lower bounds.",
+    "Historical bindings are in memory; retained scalar tables use local Arrow files."
+  ]
+}
