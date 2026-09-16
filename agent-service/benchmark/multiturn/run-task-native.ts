@@ -35,6 +35,7 @@ const settings = {
   nativeDirectReturn: ["return", "context", "tasks"].includes(arm),
   nativeTaskContext: ["context", "tasks"].includes(arm),
   nativeTaskHistory: arm === "tasks",
+  nativeTaskCache: process.env.TASK_CACHE_BOUNDARIES !== "0",
   maxSteps: 25,
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
@@ -52,7 +53,7 @@ await write("config.json", {
   session: spec,
   service: session.baseUrl,
   engine: process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
-  cost_rates_usd_per_million: { input: 0.2, cached_input: 0.02, output: 1.2 },
+  cost_rates_usd_per_million: { input: 0.2, cached_input: 0.02, cache_write: 0.25, output: 1.2 },
   cost_source: "Repository accounting assumptions, cache-aware; infrastructure excluded; not provider invoices.",
 });
 let prior = 0;
@@ -89,14 +90,16 @@ try {
     const sum = (key: string) => calls.reduce((n, s) => n + Number((s.usage as any)?.[key] ?? 0), 0);
     const input = sum("inputTokens"),
       output = sum("outputTokens"),
-      cached = sum("cachedInputTokens");
+      cached = sum("cachedInputTokens"),
+      written = sum("cacheCreationInputTokens");
     const stats = {
       input_tokens: input,
       output_tokens: output,
       cached_tokens: cached,
+      cache_write_tokens: written,
       reasoning_tokens: sum("reasoningTokens"),
       llm_calls: calls.length,
-      cost_usd: ((input - cached) * 0.2 + cached * 0.02 + output * 1.2) / 1e6,
+      cost_usd: ((input - cached - written) * 0.2 + cached * 0.02 + written * 0.25 + output * 1.2) / 1e6,
       elapsed_seconds: (Date.now() - start) / 1000,
       tool_calls: steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0),
       historical_inputs: steps

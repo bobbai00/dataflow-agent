@@ -37,6 +37,7 @@ import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
+import { createTaskResponsesModel, supportsTaskCache } from "./agent/llm-drivers/openai-task-cache";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
@@ -557,7 +558,17 @@ async function createAgentInstance(
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : new VercelToolUseDriver({
+          model,
+          taskModel: supportsTaskCache(modelType)
+            ? createTaskResponsesModel(modelType, {
+                baseURL: `${config.modelsEndpoint}/api`,
+                apiKey: delegateConfig.userToken,
+              })
+            : undefined,
+        });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -605,6 +616,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeTaskHistory: agentSettings.nativeTaskHistory,
     nativeTaskContext: agentSettings.nativeTaskContext,
+    nativeTaskCache: agentSettings.nativeTaskCache,
     nativeDirectReturn: agentSettings.nativeDirectReturn,
     nativeCompactPrompt: agentSettings.nativeCompactPrompt,
     dataEvidence: agentSettings.dataEvidence,
@@ -854,6 +866,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: settings.nativeProfileCollection,
             nativeTaskHistory: settings.nativeTaskHistory,
             nativeTaskContext: settings.nativeTaskContext,
+            nativeTaskCache: settings.nativeTaskCache,
             nativeDirectReturn: settings.nativeDirectReturn,
             nativeCompactPrompt: settings.nativeCompactPrompt,
             dataEvidence: settings.dataEvidence,
@@ -945,6 +958,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: t.Optional(t.Boolean()),
             nativeTaskHistory: t.Optional(t.Boolean()),
             nativeTaskContext: t.Optional(t.Boolean()),
+            nativeTaskCache: t.Optional(t.Boolean()),
             nativeDirectReturn: t.Optional(t.Boolean()),
             nativeCompactPrompt: t.Optional(t.Boolean()),
             dataEvidence: t.Optional(t.Boolean()),
@@ -1324,6 +1338,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeTaskHistory: settings.nativeTaskHistory,
         nativeTaskContext: settings.nativeTaskContext,
+        nativeTaskCache: settings.nativeTaskCache,
         nativeDirectReturn: settings.nativeDirectReturn,
         nativeCompactPrompt: settings.nativeCompactPrompt,
         dataEvidence: settings.dataEvidence,
@@ -1387,6 +1402,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeTaskHistory: t.Optional(t.Boolean()),
         nativeTaskContext: t.Optional(t.Boolean()),
+        nativeTaskCache: t.Optional(t.Boolean()),
         nativeDirectReturn: t.Optional(t.Boolean()),
         nativeCompactPrompt: t.Optional(t.Boolean()),
         dataEvidence: t.Optional(t.Boolean()),

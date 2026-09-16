@@ -165,3 +165,16 @@ The coordinator records fixture hashes, revision, per-session traces, usage,
 primary results, and two fresh recovery sessions for every failed primary
 session. It refuses to overwrite artifacts. Keep the watched agent service's
 implementation fixed until the campaign finishes.
+
+
+## Prompt caching for task context
+
+GPT-5.6 and later task-context agents use the authenticated Responses route.
+`nativeTaskCache` defaults to true and marks the fixed instruction prefix and
+last two completed-task user messages as reusable prefixes. The current graph
+and active task keep their existing text and roles. This setting takes effect
+only with `nativeTaskContext`; other models retain their existing transport.
+Set `nativeTaskCache:false` for an implicit-cache control on the same Responses
+transport. A stable per-agent cache key prevents another session from warming
+its measured history. Cache writes are recorded in `cacheCreationInputTokens`
+and must be priced separately from ordinary uncached input.

@@ -268,9 +268,9 @@ class AccessControlResource extends LazyLogging {
   }
 }
 
-// Forwards chat completions to LiteLLM with the server's master key, so
+// Forwards chat completions and Responses to LiteLLM with the server's master key, so
 // only authenticated users may call it.
-@Path("/chat")
+@Path("/{llmRoute:chat|responses}")
 @RolesAllowed(Array("REGULAR", "ADMIN"))
 @Produces(Array(MediaType.APPLICATION_JSON))
 @Consumes(Array(MediaType.APPLICATION_JSON))
@@ -290,8 +290,16 @@ class LiteLLMProxyResource(
 
   private val client: Client = ClientBuilder.newClient()
 
+  // Responses creates at /responses itself; chat creates at /chat/completions.
   @POST
-  @Path("/{path:.*}")
+  def proxyRoot(
+      @Context uriInfo: UriInfo,
+      @Context headers: HttpHeaders,
+      body: String
+  ): Response = proxyPost(uriInfo, headers, body)
+
+  @POST
+  @Path("{path:.*}")
   def proxyPost(
       @Context uriInfo: UriInfo,
       @Context headers: HttpHeaders,

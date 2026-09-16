@@ -107,8 +107,16 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
   private val mockModelsBody = """{"data":[{"id":"mock-gpt"}]}"""
 
   private val mockLiteLLM: HttpServer = HttpServer.create(new InetSocketAddress(0), 0)
-  mockLiteLLM.createContext("/chat/completions", respondWith(200, mockChatBody))
-  mockLiteLLM.createContext("/models", respondWith(200, mockModelsBody))
+  mockLiteLLM.createContext("/v1/chat/completions", respondWith(200, mockChatBody))
+  mockLiteLLM.createContext("/v1/models", respondWith(200, mockModelsBody))
+
+  @volatile private var responsesAuthorization = ""
+  @volatile private var responsesRequestBody = ""
+  mockLiteLLM.createContext("/v1/responses", (exchange: HttpExchange) => {
+    responsesAuthorization = exchange.getRequestHeaders.getFirst("Authorization")
+    responsesRequestBody = new String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+    respondWith(200, """{"id":"resp_mock","usage":{"input_tokens_details":{"cache_write_tokens":100}}}""").handle(exchange)
+  })
 
   private def respondWith(status: Int, body: String): HttpHandler =
     (exchange: HttpExchange) => {
@@ -296,4 +304,28 @@ class LiteLLMProxyAuthSpec extends AnyFlatSpec with Matchers with BeforeAndAfter
       reflective.after()
     }
   }
+  "POST /responses" should "require a JWT and an active role" in {
+    resources.target("/responses").request().post(Entity.json("{}")).getStatus shouldBe 401
+    resources.target("/responses").request()
+      .header("Authorization", s"Bearer ${token(UserRoleEnum.INACTIVE)}")
+      .post(Entity.json("{}")).getStatus shouldBe 403
+  }
+  it should "respect the copilot gate for responses" in {
+    val response = resourcesCopilotDisabled.target("/responses").request()
+      .header("Authorization", s"Bearer ${token(UserRoleEnum.REGULAR)}")
+      .post(Entity.json("{}"))
+    response.getStatus shouldBe 403
+    response.readEntity(classOf[String]) shouldBe LiteLLMProxyResource.CopilotDisabledBody
+  }
+  it should "forward responses cache metadata with the server key" in {
+    val body = """{"model":"gpt-5.6-luna","extra_body":{"prompt_cache_options":{"mode":"implicit"}}}"""
+    val response = resourcesMockLiteLLM.target("/responses").request()
+      .header("Authorization", s"Bearer ${token(UserRoleEnum.REGULAR)}")
+      .post(Entity.json(body))
+    response.getStatus shouldBe 200
+    responsesAuthorization shouldBe "Bearer test"
+    responsesRequestBody shouldBe body
+    response.readEntity(classOf[String]) should include ("cache_write_tokens")
+  }
+
 }

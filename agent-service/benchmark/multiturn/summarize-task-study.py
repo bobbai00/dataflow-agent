@@ -50,16 +50,17 @@ def summarize(entries):
         tasks = summary['results']
         assert len(tasks) == summary['tasks']
         sums = {key: sum(task.get(key, 0) for task in tasks) for key in [
-            'input_tokens', 'cached_tokens', 'output_tokens', 'reasoning_tokens',
+            'input_tokens', 'cached_tokens', 'cache_write_tokens', 'output_tokens', 'reasoning_tokens',
             'llm_calls', 'cost_usd', 'elapsed_seconds', 'historical_inputs', 'direct_returns',
         ]}
-        sums['uncached_tokens'] = sums['input_tokens'] - sums['cached_tokens']
+        sums['uncached_tokens'] = sums['input_tokens'] - sums['cached_tokens'] - sums['cache_write_tokens']
+        sums['cache_write_usd'] = sums['cache_write_tokens'] * 0.25 / 1e6
         sums['uncached_input_usd'] = sums['uncached_tokens'] * 0.20 / 1e6
         sums['cached_input_usd'] = sums['cached_tokens'] * 0.02 / 1e6
         sums['output_usd'] = sums['output_tokens'] * 1.20 / 1e6
         assert math.isclose(sums['cost_usd'], summary['cost_usd'], abs_tol=1e-10)
         assert math.isclose(sums['cost_usd'], sum(sums[k] for k in [
-            'uncached_input_usd', 'cached_input_usd', 'output_usd']), abs_tol=1e-10)
+            'uncached_input_usd', 'cached_input_usd', 'cache_write_usd', 'output_usd']), abs_tol=1e-10)
         answer_errors = []
         for task in tasks:
             answer = read(path / f"t{task['task']:02}" / 'answer.json')
@@ -74,9 +75,9 @@ def summarize(entries):
             answer_errors=answer_errors,
             **sums,
         ))
-    keys = ['tasks', 'passed', 'input_tokens', 'cached_tokens', 'uncached_tokens',
+    keys = ['tasks', 'passed', 'input_tokens', 'cached_tokens', 'cache_write_tokens', 'uncached_tokens',
             'output_tokens', 'reasoning_tokens', 'llm_calls', 'cost_usd',
-            'uncached_input_usd', 'cached_input_usd', 'output_usd', 'elapsed_seconds',
+            'uncached_input_usd', 'cached_input_usd', 'cache_write_usd', 'output_usd', 'elapsed_seconds',
             'historical_inputs', 'direct_returns']
     return dict(sessions=rows, totals={key: sum(row[key] for row in rows) for key in keys})
 

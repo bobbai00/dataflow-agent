@@ -1441,6 +1441,7 @@ export class TexeraAgent {
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
+    nativeTaskCache?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -1502,6 +1503,7 @@ export class TexeraAgent {
       nativeProfileCollection: updates.nativeProfileCollection ?? this.settings.nativeProfileCollection,
       nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
+      nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
       nativeDirectReturn: updates.nativeDirectReturn ?? this.settings.nativeDirectReturn,
       nativeCompactPrompt: updates.nativeCompactPrompt ?? this.settings.nativeCompactPrompt,
     });
@@ -1534,6 +1536,7 @@ export class TexeraAgent {
     for (const name of [
       "nativeTaskHistory",
       "nativeTaskContext",
+      "nativeTaskCache",
       "nativeDirectReturn",
       "nativeCompactPrompt",
     ] as const) {
@@ -1976,6 +1979,9 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps: this.settings.maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
+          taskContext: this.settings.nativeTaskContext,
+          taskCache: this.settings.nativeTaskCache,
+          promptCacheKey: this.settings.nativeTaskContext ? this.agentId : undefined,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           getFinalAnswer: () => directAnswer,

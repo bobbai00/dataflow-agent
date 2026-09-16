@@ -63,7 +63,11 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
   const messages: ModelMessage[] = [];
   for (const step of tasks.slice(0, -1)) {
     const answer = visibleSteps.findLast(s => s.messageId === step.messageId && s.role === "agent" && s.isEnd)?.content;
-    messages.push({ role: "user", content: `# Task ${number(step.messageId)}\n${step.content}` });
+    messages.push({
+      role: "user",
+      content: `# Task ${number(step.messageId)}\n${step.content}`,
+      providerOptions: { texera: { taskHistory: true } },
+    });
     if (answer) messages.push({ role: "assistant", content: answer });
   }
   // Stable completed-task messages can share a cache prefix. Current state

@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -27,6 +28,7 @@ parser.add_argument('session', type=Path)
 parser.add_argument('out', type=Path)
 parser.add_argument('--kb-root', type=Path, required=True)
 parser.add_argument('--env-file', type=Path, required=True)
+parser.add_argument('--transport', choices=['chat', 'responses'], default=os.getenv('TASK_CODE_TRANSPORT', 'chat'))
 parser.add_argument('--turn-limit', type=int, default=100)
 args = parser.parse_args()
 load_dotenv(args.env_file, override=False)
@@ -42,10 +44,14 @@ wrapper = CodeAgentWrapper(model_type='gpt-5.6-luna', max_steps=25,
     max_print_outputs_length=2000, use_custom_prompt=False, use_fine_grained_prompt=False, use_pitfalls_prompt=False, verbosity_level=0,
     api_base=os.getenv('CODE_AGENT_API_BASE', 'http://localhost:4000'),
     api_key=os.getenv('LITELLM_MASTER_KEY', 'dummy')).setup()
-write('config.json', dict(arm='code', model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
+cache_key = 'code-' + uuid.uuid4().hex
+write('config.json', dict(arm='code', transport=args.transport, cache_key=cache_key, model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
      custom_prompt=False, fine_grained_prompt=False, pitfalls_prompt=False, session=spec, wrapper=str(args.kb_root / 'code_agent.py'),
      wrapper_sha256=hashlib.sha256((args.kb_root / 'code_agent.py').read_bytes()).hexdigest(),
-     python=sys.version, cost_rates_usd_per_million=dict(input=.2, cached_input=.02, output=1.2)))
+     python=sys.version, cost_rates_usd_per_million=dict(input=.2, cached_input=.02, cache_write=.25, output=1.2)))
+if args.transport == 'responses':
+    from code_responses_transport import install_responses_transport
+    install_responses_transport(wrapper._model, cache_key)
 prior = 0
 for index, turn in enumerate(spec['turns'][:args.turn_limit], 1):
     directory = f't{index:02}'; (out / directory).mkdir()
@@ -72,10 +78,11 @@ for index, turn in enumerate(spec['turns'][:args.turn_limit], 1):
     write(f'{directory}/react_steps.json', trace)
     usage = wrapper._model.usage_acc
     input_tokens, output_tokens, cached_tokens = [int(usage.get(k, 0) or 0) for k in ['input', 'output', 'cached']]
-    stats = dict(input_tokens=input_tokens, output_tokens=output_tokens, cached_tokens=cached_tokens,
+    written = int(usage.get('cache_creation', 0) or 0)
+    stats = dict(cache_write_tokens=written, input_tokens=input_tokens, output_tokens=output_tokens, cached_tokens=cached_tokens,
         reasoning_tokens=int(usage.get('reasoning', 0) or 0),
         llm_calls=int(usage.get('calls', 0) or 0), memory_steps=len(memory),
-        cost_usd=((input_tokens-cached_tokens)*.2 + cached_tokens*.02 + output_tokens*1.2)/1e6,
+        cost_usd=((input_tokens-cached_tokens-written)*.2 + cached_tokens*.02 + written*.25 + output_tokens*1.2)/1e6,
         elapsed_seconds=time.monotonic()-started)
     write(f'{directory}/stats.json', stats)
     print(json.dumps(dict(arm='code', turn=index, **stats)), flush=True)

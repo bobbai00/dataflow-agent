@@ -62,6 +62,7 @@ export function validateNativeCatalogSettings(
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
+    nativeTaskCache?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -69,6 +70,8 @@ export function validateNativeCatalogSettings(
   } = {}
 ): NativeCatalogVersion {
   validateEvidenceSettings(settings);
+  if (settings.nativeTaskCache !== undefined && typeof settings.nativeTaskCache !== "boolean")
+    throw new NativeCatalogSettingsError("nativeTaskCache must be a boolean");
   const version = settings.nativeCatalogVersion ?? DEFAULT_AGENT_SETTINGS.nativeCatalogVersion ?? "v1";
   if (version !== "v1" && version !== "v2") {
     throw new NativeCatalogSettingsError("Unknown native catalog version");

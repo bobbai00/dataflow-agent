@@ -39,7 +39,7 @@ export interface TokenUsage {
   totalTokens?: number;
   // Per-class breakdown for accurate cost. `cachedInputTokens` is the subset of
   // input served from cache (cheap cache-read); `cacheCreationInputTokens` is the
-  // Anthropic cache-WRITE count; `reasoningTokens` is the thinking subset of output.
+  // provider cache-WRITE count; `reasoningTokens` is the thinking subset of output.
   cachedInputTokens?: number;
   cacheCreationInputTokens?: number;
   reasoningTokens?: number;
@@ -170,6 +170,7 @@ export interface AgentSettings {
   nativeProfileCollection?: boolean;
   nativeTaskHistory?: boolean;
   nativeTaskContext?: boolean;
+  nativeTaskCache?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
@@ -540,6 +541,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileCollection: false,
   nativeTaskHistory: false,
   nativeTaskContext: false,
+  nativeTaskCache: true,
   nativeDirectReturn: false,
   nativeCompactPrompt: false,
   dataEvidence: false,
@@ -661,6 +663,7 @@ export interface AgentSettingsApi {
   nativeProfileCollection?: boolean;
   nativeTaskHistory?: boolean;
   nativeTaskContext?: boolean;
+  nativeTaskCache?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
@@ -767,6 +770,7 @@ export interface UpdateAgentSettingsRequest {
   nativeProfileCollection?: boolean;
   nativeTaskHistory?: boolean;
   nativeTaskContext?: boolean;
+  nativeTaskCache?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
