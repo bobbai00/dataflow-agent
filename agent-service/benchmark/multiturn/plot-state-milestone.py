@@ -44,6 +44,8 @@ bx.set(xticks=[0,1], xticklabels=['Controlled tasks','GitHub tasks'], ylim=(0,1.
 bx.yaxis.set_major_formatter(PercentFormatter(1))
 fig.legend(*bx.get_legend_handles_labels(), loc='outside lower center', ncols=3, frameon=False)
 fig.suptitle('Three fresh trials per family and arm • 567 scored task answers', fontsize=12)
-fig.savefig(root/'STATE_MILESTONE_RESULTS.svg', bbox_inches='tight')
+svg = root/'STATE_MILESTONE_RESULTS.svg'
+fig.savefig(svg, bbox_inches='tight')
+svg.write_text('\n'.join(line.rstrip() for line in svg.read_text().splitlines())+'\n')
 fig.savefig('/tmp/texera-task-history/state-milestone/results.png', dpi=140, bbox_inches='tight')
 plt.close(fig)
