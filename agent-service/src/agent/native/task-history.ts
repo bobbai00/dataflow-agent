@@ -17,10 +17,11 @@
 
 import { createHash } from "node:crypto";
 import { isSuccessfulOperatorResult, type OperatorInfo } from "../../types/execution";
-import type { OperatorPredicate } from "../../types/workflow";
+import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
 import type { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { previewDependencies, type PreviewOrigin } from "./input-coverage";
 
 export type TaskInput = string | { operator: string; atTask: number };
 export interface RetainedResult {
@@ -32,6 +33,7 @@ export interface TaskOutput {
   operator: OperatorPredicate;
   info: OperatorInfo;
   artifact: RetainedResult;
+  previewSources: PreviewOrigin[];
 }
 export const TASK_SOURCE_PREFIX = "task_archive_";
 export function taskInputId(reference: Exclude<TaskInput, string>): string {
@@ -64,7 +66,12 @@ export class TaskHistory {
   private readonly retained = new Map<string, RetainedResult>();
   constructor(private readonly retain: (operator: string, info: OperatorInfo) => Promise<RetainedResult>) {}
 
-  async seal(task: number, operators: OperatorPredicate[], results: Map<string, OperatorInfo>): Promise<string[]> {
+  async seal(
+    task: number,
+    operators: OperatorPredicate[],
+    results: Map<string, OperatorInfo>,
+    links: readonly OperatorLink[] = []
+  ): Promise<string[]> {
     if (this.tasks.has(task)) throw new Error(`Task ${task} is already sealed`);
     const outputs = new Map<string, TaskOutput>();
     this.tasks.set(task, outputs);
@@ -75,6 +82,10 @@ export class TaskHistory {
       if (!info || !isSuccessfulOperatorResult(info) || !info.resultVersion?.id || !info.materialization?.executionId)
         continue;
       try {
+        const previewSources = previewDependencies(operator.operatorID, operators, this, links).map(origin => ({
+          ...origin,
+          atTask: origin.atTask ?? task,
+        }));
         const key = info.resultVersion.id;
         let artifact = this.retained.get(key);
         if (!artifact) {
@@ -83,7 +94,7 @@ export class TaskHistory {
             throw new Error("Retention did not confirm the complete output");
           this.retained.set(key, artifact);
         }
-        outputs.set(operator.operatorID, structuredClone({ operator, info, artifact }));
+        outputs.set(operator.operatorID, structuredClone({ operator, info, artifact, previewSources }));
       } catch (error) {
         errors.push(`${operator.operatorID} at task ${task}: ${error instanceof Error ? error.message : error}`);
       }

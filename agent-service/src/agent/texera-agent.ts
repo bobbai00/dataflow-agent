@@ -315,6 +315,7 @@ import { TaskHistory } from "./native/task-history";
 import { assembleTaskContext } from "./native/task-context";
 import { taskModePrompt } from "./native/task-prompt";
 import { resolveDirectReturn } from "./native/direct-return";
+import { assertFullDataReturn } from "./native/input-coverage";
 import { retainTaskResult } from "../api/task-results-api";
 
 export class TexeraAgent {
@@ -1911,7 +1912,12 @@ export class TexeraAgent {
     const results = new Map(
       [...this.snapshotStorage.getAssociatedSnapshot(this.head).results].map(([id, entry]) => [id, entry.info])
     );
-    const errors = await this.taskHistory.seal(task, this.workflowState.getAllOperators(), results);
+    const errors = await this.taskHistory.seal(
+      task,
+      this.workflowState.getAllOperators(),
+      results,
+      this.workflowState.getAllLinks()
+    );
     if (errors.length) this.log.warn({ errors }, "Some task outputs could not be retained");
   }
 
@@ -2073,6 +2079,12 @@ export class TexeraAgent {
                     batch.observationErrors.length
                   )
                     throw new Error("Direct return deferred: repair the batch errors first.");
+                  assertFullDataReturn(
+                    batch.return.operator,
+                    this.workflowState.getAllOperators(),
+                    this.taskHistory,
+                    this.workflowState.getAllLinks()
+                  );
                   directAnswer = resolveDirectReturn(
                     batch.return,
                     this.snapshotStorage.getOperatorResult(this.head, batch.return.operator)

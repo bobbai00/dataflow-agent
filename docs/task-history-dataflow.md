@@ -50,6 +50,15 @@ entire JSON document stored in one string cell, preserving its exact numeric tex
 Ordinary string cells are never silently decoded. Successful engine cache hits
 are eligible both for direct return and for historical retention.
 
+Direct return also follows the output's input graph and refuses outputs derived
+from `Scan.preview`, which is a raw discovery probe. An aggregate can contain all
+of its output rows while still using only five lines of its input file. Preview
+origins are retained with historical data, so changing today's scan cannot make
+an old partial output appear complete. Ordinary `Filter`/`Limit` operations remain
+valid analytical choices. This checks known discovery sources; it does not infer
+the user's intended cohort, inspect arbitrary Python file reads, or prevent an
+unverified prose answer. Preview observations remain available for inspection.
+
 Task context preserves prior user requests and answers. It does not replay prior
 tool actions/reasoning. Catalog cards include input references, a bounded
 definition preview, current schema/status, and available historical task ranges.
