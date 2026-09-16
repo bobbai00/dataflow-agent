@@ -27,7 +27,6 @@ import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { createInspectResultTool } from "./inspect-result-tool";
 
 function setup() {
   const state = new WorkflowState();
@@ -120,7 +119,7 @@ describe("native batch tools", () => {
     expect(state.getOperator("a")).toBeUndefined();
   });
 
-  test("agent batch mode exposes one mutation tool and inspection, and forces provider parallel calls off", () => {
+  test("agent batch mode exposes batch and delete only, and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
       agentId: "batch-test",
       modelType: "test",
@@ -129,7 +128,7 @@ describe("native batch tools", () => {
     });
     agent.updateSettings({ agentMode: AgentMode.NATIVE, nativeToolMode: "batch", parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectResult"]);
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator"]);
     expect(agent.getSettings().systemPrompt).toContain("operators");
     expect(agent.getSettings().systemPrompt).toContain("observe");
     expect(agent.getSettings().systemPrompt).not.toContain("parallel tool calls");
@@ -141,7 +140,7 @@ describe("native batch tools", () => {
 });
 
 describe("batch observation history", () => {
-  test("native DELTA inspection evidence stays in its event and keeps the old message prefix after later actions", async () => {
+  test("historical native DELTA inspection evidence keeps its saved event after later actions", async () => {
     const { execute, state } = setup();
     const steps: ReActStep[] = [];
     const storage = new WorkflowSnapshotStorage(id =>
@@ -182,9 +181,10 @@ describe("batch observation history", () => {
       columnStats: { value: "(str): null=0, distinct=90" },
     };
     storage.setOperatorResult("s1", "source", cached);
-    const inspect = createInspectResultTool({ getResult: () => cached, workflowState: state });
     const inspectArgs = { operatorId: "source", columns: ["value"], stats: true };
-    record("s2", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    // Imported old traces remain readable, but no executable result-inspection
+    // factory or registration exists in new sessions.
+    record("s2", "inspectResult", inspectArgs, "Saved inspection: first_pull_sample_marker; distinct=90");
     const before = render();
     const frame = before
       .filter(m => m.role === "tool")
@@ -200,7 +200,7 @@ describe("batch observation history", () => {
     cached = { ...cached, result: [{ value: "second_pull_sample_marker" }] };
     storage.setOperatorResult("s3", "source", cached);
     expect(render().slice(0, before.length)).toEqual(before);
-    record("s4", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    record("s4", "inspectResult", inspectArgs, "Saved inspection: second_pull_sample_marker; distinct=90");
     expect(render().slice(0, before.length)).toEqual(before);
     expect(JSON.stringify(render())).toContain("second_pull_sample_marker");
     expect(state.deleteOperator("source")).toBe(true);

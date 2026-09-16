@@ -66,7 +66,6 @@ const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
 // fold into a `# Dataflow (compacted)` stats deck. When the window is off the
 // deck never appears, so the section is omitted to avoid dead tokens.
 const COMPACTION_FRAGMENT: string = rd("compaction.delta.md");
-const INSPECT_FRAGMENT: string = rd("inspect.md");
 /** Multi-turn state recall: describes the `# Prior Turns` catalogue and the
  *  `recallState` pull tool. Selected only when the tool is enabled, so control
  *  arms keep a byte-identical prompt. */
@@ -572,7 +571,7 @@ const PROVENANCE_FRAGMENT =
 export function buildCodeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
   compactionEnabled = false,
-  inspectEnabled = false,
+  _legacyInspectEnabled = false,
   renderPrefsEnabled = false,
   codeInSnapshotEnabled = true,
   sourceProvenanceHint = false,
@@ -588,7 +587,6 @@ export function buildCodeModeSystemPrompt(
   // DELTA always shows code per event, so it is never code-blind.
   const noCode = key === "latest" && !codeInSnapshotEnabled;
   const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
-  const inspect = inspectEnabled ? `\n${INSPECT_FRAGMENT}\n` : "";
   // Versioned mode supersedes the recall fragment: recall.md describes the
   // `# Current Turn` / `# Dataflow` layout, which does not exist under the
   // versioned catalog. The recallState tool itself remains available either way.
@@ -630,7 +628,7 @@ export function buildCodeModeSystemPrompt(
     .replace("{{CONTEXT_FORMAT}}", contextFormat)
     .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
     .replace("{{COMPACTION}}", compaction)
-    .replace("{{INSPECT}}", inspect)
+    .replace("{{INSPECT}}", "")
     .replace("{{RECALL}}", recall + resume)
     .replace("{{RENDER_PREFS}}", renderPrefs)
     .replace("{{EXAMPLE}}", example)
@@ -679,7 +677,7 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
         : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
   const scope = delta
     ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the parameters/code echoed by an earlier failure."
-    : "Detailed successful tables follow the most recent batch's requested set; read-only inspections do not change that set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
+    : "Detailed successful tables follow the most recent batch's requested set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
@@ -731,23 +729,17 @@ An operator that only re-executed because something upstream changed shows one l
  */
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.LATEST,
-  inspectEnabled = false,
+  _legacyInspectEnabled = false,
   resultSelection: ResultSelection = "all",
   layoutOpts: NativePromptLayoutOptions = {}
 ): string {
   if (layoutOpts.batch) return buildNativeBatchSystemPrompt(contextMode, layoutOpts);
-  const inspectHint = inspectEnabled
-    ? "\nAny Count or Header operator's cached sample can be opened with `inspectResult` — read-only, no re-execution."
-    : "";
   const shapes =
     resultSelection === "rule"
-      ? NATIVE_SHAPES_RULE.replace("{{INSPECT_HINT}}", inspectHint)
+      ? NATIVE_SHAPES_RULE.replace("{{INSPECT_HINT}}", "")
       : resultSelection === "scoped"
-        ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", inspectHint)
+        ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", "")
         : NATIVE_SHAPES_ALL;
-  const inspectLine = inspectEnabled
-    ? "- `inspectResult({operatorId, maxRows?, columns?, stats?, where?})` — re-render an EXISTING operator's cached sample (more cached rows, full-table stats when collected, `where: distinct:<col> | nulls:<col> | nonnumeric:<col>`), without re-running anything. Row filters search only the cached sample, not the full table; no sample match does not establish absence from the full result. Recent inspections stay visible under `# Inspections`."
-    : "";
   const recallLine = layoutOpts.recall
     ? "\n- `recallState({turn})` — read-only: one earlier turn's request, answer and the operators it added or revised, with their parameters and result shapes (`includeOutputTableSample` chars of rows, `includeOutputTableColumnStats`). Use it when a value from an earlier turn decides this one; nothing is re-executed."
     : "";
@@ -762,7 +754,7 @@ export function buildNativeModeSystemPrompt(
       "{{RESULT_SHAPES}}",
       contextMode === ContextMode.DELTA ? shapes.replace("`Result: Output Table:", "`result: Output Table:") : shapes
     )
-    .replace("{{INSPECT_TOOL_LINE}}", inspectLine ? inspectLine + "\n" : "");
+    .replace("{{INSPECT_TOOL_LINE}}", "");
 }
 
 const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, verbatim.

@@ -192,9 +192,11 @@ When evidence is enabled, `Data measurement` describes collected column/table pr
 
 Evidence can be omitted by the budget or disabled by settings. No unobserved successful table/profile is dumped into a receipt. A downstream observation may include compact facts about its version-matched inputs. DELTA retains each event's evidence selection; LATEST uses current explicitly observed results. Compaction may shorten saved evidence but does not compute new facts.
 
-`inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a targeted cached-sample read. It does not change observe selection or execute the workflow. More maxRows cannot retrieve uncached rows. No sample match does not prove full-table absence. Request `stats:true` only for collected statistics; missing statistics do not imply zero nulls/duplicates. {{INSPECTION_LOCATION}}
+Use `dataflow({operators: [], observe: ["operator_id"]})` to retrieve an existing result without re-execution. `observe` is the only result-retrieval mechanism; it follows the configured result budget and evidence settings and cannot enable disabled evidence or fetch uncached rows. No matching sampled rows does not prove absence from the full table. For a focused view or full-table calculation, add a project, filter, distinct, or aggregate operator and explicitly observe its output.
 
 Errors include the operator revision, stage/code, affected field, and submitted function line when available. Fix argument/syntax/contract errors instead of repeating an unchanged operator. Import/worker/timeout failures are different from a bad predicate. A conversion made explicitly lossy is not permission to ignore its lost values. Runtime details are diagnostic evidence, never rows of the answer table.
+
+{{INSPECTION_LOCATION}}
 
 `deleteOperator({id})` removes an operator only when no consumer still reads it. Reuse live tables; remove obsolete probes after replacing their role. {{RECALL_TOOL}}
 

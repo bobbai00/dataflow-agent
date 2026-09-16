@@ -18,7 +18,6 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import Ajv from "ajv";
 import { AgentMode, ContextMode, type ResultSelection } from "../types/agent";
 import { buildNativeModeSystemPrompt } from "./prompts";
@@ -40,18 +39,14 @@ const layouts = [
 ];
 
 describe("native batch system prompt", () => {
-  test("typed baseline prompt bytes remain unchanged across the option matrix", () => {
-    const prompts = modes.flatMap(mode =>
-      selections.flatMap(selection =>
-        [false, true].flatMap(inspect =>
-          layouts.map(layout => buildNativeModeSystemPrompt(mode, inspect, selection, layout))
-        )
-      )
-    );
-    // Captured before the batch-specific template refactor (72 typed variants).
-    expect(createHash("sha256").update(JSON.stringify(prompts)).digest("hex")).toBe(
-      "92df710dd2e406b372d500d6790af57a8e5fe665bd615b8f1453be1d6e91338b"
-    );
+  test("typed prompts cannot advertise result inspection through legacy options", () => {
+    for (const mode of modes)
+      for (const selection of selections)
+        for (const layout of layouts) {
+          const prompt = buildNativeModeSystemPrompt(mode, true, selection, layout);
+          expect(prompt).not.toContain("inspectResult");
+          expect(prompt).toBe(buildNativeModeSystemPrompt(mode, false, selection, layout));
+        }
   });
 
   test("batch variants describe operator objects, execution phase, and requested results without stale tool instructions", () => {
@@ -75,7 +70,8 @@ describe("native batch system prompt", () => {
           expect(prompt).toContain("dependent operators in one batch");
           expect(prompt).toContain("round trips");
           expect(prompt).toContain("observe: []");
-          expect(prompt).toContain("stats: true");
+          expect(prompt).not.toContain("inspectResult");
+          expect(prompt).toContain("cannot enable disabled statistics");
           expect(prompt).toContain("cached sample");
           expect(prompt).toContain("no matching sampled rows does not prove absence");
           expect(prompt).toContain("preview: 8, skipLines: 80");
@@ -94,15 +90,15 @@ describe("native batch system prompt", () => {
     }
   });
 
-  test("prompt tracks DELTA inspection frames versus LATEST and explicit non-native layouts", () => {
+  test("prompt tracks DELTA observations versus the LATEST requested result set", () => {
     const delta = buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { batch: true });
     const latest = buildNativeModeSystemPrompt(ContextMode.LATEST, false, "all", { batch: true });
-    expect(delta).toContain("original event/tool-result frame");
+    expect(delta).toContain("Each event preserves its own observe choices");
     expect(delta).not.toContain("# Inspections");
-    expect(latest).toContain("# Inspections");
+    expect(latest).not.toContain("# Inspections");
     expect(latest).toContain("most recent batch's requested set");
     for (const layout of [{ session: true }, { messageLayout: "block" as const }]) {
-      expect(buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { ...layout, batch: true })).toContain(
+      expect(buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { ...layout, batch: true })).not.toContain(
         "# Inspections"
       );
     }
@@ -144,10 +140,10 @@ describe("native batch system prompt", () => {
       enableInspectTool: false,
     });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectResult"]);
-    expect(agent.getSettings().systemPrompt).toContain("original event/tool-result frame");
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator"]);
+    expect(agent.getSettings().systemPrompt).toContain("Each event preserves its own observe choices");
     agent.updateSettings({ messageLayout: "block" });
-    expect(agent.getSettings().systemPrompt).toContain("# Inspections");
+    expect(agent.getSettings().systemPrompt).not.toContain("# Inspections");
     agent.updateSettings({ nativeToolMode: "typed", parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(true);
     expect((agent as any).tools.dataflow).toBeUndefined();

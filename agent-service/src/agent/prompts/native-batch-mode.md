@@ -105,11 +105,9 @@ The unchanged `total -> totals -> share` chain is affected by the `recent` revis
 {"operators": [], "observe": ["recent", "amounts"]}
 ```
 
-`inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a separate explicit, read-only request for a targeted view of an existing cached result. It does not change the batch's `observe` selection. `columns` scopes rows, schema, and statistics; empty/omitted keeps all columns. `where` accepts `distinct:<col>`, `nulls:<col>`, or `nonnumeric:<col>`. Request `stats: true` only when collected full-output column statistics are useful; they can be retrieved even when automatic statistics are off. Statistics describe the full operator output, not the row-filtered sample.
+Use `dataflow({operators: [], observe: ["operator_id"]})` to retrieve an existing result without re-execution. `observe` is the only result-retrieval mechanism; it follows the configured result budget and evidence settings. It cannot enable disabled statistics or fetch uncached rows. A cached sample is not the full table: no matching sampled rows does not prove absence from the full table. For a focused view or full-table calculation, add a project, filter, distinct, or aggregate operator and explicitly observe its output.
 
-Inspection and observation show only the cached sample: increasing `maxRows` cannot fetch uncached rows, and no matching sampled rows does not prove absence from the full table. For a full-table filter, distinct operation, or aggregate, submit that operator through `dataflow`. {{INSPECTION_LOCATION}}
-
-`deleteOperator({id})` removes an operator only when nothing consumes it. Delete an obsolete preview only after its real loader is working and it has no consumers. Deletion does not erase prior observations. `inspectResult` creates no operator to delete.
+`deleteOperator({id})` removes an operator only when nothing consumes it. Delete an obsolete preview only after its real loader is working and it has no consumers. Deletion does not erase prior observations.
 {{RECALL_TOOL}}
 
 ## Read results in context

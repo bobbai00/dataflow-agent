@@ -20,8 +20,10 @@
 # Native batches and requested observations
 
 Create or update an agent with `agentMode: "native"` and
-`nativeToolMode: "batch"`. This exposes `dataflow`, `deleteOperator`, and
-`inspectResult`, and forces provider `parallelToolCalls: false`. The default
+`nativeToolMode: "batch"`. This exposes `dataflow` and `deleteOperator`, and
+forces provider `parallelToolCalls: false`. V2 also exposes `inspectError` for
+diagnostics only. The result-inspection tool is removed in every mode; the
+deprecated `enableInspectTool` setting is ignored and always reports false. The default
 `nativeToolMode: "typed"` retains the existing individual operator tools.
 
 The batch uses each catalog operator's existing typed parameters. `op` names
@@ -70,31 +72,27 @@ surfacing current compilation failures. A requested output bypasses rule/scoped
 table selection; ordinary sample budgets and the configured statistics switch
 still apply. Neither execution scope nor cached sample size changes.
 
-`inspectResult` is automatically available in batch mode. It can show more of
-the cached sample, choose columns, search sampled rows, or request collected
-statistics. It cannot fetch uncached rows or prove that a value absent from the
-sample is absent from the complete result. On-demand `stats: true` can reveal
-statistics even when automatic `columnStats` is false; pilot analyses should
-record those requests separately.
+`observe` is the sole result-retrieval mechanism in batch mode. Cached reads use
+the same budget and evidence settings as observations after an edit; they cannot
+request disabled statistics. They cannot fetch uncached rows or prove that a
+value absent from the sample is absent from the complete result. To focus on
+columns or evaluate a full-table predicate/count/distinct set, submit the
+corresponding operator through `dataflow` and observe its output.
 
-Column-specific inspection scopes the sample, schema, and column statistics
-to the requested columns (an empty or omitted list keeps all columns). Statistics
-describe the full operator output, not the filtered sample. In native DELTA
-message layout each inspection's saved output stays at its original event/tool
-frame, including after later operator revisions or deletion; there is no moving
-inspection tail. LATEST and non-native message layouts retain their existing
-inspection deck. Native DELTA error echoes likewise use the operator definition
-from the failing event, not its latest revision.
+Native DELTA error echoes use the definition from the failing event, not its
+latest revision. V2's `inspectError` retrieves revision-pinned diagnostics, not
+tables or statistics. Saved historical result-inspection traces remain readable,
+but no executable result-inspection tool or factory remains.
 
 Batch mode has a dedicated system-prompt template in
 `agent-service/src/agent/prompts/native-batch-mode.md`, with object signatures
 generated from the validation catalog. Its examples, execution/observation
-contract, and inspection placement follow the batch interface. Five examples
+contract, and observation placement follow the batch interface. Five examples
 cover a complete dependent chain, forward references and fan-in alongside an
 existing DAG, revision plus a new branch, receipt-only edits, and cached reads.
 The principles encourage batching known operations to reduce model round trips,
-while pausing for evidence at genuine data-dependent choices. The typed-mode
-prompt is unchanged; a 72-variant digest test guards its existing bytes.
+while pausing for evidence at genuine data-dependent choices. Typed and code
+prompts also omit the removed tool even when passed legacy inspection flags.
 
 ## Verification
 
@@ -104,7 +102,7 @@ From `agent-service/`:
 bun test src/agent/tools/native-batch-tools.test.ts src/server.test.ts
 bun test src/agent/tools/native-batch-scheduler.test.ts src/agent/tools/tool-call-scheduler.test.ts
 bun test src/agent/tools/native-batch-context.test.ts
-bun test src/agent/tools/inspect-result-tool.test.ts
+bun test src/agent/result-tool-removal.test.ts
 bun test src/agent/prompts-native-batch.test.ts
 bun run typecheck
 TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3008 bun run benchmark/e2e/native-batch-run.ts
@@ -113,7 +111,7 @@ TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3008 bun run benchmark/e2e/native
 The e2e smoke needs the backends and the separate agent service already
 running. It creates and removes its own workflow, agent, and computing unit;
 it makes no LLM calls. It checks heterogeneous batches, materialization of
-hidden outputs, reads without re-execution, sampled inspection, partial edit
+hidden outputs, reads without re-execution, removed-tool rejection, partial edit
 failure, and an unrequested runtime failure after a previous successful result.
 It also revises an upstream while adding a dependent chain through an existing
 aggregate, verifies fresh downstream values, and checks explicit result

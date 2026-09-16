@@ -19,6 +19,12 @@
 
 # C8: targeted evidence improvements and full-workload protocol
 
+**Superseded on 2026-09-16:** the user removed `inspectResult` from every
+configuration. The partially completed campaign below is exploratory only;
+its sources, traces, scores and costs are retained unchanged. No recovery or
+supplemental first attempts will run under its labels. See
+[C9: observe-only correction](native-python-dataflow-c9-observe-only.md).
+
 2026-09-15. Implementation checkpoint, **not a benchmark result**. The user
 authorized implementation and all 104 KramaBench tasks after reviewing C7.
 The 14 one-task pilot attempts and their report remain unchanged.
@@ -78,12 +84,21 @@ canaries, and DELTA/LATEST invalidation with immutable historical frames.
 Repair tests cover exact repeat gating, valid independent work, schema example
 validity, current versus historical inspection and agent/task reset boundaries.
 
-Before paid benchmark dispatch, run the complete Bun suite and typecheck,
-matching-engine native worker suites (both layouts), and real Terra-medium
-dependent-batch/observe/error-repair smoke tests. Freeze source/harness SHAs,
-live service/process identities, gateway routes, task/input bindings, settings
-and all gate artifacts in the campaign manifest. These gates are pending until
-their actual reports are recorded; this document does not certify them.
+The pre-dispatch gates passed on candidate source
+`791c535113b564f5c89914459276e9cd1160b6e9`:
+
+- Complete Bun suite: **1,149 tests passed**, followed by successful typecheck.
+- Matching-engine worker E2E: **20 cases across six suites**, covering both
+  DELTA and LATEST, richer operators, evidence, profiles, shapes and diagnostics.
+- Real **Terra-medium** smoke: dependent batches, cached observation, execution
+  failure and repair passed in both DELTA and LATEST (four turns per layout).
+
+Local gate index:
+`/tmp/native-c8-campaign.HILOqM/qualification/qualified.json`.
+The campaign manifest freezes source/harness SHAs, live service/process
+identities, gateway routes, task/input bindings, settings and gate artifacts.
+The unchanged candidate engine was already loaded; no master restart was
+performed for these agent-only changes.
 
 ## Registered comparison
 
@@ -113,6 +128,23 @@ DataOnly/FlowOnly/Combined compare exposure within that same V2 implementation.
 There is no fifth V2Control arm in this user-requested campaign, so marginal
 evidence benefit versus an otherwise-identical V2 no-evidence system cannot be
 isolated by these four arms alone.
+
+**Interpretation clarification found during the trace audit:** the data/flow
+settings above control automatic evidence in observed dataflow results, not
+all possible tool access. The common V2 `inspectResult(stats: true)` tool can
+explicitly retrieve collected data profiles even in FlowOnly; its existing
+implementation and tests deliberately allow this. Two early FlowOnly traces
+used that path. Thus the current campaign compares automatic-exposure policies
+with a common pull tool, **not a strict prohibition on data-statistics access**.
+Count these explicit requests and their actual later-input exposure separately.
+Do not describe FlowOnly as never seeing data evidence, or silently change this
+capability in the middle of an arm. A strict capability ablation requires new
+configuration/run labels and consistently gated tools.
+The historical V1 batching baseline also permits explicitly requested legacy
+column statistics: one early Luna baseline trace requested and received them.
+Accordingly, its "no stats" shorthand means **no automatic statistics**, not
+absence of an on-demand statistics capability. This is a limitation of the
+initial arm labels, not an unrecorded implementation change.
 
 ## Data and result integrity
 
@@ -146,3 +178,78 @@ Post-run diagnosis should stratify tasks/domains, parse/schema/repair errors,
 wrong population/grain, missing-data failures, step/timeout limits, redundant
 observations and missing useful evidence in **later actual model inputs**.
 No improvement claim is made until the new full-workload results exist.
+
+## Run checkpoint and administrative amendment
+
+The eight native full-workload drivers were launched on 2026-09-15, with at
+most eight task processes in total. Local supervisor/artifact index:
+`/tmp/native-c8-campaign.HILOqM/`. Native task artifacts are under
+`benchmark/Kramabench/system_scratch/DataflowSystem{Luna|Terra}NativeCampaign{BatchParent|DataOnly|FlowOnly|Combined}20260915Rep1/`.
+
+After **102 completed model attempts**, an over-strict harness provenance
+guard rejected admissions because official scoring legitimately writes
+`benchmark/fixtures/paraphrase_cache.json`. No frozen agent, engine, setting,
+task or input-file change was found. Harness commit
+`be3371f3b7781d75eb475b756e914622c4904008` excludes only that exact mutable
+cache from the source-dirty check. All other benchmark files remain guarded;
+**21 harness regression tests passed**. The original manifest, cache diff,
+rehash verification and amendment audit are preserved under `amendment-1/`.
+
+All 102 dispatched attempts, answers, costs and original qualification fields
+are retained. Six completed attempts have a failed postflight check; the
+cache-only explanation is an audited inference, not a rewritten historical
+qualification. **87 zero-model-dispatch preflight rejections** were moved
+recoverably to each SUT's `_preflight_rejections/<task>/cache-guard-before-first-model/`,
+with file hashes and exact move mappings. They are administrative admissions,
+not hidden model retries. The remaining **730 first-pass tasks** resumed via
+native `kb tasks`; completed tasks were not replaced. Both common recovery
+rounds remain scheduled after first-pass completion.
+
+Some completed tasks retain pending cleanup because old superseded execution
+records still say RUNNING despite the current agent being idle and the latest
+execution being completed. Their ownership journals are retained; no forced
+deletion, status edit or shared-master restart is used to conceal this. The
+final report must count pending cleanup separately from answer completion.
+
+A second administrative issue was detected when the first native drivers
+finished: the shared dataset loader reads both a domain's canonical workload
+and its `-tiny` fixture. `legal-tiny.json` overwrites `legal-hard-1` metadata,
+so strict campaign validation rejects the canonical task before reserving an
+attempt or allocating an agent. The native driver still returns exit zero
+after reporting a failed child; exit status alone is therefore not a coverage
+check. All canonical slots must be checked against the original 104-task list.
+
+The campaign coordinator is temporarily stopped at the first-pass barrier;
+its native child drivers continue unchanged. A campaign-only canonical loader
+fix is tested in a separate workspace (`0132f4898f80bc7656facdc799fc9d4ea9f9b8d1`,
+69 harness tests). Applying it is deferred until those children and model
+attempts finish. The planned second amendment preserves all existing attempts,
+logs and the old manifest, rehashes frozen bindings, and allows only the
+never-dispatched missing task as a supplemental **first** attempt in each arm.
+Questions, oracle-file policy, format hints, agent/engine source and model
+settings remain unchanged. The two recovery rounds must not begin until that
+canonical first-pass coverage check succeeds.
+
+## Interim diagnostic notes, not post-hoc changes
+
+Audits are saved under the local campaign index's `audits/` directory. The
+154-completed-run usage audit checks actual later model inputs, not just tool
+receipts. It identifies explicit statistics retrieval in automatic-data-off
+arms and substantial use of opaque source UDFs; these limit how broadly one
+can attribute outcomes to the new automatic flow summaries.
+
+Matched trace comparisons identify raw-preview wrapper statistics competing
+with useful source lines, a large cell suppressing other values in the same
+row, callback/operator-contract repair costs, and task questions that omit
+reference-only calculation choices. Keep those distinct from one another and
+from infrastructure failures. Official scores and input questions are not
+rewritten to resolve these issues.
+
+The `environment-easy-2` performance audit identifies repeated four-to-five
+minute execution timeouts on large intermediate-table paths. A reducing source
+UDF returns a small result quickly, whereas an input-consuming UDF still pays
+the materialization cost. The result-rendering character budget does not bound
+worker or collector work. Attribution among computation, serialization,
+transport, collection and scheduling requires separate measurements; an
+end-to-end step interval alone cannot identify the dominant component. These
+are next-experiment hypotheses, not changes to the frozen campaign.

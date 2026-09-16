@@ -153,12 +153,17 @@ try {
       columnStats: false,
       flowLevel: 0,
       dataLevel: 0,
+      enableInspectTool: true, // Legacy clients must not resurrect the removed tool.
     },
   });
   agentId = agent.id;
   const settings = (await fetch(`${baseUrl}/api/agents/${agentId}/settings`).then(r => r.json())) as any;
   assert.equal(settings.nativeToolMode, "batch");
   assert.equal(settings.parallelToolCalls, false);
+  assert.equal(settings.enableInspectTool, false);
+  const systemInfo = (await fetch(`${baseUrl}/api/agents/${agentId}/system-info`).then(r => r.json())) as any;
+  assert.deepEqual(systemInfo.tools.map((tool: any) => tool.name).sort(), ["dataflow", "deleteOperator"]);
+  assert.ok(!systemInfo.systemPrompt.includes("inspectResult"));
   const first = await debug("dataflow", {
     operators: [
       { op: "aggregate", id: "total", input: "positive", aggregations: [{ fn: "sum", col: "x", as: "sum_x" }] },
@@ -189,8 +194,19 @@ try {
     (snap1.results.source as any).sampleRecords,
     "observation-only call reran source"
   );
-  const inspection = await debug("inspectResult", { operatorId: "positive", maxRows: 2 });
-  assert.match(inspection.context, /cached sample only/);
+  const patched = await fetch(`${baseUrl}/api/agents/${agentId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enableInspectTool: true }),
+  });
+  assert.ok(patched.ok);
+  const inspection = await debug("inspectResult", { operatorId: "positive", stats: true }).catch(error => ({
+    context: String(error),
+  }));
+  assert.match(inspection.context, /Tool .*inspectResult.* not found/);
+  const afterRejected = await getSnapshot(agentId, "head", baseUrl);
+  assert.deepEqual(afterRejected.workflow, snap2.workflow, "removed tool changed the DAG");
+  assert.deepEqual(afterRejected.results, snap2.results, "removed tool changed cached results");
   // Revise an upstream and add a forward-referenced chain through its existing
   // descendant in the same call. No observe means all successful bodies hide.
   const revision = await debug("dataflow", {
@@ -209,8 +225,8 @@ try {
   // LATEST still includes the current DAG, but no successful table bodies.
   const latestHidden = renderMirroredContext(ContextMode.LATEST);
   for (const id of ["source", "positive", "total", "tagged_total", "answer"]) assert.ok(latestHidden.includes(id));
-  // Previously requested inspections intentionally retain their saved content
-  // in a separate deck; only the current dataflow follows the latest observe.
+  // The rejected legacy request has no result content. Only the current
+  // dataflow follows the latest observe selection.
   const currentDataflow = latestHidden.split("# Inspections")[0];
   assert.ok(!currentDataflow.includes("Output Table:"), "LATEST exposed a result without observe");
   const revisedSnapshot = await getSnapshot(agentId, "head", baseUrl);

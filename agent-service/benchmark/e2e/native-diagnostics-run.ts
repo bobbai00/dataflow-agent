@@ -141,6 +141,7 @@ for (const contextMode of ["delta", "latest"] as const) {
       assert.equal(denied.status, 401);
     }
     const pulled = await session.debug({ operatorId: "answer" }, "inspectError");
+    assert.doesNotMatch(pulled.serviceContext, /inspectResult/);
     assert.deepEqual(pulled.snapshot.results, failed.snapshot.results, "inspection changed cached results");
     assert.equal(pulled.snapshot.workflowSourceStepId, failed.step.id, "inspection must not own a workflow snapshot");
 

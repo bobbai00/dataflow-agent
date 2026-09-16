@@ -2481,7 +2481,9 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
   }
   if (pulls.length === 0) return undefined;
 
-  const names = pulls.some(pull => pull.toolName === "inspectError") ? "inspectResult / inspectError" : "inspectResult";
+  // Preserve historical inspection traces without advertising removed tools in
+  // fresh error-only sessions.
+  const names = [...new Set(pulls.map(pull => pull.toolName))].sort().join(" / ");
   const lines: string[] = [`# Inspections (your on-demand ${names} pulls)`, ""];
   const omitted = Math.max(0, pulls.length - INSPECTIONS_KEEP_LAST);
   if (omitted > 0) {

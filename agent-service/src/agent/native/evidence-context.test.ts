@@ -27,7 +27,6 @@ import { WorkflowState } from "../workflow-state";
 import { TexeraAgent } from "../texera-agent";
 import { createNativeBatchTools } from "../tools/native-batch-tools";
 import { formatOperatorResult } from "../tools/result-formatting";
-import { createInspectResultTool } from "../tools/inspect-result-tool";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
@@ -360,25 +359,38 @@ test("production post-step hook records cached observations without running the 
   }
 });
 
-test("V2 explicit inspection reads pinned structured profiles within the same budget", async () => {
-  const f = fixture();
-  await f.record("A", [source], []);
-  f.persist("A", { source: [1, 2, 3] });
-  const tool = createInspectResultTool({
-    workflowState: f.state,
-    getResult: id => f.storage.getOperatorResult("A", id),
-    maxResultChars: () => 800,
-  });
-  const output = await (tool as any).execute({ operatorId: "source", stats: true, columns: ["x"], where: "nulls:x" });
-  expect(output).toContain("Data measurement");
-  expect(output).toContain("full=3 rows");
-  expect(output).toContain("0 matching");
-  expect(output.length).toBeLessThanOrEqual(800);
-  expect(output).not.toContain("Flow measurement");
-  expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toBeUndefined();
-  const absent = await (tool as any).execute({ operatorId: "source", columns: ["missing"] });
-  expect(absent).toContain("[ERROR]");
-});
+for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+  for (const data of [false, true]) {
+    for (const flow of [false, true]) {
+      test(`cached observe respects ${mode} data=${data} flow=${flow} and the shared budget`, async () => {
+        const f = fixture();
+        await f.record("A", [filter, source], []);
+        f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
+        f.capture("A", [], data, flow, 2000);
+        await f.record("B", [], ["selected"]);
+        f.capture("B", ["selected"], data, flow, 2000);
+        const output = f.storage.getAssociatedSnapshot("B").nativeObservations!.selected.text;
+        expect(output.includes("Data measurement")).toBe(data);
+        expect(output.includes("Flow measurement")).toBe(flow);
+        expect(output.length).toBeLessThanOrEqual(2000);
+        const rendered = JSON.stringify(
+          assembleContext(f.steps, f.state, f.storage, mode, {
+            agentMode: AgentMode.NATIVE,
+            dataLevel: data ? 1 : 0,
+            flowLevel: flow ? 1 : 0,
+            columnStats: false,
+            maxOperatorResultCharLimit: 2000,
+          })
+        );
+        expect(rendered.includes("Data measurement")).toBe(data);
+        expect(rendered.includes("Flow measurement")).toBe(flow);
+        expect(rendered).not.toContain("Column Schema and stats");
+        expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
+        expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});
+      });
+    }
+  }
+}
 
 for (const scenario of ["settings", "checkout", "abort"] as const) {
   test(`post-step evidence capture preserves ownership across ${scenario}`, async () => {
