@@ -35,7 +35,6 @@ def install_responses_transport(model, cache_key=None):
             items.append({'role': role, 'content': [{'type': 'output_text' if role == 'assistant' else 'input_text',
                 'text': part['text']} for part in content]})
         body = dict(model=kwargs.pop('model'), input=items, store=False)
-        if cache_key: body['prompt_cache_key'] = cache_key
         if 'reasoning_effort' in kwargs: body['reasoning'] = {'effort': kwargs.pop('reasoning_effort')}
         for key in ['max_tokens', 'max_completion_tokens']:
             if key in kwargs: body['max_output_tokens'] = kwargs.pop(key)
@@ -44,6 +43,7 @@ def install_responses_transport(model, cache_key=None):
         # Python SDK extra_body merges at the HTTP root. The nested extra_body
         # is for LiteLLM's forwarding of this newer provider parameter.
         body['extra_body'] = {'extra_body': {'prompt_cache_options': {'mode': 'implicit', 'ttl': '30m'}}}
+        if cache_key: body['extra_body']['prompt_cache_key'] = cache_key
         response = model.client.responses.create(**body)
         usage = response.usage
         return N(choices=[N(message=N(role='assistant', content=response.output_text, tool_calls=None))],

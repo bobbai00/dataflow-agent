@@ -24,13 +24,15 @@ class TransportTest(unittest.TestCase):
             return N(id="response", output_text="print(7)", usage=N(input_tokens=2000,output_tokens=8,
                 input_tokens_details=N(cached_tokens=1000,cache_write_tokens=800),output_tokens_details=N(reasoning_tokens=2)))
         model=N(client=N(responses=N(create=respond),chat=N(completions=N(create=None))))
-        install_responses_transport(model)
+        install_responses_transport(model, "session-key")
         result=model.client.chat.completions.create(model="gpt-5.6-luna",messages=[
             {"role":"system","content":"rules"},{"role":"user","content":[{"type":"text","text":"question"}]},
             {"role":"assistant","content":"answer"}],reasoning_effort="medium")
         self.assertEqual([m['role'] for m in requests[0]['input']],['developer','user','assistant'])
         self.assertEqual(requests[0]['input'][2]['content'],[{'type':'output_text','text':'answer'}])
         self.assertEqual(requests[0]['reasoning'],{'effort':'medium'})
+        self.assertNotIn('prompt_cache_key',requests[0])
+        self.assertEqual(requests[0]['extra_body']['prompt_cache_key'],'session-key')
         self.assertEqual(result.usage.prompt_tokens_details.cache_creation_tokens,800)
         self.assertEqual(result.choices[0].message.content,'print(7)')
 

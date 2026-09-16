@@ -45,7 +45,8 @@ wrapper = CodeAgentWrapper(model_type='gpt-5.6-luna', max_steps=25,
     api_base=os.getenv('CODE_AGENT_API_BASE', 'http://localhost:4000'),
     api_key=os.getenv('LITELLM_MASTER_KEY', 'dummy')).setup()
 cache_key = 'code-' + uuid.uuid4().hex
-write('config.json', dict(arm='code', transport=args.transport, cache_key=cache_key, model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
+write('config.json', dict(arm='code', transport=args.transport, cache_key=cache_key,
+     transport_sha256=hashlib.sha256(Path(__file__).with_name('code_responses_transport.py').read_bytes()).hexdigest(), model='gpt-5.6-luna', max_steps=25, stdout_chars=2000,
      custom_prompt=False, fine_grained_prompt=False, pitfalls_prompt=False, session=spec, wrapper=str(args.kb_root / 'code_agent.py'),
      wrapper_sha256=hashlib.sha256((args.kb_root / 'code_agent.py').read_bytes()).hexdigest(),
      python=sys.version, cost_rates_usd_per_million=dict(input=.2, cached_input=.02, cache_write=.25, output=1.2)))
