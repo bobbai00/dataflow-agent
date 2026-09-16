@@ -28,6 +28,12 @@ engine/storage cost. Usage missing after a timeout is not counted as free work;
 the affected Dataflow cost is a lower bound. Primary failures stay in these
 numbers; fresh recovery sessions are reported separately below.
 
+A subsequent [prompt-cache investigation](TASK_CACHE_REPORT.md) verified a
+request-format fix in controlled replays. It also exposed cache-write usage
+through the Responses API that the old Chat Completions path did not report.
+The original estimates above omit that write premium and have not been
+retroactively replaced with inferred counts.
+
 ## What was built
 
 The public state reference is an existing operator plus an optional task:

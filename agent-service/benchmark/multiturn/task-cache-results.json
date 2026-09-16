@@ -1,0 +1,224 @@
+{
+  "kind": "recorded-context cache probe; tools disabled, answer OK",
+  "service_revision": "f6d70360a",
+  "model": "gpt-5.6-luna",
+  "raw_prefix": "cost-diagnosis/longds-cache-forwarded",
+  "rates_usd_per_million": {
+    "uncached_input": 0.2,
+    "cached_input": 0.02,
+    "cache_write": 0.25,
+    "output": 1.2
+  },
+  "template_note": "Shared frozen system prompt and dataflow tool schema; auxiliary production tools omitted identically in all probe arms. Not a full agent benchmark.",
+  "requests": [
+    {
+      "label": "r1-implicit-task14",
+      "task": 14,
+      "mode": "implicit",
+      "repeat": 1,
+      "input": 10805,
+      "cached": 0,
+      "written": 10730,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.557637975027319,
+      "input_cost_usd": 0.0026975,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r1-implicit-task15",
+      "task": 15,
+      "mode": "implicit",
+      "repeat": 1,
+      "input": 11312,
+      "cached": 3929,
+      "written": 7308,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.5714920589816757,
+      "input_cost_usd": 0.0019205799999999999,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r1-marked_implicit-task14",
+      "task": 14,
+      "mode": "marked_implicit",
+      "repeat": 1,
+      "input": 10805,
+      "cached": 0,
+      "written": 10730,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.8929474169854075,
+      "input_cost_usd": 0.0026975,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r1-marked_implicit-task15",
+      "task": 15,
+      "mode": "marked_implicit",
+      "repeat": 1,
+      "input": 11312,
+      "cached": 7626,
+      "written": 3611,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 2.2169259780202992,
+      "input_cost_usd": 0.00107027,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r1-explicit_only-task14",
+      "task": 14,
+      "mode": "explicit_only",
+      "repeat": 1,
+      "input": 10805,
+      "cached": 0,
+      "written": 7626,
+      "uncached": 3179,
+      "output": 5,
+      "seconds": 1.6196606670273468,
+      "input_cost_usd": 0.0025423000000000004,
+      "effective_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r1-explicit_only-task15",
+      "task": 15,
+      "mode": "explicit_only",
+      "repeat": 1,
+      "input": 11312,
+      "cached": 7626,
+      "written": 544,
+      "uncached": 3142,
+      "output": 5,
+      "seconds": 1.5577530629816465,
+      "input_cost_usd": 0.0009169200000000001,
+      "effective_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-explicit_only-task14",
+      "task": 14,
+      "mode": "explicit_only",
+      "repeat": 2,
+      "input": 10805,
+      "cached": 0,
+      "written": 7626,
+      "uncached": 3179,
+      "output": 5,
+      "seconds": 1.5118392260046676,
+      "input_cost_usd": 0.0025423000000000004,
+      "effective_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-explicit_only-task15",
+      "task": 15,
+      "mode": "explicit_only",
+      "repeat": 2,
+      "input": 11312,
+      "cached": 7626,
+      "written": 544,
+      "uncached": 3142,
+      "output": 5,
+      "seconds": 1.6585479769855738,
+      "input_cost_usd": 0.0009169200000000001,
+      "effective_cache_options": {
+        "mode": "explicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-marked_implicit-task14",
+      "task": 14,
+      "mode": "marked_implicit",
+      "repeat": 2,
+      "input": 10805,
+      "cached": 0,
+      "written": 10730,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.409745448967442,
+      "input_cost_usd": 0.0026975,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-marked_implicit-task15",
+      "task": 15,
+      "mode": "marked_implicit",
+      "repeat": 2,
+      "input": 11312,
+      "cached": 7626,
+      "written": 3611,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.518445444991812,
+      "input_cost_usd": 0.00107027,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-implicit-task14",
+      "task": 14,
+      "mode": "implicit",
+      "repeat": 2,
+      "input": 10805,
+      "cached": 0,
+      "written": 10730,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.5534251630306244,
+      "input_cost_usd": 0.0026975,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    },
+    {
+      "label": "r2-implicit-task15",
+      "task": 15,
+      "mode": "implicit",
+      "repeat": 2,
+      "input": 11312,
+      "cached": 3929,
+      "written": 7308,
+      "uncached": 75,
+      "output": 5,
+      "seconds": 1.3635364680085331,
+      "input_cost_usd": 0.0019205799999999999,
+      "effective_cache_options": {
+        "mode": "implicit",
+        "ttl": "30m"
+      }
+    }
+  ],
+  "raw_archive": {
+    "path": "benchmark/longds/system_scratch/TaskHistoryMilestone/cache-diagnosis.tar.gz",
+    "bytes": 584167,
+    "sha256": "262e5538d565bcd336257f2da9872b9f4a24ce05cb3695ea080fef5175a8a50b"
+  }
+}
