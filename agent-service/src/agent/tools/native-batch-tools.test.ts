@@ -27,7 +27,6 @@ import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { createInspectResultTool } from "./inspect-result-tool";
 
 function setup() {
   const state = new WorkflowState();
@@ -50,6 +49,7 @@ describe("native batch tools", () => {
     ).toBe(true);
     expect(validate({ operators: [{ ...filter, unsupported: true }] })).toBe(false);
     expect(validate({ operators: [{ op: "filter", id: "x", input: "source" }] })).toBe(false);
+    expect(validate({ operators: [], observe: ["source"], stats: true })).toBe(false);
   });
 
   test("one heterogeneous batch orders forward references without implicitly observing any output", async () => {
@@ -120,7 +120,7 @@ describe("native batch tools", () => {
     expect(state.getOperator("a")).toBeUndefined();
   });
 
-  test("agent batch mode exposes one mutation tool and inspection, and forces provider parallel calls off", () => {
+  test("agent batch mode exposes only dataflow and deletion, and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
       agentId: "batch-test",
       modelType: "test",
@@ -129,7 +129,7 @@ describe("native batch tools", () => {
     });
     agent.updateSettings({ agentMode: AgentMode.NATIVE, nativeToolMode: "batch", parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectResult"]);
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator"]);
     expect(agent.getSettings().systemPrompt).toContain("operators");
     expect(agent.getSettings().systemPrompt).toContain("observe");
     expect(agent.getSettings().systemPrompt).not.toContain("parallel tool calls");
@@ -141,7 +141,7 @@ describe("native batch tools", () => {
 });
 
 describe("batch observation history", () => {
-  test("native DELTA inspection evidence stays in its event and keeps the old message prefix after later actions", async () => {
+  test("historical DELTA inspection evidence stays readable without an executable inspection tool", async () => {
     const { execute, state } = setup();
     const steps: ReActStep[] = [];
     const storage = new WorkflowSnapshotStorage(id =>
@@ -182,9 +182,12 @@ describe("batch observation history", () => {
       columnStats: { value: "(str): null=0, distinct=90" },
     };
     storage.setOperatorResult("s1", "source", cached);
-    const inspect = createInspectResultTool({ getResult: () => cached, workflowState: state });
+    // Saved outputs from historical traces remain readable; no live tool or
+    // factory is needed to render their immutable evidence.
+    const savedInspection = (marker: string) =>
+      `Inspection of \`source\` (cached sample only)\nOutput Table: 100 rows, 1 cols\nvalue\n${marker}\nColumn Schema and stats: value (str): null=0, distinct=90`;
     const inspectArgs = { operatorId: "source", columns: ["value"], stats: true };
-    record("s2", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    record("s2", "inspectResult", inspectArgs, savedInspection("first_pull_sample_marker"));
     const before = render();
     const frame = before
       .filter(m => m.role === "tool")
@@ -200,7 +203,7 @@ describe("batch observation history", () => {
     cached = { ...cached, result: [{ value: "second_pull_sample_marker" }] };
     storage.setOperatorResult("s3", "source", cached);
     expect(render().slice(0, before.length)).toEqual(before);
-    record("s4", "inspectResult", inspectArgs, await (inspect as any).execute(inspectArgs));
+    record("s4", "inspectResult", inspectArgs, savedInspection("second_pull_sample_marker"));
     expect(render().slice(0, before.length)).toEqual(before);
     expect(JSON.stringify(render())).toContain("second_pull_sample_marker");
     expect(state.deleteOperator("source")).toBe(true);
@@ -310,9 +313,10 @@ describe("batch observation history", () => {
       ({
         operatorID: id,
         state: error ? "Failed" : "Completed",
-        totalRowCount: 1,
-        outputTuples: 1,
+        totalRowCount: 100,
+        outputTuples: 100,
         result: [{ value }],
+        columnStats: { value: "(str): null=0, distinct=87" },
         error,
       }) as unknown as OperatorInfo;
     const add = async (id: string, args: Record<string, unknown>, results: Record<string, OperatorInfo>) => {
@@ -360,6 +364,21 @@ describe("batch observation history", () => {
       "total",
     ]);
     expect(first.observe).toEqual(["total"]);
+    const cachedRead = await add("cached", { operators: [], observe: ["source"] }, {});
+    expect(cachedRead.operators).toEqual([]);
+    expect(cachedRead.observe).toEqual(["source"]);
+    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+      for (const columnStats of [false, true]) {
+        const shown = JSON.stringify(assembleContext(steps, state, storage, mode, {
+          agentMode: AgentMode.NATIVE,
+          resultSelection: "all",
+          columnStats,
+          dataLevel: 2,
+        }));
+        expect(shown).toContain("hidden_source");
+        expect(shown.includes("distinct=87")).toBe(columnStats);
+      }
+    }
     await add(
       "s2",
       { operators: [{ op: "scan", id: "bad", files: "bad.csv" }], observe: ["source"] },

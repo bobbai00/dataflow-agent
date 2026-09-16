@@ -332,10 +332,8 @@ export interface AgentSettings {
    */
   learnedConfig?: LearnedConfig;
   /**
-   * Expose the read-only `inspectResult` PULL tool to the model (Direction B).
-   * Lets the agent re-inspect an existing operator's cached result at more
-   * detail on demand instead of re-loading. Off by default. Every call is also
-   * a supervised label for training the push selector (pull-to-push).
+   * @deprecated Compatibility-only wire field, always normalized to false.
+   * The result-inspection tool has been removed from every agent mode.
    */
   enableInspectTool: boolean;
   /**
@@ -777,7 +775,7 @@ export interface AgentSettingsApi {
   rolePolicyConfig?: RolePolicyConfig;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
-  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  /** @deprecated Accepted for compatibility but always normalized to false. */
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
@@ -880,7 +878,7 @@ export interface UpdateAgentSettingsRequest {
   rolePolicyConfig?: RolePolicyConfig | null;
   /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
   learnedConfig?: LearnedConfig;
-  /** Expose the read-only inspectResult pull tool (see AgentSettings.enableInspectTool). */
+  /** @deprecated Accepted for compatibility but always normalized to false. */
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;

@@ -134,12 +134,18 @@ An agent created with no `settings` runs the campaign-measured configuration
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 | layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
-Everything else (recall / inspect / resume / compaction / telemetry knobs) is
+Everything else (recall / resume / compaction / telemetry knobs) is
 off by default. Two renders are **conditional by design**, so their absence in
 a small run is not a bug: column stats are suppressed when the complete table
 is already visible in the context, and the structural profile only appears when
 the worker finds an actual signal (duplicate rows, all-null rows/columns, an
 unresolved header).
+
+`inspectResult` is removed in every mode. The deprecated `enableInspectTool`
+wire setting is accepted for compatibility but always normalized to `false`.
+Native batch mode retrieves cached results with `dataflow({operators: [],
+observe: ["id"]})`, under the configured visibility and statistics settings.
+Historical inspection outputs remain readable in saved traces.
 
 Key endpoints (all under `/api/agents`):
 

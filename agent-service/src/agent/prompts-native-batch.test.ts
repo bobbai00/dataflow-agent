@@ -40,17 +40,15 @@ const layouts = [
 ];
 
 describe("native batch system prompt", () => {
-  test("typed baseline prompt bytes remain unchanged across the option matrix", () => {
+  test("typed baseline prompt bytes remain unchanged with inspection disabled", () => {
     const prompts = modes.flatMap(mode =>
       selections.flatMap(selection =>
-        [false, true].flatMap(inspect =>
-          layouts.map(layout => buildNativeModeSystemPrompt(mode, inspect, selection, layout))
-        )
+        layouts.map(layout => buildNativeModeSystemPrompt(mode, false, selection, layout))
       )
     );
-    // Captured before the batch-specific template refactor (72 typed variants).
+    // Captured from baseline 41cd8ae before removal (36 inspection-off variants).
     expect(createHash("sha256").update(JSON.stringify(prompts)).digest("hex")).toBe(
-      "92df710dd2e406b372d500d6790af57a8e5fe665bd615b8f1453be1d6e91338b"
+      "0e5ca425fc87c773b0fc7851b82d725d2786d26f90fe655b184fd1a59045bc1d"
     );
   });
 
@@ -75,7 +73,9 @@ describe("native batch system prompt", () => {
           expect(prompt).toContain("dependent operators in one batch");
           expect(prompt).toContain("round trips");
           expect(prompt).toContain("observe: []");
-          expect(prompt).toContain("stats: true");
+          expect(prompt).not.toContain("inspectResult");
+          expect(prompt).not.toContain("stats: true");
+          expect(prompt).toContain("cannot request hidden statistics");
           expect(prompt).toContain("cached sample");
           expect(prompt).toContain("no matching sampled rows does not prove absence");
           expect(prompt.includes("recallState")).toBe(layout.recall === true);
@@ -91,15 +91,15 @@ describe("native batch system prompt", () => {
     }
   });
 
-  test("prompt tracks DELTA inspection frames versus LATEST and explicit non-native layouts", () => {
+  test("prompt tracks cached observations across DELTA, LATEST and explicit layouts", () => {
     const delta = buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { batch: true });
     const latest = buildNativeModeSystemPrompt(ContextMode.LATEST, false, "all", { batch: true });
-    expect(delta).toContain("original event/tool-result frame");
+    expect(delta).toContain("Each event preserves its own observe choices");
     expect(delta).not.toContain("# Inspections");
-    expect(latest).toContain("# Inspections");
+    expect(latest).not.toContain("# Inspections");
     expect(latest).toContain("most recent batch's requested set");
     for (const layout of [{ session: true }, { messageLayout: "block" as const }]) {
-      expect(buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { ...layout, batch: true })).toContain(
+      expect(buildNativeModeSystemPrompt(ContextMode.DELTA, false, "all", { ...layout, batch: true })).not.toContain(
         "# Inspections"
       );
     }
@@ -141,10 +141,11 @@ describe("native batch system prompt", () => {
       enableInspectTool: false,
     });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectResult"]);
-    expect(agent.getSettings().systemPrompt).toContain("original event/tool-result frame");
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator"]);
+    expect(agent.getSettings().systemPrompt).toContain("native tool-call transcript");
     agent.updateSettings({ messageLayout: "block" });
-    expect(agent.getSettings().systemPrompt).toContain("# Inspections");
+    expect(agent.getSettings().systemPrompt).toContain("# Agent Events");
+    expect(agent.getSettings().systemPrompt).not.toContain("# Inspections");
     agent.updateSettings({ nativeToolMode: "typed", parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(true);
     expect((agent as any).tools.dataflow).toBeUndefined();

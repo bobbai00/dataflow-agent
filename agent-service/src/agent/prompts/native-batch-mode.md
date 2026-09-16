@@ -105,11 +105,9 @@ The unchanged `total -> totals -> share` chain is affected by the `recent` revis
 {"operators": [], "observe": ["recent", "amounts"]}
 ```
 
-`inspectResult({operatorId, maxRows?, columns?, stats?, where?})` is a separate explicit, read-only request for a targeted view of an existing cached result. It does not change the batch's `observe` selection. `columns` scopes rows, schema, and statistics; empty/omitted keeps all columns. `where` accepts `distinct:<col>`, `nulls:<col>`, or `nonnumeric:<col>`. Request `stats: true` only when collected full-output column statistics are useful; they can be retrieved even when automatic statistics are off. Statistics describe the full operator output, not the row-filtered sample.
+Cached `observe` is the only way to retrieve existing result content without editing or executing operators. It follows the configured result visibility settings; it cannot request hidden statistics. Observations show only the cached sample: no matching sampled rows does not prove absence from the full table. For a full-table filter, distinct operation, or aggregate, submit that operator through `dataflow`.
 
-Inspection and observation show only the cached sample: increasing `maxRows` cannot fetch uncached rows, and no matching sampled rows does not prove absence from the full table. For a full-table filter, distinct operation, or aggregate, submit that operator through `dataflow`. {{INSPECTION_LOCATION}}
-
-`deleteOperator({id})` removes an operator only when nothing consumes it. Delete an obsolete preview only after its real loader is working and it has no consumers. Deletion does not erase prior observations. `inspectResult` creates no operator to delete.
+`deleteOperator({id})` removes an operator only when nothing consumes it. Delete an obsolete preview only after its real loader is working and it has no consumers. Deletion does not erase prior observations.
 {{RECALL_TOOL}}
 
 ## Read results in context

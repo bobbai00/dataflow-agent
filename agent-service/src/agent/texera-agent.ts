@@ -104,7 +104,6 @@ import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import {
   createRecallStateTool,
@@ -289,8 +288,8 @@ export function computeOperatorAccess(
           entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
       }
-    } else if (inputOpId && (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR || tc.toolName === TOOL_NAME_INSPECT_RESULT)) {
-      // A failed read still tells the UI which operator the model looked at.
+    } else if (inputOpId && (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR || tc.toolName === "inspectResult")) {
+      // Keep historical inspection traces readable; the tool is no longer executable.
       entry.viewedOperatorIds.push(inputOpId);
     }
     access[i] = entry;
@@ -568,7 +567,7 @@ export class TexeraAgent {
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
       this.systemPrompt = buildNativeModeSystemPrompt(
         this.settings.contextMode,
-        this.settings.enableInspectTool === true || this.settings.nativeToolMode === "batch",
+        false,
         this.settings.resultSelection,
         {
           versioned: this.settings.versionedMode === true,
@@ -584,7 +583,7 @@ export class TexeraAgent {
       this.systemPrompt = buildCodeModeSystemPrompt(
         this.settings.contextMode,
         compactionEnabled,
-        this.settings.enableInspectTool === true,
+        false,
         this.settings.enableRenderPrefs === true,
         this.settings.enableCodeInSnapshot === true,
         this.settings.sourceProvenanceHint === true,
@@ -670,16 +669,6 @@ export class TexeraAgent {
     } else {
       tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
       tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
-    }
-
-    // Opt-in read-only PULL tool (Direction B): lets the model re-inspect an
-    // existing operator's cached result at more detail on demand. Reads the
-    // result at the current HEAD; never mutates the DAG or re-executes.
-    if (this.settings.enableInspectTool || (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch")) {
-      tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
-        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
-        workflowState: this.workflowState,
-      });
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1609,13 +1598,9 @@ export class TexeraAgent {
       // `null` turns it off (back to selector/contextMode). Read per-call.
       this.settings.learnedConfig = updates.learnedConfig ?? undefined;
     }
-    if (updates.enableInspectTool !== undefined) {
-      // Adds/removes the read-only inspectResult tool from the model's tool set
-      // (createTools() below reads this and rebuilds). The code-mode prompt
-      // carries a matching `## On-demand result inspection` section.
-      this.settings.enableInspectTool = updates.enableInspectTool;
-      promptNeedsRebuild = true;
-    }
+    // Deprecated wire field: old clients may still send it, but no setting
+    // or live mode transition can restore the removed result-inspection tool.
+    this.settings.enableInspectTool = false;
     if (updates.enableRenderPrefs !== undefined) {
       // Write-time render prefs: gates the createOrModifyOperator params (tools
       // rebuilt below), the prompt section + example variant (rebuilt here),

@@ -185,8 +185,8 @@ try {
     (snap1.results.source as any).sampleRecords,
     "observation-only call reran source"
   );
-  const inspection = await debug("inspectResult", { operatorId: "positive", maxRows: 2 });
-  assert.match(inspection.context, /cached sample only/);
+  const cachedPositive = await debug("dataflow", { operators: [], observe: ["positive"] });
+  assert.match(cachedPositive.context, /observed \(cached\)/);
   // Revise an upstream and add a forward-referenced chain through its existing
   // descendant in the same call. No observe means all successful bodies hide.
   const revision = await debug("dataflow", {
@@ -205,14 +205,11 @@ try {
   // LATEST still includes the current DAG, but no successful table bodies.
   const latestHidden = renderMirroredContext(ContextMode.LATEST);
   for (const id of ["source", "positive", "total", "tagged_total", "answer"]) assert.ok(latestHidden.includes(id));
-  // Previously requested inspections intentionally retain their saved content
-  // in a separate deck; only the current dataflow follows the latest observe.
-  const currentDataflow = latestHidden.split("# Inspections")[0];
-  assert.ok(!currentDataflow.includes("Output Table:"), "LATEST exposed a result without observe");
+  assert.ok(!latestHidden.includes("Output Table:"), "LATEST exposed a result without observe");
   const revisedSnapshot = await getSnapshot(agentId, "head", baseUrl);
   const observed = await debug("dataflow", { operators: [], observe: ["answer"] });
   assert.match(observed.context.slice(observed.context.lastIndexOf("Observation:")), /RECOMPUTED_SENTINEL/);
-  assert.match(renderMirroredContext(ContextMode.LATEST).split("# Inspections")[0], /Output Table:/);
+  assert.match(renderMirroredContext(ContextMode.LATEST), /Output Table:/);
   const readSnapshot = await getSnapshot(agentId, "head", baseUrl);
   assert.deepEqual(readSnapshot.results, revisedSnapshot.results, "observe-only call recomputed the workflow");
   const partial = await debug("dataflow", {

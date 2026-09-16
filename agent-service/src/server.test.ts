@@ -95,6 +95,27 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
+  test("legacy inspection settings cannot expose a tool on create or live mode changes", async () => {
+    const created = await createAgent({
+      settings: { agentMode: "native", nativeToolMode: "batch", enableInspectTool: true },
+    });
+    expect(created.status).toBe(200);
+    const body = await readJson<{ id: string; settings: { enableInspectTool: boolean } }>(created);
+    expect(body.settings.enableInspectTool).toBe(false);
+    for (const agentMode of ["native", "code", "general"]) {
+      const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
+        agentMode,
+        enableInspectTool: true,
+        columnStats: false,
+      });
+      expect(patched.status).toBe(200);
+      expect((await readJson<{ enableInspectTool: boolean }>(patched)).enableInspectTool).toBe(false);
+      const info = await getJson(`${API}/agents/${body.id}/system-info`);
+      expect(info.status).toBe(200);
+      expect(JSON.stringify(await readJson(info))).not.toContain("inspectResult");
+    }
+  });
+
   test("native batch settings survive create and force provider parallel calls off", async () => {
     const created = await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true } });
     expect(created.status).toBe(200);
