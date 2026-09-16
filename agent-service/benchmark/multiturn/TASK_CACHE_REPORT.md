@@ -5,7 +5,8 @@
 There is a concrete fix for a substantial part of the cache loss: explicitly
 cache the stable completed-task history before the changing graph context.
 Real GPT-5.6 Luna probes through the private LiteLLM gateway confirmed this.
-The production agent has **not** been migrated to this request format yet.
+The running isolated agent now uses this request format. See the
+[implementation and real-task results](TASK_CACHE_LIVE_REPORT.md).
 This report measures prompt reuse, not analytical accuracy or a new CodeAgent win.
 
 ## Why the stable history did not cache
@@ -100,7 +101,7 @@ these Responses probes. The original milestone cost table remains the original
 repository estimate, not a corrected invoice. Future comparisons must collect
 and price cache writes for both systems.
 
-## Production change to make next
+## Production integration (implemented after this probe)
 
 1. Add an authenticated Responses route to the existing gateway, preserving the
    current JWT and server-owned provider-key boundary. The current access-control
