@@ -172,6 +172,56 @@ const filter = {
 };
 
 for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+  test(`shared flow ${mode}: dedup only visible outputs in this frame`, async () => {
+    const f = fixture();
+    const render = () =>
+      assembleContext(f.steps, f.state, f.storage, mode, {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: "native",
+        dataEvidence: true,
+        flowEvidence: true,
+        maxOperatorResultCharLimit: 2000,
+      });
+    await f.record(
+      "A",
+      [
+        source,
+        filter,
+        { op: "project", id: "first", input: "selected", keep: ["x"] },
+        { op: "project", id: "second", input: "selected", keep: ["x"] },
+      ],
+      ["first", "second"]
+    );
+    f.persist("A", {
+      source: [-100, 0, 10, 20, 30],
+      selected: [10, 20, 30],
+      first: [10, 20, 30],
+      second: [10, 20, 30],
+    });
+    f.capture("A", ["first", "second"]);
+    const before = render();
+    const text = JSON.stringify(before);
+    expect(text.match(/Flow upstream selected:/g)?.length).toBe(1);
+    expect(text).toContain("Flow upstream: see");
+    expect(text).not.toContain("Sample stored row 1: -100");
+    expect(text.match(/Output Table: 3 rows/g)?.length).toBe(2);
+    const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
+    await f.record("B", [], ["second"]);
+    f.capture("B", ["second"]);
+    const after = render();
+    const later = JSON.stringify(after);
+    if (mode === ContextMode.LATEST) {
+      expect(later.match(/Flow upstream selected:/g)?.length).toBe(1);
+      expect(later).not.toContain("Flow upstream: see");
+    } else {
+      expect(later.match(/Flow upstream selected:/g)?.length).toBe(2);
+      expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
+    }
+    expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
+  });
+}
+
+for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
   for (const dataEvidence of [false, true])
     for (const flowEvidence of [false, true]) {
       test(`production ${mode}: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {

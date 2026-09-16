@@ -22,6 +22,7 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { nativeOperators } from "./catalog";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
+import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
 
 export interface NativeEvidenceContext {
   op: OperatorPredicate;
@@ -39,6 +40,9 @@ export interface NativeEvidenceFact {
   kind: "guarantee" | "measurement" | "warning";
   text: string;
   priority: number;
+  columnCount?: NativeColumnCount;
+  coveredCount?: NativeColumnCount;
+  upstream?: NativeUpstreamIdentity;
 }
 
 export interface NativeObservationOptions {
@@ -60,8 +64,11 @@ export interface NativeObservation {
   text: string;
   selected: string[];
   /** Atomic render units retained for monotone historical compaction. */
-  chunks: Array<{ id: string; text: string }>;
-  omitted: Array<{ id: string; reason: "budget" | "disabled" | "unavailable" | "redundant_complete_table" }>;
+  chunks: Array<{ id: string; text: string; members?: string[]; upstream?: NativeUpstreamIdentity }>;
+  omitted: Array<{
+    id: string;
+    reason: "budget" | "disabled" | "unavailable" | "redundant_complete_table" | "redundant_displayed_fact";
+  }>;
 }
 
 const own = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -134,6 +141,18 @@ function columnScope(info: OperatorInfo, c: ProfileColumn): string {
     : `partial prefix=${c.rowsProcessed}/${info.totalRowCount ?? "?"} rows`;
 }
 
+function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): NativeColumnCount {
+  return {
+    column,
+    resultVersion: info.resultVersion!.id,
+    scope: columnScope(info, c),
+    rows: c.rowsProcessed,
+    nulls: c.nullCount,
+    nonnull: c.nonnullCount,
+    distinct: c.distinctCount,
+  };
+}
+
 /** Consumes structured, version-bound profiles only. No execution, hidden
  * fetch, human-stat-string parsing, or inference of Python semantics. */
 export function collectNativeEvidence(context: NativeEvidenceContext): {
@@ -175,6 +194,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
         kind: measurements.length ? "measurement" : view.type === "UDF" ? "warning" : "guarantee",
         text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
         priority: 98 - depth / 10,
+        upstream: { operatorId: op.operatorID, resultVersion: version.id },
       });
       summaries++;
     }
@@ -200,8 +220,17 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     family: NativeEvidenceFact["family"],
     kind: NativeEvidenceFact["kind"],
     text: string,
-    priority: number
-  ) => facts.push({ id, family, kind, text: `${family === "flow" ? "Flow" : "Data"} ${kind}: ${text}`, priority });
+    priority: number,
+    metadata: Pick<NativeEvidenceFact, "columnCount" | "coveredCount"> = {}
+  ) =>
+    facts.push({
+      id,
+      family,
+      kind,
+      text: `${family === "flow" ? "Flow" : "Data"} ${kind}: ${text}`,
+      priority,
+      ...metadata,
+    });
   if (
     info.error ||
     view?.version !== "v2" ||
@@ -232,7 +261,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         "data",
         "measurement",
         `${json(name)} (${scope}): null=${fraction(c.nullCount, c.rowsProcessed)}, nonnull=${c.nonnullCount}; distinct(nonnull)=${c.distinctCount ?? "unknown"}.`,
-        priority
+        priority,
+        { columnCount: columnCount(info, name, c) }
       );
       if (c.min && c.max)
         add(
@@ -344,7 +374,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
             "flow",
             "measurement",
             `predicate column ${json(name)}: input (${columnScope(input, before)}) null=${fraction(before.nullCount, before.rowsProcessed)}, distinct(nonnull)=${before.distinctCount ?? "unknown"}; output (${columnScope(info, after)}) null=${fraction(after.nullCount, after.rowsProcessed)}, distinct(nonnull)=${after.distinctCount ?? "unknown"}.`,
-            88
+            88,
+            { coveredCount: columnCount(info, name, after) }
           );
       }
     const { keptRows, rejectedRows, nullPredicates } = operations;
@@ -806,7 +837,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   }
   if (!completeVisible) append("View incomplete; unshown rows/columns or evidence omitted.", "view.omissions");
   result.text = lines.join("\n");
-  return result;
+  return compactNativeObservation(result, evidence.facts);
 }
 
 /** Historical compaction is subtractive: it may drop rows or tail chunks,

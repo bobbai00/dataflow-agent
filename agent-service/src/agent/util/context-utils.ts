@@ -2014,6 +2014,7 @@ function serializeTaskBody(
       );
 
       const obs: string[] = [];
+      const sharedUpstream = new Map<string, string>();
       // `scoped`: operators that only re-executed (nothing about them changed)
       // and whose profile did not move — one grouped line after the loop.
       const rerunUnchanged: string[] = [];
@@ -2137,7 +2138,14 @@ function serializeTaskBody(
                 // The same event owns the failing parameters / UDF code. A
                 // later edit must not rewrite an earlier error's tool frame.
                 ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
-                nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, node.snapshot, renderOptions, true, !!ex),
+                nativeEvidence: nativeEvidenceAtSnapshot(
+                  op.operatorID,
+                  node.snapshot,
+                  renderOptions,
+                  true,
+                  !!ex,
+                  sharedUpstream
+                ),
               }
             )
           : "(not executed)";
@@ -3290,6 +3298,7 @@ function serializeSnapshotCompact(
   if (workflow.operators.length === 0) return null;
 
   const lines: string[] = [];
+  const sharedUpstream = new Map<string, string>();
   const { sortedOps, allLinks } = topoSortDag(workflow);
   const sectionHash = "#".repeat(sectionLevel);
   const operatorLevel = sectionLevel + 1;
@@ -3304,7 +3313,17 @@ function serializeSnapshotCompact(
       nativeObservationCompaction: true,
     };
     lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel)
+      serializeOperatorFull(
+        op,
+        snapshot,
+        workflowState,
+        perOpOptions,
+        /*isCurrent=*/ false,
+        allLinks,
+        operatorLevel,
+        undefined,
+        sharedUpstream
+      )
     );
     lines.push("");
   }
@@ -3333,6 +3352,7 @@ function serializeSnapshotFull(
   if (workflow.operators.length === 0) return null;
 
   const lines: string[] = [];
+  const sharedUpstream = new Map<string, string>();
   const { sortedOps, allLinks } = topoSortDag(workflow);
   const sectionHash = "#".repeat(sectionLevel);
   const operatorLevel = sectionLevel + 1;
@@ -3396,7 +3416,8 @@ function serializeSnapshotFull(
         isCurrent,
         allLinks,
         operatorLevel,
-        requested ? undefined : shapes?.get(op.operatorID)
+        requested ? undefined : shapes?.get(op.operatorID),
+        sharedUpstream
       )
     );
     lines.push("");
@@ -3448,7 +3469,8 @@ function nativeEvidenceAtSnapshot(
   snapshot: SnapshotData,
   options: AssembleContextOptions,
   historical: boolean,
-  compact = false
+  compact = false,
+  sharedUpstream?: Map<string, string>
 ): FormatOperatorResultOptions["nativeEvidence"] {
   const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
   return {
@@ -3461,6 +3483,7 @@ function nativeEvidenceAtSnapshot(
     maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
     frozen,
     compact: compact || options.nativeObservationCompaction === true,
+    sharedUpstream,
   };
 }
 
@@ -3586,7 +3609,8 @@ function serializeOperatorFull(
   isCurrent: boolean,
   allLinks: WorkflowContent["links"],
   operatorLevel: number,
-  shape?: ShapeDecision
+  shape?: ShapeDecision,
+  sharedUpstream?: Map<string, string>
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
   // Visibility is a serializer invariant, not only a full-snapshot caller
@@ -3632,7 +3656,7 @@ function serializeOperatorFull(
       inputsInResult: false,
       ...shapeFormatOverrides(shape, options),
       operatorAtEvent: op,
-      nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, !isCurrent, !!ex),
+      nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, !isCurrent, !!ex, sharedUpstream),
     });
   }
 

@@ -20,8 +20,13 @@
 # Data and flow evidence: computation and model context
 
 This document describes the implemented **Python-native V2, batch + explicit
-observe** path on `refactor/evidence-only-context`. It was checked against
+observe** path. The calculation and selection reference was checked against
 implementation commit `c5620b9b43f21ee2aa222bfc4ff0c5faf0958ede` on 2026-09-16.
+The subsequent `feat/evidence-compaction` branch preserves those calculations
+and selections, then compacts their display. See the
+[compaction contract](evidence-compaction.md) for the updated count format,
+same-observation deduplication, and same-frame upstream references. Examples
+below retain the original expanded formatting to explain the individual facts.
 It is an implementation reference, not a proposal or a claim about benchmark
 accuracy.
 

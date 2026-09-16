@@ -138,6 +138,68 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("compact counts share coverage labels without losing unknown or null counts", () => {
+  const f = fixture("Scan");
+  f.info.tableProfile!.columns = {
+    x: column(3, 0),
+    nullable: column(3, 2),
+    unknown_distinct: { ...column(3, 0), distinctCount: null },
+  };
+  const result = observe(f, { flow: false });
+  expect(result.text).toContain("Data measurement: column counts (full=3 rows)");
+  expect(result.text).toContain("column | null | nonnull | distinct(nonnull)");
+  expect(result.text).toContain('"nullable" | 2 | 1 | 1');
+  expect(result.text).toContain('"unknown_distinct" | 0 | 3 | unknown');
+  expect(result.text).toContain('"x" | 0 | 3 | 3');
+  expect(result.text).not.toContain('"nullable" (full=3 rows): null=');
+  expect(result.text).toContain("Sample stored row 1: 1");
+});
+
+test("compact count groups do not conflate partial and full column coverage", () => {
+  const f = fixture("Scan");
+  f.info.tableProfile!.columns = {
+    x: column(3, 0),
+    full_other: column(3, 0),
+    partial: column(2, 1),
+    partial_other: column(2, 0),
+  };
+  const result = observe(f, { flow: false });
+  expect(result.text).toContain("column counts (full=3 rows)");
+  expect(result.text).toContain("column counts (partial prefix=2/3 rows)");
+  expect(result.text).toContain('"partial" | 1 | 1 | 1');
+});
+
+test("combined omits counts only when the matching flow comparison was displayed", () => {
+  const f = fixture();
+  const both = observe(f);
+  expect(both.text).toContain('predicate column "x": input (full=5 rows)');
+  expect(both.selected).not.toContain("data.column.x.counts");
+  expect(both.omitted).toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
+  const data = observe(f, { flow: false });
+  expect(data.selected).toContain("data.column.x.counts");
+  expect(data.text).toContain("null=1/3, nonnull=2; distinct(nonnull)=2");
+  const flow = observe(f, { data: false });
+  expect(flow.text).not.toContain("Data measurement:");
+  expect(flow.text).toContain('predicate column "x":');
+  f.results.get("left")!.error = "upstream failed";
+  const unavailable = observe(f);
+  expect(unavailable.selected).toContain("data.column.x.counts");
+  expect(unavailable.text).not.toContain('predicate column "x":');
+});
+
+test("count compaction leaves budget savings empty and preserves sampled records", () => {
+  const f = fixture("Scan");
+  f.info.tableProfile!.columns = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`field_${i}`, column(3, 0)]));
+  const result = observe(f, { flow: false, maxChars: 700 });
+  expect(result.text).toContain("column counts (full=3 rows)");
+  expect(result.text.length).toBeLessThan(550);
+  expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample stored row 1: 1"]);
+  const excluded = result.omitted.filter(c => c.reason === "budget").map(c => c.id);
+  expect(excluded.some(id => id.startsWith("data.column."))).toBe(true);
+  expect(result.selected.some(id => excluded.includes(id))).toBe(false);
+  expect(result.selected.filter(id => id.endsWith(".counts")).length).toBeLessThan(10);
+});
+
 test("raw preview protects ordered header rows from metadata profiles and long cells", () => {
   const f = fixture("Scan", { files: "book.xlsx", preview: 10 });
   const lines = [

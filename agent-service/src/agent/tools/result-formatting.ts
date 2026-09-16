@@ -28,6 +28,7 @@ import {
   type NativeObservationOptions,
 } from "../native/evidence";
 import type { WorkflowState } from "../workflow-state";
+import { shareNativeObservation } from "../native/evidence-compaction";
 import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
@@ -44,7 +45,7 @@ export interface FormatOperatorResultOptions {
   /** V2 evidence shares the result body budget. A recorded DELTA frame wins
    * over today's exposure settings; only explicit compaction may shorten it. */
   nativeEvidence?: Pick<NativeEvidenceContext, "workflow" | "resolveInput"> &
-    NativeObservationOptions & { frozen?: NativeObservation; compact?: boolean };
+    NativeObservationOptions & { frozen?: NativeObservation; compact?: boolean; sharedUpstream?: Map<string, string> };
   /** The operator definition that earned this result. Historical observations
    *  must echo failed parameters/code from their snapshot, not a later edit
    *  (or deletion) in the live DAG. Undefined keeps the current-state lookup. */
@@ -242,15 +243,17 @@ export function formatOperatorResult(
   const nativeOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
   if (nativeOp?.nativeOp?.version === "v2") {
     const evidence = options.nativeEvidence;
-    if (evidence?.frozen)
-      return restrictNativeObservation(
+    if (evidence?.frozen) {
+      const text = restrictNativeObservation(
         evidence.frozen,
         evidence.compact
           ? { maxChars: options.maxResultChars, maxRows: options.maxResultRows, detail: options.detail }
           : {}
       );
+      return shareNativeObservation(text, evidence.frozen, operatorId, evidence.sharedUpstream);
+    }
     const budget = evidence?.maxChars ?? 2000;
-    return selectNativeObservation({
+    const observation = selectNativeObservation({
       workflow: evidence?.workflow ?? workflowState.getWorkflowContent(),
       resolveInput: evidence?.resolveInput ?? (() => undefined),
       op: nativeOp,
@@ -262,7 +265,8 @@ export function formatOperatorResult(
       maxRows: options.maxResultRows,
       columns: options.columns,
       detail: options.detail,
-    }).text;
+    });
+    return shareNativeObservation(observation.text, observation, operatorId, evidence?.sharedUpstream);
   }
 
   const jsonArray = opInfo.result as Record<string, any>[];
