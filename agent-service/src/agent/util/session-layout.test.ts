@@ -46,7 +46,7 @@ function scenario(): Scenario {
       role: "agent",
       messageId: "m1",
       parentId: "u1",
-      content: "**Final Answer:** {\"rows\": 120}",
+      content: '**Final Answer:** {"rows": 120}',
       isEnd: true,
       toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "scores" } }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
@@ -65,11 +65,7 @@ function scenario(): Scenario {
     },
   ]);
   s.storage.createSnapshot("a1", makeWorkflow([{ id: "scores", type: "DataLoading" }]));
-  s.storage.setOperatorResult(
-    "a1",
-    "scores",
-    makeInfo(120, { columnStats: { id: "(numeric): null=0, min=1, max=120" } as any })
-  );
+  s.storage.setOperatorResult("a1", "scores", makeInfo(120, {}));
   s.storage.createSnapshot(
     "a2",
     makeWorkflow(
@@ -158,9 +154,9 @@ describe("session layout", () => {
   });
 
   test("ReAct knobs stay independent inside the layout", () => {
-    const on = render(scenario(), ContextMode.DELTA, { columnStats: true });
+    const on = render(scenario(), ContextMode.DELTA, {});
     const off = render(scenario(), ContextMode.DELTA);
-    expect(on).toContain("Column Schema and stats");
+    expect(on).not.toContain("Column Schema and stats");
     expect(off).not.toContain("Column Schema and stats");
   });
 

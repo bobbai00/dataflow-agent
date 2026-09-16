@@ -410,7 +410,7 @@ describe("probe retirement", () => {
 });
 
 describe("result selection rule", () => {
-  test("legal-hard-15 chain: scan full, filter count, compute header, aggregate input full, aggregate full", () => {
+  test("chain: compute stays visible without consulting old column statistics", () => {
     const ops = [
       op("identity_theft", "Scan", []),
       op("non_blank", "Filter", ["identity_theft"], { predicate: "x IS NOT NULL" }),
@@ -428,12 +428,12 @@ describe("result selection rule", () => {
     const shapes = selectResultShapes(ops, links(ops), id => infos[id]);
     expect(shapes.get("identity_theft")?.shape).toBe("full");
     expect(shapes.get("non_blank")?.shape).toBe("count");
-    expect(shapes.get("reports_num")?.shape).toBe("header");
+    expect(shapes.get("reports_num")?.shape).toBe("full");
     expect(shapes.get("cross_state")?.shape).toBe("full"); // input of an Aggregate
     expect(shapes.get("total")?.shape).toBe("full"); // frontier + aggregate
   });
 
-  test("a Compute whose null count moved gets a count line with the moved fact", () => {
+  test("a Compute does not reveal old per-column null changes", () => {
     const ops = [
       op("src", "Scan", []),
       op("cast", "Compute", ["src"], { columns: { v: "TRY_CAST(v AS INTEGER)" } }),
@@ -445,8 +445,8 @@ describe("result selection rule", () => {
       keep: info(50),
     };
     const shapes = selectResultShapes(ops, links(ops), id => infos[id]);
-    expect(shapes.get("cast")?.shape).toBe("count");
-    expect(shapes.get("cast")?.note).toContain("null 0 → 12");
+    expect(shapes.get("cast")?.shape).toBe("full");
+    expect(shapes.get("cast")?.note).toBeUndefined();
     expect(shapes.get("keep")?.shape).toBe("full"); // frontier
   });
 
@@ -503,7 +503,12 @@ describe("scoped selection", () => {
       }))
     );
   const info = (rows: number, stats: Record<string, string>) =>
-    ({ outputTuples: rows, totalRowCount: rows, columnStats: stats }) as unknown as OperatorInfo;
+    ({
+      outputTuples: rows,
+      totalRowCount: rows,
+      columnStats: stats,
+      resultSchema: Object.keys(stats).map(name => ({ name, type: "unknown", encoding: "unknown" })),
+    }) as unknown as OperatorInfo;
   const STATS = {
     year: "(numeric): null=0, distinct=5, min=2019, max=2023",
     team: "(str): null=0, distinct=32",
@@ -562,10 +567,10 @@ describe("scoped selection", () => {
     expect(shapes.get("j")).toEqual({ shape: "full", columns: ["team", "club"], budget: 0.3, schemaLine: true });
   });
 
-  test("profileDiff names what moved and stays silent when nothing did", () => {
+  test("profileDiff reports structural changes, never retired statistical overlays", () => {
     const before = info(660, { reports: "(str): null=0, distinct=342", state: "(str): null=0, distinct=50" });
     const after = info(452, { reports: "(str): null=12, distinct=300", state: "(str): null=0, distinct=50" });
-    expect(profileDiff(before, after)).toBe('rows 660 → 452; "reports": null 0 → 12, distinct 342 → 300');
+    expect(profileDiff(before, after)).toBe("rows 660 → 452");
     expect(profileDiff(before, before)).toBeUndefined();
     const widened = info(660, {
       reports: "(str): null=0, distinct=342",
@@ -581,6 +586,6 @@ describe("scoped selection", () => {
       reports: "(str): null=0, distinct=342",
       state: "(str): null=0, distinct=50, min=AL, max=WY",
     });
-    expect(profileDiff(shifted, shifted2)).toBe('"state": min AK → AL');
+    expect(profileDiff(shifted, shifted2)).toBeUndefined();
   });
 });

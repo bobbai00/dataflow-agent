@@ -38,24 +38,14 @@ import {
 } from "../native/selection";
 import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
-import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
 import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
   clampCodeChars,
   estimateTableChars,
   formatApproxChars,
   formatOperatorResult,
-  formatRowLineage,
   formatSchemaLine,
 } from "../tools/result-formatting";
-import { levelsToFlags } from "../context/decorate/registry";
-import type { DecorateLevel } from "../context/decorate/types";
-import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
-import {
-  buildLineageErrorContext,
-  lineageErrorPointer,
-  upstreamInputSchema,
-} from "../context/decorate/flow/error-context";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import {
   buildErrorReflection,
@@ -129,39 +119,15 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
 
 const log = createLogger("ContextAssembler");
 
-/* ============================================================================
- *  Public entry
- * ========================================================================= */
-
-/**
- * Where a data-facet channel is allowed to render, by the operator's position
- * in the DAG. `all` is the legacy behaviour; `source` / `nonsource` split the
- * evidence by which failure the operator can actually have (dirty parse at the
- * lake edge vs row loss in a transform); `off` disables the channel without
- * touching the flag that turned it on.
- */
-export type StatScope = "all" | "source" | "nonsource" | "off";
-
-/** Per-channel scope overlay. Any channel left undefined behaves as `all`. */
-export interface StatScopes {
-  columnStats?: StatScope;
-  coercion?: StatScope;
-  lineage?: StatScope;
-  structural?: StatScope;
-  valueFormat?: StatScope;
-  fileIo?: StatScope;
-}
-
 export interface AssembleContextOptions {
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
   messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
   /** Native message layout: called once per rendered agent event with the step
    *  that produced it, so the message builder can emit that step's REAL tool
    *  calls (true toolCallIds) instead of inferring them from the rendered text. */
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
-  /** Position-aware gating for the data-facet channels. Undefined = legacy
-   *  (a channel renders wherever its flag is on). */
-  statScopes?: StatScopes;
   /** Compilation result for the *current* workflowState. Schemas it carries
    *  are only attached to operators in the current (last) snapshot — we
    *  can't recompile historical snapshots cheaply, so non-current snapshots
@@ -295,52 +261,10 @@ export interface AssembleContextOptions {
    *  error, so it is always stripped). When false, no properties render at
    *  all (legacy paper-§4.3 strip-everything behavior). Undefined ⇒ true. */
   includeOperatorProperties?: boolean;
-  /** When true, a compact `Schema:` line (col + type, all columns) precedes
-   *  each non-error operator result, derived from `columnStats`/headers.
-   *  Off by default. Internal flag — the public knob is `dataLevel` (≥1), which
-   *  expands to this via the rung catalog. */
+  /** Context layout and result sampling are independent of data/flow evidence. */
   schemaInResult?: boolean;
-  /** When true, each non-error operator result carries the full per-column
-   *  `Column Schema and stats:` block (null/mean/min/max/distinct/top-N/datetime-range)
-   *  published by the worker. Standalone flag — independent of `dataLevel`, so
-   *  it overlays on any data level. Off by default. */
-  columnStats?: boolean;
   /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
   maxResultChars?: number;
-  /** A7: render the `Files read:` fact (independent of tableStructureHint). */
-  fileIoFacts?: boolean;
-  /** Stats-block density forwarded to the result formatter ("full" default /
-   *  "anomaly" = only facts the visible sample does not already prove). */
-  statsDensity?: "full" | "anomaly";
-  /** When true, a load-stage operator (`DataLoading`) that errored gets a
-   *  compact `Loader hint:` remediation line appended to its Result, keyed on
-   *  the exception class parsed from the error string. Off by default. */
-  loaderHint?: boolean;
-  /** When true, append a `Format hints:` line flagging string columns whose
-   *  sample values look like currency/percent/thousands-separated/etc., with the
-   *  cleaning to apply before numeric conversion. Targets silent coercion
-   *  dataloss. Off by default. */
-  valueFormatFlags?: boolean;
-  /** When true, each operator result gets a `Lineage:` line: input→output row
-   *  counts (kept %) plus a conservative alarm on empty-output / fan-out
-  /** #28: on an errored (non-loader) operator, render its direct upstream inputs'
-   *  schema + a few sample rows so the model fixes against real consumed data,
-   *  not guessed columns. Render-time only. Default false. */
-  lineageErrorContext?: boolean;
-  /** When true, a `DataLoading` operator whose output reaches NO downstream
-   *  operator (a dead/forgotten load — pure typed-DAG reachability) gets a
-   *  `Graph check ⚠` line telling the agent to wire it in or drop it. Current
-   *  snapshot only. Uniquely enabled by the dataflow graph (a free-form script
-   *  has no graph to audit). Off by default. */
-  graphAudit?: boolean;
-  /** When true, surface a coercion-dataloss line for any to_numeric/to_datetime
-   *  (errors="coerce") the worker saw silently null a material block of values,
-   *  with a sample of the dropped values. Read from `__coercion_telemetry__` on
-   *  columnStats. Alarm-only. Off by default. */
-  coercionTelemetry?: boolean;
-  /** When true, operator results carry a `Lineage:` rows-in/rows-out fact line
-   *  (see result-formatting.formatRowLineage). Off by default. */
-  rowLineage?: boolean;
   /** VERSIONED MODE render: one `# Catalog` for everything — finished turns as
    *  Task / Dataflow delta / Answer entries, the in-progress turn as the last
    *  entry with its live step log. No `# Dataflow` section, no `# Recalled
@@ -380,10 +304,6 @@ export interface AssembleContextOptions {
   nativeEvidence?: { data: boolean; flow: boolean; maxChars: number };
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
-  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
-   *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
-   *  computed name-agnostically by the worker. Render-time only. Default false. */
-  tableStructureHint?: boolean;
   /** Thought-replay reinjection rung (LATEST only). When on, render a
    *  `# Reasoning` block — the last `thoughtReplayK` agent EVENTS, each as its
    *  thought + the compressed actions it produced — and tag each operator with a
@@ -435,15 +355,6 @@ export interface AssembleContextOptions {
    *  Set by renderAgentEvents; read in the DELTA observation. */
   deltaInputsLeaf?: SnapshotData;
   deltaLastEditByOp?: Map<string, number>;
-  /** DECORATE ordinal levels (claude/CONTEXT-DESIGN.md §5). When set (>=0), the
-   *  flow/data facet level expands — via the rung catalog (context/decorate/
-   *  registry.levelsToFlags) — into the individual render flags above, OR-ing
-   *  them on. This is the new ordinal knob replacing the per-lever booleans;
-   *  the booleans remain valid and any explicitly-set boolean is preserved
-   *  (the level only turns rungs ON, never off). Undefined ⇒ legacy boolean
-   *  behavior, no expansion. */
-  flowLevel?: number;
-  dataLevel?: number;
   /** Internal (summarize): resolver of per-operator render extras — detail
    *  level, per-op column/tuple params, code + result history. Present only
    *  when the summarize params use a capability beyond the legacy surface;
@@ -573,21 +484,6 @@ export function renderContextCore(
   mode: ContextMode,
   options: AssembleContextOptions
 ): string {
-  // DECORATE levels → render flags (claude/CONTEXT-DESIGN.md §5). When the
-  // caller supplies ordinal facet levels, expand them through the rung catalog
-  // and OR the resulting rung flags onto `options`. Levels only turn rungs ON;
-  // an explicitly-set boolean is never cleared. Undefined levels ⇒ no-op, so
-  // existing boolean-only callers are unaffected.
-  if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
-    const clamp = (n: number | undefined): DecorateLevel =>
-      Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel;
-    const expanded = levelsToFlags(clamp(options.flowLevel), clamp(options.dataLevel));
-    const bag = options as unknown as Record<string, unknown>;
-    for (const flag of Object.keys(expanded)) {
-      bag[flag] = true;
-    }
-  }
-
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
   const batchObservations = new Map<string, ReadonlySet<string>>();
   // Read-only steps inherit the last batch's display selection in LATEST;
@@ -1470,10 +1366,6 @@ function assembleBudgetedContext(
   const suffixOptions: AssembleContextOptions = {
     ...options,
     schemaInResult: true,
-    columnStats: false,
-    tableStructureHint: false,
-    valueFormatFlags: false,
-    coercionTelemetry: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
     // Compaction phase profiles own the render economics — per-op extras
@@ -1582,7 +1474,6 @@ function renderCompressed(
   // stripped: the compaction phases own their render economics.
   const deckOptions: AssembleContextOptions = {
     ...options,
-    columnStats: true,
     schemaInResult: true,
     thoughtReplay: false,
     errorReflection: false,
@@ -1620,13 +1511,6 @@ function renderCompressed(
   }
 
   const leaf = lastSnapshotOf(tasks);
-  if (leaf) {
-    const flow = buildFlowSection(leaf, workflowState, suffixOptions, /*isLatest=*/ false);
-    if (flow) {
-      sections.push("");
-      sections.push(flow);
-    }
-  }
 
   return sections.join("\n").trimEnd();
 }
@@ -1851,13 +1735,6 @@ function renderInterleaved(
 
   // FLOW section over the leaf snapshot (composable with delta too — placed
   // last, after the event/snapshot trajectory). Empty ⇒ omitted.
-  if (leaf) {
-    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
-    if (flow) {
-      sections.push("");
-      sections.push(flow);
-    }
-  }
 
   // Inspections tail (see renderLatest): the interleaved events show the
   // inspectResult CALLS but not their outputs — this re-renders the pulls.
@@ -1937,16 +1814,6 @@ function renderLatest(
     }
   }
 
-  // 3. # Operators needing attention — the FLOW section. A consolidated,
-  //    root-cause-first projection of failures + anomalies over the leaf
-  //    snapshot, placed last (highest-attention position). Gated by flowLevel
-  //    (expanded into the per-rung flags); empty ⇒ omitted.
-  const flow = buildFlowSection(leafSnapshot, workflowState, options, /*isLatest=*/ true);
-  if (flow) {
-    sections.push("");
-    sections.push(flow);
-  }
-
   // 4. # Inspections — the agent's on-demand inspectResult pulls, re-rendered
   //    verbatim so a pull stays visible on later steps (prepareStep REPLACES
   //    the wire messages each step; without this the tool's output would
@@ -1958,121 +1825,6 @@ function renderLatest(
     sections.push(options.inspectionsRendered);
   }
   return sections.join("\n").trimEnd();
-}
-
-/**
- * FLOW section (Phase-1 trajectory/graph projection). Scans the leaf snapshot
- * in topological order (root cause before downstream symptom) and emits a
- * self-contained entry for every operator that needs attention: hard errors,
- * upstream-blocked operators, and (level-gated) soft anomalies. Reuses the same
- * pure flow renderers that previously decorated each operator inline — now
- * consolidated into one end-of-context section so the actionable signal isn't
- * buried in the DAG dump. Returns undefined when nothing needs attention.
- *
- * Level gating (via the flags flowLevel expands into):
- *   L1 loaderHint            — remediation on failed DataLoading ops
- *   L2 lineageErrorContext   — errored process op: in DELTA, the upstream input
- *                              schema + sample rows (the model can't otherwise see
- *                              them); in LATEST, where every operator's Result is
- *                              already rendered, just a pointer to the upstream's
- *                              Result (no duplication).
- *   L3 graphAudit            — dead/disconnected loaders
- */
-function buildFlowSection(
-  snapshot: SnapshotData,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  isLatest: boolean
-): string | undefined {
-  const anyFlow = options.loaderHint || options.lineageErrorContext || options.graphAudit || options.errorReflection;
-  if (!anyFlow) return undefined;
-
-  const { workflow } = snapshot;
-  if (workflow.operators.length === 0) return undefined;
-  const { sortedOps, allLinks } = topoSortDag(workflow);
-
-  const entries: string[] = [];
-  const erroredOps: string[] = []; // for the fold-mode pointer index
-  for (const op of sortedOps) {
-    const info = snapshot.results.get(op.operatorID)?.info;
-    const lines: string[] = [];
-
-    if (info?.error) {
-      if (options.errorReflection) {
-        // Fold mode: error detail (input schema, history) lives on the operator's
-        // own block; here just record the id for the pointer index so any errored
-        // operator stays salient.
-        erroredOps.push(op.operatorID);
-      } else {
-        // Typed operators: the agent never saw the generated code, so the error
-        // is rewritten in its own terms (no `(line N)` pointers into Python).
-        const nativeType = op.nativeOp?.type;
-        lines.push(
-          op.nativeOp?.version === "v2"
-            ? `error: ${formatOperatorResult(op.operatorID, info, workflowState, { operatorAtEvent: op })}`
-            : nativeType && nativeType !== "UDF"
-              ? `error: ${formatNativeError(op.operatorID, nativeType, info.error)}`
-              : `error: ${info.error.split("\n")[0]}`
-        );
-        if (options.loaderHint && op.operatorType === "DataLoading") {
-          const hint = formatLoaderHint(info.error);
-          if (hint) lines.push(...hint.split("\n"));
-        }
-        if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
-          // LATEST already renders every operator's Result, so reference the
-          // upstream instead of re-dumping it; DELTA may have omitted the
-          // upstream, so keep the full schema + sample-rows block there.
-          const block = isLatest
-            ? lineageErrorPointer(op.operatorID, snapshot, allLinks)
-            : buildLineageErrorContext(op.operatorID, snapshot, allLinks);
-          if (block) lines.push(...block.split("\n"));
-        }
-      }
-    } else if (!info) {
-      const roots = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
-      if (roots.length > 0) {
-        const noun = roots.length === 1 ? "operator" : "operators";
-        lines.push(`blocked — upstream ${noun} ${roots.map(id => `\`${id}\``).join(", ")} errored; fix those first`);
-      }
-    } else {
-    }
-
-    // Dead-loader audit (L3) — independent of execution state.
-    if (options.graphAudit && op.operatorType === "DataLoading" && workflow.operators.length > 1) {
-      const sinks = workflowState.getDownstreamSinks(op.operatorID);
-      const feedsNothing = sinks.length === 0 || (sinks.length === 1 && sinks[0] === op.operatorID);
-      if (feedsNothing) {
-        lines.push(
-          "Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it."
-        );
-      }
-    }
-
-    if (lines.length > 0) {
-      // NATIVE operators use the same header as their block: `### filter operator \`id\``.
-      entries.push(
-        op.nativeOp
-          ? `### ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\``
-          : `### \`${op.operatorID}\` (${op.operatorType})`
-      );
-      for (const l of lines) entries.push(l);
-      entries.push("");
-    }
-  }
-
-  // Fold mode: a one-line pointer index keeps errored operators salient (their
-  // full detail is folded onto each operator's own block above), in root-cause
-  // (topological) order. Prepended so it sits right under the section header.
-  if (options.errorReflection && erroredOps.length > 0) {
-    const ids = erroredOps.map(id => `\`${id}\``).join(", ");
-    entries.unshift(
-      `Operators with execution errors (see each operator's block above for the error, input schema, and attempt history): ${ids} — fix \`${erroredOps[0]}\` first (root cause), then re-run.`,
-      ""
-    );
-  }
-
-  if (entries.length === 0) return undefined;
-  return ["# Operators needing attention (fix in this order)", "", ...entries].join("\n").trimEnd();
 }
 
 /* ============================================================================
@@ -2164,10 +1916,8 @@ function serializeTaskBody(
 
     if (node.snapshot && !omitObservation) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // The operator-block STRUCTURAL decorations (Summary / Inputs)
-      // are LATEST's view and stay out here; the DATA-facet decorations (Schema /
-      // Data hints / Format hints) render per `dataLevel`, symmetric with LATEST
-      // (see renderRawResult). Every operator that CHANGED or
+      // Each observation uses the same evidence controls as LATEST. Every
+      // operator that CHANGED or
       // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
       // runPostStepExecution, via computeDelta case c) renders as
       // `- operator <id> <added|updated|deleted>` followed by its result. On
@@ -2360,7 +2110,6 @@ function serializeTaskBody(
               const baseRows = options.maxResultRows ?? 0;
               renderOptions.maxResultRows = baseRows > 0 ? Math.min(baseRows, 3) : 3;
             }
-            if (pref.showOutputStatistics === false) renderOptions.columnStats = false;
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
@@ -2371,20 +2120,6 @@ function serializeTaskBody(
             `  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`
           );
           continue;
-        }
-        // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it
-        // IS the input, since loaders have no `Inputs:` line. `23a5325fc` moved
-        // it out of the `Result:` body so consumed and produced facts stop
-        // mixing, but only added the new render to serializeOperatorFull, which
-        // is the LATEST per-operator block. DELTA lost its render and never got
-        // a replacement — formatOperatorResult still computes the line and
-        // discards it. This is that missing half: emitted at the observation's
-        // own indent, PARALLEL to `result:` rather than inside it, which is the
-        // same relationship it has to `Result:` in LATEST.
-        const fileIoFact =
-          op.nativeOp?.version !== "v2" && renderOptions.fileIoFacts && info ? formatFileIo(info) : undefined;
-        if (fileIoFact) {
-          for (const l of fileIoFact.split("\n")) obs.push(`  ${l}`);
         }
         const resultText = info
           ? renderRawResult(
@@ -2887,18 +2622,6 @@ function renderVersionedCatalog(
           sections.push(
             `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size} — Schema: ${cols.join(", ")}`
           );
-          if (options.rowLineage && info) {
-            const lin = formatRowLineage(info);
-            if (lin) sections.push(lin);
-          }
-          // Structural profile (grain/key candidates, partition columns,
-          // duplicates) in the entry itself, when the arm carries the D2
-          // channel: the facts a later turn's join/dedup decision needs,
-          // without spending a probe operator or a recall to get them.
-          if (options.tableStructureHint && info) {
-            const prof = formatTableHints(info);
-            if (prof) sections.push(prof);
-          }
         }
         sections.push("");
       }
@@ -3075,11 +2798,6 @@ function renderStructuredTurn(
     if (dag) {
       sections.push("## Dataflow (current state — this is what exists now)");
       sections.push(dag);
-      sections.push("");
-    }
-    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
-    if (flow) {
-      sections.push(flow);
       sections.push("");
     }
   }
@@ -3470,17 +3188,7 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
   return lines;
 }
 
-/**
- * The execution result for the DELTA `Observation:` — output table (TSV,
- * row-capped) or the FULL error. Data-facet decorations (schema / structural
- * profile / value-format / coercion) are rendered per `dataLevel`, SYMMETRIC
- * with LATEST — the data ladder means the same thing in both context modes.
- * (The operator-block STRUCTURAL lines — Summary / Inputs — remain LATEST-only;
- * they are not part of the data facet.) The engine error's `Operator
- * code:` block is intentionally KEPT (it makes the error self-contained — the
- * agent sees the failing line in its own code right where the error is), even
- * though the same code also appears in the Action.
- */
+/** Context layout and result sampling are independent of data/flow evidence. */
 /** The shape map for one snapshot under the arm's `resultSelection`:
  *  "rule" = whether a table ships; "scoped" = also how much of it; "all" =
  *  only spent previews retire. */
@@ -3735,36 +3443,6 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
   return delta;
 }
 
-/* ============================================================================
- *  Per-operator serialization
- * ========================================================================= */
-
-/** The legacy (global-flag) result-format options — shared by the LATEST
- *  operator block and the DELTA observation render. */
-/**
- * Is `operatorId` a SOURCE operator — one with no inbound link? Sources read
- * the data lake; everything else reads another operator's output. The two
- * classes want different evidence: a source can lose rows only by dirty parse
- * (coercion, dropped values, file-IO), a consumer can lose them only by its own
- * transform (lineage / join rate), so a channel aimed at one is noise on the other.
- */
-function isSourceOperator(operatorId: string, workflowState: WorkflowState): boolean {
-  for (const l of workflowState.getAllLinks()) {
-    if (l?.target?.operatorID === operatorId) return false;
-  }
-  return true;
-}
-
-/**
- * Gate one data-facet channel on where the operator sits in the DAG.
- * `undefined`/"all" keeps the legacy behaviour (render wherever the flag is on).
- */
-function inScope(scope: StatScope | undefined, isSource: boolean): boolean {
-  if (!scope || scope === "all") return true;
-  if (scope === "off") return false;
-  return scope === "source" ? isSource : !isSource;
-}
-
 function nativeEvidenceAtSnapshot(
   operatorId: string,
   snapshot: SnapshotData,
@@ -3778,9 +3456,8 @@ function nativeEvidenceAtSnapshot(
     resolveInput: id => snapshot.results.get(id)?.info,
     // Imported old events have no recorded exposure settings: do not invent
     // evidence that was never present in their model-facing observations.
-    data:
-      !historical && (options.nativeEvidence?.data ?? ((options.dataLevel ?? 0) > 0 || options.columnStats === true)),
-    flow: !historical && (options.nativeEvidence?.flow ?? (options.flowLevel ?? 0) > 0),
+    data: !historical && (options.nativeEvidence?.data ?? options.dataEvidence === true),
+    flow: !historical && (options.nativeEvidence?.flow ?? options.flowEvidence === true),
     maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
     frozen,
     compact: compact || options.nativeObservationCompaction === true,
@@ -3792,23 +3469,9 @@ function legacyFormatOptions(
   operatorId?: string,
   workflowState?: WorkflowState
 ): FormatOperatorResultOptions {
-  // Position-aware channel gating (statScopes). Without scopes configured this
-  // is exactly the previous flag pass-through — every `inScope` returns true.
-  const sc = options.statScopes;
-  const isSource = sc && operatorId && workflowState ? isSourceOperator(operatorId, workflowState) : true;
-  const on = (flag: boolean | undefined, scope: StatScope | undefined) => flag === true && inScope(scope, isSource);
   return {
     schemaInResult: options.schemaInResult,
-    columnStats: sc ? on(options.columnStats, sc.columnStats) : options.columnStats,
-    valueFormatFlags: sc ? on(options.valueFormatFlags, sc.valueFormat) : options.valueFormatFlags,
-    coercionTelemetry: sc ? on(options.coercionTelemetry, sc.coercion) : options.coercionTelemetry,
-    rowLineage: sc ? on(options.rowLineage, sc.lineage) : options.rowLineage,
     maxResultRows: options.maxResultRows,
-    tableStructureHint: sc ? on(options.tableStructureHint, sc.structural) : options.tableStructureHint,
-    // A7: the legacy (no per-operator extras) path serves DELTA arms and any
-    // arm without overrides. Omitting this dropped the `Files read:` fact for
-    // every such arm even when stats implied it.
-    fileIoFacts: sc ? on(options.fileIoFacts, sc.fileIo) : options.fileIoFacts,
   };
 }
 
@@ -3826,38 +3489,12 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     detail: ex.detail === "shape" ? "shape" : undefined,
     schemaInResult: ex.column.schema,
     schemaTypes: ex.column.schemaTypes,
-    columnStats: ex.column.stats,
-    statsMetrics: ex.column.statsMetrics,
-    statsDensity: ex.column.statsDensity,
-    valueFormatFlags: ex.column.valueFormatHints,
-    coercionTelemetry: ex.column.coercionAlerts,
-    rowLineage: ex.column.lineage,
-    tableStructureHint: ex.column.structuralHints,
-    fileIoFacts: ex.column.fileIoFacts,
     maxResultRows: sampleRows,
     maxResultChars: ex.tuple.maxChars,
     sampleDuplicates: ex.tuple.duplicates,
     sampleFdHints: ex.tuple.fdHints,
   };
 }
-
-/**
- * Stage-aware loader-remediation hint (plan4, goal.md lever D / Direction-1).
- * Maps the exception CLASS parsed from a load-stage operator's error string to
- * a compact, GENERAL pandas remediation directive. Keyed only on the exception
- * class — never a task/column/domain/answer literal — so it generalizes from
- * the (stage=DataLoading, error-class) structure alone. Returns `undefined`
- * for classes that aren't a known load-failure mode (then no hint renders).
- *
- * Motivation (baseline traces): the agent already SEES the `[ERROR]` block with
- * its own code, yet loops without fixing it (e.g. legal-hard-18 retried 8 steps
- * on a `0x93` byte that is plainly Windows-1252). The missing ingredient is
- * remediation knowledge, not visibility — so we inject the fix pattern once,
- * localized to the failing loader operator.
- */
-// `formatLoaderHint` now lives in context/decorate/flow/loader-remediation and
-// is re-exported here for back-compat with any existing importers.
-export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
 /**
  * NATIVE result selection, "count" shape: one line — the output row count against
@@ -3937,97 +3574,8 @@ function formatOperatorAdjacency(
       return shapeStr ? `${i.up} (${shapeStr})` : i.up;
     });
     lines.push("Inputs: " + parts.join(", "));
-
-    // MULTI-INPUT RETENTION. A join that silently drops the rows it should have
-    // kept is the single most expensive mistake in a long analysis: every later
-    // turn inherits the truncated population. The numbers are already on the
-    // Inputs line, and the model still walks past them — measured on
-    // march_madness turn 1, in SIX different arms: three inputs of 354/353/353
-    // rows, output 210, and no arm noticed. Every one of those runs then scored
-    // 3.1 on the task, because the answer was computed over 210 of 353 teams.
-    //
-    // The existing Lineage line cannot show this: it divides by the SUM of the
-    // inputs (1060 here), so a broken join reads as an ordinary filter. For an
-    // inner join the binding constraint is the SMALLEST input, so retention is
-    // measured against that, and stated only when rows were actually lost.
-    const inRows = inbound
-      .map(i => shapes.find(s => s.portIndex === i.port)?.rows)
-      .filter((r): r is number => typeof r === "number" && r > 0);
-    const out = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
-    if (inbound.length > 1 && inRows.length === inbound.length && typeof out === "number") {
-      const smallest = Math.min(...inRows);
-      if (out < smallest) {
-        const pct = ((100 * out) / smallest).toFixed(0);
-        lines.push(
-          `Join retention: ${out} of ${smallest} rows (${pct}% of the smallest input) — ` +
-            `${smallest - out} rows had no match. If they should have matched, the join key does not agree ` +
-            `across the inputs (spelling, spacing, case, or a different naming convention) and the population ` +
-            `every later turn inherits is now short by that many rows.`
-        );
-      }
-    }
   }
-  // VALUE LOSS. The sibling of the join fact, for values rather than rows:
-  // `pd.to_numeric(x, errors="coerce")` turns everything it cannot parse into
-  // NaN, and every mean/sum downstream then skips those rows silently. It
-  // appears at 40% of first-error turns, and nothing surfaces it — the platform's
-  // coercion telemetry only covers conversions IT performs, never the ones inside
-  // the operator's own code. Null RATES per column are already collected on both
-  // sides, so the rise is computable here, and a rate comparison survives the
-  // row-count change a filter introduces.
-  lines.push(
-    ...formatValueLoss(
-      inbound.map(i => i.up),
-      opInfo,
-      snapshot
-    )
-  );
   return lines;
-}
-
-/** Columns whose null rate rose materially between an input and the output. */
-function formatValueLoss(upstreamIds: string[], opInfo?: OperatorInfo, snapshot?: SnapshotData): string[] {
-  const nullsOf = (stats?: Record<string, string>): Map<string, number> => {
-    const out = new Map<string, number>();
-    for (const [col, text] of Object.entries(stats ?? {})) {
-      const m = /null=(\d+)/.exec(text);
-      if (m) out.set(col, Number(m[1]));
-    }
-    return out;
-  };
-  const outRows = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
-  if (!outRows || outRows <= 0) return [];
-  const outNulls = nullsOf(opInfo?.columnStats);
-  if (outNulls.size === 0) return [];
-
-  const found: string[] = [];
-  for (const up of upstreamIds) {
-    const upInfo = snapshot?.results.get(up)?.info;
-    const upRows = typeof upInfo?.totalRowCount === "number" ? upInfo.totalRowCount : upInfo?.outputTuples;
-    if (!upRows || upRows <= 0) continue;
-    const upNulls = nullsOf(upInfo?.columnStats);
-    for (const [col, after] of outNulls) {
-      const before = upNulls.get(col);
-      if (before === undefined) continue;
-      const rateBefore = before / upRows;
-      const rateAfter = after / outRows;
-      const newlyNull = Math.round((rateAfter - rateBefore) * outRows);
-      // Both a rate jump and a material count, so a 3-row table cannot trip it.
-      if (rateAfter - rateBefore >= 0.05 && newlyNull >= 25) {
-        found.push(
-          `\`${col}\` lost ${newlyNull} values (null rate ${(100 * rateBefore).toFixed(1)}% → ` +
-            `${(100 * rateAfter).toFixed(1)}%) between \`${up}\` and here`
-        );
-      }
-    }
-  }
-  if (found.length === 0) return [];
-  return [
-    "Value loss: " +
-      found.slice(0, 3).join("; ") +
-      ". A parse or coercion did not succeed on those rows; every mean, sum and count over those columns now " +
-      "skips them, so the denominator is smaller than the row count suggests.",
-  ];
 }
 
 function serializeOperatorFull(
@@ -4146,15 +3694,6 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
-  // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it IS the
-  // input, since loaders have no `Inputs:` line. Emitted here so both consumed
-  // facts sit TOGETHER, above `Code:` and above `Result:`; everything indented
-  // under `Result:` describes the output.
-  if (op.nativeOp?.version !== "v2" && options.fileIoFacts && info) {
-    const fio = formatFileIo(info);
-    if (fio) lines.push(fio);
-  }
-
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
   if (ex?.includeCode && !info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
@@ -4265,13 +3804,6 @@ function serializeOperatorFull(
           sampleFdHints: rv.render.tuple.fdHints,
           schemaInResult: rv.render.column.schema,
           schemaTypes: rv.render.column.schemaTypes,
-          columnStats: rv.render.column.stats,
-          statsMetrics: rv.render.column.statsMetrics,
-          statsDensity: rv.render.column.statsDensity,
-          valueFormatFlags: rv.render.column.valueFormatHints,
-          coercionTelemetry: rv.render.column.coercionAlerts,
-          tableStructureHint: rv.render.column.structuralHints,
-          fileIoFacts: rv.render.column.fileIoFacts,
           inputsInResult: false,
         });
         for (const l of t.split("\n")) lines.push("  " + l);
@@ -4289,13 +3821,6 @@ function serializeOperatorFull(
   if (options.errorReflection && isCurrent && info?.error) {
     const entry = options.errorReflectionMap?.get(op.operatorID);
     const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
-    // Debugging aids shown on ANY execution error: the upstream input schema (fix
-    // against real columns) and a loader-remediation hint.
-    for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
-    if (op.operatorType === "DataLoading") {
-      const hint = formatLoaderHint(info.error);
-      if (hint) for (const l of hint.split("\n")) lines.push(l);
-    }
     // Attempt/error HISTORY (count, repeated-error verdict, last-attempt diff) only
     // once the model has gone >= N consecutive (re)fixes on this op (it's stuck).
     if (entry && entry.consecutive >= threshold) {

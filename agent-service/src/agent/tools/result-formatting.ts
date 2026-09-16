@@ -32,25 +32,13 @@ import { getVisibleResultHeaders } from "./tools-utility";
 // DECORATE data-facet render rungs (extracted into context/decorate/data/*).
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
-import { RESERVED_STATS_KEYS, COERCION_TELEMETRY_KEY } from "../context/decorate/data/reserved-keys";
 import { formatSchemaLine } from "../context/decorate/data/schema";
-import { formatColumnStats } from "../context/decorate/data/column-stats";
-import { formatTableHints, formatFileIo } from "../context/decorate/data/structural-profile";
-import { formatValueFormatHints } from "../context/decorate/data/value-format";
-import { formatReservedDiag } from "../context/decorate/data/diagnostics";
 import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
 // reference them from this module.
-export {
-  formatSchemaLine,
-  formatColumnStats,
-  formatValueFormatHints,
-  formatTableHints,
-  formatFileIo,
-  formatReservedDiag,
-};
+export { formatSchemaLine };
 
 export interface FormatOperatorResultOptions {
   /** V2 evidence shares the result body budget. A recorded DELTA frame wins
@@ -66,47 +54,9 @@ export interface FormatOperatorResultOptions {
    *  the result-row headers (names only). A cheaper, complete substitute for
    *  the fuller `Column Schema and stats:` block. Defaults to false. */
   schemaInResult?: boolean;
-  /** When true, append the full per-column `Column Schema and stats:` block (null counts,
-   *  mean/min/max, distinct, top-N histograms, datetime range) the worker
-   *  publishes on `columnStats`. Standalone — independent of the data ladder, so
-   *  it composes on top of any `dataLevel`. Matches the format the CODE-mode
-   *  system prompt documents. Defaults to false. */
-  columnStats?: boolean;
-  /** When true, append a `Format hints:` line naming string columns the backend
-   *  detected as numbers wearing formatting punctuation (currency `$1,234`,
-   *  thousands-separated, percent, accounting `(1,234)`) and the cleaning the
-   *  model should apply BEFORE numeric conversion. Detection is done in the
-   *  Python worker over the *whole* column via pandas (see
-   *  data_processor._detect_numeric_format) and shipped as a `format=<tag>`
-   *  field on `columnStats`; this side only renders. Targets silent
-   *  to_numeric(errors='coerce') dataloss. Defaults to false. */
-  valueFormatFlags?: boolean;
-  /** When true, surface a coercion-dataloss line for any
-   *  `to_numeric/to_datetime(errors="coerce")` that the worker's transparent
-   *  instrumentation saw silently null a material block of values — with a
-   *  SAMPLE of the dropped values. Read from the reserved `__coercion_telemetry__`
-   *  entry on columnStats (see coercion_telemetry.py). Alarm-only. Defaults to false. */
-  coercionTelemetry?: boolean;
-  /** When true, append a `Lineage:` line — rows in vs rows out, from the
-   *  engine's own execution counts (`inputTuples`/`outputTuples`). A pure FACT
-   *  with no thresholds: silent row loss (a join dropping keys, a filter eating
-   *  more than intended) is visible at the step where it happens instead of
-   *  cascading. Only renders for operators that consumed rows, so loaders stay
-   *  clean. Defaults to false. */
-  rowLineage?: boolean;
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
-  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
-   *  (table grain/key, low-cardinality partition/gate columns, dirty-load:
-   *  empty rows/cols + duplicates) computed name-agnostically by the worker over
-   *  the whole DataFrame (see data_processor._detect_table_structure). Read from
-   *  the reserved `__table_hints__` entry on columnStats; this side only renders.
-   *  Targets the silent wrong-population / wrong-grain failure class. Default false. */
-  tableStructureHint?: boolean;
-  /** A7: render `Files read: N [names]` for multi-file loaders. Independent of
-   *  tableStructureHint so schema-only arms can carry it too. */
-  fileIoFacts?: boolean;
   /** Resolve an input's COLUMN count from its upstream operator's output. The
    *  engine's input port metrics carry only the row count (tuple count), so the
    *  caller (which has the snapshot) supplies this to fill in `M cols` on the
@@ -129,16 +79,6 @@ export interface FormatOperatorResultOptions {
    *  `maxOperatorResultCharLimit`, which is one engine-side number for the whole
    *  execution and cannot vary per operator. */
   maxResultChars?: number;
-  /** Metric families to keep in the `Column Schema and stats:` block
-   *  ("all" / undefined ⇒ worker strings verbatim). */
-  statsMetrics?: "all" | readonly string[];
-  /** How densely the stats block renders (default "full" = legacy verbatim):
-   *   - "full":    every metric the worker published, on every column.
-   *   - "anomaly": only facts the visible sample does not already prove —
-   *                suppresses the block outright when every row is on screen,
-   *                drops `null=0`, rewrites `distinct` to `unique`/`constant`,
-   *                and drops the `Schema (…)` echo the block subsumes. */
-  statsDensity?: "full" | "anomaly";
   /** Include `(type)` tags on the Schema line (default true). */
   schemaTypes?: boolean;
   /** Sample-based duplicate rows / identical-column detection line. */
@@ -238,18 +178,6 @@ export function formatNativeError(operatorId: string, type: string, error: strin
   return `${type} \`${operatorId}\` failed: ${strip(error)}`;
 }
 
-/** The stats entries of `columns` plus every reserved `__…__` diagnostic key. */
-function pickColumnStats(
-  stats: Record<string, string> | undefined,
-  columns: readonly string[]
-): Record<string, string> | undefined {
-  if (!stats) return undefined;
-  const keep = new Set(columns);
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(stats)) if (k.startsWith("__") || keep.has(k)) out[k] = v;
-  return out;
-}
-
 export function formatOperatorResult(
   operatorId: string,
   opInfo: OperatorInfo,
@@ -266,6 +194,18 @@ export function formatOperatorResult(
         id =>
           options.nativeEvidence?.workflow.operators.find(op => op.operatorID === id) ?? workflowState.getOperator(id)
       );
+    const rootInfo = options.nativeEvidence?.resolveInput(diagnostic.operatorId);
+    const rootDiagnostic =
+      rootInfo?.nativeError?.diagnostic ?? (rootInfo?.error ? parseNativeDiagnostic(rootInfo.error) : undefined);
+    if (
+      diagnostic.operatorId !== operatorId &&
+      rootInfo?.error &&
+      rootDiagnostic?.operatorId === diagnostic.operatorId &&
+      rootDiagnostic.operatorRevision === diagnostic.operatorRevision &&
+      rootDiagnostic.code === diagnostic.code
+    ) {
+      return `[ERROR] ${eventOp.nativeOp.type} \`${operatorId}\` not executed; upstream \`${diagnostic.operatorId}\` failed (${diagnostic.code}). Repair that operator; this consumer did not run.`;
+    }
     const label =
       diagnostic.operatorId === operatorId
         ? `${eventOp.nativeOp.type} \`${operatorId}\` failed`
@@ -434,41 +374,8 @@ export function formatOperatorResult(
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const statsScoped = options.columns !== undefined;
-  const statsInfo = statsScoped
-    ? { ...opInfo, columnStats: pickColumnStats(opInfo.columnStats, options.columns!) }
-    : opInfo;
-  const colStatsBlock =
-    options.columnStats && !completeSmallTableVisible && !(statsScoped && options.columns!.length === 0)
-      ? formatColumnStats(statsInfo, options.statsMetrics ?? "all", options.statsDensity ?? "full")
-      : undefined;
-  // `Schema (N cols): col (type), …` and the stats block both carry every
-  // column's name and type; when both render, the Schema line is a pure echo
-  // (measured: 91.6% of operator blocks carried one, 24,259 chars across the
-  // Rule A arms — the single largest waste class). Under "anomaly" density the
-  // stats block subsumes it.
-  const schemaEchoesStats = options.statsDensity === "anomaly" && colStatsBlock !== undefined;
   const schemaLine =
-    options.schemaInResult && !schemaEchoesStats ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
-  const formatHints = options.valueFormatFlags ? formatValueFormatHints(opInfo) : undefined;
-  const coercionLine = options.coercionTelemetry ? formatReservedDiag(opInfo, COERCION_TELEMETRY_KEY) : undefined;
-  const lineageLine = options.rowLineage ? formatRowLineage(opInfo) : undefined;
-  const tableHintsLine = options.tableStructureHint ? formatTableHints(opInfo) : undefined;
-  // A7: `Files read:` is a CONSUMED fact, not a description of the output, so it
-  // is NOT part of the joined body below — the CALLER renders it outside the
-  // Result block (parallel to it, next to `Inputs:`). There are two such callers
-  // and both must have one, which is the trap this file previously set: the line
-  // used to be computed here and then `void`-ed, which reads like the callers are
-  // covered. Only serializeOperatorFull (LATEST) was; serializeTaskBody (DELTA)
-  // was not, so the fact was dead on every DELTA arm for months. Computing it
-  // here at all is what made the omission invisible, so it is no longer computed
-  // here — a caller that forgets now has nothing to inherit.
-  //   LATEST → context-utils.serializeOperatorFull
-  //   DELTA  → context-utils.serializeTaskBody (observation loop)
-  // The worker's line already reads "files read: N [names]", so it is its own
-  // header — an extra "Files read:" wrapper renders as "Files read: - files read: N".
-  // Sample-based tuple-level profiling (summarize params; explicitly labeled
-  // sample-based — computed over the sampled rows this service holds).
+    options.schemaInResult === true ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
   const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
   const fdLine = options.sampleFdHints ? formatSampleFds(serializableArray) : undefined;
   // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
@@ -476,42 +383,7 @@ export function formatOperatorResult(
   // schema+stats / format & structure hints), so annotations read AFTER the data
   // they refer to. Flow rungs live in context-utils' "Operators needing
   // attention" section; result-formatting owns only the data facet + TSV.
-  return [
-    ...metadataLines,
-    dataString,
-    schemaLine,
-    lineageLine,
-    colStatsBlock,
-    formatHints,
-    coercionLine,
-    tableHintsLine,
-    dupLine,
-    fdLine,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-/**
- * `Lineage:` — rows consumed vs rows produced, from the engine's execution
- * counts. Deliberately a fact and not an alarm: any threshold would need
- * tuning, and the number is short enough to state every time. The reader the
- * fact exists for is the turn that just ran a join and silently lost rows —
- * measured: one inner join keeping 462 of 472 rows cost thirteen downstream
- * turns before anything visibly failed.
- */
-export function formatRowLineage(opInfo: OperatorInfo): string | undefined {
-  const rowsIn = opInfo.inputTuples;
-  if (typeof rowsIn !== "number" || rowsIn <= 0) return undefined; // loaders: nothing consumed
-  const rowsOut =
-    typeof opInfo.totalRowCount === "number"
-      ? opInfo.totalRowCount
-      : typeof opInfo.outputTuples === "number"
-        ? opInfo.outputTuples
-        : undefined;
-  if (typeof rowsOut !== "number") return undefined;
-  const pct = rowsIn > 0 ? ` (${((100 * rowsOut) / rowsIn).toFixed(1)}% of input rows)` : "";
-  return `Lineage: ${rowsIn} rows in \u2192 ${rowsOut} rows out${pct}`;
+  return [...metadataLines, dataString, schemaLine, dupLine, fdLine].filter(Boolean).join("\n");
 }
 
 /**

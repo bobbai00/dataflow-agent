@@ -21,7 +21,11 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
-import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./agent/native/settings";
+import {
+  NativeCatalogSettingsError,
+  validateNativeCatalogSettings,
+  validateEvidenceSettings,
+} from "./agent/native/settings";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -215,12 +219,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     return tuner;
   };
 
-  // The rich SDK context (`# User Task` / `# Current Dataflow` + decoration
-  // rungs). Controlled by the SELECT mode (settings.contextMode), the two
-  // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
-  // into the individual decoration rungs via the catalog), plus the substrate /
-  // select / prior knobs below. The per-rung decoration booleans are NOT a
-  // public knob — they are the internal expansion target of the levels.
+  // Layout and sampling are independent of the two explicit evidence channels.
   // Ordinary renderers stay synchronous so debug/UI previews show the current
   // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
   const sdkContext: ContextAssembler = ({
@@ -235,10 +234,10 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      dataEvidence: settings.dataEvidence,
+      flowEvidence: settings.flowEvidence,
       resultSelection: settings.resultSelection,
       includeOperatorProperties: settings.includeOperatorProperties,
-      flowLevel: settings.flowLevel,
-      dataLevel: settings.dataLevel,
       thoughtReplay: settings.thoughtReplay,
       agentTurns: settings.agentTurns,
       contextWindowTokens: settings.contextWindowTokens,
@@ -259,12 +258,6 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
       thinObservations: settings.indexThinObservations !== false ? undefined : false,
       attemptReflection: settings.attemptReflection,
-      columnStats: settings.columnStats,
-      valueFormatFlags: settings.valueFormat,
-      tableStructureHint: settings.dataHints,
-      coercionTelemetry: settings.coercionTelemetry,
-      rowLineage: settings.rowLineage,
-      statScopes: settings.statScopes,
       // Caching is not optional: unless an arm pins a layout, LATEST ships one
       // message per operator block (opSplit) and DELTA ships the append-only
       // tool-call transcript (native), the two framings gpt-5.6-* can credit.
@@ -291,6 +284,11 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       turnNumberByMessageId,
       offBranchTurns,
     };
+    const evidenceSettings = {
+      data: settings.dataEvidence,
+      flow: settings.flowEvidence,
+      maxChars: settings.maxOperatorResultCharLimit,
+    };
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
     // base-preserving frontier decay > legacy contextMode.
@@ -301,6 +299,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       if (model) {
         const dossier = buildDossier(visibleSteps, snapshotStorage);
         const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
+        params.nativeEvidence = evidenceSettings;
         return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
           .messages;
       }
@@ -313,15 +312,18 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       return getTuner(settings.tunerConfig)
         .tune(dossier, latestTaskText(visibleSteps))
-        .then(({ params }) =>
-          summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params).messages
-        );
+        .then(({ params }) => {
+          params.nativeEvidence = evidenceSettings;
+          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+            .messages;
+        });
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
     // params from the live dossier. The dossier is built once and reused.
     if (settings.selectorConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       const params = selectParams(dossier, settings.selectorConfig);
+      params.nativeEvidence = evidenceSettings;
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
     }
@@ -487,7 +489,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       // RULE A: role-keyed render policy (rich source / lean interior).
       if (settings.rolePolicyConfig) params = applyRolePolicy(params, dossier, settings.rolePolicyConfig);
       // Write-time render prefs: latest landed version's outputSummary /
-      // showOutputStatistics -> per-op overrides (LATEST snapshot render).
+      // outputSummary becomes a per-operator sample override (LATEST).
       if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
@@ -601,6 +603,8 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeToolMode: agentSettings.nativeToolMode,
     nativeCatalogVersion: agentSettings.nativeCatalogVersion,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
+    dataEvidence: agentSettings.dataEvidence,
+    flowEvidence: agentSettings.flowEvidence,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
     messageLayout: agentSettings.messageLayout,
@@ -616,12 +620,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     thoughtReplayK: agentSettings.thoughtReplayK,
     fewShotPrompt: agentSettings.fewShotPrompt,
     maxResultRows: agentSettings.maxResultRows,
-    flowLevel: agentSettings.flowLevel,
-    dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
-    columnStats: agentSettings.columnStats,
-    valueFormat: agentSettings.valueFormat,
-    dataHints: agentSettings.dataHints,
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
@@ -756,7 +755,8 @@ function parseLearnedConfigInput(raw: unknown): LearnedConfig | null | undefined
   return parsed.data;
 }
 
-const agentsRouter = new Elysia({ prefix: "/agents" })
+// Reject unknown/retired settings instead of Elysia silently stripping them.
+const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   // Error handler must live on the same Elysia instance whose routes throw, or
   // its scope will not see the errors. Elysia 1.x defaults to local scoping for
   // .onError, so attach here rather than on the outer app.
@@ -848,6 +848,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             nativeToolMode: settings.nativeToolMode,
             nativeCatalogVersion: settings.nativeCatalogVersion,
             nativeProfileCollection: settings.nativeProfileCollection,
+            dataEvidence: settings.dataEvidence,
+            flowEvidence: settings.flowEvidence,
             resultSelection: (settings as any).resultSelection,
             contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
             parallelToolCalls: settings.parallelToolCalls,
@@ -862,12 +864,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             thoughtReplayK: settings.thoughtReplayK,
             fewShotPrompt: settings.fewShotPrompt,
             maxResultRows: settings.maxResultRows,
-            flowLevel: settings.flowLevel,
-            dataLevel: settings.dataLevel,
             attemptReflection: settings.attemptReflection,
-            columnStats: settings.columnStats,
-            valueFormat: settings.valueFormat,
-            dataHints: settings.dataHints,
             toolDialect: settings.toolDialect,
             summarizeParams: parseSummarizePatch(settings.summarizeParams),
             selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -895,9 +892,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             indexDetailedOperators: (settings as any).indexDetailedOperators,
             enableResumeTool: (settings as any).enableResumeTool,
             enableAnswerGrounding: (settings as any).enableAnswerGrounding,
-            coercionTelemetry: (settings as any).coercionTelemetry,
-            rowLineage: (settings as any).rowLineage,
-            statScopes: (settings as any).statScopes,
             messageLayout: (settings as any).messageLayout,
             versionedMode: (settings as any).versionedMode,
             versionedHeads: (settings as any).versionedHeads,
@@ -941,6 +935,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
             nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
             nativeProfileCollection: t.Optional(t.Boolean()),
+            dataEvidence: t.Optional(t.Boolean()),
+            flowEvidence: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
@@ -955,12 +951,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             thoughtReplayK: t.Optional(t.Number()),
             fewShotPrompt: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
-            flowLevel: t.Optional(t.Number()),
-            dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
-            columnStats: t.Optional(t.Boolean()),
-            valueFormat: t.Optional(t.Boolean()),
-            dataHints: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
             // Deep-partial summarize() params patch; zod-validated in-handler
             // (the shape is too rich for a TypeBox mirror to earn its keep).
@@ -988,9 +979,6 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             indexDetailedOperators: t.Optional(t.Number()),
             enableResumeTool: t.Optional(t.Boolean()),
             enableAnswerGrounding: t.Optional(t.Boolean()),
-            coercionTelemetry: t.Optional(t.Boolean()),
-            rowLineage: t.Optional(t.Boolean()),
-            statScopes: t.Optional(t.Any()),
             messageLayout: t.Optional(t.String()),
             versionedMode: t.Optional(t.Boolean()),
             versionedHeads: t.Optional(t.Boolean()),
@@ -1294,6 +1282,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const settings = body as UpdateAgentSettingsRequest;
+      validateEvidenceSettings(settings);
 
       log.info(
         {
@@ -1321,6 +1310,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         nativeToolMode: settings.nativeToolMode,
         nativeCatalogVersion: settings.nativeCatalogVersion,
         nativeProfileCollection: settings.nativeProfileCollection,
+        dataEvidence: settings.dataEvidence,
+        flowEvidence: settings.flowEvidence,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1337,12 +1328,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: settings.thoughtReplayK,
         fewShotPrompt: settings.fewShotPrompt,
         maxResultRows: settings.maxResultRows,
-        flowLevel: settings.flowLevel,
-        dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
-        columnStats: settings.columnStats,
-        valueFormat: settings.valueFormat,
-        dataHints: settings.dataHints,
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -1383,6 +1369,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
         nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
         nativeProfileCollection: t.Optional(t.Boolean()),
+        dataEvidence: t.Optional(t.Boolean()),
+        flowEvidence: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
@@ -1397,12 +1385,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: t.Optional(t.Number()),
         fewShotPrompt: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
-        flowLevel: t.Optional(t.Number()),
-        dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
-        columnStats: t.Optional(t.Boolean()),
-        valueFormat: t.Optional(t.Boolean()),
-        dataHints: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
         // Deep-partial summarize() params patch; zod-validated in-handler.
         // Pass null to clear a previously-set patch.
@@ -1495,7 +1478,7 @@ function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
 }
 
 export function buildApp() {
-  return new Elysia()
+  return new Elysia({ normalize: false })
     .use(cors())
     .use(dashboardPlugin)
     .group(env.API_PREFIX, app =>

@@ -69,13 +69,12 @@ const render = (s: Scenario): string =>
       .join("\n")
   );
 
-describe("join retention is stated when a join loses rows", () => {
-  test("the measured case — 354/353/353 in, 210 out — is named explicitly", () => {
+describe("legacy join heuristics are not context evidence", () => {
+  test("row-count differences must not invent unmatched-row counts", () => {
     const text = render(joinScenario([354, 353, 353], 210));
-    expect(text).toContain("Join retention: 210 of 353 rows (59% of the smallest input)");
-    expect(text).toContain("143 rows had no match");
-    // and it says WHY, because "59%" alone is a number the model already skipped
-    expect(text).toContain("the join key does not agree");
+    expect(text).not.toContain("Join retention:");
+    expect(text).not.toContain("143 rows had no match");
+    expect(text).not.toContain("the join key does not agree");
   });
 
   test("a join that keeps everything says nothing — no warning inflation", () => {
@@ -128,26 +127,3 @@ function coerceScenario(upNulls: number, upRows: number, outNulls: number, outRo
   s.storage.setOperatorResult("a1", "cleaned", out);
   return s;
 }
-
-describe("value loss is stated when a column's nulls jump", () => {
-  test("a failed coercion is named, with the count and the rates", () => {
-    const text = render(coerceScenario(0, 1000, 300, 1000));
-    expect(text).toContain("Value loss:");
-    expect(text).toContain("`amount` lost 300 values");
-    expect(text).toContain("0.0% → 30.0%");
-    expect(text).toContain("the denominator is smaller than the row count suggests");
-  });
-
-  test("a clean pass-through says nothing", () => {
-    expect(render(coerceScenario(0, 1000, 0, 1000))).not.toContain("Value loss");
-  });
-
-  test("a handful of new nulls in a small table says nothing — no alarm inflation", () => {
-    expect(render(coerceScenario(0, 40, 4, 40))).not.toContain("Value loss");
-  });
-
-  test("nulls that were ALREADY there are not blamed on this operator", () => {
-    // 30% null before, 30% null after: the operator introduced nothing.
-    expect(render(coerceScenario(300, 1000, 300, 1000))).not.toContain("Value loss");
-  });
-});

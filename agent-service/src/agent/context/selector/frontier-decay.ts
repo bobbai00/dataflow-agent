@@ -127,13 +127,13 @@ export function applyFrontierDecay(
 
     const baseRows = baseOperator.result.latest.tuple.sampleRows;
     const sampleRows = baseRows > 0 ? Math.min(baseRows, config.sampleRows) : config.sampleRows;
-    if (sampleRows === baseRows && !baseOperator.result.latest.column.stats) continue;
+    if (sampleRows === baseRows) continue;
 
     overrides[operatorId] = {
       result: {
         latest: {
           tuple: { sampleRows },
-          column: { stats: false },
+          column: {},
         },
       },
     };

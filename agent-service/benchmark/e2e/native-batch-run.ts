@@ -92,9 +92,8 @@ function renderMirroredContext(mode: ContextMode): string {
   return assembleContext(mirroredSteps, mirroredState, mirroredStorage, mode, {
     agentMode: AgentMode.NATIVE,
     resultSelection: "all",
-    flowLevel: 0,
-    dataLevel: 0,
-    columnStats: false,
+    flowEvidence: false,
+    dataEvidence: false,
   })
     .map(m => m.content)
     .join("\n");
@@ -150,9 +149,8 @@ try {
       parallelToolCalls: false,
       resultSelection: "all",
       contextMode: "delta",
-      columnStats: false,
-      flowLevel: 0,
-      dataLevel: 0,
+      flowEvidence: false,
+      dataEvidence: false,
       enableInspectTool: true, // Legacy clients must not resurrect the removed tool.
     },
   });

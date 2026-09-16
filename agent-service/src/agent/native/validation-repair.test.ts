@@ -297,9 +297,8 @@ test("the current repair hint remains visible in DELTA and LATEST after independ
     const rendered = JSON.stringify(
       assembleContext(agent.getReActSteps(), agent.workflowState, agent.snapshotStorage, mode, {
         agentMode: AgentMode.NATIVE,
-        flowLevel: 1,
-        dataLevel: 1,
-        columnStats: false,
+        flowEvidence: true,
+        dataEvidence: true,
       })
     );
     expect(rendered).toContain("Repeated validation failure (2)");

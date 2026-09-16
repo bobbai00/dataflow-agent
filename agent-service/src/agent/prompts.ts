@@ -177,7 +177,7 @@ Your input is structured as top-level sections in this order:
 
 3. **\`# Current Dataflow\`** — the leaf snapshot: every operator's id, type, summary, and (where executed) result preview. Present in LATEST mode only — FULL and DELTA modes carry the trailing snapshot inline under their last \`## Agent Event N\` block. Operator code is **not** shown in any snapshot; to change a past operator, call \`modifyOperator\` with the same \`operatorId\` and the properties to change (for a Python operator, its new \`code\`).
 
-4. **\`# Operators needing attention (fix in this order)\`** — appears only when something has gone wrong: the affected operators in topological order, root cause before downstream symptom. Work it top-down; fixing the first entry often clears the rest.
+Compilation and execution errors remain in the affected operator observation.
 
 ### Operator Result Tables
 
@@ -694,13 +694,13 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
     .replace("{{RECALL_TOOL}}", recall);
 }
 
-const NATIVE_SHAPES_ALL = `Every executed operator shows its full result: \`Output Table\`, sample rows, \`Column Schema and stats\`, \`Output Table profile\`.`;
+const NATIVE_SHAPES_ALL = `Every executed operator shows its full result: \`Output Table\`, sample rows and schema when available.`;
 
 const NATIVE_SHAPES_RULE = `### Which results are shown
 
 Your own parameters are always shown under \`Properties\`. A result is shown where the DATA, not your parameters, decided it. Each operator appears in one of three shapes:
 
-**Full** — \`Result:\` with the table, stats and profile. Shown for scan, aggregate, join and udf outputs, for the INPUT table of every aggregate / join / udf (the table whose grain that consumer depends on), and for every operator nothing consumes yet (the table you are about to act on).
+**Full** — \`Result:\` with the table and schema. Shown for scan, aggregate, join and udf outputs, for the INPUT table of every aggregate / join / udf (the table whose grain that consumer depends on), and for every operator nothing consumes yet (the table you are about to act on).
 
 **Count** — one line, \`Result: Output Table: 452 rows, 2 cols (from 660 rows)\`. Shown for filter, distinct, union and limit whose output feeds a row-preserving operator or another filter: the data decided how many rows survived, nothing else.
 
@@ -711,11 +711,11 @@ const NATIVE_SHAPES_SCOPED = `### Which results are shown
 
 Your own parameters are always shown under \`Properties\`. What a result shows depends on the operator's type and on the columns its parameters name:
 
-- **scan, udf** — the whole picture: the full sample and \`Column Schema and stats\` for every column.
+- **scan, udf** — the whole picture: the full sample and schema.
 - **aggregate, distinct, limit** — the table itself: it is its own summary.
-- **filter** — \`Output Table: N rows (from M rows)\`, the complete \`Schema\` line, and stats for the columns in the predicate (and the columns the next operator reads). A short sample only when the predicate matches text.
-- **compute** — a short sample of the source columns next to the new column, the \`Schema\` line, and stats for the new and source columns.
-- **join** — the row count against both inputs, a short sample on the key columns, and the key columns' stats.
+- **filter** — \`Output Table: N rows (from M rows)\`, the complete \`Schema\` line, and selected sample columns. A short sample only when the predicate matches text.
+- **compute** — a short sample of the source columns next to the new column, the \`Schema\` line, and the selected columns.
+- **join** — the row count against both inputs, a short sample on the key columns, and their schema.
 - **project, sort, union, unpivot** — the row count and the \`Schema\` line (sort and unpivot: a short sample).
 
 Once another operator reads a table, a filter, distinct, union or limit collapses to its count line and a project or sort to nothing (its output is its input transformed exactly as \`Properties\` say).
@@ -741,7 +741,7 @@ export function buildNativeModeSystemPrompt(
         ? NATIVE_SHAPES_SCOPED.replace("{{INSPECT_HINT}}", "")
         : NATIVE_SHAPES_ALL;
   const recallLine = layoutOpts.recall
-    ? "\n- `recallState({turn})` — read-only: one earlier turn's request, answer and the operators it added or revised, with their parameters and result shapes (`includeOutputTableSample` chars of rows, `includeOutputTableColumnStats`). Use it when a value from an earlier turn decides this one; nothing is re-executed."
+    ? "\n- `recallState({turn})` — read-only: one earlier turn's request, answer and the operators it added or revised, with their parameters and result shapes (`includeOutputTableSample` chars of rows). Use it when a value from an earlier turn decides this one; nothing is re-executed."
     : "";
   const layout = layoutOpts.versioned
     ? NATIVE_LAYOUT_CATALOG + recallLine
@@ -759,7 +759,7 @@ export function buildNativeModeSystemPrompt(
 
 const NATIVE_LAYOUT_LATEST = `1. **\`# User Task\`** — the user's request, verbatim.
 2. **\`# Current Dataflow\`** — one block per operator, headed \`### <type> operator \\\`id\\\`\` (e.g. \`### filter operator \\\`web_fraud\\\`\`), with \`Inputs:\` (upstream ids and their row counts), \`Properties:\` (your own parameters) and its executed result. No action history is shown; the snapshot always reflects your latest parameters.
-3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
+Errors remain visible in the affected operator observation.`;
 
 const NATIVE_LAYOUT_CATALOG = `This is a multi-turn session: the user sends requests about the same data one at a time, and the operators you build stay live across turns. Your context is a single **\`# Catalog\`**: one **\`## Turn N\`** entry per turn, oldest first; the last entry is the turn you are working on now.
 1. Each finished entry shows **\`### Task\`** (the request, verbatim — rules stated in any turn keep binding until a later turn changes them), **\`### Dataflow delta\`** (the operators that turn added, revised or deleted: \`#### filter operator \\\`id\\\` (added)\`, its \`Properties:\`, its \`Upstream:\` operators with the turn they come from, and \`Result: N rows x C cols — Schema: …\`) and **\`### Answer\`**.
@@ -773,8 +773,8 @@ const NATIVE_LAYOUT_SESSION = `This is a multi-turn session: the user sends requ
 Earlier turns' operators are live state: build on them by id. Answer only the current turn's task.`;
 
 const NATIVE_LAYOUT_DELTA = `1. **\`# User Task\`** — the user's request, verbatim.
-2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took, one line per call: \`- add filter operator \\\`web_fraud\\\`; inputs: contributors; properties: {…}\` (\`modify\` when the id already existed, \`- delete operator \\\`x\\\`\`), and the **\`Observation:\`** it produced: \`- filter operator \\\`web_fraud\\\` added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table, \`Column Schema and stats\`, \`Output Table profile\`). A refused call appears as a one-line \`[ERROR] …\` outcome. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.
-3. **\`# Operators needing attention\`** — when something failed: the affected operators in topological order, root cause first.`;
+2. **\`# Agent Events\`** — your history as \`## Agent Event N\` blocks. Each shows the **\`Action:\`** you took, one line per call: \`- add filter operator \\\`web_fraud\\\`; inputs: contributors; properties: {…}\` (\`modify\` when the id already existed, \`- delete operator \\\`x\\\`\`), and the **\`Observation:\`** it produced: \`- filter operator \\\`web_fraud\\\` added|updated\` for every operator that changed or re-executed, with its \`Inputs:\` and its result (table and schema). A refused call appears as a one-line \`[ERROR] …\` outcome. Only operators that changed in an event appear under it; an operator's current state is the one in the MOST RECENT event that changed it. There is no separate dataflow snapshot — the events are the state.
+Errors remain visible in the affected operator observation.`;
 
 /**
  * Build the GENERAL-mode system prompt with operator schemas and, when the

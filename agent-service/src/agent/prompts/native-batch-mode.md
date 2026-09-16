@@ -116,7 +116,7 @@ Use `dataflow({operators: [], observe: ["operator_id"]})` to retrieve an existin
 
 {{OBSERVATION_SCOPE}}
 
-Requested results contain an `Output Table` count and a tab-separated sample; `...` and truncation notices mean omitted data. Schema, column statistics, and structural profiles appear only when enabled and available. Do not assume absent statistics mean zero nulls or no duplicates. Input/output counts and exact operator parameters help you check how a transformation changed its population and grain.
+Requested results contain an `Output Table` count and a tab-separated sample; `...` and truncation notices mean omitted data. Read the schema and sampled values before choosing a transformation. Samples do not establish whole-table distributions: calculate exact counts explicitly when needed. Input/output counts and exact operator parameters help you check how a transformation changed its population and grain.
 
 ## Operator guidance
 

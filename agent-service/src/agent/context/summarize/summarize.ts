@@ -150,11 +150,7 @@ export function summarize(input: SummarizeInput, params: SummarizeParams): Summa
  * which is what isolates "does the framing change accuracy" from "does it
  * change cost".
  */
-function buildMessages(
-  layout: string | undefined,
-  text: string,
-  stepByEvent: Map<number, ReActStep>,
-): ModelMessage[] {
+function buildMessages(layout: string | undefined, text: string, stepByEvent: Map<number, ReActStep>): ModelMessage[] {
   if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
   if (layout === "turnSplit") {
     const parts = splitTurns(text);
@@ -194,7 +190,10 @@ function buildMessages(
     if (tail) {
       const norm = (s: string) => s.replace(/\s+/g, " ").trim();
       if (norm(head + "\n\n" + tail) === norm(text)) {
-        return [{ role: "user", content: head }, { role: "user", content: tail }];
+        return [
+          { role: "user", content: head },
+          { role: "user", content: tail },
+        ];
       }
     }
   }
@@ -221,7 +220,6 @@ export function paramsToRenderOptions(
   return {
     compilationResult,
     nativeEvidence: params.nativeEvidence,
-    statScopes: params.statScopes,
     agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
     resultSelection: params.resultSelection,
     // The renderer needs the layout for one decision: in the native transcript
@@ -248,19 +246,9 @@ export function paramsToRenderOptions(
     renderPrefsEnabled: params.trajectory.renderPrefs,
     includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
-    columnStats: col.stats,
-    statsDensity: col.statsDensity,
-    loaderHint: params.flow.loaderHints,
-    valueFormatFlags: col.valueFormatHints,
-    lineageErrorContext: params.flow.errorContext,
-    graphAudit: params.flow.graphAudit,
-    coercionTelemetry: col.coercionAlerts,
-    rowLineage: col.lineage,
     maxResultRows: d.result.latest.tuple.sampleRows,
     maxResultChars: d.result.latest.tuple.maxChars,
     maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
-    tableStructureHint: col.structuralHints,
-    fileIoFacts: col.fileIoFacts,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
     thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
     errorReflection: params.flow.errorReflection,
@@ -283,8 +271,6 @@ export function needsExtras(params: SummarizeParams): boolean {
   if (d.result.latest.detail !== "sample") return true;
   if (d.result.latest.tuple.duplicates || d.result.latest.tuple.fdHints) return true;
   if (d.result.latest.tuple.maxChars > 0) return true;
-  if (d.result.latest.column.statsMetrics !== "all") return true;
-  if (d.result.latest.column.statsDensity !== "full") return true;
   if (d.result.latest.column.schemaTypes === false) return true;
   if (d.result.history.lastK > 0) return true;
   return false;

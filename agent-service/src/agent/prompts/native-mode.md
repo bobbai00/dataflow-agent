@@ -50,28 +50,21 @@ Result:
   0	Anniston-Oxford, AL Metropolitan Statistical Area   264
   1	Auburn-Opelika, AL Metropolitan Statistical Area    451
   ...
-  Column Schema and stats:
-  - "metropolitan_area" (str): null=104, distinct=403, duplicate_values=153
-  - "reports" (str): null=208, distinct=342, format=thousands
-  Output Table profile:
-  - duplicate rows: 256 of 660 (39%)
 ```
 
 - The header names the operator type and id; `Inputs:` lists each upstream operator with its `(R rows, C cols)` (absent for scan); `Properties:` are your own parameters.
 - The table is tab-separated; the first line is the header (leading tab = the unnamed 0-based row index column), each following line is one data row, `...` marks omitted rows; `Output Table: N rows` is the true total.
-- **`Column Schema and stats:`** — one line per column, `- "name" (type): k=v, …`: `(str)` null, distinct, `top_5={...}` when distinct ≤ 5; `(numeric)` null, mean, min, max, `top_10` when distinct ≤ 10; `(datetime)` null, min, max. Measured on the FULL table, not the sample.
-- **`Output Table profile:`** — whole-table facts: duplicate rows, all-null columns, empty rows, unnamed headers.
 
-Examine these before deciding the next action. `distinct` against the row count tells you whether a column identifies rows uniquely; `top_5` tells you the exact spellings a predicate must match; `null` after a cast tells you how many values did not parse.
+Read the schema and samples before choosing a transformation. Samples do not establish whole-table distributions; use explicit aggregates when exact counts decide the answer.
 
 ## Key Principles
 
 - **Build incrementally**: link new operators to existing ones. Never reload data already in the dataflow.
-- **Read the table an aggregate or join consumes before adding it**: if the grouping/join key's `distinct` is below the row count, or `duplicate rows` is above 0, the rows are not at the grain you are about to assume — insert `distinct` first, or group by the right key.
-- **Normalize before grouping, joining or matching**: string keys carry case, spacing and spelling variants across files (`Yes`/`YES`/`yes`, trailing `@ Station`). Look at `top_5` / sample values, normalize with `compute` (`lower(trim(col))`), and check matched counts after a join.
-- **Dedupe before counting or summing concatenated data**: an entity that belongs to several files or sections appears once per file. Compare `distinct` of the entity key to the row count.
-- **Understand column semantics** from names, sample values and stats before filtering on them; watch inclusive vs exclusive boundaries, units (percent vs proportion, thousands separators), and premature aggregation.
-- **Cast explicitly for arithmetic**: text columns with numbers (`"3,968"`) need `compute` with `TRY_CAST(replace(col, ',', '') AS numeric)` before arithmetic; check `null` on the result. An `aggregate` does this coercion itself, so `sum` over a text column of numbers needs no cast.
+- **Check the entity grain before aggregating or joining**: inspect the input schema and samples, and compute explicit row or distinct-key counts if needed. Deduplicate only when the task calls for unique entities.
+- **Normalize before grouping, joining or matching**: string keys carry case, spacing and spelling variants across files (`Yes`/`YES`/`yes`, trailing `@ Station`). Look at sample values, normalize with `compute` (`lower(trim(col))`), and check matched counts after a join.
+- **Dedupe before counting or summing concatenated data**: an entity that belongs to several files or sections appears once per file. Compute distinct-key and row counts explicitly when needed.
+- **Understand column semantics** from names and sample values before filtering on them; watch inclusive vs exclusive boundaries, units (percent vs proportion, thousands separators), and premature aggregation.
+- **Cast explicitly for arithmetic**: text columns with numbers (`"3,968"`) need `compute` with `TRY_CAST(replace(col, ',', '') AS numeric)` before arithmetic; check the resulting values. An `aggregate` does this coercion itself, so `sum` over a text column of numbers needs no cast.
 - **Late rounding**: round only in the final compute.
 - **Plausibility checks**: after each aggregate, verify the magnitude makes sense for what it represents; if a result is close but not exact, trace back operator by operator.
 - **Load all relevant files, then subset**: when the question compares groups, scan everything first and filter after.

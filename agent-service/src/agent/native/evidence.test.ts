@@ -138,6 +138,49 @@ const factText = (f: ReturnType<typeof fixture>) =>
 const observe = (f: ReturnType<typeof fixture>, options = {}) =>
   selectNativeObservation({ ...f, data: true, flow: true, maxChars: 2000, ...options });
 
+test("raw preview protects ordered header rows from metadata profiles and long cells", () => {
+  const f = fixture("Scan", { files: "book.xlsx", preview: 10 });
+  const lines = [
+    "title",
+    "1 | ".repeat(150),
+    "2 | ".repeat(150),
+    "",
+    "",
+    "heading_marker | amount",
+    "A | 1",
+    "B | 2",
+    "C | 3",
+    "D | 4",
+  ];
+  f.info.result = lines.map((line, row_no) => ({ sheet: "Sheet1", row_no, line }));
+  f.info.resultSchema = [
+    { name: "sheet", type: "str", encoding: "string" },
+    { name: "row_no", type: "int64", encoding: "number-or-decimal-string" },
+    { name: "line", type: "str", encoding: "string" },
+  ];
+  f.info.totalRowCount = lines.length;
+  f.info.tableProfile!.columns = { row_no: column(10, 0), sheet: { ...column(10, 0), distinctCount: 1 } };
+  for (const data of [false, true])
+    for (const flow of [false, true]) {
+      const result = observe(f, { data, flow });
+      expect(result.text).toContain("heading_marker | amount");
+      expect(result.text).toContain("Sample stored row 6:");
+      expect(result.text.indexOf("Sample stored row 2:")).toBeLessThan(result.text.indexOf("Sample stored row 6:"));
+      expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
+      expect(result.text).toContain("...[truncated]...");
+      expect(result.text.length).toBeLessThanOrEqual(2000);
+    }
+});
+
+test("result bindings remain exact audit metadata without a model-facing version preamble", () => {
+  const f = fixture();
+  const result = observe(f);
+  expect(result.resultVersion).toBe(f.info.resultVersion!.id);
+  expect(result.inputs).toEqual(f.info.resultVersion!.inputs);
+  expect(result.text).not.toContain("Evidence version:");
+  expect(result.text).toContain("kept=3/5");
+});
+
 test("shape measurements validate their row equations and reject stale or inconsistent counters", () => {
   for (const [kind, properties, rows, operations, validFact, corrupt] of [
     [
@@ -459,7 +502,7 @@ test("downstream dependencies cross renames and derives without parsing callback
   expect(observe(f, { flow: false, maxChars: 550 }).selected).not.toContain("data.column.z_amount.counts");
 });
 
-test("broad count coverage precedes extra samples when there is no declared plan", () => {
+test("sample reserve and broad count coverage share one bounded view", () => {
   const f = fixture("Scan", {});
   f.info.totalRowCount = 100;
   f.info.result = Array.from({ length: 20 }, (_, i) => ({ x: i, y: i, z: i }));
@@ -468,9 +511,7 @@ test("broad count coverage precedes extra samples when there is no declared plan
   const selection = observe(f, { flow: false, maxChars: 850 });
   for (const name of ["x", "y", "z"]) expect(selection.selected).toContain(`data.column.${name}.counts`);
   expect(selection.text.length).toBeLessThanOrEqual(850);
-  const lastCount = Math.max(...selection.selected.map((id, i) => (id.endsWith(".counts") ? i : -1)));
-  const secondSample = selection.selected.findIndex(id => id.startsWith("sample.") && id !== "sample.0");
-  expect(secondSample < 0 || secondSample > lastCount).toBe(true);
+  expect(selection.selected.filter(id => id.startsWith("sample.")).length).toBeGreaterThanOrEqual(2);
 });
 
 test("lineage walk bounds wide fan-out, not only visited queue entries", () => {

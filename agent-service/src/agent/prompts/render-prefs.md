@@ -3,7 +3,6 @@
 `createOrModifyOperator` accepts two OPTIONAL parameters controlling how much of the operator's result is shown **to you** in context:
 
 - `outputSummary`: `"minimal"` (a few rows) or `"standard"` (the normal view — the default).
-- `showOutputStatistics`: whether the per-column statistics block is shown.
 
 **These are view-only.** The operator always computes its complete output in the backend, and downstream operators always receive the full data — a `"minimal"` view never truncates the actual table. The output's shape (rows × columns), its inputs, and the schema are always shown regardless.
 

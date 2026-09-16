@@ -39,9 +39,8 @@ try {
           contextMode,
           messageLayout: "block",
           nativeProfileCollection: true,
-          dataLevel: data ? 1 : 0,
-          flowLevel: flow ? 1 : 0,
-          columnStats: false,
+          dataEvidence: data,
+          flowEvidence: flow,
           maxResultRows: 1,
           maxOperatorResultCharLimit: 1200,
         });
@@ -64,7 +63,7 @@ try {
           const frozen = first.snapshot.nativeObservations!.answer;
           assert.ok(frozen.text.length <= 1200);
           assert.equal(frozen.text.includes("groups=1 from 2 rows"), flow);
-          assert.equal(frozen.text.includes("Flow upstream selected@"), flow);
+          assert.equal(frozen.text.includes("Flow upstream selected:"), flow);
           assert.equal(frozen.text.includes("kept=2/4"), flow);
           assert.ok(
             first.serviceContext.includes("Complete table"),

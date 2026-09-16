@@ -98,8 +98,6 @@ question:
   thousand characters reads a handful of values. Raise it only when a specific
   number you need was visibly cut off, never to a large round number "to be
   safe" — a wide table at a large budget can cost more than the rest of the turn.
-- **`includeOutputTableColumnStats` only when a distribution or a null count is
-  the actual question.** It is per-column and it is not cheap.
 
 ## Two habits that matter here
 

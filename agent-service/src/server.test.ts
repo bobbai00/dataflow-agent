@@ -405,24 +405,40 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
 
-  test("columnStats is readable and writable under its wire name (frontend 'Column Stats Block' toggle)", async () => {
-    const created = await readJson<{ id: string; settings: { columnStats?: boolean } }>(await createAgent());
-    expect(created.settings.columnStats).toBe(true);
-
-    // GET /settings exposes the same knob the create/info payload does.
-    const initial = await readJson<{ columnStats?: boolean; contextMode: string }>(
-      await getJson(`${API}/agents/${created.id}/settings`)
+  test("only the two evidence controls survive create, GET, and PATCH", async () => {
+    const created = await readJson<any>(
+      await createAgent({
+        settings: {
+          agentMode: "native",
+          nativeToolMode: "batch",
+          nativeCatalogVersion: "v2",
+          nativeProfileCollection: true,
+          dataEvidence: true,
+          flowEvidence: false,
+        },
+      })
     );
-    expect(initial.columnStats).toBe(true);
-    expect(["delta", "latest"]).toContain(initial.contextMode);
-
-    const patched = await patchJson(`${API}/agents/${created.id}/settings`, { columnStats: false });
-    expect(patched.status).toBe(200);
-    expect((await readJson<{ columnStats?: boolean }>(patched)).columnStats).toBe(false);
-
-    const reread = await readJson<{ columnStats?: boolean }>(await getJson(`${API}/agents/${created.id}/settings`));
-    expect(reread.columnStats).toBe(false);
+    expect(created.settings).toMatchObject({ dataEvidence: true, flowEvidence: false });
+    for (const dataEvidence of [false, true])
+      for (const flowEvidence of [false, true]) {
+        const response = await patchJson(`${API}/agents/${created.id}/settings`, { dataEvidence, flowEvidence });
+        expect(response.status).toBe(200);
+        expect(await readJson(response)).toMatchObject({ dataEvidence, flowEvidence });
+        const reread = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+        expect(reread).toMatchObject({ dataEvidence, flowEvidence });
+        for (const key of ["columnStats", "flowLevel", "dataLevel"]) expect(reread).not.toHaveProperty(key);
+      }
   });
+
+  for (const key of ["flowLevel", "dataLevel", "columnStats", "valueFormat", "dataHints", "statScopes"]) {
+    test(`removed ${key} is rejected by create and PATCH`, async () => {
+      expect((await createAgent({ settings: { [key]: true } })).status).toBe(400);
+      const created = await readJson<any>(await createAgent());
+      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, { maxSteps: 7, [key]: true })).status).toBe(400);
+      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
+    });
+  }
 
   test("rejects contextMode values outside delta|latest with 400", async () => {
     const created = await readJson<{ id: string }>(await createAgent());

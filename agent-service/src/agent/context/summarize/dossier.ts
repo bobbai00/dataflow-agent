@@ -58,8 +58,6 @@ export interface CodeVersion {
   /** Agent-declared result-view preference for THIS version (render-prefs):
    *  how many output rows to show. Absent ⇒ the render default. */
   outputSummary?: "minimal" | "standard";
-  /** Agent-declared per-column statistics toggle for THIS version. */
-  showOutputStatistics?: boolean;
 }
 
 export interface ResultVersion {
@@ -148,7 +146,6 @@ export function buildDossier(visibleSteps: ReActStep[], storage: WorkflowSnapsho
             inp.outputSummary === "minimal" || inp.outputSummary === "standard"
               ? (inp.outputSummary as "minimal" | "standard")
               : undefined,
-          showOutputStatistics: typeof inp.showOutputStatistics === "boolean" ? inp.showOutputStatistics : undefined,
         });
         d.deleted = false; // a (re-)create resurrects the op
       } else if (tc.toolName === "deleteOperator") {

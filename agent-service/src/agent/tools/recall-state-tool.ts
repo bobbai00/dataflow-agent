@@ -198,20 +198,8 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
             `usually the point of recalling. 0 = shape and schema only. Hard maximum ${CHARS_CAP}; higher values ` +
             "are clamped. The catalog states each output's total size — size your pull against it."
         ),
-      includeOutputTableColumnStats: z
-        .boolean()
-        .optional()
-        .describe(
-          "Per-column stats (numeric min/max/mean; string distinct + top; datetime range; null counts) plus the " +
-            "table's structural profile (grain/key candidates, duplicates). Default false."
-        ),
     }),
-    execute: async (args: {
-      ref: string;
-      includeCode?: boolean;
-      includeOutputTableSample?: number;
-      includeOutputTableColumnStats?: boolean;
-    }) => {
+    execute: async (args: { ref: string; includeCode?: boolean; includeOutputTableSample?: number }) => {
       try {
         const turnKey = deps.getCurrentTurnKey?.() ?? "";
         if (turnKey !== budgetTurnKey) {
@@ -261,7 +249,6 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
         const includeCode = args.includeCode !== false;
         const requestedChars = args.includeOutputTableSample ?? DEFAULT_SAMPLE;
         const includeResults = requestedChars > 0;
-        const includeStats = args.includeOutputTableColumnStats === true;
         const maxResultChars = Math.min(requestedChars, CHARS_CAP);
 
         const op = findOperator(t.workflow, opId);
@@ -299,10 +286,6 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           const rendered = formatOperatorResult(opId, info, deps.workflowState, {
             detail: includeResults ? "sample" : "shape",
             schemaInResult: true,
-            columnStats: includeStats,
-            tableStructureHint: includeStats,
-            coercionTelemetry: true,
-            rowLineage: true,
             inputsInResult: false,
             maxResultChars: includeResults ? maxResultChars : undefined,
           });
@@ -313,7 +296,7 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           if (includeResults && est !== undefined && est > maxResultChars) {
             out.push(
               `(shown: first ${maxResultChars} chars of ${formatApproxChars(est)} — for the full picture ` +
-                "prefer `includeOutputTableColumnStats: true` over a bigger sample)"
+                "use an explicitly observed aggregate for full-table statistics)"
             );
           }
         } else {
@@ -373,14 +356,9 @@ export function createRecallStateTool(deps: RecallStateDeps) {
       "step of this turn, so an oversized pull is charged repeatedly, crowds out the live request, and slows the " +
       "turn down. Defaults are lean on purpose. Set `includeOutputTableSample` above 0 only when you need the " +
       "actual numbers, and keep it small — raise it only when a specific value you need was visibly cut off. " +
-      "`includeOutputTableColumnStats` only when a column's distribution or null count is the actual question. " +
       "If you want a formula, ask for code alone and leave the table sample at 0.",
     inputSchema: z.object({
-      turn: z
-        .number()
-        .int()
-        .min(1)
-        .describe("Which earlier turn to recall, numbered as in the `# Catalog`."),
+      turn: z.number().int().min(1).describe("Which earlier turn to recall, numbered as in the `# Catalog`."),
       includeCode: z
         .boolean()
         .optional()
@@ -395,25 +373,11 @@ export function createRecallStateTool(deps: RecallStateDeps) {
             `0 (default) = no sample rows — row/column counts and the schema show either way. Hard maximum ` +
             `${CHARS_CAP}; higher values are clamped. The \`# Catalog\` states each output's total size ` +
             "(`~48k chars`), so size your pull against it — a table at or under your budget comes back whole; " +
-            "for one far over it, prefer `includeOutputTableColumnStats` or read the schema line. Keep it small: " +
+            "for one far over it, read the schema or observe a focused aggregate. Keep it small: " +
             "recalled output is re-sent on every remaining step of this turn."
         ),
-      includeOutputTableColumnStats: z
-        .boolean()
-        .optional()
-        .describe(
-          "Per-column stats for each result: numeric → min/max/mean; string → distinct count + top values; " +
-            "datetime → range; all → null count. Also includes the table's structural profile (grain/key " +
-            "candidates, low-cardinality partition columns, empty rows/cols, duplicates). Default false — use " +
-            "when a distribution, null count or the table's structure is the question."
-        ),
     }),
-    execute: async (args: {
-      turn: number;
-      includeCode?: boolean;
-      includeOutputTableSample?: number;
-      includeOutputTableColumnStats?: boolean;
-    }) => {
+    execute: async (args: { turn: number; includeCode?: boolean; includeOutputTableSample?: number }) => {
       try {
         const turnKey = deps.getCurrentTurnKey?.() ?? "";
         if (turnKey !== budgetTurnKey) {
@@ -451,7 +415,6 @@ export function createRecallStateTool(deps: RecallStateDeps) {
         // per step, not once.
         const requestedChars = args.includeOutputTableSample ?? 0;
         const includeResults = requestedChars > 0;
-        const includeStats = args.includeOutputTableColumnStats === true;
         const maxResultChars = Math.min(requestedChars, CHARS_CAP);
 
         const out: string[] = [`# Turn ${t.turn}`, ""];
@@ -517,14 +480,6 @@ export function createRecallStateTool(deps: RecallStateDeps) {
             const rendered = formatOperatorResult(opId, info, deps.workflowState, {
               detail: includeResults ? "sample" : "shape",
               schemaInResult: true,
-              columnStats: includeStats,
-              // The structural profile (`Output Table profile:` — grain/key,
-              // partition columns, dirty-load facts) ships on the same worker
-              // channel as the column stats and answers the same class of
-              // question, so the one stats switch covers both.
-              tableStructureHint: includeStats,
-              coercionTelemetry: true,
-              rowLineage: true,
               inputsInResult: false,
               maxResultChars: includeResults ? maxResultChars : undefined,
             });
@@ -536,8 +491,8 @@ export function createRecallStateTool(deps: RecallStateDeps) {
             out.push(rendered);
             if (includeResults && est !== undefined && est > maxResultChars) {
               out.push(
-                `(shown: first ${maxResultChars} chars of ${formatApproxChars(est)} — for the full picture ` +
-                  "prefer `includeOutputTableColumnStats: true` over a bigger sample)"
+                `(shown: first ${maxResultChars} chars of ${formatApproxChars(est)} — ` +
+                  "use a focused operator to calculate exact values when the sample is insufficient)"
               );
             }
           } else if (includeResults) {
@@ -548,14 +503,13 @@ export function createRecallStateTool(deps: RecallStateDeps) {
 
         const notes: string[] = [];
         if (!includeCode) notes.push("code omitted (includeCode=false)");
-        if (!includeResults)
-          notes.push("table bodies omitted (includeOutputTableSample=0) — shapes and schemas shown");
+        if (!includeResults) notes.push("table bodies omitted (includeOutputTableSample=0) — shapes and schemas shown");
         if (requestedChars > CHARS_CAP) {
           notes.push(
             `includeOutputTableSample ${requestedChars} clamped to ${CHARS_CAP} (the per-operator ceiling) — ` +
               "recalled output is re-sent on every remaining step of this turn, so it is capped. " +
               "Each Result header above states the table's total size: when it exceeds the ceiling, narrow the " +
-              "question (includeOutputTableColumnStats for distributions, the schema line for structure) " +
+              "question (observe an aggregate for distributions, read the schema for structure) " +
               "instead of asking for more characters"
           );
         }

@@ -23,6 +23,36 @@ import type { NativeCatalogVersion } from "./catalog";
 /** A rejected catalog configuration is a client error, not a server failure. */
 export class NativeCatalogSettingsError extends Error {}
 
+/** Deliberate breaking change: never silently reinterpret old experiments. */
+export function validateEvidenceSettings(settings: object): void {
+  const removed = [
+    "flowLevel",
+    "dataLevel",
+    "columnStats",
+    "valueFormat",
+    "dataHints",
+    "statScopes",
+    "coercionTelemetry",
+    "rowLineage",
+    "loaderHint",
+    "lineageErrorContext",
+    "graphAudit",
+    "valueFormatFlags",
+    "tableStructureHint",
+    "fileIoFacts",
+    "nativeFlowEvidence",
+  ];
+  for (const key of removed) {
+    if (Object.hasOwn(settings, key))
+      throw new NativeCatalogSettingsError(`${key} was removed; use dataEvidence and flowEvidence booleans`);
+  }
+  for (const key of ["dataEvidence", "flowEvidence"] as const) {
+    const value = (settings as Record<string, unknown>)[key];
+    if (value !== undefined && typeof value !== "boolean")
+      throw new NativeCatalogSettingsError(`${key} must be a boolean`);
+  }
+}
+
 /** Shared by creation (before allocating an agent) and atomic settings updates. */
 export function validateNativeCatalogSettings(
   settings: {
@@ -30,8 +60,11 @@ export function validateNativeCatalogSettings(
     agentMode?: string;
     nativeToolMode?: string;
     nativeProfileCollection?: boolean;
+    dataEvidence?: boolean;
+    flowEvidence?: boolean;
   } = {}
 ): NativeCatalogVersion {
+  validateEvidenceSettings(settings);
   const version = settings.nativeCatalogVersion ?? DEFAULT_AGENT_SETTINGS.nativeCatalogVersion ?? "v1";
   if (version !== "v1" && version !== "v2") {
     throw new NativeCatalogSettingsError("Unknown native catalog version");

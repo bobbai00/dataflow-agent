@@ -766,24 +766,22 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
           .string()
           .describe("Unique operator name (valid Python variable). Other operators reference this as input parameter."),
         code: z.string().describe("Python function: def load() or def process(...)"),
-        summary: z
-          .string()
-          .describe(
-            // DEFAULT: the agent can read its own code (DELTA events, or LATEST
-            // with code in the snapshot), so the summary carries lineage only,
-            // not logic — restating it duplicates what is already on screen.
-            codeShownEnabled
-              ? "One short line naming what this operator does at a glance — the subject and the gist only " +
-                  '(e.g. "Load orders.csv" or "Filter orders_clean to 2024, sum amount by customer_id"). ' +
-                  "Do NOT restate the detailed logic; your code is shown to you and carries the specifics."
-              : // Code-blind (LATEST without code in the snapshot): the summaries
-                // are the ONLY record of what each operator does, so they must
-                // carry the logic themselves.
-                "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
-                  "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
-                  'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
-                  "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
-          ),
+        summary: z.string().describe(
+          // DEFAULT: the agent can read its own code (DELTA events, or LATEST
+          // with code in the snapshot), so the summary carries lineage only,
+          // not logic — restating it duplicates what is already on screen.
+          codeShownEnabled
+            ? "One short line naming what this operator does at a glance — the subject and the gist only " +
+                '(e.g. "Load orders.csv" or "Filter orders_clean to 2024, sum amount by customer_id"). ' +
+                "Do NOT restate the detailed logic; your code is shown to you and carries the specifics."
+            : // Code-blind (LATEST without code in the snapshot): the summaries
+              // are the ONLY record of what each operator does, so they must
+              // carry the logic themselves.
+              "Detailed summary of the operator behavior. For load() operators, you MUST include the filename(s) being loaded. " +
+                "For process() operators, name the input operator(s) as the subject and describe the transformation applied to them — " +
+                'e.g. "From `orders_clean`, filter to 2024 and sum `amount` by `customer_id`" or "Join `customers` and `orders_clean` on `customer_id`" — ' +
+                "including the significant logic (columns, keys, filters, aggregations). This keeps the dataflow's lineage legible from the summaries alone."
+        ),
       };
       const versionedShape: Record<string, z.ZodType> = versionStore
         ? {
@@ -792,9 +790,9 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .optional()
               .describe(
                 "REQUIRED for def process(...): one versioned reference per parameter, written exactly as the " +
-                  "catalog prints them — \"opId (turn N)\", e.g. [\"scores (turn 3)\", \"labels (turn 9)\"]. " +
+                  'catalog prints them — "opId (turn N)", e.g. ["scores (turn 3)", "labels (turn 9)"]. ' +
                   "N must be a turn that actually WROTE that operator — one of the turn numbers the catalog " +
-                  "shows for it — not just any turn the operator existed in. \"scores (turn 7)\" is an error " +
+                  'shows for it — not just any turn the operator existed in. "scores (turn 7)" is an error ' +
                   "when scores was last written at turn 3, and the error lists the turns you can pick from. " +
                   "`Latest versions` names the newest of each; use the current turn's number for operators you " +
                   "created this turn. Omit for def load()."
@@ -804,7 +802,7 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               .optional()
               .describe(
                 "REQUIRED when operatorId already exists: the version this revision derives from, as " +
-                  "\"opId (turn N)\" — usually its latest. N must be a turn that actually wrote this operator, " +
+                  '"opId (turn N)" — usually its latest. N must be a turn that actually wrote this operator, ' +
                   "exactly as the catalog prints it. Makes every revision's ancestry explicit."
               ),
           }
@@ -820,13 +818,6 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
               "'standard' (default) = the normal view. View-only — the operator always computes its full output " +
               "and downstream operators always receive the complete data. Applies to this version until the next edit."
           ),
-        showOutputStatistics: z
-          .boolean()
-          .optional()
-          .describe(
-            "Whether the per-column statistics block of this operator's output is shown to you. View-only; " +
-              "defaults to the session default. Applies to this version until the next edit."
-          ),
       });
       // Control arms (flag off) must not even SEE the pref params — swap in the
       // base schema; the runtime args type is the rich one (fields just absent).
@@ -837,7 +828,6 @@ Example: operatorId="filteredCustomers" (requires "customers" to exist)
       code: string;
       summary?: string;
       outputSummary?: "minimal" | "standard";
-      showOutputStatistics?: boolean;
       upstreams?: string[];
       from?: string;
     }) => {

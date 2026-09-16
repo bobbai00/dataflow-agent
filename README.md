@@ -119,27 +119,27 @@ curl -s -X DELETE $BASE/agents/$AGENT
 
 ### Default configuration
 
-An agent created with no `settings` runs the campaign-measured configuration
+An agent created with no `settings` uses
 (`DEFAULT_AGENT_SETTINGS` in `agent-service/src/types/agent.ts`):
 
 | Setting | Default | What it gives the model |
 |---|---|---|
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `flowLevel` | `1` | loader-remediation hints + the consolidated `Operators needing attention` section |
-| `dataLevel` | `2` | typed `Schema (N cols)` line + `Output Table profile:` (duplicate rows, all-null regions, unresolved headers) |
-| `columnStats` | `true` | `Column Schema and stats:` — nulls, min/max/mean, distinct, top-N per column |
+| `dataEvidence` | `false` | opt-in, selected measured table/column facts in observed V2 results |
+| `flowEvidence` | `false` | opt-in, version-matched input/output facts and operator guarantees in observed V2 results |
 | `agentMode` | `general` | one `createOrModifyOperator` tool writing Python `def load()` / `def process()` |
 | `maxSteps` | `100` | per-turn step budget |
-| `maxOperatorResultCharLimit` | `2000` | sample-row budget per result (`codeMaxChars: 0` = code uncapped) |
+| `maxOperatorResultCharLimit` | `2000` | V2 schema, sample and enabled evidence share this per-result budget |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 | layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
-Everything else (recall / inspect / resume / compaction / telemetry knobs) is
-off by default. Two renders are **conditional by design**, so their absence in
-a small run is not a bug: column stats are suppressed when the complete table
-is already visible in the context, and the structural profile only appears when
-the worker finds an actual signal (duplicate rows, all-null rows/columns, an
-unresolved header).
+Recall / resume / compaction are off by default. `inspectResult` is not a tool.
+For Python-native batching, use `agentMode: "native"`, `nativeToolMode: "batch"`,
+`nativeCatalogVersion: "v2"` and explicit `observe` selections. The engine's
+`nativeProfileCollection` collection switch is separate from the two exposure
+controls; keep it fixed across matched evidence comparisons.
+Legacy level/statistics settings are rejected, not translated.
+See [the evidence-only context contract](docs/evidence-only-context.md).
 
 Key endpoints (all under `/api/agents`):
 

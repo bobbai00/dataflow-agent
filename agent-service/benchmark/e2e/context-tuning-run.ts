@@ -29,13 +29,7 @@
  */
 
 import { createAgent, deleteAgent, getSnapshot, runAgentTurn } from "../../src/api/agent-service-api";
-import {
-  createComputingUnit,
-  createWorkflow,
-  deleteWorkflow,
-  login,
-  terminateComputingUnit,
-} from "../../src/api";
+import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { AgentMode, ContextMode } from "../../src/types/agent";
 import type { AgentSettingsApi } from "../../src/types/agent";
 
@@ -71,7 +65,7 @@ const VARIANTS: Variant[] = [
   { name: "latest-default", settings: { contextMode: ContextMode.LATEST } },
   {
     name: "latest-columnStats-thoughtReplayK3",
-    settings: { contextMode: ContextMode.LATEST, columnStats: true, thoughtReplay: true, thoughtReplayK: 3 },
+    settings: { contextMode: ContextMode.LATEST, thoughtReplay: true, thoughtReplayK: 3 },
   },
   { name: "delta-unbounded", settings: { contextMode: ContextMode.DELTA } },
   {
@@ -109,10 +103,7 @@ interface VariantResult {
   failure?: string;
 }
 
-async function runVariant(
-  v: Variant,
-  ctx: { token: string; cuid: number; runId: string }
-): Promise<VariantResult> {
+async function runVariant(v: Variant, ctx: { token: string; cuid: number; runId: string }): Promise<VariantResult> {
   log(`▶ ${v.name}`);
   const wid = await createWorkflow(ctx.token, `ctx-tune-${v.name}-${ctx.runId}`, EMPTY_WORKFLOW, v.name);
   let agentId: string | null = null;

@@ -106,7 +106,7 @@ function detailToOverride(
           latest: {
             detail: "sample",
             tuple: { sampleRows: cfg.richRows },
-            column: { schema: true, stats: true, structuralHints: true, valueFormatHints: true },
+            column: { schema: true },
           },
         },
       };
@@ -143,7 +143,7 @@ export function translateTunerOutput(
     trajectory: { events: "none", reasoningReplayK: output.reasoningReplayK ?? 8 },
     currentSnapshot: true,
     compiledSchemas: false,
-    flow: { loaderHints: true, errorContext: true },
+    flow: {},
     operators: {
       defaults: { result: { latest: { detail: "shape", column: { schema: true } } } },
       overrides,

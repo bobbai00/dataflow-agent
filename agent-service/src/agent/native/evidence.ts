@@ -173,7 +173,7 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
         id: `flow.upstream.${op.operatorID}.${version.id}`,
         family: "flow",
         kind: measurements.length ? "measurement" : view.type === "UDF" ? "warning" : "guarantee",
-        text: `Flow upstream ${op.operatorID}@${version.id.slice(0, 16)}: declared ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
+        text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
         priority: 98 - depth / 10,
       });
       summaries++;
@@ -216,10 +216,14 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   const p = view.properties;
   const relevant = relevance(context);
   const profile = validProfile(info) ? info.tableProfile : undefined;
+  // Preview columns describe transport, not the parsed dataset. Their
+  // distributions displace the raw records needed to choose parsing options.
+  const rawPreview = view.type === "Scan" && typeof p.preview === "number" && p.preview > 0;
   if (!profile) omissions.push("profile_unavailable");
 
   if (profile) {
     for (const [name, c] of Object.entries(profile.columns).sort(([a], [b]) => lexical(a, b))) {
+      if (rawPreview) continue;
       if (context.columns?.length && !context.columns.includes(name)) continue;
       const priority = relevant.has(name) ? 85 : 80;
       const scope = columnScope(info, c);
@@ -650,7 +654,13 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     const input = inputs[0]!;
     for (const [name, after] of Object.entries(profile!.columns)) {
       const before = own(input.tableProfile?.columns ?? {}, name) ? input.tableProfile!.columns[name] : undefined;
-      if (relevant.has(name) && before && fullColumn(input, before) && fullColumn(info, after))
+      if (
+        relevant.has(name) &&
+        before &&
+        before.nullCount !== after.nullCount &&
+        fullColumn(input, before) &&
+        fullColumn(info, after)
+      )
         add(
           `flow.nulls.${name}`,
           "flow",
@@ -700,6 +710,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     return true;
   };
   const rows = info.result ?? [];
+  const rawPreview = op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0;
   const schema =
     info.resultSchema ?? Object.keys(rows[0] ?? {}).map(name => ({ name, type: "unknown", encoding: "unknown" }));
   const total = count(info.totalRowCount) ? info.totalRowCount : undefined;
@@ -752,16 +763,34 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     else append("Columns omitted: budget", "table.schema_omitted");
     if (context.detail !== "shape" && fields.length) {
       const order = Array.from({ length: rows.length }, (_, i) =>
-        i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)
+        rawPreview ? i : i % 2 === 0 ? i / 2 : rows.length - 1 - Math.floor(i / 2)
       ).slice(0, rowLimit);
-      for (const [rank, i] of order.entries())
-        candidates.push({
+      // Reserve part of the SAME budget for records. Preview prefixes expose
+      // headers beneath preambles; clipping cells must not hide entire rows.
+      const sampleBudget = Math.floor(maxChars * (rawPreview ? 0.75 : 0.25));
+      let sampleChars = 0;
+      for (const [rank, i] of order.entries()) {
+        const sampleRow = Object.fromEntries(
+          fields.map(c => {
+            const value = rows[i][c.name];
+            const cap = rawPreview ? 120 : 160;
+            return [
+              c.name,
+              typeof value === "string" && value.length > cap ? value.slice(0, cap) + "...[truncated]..." : value,
+            ];
+          })
+        );
+        const fact: NativeEvidenceFact = {
           id: `sample.${i}`,
           family: "data",
           kind: "measurement",
-          text: `Sample stored row ${i + 1}: ${rowLine(rows[i], fields)}`,
+          text: `Sample stored row ${i + 1}: ${rowLine(sampleRow, fields)}`,
           priority: rank === 0 ? 105 : 35 - rank,
-        });
+        };
+        if (sampleChars + fact.text.length + 1 <= sampleBudget && append(fact.text, fact.id)) {
+          sampleChars += fact.text.length + 1;
+        } else candidates.push(fact);
+      }
     }
     result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });
   }
@@ -771,17 +800,9 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
     else candidates.push(fact);
   }
-  const v = info.resultVersion;
-  const binding = v
-    ? `Evidence version: ${op.operatorID}@${v.id.slice(0, 16)} (execution=${v.executionId ?? "unknown"}); inputs=${v.inputs.map(ref => `${ref.inputIndex}:${ref.operatorId}@${ref.resultVersion?.slice(0, 16) ?? "unknown"}`).join(",") || "none"}`
-    : "Evidence version unavailable";
-  let bound = false;
+  // Full output/input bindings remain in the immutable audit metadata.
   for (const fact of candidates.sort((a, b) => b.priority - a.priority || lexical(a.id, b.id))) {
-    const sample = fact.id.startsWith("sample.");
-    const text = !sample && !bound ? `${binding}\n${fact.text}` : fact.text;
-    if (append(text, fact.id)) {
-      if (!sample) bound = true;
-    } else result.omitted.push({ id: fact.id, reason: "budget" });
+    if (!append(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
   }
   if (!completeVisible) append("View incomplete; unshown rows/columns or evidence omitted.", "view.omissions");
   result.text = lines.join("\n");

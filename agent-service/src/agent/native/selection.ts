@@ -72,27 +72,6 @@ export interface ShapeDecision {
 /** Consumers whose result depends on the grain of their input table. */
 const GRAIN_SENSITIVE = new Set(["Aggregate", "Join", "UDF"]);
 
-interface ColFacts {
-  nulls?: number;
-  distinct?: number;
-  min?: string;
-  max?: string;
-}
-
-function parseFacts(text: string | undefined): ColFacts | undefined {
-  if (!text) return undefined;
-  const n = /null=(\d+)/.exec(text);
-  const d = /distinct=(\d+)/.exec(text);
-  const mn = /\bmin=([^,]+)/.exec(text);
-  const mx = /\bmax=([^,]+)/.exec(text);
-  return {
-    nulls: n ? Number(n[1]) : undefined,
-    distinct: d ? Number(d[1]) : undefined,
-    min: mn ? mn[1].trim() : undefined,
-    max: mx ? mx[1].trim() : undefined,
-  };
-}
-
 /** `files` of a Scan as a list of path patterns. */
 function scanFiles(op: OperatorPredicate): string[] {
   const f = op.nativeOp?.properties?.files;
@@ -199,42 +178,10 @@ function decide(
     case "Sort":
       return { shape: "header" };
     case "Compute":
-      return decideCompute(nat.properties, nat.inputs[0], info, getInfo);
+      return { shape: "full" };
     default:
       return { shape: "full" };
   }
-}
-
-function decideCompute(
-  props: Record<string, unknown>,
-  inputId: string | undefined,
-  info: OperatorInfo,
-  getInfo: (opId: string) => OperatorInfo | undefined
-): ShapeDecision {
-  const cols = Object.keys((props.columns as Record<string, unknown>) ?? {});
-  const inInfo = inputId ? getInfo(inputId) : undefined;
-  const notes: string[] = [];
-  for (const c of cols) {
-    const after = parseFacts(info.columnStats?.[c]);
-    const before = parseFacts(inInfo?.columnStats?.[c]);
-    if (!after) continue;
-    if (!before) {
-      // New column: its profile is new information — one line.
-      notes.push(`"${c}": ${info.columnStats?.[c] ?? "new column"}`);
-      continue;
-    }
-    const nullMoved = before.nulls !== undefined && after.nulls !== undefined && before.nulls !== after.nulls;
-    const distinctMoved =
-      before.distinct !== undefined && after.distinct !== undefined && before.distinct !== after.distinct;
-    if (nullMoved || distinctMoved) {
-      const parts: string[] = [];
-      if (nullMoved) parts.push(`null ${before.nulls} → ${after.nulls}`);
-      if (distinctMoved) parts.push(`distinct ${before.distinct} → ${after.distinct}`);
-      notes.push(`"${c}": ${parts.join(", ")}`);
-    }
-  }
-  if (notes.length === 0) return { shape: "header" };
-  return { shape: "count", note: notes.join("; ") };
 }
 
 /* ============================================================================
@@ -300,8 +247,7 @@ function identifiersIn(expr: unknown, known: ReadonlySet<string>): string[] {
 /** An operator's output columns, from its stats or, failing that, its sample. */
 function columnsOf(info: OperatorInfo | undefined): string[] {
   if (!info) return [];
-  const fromStats = info.columnStats ? Object.keys(info.columnStats).filter(k => !k.startsWith("__")) : [];
-  if (fromStats.length > 0) return fromStats;
+  if (info.resultSchema?.length) return info.resultSchema.map(c => c.name);
   const row = Array.isArray(info.result) ? info.result[0] : undefined;
   return row && typeof row === "object" ? Object.keys(row).filter(k => !k.startsWith("__")) : [];
 }
@@ -419,43 +365,18 @@ export function selectScopedShapes(
   }
   return out;
 }
-
-/**
- * One line saying what moved between two runs of the same operator: the row
- * count, then per column null / distinct / min / max, then columns that
- * appeared or vanished (at most four columns, then a count). Undefined when
- * nothing moved.
- */
+/** Structural differences only; measured data/flow facts belong to V2 evidence. */
 export function profileDiff(prev: OperatorInfo, curr: OperatorInfo): string | undefined {
-  const rows = (i: OperatorInfo) => (typeof i.totalRowCount === "number" ? i.totalRowCount : i.outputTuples);
+  const rows = (i: OperatorInfo) => i.totalRowCount ?? i.outputTuples;
   const parts: string[] = [];
   if (rows(prev) !== rows(curr)) parts.push(`rows ${rows(prev)} → ${rows(curr)}`);
-  const pc = prev.columnStats ?? {};
-  const cc = curr.columnStats ?? {};
-  const cols = [...new Set([...Object.keys(pc), ...Object.keys(cc)])].filter(k => !k.startsWith("__"));
-  const colParts: string[] = [];
-  for (const c of cols) {
-    if (!(c in pc)) {
-      colParts.push(`+"${c}"`);
-      continue;
-    }
-    if (!(c in cc)) {
-      colParts.push(`-"${c}"`);
-      continue;
-    }
-    const a = parseFacts(pc[c]);
-    const b = parseFacts(cc[c]);
-    const f: string[] = [];
-    if (b?.nulls !== undefined && a?.nulls !== b.nulls) f.push(`null ${a?.nulls ?? "?"} → ${b.nulls}`);
-    if (b?.distinct !== undefined && a?.distinct !== b.distinct)
-      f.push(`distinct ${a?.distinct ?? "?"} → ${b.distinct}`);
-    if (b?.min !== undefined && a?.min !== b.min) f.push(`min ${a?.min ?? "?"} → ${b.min}`);
-    if (b?.max !== undefined && a?.max !== b.max) f.push(`max ${a?.max ?? "?"} → ${b.max}`);
-    if (f.length > 0) colParts.push(`"${c}": ${f.join(", ")}`);
-  }
-  const MAX_COLS = 4;
-  parts.push(...colParts.slice(0, MAX_COLS));
-  const more = colParts.length - MAX_COLS;
-  if (more > 0) parts.push(`… ${more} more column${more === 1 ? "" : "s"} changed`);
-  return parts.length > 0 ? parts.join("; ") : undefined;
+  const before = columnsOf(prev),
+    after = columnsOf(curr);
+  const changed = [
+    ...after.filter(c => !before.includes(c)).map(c => `+"${c}"`),
+    ...before.filter(c => !after.includes(c)).map(c => `-"${c}"`),
+  ];
+  parts.push(...changed.slice(0, 4));
+  if (changed.length > 4) parts.push(`… ${changed.length - 4} more columns changed`);
+  return parts.length ? parts.join("; ") : undefined;
 }

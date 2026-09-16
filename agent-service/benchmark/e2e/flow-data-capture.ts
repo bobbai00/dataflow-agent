@@ -23,16 +23,16 @@
  * Goal: PROVE — against the live JVM stack, with REAL backend execution
  * (real columnStats, real operator errors, real lineage) — that
  *   (1) the consolidated FLOW section ("# Operators needing attention …")
- *       renders only at flowLevel>0 and grows rung-by-rung (L1 loaderHint,
+ *       renders only at flowEvidence>0 and grows rung-by-rung (L1 loaderHint,
  *       L2 lineageErrorContext / lineageStats, L3 graphAudit), and
- *   (2) the per-operator DATA annotations render only at dataLevel>0 and grow
+ *   (2) the per-operator DATA annotations render only at dataEvidence>0 and grow
  *       rung-by-rung (L1 Schema, L2 Data hints, L3 Format hints).
  *
  * Unlike `agent-run.ts` this does NOT use the LLM. It builds a fixed 4-operator
  * workflow deterministically via debug-mode `Function(...)` tool calls over the
  * WebSocket, each of which runs the SAME post-step backend execution the LLM
  * path runs — so the agent's snapshot ends up holding genuine results. It then
- * PATCHes `flowLevel`/`dataLevel`/`contextMode` and reads the assembled
+ * PATCHes `flowEvidence`/`dataEvidence`/`contextMode` and reads the assembled
  * next-step context back via the WS `nextContext` event — byte-for-byte what the
  * model would receive on its next prepareStep.
  *
@@ -111,23 +111,19 @@ const OPS: { id: string; code: string; summary: string }[] = [
   },
   {
     id: "proc",
-    summary: "Filter src to an impossible threshold so the output is empty (exercises the empty-output cardinality alarm).",
-    code: [
-      "def process(src) -> pd.DataFrame:",
-      '    return src[src["units"] > 999999]',
-    ].join("\n"),
+    summary:
+      "Filter src to an impossible threshold so the output is empty (exercises the empty-output cardinality alarm).",
+    code: ["def process(src) -> pd.DataFrame:", '    return src[src["units"] > 999999]'].join("\n"),
   },
   {
     id: "bad",
     summary: "Select a column that does not exist so the operator fails at runtime (exercises lineage error context).",
-    code: [
-      "def process(src) -> pd.DataFrame:",
-      '    return src[["nonexistent_column"]]',
-    ].join("\n"),
+    code: ["def process(src) -> pd.DataFrame:", '    return src[["nonexistent_column"]]'].join("\n"),
   },
   {
     id: "badLoader",
-    summary: "Load /tmp/this-file-does-not-exist.csv so the loader fails (exercises loader remediation + dead-loader audit).",
+    summary:
+      "Load /tmp/this-file-does-not-exist.csv so the loader fails (exercises loader remediation + dead-loader audit).",
     code: [
       "def load() -> pd.DataFrame:",
       "    import pandas as pd",
@@ -160,7 +156,10 @@ async function runDebugSequence(agentId: string, inputs: string[], perStepTimeou
       const opLabel = OPS[i]?.id ?? `step${i}`;
       log(`  debug[${i}] → ${opLabel} (awaiting backend execution)`);
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`timeout waiting for complete after ${opLabel}`)), perStepTimeoutMs);
+        const timer = setTimeout(
+          () => reject(new Error(`timeout waiting for complete after ${opLabel}`)),
+          perStepTimeoutMs
+        );
         ws.onmessage = ev => {
           let msg: any;
           try {
@@ -269,7 +268,7 @@ async function main(): Promise<void> {
       userToken: token,
       workflowId: wid,
       computingUnitId: cuid,
-      settings: { agentMode: AgentMode.CODE, contextMode: "latest", flowLevel: 0, dataLevel: 0 },
+      settings: { agentMode: AgentMode.CODE, contextMode: "latest", flowEvidence: false, dataEvidence: false },
     });
     agentId = agent.id;
     log(`agentId=${agentId}`);
@@ -280,49 +279,55 @@ async function main(): Promise<void> {
     await runDebugSequence(agentId, inputs);
     log("fixture built — agent snapshot now holds real results + errors");
 
-    // 2) FLOW ladder — isolate flow by holding dataLevel=0, contextMode=latest.
+    // 2) FLOW ladder — isolate flow by holding dataEvidence=false, contextMode=latest.
     log("");
-    log("===== FLOW ladder (dataLevel=0, contextMode=latest) =====");
-    for (const flowLevel of [0, 1, 2, 3]) {
-      await patchSettings(agentId, { flowLevel, dataLevel: 0, contextMode: "latest" });
+    log("===== FLOW ladder (dataEvidence=false, contextMode=latest) =====");
+    for (const flowEvidence of [0, 1, 2, 3]) {
+      await patchSettings(agentId, { flowEvidence, dataEvidence: false, contextMode: "latest" });
       const ctx = await captureContext(agentId);
-      dump[`flow${flowLevel}_data0`] = ctx;
-      log(`flowLevel=${flowLevel}:`);
+      dump[`flow${flowEvidence}_data0`] = ctx;
+      log(`flowEvidence=${flowEvidence}:`);
       const hasFlow = ctx.includes(FLOW_HEADER);
-      if (flowLevel === 0) {
-        check("flowLevel=0 → NO flow section", !hasFlow);
+      if (flowEvidence === 0) {
+        check("flowEvidence=false → NO flow section", !hasFlow);
       } else {
-        check(`flowLevel=${flowLevel} → flow section present`, hasFlow);
+        check(`flowEvidence=${flowEvidence} → flow section present`, hasFlow);
       }
-      if (flowLevel >= 1) {
+      if (flowEvidence >= 1) {
         // L1 loaderHint: badLoader's FileNotFound surfaces with an error line.
         check("  L1: badLoader appears in flow section", /###\s+`badLoader`/.test(ctx) && /error:/.test(ctx));
       }
-      if (flowLevel >= 2) {
+      if (flowEvidence >= 2) {
         // L2 lineageErrorContext: bad's runtime error block referencing upstream.
         check("  L2: bad (runtime-error op) appears in flow section", /###\s+`bad`/.test(ctx));
       }
-      if (flowLevel >= 3) {
+      if (flowEvidence >= 3) {
         // L3 graphAudit: dead-loader audit line on the orphan badLoader.
         check("  L3: dead-loader Graph check present", ctx.includes("Graph check"));
       }
     }
 
-    // 3) DATA ladder — isolate data by holding flowLevel=0.
+    // 3) DATA ladder — isolate data by holding flowEvidence=false.
     log("");
-    log("===== DATA ladder (flowLevel=0, contextMode=latest) =====");
-    for (const dataLevel of [0, 1, 2, 3]) {
-      await patchSettings(agentId, { flowLevel: 0, dataLevel, contextMode: "latest" });
+    log("===== DATA ladder (flowEvidence=false, contextMode=latest) =====");
+    for (const dataEvidence of [0, 1, 2, 3]) {
+      await patchSettings(agentId, { flowEvidence: false, dataEvidence, contextMode: "latest" });
       const ctx = await captureContext(agentId);
-      dump[`flow0_data${dataLevel}`] = ctx;
-      log(`dataLevel=${dataLevel}:`);
+      dump[`flow0_data${dataEvidence}`] = ctx;
+      log(`dataEvidence=${dataEvidence}:`);
       const hasSchema = ctx.includes("Schema (");
       const hasDataHints = ctx.includes("Data hints:");
       const hasFormatHints = ctx.includes("Format hints:");
-      check("  no flow section (flowLevel=0)", !ctx.includes(FLOW_HEADER));
-      check(`  Schema line ${dataLevel >= 1 ? "present" : "absent"}`, dataLevel >= 1 ? hasSchema : !hasSchema);
-      check(`  Data hints ${dataLevel >= 2 ? "present" : "absent"}`, dataLevel >= 2 ? hasDataHints : !hasDataHints);
-      check(`  Format hints ${dataLevel >= 3 ? "present" : "absent"}`, dataLevel >= 3 ? hasFormatHints : !hasFormatHints);
+      check("  no flow section (flowEvidence=false)", !ctx.includes(FLOW_HEADER));
+      check(`  Schema line ${dataEvidence >= 1 ? "present" : "absent"}`, dataEvidence >= 1 ? hasSchema : !hasSchema);
+      check(
+        `  Data hints ${dataEvidence >= 2 ? "present" : "absent"}`,
+        dataEvidence >= 2 ? hasDataHints : !hasDataHints
+      );
+      check(
+        `  Format hints ${dataEvidence >= 3 ? "present" : "absent"}`,
+        dataEvidence >= 3 ? hasFormatHints : !hasFormatHints
+      );
     }
 
     // 4) Combined + both context modes — confirm flow+data compose and SELECT
@@ -330,7 +335,7 @@ async function main(): Promise<void> {
     log("");
     log("===== Combined flow=3/data=3 across context modes =====");
     for (const contextMode of ["latest", "delta"] as const) {
-      await patchSettings(agentId, { flowLevel: 3, dataLevel: 3, contextMode });
+      await patchSettings(agentId, { flowEvidence: true, dataEvidence: true, contextMode });
       const ctx = await captureContext(agentId);
       dump[`flow3_data3_${contextMode}`] = ctx;
       log(`contextMode=${contextMode}:`);

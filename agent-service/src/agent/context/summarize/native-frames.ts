@@ -20,32 +20,7 @@
 import type { ModelMessage } from "ai";
 import type { ReActStep } from "../../../types/agent";
 
-/**
- * NATIVE MESSAGE FRAMES — re-frame one rendered DELTA context as a real
- * tool-calling transcript: user(task) → assistant(text + tool_calls) →
- * tool(our rendered execution evidence) → …
- *
- * WHY THIS SHAPE AND NOT PROSE. An earlier attempt split the same text into
- * plain user/assistant turns, putting the rendered `Thought:` / `Action:` block
- * in the ASSISTANT turn as text. That taught the model that assistants NARRATE
- * actions: it emitted the literal string "## Agent Event 4" with zero tool
- * calls and the loop died at ~4 steps (5.0% vs 55.3% on `environment`). Real
- * `tool-call` parts remove the ambiguity — the assistant turn contains actual
- * calls, so there is nothing to imitate in prose.
- *
- * WHY OUR TEXT STILL DRIVES THE EVIDENCE. Execution happens AFTER the tool
- * returns, and what the model should see about it (schema, column stats,
- * lineage, coercion loss — each gated by its own flag and now by statScopes) is
- * rendered by us, not by the tool. So the tool-result content is OUR rendered
- * `Observation:` block verbatim. We keep full control of the evidence; only the
- * framing is native.
- *
- * WHY IT IS CHEAPER. The block layout re-renders the whole trajectory into one
- * user message every step, so its bytes shift and nothing prefix-matches: on
- * `environment` 56.6% of 2.93M input tokens were cache WRITES (1.25x) rather
- * than READS (0.10x). Frames make the prefix append-only — earlier turns are
- * byte-identical between steps.
- */
+/** Context layout and result sampling are independent of data/flow evidence. */
 
 /** `## Agent Event N` at line start — the boundary the renderer emits. */
 const EVENT_RE = /^## Agent Event (\d+)\s*$/gm;
@@ -93,7 +68,10 @@ export function splitTrailingState(text: string): { head: string; tail: string }
   let cut = -1;
   for (const line of rest.split("\n")) {
     if (/^\s*```/.test(line)) fenced = !fenced;
-    else if (!fenced && /^# [^\n]*$/.test(line)) { cut = off; break; }
+    else if (!fenced && /^# [^\n]*$/.test(line)) {
+      cut = off;
+      break;
+    }
     off += line.length + 1;
   }
   if (cut < 0) return { head: text, tail: "" };
@@ -148,7 +126,10 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     let userTurn = "";
     const userAt = chunk.search(/^## User Event \d+\s*$/m);
     if (userAt >= 0) {
-      userTurn = chunk.slice(userAt).replace(/^## User Event \d+\s*\n/, "").trim();
+      userTurn = chunk
+        .slice(userAt)
+        .replace(/^## User Event \d+\s*\n/, "")
+        .trim();
       chunk = chunk.slice(0, userAt);
     }
 

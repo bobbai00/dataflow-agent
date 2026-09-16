@@ -125,19 +125,7 @@ export enum AgentMode {
  */
 export type ResultSelection = "all" | "rule" | "scoped";
 
-/**
- * Snapshot-selection policy for serializing the ReAct context (paper §5,
- * Phase 1). Trades trajectory fidelity for token cost; orthogonal to the
- * flow/data DECORATE levels (Phase 2).
- *
- * - DELTA — each event interleaved with its snapshot, rendering only the
- *   operators that event changed (unchanged operators are omitted; topology
- *   is embedded per-operator). Cost scales with distinct edits.
- * - LATEST — no per-event history; just the user task + the current snapshot.
- *   Cheapest. When flowLevel>0, a consolidated "Operators needing attention"
- *   flow section follows the snapshot — a targeted, lossy projection of the
- *   trajectory's failures/lineage (the middle ground between LATEST and DELTA).
- */
+/** Context layout and result sampling are independent of data/flow evidence. */
 export enum ContextMode {
   DELTA = "delta",
   LATEST = "latest",
@@ -274,22 +262,10 @@ export interface AgentSettings {
   errorReflectionThreshold: number;
   fewShotPrompt: boolean;
   maxResultRows: number;
-  flowLevel: number;
-  dataLevel: number;
-  /** Standalone overlay (independent of `dataLevel`): when true, each operator
-   *  result carries the full per-column `Column Schema and stats:` block the worker
-   *  publishes (null/mean/min/max/distinct/top-N). Off by default. */
-  columnStats: boolean;
-  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
-   *  append the `Format hints:` line for string columns that are numbers wearing
-   *  punctuation (currency/percent/thousands). Independent of `dataLevel` (which
-   *  can also enable it at L3). Off by default. */
-  valueFormat: boolean;
-  /** Standalone flag (data-derived annotation family, sibling of `columnStats`):
-   *  append the `Output Table profile:` block (all-null rows/cols, duplicate rows,
-   *  unnamed columns). Independent of `dataLevel` (which can also enable it
-   *  at L2). Off by default. */
-  dataHints: boolean;
+  /** Bounded, version-bound column/table facts on explicitly observed results. */
+  dataEvidence: boolean;
+  /** Version-matched input/output facts on explicitly observed results. */
+  flowEvidence: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -298,15 +274,7 @@ export interface AgentSettings {
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
   toolDialect: LocalToolDialect;
-  /**
-   * Deep-partial patch over the summarize() parameter space
-   * (context/summarize/params.ts), applied on top of the params derived from
-   * the settings above (contextMode → preset, flowLevel/dataLevel → rungs, …).
-   * The door into every summarize knob the flat settings don't expose:
-   * per-operator overrides, code/result history, detail levels, metric
-   * subsets, sample-based tuple hints. Validated against
-   * SummarizeParamsPatchSchema at the API boundary. Undefined ⇒ no patch.
-   */
+  /** Context layout and result sampling are independent of data/flow evidence. */
   summarizeParams?: SummarizeParamsPatch;
   /**
    * When set, the per-step SELECTOR policy (context/selector) chooses the
@@ -342,7 +310,7 @@ export interface AgentSettings {
   enableInspectTool: boolean;
   /**
    * Write-time render prefs: `createOrModifyOperator` accepts optional
-   * `outputSummary` ("minimal"|"standard") and `showOutputStatistics` (bool)
+   * `outputSummary` ("minimal"|"standard")
    * controlling how much of the op's result is RENDERED (view-only — the full
    * output is always computed and flows downstream). Gates the tool params,
    * the prompt section, and the render application. Off by default.
@@ -451,61 +419,9 @@ export interface AgentSettings {
    * addressable tables — unverifiable in a plain transcript. Off by default.
    */
   enableAnswerGrounding: boolean;
-  /**
-   * Surface the worker's coerce-to-NaN dataloss diagnostics (count + sample of
-   * dropped values) on operator results. The worker computes them
-   * unconditionally by transparently wrapping pandas.to_numeric/to_datetime;
-   * this only gates the render. Alarm-only, value-shape keyed, no task
-   * literals. Off by default.
-   */
-  coercionTelemetry: boolean;
-  /**
-   * Append a `Lineage:` line to operator results — rows in vs rows out from the
-   * engine's execution counts. A pure fact, no thresholds: silent row loss (a
-   * join dropping keys) becomes visible at the step where it happens instead of
-   * cascading. Off by default.
-   */
-  rowLineage: boolean;
-  /**
-   * POSITION-AWARE STAT SCOPES — where each data-facet channel may render,
-   * keyed by the operator's place in the DAG (`all` | `source` | `nonsource` |
-   * `off`). `dataLevel` stays the coarse preset that turns channels ON; this
-   * decides WHERE each one renders, so the two compose rather than compete.
-   *
-   * The motivating asymmetry: a SOURCE operator can only lose data at parse
-   * time (coercion NaNs, dropped values, partial file reads), and a CONSUMER
-   * can only lose it in its own transform (a join dropping keys) — so
-   * `{coercion:"source", fileIo:"source", lineage:"nonsource"}` puts each
-   * alarm exactly where its failure lives and nowhere else. Column stats are
-   * the expensive channel (v8 measured them changing join decomposition), so
-   * scoping them is the direct test of "keep the value, drop the flood".
-   *
-   * Undefined = legacy: every enabled channel renders on every operator.
-   */
-  /**
-   * WIRE FRAMING. "block" (default) sends the whole rendered trajectory as one
-   * user message per step; its bytes shift every step, so nothing prefix-matches
-   * and the context is re-written each time (measured: 56.6% of input tokens
-   * were cache WRITES at 1.25x, vs READS at 0.10x).
-   *
-   * "native" re-frames the SAME render as a real tool-calling transcript —
-   * assistant turns carry actual tool_calls, and each tool result carries OUR
-   * rendered execution evidence (schema / stats / lineage / coercion, still
-   * gated by their own flags and statScopes). The prefix becomes append-only.
-   *
-   * Do NOT reintroduce a variant that puts the rendered `Action:` text in an
-   * assistant turn: the model imitates it, narrating tool calls as prose
-   * instead of calling tools (measured 5.0% vs 55.3%).
-   */
+  /** Context layout and result sampling are independent of data/flow evidence. */
+  /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
-  statScopes?: {
-    columnStats?: "all" | "source" | "nonsource" | "off";
-    coercion?: "all" | "source" | "nonsource" | "off";
-    lineage?: "all" | "source" | "nonsource" | "off";
-    structural?: "all" | "source" | "nonsource" | "off";
-    valueFormat?: "all" | "source" | "nonsource" | "off";
-    fileIo?: "all" | "source" | "nonsource" | "off";
-  };
   /**
    * VERSIONED MODE — the session as one immutable version DAG addressed by
    * (operatorId, turnId). Three coupled changes, one flag:
@@ -618,13 +534,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeToolMode: "typed",
   nativeCatalogVersion: "v1",
   nativeProfileCollection: false,
+  dataEvidence: false,
+  flowEvidence: false,
   resultSelection: "all",
-  // DELTA + the observation channel below is the campaign-measured configuration
-  // (see AGENTS.md "Default agent configuration"): the trajectory is replayed
-  // per event, and every materialized result carries its schema, structural
-  // profile and per-column statistics. The bare LATEST/level-0 defaults this
-  // replaces rendered a snapshot with no value evidence, which is the failure
-  // mode every context experiment traced back to.
+  // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
   parallelToolCalls: true,
   includeOperatorProperties: true,
@@ -639,15 +552,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   errorReflectionThreshold: 3,
   fewShotPrompt: false,
   maxResultRows: 0,
-  // flow 1 = loader remediation + the "Operators needing attention" section;
-  // data 2 = typed schema line + structural profile (grain/key candidates,
-  // duplicates, empty rows/cols); columnStats layers per-column statistics
-  // (nulls, min/max/mean, distinct/top-N) onto every non-error result.
-  flowLevel: 1,
-  dataLevel: 2,
-  columnStats: true,
-  valueFormat: false,
-  dataHints: false,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,
@@ -669,8 +573,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   indexDetailedOperators: 0,
   enableResumeTool: false,
   enableAnswerGrounding: false,
-  coercionTelemetry: false,
-  rowLineage: false,
   versionedMode: false,
   // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
   // and without the table — it is derivable from the entries and buys nothing
@@ -749,6 +651,8 @@ export interface AgentSettingsApi {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -764,11 +668,6 @@ export interface AgentSettingsApi {
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   maxResultRows?: number;
-  flowLevel?: number;
-  dataLevel?: number;
-  columnStats?: boolean;
-  valueFormat?: boolean;
-  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
   summarizeParams?: SummarizeParamsPatch;
@@ -854,6 +753,8 @@ export interface UpdateAgentSettingsRequest {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -869,11 +770,6 @@ export interface UpdateAgentSettingsRequest {
   errorReflectionThreshold?: number;
   fewShotPrompt?: boolean;
   maxResultRows?: number;
-  flowLevel?: number;
-  dataLevel?: number;
-  columnStats?: boolean;
-  valueFormat?: boolean;
-  dataHints?: boolean;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
   summarizeParams?: SummarizeParamsPatch;

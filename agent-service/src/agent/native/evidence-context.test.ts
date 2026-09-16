@@ -18,7 +18,8 @@
  */
 
 import { expect, test } from "bun:test";
-import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
+import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
+import { buildContextAssembler } from "../../server";
 import type { OperatorInfo } from "../../types/execution";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -171,15 +172,99 @@ const filter = {
 };
 
 for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+  for (const dataEvidence of [false, true])
+    for (const flowEvidence of [false, true]) {
+      test(`production ${mode}: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
+        const f = fixture();
+        await f.record("A", [filter, source], ["selected"]);
+        f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
+        const info = f.storage.getOperatorResult("A", "selected")!;
+        f.storage.setOperatorResult("A", "selected", {
+          ...info,
+          columnStats: { x: "LEGACY_STATS_SENTINEL", __table_hints__: "LEGACY_HINT_SENTINEL" },
+        });
+        f.capture("A", ["selected"], dataEvidence, flowEvidence);
+        const assembler = buildContextAssembler("vercel-tool-use", {} as never);
+        const input = {
+          visibleSteps: f.steps,
+          workflowState: f.state,
+          snapshotStorage: f.storage,
+          compilationResult: null,
+          settings: {
+            ...DEFAULT_AGENT_SETTINGS,
+            agentMode: AgentMode.NATIVE,
+            nativeCatalogVersion: "v2",
+            nativeToolMode: "batch",
+            contextMode: mode,
+            dataEvidence,
+            flowEvidence,
+          },
+        };
+        const expected = await assembler(input as any);
+        const text = JSON.stringify(expected);
+        expect(text.includes("Data measurement")).toBe(dataEvidence);
+        expect(text.includes("Flow measurement")).toBe(flowEvidence);
+        expect(text).not.toContain("LEGACY_");
+        for (const level of [0, 1, 2, 3]) {
+          expect(
+            await assembler({
+              ...input,
+              settings: {
+                ...input.settings,
+                flowLevel: level,
+                dataLevel: level,
+                columnStats: true,
+                valueFormat: true,
+                dataHints: true,
+                coercionTelemetry: true,
+                rowLineage: true,
+              },
+            } as any)
+          ).toEqual(expected);
+        }
+      });
+    }
+}
+
+test("DELTA error observations stay append-only without a moving legacy error suffix", async () => {
+  const f = fixture();
+  await f.record("A", [filter, source], []);
+  f.persist("A", { source: [-1, 1], selected: [1] });
+  f.storage.setOperatorResult("A", "selected", {
+    state: "Failed",
+    inputTuples: 2,
+    outputTuples: 0,
+    resultMode: "table",
+    error: "a unique callback failure",
+  });
+  f.capture("A", [], false, false);
+  const render = () =>
+    assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
+      agentMode: AgentMode.NATIVE,
+      messageLayout: "native",
+      dataEvidence: false,
+      flowEvidence: false,
+    });
+  const before = render();
+  expect(JSON.stringify(before)).toContain("a unique callback failure");
+  expect(JSON.stringify(before)).not.toContain("Operators needing attention");
+  await f.record("B", [], ["source"]);
+  f.capture("B", ["source"], false, false);
+  const after = render();
+  // The final continuation directive is not a saved event.
+  expect(after.slice(0, before.length - 1)).toEqual(before.slice(0, -1));
+  expect(JSON.stringify(after).match(/a unique callback failure/g)?.length).toBe(1);
+});
+
+for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
   test(`upstream summaries ${mode}: observe pins hidden calculation, revisions do not leak`, async () => {
     const f = fixture();
     const render = () =>
       JSON.stringify(
         assembleContext(f.steps, f.state, f.storage, mode, {
           agentMode: AgentMode.NATIVE,
-          dataLevel: 0,
-          flowLevel: 1,
-          columnStats: false,
+          dataEvidence: false,
+          flowEvidence: true,
           maxOperatorResultCharLimit: 2000,
         })
       );
@@ -187,7 +272,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
     f.capture("A", ["final"], false, true);
     const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations!.final);
-    expect(frozen.text).toContain("Flow upstream selected@");
+    expect(frozen.text).toContain("Flow upstream selected:");
     expect(frozen.text).toContain("kept=3/5");
     expect(frozen.text).not.toContain("-100");
     expect(render()).toContain("kept=3/5");
@@ -207,16 +292,15 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
   for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
     test(`V2 evidence ${mode}/${messageLayout ?? "default"}: explicit observe, revision, error, cached read`, async () => {
       const f = fixture();
-      let dataLevel: 0 | 1 = 1,
-        flowLevel: 0 | 1 = 1;
+      let dataEvidence: boolean = true,
+        flowEvidence: boolean = true;
       const render = () =>
         JSON.stringify(
           assembleContext(f.steps, f.state, f.storage, mode, {
             agentMode: AgentMode.NATIVE,
             messageLayout,
-            dataLevel,
-            flowLevel,
-            columnStats: false,
+            dataEvidence,
+            flowEvidence,
             maxOperatorResultCharLimit: 2000,
           })
         );
@@ -244,7 +328,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
       expect(render()).toContain("kept=2/5");
       expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
       expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
-      dataLevel = flowLevel = 0;
+      dataEvidence = flowEvidence = false;
       if (mode === ContextMode.DELTA) {
         expect(render()).toContain("kept=3/5");
         expect(render()).toContain("kept=2/5");
@@ -278,8 +362,8 @@ test("DELTA never retroactively adds evidence when it was off at observation tim
     JSON.stringify(
       assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
         agentMode: AgentMode.NATIVE,
-        dataLevel: 1,
-        flowLevel: 1,
+        dataEvidence: true,
+        flowEvidence: true,
       })
     );
   expect(render()).not.toContain("Flow measurement");
@@ -298,7 +382,6 @@ test("V2 formatting shares one budget and does not call legacy reserved-column/v
   for (const maxChars of [40, 120, 500, 2000]) {
     const rendered = formatOperatorResult("source", info, f.state, {
       operatorAtEvent: snap.workflow.operators[0],
-      columnStats: true,
       nativeEvidence: {
         workflow: snap.workflow,
         resolveInput: id => snap.results.get(id)?.info,
@@ -328,8 +411,8 @@ test("production post-step hook records cached observations without running the 
   agent.head = "A";
   agent.delegateConfig = { userToken: "test", workflowId: 17 };
   agent.settings.nativeCatalogVersion = "v2";
-  agent.settings.dataLevel = 1;
-  agent.settings.flowLevel = 1;
+  agent.settings.dataEvidence = true;
+  agent.settings.flowEvidence = true;
   agent.settings.maxOperatorResultCharLimit = 700;
   const result = await createNativeBatchTools(
     f.state,
@@ -376,9 +459,8 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
         const rendered = JSON.stringify(
           assembleContext(f.steps, f.state, f.storage, mode, {
             agentMode: AgentMode.NATIVE,
-            dataLevel: data ? 1 : 0,
-            flowLevel: flow ? 1 : 0,
-            columnStats: false,
+            dataEvidence: data,
+            flowEvidence: flow,
             maxOperatorResultCharLimit: 2000,
           })
         );
@@ -407,8 +489,8 @@ for (const scenario of ["settings", "checkout", "abort"] as const) {
     agent.workflowState = f.state;
     agent.head = "A";
     agent.settings.nativeCatalogVersion = "v2";
-    agent.settings.flowLevel = 1;
-    agent.settings.dataLevel = 1;
+    agent.settings.flowEvidence = true;
+    agent.settings.dataEvidence = true;
     agent.abortController = new AbortController();
     let finish!: () => void;
     agent.executePostStepChanges = () =>
@@ -417,8 +499,8 @@ for (const scenario of ["settings", "checkout", "abort"] as const) {
       });
     const pending = agent.runPostStepExecution(f.steps[0].toolCalls, f.steps[0].toolResults);
     if (scenario === "settings") {
-      agent.settings.flowLevel = 0;
-      agent.settings.dataLevel = 0;
+      agent.settings.flowEvidence = false;
+      agent.settings.dataEvidence = false;
       agent.settings.columnStats = false;
       agent.settings.maxOperatorResultCharLimit = 50;
     } else if (scenario === "checkout") {
@@ -456,8 +538,8 @@ test("DELTA compaction cannot reveal a previously unobserved successful table", 
   const text = JSON.stringify(
     assembleContext(f.steps, f.state, f.storage, ContextMode.DELTA, {
       agentMode: AgentMode.NATIVE,
-      dataLevel: 1,
-      flowLevel: 1,
+      dataEvidence: true,
+      flowEvidence: true,
       contextWindowTokens: 40,
       compactionStrategy: "compress",
     })
@@ -487,8 +569,8 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
         JSON.stringify(
           assembleContext(f.steps, f.state, f.storage, mode, {
             agentMode: AgentMode.NATIVE,
-            dataLevel: 1,
-            flowLevel: 1,
+            dataEvidence: true,
+            flowEvidence: true,
             ...layout,
           })
         );

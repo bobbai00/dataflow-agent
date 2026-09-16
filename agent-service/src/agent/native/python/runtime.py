@@ -1667,8 +1667,21 @@ def execute_native(spec, inputs):
     validate_native(spec)
     if len(inputs) != len(spec.get("inputs", [])):
         raise _error(spec, "INPUT_PORTS", "Runtime input count differs from the declared ports.", stage="contract")
-    for frame in inputs:
-        _frame(spec, frame)
+    for index, frame in enumerate(inputs):
+        try:
+            _frame(spec, frame)
+        except NativeError as error:
+            # This is a consumed-table boundary, before any user callback.
+            # Blaming the consumer's output prompts ineffective UDF rewrites.
+            code = error.diagnostic["code"].replace("OUTPUT_", "INPUT_")
+            if code == "UDF_RETURN_TYPE":
+                code = "INPUT_TABLE_TYPE"
+            producer = spec["inputs"][index]
+            message = (
+                f"Input {index} from {producer!r} is invalid; this operator's function has not run. "
+                f"Repair the producing operator. {error.diagnostic['message']}"
+            )
+            raise _error(spec, code, message, stage="contract", field=f"inputs[{index}]") from error
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}

@@ -24,9 +24,7 @@ async function main() {
   console.log(`[smoke] notes: ${res.notes}`);
   for (const op of ["legacy_data", "sales", "orphan_load", "by_region", "report"]) {
     const p = resolveOperatorParams(res.params, op);
-    console.log(
-      `   ${op.padEnd(12)} detail=${p.result.latest.detail} includeCode=${p.property.includeCode} stats=${p.result.latest.column.stats}`
-    );
+    console.log(`   ${op.padEnd(12)} detail=${p.result.latest.detail} includeCode=${p.property.includeCode}`);
   }
   if (!res.fromTeacher) {
     console.log("[smoke] FAIL: fell back to rule selector");

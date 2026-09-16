@@ -91,6 +91,9 @@ const REPAIR_HINTS: Record<string, string> = {
   JOIN_CARDINALITY: "Inspect key uniqueness and the intended join; do not silently deduplicate.",
   PIVOT_DUPLICATE: "Aggregate first only if combining duplicate pairs is intended.",
   PYTHON_IMPORT: "Check package availability or import names; changing a predicate will not install a package.",
+  INPUT_VALUE_TYPE: "Repair the producing operator's values; the consumer function has not run.",
+  INPUT_SCHEMA: "Repair the producing operator's column names; the consumer function has not run.",
+  INPUT_TABLE_TYPE: "The producing operator must return a pandas DataFrame.",
 };
 
 /** Verify structured source attribution against the event's operator definition.

@@ -139,21 +139,23 @@ Python in `benchmark/Kramabench/dataflow_agent.py`.
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs. It is the campaign-measured configuration, not
-a minimal one: **`contextMode: delta`**, **`flowLevel: 1`**, **`dataLevel: 2`**,
-**`columnStats: true`** — the trajectory is replayed per event, and every
-materialized result carries its typed schema line, its structural profile, and
-per-column statistics. Also on: `agentMode: general`, `parallelToolCalls: true`, `maxSteps: 100`,
+created with no `settings` runs. This branch removes legacy level/statistics
+overlays. **`contextMode: delta`**, **`dataEvidence: false`** and
+**`flowEvidence: false`** are the defaults. The two booleans independently
+control selected evidence in explicitly observed V2 results. Also on:
+`agentMode: general`, `parallelToolCalls: true`, `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
 (K=10). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
 "index"` all off), and every pull tool (recall / inspect / resume / compact) is
 off. See [README.md §2](README.md) for the full table.
 
-Two renders are conditional by design and their absence in a small run is not a
-defect: column stats are suppressed when the complete table is already visible
-in the context, and the `Output Table profile:` block only appears when the
-worker detects an actual structural signal (duplicate rows, all-null
-rows/columns, an unresolved header).
+Use `nativeCatalogVersion: "v2"` with native batch mode for this evidence
+contract. `nativeProfileCollection` controls physical collection, not exposure.
+Schema, samples and selected evidence share one result budget; a complete
+small table suppresses redundant data facts. `inspectResult` is never exposed.
+Old level/statistics settings produce an error, not a compatibility mapping.
+See [docs/evidence-only-context.md](docs/evidence-only-context.md). Historical
+benchmark arms must run their recorded revisions; do not reinterpret old labels.
 
 Benchmark arms override these per experiment (`Kramabench/systems/dataflow_system.py`,
 `benchmark/longds/arms.py`), so an arm's configuration and the service default

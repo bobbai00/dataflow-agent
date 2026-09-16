@@ -85,7 +85,9 @@ export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): st
       const fields = Object.keys(schema.properties)
         .filter(name => !(def.type === "Scan" && name === "columns"))
         .map(name => (schema.required.includes(name) ? name : `${name}?`));
-      return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}${version === "v2" ? ` — ${def.signature}` : ""}`;
+      // Full semantics are already attached to the tool schema. Keep only the
+      // field index here instead of paying for the same descriptions twice.
+      return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}`;
     })
     .join("\n");
 }

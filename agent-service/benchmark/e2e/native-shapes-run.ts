@@ -33,9 +33,8 @@ for (const contextMode of ["delta", "latest"] as const) {
     contextMode,
     messageLayout: "block",
     nativeProfileCollection: true,
-    dataLevel: 1,
-    flowLevel: 1,
-    columnStats: false,
+    dataEvidence: true,
+    flowEvidence: true,
     maxOperatorResultCharLimit: 1200,
   });
   try {

@@ -25,13 +25,7 @@
  */
 
 import { createAgent, deleteAgent, runAgentTurn } from "../../src/api/agent-service-api";
-import {
-  createComputingUnit,
-  createWorkflow,
-  deleteWorkflow,
-  login,
-  terminateComputingUnit,
-} from "../../src/api";
+import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { AgentMode, ContextMode } from "../../src/types/agent";
 import { env } from "../../src/config/env";
 
@@ -45,8 +39,10 @@ const EMPTY_WORKFLOW = {
   settings: { dataTransferBatchSize: 400 },
 };
 
-const TURN1 = "Create one Python operator `gen` producing a table with column n = 1..500. Execute it and report how many rows it has.";
-const TURN2 = "Add a downstream operator `dbl` that doubles n into a column `n2`. Execute and report the sum of n2 over all rows.";
+const TURN1 =
+  "Create one Python operator `gen` producing a table with column n = 1..500. Execute it and report how many rows it has.";
+const TURN2 =
+  "Add a downstream operator `dbl` that doubles n into a column `n2`. Execute and report the sum of n2 over all rows.";
 
 const log = (...a: unknown[]) => console.log("[ctx-fmt]", ...a);
 
@@ -86,7 +82,7 @@ interface ModeSpec {
 const MODES: ModeSpec[] = [
   {
     name: "latest",
-    settings: { agentMode: AgentMode.CODE, contextMode: ContextMode.LATEST, columnStats: true },
+    settings: { agentMode: AgentMode.CODE, contextMode: ContextMode.LATEST },
     requiredMarkers: ["# User Task", "# Current Dataflow", "Column Schema and stats:"],
   },
   {

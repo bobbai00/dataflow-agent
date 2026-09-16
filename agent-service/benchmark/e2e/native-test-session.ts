@@ -96,9 +96,8 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
           contextMode: "delta",
           resultSelection: "all",
           parallelToolCalls: false,
-          columnStats: false,
-          flowLevel: 0,
-          dataLevel: 0,
+          flowEvidence: false,
+          dataEvidence: false,
           ...settings,
         },
       })
@@ -116,9 +115,8 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
     return assembleContext(steps, state, storage, mode, {
       agentMode: AgentMode.NATIVE,
       resultSelection: "all",
-      columnStats: false,
-      flowLevel: 0,
-      dataLevel: 0,
+      flowEvidence: false,
+      dataEvidence: false,
     })
       .map(message => message.content)
       .join("\n");

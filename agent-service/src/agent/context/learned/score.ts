@@ -179,7 +179,6 @@ export function learnedSelectParams(
   const overrides: Record<string, OperatorParamsOverride> = {};
   for (const dcn of decisions) {
     const column: Record<string, unknown> = { schema: true };
-    if (dcn.statsAdded) column.stats = true;
     overrides[dcn.operatorId] = {
       result: { latest: { detail: dcn.detail, column } },
     } as OperatorParamsOverride;
@@ -191,7 +190,7 @@ export function learnedSelectParams(
     compiledSchemas: false,
     // Safety flow-alarms are opt-in (config.flowAlarms) — on small tables they can
     // cost more than the rows the knapsack saves. v1 default = pure cost play.
-    flow: config.flowAlarms ? { loaderHints: true, errorContext: true } : {},
+    flow: config.flowAlarms ? {} : {},
     operators: {
       // Default = cheapest legible: shape + schema. Overrides lift chosen ops.
       defaults: { result: { latest: { detail: "shape", column: { schema: true } } } },

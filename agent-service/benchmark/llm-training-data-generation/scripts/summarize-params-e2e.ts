@@ -144,7 +144,7 @@ const VARIANTS: Variant[] = [
         operators: {
           defaults: {
             result: {
-              latest: { tuple: { sampleRows: 5 }, column: { stats: true, statsMetrics: ["null", "distinct"] } },
+              latest: { tuple: { sampleRows: 5 }, column: { stats: true } },
             },
           },
         },

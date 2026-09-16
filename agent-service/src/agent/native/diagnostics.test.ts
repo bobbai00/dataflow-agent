@@ -37,6 +37,30 @@ test("redaction preserves submitted-source line coordinates across multiline val
   expect(clean.split("\n").length).toBe(source.split("\n").length);
   expect(clean.split("\n")[6]).toBe("    return row['x'] / 0");
 });
+
+test("blocked consumers point to a root failure without repeating its source and detail", () => {
+  const { op, diagnostic, info, state } = fixture();
+  const consumer = { ...op, operatorID: "blocked", nativeOp: { ...op.nativeOp!, inputs: ["answer"] } };
+  state.addOperator(consumer);
+  const root = formatOperatorResult("answer", info, state);
+  const blocked = formatOperatorResult("blocked", info, state, {
+    nativeEvidence: {
+      workflow: state.getWorkflowContent(),
+      resolveInput: id => (id === "answer" ? info : undefined),
+      data: false,
+      flow: false,
+      maxChars: 1,
+    },
+  });
+  expect(root).toContain(diagnostic.message);
+  expect(blocked).toContain("upstream `answer`");
+  expect(blocked).toContain("CALLBACK_RUNTIME");
+  expect(blocked).not.toContain(diagnostic.message);
+  expect(blocked).not.toContain("return source / denominator");
+  expect(blocked.length).toBeLessThan(root.length);
+  // If the root's own error was not returned, retain this only copy of it.
+  expect(formatOperatorResult("blocked", info, state)).toContain(diagnostic.message);
+});
 function fixture(type = "UDF") {
   const op: OperatorPredicate = {
     operatorID: "answer",
@@ -198,7 +222,6 @@ test("V2 UDF code/reflection and flow-error decorations use submitted code and b
       assembleContext(steps, state, storage, ContextMode.LATEST, {
         agentMode: AgentMode.NATIVE,
         attemptReflection: true,
-        lineageErrorContext: true,
         opExtras: () =>
           ({ detail: "shape", includeCode: true, column: {}, tuple: {}, codeHistory: [], resultHistory: [] }) as any,
       })

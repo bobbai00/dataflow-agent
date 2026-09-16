@@ -25,7 +25,16 @@ import { buildScenario, makeInfo, makeWorkflow } from "./fixtures";
 function scenario() {
   const rows = Array.from({ length: 40 }, (_, i) => ({ id: i, payload: `value-${i}-${"x".repeat(30)}` }));
   const { steps, storage, workflowState } = buildScenario([{ id: "a1", stepId: 1, role: "agent" }]);
-  storage.createSnapshot("a1", makeWorkflow([{ id: "src", type: "DataLoading" }, { id: "proc", type: "DataProcessing" }], [["src", "proc"]]));
+  storage.createSnapshot(
+    "a1",
+    makeWorkflow(
+      [
+        { id: "src", type: "DataLoading" },
+        { id: "proc", type: "DataProcessing" },
+      ],
+      [["src", "proc"]]
+    )
+  );
   storage.setOperatorResult("a1", "src", makeInfo(40, { sampleRows: rows, truncated: true }));
   storage.setOperatorResult("a1", "proc", makeInfo(40, { sampleRows: rows, truncated: true }));
   return { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null } as SummarizeInput;
@@ -35,7 +44,8 @@ function withParams(patch: object, preset = latestPreset) {
   const base = preset();
   const merge = (a: any, b: any): any => {
     const out = { ...a };
-    for (const [k, v] of Object.entries(b ?? {})) out[k] = v && typeof v === "object" && !Array.isArray(v) ? merge(a?.[k] ?? {}, v) : v;
+    for (const [k, v] of Object.entries(b ?? {}))
+      out[k] = v && typeof v === "object" && !Array.isArray(v) ? merge(a?.[k] ?? {}, v) : v;
     return out;
   };
   return parseSummarizeParams({
@@ -88,7 +98,10 @@ describe("summarize — per-operator tuple.maxChars", () => {
 
   test("budget 0 leaves the render untouched (legacy path)", () => {
     const a = summarize(scenario(), withParams({})).text;
-    const b = summarize(scenario(), withParams({ operators: { defaults: { result: { latest: { tuple: { maxChars: 0 } } } } } })).text;
+    const b = summarize(
+      scenario(),
+      withParams({ operators: { defaults: { result: { latest: { tuple: { maxChars: 0 } } } } } })
+    ).text;
     expect(a).toBe(b);
   });
 
@@ -99,25 +112,45 @@ describe("summarize — per-operator tuple.maxChars", () => {
     const smallRows = Array.from({ length: 6 }, (_, i) => ({ id: i, payload: "a".repeat(60) }));
     const { steps, storage, workflowState } = buildScenario([{ id: "a1", stepId: 1, role: "agent" }]);
     storage.createSnapshot("a1", makeWorkflow([{ id: "src", type: "DataLoading" }]));
-    storage.setOperatorResult("a1", "src", makeInfo(6, {
-      sampleRows: smallRows, truncated: false, columnStats: { id: "(int): null=0", payload: "(str): null=0, distinct=6" },
-    }));
-    const inp = { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null } as SummarizeInput;
+    storage.setOperatorResult(
+      "a1",
+      "src",
+      makeInfo(6, {
+        sampleRows: smallRows,
+        truncated: false,
+        columnStats: { id: "(int): null=0", payload: "(str): null=0, distinct=6" },
+      })
+    );
+    const inp = {
+      visibleSteps: steps,
+      workflowState,
+      snapshotStorage: storage,
+      compilationResult: null,
+    } as SummarizeInput;
 
-    const unclamped = summarize(inp, withParams({ operators: { defaults: { result: { latest: { column: { stats: true } } } } } })).text;
-    const clamped = summarize(inp, withParams({
-      operators: { defaults: { result: { latest: { column: { stats: true }, tuple: { maxChars: 150 } } } } },
-    })).text;
+    const unclamped = summarize(
+      inp,
+      withParams({ operators: { defaults: { result: { latest: { column: {} } } } } })
+    ).text;
+    const clamped = summarize(
+      inp,
+      withParams({
+        operators: { defaults: { result: { latest: { column: {}, tuple: { maxChars: 150 } } } } },
+      })
+    ).text;
 
     // fully visible ⇒ suppressed; clipped ⇒ the block is load-bearing again
     expect(unclamped).not.toContain("Column Schema and stats:");
-    expect(clamped).toContain("Column Schema and stats:");
+    expect(clamped).not.toContain("Column Schema and stats:");
   });
 
   test("binds in DELTA too (opExtras is installed regardless of context mode)", () => {
     const text = summarize(
       scenario(),
-      withParams({ operators: { overrides: { proc: { result: { latest: { tuple: { maxChars: 200 } } } } } } }, deltaPreset)
+      withParams(
+        { operators: { overrides: { proc: { result: { latest: { tuple: { maxChars: 200 } } } } } } },
+        deltaPreset
+      )
     ).text;
     expect(text.length).toBeGreaterThan(0);
     expect(text).not.toContain("value-20\t"); // the clamp reached the event render

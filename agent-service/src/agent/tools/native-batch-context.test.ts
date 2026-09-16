@@ -127,9 +127,8 @@ describe("explicit batch observations across context modes", () => {
               agentMode: AgentMode.NATIVE,
               resultSelection,
               messageLayout,
-              flowLevel: 1,
-              dataLevel: 1,
-              columnStats: false,
+              flowEvidence: true,
+              dataEvidence: true,
             });
           const text = () => JSON.stringify(render());
 

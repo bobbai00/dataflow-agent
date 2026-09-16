@@ -105,7 +105,7 @@ import {
   createNativeBatchTools,
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
-import { NativeCatalogSettingsError, validateNativeCatalogSettings } from "./native/settings";
+import { NativeCatalogSettingsError, validateNativeCatalogSettings, validateEvidenceSettings } from "./native/settings";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
@@ -584,19 +584,14 @@ export class TexeraAgent {
         compactionEnabled
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      this.systemPrompt = buildNativeModeSystemPrompt(
-        this.settings.contextMode,
-        false,
-        this.settings.resultSelection,
-        {
-          versioned: this.settings.versionedMode === true,
-          session: this.settings.sessionTurns === true,
-          recall: this.settings.enableRecallTool === true,
-          batch: this.settings.nativeToolMode === "batch",
-          nativeCatalogVersion: this.settings.nativeCatalogVersion,
-          messageLayout: this.settings.messageLayout,
-        }
-      );
+      this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, false, this.settings.resultSelection, {
+        versioned: this.settings.versionedMode === true,
+        session: this.settings.sessionTurns === true,
+        recall: this.settings.enableRecallTool === true,
+        batch: this.settings.nativeToolMode === "batch",
+        nativeCatalogVersion: this.settings.nativeCatalogVersion,
+        messageLayout: this.settings.messageLayout,
+      });
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
@@ -1413,6 +1408,8 @@ export class TexeraAgent {
     nativeToolMode?: "typed" | "batch";
     nativeCatalogVersion?: "v1" | "v2";
     nativeProfileCollection?: boolean;
+    dataEvidence?: boolean;
+    flowEvidence?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1427,11 +1424,6 @@ export class TexeraAgent {
     errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
     maxResultRows?: number;
-    flowLevel?: number;
-    dataLevel?: number;
-    columnStats?: boolean;
-    valueFormat?: boolean;
-    dataHints?: boolean;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
     summarizeParams?: SummarizeParamsPatch | null;
@@ -1455,9 +1447,6 @@ export class TexeraAgent {
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
     enableAnswerGrounding?: boolean;
-    coercionTelemetry?: boolean;
-    rowLineage?: boolean;
-    statScopes?: AgentSettings["statScopes"];
     messageLayout?: AgentSettings["messageLayout"];
     versionedMode?: boolean;
     versionedHeads?: boolean;
@@ -1470,6 +1459,7 @@ export class TexeraAgent {
   }): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
+    validateEvidenceSettings(updates);
     const catalogVersion = validateNativeCatalogSettings({
       nativeCatalogVersion: updates.nativeCatalogVersion ?? this.settings.nativeCatalogVersion,
       agentMode: updates.agentMode ?? this.settings.agentMode,
@@ -1496,6 +1486,8 @@ export class TexeraAgent {
     }
     let promptNeedsRebuild = false;
     this.settings.nativeProfileCollection = collection;
+    if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
+    if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
 
     if (catalogVersion !== this.settings.nativeCatalogVersion) {
       this.settings.nativeCatalogVersion = catalogVersion;
@@ -1567,27 +1559,6 @@ export class TexeraAgent {
       // Pure render-time toggle — controls whether each operator's
       // `Properties:` line is emitted in the assembled snapshot (code
       // operators are always stripped regardless). Read at next assembly.
-    }
-    if (updates.flowLevel !== undefined) {
-      this.settings.flowLevel = updates.flowLevel;
-      // DECORATE flow facet ordinal level (CONTEXT-DESIGN §5). Expanded to the
-      // flow rung flags by assembleContext via the rung catalog.
-    }
-    if (updates.dataLevel !== undefined) {
-      this.settings.dataLevel = updates.dataLevel;
-      // DECORATE data facet ordinal level (CONTEXT-DESIGN §5).
-    }
-    if (updates.columnStats !== undefined) {
-      this.settings.columnStats = updates.columnStats;
-      // Standalone Column Stats overlay (independent of dataLevel).
-    }
-    if (updates.valueFormat !== undefined) {
-      this.settings.valueFormat = updates.valueFormat;
-      // Standalone value-format-hints flag (data-derived family).
-    }
-    if (updates.dataHints !== undefined) {
-      this.settings.dataHints = updates.dataHints;
-      // Standalone structural Data-hints flag (data-derived family).
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
@@ -1725,9 +1696,6 @@ export class TexeraAgent {
     if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
     if (updates.enableAnswerGrounding !== undefined)
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
-    if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
-    if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
-    if (updates.statScopes !== undefined) this.settings.statScopes = updates.statScopes;
     if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
       this.settings.messageLayout = updates.messageLayout;
       if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
@@ -2529,8 +2497,8 @@ export class TexeraAgent {
     // Capture exposure settings before awaiting the engine. Changing settings
     // while the request is in flight must not rewrite this event's selection.
     const options = {
-      data: (this.settings.dataLevel ?? 0) > 0 || this.settings.columnStats === true,
-      flow: (this.settings.flowLevel ?? 0) > 0,
+      data: this.settings.dataEvidence,
+      flow: this.settings.flowEvidence,
       maxChars: this.settings.maxOperatorResultCharLimit,
       maxRows: this.settings.maxResultRows,
     };
