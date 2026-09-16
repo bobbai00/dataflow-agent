@@ -140,6 +140,9 @@ For Python-native batching, use `agentMode: "native"`, `nativeToolMode: "batch"`
 controls; keep it fixed across matched evidence comparisons.
 Legacy level/statistics settings are rejected, not translated.
 See [the evidence-only context contract](docs/evidence-only-context.md).
+For calculation formulas, collection limits, shared-budget selection, and
+rendered examples of all four configurations, see
+[Data and flow evidence](docs/data-flow-evidence.md).
 
 Key endpoints (all under `/api/agents`):
 
