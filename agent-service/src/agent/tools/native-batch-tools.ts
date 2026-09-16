@@ -27,6 +27,8 @@ import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
+import { resolveTaskInputs, type TaskInput } from "../native/task-history";
+import { directReturnSchema, type DirectReturn } from "../native/direct-return";
 import {
   createNativeTypedTools,
   nativeInputsOf,
@@ -54,6 +56,7 @@ export interface NativeBatchResult {
   operators: NativeBatchOutcome[];
   observe: string[];
   observationErrors: string[];
+  return?: DirectReturn;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -93,7 +96,10 @@ export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): st
 }
 
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
-export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<string, unknown> {
+export function nativeBatchSchema(
+  version: NativeCatalogVersion = "v1",
+  options: { taskHistory?: boolean; directReturn?: boolean; compact?: boolean } = {}
+): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -102,17 +108,26 @@ export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<
         type: "array",
         description:
           "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
-        items: {
-          anyOf: nativeOperators(version).map(def => {
-            const schema = nativeToolSchema(def) as any;
-            return {
-              ...schema,
-              description: nativeToolDescription(def),
-              properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
-              required: ["op", ...schema.required],
-            };
-          }),
-        },
+        items: options.compact
+          ? {
+              type: "object",
+              additionalProperties: true,
+              required: ["op", "id"],
+              properties: { op: { type: "string" }, id: { type: "string" } },
+              description:
+                "Catalog operator with its input references and parameters at the top level; see the catalog in the system instructions.",
+            }
+          : {
+              anyOf: nativeOperators(version).map(def => {
+                const schema = nativeToolSchema(def, options.taskHistory) as any;
+                return {
+                  ...schema,
+                  description: nativeToolDescription(def),
+                  properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
+                  required: ["op", ...schema.required],
+                };
+              }),
+            },
       },
       observe: {
         type: "array",
@@ -120,6 +135,7 @@ export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<
         description:
           "Explicitly list every operator id whose result content you want to see, including existing or re-executed downstream operators. Omitted or [] returns compact receipts only, with no successful table bodies. All edits still execute; errors always appear. Use operators:[] with observe to retrieve cached results later.",
       },
+      ...(options.directReturn ? { return: directReturnSchema } : {}),
     },
     required: ["operators"],
   };
@@ -145,7 +161,8 @@ export function createNativeBatchTools(
   context?: ToolContext,
   version: NativeCatalogVersion = "v1"
 ): Record<string, any> {
-  const typed = createNativeTypedTools(state, context, version);
+  const nativeInputReferences = new Map<string, TaskInput[]>();
+  const typed = createNativeTypedTools(state, { ...context, nativeInputReferences }, version);
   const validators = validatorsFor(version);
   const repair = version === "v2" ? (context?.nativeValidationRepair ?? new NativeValidationRepair()) : undefined;
   const schemas = new Map(nativeOperators(version).map(def => [nativeToolName(def.type), nativeToolSchema(def)]));
@@ -164,10 +181,17 @@ export function createNativeBatchTools(
         version === "v2"
           ? "Build or revise a stage using the Python V2 catalog. Batch dependent chains, forward references and existing-DAG edits in one call; the shared scheduler resolves their order. Explicitly list result IDs in observe; omitted/[] hides successes but never errors. operators:[] observes cached data without execution. Independent valid edits can succeed when another edit fails; its dependents are blocked."
           : "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
-      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
-        nativeBatchSchema(version) as any
+      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[]; return?: DirectReturn }>(
+        nativeBatchSchema(version, {
+          taskHistory: !!context?.taskHistory,
+          directReturn: context?.nativeDirectReturn,
+          compact: context?.nativeCompactPrompt,
+        }) as any
       ),
       execute: async args => {
+        if (args.return && !context?.nativeDirectReturn) return createErrorResult("Direct result return is disabled");
+        if (args.return && !ajv.validate(directReturnSchema, args.return))
+          return createErrorResult("Invalid return specification");
         const repairEpoch = repair?.epoch;
         if (
           version === "v2" &&
@@ -193,13 +217,33 @@ export function createNativeBatchTools(
         ) {
           return createErrorResult("dataflow requires operators: array and optional observe: string[]");
         }
+        nativeInputReferences.clear();
+        const inputErrors = new Map<number, string>();
         const specs = args.operators.map((spec, index) => {
           const { op, ...params } = spec && typeof spec === "object" ? spec : {};
+          let resolved = params;
+          const def = nativeOperators(version).find(def => nativeToolName(def.type) === op);
+          if (def && context?.taskHistory && context.metadataStore) {
+            try {
+              const input = resolveTaskInputs(
+                params,
+                def.inputs,
+                context.taskHistory,
+                state,
+                context.metadataStore,
+                context.settings?.nativeProfileCollection
+              );
+              resolved = input.params;
+              if (typeof params.id === "string") nativeInputReferences.set(params.id, input.references);
+            } catch (error) {
+              inputErrors.set(index, error instanceof Error ? error.message : String(error));
+            }
+          }
           return {
             index,
             op: typeof op === "string" ? op : "",
             id: typeof params.id === "string" ? params.id : "",
-            params,
+            params: resolved,
           };
         });
         const outcomes: Array<NativeBatchOutcome | undefined> = specs.map(() => undefined);
@@ -218,6 +262,7 @@ export function createNativeBatchTools(
           };
         };
         const byId = new Map<string, number>();
+        for (const [index, message] of inputErrors) fail(index, message);
         for (const spec of specs) {
           if (byId.has(spec.id)) {
             fail(byId.get(spec.id)!, `Duplicate id '${spec.id}' in one batch; submit each id once.`);
@@ -376,7 +421,7 @@ export function createNativeBatchTools(
               .execute(spec.params, undefined)
           )
         );
-        const requested = args.observe ?? [];
+        const requested = [...(args.observe ?? []), ...(args.return ? [args.return.operator] : [])];
         const observationErrors: string[] = [];
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
@@ -388,6 +433,7 @@ export function createNativeBatchTools(
           operators: outcomes as NativeBatchOutcome[],
           observe,
           observationErrors,
+          ...(args.return ? { return: args.return } : {}),
         } satisfies NativeBatchResult;
       },
     }),

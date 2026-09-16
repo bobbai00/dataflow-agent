@@ -142,6 +142,36 @@ case class TargetResultsReady(statsState: ExecutionStatsStore) extends Terminati
 @Produces(Array(MediaType.APPLICATION_JSON))
 class SyncExecutionResource extends LazyLogging {
 
+  /** Retain one exact producing result before later edits evict its cache.
+    * Session/task lookup stays in agent-service; this endpoint owns data.
+    */
+  @POST
+  @Path("/{wid}/retain/{eid}/{operatorId}")
+  @RolesAllowed(Array("REGULAR", "ADMIN"))
+  def retainTaskResult(
+      @PathParam("wid") workflowId: Int,
+      @PathParam("eid") executionId: Int,
+      @PathParam("operatorId") operatorId: String,
+      @Auth user: SessionUser
+  ): org.apache.texera.web.service.RetainedTaskResult = {
+    import org.apache.texera.dao.jooq.generated.Tables.{WORKFLOW_EXECUTIONS, WORKFLOW_VERSION}
+    import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowAccessResource
+    if (!WorkflowAccessResource.hasReadAccess(workflowId, user.getUser.getUid))
+      throw new ForbiddenException("No access to workflow")
+    val context = SqlServer.getInstance().createDSLContext()
+    val belongs = context.fetchExists(
+      context
+        .selectOne()
+        .from(WORKFLOW_EXECUTIONS)
+        .join(WORKFLOW_VERSION)
+        .on(WORKFLOW_EXECUTIONS.VID.eq(WORKFLOW_VERSION.VID))
+        .where(WORKFLOW_EXECUTIONS.EID.eq(executionId).and(WORKFLOW_VERSION.WID.eq(workflowId)))
+    )
+    if (!belongs) throw new NotFoundException("Producing execution is not in this workflow")
+    org.apache.texera.web.service.TaskResultArchive
+      .retain(workflowId.toLong, executionId.toLong, operatorId)
+  }
+
   // Hard caps applied regardless of request — guard against runaway payloads.
   private val MAX_OPERATOR_RESULT_CHARS = 100000
   private val MAX_OPERATOR_RESULT_CELL_CHARS = 20000

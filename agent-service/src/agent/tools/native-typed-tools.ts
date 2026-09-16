@@ -54,6 +54,7 @@ import {
 } from "../native/catalog";
 import { compileNativeOp } from "../native/codegen";
 import { nativeRevision, validateNativeV2 } from "../native/codegen-v2";
+import { taskInputId, taskInputSchema, TASK_SOURCE_PREFIX } from "../native/task-history";
 
 /** Tool name for a native type: `Filter` → `filter`. */
 export function nativeToolName(type: string): string {
@@ -76,10 +77,15 @@ export function nativeInputsOf(toolName: string, input: unknown): string[] {
   const def = TYPE_BY_TOOL.get(toolName);
   if (!def || !input || typeof input !== "object") return [];
   const a = input as Record<string, unknown>;
-  if (def.inputs === 1) return typeof a.input === "string" ? [a.input] : [];
-  if (def.inputs === 2) return [a.left, a.right].filter((x): x is string => typeof x === "string");
-  if (def.inputs === "many")
-    return Array.isArray(a.inputs) ? (a.inputs as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  const id = (value: any): string[] =>
+    typeof value === "string"
+      ? [value]
+      : value && typeof value.operator === "string" && Number.isSafeInteger(value.atTask) && value.atTask > 0
+        ? [taskInputId(value)]
+        : [];
+  if (def.inputs === 1) return id(a.input);
+  if (def.inputs === 2) return [a.left, a.right].flatMap(id);
+  if (def.inputs === "many") return Array.isArray(a.inputs) ? a.inputs.flatMap(id) : [];
   return [];
 }
 
@@ -206,9 +212,15 @@ export function nativeToolCatalogText(): string {
 }
 
 /** JSON schema of one tool: id + input refs + the operator's own parameters. */
-export function nativeToolSchema(def: NativeOperatorDef): Record<string, unknown> {
+export function nativeToolSchema(def: NativeOperatorDef, taskHistory = false): Record<string, unknown> {
   const base = def.schema as { properties?: Record<string, unknown>; required?: string[]; anyOf?: unknown[] };
   const ins = inputArgSchema(def);
+  if (taskHistory) {
+    for (const key of Object.keys(ins.properties)) {
+      ins.properties[key] =
+        key === "inputs" ? { ...(ins.properties[key] as object), items: taskInputSchema } : taskInputSchema;
+    }
+  }
   return {
     type: "object",
     additionalProperties: false,
@@ -319,6 +331,10 @@ export function createNativeTypedTools(
           );
         }
         const view = nativeViewOf(name, args, version)!;
+        if (context?.taskHistory && id.startsWith(TASK_SOURCE_PREFIX))
+          return createErrorResult("Historical inputs are runtime-owned; reference them with {operator, atTask}.");
+        const taskInputs = context?.nativeInputReferences?.get(id);
+        if (taskInputs?.some(input => typeof input !== "string")) view.taskInputs = taskInputs;
         if (version === "v2" && context?.settings?.nativeProfileCollection === true) view.profileCollection = true;
         const bad = validateProps(def, view.properties);
         if (bad) return createErrorResult(`\`${id}\`: ${bad}`);
@@ -408,6 +424,7 @@ export function createNativeTypedTools(
     execute: async (args: { id: string }) => {
       const op = workflowState.getOperator(args.id);
       if (!op) return createErrorResult(`Operator \`${args.id}\` not found`);
+      if (op.taskSource) return createErrorResult("Historical inputs are runtime-owned.");
       const consumers = consumersOf(workflowState, args.id);
       if (consumers.length > 0) {
         return createErrorResult(

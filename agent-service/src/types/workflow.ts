@@ -49,6 +49,8 @@ export interface PortDescription {
 }
 
 export interface OperatorPredicate {
+  /** Runtime-created immutable input; never a model-authored operator. */
+  readonly taskSource?: { operator: string; atTask: number };
   readonly operatorID: string;
   readonly operatorType: string;
   readonly operatorVersion: string;
@@ -72,6 +74,7 @@ export interface OperatorPredicate {
     type: string;
     properties: Record<string, unknown>;
     inputs: string[];
+    taskInputs?: import("../agent/native/task-history").TaskInput[];
     version?: "v1" | "v2";
     revision?: string;
     profileCollection?: boolean;

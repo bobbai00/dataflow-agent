@@ -128,6 +128,8 @@ export interface DriverRunTurnInput {
   abortSignal?: AbortSignal;
   prepareStep: DriverPrepareStep;
   onStepFinish: (args: DriverStepFinish) => Promise<void>;
+  /** Runtime may finish with an explicitly requested complete computed result. */
+  getFinalAnswer?: () => string | undefined;
 }
 
 export interface DriverRunTurnResult {

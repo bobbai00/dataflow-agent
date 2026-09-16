@@ -60,6 +60,10 @@ export function validateNativeCatalogSettings(
     agentMode?: string;
     nativeToolMode?: string;
     nativeProfileCollection?: boolean;
+    nativeTaskHistory?: boolean;
+    nativeTaskContext?: boolean;
+    nativeDirectReturn?: boolean;
+    nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
   } = {}
@@ -81,6 +85,11 @@ export function validateNativeCatalogSettings(
       (settings.nativeToolMode ?? DEFAULT_AGENT_SETTINGS.nativeToolMode) !== "batch")
   ) {
     throw new NativeCatalogSettingsError("Native catalog v2 requires agentMode:native and nativeToolMode:batch");
+  }
+  for (const name of ["nativeTaskHistory", "nativeTaskContext", "nativeDirectReturn", "nativeCompactPrompt"] as const) {
+    if (settings[name] !== undefined && typeof settings[name] !== "boolean")
+      throw new NativeCatalogSettingsError(`${name} must be a boolean`);
+    if (settings[name] && version !== "v2") throw new NativeCatalogSettingsError(`${name} requires native catalog v2`);
   }
   return version;
 }

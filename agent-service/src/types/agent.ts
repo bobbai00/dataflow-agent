@@ -168,6 +168,10 @@ export interface AgentSettings {
   nativeCatalogVersion?: "v1" | "v2";
   /** Collect ordinary V2 profiles, independently of model-facing exposure. */
   nativeProfileCollection?: boolean;
+  nativeTaskHistory?: boolean;
+  nativeTaskContext?: boolean;
+  nativeDirectReturn?: boolean;
+  nativeCompactPrompt?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -534,6 +538,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeToolMode: "typed",
   nativeCatalogVersion: "v1",
   nativeProfileCollection: false,
+  nativeTaskHistory: false,
+  nativeTaskContext: false,
+  nativeDirectReturn: false,
+  nativeCompactPrompt: false,
   dataEvidence: false,
   flowEvidence: false,
   resultSelection: "all",
@@ -651,6 +659,10 @@ export interface AgentSettingsApi {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeTaskHistory?: boolean;
+  nativeTaskContext?: boolean;
+  nativeDirectReturn?: boolean;
+  nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;
@@ -753,6 +765,10 @@ export interface UpdateAgentSettingsRequest {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  nativeTaskHistory?: boolean;
+  nativeTaskContext?: boolean;
+  nativeDirectReturn?: boolean;
+  nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;

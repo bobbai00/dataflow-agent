@@ -61,7 +61,7 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -130,7 +130,7 @@ export class VercelToolUseDriver implements LLMDriver {
       cacheCreationInputTokens: cacheCreationTotal,
     };
     return {
-      text: result.text,
+      text: input.getFinalAnswer?.() ?? result.text,
       messages: result.response.messages,
       usage,
     };

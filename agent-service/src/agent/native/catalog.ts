@@ -334,6 +334,7 @@ export interface NativeOpView {
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= `process()` parameter order). */
   inputs: string[];
+  taskInputs?: import("./task-history").TaskInput[];
 }
 
 /** Operator ids double as Python parameter names in the generated `process()`. */

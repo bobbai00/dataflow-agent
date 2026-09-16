@@ -31,6 +31,10 @@ import { type WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import type { NativeValidationRepair } from "../native/validation-repair";
 
 export interface ToolContext {
+  taskHistory?: import("../native/task-history").TaskHistory;
+  nativeInputReferences?: Map<string, import("../native/task-history").TaskInput[]>;
+  nativeDirectReturn?: boolean;
+  nativeCompactPrompt?: boolean;
   metadataStore?: WorkflowSystemMetadata;
   nativeValidationRepair?: NativeValidationRepair;
   settings?: {
