@@ -53,6 +53,9 @@ write('config.json', dict(arm='code', transport=args.transport, cache_key=cache_
 if args.transport == 'responses':
     from code_responses_transport import install_responses_transport
     install_responses_transport(wrapper._model, cache_key)
+else:
+    # Preserve ordinary Chat generation while isolating its cache accounting.
+    wrapper._model.kwargs["extra_body"] = {"prompt_cache_key": cache_key}
 prior = 0
 for index, turn in enumerate(spec['turns'][:args.turn_limit], 1):
     directory = f't{index:02}'; (out / directory).mkdir()
