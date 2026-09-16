@@ -83,13 +83,42 @@ def equal(expected,actual):
 
 def score(case,run):
     gold=json.loads((case/'gold.json').read_text());results=[]
+    metadata=json.loads((case/'checks.json').read_text()) if (case/'checks.json').exists() else [{} for _ in gold]
+    assert len(metadata)==len(gold), 'Checks must cover every task before any model run'
+    state_checks={}
     for i,expected in enumerate(gold,1):
         folder=run/f't{i:02}'
-        if not (folder/'answer.json').exists():continue
-        answer=json.loads((folder/'answer.json').read_text());actual=parse(answer.get('answer',''))
-        item=dict(task=i,passed=equal(expected,actual),actual=actual,expected=expected)
-        (folder/'evaluation.json').write_text(json.dumps(item,indent=2));results.append({**item,**json.loads((folder/'stats.json').read_text())})
-    summary=dict(tasks=len(gold),completed=len(results),passed=sum(x['passed'] for x in results),cost_usd=sum(x['cost_usd'] for x in results),llm_calls=sum(x['llm_calls'] for x in results),results=results)
+        completed=(folder/'answer.json').exists()
+        answer=json.loads((folder/'answer.json').read_text()) if completed else {}
+        actual=parse(answer.get('answer',''))
+        stats=json.loads((folder/'stats.json').read_text()) if (folder/'stats.json').exists() else {}
+        # One check per requested root field, not per output row. No judge, fuzzy
+        # semantics, alias matching or after-the-fact numeric relaxation.
+        fields=list(expected) if isinstance(expected,dict) and expected else [None]
+        checks=[]
+        meta=metadata[i-1]
+        assert set(meta.get('fields',{})).issubset(set(fields)), 'Unknown requested field'
+        for field in fields:
+            passed=equal(expected,actual) if field is None else isinstance(actual,dict) and field in actual and equal(expected[field],actual[field])
+            kind=meta.get('fields',{}).get(field,'answer')
+            checks.append(dict(field=field,kind=kind,passed=passed))
+            bucket=state_checks.setdefault(kind,dict(passed=0,total=0))
+            bucket['total']+=1;bucket['passed']+=int(passed)
+        item=dict(task=i,completed=completed,passed=completed and equal(expected,actual),
+                  content_passed=completed and all(c['passed'] for c in checks),checks=checks,
+                  correction=meta.get('correction',False),actual=actual,expected=expected)
+        if folder.exists():(folder/'evaluation.json').write_text(json.dumps(item,indent=2))
+        results.append({**stats,**item,'usage_recorded':'cost_usd' in stats})
+    passed=sum(x['passed'] for x in results)
+    summary=dict(tasks=len(gold),completed=sum(x['completed'] for x in results),passed=passed,
+                 session_passed=passed==len(gold),content_passed=sum(x['content_passed'] for x in results),
+                 extra_field_only_failures=sum(x['content_passed'] and not x['passed'] for x in results),
+                 requirements=dict(passed=sum(c['passed'] for x in results for c in x['checks']),total=sum(len(x['checks']) for x in results)),
+                 task_averaged_requirement_score=sum(sum(c['passed'] for c in x['checks'])/len(x['checks']) for x in results)/len(gold),
+                 state_checks=state_checks,cost_complete=all(x['usage_recorded'] for x in results),
+                 cost_usd=sum(x.get('cost_usd',0) for x in results),
+                 correction_cost_usd=sum(x.get('cost_usd',0) for x in results if x['correction']),
+                 llm_calls=sum(x.get('llm_calls',0) for x in results),results=results)
     (run/'summary.json').write_text(json.dumps(summary,indent=2));return summary
 
 if __name__=='__main__':

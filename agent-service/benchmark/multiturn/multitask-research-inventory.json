@@ -1,0 +1,1166 @@
+{
+  "research_date": "2026-09-16",
+  "study_revision": "169f28c2be874be14eb713a95927f5a448d33b37",
+  "upstream_checkout_revision": "4b49ef052500c73b07b5a4955e1115da6cd9da16",
+  "task_index_sha256": "fd90ffbe66c84b725f9f26e581d569bffde113d692fd53e07a5ac22f101a88b2",
+  "source_task_root": "/home/bob/Desktop/dataflow-agent/benchmark/longds/DataMind/longds/dataset/task/longds",
+  "notes": [
+    "Read-only inventory; no new model runs or numeric gates were performed.",
+    "LongDS calls complete sessions tasks and requests turns. Here each row is a session, and the tasks field counts its user requests.",
+    "Pattern counts overlap; labels were read from metadata rather than independently validated.",
+    "multistate counts metadata records with more than one state_type label; it is not a full independently audited composition count.",
+    "Dependency references were normalized from integers or task_N strings. max_span is maximum request index minus prior dependency index. mean_span averages each nonempty dependency set's maximum span. max_breadth is maximum prior-dependency count.",
+    "data_present only means the local session data directory contains a file; completeness and reproducibility remain unverified.",
+    "Prior experiment exposure has not been comprehensively audited. No row is certified held out.",
+    "Downloaded task and metadata file hashes are recorded separately from the upstream code revision."
+  ],
+  "summary": {
+    "sessions": 68,
+    "requests": 2225,
+    "domains": {
+      "business": 12,
+      "community": 16,
+      "education": 8,
+      "geoscience": 19,
+      "social_good": 10,
+      "sports": 3
+    },
+    "sessions_with_update": 66,
+    "sessions_with_rollback": 56,
+    "sessions_with_counterfactual": 56,
+    "sessions_with_nonempty_data_directory": 48,
+    "requests_with_multiple_state_type_labels": 583
+  },
+  "sessions": [
+    {
+      "key": "business/goodbooks_10k/task1",
+      "tasks": 35,
+      "patterns": {
+        "Initial": 19,
+        "Update": 10,
+        "Rollback": 10,
+        "Counterfactual": 14
+      },
+      "multistate": 14,
+      "max_span": 29,
+      "mean_span": 10.8,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "91de12739d9a41b700a3b7b4d2061dea7020127b7af2fa9e797068da7ca26144",
+      "metadata_sha256": "1bbdc8a6ad2e24f04ac66bc8f1fffe2cc488264c61abd6ae81005963bd40ad7b"
+    },
+    {
+      "key": "business/goodreads_books/task1",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 6,
+        "Counterfactual": 10,
+        "Update": 9,
+        "Rollback": 11
+      },
+      "multistate": 7,
+      "max_span": 28,
+      "mean_span": 12.2,
+      "max_breadth": 9,
+      "data_present": true,
+      "task_sha256": "6f160e032e1c83d7ad98502175b10f42ffaf87a7a5010669e6363a0b1dccc586",
+      "metadata_sha256": "21d5d36bb0f14da3cc044ee454f7ee93db70893f07d391e9b4d24fc51475be48"
+    },
+    {
+      "key": "business/my_uber_drivers/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 21,
+        "Update": 11,
+        "Counterfactual": 12,
+        "Rollback": 12
+      },
+      "multistate": 18,
+      "max_span": 33,
+      "mean_span": 12.5,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "322d141b06758262259239fc9f8ef870f6c2fe808abe3b142e7d26d9395772dc",
+      "metadata_sha256": "6b324dbb34760ea35be89a7821b365d979e282fca01bb6b8480c59262619f494"
+    },
+    {
+      "key": "business/my_uber_drivers/task2",
+      "tasks": 35,
+      "patterns": {
+        "Initial": 17,
+        "Update": 13,
+        "Counterfactual": 6,
+        "Rollback": 14
+      },
+      "multistate": 14,
+      "max_span": 32,
+      "mean_span": 11.9,
+      "max_breadth": 10,
+      "data_present": true,
+      "task_sha256": "a2ff6fb6648022269a24ef141935cdd0bbb03358fc1aa386001091bb7bcc4764",
+      "metadata_sha256": "1ffea763069af086d1674e7a27f959765b21452402941a892dc8bec892c21bcd"
+    },
+    {
+      "key": "business/netflix_movies_and_tv_shows/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 15,
+        "Update": 15,
+        "Rollback": 8,
+        "Counterfactual": 11
+      },
+      "multistate": 9,
+      "max_span": 33,
+      "mean_span": 10.5,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "9ecd51e20ce503e2ecd2ff81017fdefbfe05414417a50d97bc439bbdbd289439",
+      "metadata_sha256": "effa2e7d4bfd5ec4e6a511ceb599cdd606d7a0294e4e28a748055b6fcb8c710f"
+    },
+    {
+      "key": "business/netflix_movies_and_tv_shows/task2",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 18,
+        "Counterfactual": 10,
+        "Update": 15,
+        "Rollback": 14
+      },
+      "multistate": 19,
+      "max_span": 30,
+      "mean_span": 9.0,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "eb8d35a0885b898dac64f20babf2cf862bd1535b0503e699118bffab604a0e40",
+      "metadata_sha256": "77c494d7d4fb391abb53555a0a816d6d2c544698beefd9be4adc64660a6eb22d"
+    },
+    {
+      "key": "business/netflix_movies_and_tv_shows/task3",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 18,
+        "Update": 14,
+        "Rollback": 12,
+        "Counterfactual": 13
+      },
+      "multistate": 22,
+      "max_span": 30,
+      "mean_span": 12.1,
+      "max_breadth": 14,
+      "data_present": true,
+      "task_sha256": "3df0afb9bbce7e7f1c9a47070eeca2cb09820b324169ece10cfac09b995e14f3",
+      "metadata_sha256": "546351330c3f6c1cf893fcd899b533e869aade5db36297e80a8136ff71fe6971"
+    },
+    {
+      "key": "business/netflix_movies_and_tv_shows/task4",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 14,
+        "Counterfactual": 10,
+        "Update": 10,
+        "Rollback": 6
+      },
+      "multistate": 8,
+      "max_span": 29,
+      "mean_span": 12.0,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "0a2077d9aab7c055c1be38fea508dc79991114f94fc232e34c6309642179bace",
+      "metadata_sha256": "4f49fcb79dc79ff5da0c55b4e097c68e0a9e02bb19e15de09aae1ff8f6912689"
+    },
+    {
+      "key": "business/nyc_restaurants_data_food_ordering_and_delivery/task1",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 13,
+        "Counterfactual": 4,
+        "Update": 12,
+        "Rollback": 11
+      },
+      "multistate": 8,
+      "max_span": 25,
+      "mean_span": 11.0,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "f2e9168a07fc713e2ecc2ffc791fd4adc5dfc5fb2c9f2d032e99d0276b56ec88",
+      "metadata_sha256": "b646ac22fcccb49019d9a0c4a89066016cc485ceaf4857987f05a2f4682f0e17"
+    },
+    {
+      "key": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "tasks": 33,
+      "patterns": {
+        "Initial": 13,
+        "Counterfactual": 5,
+        "Update": 11,
+        "Rollback": 8
+      },
+      "multistate": 4,
+      "max_span": 30,
+      "mean_span": 9.4,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "0c41750f60df242157e335a29b7ddf3941b6fbcb1d4c922000404d3883ce06a4",
+      "metadata_sha256": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451"
+    },
+    {
+      "key": "business/nyc_restaurants_data_food_ordering_and_delivery/task3",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 5,
+        "Update": 15,
+        "Counterfactual": 12,
+        "Rollback": 8
+      },
+      "multistate": 8,
+      "max_span": 33,
+      "mean_span": 11.7,
+      "max_breadth": 6,
+      "data_present": true,
+      "task_sha256": "a9cb5797b2b7778ddc289a47851145bbb13687f5fb1bbdf74bce18dec81a9a49",
+      "metadata_sha256": "c5709158e603fa1f15c63b5e4fc6e089d9e09c9afcb418a6a66fbe9b091b463d"
+    },
+    {
+      "key": "business/transaction_data_for_fraud_analysis/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 17,
+        "Update": 10,
+        "Rollback": 7,
+        "Counterfactual": 10
+      },
+      "multistate": 10,
+      "max_span": 34,
+      "mean_span": 12.1,
+      "max_breadth": 10,
+      "data_present": true,
+      "task_sha256": "7bc7558e0864e6fa7b1257fa19ee03811ac0c7a07ae63c0f1faa5f95f4c3f71f",
+      "metadata_sha256": "e8a5c3a302dbdfa62e78aede2de1ebd8c80090130f56c38df5789b72f28ab964"
+    },
+    {
+      "key": "community/github_programming_languages_data/task1",
+      "tasks": 15,
+      "patterns": {
+        "Initial": 12
+      },
+      "multistate": 0,
+      "max_span": 13,
+      "mean_span": 6.0,
+      "max_breadth": 3,
+      "data_present": true,
+      "task_sha256": "e44aecd249eb9461596d05c5f36b8afbcbc5903d6f4cd23e42b3c2351a17d79e",
+      "metadata_sha256": "c2b432ea76ab988463267e53c84839df3fc76ca4e567bbae812871d121dc08b0"
+    },
+    {
+      "key": "community/kaggle-survey-2018/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 28,
+        "Counterfactual": 1,
+        "Update": 2
+      },
+      "multistate": 1,
+      "max_span": 29,
+      "mean_span": 15.0,
+      "max_breadth": 6,
+      "data_present": true,
+      "task_sha256": "0818f39a9b9c8c28372a50e7e79696df238eed4b0bc046d9dc82b6301870c115",
+      "metadata_sha256": "894f54c9516f3a66cab45b6aad67e5f9e4eb08fb497a1b3667f755d10102598b"
+    },
+    {
+      "key": "community/kaggle-survey-2018/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 29,
+        "Update": 2,
+        "Rollback": 2
+      },
+      "multistate": 3,
+      "max_span": 29,
+      "mean_span": 13.3,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "0fe865042cb5ac0897c9a2331f1e2097d7a4e2b70a276868ce12f6e778fbd2c0",
+      "metadata_sha256": "ee65b5e15b68c90a52aa97609e74d00054288e66c5cdbc9c2c33d1eded9b67b7"
+    },
+    {
+      "key": "community/kaggle-survey-2018/task3",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 30,
+        "Update": 7,
+        "Rollback": 8
+      },
+      "multistate": 12,
+      "max_span": 27,
+      "mean_span": 11.0,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "f801c0e21da07c71ae07f2d0c2c47c67c04ecd6bb082ca7a76e3b58bc9e1ef84",
+      "metadata_sha256": "b4c296108cad5b057f98de064e7e4b80c390e1d26338e495e62acb64e8faa06b"
+    },
+    {
+      "key": "community/kaggle-survey-2019/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 23,
+        "Update": 5,
+        "Rollback": 5
+      },
+      "multistate": 6,
+      "max_span": 27,
+      "mean_span": 12.9,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "e31476151c8349cae910f865d99d10e9956049e7c99aa56af94dd77317c771e1",
+      "metadata_sha256": "71e6ed2818fb56a326a90e6f852770f6e45aa5e5addc76854148d9bfbca8d78a"
+    },
+    {
+      "key": "community/kaggle-survey-2019/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 25,
+        "Update": 1
+      },
+      "multistate": 1,
+      "max_span": 29,
+      "mean_span": 14.9,
+      "max_breadth": 11,
+      "data_present": true,
+      "task_sha256": "a90340eb0fc2b3176934e2599cf155850325eb454877334a97d863cbaf6cd5ed",
+      "metadata_sha256": "37a7acf380add8d7c558089bf9b770d6050b5fac242b600b4870d67f6c447c6b"
+    },
+    {
+      "key": "community/kaggle-survey-2019/task3",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 24,
+        "Update": 2,
+        "Rollback": 3
+      },
+      "multistate": 3,
+      "max_span": 29,
+      "mean_span": 13.1,
+      "max_breadth": 6,
+      "data_present": true,
+      "task_sha256": "2e234a214fb6009be472e188b5a8abf5bdebe0a264667aced79e23d598777847",
+      "metadata_sha256": "9847761a46212d212cd9c195a40d2f245ae1042c3357ec44908efd080d11ee79"
+    },
+    {
+      "key": "community/kaggle-survey-2020/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 28,
+        "Update": 1
+      },
+      "multistate": 1,
+      "max_span": 25,
+      "mean_span": 10.9,
+      "max_breadth": 3,
+      "data_present": true,
+      "task_sha256": "b0b1694c0ca9323da202bebee546792988ad08338b05490b1172e541363a4367",
+      "metadata_sha256": "3945a8e9a52168e3b925c2cd5c51e7bc871bd6eb4d8b13b6fddab1ee3e75b4d0"
+    },
+    {
+      "key": "community/kaggle-survey-2020/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 30,
+        "Counterfactual": 1
+      },
+      "multistate": 1,
+      "max_span": 27,
+      "mean_span": 11.9,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "a12f349c0f9158d3929d1bd7d59d0c220b624b1f79532640048be85ad836c70c",
+      "metadata_sha256": "ddfe8c41424a619a3043adcd150e261ae9cbc3ad769fffa0f06a6482690c2927"
+    },
+    {
+      "key": "community/kaggle-survey-2020/task3",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 27,
+        "Update": 2
+      },
+      "multistate": 2,
+      "max_span": 29,
+      "mean_span": 15.0,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "5c01b6f21a272d1d22f510643d779ed605a5f60313686e1349dae458faa53863",
+      "metadata_sha256": "213775313d74551ab3955d02db74d5e967e6da5abe1a4e81c18c3c1dfc5754cf"
+    },
+    {
+      "key": "community/kaggle-survey-2021/task1",
+      "tasks": 25,
+      "patterns": {
+        "Initial": 20,
+        "Update": 6,
+        "Rollback": 2,
+        "Counterfactual": 1
+      },
+      "multistate": 7,
+      "max_span": 22,
+      "mean_span": 7.7,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "8162dc6e2f88c2c6c89171a771423babb00ddc11ddbc07090cf6611c37677d84",
+      "metadata_sha256": "fb168d951675856247883d7ee0b4b1f7c0a3fc7cdd41420b88a49c06321f5ade"
+    },
+    {
+      "key": "community/kaggle-survey-2021/task2",
+      "tasks": 35,
+      "patterns": {
+        "Initial": 26,
+        "Update": 5,
+        "Counterfactual": 13
+      },
+      "multistate": 9,
+      "max_span": 34,
+      "mean_span": 17.5,
+      "max_breadth": 5,
+      "data_present": true,
+      "task_sha256": "d4c566714624c1c547563dbe718d9cbb0968450685c00cd696aef5fef8f18c1d",
+      "metadata_sha256": "65a6ad819d795fd8a8f1e6b664018e7f6fc5e73685b8a3ae15fdd0f890c78faa"
+    },
+    {
+      "key": "community/kaggle-survey-2021/task3",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 31,
+        "Update": 9,
+        "Counterfactual": 12,
+        "Rollback": 1
+      },
+      "multistate": 15,
+      "max_span": 31,
+      "mean_span": 10.5,
+      "max_breadth": 13,
+      "data_present": true,
+      "task_sha256": "6e190ff852720e28435bfc23bcf011871e0cab46bd4c1b0779a939b9c17ce9a3",
+      "metadata_sha256": "d606325e1d0466dd1df976f8e8152e85255053d947dbac2ea3d74af8e78f0f4e"
+    },
+    {
+      "key": "community/kaggle-survey-2022/task1",
+      "tasks": 27,
+      "patterns": {
+        "Initial": 27,
+        "Update": 4
+      },
+      "multistate": 4,
+      "max_span": 25,
+      "mean_span": 10.2,
+      "max_breadth": 6,
+      "data_present": true,
+      "task_sha256": "49c99e6350176d4821e7f2ce530ad6030f71b3d15f70815d00faa51b5dbb54e5",
+      "metadata_sha256": "9cea69cc8943f7cb443c82ba56e90e9e49dfe3ee29b993d9d4e418342f51d1d3"
+    },
+    {
+      "key": "community/kaggle-survey-2022/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 19,
+        "Counterfactual": 7,
+        "Update": 8,
+        "Rollback": 3
+      },
+      "multistate": 6,
+      "max_span": 25,
+      "mean_span": 8.8,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "714b65d74aa2026b8a2ec86477de3cf7d766905124c82cb3d6875c2c9010dc0c",
+      "metadata_sha256": "f84240fcb1b34287f99da3e48db2c67fa79cd6fbff487b2bc456b16cbb83d665"
+    },
+    {
+      "key": "community/kaggle-survey-2022/task3",
+      "tasks": 37,
+      "patterns": {
+        "Initial": 17,
+        "Update": 4,
+        "Rollback": 7,
+        "Counterfactual": 7
+      },
+      "multistate": 7,
+      "max_span": 32,
+      "mean_span": 7.8,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "3ad0a2af494092a7cd918c4575ce7c161be0992c7cd9c22e0f783876097f0605",
+      "metadata_sha256": "712d283a5127de8dfc2af2296b57b0ad57ad692a2662e3d33821e5f11fe1ccb8"
+    },
+    {
+      "key": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task1",
+      "tasks": 25,
+      "patterns": {
+        "Initial": 18,
+        "Update": 2,
+        "Counterfactual": 7
+      },
+      "multistate": 3,
+      "max_span": 17,
+      "mean_span": 7.5,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "6f751839a36f735a361514bfd085604a9822e6c5998ae8bfb544b6b9ddd78594",
+      "metadata_sha256": "bb7f56d72bf45ad1f6df3d70de69a574c17bae4b3dea8e07c86c0231b38f7081"
+    },
+    {
+      "key": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 30,
+        "Update": 7,
+        "Rollback": 1
+      },
+      "multistate": 8,
+      "max_span": 29,
+      "mean_span": 15.0,
+      "max_breadth": 6,
+      "data_present": true,
+      "task_sha256": "a0d2b4ef914ca6430473fd55d54b5e77c0c65e357971a2b3112cae1807fc8ffb",
+      "metadata_sha256": "3b59278a9448421da9c74081f605d4eb934dcbda39ef9b6cf73a38777e36a2aa"
+    },
+    {
+      "key": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 22,
+        "Update": 11,
+        "Counterfactual": 6,
+        "Rollback": 4
+      },
+      "multistate": 13,
+      "max_span": 27,
+      "mean_span": 9.9,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "3ac8e1e48e962620df285940de9676280f5ac03758388eb1f326d12f41c768e9",
+      "metadata_sha256": "80c5967be38770ab721551d087b9493a615d8cfa4a58912e349c49943e5f3707"
+    },
+    {
+      "key": "education/bi/task1",
+      "tasks": 27,
+      "patterns": {
+        "Initial": 21,
+        "Update": 8,
+        "Counterfactual": 3
+      },
+      "multistate": 8,
+      "max_span": 24,
+      "mean_span": 9.4,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "8ef5cfaaaa25376e227aeaab7d1cfcff231e795eecea030339611d4145c9549c",
+      "metadata_sha256": "2d42e250a7fbb7a60d001e5fa9b2e4da52f4f9b6ab51ab0ae10a997cdac2af93"
+    },
+    {
+      "key": "education/bi/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 8,
+        "Update": 3,
+        "Counterfactual": 3,
+        "Rollback": 1
+      },
+      "multistate": 1,
+      "max_span": 27,
+      "mean_span": 11.8,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "b37ec80e763aeadf10f88f37634f42695ebb3d2d5c5a55920cbecf80db29354f",
+      "metadata_sha256": "16f6bd9138d34ba439e774e4b7a1c25b41261ceb580b1a48ff041f0afa1bb4ea"
+    },
+    {
+      "key": "education/world_university_rankings/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 30,
+        "Update": 5,
+        "Counterfactual": 6,
+        "Rollback": 1
+      },
+      "multistate": 11,
+      "max_span": 29,
+      "mean_span": 15.0,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "132ffac0a51275b8bf786d492a223d7d847939a8cb2db93ab2dc6da67fa1ec03",
+      "metadata_sha256": "7d1017ffbe1de6541ebb64e9992589a19d0f07ac12b95c0df9cfca35a17f5a45"
+    },
+    {
+      "key": "education/world_university_rankings/task2",
+      "tasks": 21,
+      "patterns": {
+        "Initial": 11,
+        "Update": 4,
+        "Counterfactual": 9,
+        "Rollback": 2
+      },
+      "multistate": 10,
+      "max_span": 18,
+      "mean_span": 6.8,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "8c28934b58197fffb45e71b51f98df774083fa05fba4cac208a616d592acabfc",
+      "metadata_sha256": "d3b224a3e22e8cc0ca426b68712b348ef58796835a685aef9b2874230e9cc7c6"
+    },
+    {
+      "key": "education/world_university_rankings/task3",
+      "tasks": 23,
+      "patterns": {
+        "Initial": 18,
+        "Rollback": 1,
+        "Counterfactual": 5,
+        "Update": 4
+      },
+      "multistate": 9,
+      "max_span": 20,
+      "mean_span": 9.7,
+      "max_breadth": 4,
+      "data_present": true,
+      "task_sha256": "8f136ce6de833edd697a870dfe3ebb861c1eaf06f92c8bf53cae1f854016bddb",
+      "metadata_sha256": "71f7814f7650c2138da72b933a8aaf7959278f40b8f05f5c1568c53f7f008d03"
+    },
+    {
+      "key": "geoscience/acea_water_prediction/task1",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 14,
+        "Counterfactual": 9,
+        "Update": 3,
+        "Rollback": 4
+      },
+      "multistate": 4,
+      "max_span": 32,
+      "mean_span": 11.4,
+      "max_breadth": 12,
+      "data_present": false,
+      "task_sha256": "7abbff7ba79bd45df774314e9d8cb75cc462d8cbaf96db570d5b3b73e92520e5",
+      "metadata_sha256": "26301b9f2d5f417a96a1fd054f31a672da0bba1338bd0abe8c150d589e4fdeab"
+    },
+    {
+      "key": "geoscience/acea_water_prediction/task2",
+      "tasks": 38,
+      "patterns": {
+        "Initial": 5,
+        "Counterfactual": 10,
+        "Update": 6,
+        "Rollback": 4
+      },
+      "multistate": 5,
+      "max_span": 37,
+      "mean_span": 15.7,
+      "max_breadth": 16,
+      "data_present": true,
+      "task_sha256": "ea15918df512c1ac0fbe2c01a27d71503b15a51e0d4f8e71da97dc1e7ea37a83",
+      "metadata_sha256": "ea78474fb5d7c27aac92871fbfd92dd5bd4301cd469426b9afb5fecb3c9b1e7a"
+    },
+    {
+      "key": "geoscience/acea_water_prediction/task3",
+      "tasks": 37,
+      "patterns": {
+        "Initial": 21,
+        "Update": 5,
+        "Counterfactual": 4,
+        "Rollback": 5
+      },
+      "multistate": 6,
+      "max_span": 28,
+      "mean_span": 11.8,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "c7d85bc0d21b67131642cbdfac1da81ce1acf2a2657292075710b04cda6f3e07",
+      "metadata_sha256": "51c88f413b2ca4d6167c95c5390b522f28ccd8610fb368706cbdcdd765c843f4"
+    },
+    {
+      "key": "geoscience/cdp-unlocking-climate-solutions/task1",
+      "tasks": 39,
+      "patterns": {
+        "Initial": 19,
+        "Update": 15,
+        "Counterfactual": 14,
+        "Rollback": 8
+      },
+      "multistate": 16,
+      "max_span": 36,
+      "mean_span": 10.1,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "c3825ccf32047a334c91f4c35b9ff0da9b46972f88a16754eebc191aa0fbdeda",
+      "metadata_sha256": "1a817a21e290f99ded9c22e153a97c38ee219b48dff05abdd3e69fc13027b4fc"
+    },
+    {
+      "key": "geoscience/cdp-unlocking-climate-solutions/task2",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 17,
+        "Counterfactual": 7,
+        "Update": 9,
+        "Rollback": 6
+      },
+      "multistate": 6,
+      "max_span": 33,
+      "mean_span": 12.8,
+      "max_breadth": 9,
+      "data_present": false,
+      "task_sha256": "faea1895393c62cf78e4dc094bbbb95165acaed75c936056a299e0c4261d61c6",
+      "metadata_sha256": "c2463d2507e15b63621465e12da00cd507968ebdf8cd58f2548663603d4e8549"
+    },
+    {
+      "key": "geoscience/cdp-unlocking-climate-solutions/task3",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 22,
+        "Counterfactual": 6,
+        "Update": 9,
+        "Rollback": 6
+      },
+      "multistate": 9,
+      "max_span": 26,
+      "mean_span": 10.7,
+      "max_breadth": 7,
+      "data_present": false,
+      "task_sha256": "42848110e379dff9391ec77b72548ace41398e78bc802825a259216eaa750b50",
+      "metadata_sha256": "e0ae34a2d658be82ebffefc63430605dc49855f3870785a8d2c4f7b04f696da2"
+    },
+    {
+      "key": "geoscience/cdp-unlocking-climate-solutions/task4",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 15,
+        "Rollback": 10,
+        "Update": 10,
+        "Counterfactual": 5
+      },
+      "multistate": 4,
+      "max_span": 33,
+      "mean_span": 13.6,
+      "max_breadth": 7,
+      "data_present": false,
+      "task_sha256": "54d7bd1c824e1224543c2fe7ba0c8928eae4602ad649817d6e7344370b1a1efd",
+      "metadata_sha256": "4cd285012d796a039694cffd49659913a08a76832864bdf9ed21c304d3e3ba0c"
+    },
+    {
+      "key": "geoscience/ds4g-environmental-insights-explorer/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 15,
+        "Counterfactual": 13,
+        "Update": 8,
+        "Rollback": 9
+      },
+      "multistate": 9,
+      "max_span": 34,
+      "mean_span": 12.5,
+      "max_breadth": 7,
+      "data_present": false,
+      "task_sha256": "2bca6e0469ec835f59d6d7ab9cac55a6669eb173951b3f38778bc93622aadf54",
+      "metadata_sha256": "b782b5ea7ae4e7b9ccf48feb843c8a0e744a4ad7b427ca80e6ce9fe9a55a3043"
+    },
+    {
+      "key": "geoscience/ds4g-environmental-insights-explorer/task2",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 14,
+        "Update": 10,
+        "Counterfactual": 11,
+        "Rollback": 7
+      },
+      "multistate": 10,
+      "max_span": 27,
+      "mean_span": 8.2,
+      "max_breadth": 12,
+      "data_present": false,
+      "task_sha256": "4457d0a59a1938cdaf534384c4211abc0befd46dbb99de576547411e9d0cd7fc",
+      "metadata_sha256": "e89e3f04dceb0c1d441c7f7a332112864e634f6f22126a2e28fb416b7e5d46f6"
+    },
+    {
+      "key": "geoscience/global-data-on-sustainable-energy/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 17,
+        "Update": 12,
+        "Rollback": 6,
+        "Counterfactual": 5
+      },
+      "multistate": 4,
+      "max_span": 34,
+      "mean_span": 13.0,
+      "max_breadth": 14,
+      "data_present": false,
+      "task_sha256": "6719456458e73f454a47119836bd7fbd11ec2530ad2a1b9167d4738fb8a84671",
+      "metadata_sha256": "16a209635f153cdd7911c16850290cd0d7b4c79a6b977e6ecf45b9b8a5622ee4"
+    },
+    {
+      "key": "geoscience/global-data-on-sustainable-energy/task2",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 12,
+        "Counterfactual": 7,
+        "Update": 12,
+        "Rollback": 11
+      },
+      "multistate": 6,
+      "max_span": 35,
+      "mean_span": 14.9,
+      "max_breadth": 9,
+      "data_present": false,
+      "task_sha256": "b84ac49d97736396a4b300764d3b9093ba388200412f19bf0512a4855058c4a3",
+      "metadata_sha256": "57a69eba4a27bf13aafcda41e68b1697aadc6a306fd56a2fb7326b06cba2a523"
+    },
+    {
+      "key": "geoscience/global-data-on-sustainable-energy/task3",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 18,
+        "Update": 10,
+        "Counterfactual": 5,
+        "Rollback": 9
+      },
+      "multistate": 8,
+      "max_span": 32,
+      "mean_span": 11.7,
+      "max_breadth": 8,
+      "data_present": false,
+      "task_sha256": "09f46789d0173e6eeb12871705a6718002712575e793bbea3238c7aa900c5897",
+      "metadata_sha256": "d8a2846a4328fcf9fc367c44efe46728a1c6bda64d343a9044868ea4736f0dc4"
+    },
+    {
+      "key": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 17,
+        "Update": 9,
+        "Rollback": 12,
+        "Counterfactual": 5
+      },
+      "multistate": 8,
+      "max_span": 35,
+      "mean_span": 10.7,
+      "max_breadth": 6,
+      "data_present": false,
+      "task_sha256": "d3a3f419542cdf125c2da3e25e3ad8442e69d39814b40114289893bc35b38da8",
+      "metadata_sha256": "5ec5c9bcae8d4af138333ef820d33abbc9eaeccd43120f70fade39bbf138f450"
+    },
+    {
+      "key": "geoscience/phase-ii-widsdatathon2022/task1",
+      "tasks": 40,
+      "patterns": {
+        "Initial": 23,
+        "Counterfactual": 5,
+        "Update": 9,
+        "Rollback": 4
+      },
+      "multistate": 2,
+      "max_span": 38,
+      "mean_span": 14.1,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "2881ec45bed79a0e6ba2680f66cd129fc2cb83ed431e0c3c67439c66e858e03f",
+      "metadata_sha256": "aea7f41bfa29ead8af4d6fbc0e5bc5e9f0bbc52072c96672a8e16dbf1fb462d4"
+    },
+    {
+      "key": "geoscience/phase-ii-widsdatathon2022/task2",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 14,
+        "Update": 10,
+        "Counterfactual": 11,
+        "Rollback": 7
+      },
+      "multistate": 8,
+      "max_span": 35,
+      "mean_span": 18.0,
+      "max_breadth": 8,
+      "data_present": true,
+      "task_sha256": "8eb42134762e18df863f035d930fda62e2e31d5aa976cbedd8dd53b55eb1d67a",
+      "metadata_sha256": "9c84b1b75f24704d1b03c255d50c8b5033004e021575ff1407e0cd1a0a9aacf9"
+    },
+    {
+      "key": "geoscience/phase-ii-widsdatathon2022/task3",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 20,
+        "Update": 13,
+        "Counterfactual": 7,
+        "Rollback": 7
+      },
+      "multistate": 12,
+      "max_span": 30,
+      "mean_span": 10.3,
+      "max_breadth": 8,
+      "data_present": false,
+      "task_sha256": "fc750a58e77305c3620137ad4ec52631b6140f9c390a4af0fc4461dca5999c03",
+      "metadata_sha256": "495666ec1d3583ceffd007659cd4bfd49f43ce349cfa8f401f8e8b333987e8ed"
+    },
+    {
+      "key": "geoscience/water-potability/task1",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 23,
+        "Update": 13,
+        "Counterfactual": 6,
+        "Rollback": 5
+      },
+      "multistate": 13,
+      "max_span": 32,
+      "mean_span": 12.2,
+      "max_breadth": 10,
+      "data_present": false,
+      "task_sha256": "2d98f1d074d2a74a983e05dccae280822de84f15fd301717156d4c9373f7c874",
+      "metadata_sha256": "5d09ec44ddef7352d8e6d9b4d37c9516496363f9091df56b38eb0da7afe8c08c"
+    },
+    {
+      "key": "geoscience/water-potability/task2",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 20,
+        "Update": 9,
+        "Counterfactual": 5,
+        "Rollback": 8
+      },
+      "multistate": 7,
+      "max_span": 31,
+      "mean_span": 10.7,
+      "max_breadth": 5,
+      "data_present": false,
+      "task_sha256": "d95eda431454a9a121d8461ba863f30db02b023b7fc65866881665d1d33ec618",
+      "metadata_sha256": "9801fbcf2549302df03776e4b61af9475628d93820746fed48e8ba3074f7c069"
+    },
+    {
+      "key": "geoscience/water-potability/task3",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 10,
+        "Update": 11,
+        "Counterfactual": 7,
+        "Rollback": 8
+      },
+      "multistate": 6,
+      "max_span": 33,
+      "mean_span": 13.8,
+      "max_breadth": 11,
+      "data_present": true,
+      "task_sha256": "b74d95861245371f56c4b996a3b565dfc65f41ce4adec3cb1bcb3fca26789f46",
+      "metadata_sha256": "ba16203de2396a0fe8e116f3bfd1edcbf30a26480b0e83878a0fec7b5e5e41a3"
+    },
+    {
+      "key": "social_good/careerVillage_org/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 28,
+        "Update": 2
+      },
+      "multistate": 0,
+      "max_span": 29,
+      "mean_span": 15.0,
+      "max_breadth": 6,
+      "data_present": false,
+      "task_sha256": "531e48ccf7124a84bf31543e20567766fdc02e882e3ed3a6944df2d551279242",
+      "metadata_sha256": "d8277c2845e18b8853c2c68ddea072198f7478d841d5544f44db894bdec41c77"
+    },
+    {
+      "key": "social_good/careerVillage_org/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 25,
+        "Update": 4
+      },
+      "multistate": 0,
+      "max_span": 29,
+      "mean_span": 12.4,
+      "max_breadth": 4,
+      "data_present": false,
+      "task_sha256": "03347eb31a84eabc20e3680d0d2f4a9219efddb70b2d4a7a2f8714ab3b4eb12d",
+      "metadata_sha256": "8e4cf773dcc5fd2d61ddea68c510c633dd282f4fdf03c26f5b1d7eb45c7ce840"
+    },
+    {
+      "key": "social_good/center_for_policing_equity/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 16,
+        "Update": 11,
+        "Counterfactual": 12,
+        "Rollback": 11
+      },
+      "multistate": 14,
+      "max_span": 35,
+      "mean_span": 13.2,
+      "max_breadth": 9,
+      "data_present": true,
+      "task_sha256": "8628574d84b599288b82578b320956585307b2f36dd296f4daac0d76c07f88a9",
+      "metadata_sha256": "affd2c0e0257664a25541e00e68673fe4d497cd0b137079ab36865b53608a9c8"
+    },
+    {
+      "key": "social_good/center_for_policing_equity/task2",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 14,
+        "Update": 18,
+        "Counterfactual": 16,
+        "Rollback": 9
+      },
+      "multistate": 20,
+      "max_span": 35,
+      "mean_span": 12.1,
+      "max_breadth": 11,
+      "data_present": true,
+      "task_sha256": "71bf9b734c43d538f818158ef69320c4ddedf17a5fb9029019e84bc504f86adf",
+      "metadata_sha256": "bf2ae141ba6323ec43a62c60ad9242850c61e65cc978bdbd4e22cea4ad218de6"
+    },
+    {
+      "key": "social_good/data_science_for_good_city_of_los_angeles/task1",
+      "tasks": 36,
+      "patterns": {
+        "Initial": 29,
+        "Update": 14,
+        "Rollback": 10,
+        "Counterfactual": 14
+      },
+      "multistate": 27,
+      "max_span": 33,
+      "mean_span": 10.6,
+      "max_breadth": 11,
+      "data_present": true,
+      "task_sha256": "de7d2ac897b7d5a53946baa33ed860760279ab1da2e96374dbfe3094ef6d5102",
+      "metadata_sha256": "fda16cc866c07d4452275125d79379421355ed2d5224f892114c2ddc2fdec3b8"
+    },
+    {
+      "key": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "tasks": 37,
+      "patterns": {
+        "Initial": 11,
+        "Update": 11,
+        "Counterfactual": 13,
+        "Rollback": 12
+      },
+      "multistate": 10,
+      "max_span": 31,
+      "mean_span": 11.1,
+      "max_breadth": 8,
+      "data_present": false,
+      "task_sha256": "40a237c8a17cbccd0094eddf48fa4fe917e42158bd13260394adfb0a137d6eae",
+      "metadata_sha256": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c"
+    },
+    {
+      "key": "social_good/data_science_for_good_kiva_crowdfunding/task2",
+      "tasks": 37,
+      "patterns": {
+        "Initial": 23,
+        "Update": 14,
+        "Counterfactual": 6,
+        "Rollback": 10
+      },
+      "multistate": 15,
+      "max_span": 32,
+      "mean_span": 12.0,
+      "max_breadth": 8,
+      "data_present": false,
+      "task_sha256": "e5ba83e144ef4525a0e016fa391b0864525ca4bf5e77ca26335a37a883a471f8",
+      "metadata_sha256": "c3e16fe9daac180bc3f1f049749e90a4edcc58c37e32810c16baf7d2c17ec997"
+    },
+    {
+      "key": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+      "tasks": 34,
+      "patterns": {
+        "Initial": 27,
+        "Update": 15,
+        "Rollback": 10,
+        "Counterfactual": 13
+      },
+      "multistate": 25,
+      "max_span": 33,
+      "mean_span": 11.1,
+      "max_breadth": 11,
+      "data_present": false,
+      "task_sha256": "0695f7a6218e456afea9dc93a97d5ff27d5b5672e0fe6328fb54d68877675cad",
+      "metadata_sha256": "9ea8b436c8b0fc5196313a68c64fcb600b6c1553f31b4adc7b07734e77f01ae8"
+    },
+    {
+      "key": "social_good/passnyc/task1",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 21,
+        "Update": 10,
+        "Counterfactual": 5,
+        "Rollback": 3
+      },
+      "multistate": 14,
+      "max_span": 24,
+      "mean_span": 9.3,
+      "max_breadth": 6,
+      "data_present": false,
+      "task_sha256": "9a37e7d507260a6955f4b8cc02fe5379c0964ec89136f363a7ae7c5a79cc5a91",
+      "metadata_sha256": "98247c18cf809959fda495ac5c5ce3c620c8c81b0e6e83e7083c5fb87600c115"
+    },
+    {
+      "key": "social_good/passnyc/task2",
+      "tasks": 30,
+      "patterns": {
+        "Initial": 21,
+        "Update": 16,
+        "Counterfactual": 3,
+        "Rollback": 1
+      },
+      "multistate": 15,
+      "max_span": 27,
+      "mean_span": 10.3,
+      "max_breadth": 5,
+      "data_present": false,
+      "task_sha256": "546fde188664ca6814d9a095d81f08db7cf6445bcc52cef30b362cedad90f59f",
+      "metadata_sha256": "48fda6624f9eb55e4de3da98d6154a0670b142028fe11bde0e69d17317004d7e"
+    },
+    {
+      "key": "sports/big_data_derby_2022/task1",
+      "tasks": 35,
+      "patterns": {
+        "Initial": 11,
+        "Update": 10,
+        "Rollback": 10,
+        "Counterfactual": 7
+      },
+      "multistate": 5,
+      "max_span": 31,
+      "mean_span": 8.9,
+      "max_breadth": 9,
+      "data_present": true,
+      "task_sha256": "fb88e81ba459e7a388f0c103fd880ec5789d8cfa9e71cfee6955237c67177520",
+      "metadata_sha256": "35b3bffc9b2dcc4bb987cb3707ad83d4152f43edac0c8ad511301821108a75e2"
+    },
+    {
+      "key": "sports/march_madness_analytics/task1",
+      "tasks": 32,
+      "patterns": {
+        "Initial": 17,
+        "Update": 8,
+        "Rollback": 7,
+        "Counterfactual": 6
+      },
+      "multistate": 6,
+      "max_span": 24,
+      "mean_span": 8.2,
+      "max_breadth": 7,
+      "data_present": true,
+      "task_sha256": "da41a98243b1377bf16fa5f2dcc4ad1eb238bb72b29329601921922ecf96c478",
+      "metadata_sha256": "31856ed98a81c1e813be90f8e72131379a28857b1b1de096a44970e6e82639ad"
+    },
+    {
+      "key": "sports/nfl_big_data_bowl_2023/task1",
+      "tasks": 42,
+      "patterns": {
+        "Initial": 14,
+        "Counterfactual": 12,
+        "Rollback": 13,
+        "Update": 11
+      },
+      "multistate": 7,
+      "max_span": 40,
+      "mean_span": 15.7,
+      "max_breadth": 13,
+      "data_present": true,
+      "task_sha256": "f7798735b830847a4d27ab72209ddf961edc9bde82530fd76cc4316e69b100a9",
+      "metadata_sha256": "75fd94d5617035c3ab4f496289c05310c85e1baadc223a81ca68badb8f664212"
+    }
+  ]
+}

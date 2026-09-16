@@ -634,7 +634,11 @@ export class TexeraAgent {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
     if (this.settings.nativeCompactPrompt) {
-      this.systemPrompt = taskModePrompt(!!this.settings.nativeTaskHistory, !!this.settings.nativeDirectReturn);
+      this.systemPrompt = taskModePrompt(
+        !!this.settings.nativeTaskHistory,
+        !!this.settings.nativeDirectReturn,
+        !!this.settings.nativeTaskReuse
+      );
     } else {
       if (this.settings.nativeTaskHistory)
         this.systemPrompt +=
@@ -1442,6 +1446,7 @@ export class TexeraAgent {
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
+    nativeTaskReuse?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -1504,6 +1509,7 @@ export class TexeraAgent {
       nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
       nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
+      nativeTaskReuse: updates.nativeTaskReuse ?? this.settings.nativeTaskReuse,
       nativeDirectReturn: updates.nativeDirectReturn ?? this.settings.nativeDirectReturn,
       nativeCompactPrompt: updates.nativeCompactPrompt ?? this.settings.nativeCompactPrompt,
     });
@@ -1537,6 +1543,7 @@ export class TexeraAgent {
       "nativeTaskHistory",
       "nativeTaskContext",
       "nativeTaskCache",
+      "nativeTaskReuse",
       "nativeDirectReturn",
       "nativeCompactPrompt",
     ] as const) {

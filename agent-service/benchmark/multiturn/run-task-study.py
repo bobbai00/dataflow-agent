@@ -23,6 +23,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import random
 from pathlib import Path
 import runpy
 import subprocess
@@ -44,9 +45,11 @@ def main():
     parser.add_argument('--workers', type=int, default=3)
     parser.add_argument('--native-workers', type=int, default=2)
     parser.add_argument('--recovery-rounds', type=int, default=2)
+    parser.add_argument('--repeat-all', action='store_true', help='Repeat every session, not only failures.')
+    parser.add_argument('--seed', type=int, default=1729)
     args = parser.parse_args()
     arms = args.arms.split(',')
-    assert all(arm in ['code', 'base', 'compact', 'return', 'context', 'tasks'] for arm in arms)
+    assert all(arm in ['code', 'base', 'compact', 'return', 'context', 'tasks', 'reuse'] for arm in arms)
     assert args.workers > 0 and args.native_workers > 0 and args.recovery_rounds >= 0
     fixtures, out, kb_root = args.fixtures.resolve(), args.out.resolve(), args.kb_root.resolve()
     families = args.families.split(',') if args.families else sorted(p.parent.name for p in fixtures.glob('*/session.json'))
@@ -58,8 +61,12 @@ def main():
         started=time.time(), arms=arms, families=families,
         fixtures={family: {name: hashlib.sha256((fixtures / family / name).read_bytes()).hexdigest()
                            for name in ['session.json', 'gold.json']} for family in families},
-        recovery_rounds=args.recovery_rounds, primary=[], recoveries=[],
+        recovery_rounds=args.recovery_rounds, repeat_all=args.repeat_all, seed=args.seed,
+        code_transport=os.environ.get('TASK_CODE_TRANSPORT', 'responses'), primary=[], recoveries=[],
     )
+    for family in families:
+        for path in sorted((fixtures / family).glob('*.csv')) + list((fixtures / family).glob('checks.json')):
+            manifest['fixtures'][family][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     native_gate = threading.Semaphore(args.native_workers)
 
     def save():
@@ -70,7 +77,8 @@ def main():
         if arm == 'code':
             command = [str(kb_root / '.venv/bin/python'), str(HERE / 'run-task-code.py'),
                        str(fixtures / family / 'session.json'), str(directory),
-                       '--kb-root', str(kb_root), '--env-file', str(args.env_file.resolve())]
+                       '--kb-root', str(kb_root), '--env-file', str(args.env_file.resolve()),
+                       '--transport', manifest['code_transport']]
         else:
             command = ['bun', 'run', str(HERE / 'run-task-native.ts'),
                        str(fixtures / family / 'session.json'), str(directory), arm]
@@ -87,6 +95,7 @@ def main():
             return row
 
     def group(jobs, key):
+        random.Random(args.seed).shuffle(jobs)
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
             futures = [pool.submit(run, *job) for job in jobs]
             for future in concurrent.futures.as_completed(futures):
@@ -95,7 +104,7 @@ def main():
 
     save()
     group([(family, arm, f'{arm}-{family}') for family in families for arm in arms], 'primary')
-    failed = [row for row in manifest['primary'] if row['passed'] != row['tasks'] or row['exit_code']]
+    failed = [row for row in manifest['primary'] if args.repeat_all or row['passed'] != row['tasks'] or row['exit_code']]
     group([(row['family'], row['arm'], f"recovery{attempt}-{row['arm']}-{row['family']}")
            for row in failed for attempt in range(1, args.recovery_rounds + 1)], 'recoveries')
     manifest['finished'] = time.time()

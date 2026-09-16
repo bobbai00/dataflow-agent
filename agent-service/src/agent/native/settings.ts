@@ -63,6 +63,7 @@ export function validateNativeCatalogSettings(
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
+    nativeTaskReuse?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -89,10 +90,18 @@ export function validateNativeCatalogSettings(
   ) {
     throw new NativeCatalogSettingsError("Native catalog v2 requires agentMode:native and nativeToolMode:batch");
   }
-  for (const name of ["nativeTaskHistory", "nativeTaskContext", "nativeDirectReturn", "nativeCompactPrompt"] as const) {
+  for (const name of [
+    "nativeTaskHistory",
+    "nativeTaskContext",
+    "nativeDirectReturn",
+    "nativeCompactPrompt",
+    "nativeTaskReuse",
+  ] as const) {
     if (settings[name] !== undefined && typeof settings[name] !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);
     if (settings[name] && version !== "v2") throw new NativeCatalogSettingsError(`${name} requires native catalog v2`);
   }
+  if (settings.nativeTaskReuse && (!settings.nativeTaskContext || !settings.nativeCompactPrompt))
+    throw new NativeCatalogSettingsError("nativeTaskReuse requires nativeTaskContext and nativeCompactPrompt");
   return version;
 }

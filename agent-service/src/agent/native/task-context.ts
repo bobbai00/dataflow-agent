@@ -14,6 +14,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { taskReuseFacts } from "./task-reuse";
 import type { ModelMessage } from "ai";
 import type { ContextAssemblerInput } from "../llm-drivers/types";
 import type { OperatorPredicate } from "../../types/workflow";
@@ -135,7 +136,10 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
     .map(op => {
       const info = storage.getOperatorResult(head, op.operatorID);
       const saved = history?.available(op.operatorID) ?? [];
-      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown"}; ${info?.error ? "current result unavailable" : (info?.state ?? "not executed")}${saved.length ? `; saved tasks=${ranges(saved)}` : ""}`;
+      const reuse = input.settings.nativeTaskReuse
+        ? taskReuseFacts(op.operatorID, state.getAllOperators(), history)
+        : "";
+      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown"}; ${info?.error ? "current result unavailable" : (info?.state ?? "not executed")}${saved.length ? `; saved tasks=${ranges(saved)}` : ""}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
     });
   const deleted = new Map<string, number[]>();
   for (const task of history?.catalog() ?? [])
