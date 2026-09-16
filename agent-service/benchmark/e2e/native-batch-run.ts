@@ -200,7 +200,7 @@ try {
     body: JSON.stringify({ enableInspectTool: true }),
   });
   assert.ok(patched.ok);
-  const inspection = await debug("inspectResult", { operatorId: "positive", stats: true }).catch(error => ({
+  const inspection = await debug("inspectResult", { operatorId: "positive", maxRows: 2 }).catch(error => ({
     context: String(error),
   }));
   assert.match(inspection.context, /Tool .*inspectResult.* not found/);
@@ -338,7 +338,7 @@ try {
           "all three results materialized",
           "requested output only",
           "read without rerun",
-          "cached sample inspection",
+          "removed result-inspection tool rejected despite legacy enable flag",
           "upstream revision plus new dependent chain on existing DAG",
           "downstream result refreshed despite unchanged aggregate row count",
           "omitted observe hides successful bodies in DELTA and LATEST",
