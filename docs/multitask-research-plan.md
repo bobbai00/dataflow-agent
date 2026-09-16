@@ -19,9 +19,12 @@
 
 # Multi-task research milestone: correct reuse and updates
 
-Research date: 2026-09-16. This is a proposal, with a completed local benchmark
-inventory and literature review. No new agent campaign or runtime change was
-performed for this proposal.
+Research date: 2026-09-16. The measurement milestone and development pilot are
+now complete; see the [implementation and results report](../agent-service/benchmark/multiturn/STATE_MILESTONE_REPORT.md).
+The candidate improved controlled state preservation but did not beat CodeAgent
+on overall accuracy or cost. The larger matrix remains gated on addressing
+changing-context cost, answer contracts and reference-environment parity.
+The sections below preserve the research design and proposed expansion.
 
 ## Recommendation
 

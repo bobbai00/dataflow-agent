@@ -1,0 +1,24 @@
+{
+  "runtime_revision": "0be4241f839a8371dcc8c307901f0f3a177a97fc",
+  "raw_directory": "/tmp/texera-task-history/state-milestone",
+  "archive": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/task-history-dataflow/benchmark/longds/system_scratch/TaskStateMilestone/state-milestone.tar.gz",
+  "archive_bytes": 22516495,
+  "archive_sha256": "ec589f8701dd8d98f6f6920e87dd4283ddcb8b4cca584f3a6a5972eabf478809",
+  "scored_sessions": 63,
+  "scored_tasks": 567,
+  "executed_full_sessions": 72,
+  "executed_full_session_tasks": 639,
+  "smoke_tasks": 3,
+  "retained_tables": {
+    "scope": "All isolated-stack retained tables created since primary campaign start; includes superseded ranking sessions, excludes earlier smoke.",
+    "files": 1735,
+    "bytes": 7713974,
+    "distinct_sha256": 664
+  },
+  "cost_note": "Recorded model estimates only; two tasks timed out without usage. Engine/storage billing excluded.",
+  "known_research_cost_usd": 0.87030696,
+  "restore_note": "Extract archive, preserve raw manifests. Original file paths are recorded; regenerate fixtures for new runs. Historical engine bindings are in memory, so archived workflow JSON alone does not restore a live session.",
+  "regenerate_summary": "python summarize-state-milestone.py <root>/pilot --replacement <root>/clarified --out final-results.json",
+  "all_source_data_hashes_verified": true,
+  "private_label_references_in_model_traces": 0
+}

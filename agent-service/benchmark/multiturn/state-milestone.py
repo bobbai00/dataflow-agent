@@ -99,7 +99,7 @@ def generate(root):
         ('leaders', 'Use {old.csv}. Gain means current minus base. Publish the top TWO entities by gain, preserving this result for later. Return JSON names (alphabetical), count, gain (sum for those two).', selected(old, top_names)),
         ('detour', 'Separately, count all entities in the original file. Return JSON count.', dict(count=len(old))),
         ('expand', 'Now report ALL entities whose gain is positive in the original file. Return JSON names (alphabetical), count, gain (sum).', selected(old)),
-        ('other_leaders', 'Temporarily report the THREE entities with highest current, regardless of gain. Return JSON names (alphabetical).', dict(names=sorted(r['name'] for r in sorted(old, key=lambda r:r['current'], reverse=True)[:3]))),
+        ('other_leaders', 'Temporarily report the THREE entities with highest current, regardless of gain. Break ties in current by name ascending. Return JSON names (alphabetical).', dict(names=sorted(r['name'] for r in sorted(old, key=lambda r:(-r['current'],r['name']))[:3]))),
         ('fixed_members', 'New measurements are {new.csv}. Use exactly the TWO entity IDs in our FIRST publication and compute their gains from the new file. Return JSON names (alphabetical), count, gain (sum).', selected(new, top_names)),
         ('reapply_rule', 'Separately, reapply the INITIAL top-two-by-gain selection rule to the new file. Return JSON names (alphabetical), count, gain (sum).', selected(new, [r['name'] for r in new_top])),
         ('all_new', 'Report ALL entities whose gain is positive in the new file. Return JSON names (alphabetical), count, gain (sum).', selected(new)),

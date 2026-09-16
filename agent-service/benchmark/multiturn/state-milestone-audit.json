@@ -1,0 +1,104 @@
+{
+  "scope": "Manual mechanism audit of primary runs; deterministic scoring is authoritative. Paths are relative to the archived state-milestone directory.",
+  "cases": [
+    {
+      "family": "membership_values",
+      "task": 5,
+      "pair": ["code", "reuse"],
+      "category": "B_only",
+      "primary_reason": "wrong_transform",
+      "first_divergence": "CodeAgent explicitly recomputes the original-publication baseline with the current risk >= 5 rule. The candidate joins the current summary to default_summary atTask 1 and reads its stored count/value columns.",
+      "evidence": [
+        "pilot/code-membership_values/t05/react_steps.json",
+        "pilot/reuse-membership_values/t05/react_steps.json",
+        "pilot/code-membership_values/t05/evaluation.json",
+        "pilot/reuse-membership_values/t05/evaluation.json"
+      ],
+      "observed": "Code baseline_count=4, baseline_value=1400; correct publication is 3 and 800. Candidate returns 3 and 800.",
+      "counterfactual": "CodeAgent could retain or correctly reconstruct the original cohort; the trace does not prove that Python cannot solve this task.",
+      "confidence": "high",
+      "causal_limit": "Bundled guidance and ancestry context were changed together; this pair cannot isolate which addition caused the model's choice."
+    },
+    {
+      "family": "membership_values",
+      "task": 5,
+      "pair": ["tasks", "reuse"],
+      "category": "B_only",
+      "primary_reason": "wrong_transform",
+      "first_divergence": "Current Dataflow retrieves cohort_total atTask 1 correctly, then counts rows of that already aggregated one-row table. After repairing a nonexistent-column error, it still counts the count column rather than reading its value.",
+      "evidence": [
+        "pilot/tasks-membership_values/t05/react_steps.json",
+        "pilot/tasks-membership_values/t05/evaluation.json",
+        "pilot/reuse-membership_values/t05/react_steps.json"
+      ],
+      "observed": "Current Dataflow returns baseline_count=1 and baseline_value=800; the retained result itself is correct.",
+      "counterfactual": "Read the stored scalar count, or aggregate the retained patient-level table. Immutable historical results alone cannot prevent an invalid downstream calculation.",
+      "confidence": "high"
+    },
+    {
+      "family": "repair_descendants",
+      "task": 7,
+      "pair": ["code", "reuse"],
+      "category": "both_pass_A_cheaper",
+      "primary_reason": "smaller_context",
+      "first_divergence": "Candidate changes only orders_raw to the corrected export; its existing deduplication, revenue, total and regional consumers recompute. Both systems answer in one model call, so graph propagation does not remove a model call relative to CodeAgent here.",
+      "evidence": [
+        "pilot/reuse-repair_descendants/t07/react_steps.json",
+        "pilot/reuse-repair_descendants/t07/workflow.json",
+        "pilot/reuse-repair_descendants/t07/stats.json",
+        "pilot/code-repair_descendants/t07/stats.json"
+      ],
+      "observed": "Candidate correctly returns total=842, units=60, East=450, West=392. CodeAgent costs $0.0005239; candidate $0.00073488 using recorded model usage.",
+      "counterfactual": "Smaller changing context or more complex dependent repairs would be needed to turn fewer emitted update tokens into a cost win.",
+      "confidence": "high"
+    },
+    {
+      "family": "temporary_scope",
+      "task": 6,
+      "pair": ["code", "reuse"],
+      "category": "both_pass_A_cheaper",
+      "primary_reason": "tool_error_recovery",
+      "first_divergence": "Candidate updates the shared default_tariff input to 0.40. The computation succeeds, but return format json omits its column, causing a value/json require an existing column error and an additional model call to answer.",
+      "evidence": [
+        "pilot/reuse-temporary_scope/t06/react_steps.json",
+        "pilot/reuse-temporary_scope/t06/stats.json",
+        "pilot/code-temporary_scope/t06/stats.json"
+      ],
+      "observed": "Correct bill=576 and intensity=9.6; candidate uses two calls, CodeAgent one. This is a return-interface issue, not a stale dependency.",
+      "counterfactual": "An explicit valid return column would avoid this observed extra call. Any runtime inference for a unique JSON column needs a separate engineering test.",
+      "confidence": "high"
+    },
+    {
+      "family": "temporary_scope",
+      "task": 8,
+      "pair": ["code", "reuse"],
+      "category": "both_pass_A_cheaper",
+      "primary_reason": "cache_effect",
+      "first_divergence": "Despite shorter generated output over the session, the candidate writes substantially more changing input context into the prompt cache.",
+      "evidence": [
+        "pilot/reuse-temporary_scope/t08/react_steps.json",
+        "pilot/reuse-temporary_scope/summary.json",
+        "pilot/code-temporary_scope/summary.json"
+      ],
+      "observed": "The task-8 candidate catalog/context message is 9738 characters. Whole-session cache-write tokens: candidate 33542 versus CodeAgent 8584. Generated output: candidate 4263 versus CodeAgent 5612.",
+      "counterfactual": "Reduce the changing catalog representation and repair calls; reducing output code alone does not address this cost component.",
+      "confidence": "high"
+    },
+    {
+      "family": "longds_github",
+      "task": 13,
+      "pair": ["code", "reuse"],
+      "category": "A_only",
+      "primary_reason": "other",
+      "first_divergence": "Candidate computes the requested activity-density values, then returns full precision despite the requested three-decimal presentation. Task 14 repeats the missing rounding; task 15 uses a category order that violates the supplied contract.",
+      "evidence": [
+        "pilot/reuse-longds_github/t13/evaluation.json",
+        "pilot/reuse-longds_github/t14/evaluation.json",
+        "pilot/reuse-longds_github/t15/evaluation.json"
+      ],
+      "observed": "These remain strict failures. They are not evidence of selecting stale historical state.",
+      "counterfactual": "Apply requested formatting only to the final report, preserving unrounded analytical tables upstream.",
+      "confidence": "high"
+    }
+  ]
+}

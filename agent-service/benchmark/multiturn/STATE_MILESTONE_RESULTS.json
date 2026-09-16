@@ -1,0 +1,1425 @@
+{
+  "revision": "0be4241f839a8371dcc8c307901f0f3a177a97fc",
+  "finished": 1789601016.0695531,
+  "sessions": 63,
+  "expected_sessions": 63,
+  "repeat_all": true,
+  "replacement": "/tmp/texera-task-history/state-milestone/clarified",
+  "arms": {
+    "code": {
+      "sessions": 21,
+      "session_passed": 16,
+      "tasks": 189,
+      "passed": 181,
+      "content_passed": 181,
+      "cost_usd": 0.18473839,
+      "mean_session_cost_usd": 0.008797066190476191,
+      "cost_per_correct_task_usd": 0.0010206540883977901,
+      "cost_complete": true,
+      "unreported_usage_tasks": [],
+      "correction_cost_usd": 0.00711104,
+      "correction_llm_calls": 10,
+      "correction_output_tokens": 4040,
+      "startup_cost_usd": 0.04908366,
+      "followup_cost_usd": 0.13565473,
+      "state_checks": {
+        "answer": {
+          "passed": 222,
+          "total": 228
+        },
+        "update": {
+          "passed": 81,
+          "total": 81
+        },
+        "preservation": {
+          "passed": 85,
+          "total": 93
+        },
+        "selection": {
+          "passed": 69,
+          "total": 69
+        }
+      },
+      "task_averaged_requirement_score": 0.9735449735449735,
+      "input_tokens": 1367764,
+      "output_tokens": 95746,
+      "cached_tokens": 1182882,
+      "cache_write_tokens": 184183,
+      "reasoning_tokens": 29547,
+      "llm_calls": 233,
+      "tool_calls": null,
+      "historical_inputs": null,
+      "direct_returns": null,
+      "elapsed_seconds": 1049.8969595797244
+    },
+    "tasks": {
+      "sessions": 21,
+      "session_passed": 15,
+      "tasks": 189,
+      "passed": 176,
+      "content_passed": 177,
+      "cost_usd": 0.27124963,
+      "mean_session_cost_usd": 0.012916649047619048,
+      "cost_per_correct_task_usd": 0.0015411910795454546,
+      "cost_complete": false,
+      "unreported_usage_tasks": [
+        {
+          "session": "tasks-temporary_scope",
+          "task": 6
+        }
+      ],
+      "correction_cost_usd": 0.00742325,
+      "correction_llm_calls": 9,
+      "correction_output_tokens": 3608,
+      "startup_cost_usd": 0.05880947,
+      "followup_cost_usd": 0.21244016,
+      "state_checks": {
+        "answer": {
+          "passed": 216,
+          "total": 228
+        },
+        "selection": {
+          "passed": 68,
+          "total": 69
+        },
+        "update": {
+          "passed": 80,
+          "total": 81
+        },
+        "preservation": {
+          "passed": 88,
+          "total": 93
+        }
+      },
+      "task_averaged_requirement_score": 0.9594356261022928,
+      "input_tokens": 1919864,
+      "output_tokens": 91631,
+      "cached_tokens": 1385339,
+      "cache_write_tokens": 533613,
+      "reasoning_tokens": 28742,
+      "llm_calls": 304,
+      "tool_calls": 288,
+      "historical_inputs": 57,
+      "direct_returns": 172,
+      "elapsed_seconds": 2640.224
+    },
+    "reuse": {
+      "sessions": 21,
+      "session_passed": 17,
+      "tasks": 189,
+      "passed": 175,
+      "content_passed": 175,
+      "cost_usd": 0.32604743999999997,
+      "mean_session_cost_usd": 0.01552606857142857,
+      "cost_per_correct_task_usd": 0.0018631282285714284,
+      "cost_complete": false,
+      "unreported_usage_tasks": [
+        {
+          "session": "recovery2-reuse-temporary_scope",
+          "task": 7
+        }
+      ],
+      "correction_cost_usd": 0.010681399999999999,
+      "correction_llm_calls": 12,
+      "correction_output_tokens": 3663,
+      "startup_cost_usd": 0.07966074,
+      "followup_cost_usd": 0.2463867,
+      "state_checks": {
+        "answer": {
+          "passed": 202,
+          "total": 228
+        },
+        "update": {
+          "passed": 81,
+          "total": 81
+        },
+        "preservation": {
+          "passed": 93,
+          "total": 93
+        },
+        "selection": {
+          "passed": 69,
+          "total": 69
+        }
+      },
+      "task_averaged_requirement_score": 0.9405643738977073,
+      "input_tokens": 2125028,
+      "output_tokens": 95402,
+      "cached_tokens": 1389772,
+      "cache_write_tokens": 734368,
+      "reasoning_tokens": 30006,
+      "llm_calls": 296,
+      "tool_calls": 277,
+      "historical_inputs": 39,
+      "direct_returns": 169,
+      "elapsed_seconds": 2614.758
+    }
+  },
+  "families": {
+    "fanout_correction": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.020017300000000002,
+        "mean_session_cost_usd": 0.006672433333333334,
+        "cost_per_correct_task_usd": 0.0008340541666666668,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.00192426,
+        "correction_llm_calls": 3,
+        "correction_output_tokens": 1077,
+        "startup_cost_usd": 0.00679371,
+        "followup_cost_usd": 0.01322359,
+        "state_checks": {
+          "answer": {
+            "passed": 21,
+            "total": 21
+          },
+          "update": {
+            "passed": 24,
+            "total": 24
+          },
+          "preservation": {
+            "passed": 27,
+            "total": 27
+          },
+          "selection": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 125141,
+        "output_tokens": 10659,
+        "cached_tokens": 104585,
+        "cache_write_tokens": 20472,
+        "reasoning_tokens": 3108,
+        "llm_calls": 28,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 120.06999190093484
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.03607992,
+        "mean_session_cost_usd": 0.01202664,
+        "cost_per_correct_task_usd": 0.00150333,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.00207133,
+        "correction_llm_calls": 3,
+        "correction_output_tokens": 847,
+        "startup_cost_usd": 0.00944689,
+        "followup_cost_usd": 0.02663303,
+        "state_checks": {
+          "answer": {
+            "passed": 21,
+            "total": 21
+          },
+          "update": {
+            "passed": 24,
+            "total": 24
+          },
+          "preservation": {
+            "passed": 27,
+            "total": 27
+          },
+          "selection": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 250928,
+        "output_tokens": 12284,
+        "cached_tokens": 179941,
+        "cache_write_tokens": 70858,
+        "reasoning_tokens": 4041,
+        "llm_calls": 43,
+        "tool_calls": 40,
+        "historical_inputs": 15,
+        "direct_returns": 21,
+        "elapsed_seconds": 333.906
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.03247266,
+        "mean_session_cost_usd": 0.01082422,
+        "cost_per_correct_task_usd": 0.0013530275,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.0018804,
+        "correction_llm_calls": 3,
+        "correction_output_tokens": 571,
+        "startup_cost_usd": 0.01028492,
+        "followup_cost_usd": 0.02218774,
+        "state_checks": {
+          "answer": {
+            "passed": 21,
+            "total": 21
+          },
+          "update": {
+            "passed": 24,
+            "total": 24
+          },
+          "preservation": {
+            "passed": 27,
+            "total": 27
+          },
+          "selection": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 225965,
+        "output_tokens": 11010,
+        "cached_tokens": 161848,
+        "cache_write_tokens": 64006,
+        "reasoning_tokens": 4254,
+        "llm_calls": 37,
+        "tool_calls": 35,
+        "historical_inputs": 12,
+        "direct_returns": 22,
+        "elapsed_seconds": 298.547
+      }
+    },
+    "independent_control": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.01195742,
+        "mean_session_cost_usd": 0.003985806666666667,
+        "cost_per_correct_task_usd": 0.0004982258333333334,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00431885,
+        "followup_cost_usd": 0.00763857,
+        "state_checks": {
+          "answer": {
+            "passed": 48,
+            "total": 48
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 98573,
+        "output_tokens": 5444,
+        "cached_tokens": 83541,
+        "cache_write_tokens": 14948,
+        "reasoning_tokens": 1732,
+        "llm_calls": 28,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 71.81917418097146
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.02349798,
+        "mean_session_cost_usd": 0.00783266,
+        "cost_per_correct_task_usd": 0.0009790825,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.007541890000000001,
+        "followup_cost_usd": 0.01595609,
+        "state_checks": {
+          "answer": {
+            "passed": 48,
+            "total": 48
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 184729,
+        "output_tokens": 7378,
+        "cached_tokens": 137099,
+        "cache_write_tokens": 47528,
+        "reasoning_tokens": 1816,
+        "llm_calls": 34,
+        "tool_calls": 34,
+        "historical_inputs": 0,
+        "direct_returns": 24,
+        "elapsed_seconds": 223.9
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.020296929999999998,
+        "mean_session_cost_usd": 0.006765643333333332,
+        "cost_per_correct_task_usd": 0.0008457054166666665,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.0063402,
+        "followup_cost_usd": 0.013956729999999999,
+        "state_checks": {
+          "answer": {
+            "passed": 48,
+            "total": 48
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 175386,
+        "output_tokens": 6120,
+        "cached_tokens": 134299,
+        "cache_write_tokens": 40991,
+        "reasoning_tokens": 1763,
+        "llm_calls": 32,
+        "tool_calls": 31,
+        "historical_inputs": 0,
+        "direct_returns": 23,
+        "elapsed_seconds": 180.315
+      }
+    },
+    "longds_github": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 0,
+        "tasks": 45,
+        "passed": 41,
+        "content_passed": 41,
+        "cost_usd": 0.06905189,
+        "mean_session_cost_usd": 0.02301729666666667,
+        "cost_per_correct_task_usd": 0.0016841924390243903,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.010188180000000002,
+        "followup_cost_usd": 0.05886371,
+        "state_checks": {
+          "answer": {
+            "passed": 93,
+            "total": 99
+          }
+        },
+        "task_averaged_requirement_score": 0.9333333333333333,
+        "input_tokens": 594939,
+        "output_tokens": 34371,
+        "cached_tokens": 525737,
+        "cache_write_tokens": 69031,
+        "reasoning_tokens": 9085,
+        "llm_calls": 57,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 318.16013142990414
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 0,
+        "tasks": 45,
+        "passed": 38,
+        "content_passed": 38,
+        "cost_usd": 0.08244464,
+        "mean_session_cost_usd": 0.027481546666666665,
+        "cost_per_correct_task_usd": 0.002169595789473684,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.0082468,
+        "followup_cost_usd": 0.07419784,
+        "state_checks": {
+          "answer": {
+            "passed": 87,
+            "total": 99
+          }
+        },
+        "task_averaged_requirement_score": 0.8785185185185185,
+        "input_tokens": 535177,
+        "output_tokens": 26905,
+        "cached_tokens": 363592,
+        "cache_write_tokens": 171396,
+        "reasoning_tokens": 6376,
+        "llm_calls": 63,
+        "tool_calls": 61,
+        "historical_inputs": 0,
+        "direct_returns": 43,
+        "elapsed_seconds": 604.347
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 0,
+        "tasks": 45,
+        "passed": 32,
+        "content_passed": 32,
+        "cost_usd": 0.11578689,
+        "mean_session_cost_usd": 0.03859563,
+        "cost_per_correct_task_usd": 0.0036183403125,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.0077901,
+        "followup_cost_usd": 0.10799679,
+        "state_checks": {
+          "answer": {
+            "passed": 74,
+            "total": 99
+          }
+        },
+        "task_averaged_requirement_score": 0.7725925925925926,
+        "input_tokens": 684770,
+        "output_tokens": 29261,
+        "cached_tokens": 393517,
+        "cache_write_tokens": 291055,
+        "reasoning_tokens": 6256,
+        "llm_calls": 66,
+        "tool_calls": 60,
+        "historical_inputs": 0,
+        "direct_returns": 39,
+        "elapsed_seconds": 604.698
+      }
+    },
+    "membership_values": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 1,
+        "tasks": 24,
+        "passed": 20,
+        "content_passed": 20,
+        "cost_usd": 0.01683469,
+        "mean_session_cost_usd": 0.005611563333333333,
+        "cost_per_correct_task_usd": 0.0008417345,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00613338,
+        "followup_cost_usd": 0.01070131,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "selection": {
+            "passed": 18,
+            "total": 18
+          },
+          "update": {
+            "passed": 18,
+            "total": 18
+          },
+          "preservation": {
+            "passed": 4,
+            "total": 12
+          }
+        },
+        "task_averaged_requirement_score": 0.9166666666666666,
+        "input_tokens": 109682,
+        "output_tokens": 9134,
+        "cached_tokens": 93662,
+        "cache_write_tokens": 15933,
+        "reasoning_tokens": 3531,
+        "llm_calls": 29,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 119.44482915394474
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 1,
+        "tasks": 24,
+        "passed": 21,
+        "content_passed": 21,
+        "cost_usd": 0.03629357,
+        "mean_session_cost_usd": 0.012097856666666665,
+        "cost_per_correct_task_usd": 0.001728265238095238,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00795277,
+        "followup_cost_usd": 0.0283408,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "selection": {
+            "passed": 18,
+            "total": 18
+          },
+          "update": {
+            "passed": 18,
+            "total": 18
+          },
+          "preservation": {
+            "passed": 8,
+            "total": 12
+          }
+        },
+        "task_averaged_requirement_score": 0.9583333333333334,
+        "input_tokens": 284887,
+        "output_tokens": 11598,
+        "cached_tokens": 212341,
+        "cache_write_tokens": 72399,
+        "reasoning_tokens": 4785,
+        "llm_calls": 49,
+        "tool_calls": 42,
+        "historical_inputs": 10,
+        "direct_returns": 17,
+        "elapsed_seconds": 312.726
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.03505315,
+        "mean_session_cost_usd": 0.011684383333333333,
+        "cost_per_correct_task_usd": 0.0014605479166666666,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00789169,
+        "followup_cost_usd": 0.02716146,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "selection": {
+            "passed": 18,
+            "total": 18
+          },
+          "update": {
+            "passed": 18,
+            "total": 18
+          },
+          "preservation": {
+            "passed": 12,
+            "total": 12
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 251368,
+        "output_tokens": 10905,
+        "cached_tokens": 177690,
+        "cache_write_tokens": 73555,
+        "reasoning_tokens": 4338,
+        "llm_calls": 41,
+        "tool_calls": 38,
+        "historical_inputs": 6,
+        "direct_returns": 21,
+        "elapsed_seconds": 285.603
+      }
+    },
+    "repair_descendants": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.02079509,
+        "mean_session_cost_usd": 0.0069316966666666665,
+        "cost_per_correct_task_usd": 0.0008664620833333333,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.00518678,
+        "correction_llm_calls": 7,
+        "correction_output_tokens": 2963,
+        "startup_cost_usd": 0.00707781,
+        "followup_cost_usd": 0.01371728,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "update": {
+            "passed": 33,
+            "total": 33
+          },
+          "preservation": {
+            "passed": 24,
+            "total": 24
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 137246,
+        "output_tokens": 10782,
+        "cached_tokens": 115002,
+        "cache_write_tokens": 22157,
+        "reasoning_tokens": 3429,
+        "llm_calls": 29,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 122.87221152486745
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.02896017,
+        "mean_session_cost_usd": 0.00965339,
+        "cost_per_correct_task_usd": 0.00120667375,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.00535192,
+        "correction_llm_calls": 6,
+        "correction_output_tokens": 2761,
+        "startup_cost_usd": 0.00946132,
+        "followup_cost_usd": 0.019498849999999998,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "update": {
+            "passed": 33,
+            "total": 33
+          },
+          "preservation": {
+            "passed": 24,
+            "total": 24
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 191719,
+        "output_tokens": 11488,
+        "cached_tokens": 142391,
+        "cache_write_tokens": 49223,
+        "reasoning_tokens": 4799,
+        "llm_calls": 35,
+        "tool_calls": 35,
+        "historical_inputs": 12,
+        "direct_returns": 24,
+        "elapsed_seconds": 318.781
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.04786969,
+        "mean_session_cost_usd": 0.015956563333333333,
+        "cost_per_correct_task_usd": 0.0019945704166666666,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0.008801,
+        "correction_llm_calls": 9,
+        "correction_output_tokens": 3092,
+        "startup_cost_usd": 0.02362858,
+        "followup_cost_usd": 0.02424111,
+        "state_checks": {
+          "answer": {
+            "passed": 12,
+            "total": 12
+          },
+          "update": {
+            "passed": 33,
+            "total": 33
+          },
+          "preservation": {
+            "passed": 24,
+            "total": 24
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 291303,
+        "output_tokens": 14538,
+        "cached_tokens": 184327,
+        "cache_write_tokens": 106847,
+        "reasoning_tokens": 5339,
+        "llm_calls": 43,
+        "tool_calls": 40,
+        "historical_inputs": 11,
+        "direct_returns": 21,
+        "elapsed_seconds": 397.166
+      }
+    },
+    "scope_expansion": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.01965576,
+        "mean_session_cost_usd": 0.00655192,
+        "cost_per_correct_task_usd": 0.00081899,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00635869,
+        "followup_cost_usd": 0.01329707,
+        "state_checks": {
+          "answer": {
+            "passed": 15,
+            "total": 15
+          },
+          "selection": {
+            "passed": 42,
+            "total": 42
+          },
+          "preservation": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 126260,
+        "output_tokens": 10779,
+        "cached_tokens": 107998,
+        "cache_write_tokens": 18172,
+        "reasoning_tokens": 4914,
+        "llm_calls": 30,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 139.7521369580645
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.03609748,
+        "mean_session_cost_usd": 0.012032493333333333,
+        "cost_per_correct_task_usd": 0.0015040616666666666,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00934437,
+        "followup_cost_usd": 0.02675311,
+        "state_checks": {
+          "answer": {
+            "passed": 15,
+            "total": 15
+          },
+          "selection": {
+            "passed": 42,
+            "total": 42
+          },
+          "preservation": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 250394,
+        "output_tokens": 11268,
+        "cached_tokens": 173984,
+        "cache_write_tokens": 76284,
+        "reasoning_tokens": 3573,
+        "llm_calls": 42,
+        "tool_calls": 38,
+        "historical_inputs": 6,
+        "direct_returns": 20,
+        "elapsed_seconds": 304.523
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.03439763,
+        "mean_session_cost_usd": 0.011465876666666666,
+        "cost_per_correct_task_usd": 0.0014332345833333333,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.012004029999999999,
+        "followup_cost_usd": 0.0223936,
+        "state_checks": {
+          "answer": {
+            "passed": 15,
+            "total": 15
+          },
+          "selection": {
+            "passed": 42,
+            "total": 42
+          },
+          "preservation": {
+            "passed": 3,
+            "total": 3
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 229264,
+        "output_tokens": 10985,
+        "cached_tokens": 156934,
+        "cache_write_tokens": 72219,
+        "reasoning_tokens": 3338,
+        "llm_calls": 37,
+        "tool_calls": 36,
+        "historical_inputs": 2,
+        "direct_returns": 23,
+        "elapsed_seconds": 264.234
+      }
+    },
+    "temporary_scope": {
+      "code": {
+        "sessions": 3,
+        "session_passed": 3,
+        "tasks": 24,
+        "passed": 24,
+        "content_passed": 24,
+        "cost_usd": 0.02642624,
+        "mean_session_cost_usd": 0.008808746666666667,
+        "cost_per_correct_task_usd": 0.0011010933333333334,
+        "cost_complete": true,
+        "unreported_usage_tasks": [],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00821304,
+        "followup_cost_usd": 0.0182132,
+        "state_checks": {
+          "answer": {
+            "passed": 21,
+            "total": 21
+          },
+          "update": {
+            "passed": 6,
+            "total": 6
+          },
+          "preservation": {
+            "passed": 27,
+            "total": 27
+          },
+          "selection": {
+            "passed": 6,
+            "total": 6
+          }
+        },
+        "task_averaged_requirement_score": 1.0,
+        "input_tokens": 175923,
+        "output_tokens": 14577,
+        "cached_tokens": 152357,
+        "cache_write_tokens": 23470,
+        "reasoning_tokens": 3748,
+        "llm_calls": 32,
+        "tool_calls": null,
+        "historical_inputs": null,
+        "direct_returns": null,
+        "elapsed_seconds": 157.7784844310372
+      },
+      "tasks": {
+        "sessions": 3,
+        "session_passed": 2,
+        "tasks": 24,
+        "passed": 21,
+        "content_passed": 22,
+        "cost_usd": 0.02787587,
+        "mean_session_cost_usd": 0.009291956666666667,
+        "cost_per_correct_task_usd": 0.001327422380952381,
+        "cost_complete": false,
+        "unreported_usage_tasks": [
+          {
+            "session": "tasks-temporary_scope",
+            "task": 6
+          }
+        ],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.00681543,
+        "followup_cost_usd": 0.02106044,
+        "state_checks": {
+          "answer": {
+            "passed": 21,
+            "total": 21
+          },
+          "update": {
+            "passed": 5,
+            "total": 6
+          },
+          "preservation": {
+            "passed": 26,
+            "total": 27
+          },
+          "selection": {
+            "passed": 5,
+            "total": 6
+          }
+        },
+        "task_averaged_requirement_score": 0.9500000000000001,
+        "input_tokens": 222030,
+        "output_tokens": 10710,
+        "cached_tokens": 175991,
+        "cache_write_tokens": 45925,
+        "reasoning_tokens": 3352,
+        "llm_calls": 38,
+        "tool_calls": 38,
+        "historical_inputs": 14,
+        "direct_returns": 23,
+        "elapsed_seconds": 542.0409999999999
+      },
+      "reuse": {
+        "sessions": 3,
+        "session_passed": 2,
+        "tasks": 24,
+        "passed": 23,
+        "content_passed": 23,
+        "cost_usd": 0.04017049,
+        "mean_session_cost_usd": 0.013390163333333335,
+        "cost_per_correct_task_usd": 0.001746543043478261,
+        "cost_complete": false,
+        "unreported_usage_tasks": [
+          {
+            "session": "recovery2-reuse-temporary_scope",
+            "task": 7
+          }
+        ],
+        "correction_cost_usd": 0,
+        "correction_llm_calls": 0,
+        "correction_output_tokens": 0,
+        "startup_cost_usd": 0.011721220000000001,
+        "followup_cost_usd": 0.02844927,
+        "state_checks": {
+          "answer": {
+            "passed": 20,
+            "total": 21
+          },
+          "update": {
+            "passed": 6,
+            "total": 6
+          },
+          "preservation": {
+            "passed": 27,
+            "total": 27
+          },
+          "selection": {
+            "passed": 6,
+            "total": 6
+          }
+        },
+        "task_averaged_requirement_score": 0.9583333333333334,
+        "input_tokens": 266972,
+        "output_tokens": 12583,
+        "cached_tokens": 181157,
+        "cache_write_tokens": 85695,
+        "reasoning_tokens": 4718,
+        "llm_calls": 40,
+        "tool_calls": 37,
+        "historical_inputs": 8,
+        "direct_returns": 20,
+        "elapsed_seconds": 584.195
+      }
+    }
+  },
+  "primary": {
+    "code": {
+      "sessions": 7,
+      "session_passed": 5,
+      "tasks": 63,
+      "passed": 60,
+      "content_passed": 60,
+      "cost_usd": 0.06813125,
+      "mean_session_cost_usd": 0.009733035714285715,
+      "cost_per_correct_task_usd": 0.0011355208333333334,
+      "cost_complete": true,
+      "unreported_usage_tasks": [],
+      "correction_cost_usd": 0.00155892,
+      "correction_llm_calls": 3,
+      "correction_output_tokens": 844,
+      "startup_cost_usd": 0.0186787,
+      "followup_cost_usd": 0.04945255,
+      "state_checks": {
+        "answer": {
+          "passed": 75,
+          "total": 76
+        },
+        "update": {
+          "passed": 27,
+          "total": 27
+        },
+        "preservation": {
+          "passed": 27,
+          "total": 31
+        },
+        "selection": {
+          "passed": 23,
+          "total": 23
+        }
+      },
+      "task_averaged_requirement_score": 0.9761904761904762,
+      "input_tokens": 461186,
+      "output_tokens": 37767,
+      "cached_tokens": 402060,
+      "cache_write_tokens": 58889,
+      "reasoning_tokens": 14452,
+      "llm_calls": 79,
+      "tool_calls": null,
+      "historical_inputs": null,
+      "direct_returns": null,
+      "elapsed_seconds": 364.26516530191293
+    },
+    "tasks": {
+      "sessions": 7,
+      "session_passed": 4,
+      "tasks": 63,
+      "passed": 56,
+      "content_passed": 57,
+      "cost_usd": 0.09303122,
+      "mean_session_cost_usd": 0.013290174285714286,
+      "cost_per_correct_task_usd": 0.0016612717857142857,
+      "cost_complete": false,
+      "unreported_usage_tasks": [
+        {
+          "session": "tasks-temporary_scope",
+          "task": 6
+        }
+      ],
+      "correction_cost_usd": 0.00234989,
+      "correction_llm_calls": 3,
+      "correction_output_tokens": 1023,
+      "startup_cost_usd": 0.02010093,
+      "followup_cost_usd": 0.07293029,
+      "state_checks": {
+        "answer": {
+          "passed": 74,
+          "total": 76
+        },
+        "selection": {
+          "passed": 22,
+          "total": 23
+        },
+        "update": {
+          "passed": 26,
+          "total": 27
+        },
+        "preservation": {
+          "passed": 28,
+          "total": 31
+        }
+      },
+      "task_averaged_requirement_score": 0.9492063492063492,
+      "input_tokens": 680940,
+      "output_tokens": 31957,
+      "cached_tokens": 502331,
+      "cache_write_tokens": 178288,
+      "reasoning_tokens": 9722,
+      "llm_calls": 107,
+      "tool_calls": 105,
+      "historical_inputs": 20,
+      "direct_returns": 60,
+      "elapsed_seconds": 1101.829
+    },
+    "reuse": {
+      "sessions": 7,
+      "session_passed": 6,
+      "tasks": 63,
+      "passed": 60,
+      "content_passed": 60,
+      "cost_usd": 0.09247437,
+      "mean_session_cost_usd": 0.013210624285714286,
+      "cost_per_correct_task_usd": 0.0015412395,
+      "cost_complete": true,
+      "unreported_usage_tasks": [],
+      "correction_cost_usd": 0.00317335,
+      "correction_llm_calls": 4,
+      "correction_output_tokens": 1044,
+      "startup_cost_usd": 0.02356025,
+      "followup_cost_usd": 0.06891412,
+      "state_checks": {
+        "answer": {
+          "passed": 69,
+          "total": 76
+        },
+        "update": {
+          "passed": 27,
+          "total": 27
+        },
+        "preservation": {
+          "passed": 31,
+          "total": 31
+        },
+        "selection": {
+          "passed": 23,
+          "total": 23
+        }
+      },
+      "task_averaged_requirement_score": 0.9687830687830687,
+      "input_tokens": 631267,
+      "output_tokens": 27965,
+      "cached_tokens": 429941,
+      "cache_write_tokens": 201047,
+      "reasoning_tokens": 9455,
+      "llm_calls": 93,
+      "tool_calls": 84,
+      "historical_inputs": 17,
+      "direct_returns": 54,
+      "elapsed_seconds": 689.397
+    }
+  },
+  "consistency": {
+    "fanout_correction": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      }
+    },
+    "independent_control": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      }
+    },
+    "longds_github": {
+      "code": {
+        "trials": 3,
+        "tasks": 15,
+        "passed_every_trial": 12,
+        "trial_scores": [
+          14,
+          13,
+          14
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 15,
+        "passed_every_trial": 9,
+        "trial_scores": [
+          13,
+          11,
+          14
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 15,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          12,
+          11,
+          9
+        ]
+      }
+    },
+    "membership_values": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 6,
+        "trial_scores": [
+          6,
+          6,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 6,
+        "trial_scores": [
+          6,
+          7,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      }
+    },
+    "repair_descendants": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      }
+    },
+    "scope_expansion": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      }
+    },
+    "temporary_scope": {
+      "code": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 8,
+        "trial_scores": [
+          8,
+          8,
+          8
+        ]
+      },
+      "tasks": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 5,
+        "trial_scores": [
+          5,
+          8,
+          8
+        ]
+      },
+      "reuse": {
+        "trials": 3,
+        "tasks": 8,
+        "passed_every_trial": 7,
+        "trial_scores": [
+          8,
+          8,
+          7
+        ]
+      }
+    }
+  }
+}

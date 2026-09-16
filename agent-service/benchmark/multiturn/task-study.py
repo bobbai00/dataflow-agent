@@ -108,7 +108,9 @@ def score(case,run):
                   content_passed=completed and all(c['passed'] for c in checks),checks=checks,
                   correction=meta.get('correction',False),actual=actual,expected=expected)
         if folder.exists():(folder/'evaluation.json').write_text(json.dumps(item,indent=2))
-        results.append({**stats,**item,'usage_recorded':'cost_usd' in stats})
+        # These runners invoke the model for every task. A timeout can write a
+        # zero-filled stats file without receiving any provider usage at all.
+        results.append({**stats,**item,'usage_recorded':'cost_usd' in stats and stats.get('llm_calls',0)>0})
     passed=sum(x['passed'] for x in results)
     summary=dict(tasks=len(gold),completed=sum(x['completed'] for x in results),passed=passed,
                  session_passed=passed==len(gold),content_passed=sum(x['content_passed'] for x in results),

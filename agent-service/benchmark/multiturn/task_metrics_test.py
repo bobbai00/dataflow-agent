@@ -23,7 +23,7 @@ score = runpy.run_path(str(Path(__file__).with_name('task-study.py')))['score']
 
 
 class MetricsTest(unittest.TestCase):
-    def run_case(self, gold, answers, checks):
+    def run_case(self, gold, answers, checks, calls=2):
         with tempfile.TemporaryDirectory() as tmp:
             case, run = Path(tmp) / 'case', Path(tmp) / 'run'
             case.mkdir(); run.mkdir()
@@ -32,7 +32,7 @@ class MetricsTest(unittest.TestCase):
             for i, answer in enumerate(answers, 1):
                 directory = run / f't{i:02}'; directory.mkdir()
                 (directory / 'answer.json').write_text(json.dumps({'answer': answer}))
-                (directory / 'stats.json').write_text(json.dumps({'cost_usd': .1, 'llm_calls': 2}))
+                (directory / 'stats.json').write_text(json.dumps({'cost_usd': .1 if calls else 0, 'llm_calls': calls}))
             return score(case, run)
 
     def test_missing_work_counts_as_failure_and_cost_is_incomplete(self):
@@ -62,6 +62,12 @@ class MetricsTest(unittest.TestCase):
     def test_nonfinite_numbers_and_boolean_do_not_pass(self):
         for answer in [{'x': 'nan'}, {'x': True}, {'x': float('inf')}]:
             self.assertEqual(self.run_case([{'x': 1}], [answer], [{}])['passed'], 0)
+
+    def test_timeout_with_zero_usage_is_not_reported_as_complete_cost(self):
+        result = self.run_case([{'x': 1}], ['Error: The operation timed out.'], [{}], calls=0)
+        self.assertEqual(result['passed'], 0)
+        self.assertEqual(result['cost_usd'], 0)
+        self.assertFalse(result['cost_complete'])
 
 
 if __name__ == '__main__':
