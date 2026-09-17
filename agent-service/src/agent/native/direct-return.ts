@@ -69,9 +69,13 @@ export function resolveDirectReturn(request: DirectReturn, info?: OperatorInfo):
     return JSON.stringify(Object.fromEntries(columns.map(column => [column, rows.map(row => row[column])])));
   if (rows.length !== 1) throw new Error(`${request.format} requires exactly one row`);
   if (request.format === "row") return JSON.stringify(rows[0]);
-  if (!["value", "json"].includes(request.format) || !request.column || !columns.includes(request.column))
+  // A single-column result admits exactly one reading, so naming the column
+  // adds no safety; omitting it previously cost a whole model call. Results
+  // with two or more columns stay ambiguous and must still name one.
+  const column = request.column ?? (columns.length === 1 ? columns[0] : undefined);
+  if (!["value", "json"].includes(request.format) || !column || !columns.includes(column))
     throw new Error("value/json require an existing column");
-  const value = rows[0]![request.column];
+  const value = rows[0]![column];
   if (request.format === "json") {
     if (typeof value !== "string") throw new Error("json requires a string cell containing a JSON document");
     JSON.parse(value); // Validate only: re-encoding could round exact int64 text.

@@ -130,6 +130,11 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
     active.push({ role: "tool", content: outputs });
   }
   const head = visibleSteps.at(-1)?.id;
+  // A card's text must change only when that operator changes. The saved-task
+  // range of every operator advances on every task, so keeping it inline made
+  // the whole catalog a fresh prefix each request; it is emitted once, after
+  // the cards, where it costs only its own length.
+  const savedRanges: string[] = [];
   const catalog = state
     .getAllOperators()
     .filter(op => !op.taskSource)
@@ -139,13 +144,17 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
       const reuse = input.settings.nativeTaskReuse
         ? taskReuseFacts(op.operatorID, state.getAllOperators(), history)
         : "";
-      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown"}; ${info?.error ? "current result unavailable" : (info?.state ?? "not executed")}${saved.length ? `; saved tasks=${ranges(saved)}` : ""}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
+      if (saved.length) savedRanges.push(`${op.operatorID}: ${ranges(saved)}`);
+      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown"}; ${info?.error ? "current result unavailable" : (info?.state ?? "not executed")}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
     });
   const deleted = new Map<string, number[]>();
   for (const task of history?.catalog() ?? [])
     for (const id of task.operators)
       if (!state.getOperator(id)) deleted.set(id, [...(deleted.get(id) ?? []), task.task]);
-  for (const [id, tasks] of deleted) catalog.push(`${id}: no current operator; saved tasks=${ranges(tasks)}`);
+  for (const [id, tasks] of deleted) {
+    catalog.push(`${id}: no current operator`);
+    savedRanges.push(`${id}: ${ranges(tasks)}`);
+  }
   // Follow graph edges; retained sources terminate traversal. Never substitute
   // today's producer definition for a selected historical materialization.
   const dependencies = new Set<string>();
@@ -164,7 +173,7 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
   });
   messages.push({
     role: "user",
-    content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}\n\n# Selected dependency definitions\n${details.join("\n") || "Select existing inputs through normal dataflow edits or observe to retrieve details."}`,
+    content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}${savedRanges.length ? `\n\n# Saved task outputs, usable as {operator, atTask}\n${savedRanges.join("\n")}` : ""}\n\n# Selected dependency definitions\n${details.join("\n") || "Select existing inputs through normal dataflow edits or observe to retrieve details."}`,
   });
   return [...messages, ...active];
 }

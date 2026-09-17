@@ -109,6 +109,32 @@ test("wire keeps roles/text and marks only the last two completed user messages"
   expect(body.extra_body.prompt_cache_options.mode).toBe("implicit");
   expect(JSON.stringify(body)).not.toContain("taskHistory");
 });
+test("the changing graph gets no boundary of its own", async () => {
+  let body: any;
+  const model = createTaskResponsesModel("gpt-5.6-luna", {
+    apiKey: "test",
+    fetch: async (_url, init) => {
+      body = JSON.parse(String(init?.body));
+      return reply();
+    },
+  });
+  await generateText({
+    model,
+    system: "fixed instructions",
+    messages: [
+      completed("task one"),
+      { role: "assistant", content: "answer one" },
+      { role: "user", content: "# Current operator catalog\ncards" },
+      { role: "user", content: "current task" },
+    ],
+  });
+  // Measured, not assumed: the catalog sits after the completed history, which
+  // gains a task every request, so no prefix reaching the catalog ever repeats
+  // and a boundary there reuses nothing.
+  expect(
+    body.input.flatMap((m: any) => m.content.filter((c: any) => c.prompt_cache_breakpoint).map((c: any) => c.text))
+  ).toEqual(["fixed instructions", "task one"]);
+});
 test("same Responses transport disables boundaries for a control", async () => {
   let body: any;
   const model = createTaskResponsesModel("gpt-5.6-luna", {

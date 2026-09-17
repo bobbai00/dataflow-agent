@@ -40,6 +40,10 @@ export function createTaskResponsesModel(modelId: string, config: TaskProviderSe
   const base = createOpenAI(config as OpenAIProviderSettings).responses(modelId);
   const requestModel = (params: LanguageModelV3CallOptions) => {
     const enabled = params.providerOptions?.texera?.taskCache !== false;
+    // Only completed history is worth a boundary. A boundary at the operator
+    // catalog was measured and removed: the catalog follows the completed
+    // history, which grows by one task each request, so nothing from the
+    // catalog onward is ever a repeated prefix however stable its own text is.
     const history = params.prompt
       .filter(m => m.role === "user")
       .flatMap((m, index) => (m.providerOptions?.texera?.taskHistory === true ? [index] : []))

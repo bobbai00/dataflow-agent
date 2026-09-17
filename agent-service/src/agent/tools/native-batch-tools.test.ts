@@ -99,6 +99,20 @@ describe("native batch tools", () => {
     expect(state.getOperator("selected")?.nativeOp?.properties.predicate).toBe("x > 0");
   });
 
+  test("an operator that failed in this batch is not also reported as nonexistent", async () => {
+    const { execute } = setup();
+    await execute({ operators: [scan, filter] });
+    const result = await execute({
+      operators: [aggregate, { ...filter, predicate: 5 }],
+      observe: ["total", "selected", "absent"],
+    });
+    // `total` was blocked and `selected` refused: both already carry their real
+    // cause in the receipts, so repeating "does not exist" only obscures it.
+    expect(result.operators.map(o => o.status)).toEqual(["blocked", "error"]);
+    expect(result.observationErrors).toEqual(["Cannot observe 'absent': operator does not exist."]);
+    expect(result.observe).toEqual(["selected"]);
+  });
+
   test("duplicate IDs and cycles are refused before mutation, including cycles through old operators", async () => {
     const { execute, state } = setup();
     await execute({ operators: [scan, filter, aggregate] });

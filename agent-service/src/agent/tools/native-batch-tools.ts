@@ -428,9 +428,18 @@ export function createNativeBatchTools(
         );
         const requested = [...(args.observe ?? []), ...(args.return ? [args.return.operator] : [])];
         const observationErrors: string[] = [];
+        // An operator this batch failed to add is already reported, with its
+        // actual cause, in the receipts above. Repeating it as "does not exist"
+        // is a derived diagnostic that describes our own error handling rather
+        // than the model's mistake.
+        const failedHere = new Set(
+          outcomes.flatMap(outcome =>
+            outcome && (outcome.status === "error" || outcome.status === "blocked") ? [outcome.id] : []
+          )
+        );
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
-          observationErrors.push(`Cannot observe '${id}': operator does not exist.`);
+          if (!failedHere.has(id)) observationErrors.push(`Cannot observe '${id}': operator does not exist.`);
           return false;
         });
         return {

@@ -114,14 +114,23 @@ def _validate_function(spec, source, field, entry, parameters=None):
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
         valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
-        historical_inputs = entry == "process" and any(isinstance(x, dict) for x in spec.get("taskInputs", []))
-        valid = valid and ((len(positional) == len(parameters) if historical_inputs else positional == parameters) if parameters is not None else len(positional) == 1)
+        # Inputs bind positionally, so the callback names its own parameters.
+        # Historical `atTask` inputs already worked this way; requiring name
+        # equality for current inputs alone rejected correct code and cost a
+        # model call per occurrence.
+        valid = valid and (len(positional) == len(parameters) if parameters is not None else len(positional) == 1)
     if not valid:
         signature = ", ".join(parameters) if parameters is not None else "value_or_row"
+        order = (
+            f" Parameters bind positionally to the inputs in order ({signature}); their names are yours to choose."
+            if parameters is not None
+            else ""
+        )
         raise _error(
             spec,
             "CALLBACK_SIGNATURE",
-            f"Define exactly one synchronous def {entry}({signature}), without decorators, defaults or variadic arguments.",
+            f"Define exactly one synchronous def {entry}({signature}), without decorators, defaults or variadic arguments."
+            + order,
             stage="compile",
             field=field,
         )

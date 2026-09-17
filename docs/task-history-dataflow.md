@@ -25,8 +25,8 @@ graph has no live edge to the original producer. Updating that producer therefor
 recomputes its current descendants while leaving historical consumers unchanged.
 Historical and current inputs can be combined in one normal batch. Runtime source
 ids and file paths are hidden in the task context; the agent uses operator names
-and task numbers. Historical UDF inputs bind positionally, with model-chosen
-Python parameter names.
+and task numbers. UDF inputs bind positionally — historical and current alike —
+so `process` chooses its own Python parameter names; only their count is checked.
 
 Missing, failed, or unretained outputs fail explicitly. A failed current edit
 blocks current dependent results; it does not invalidate earlier retained data.
@@ -51,7 +51,9 @@ still answer in prose. Direct return is a general agent optimization; the
 dependency boundary is the Dataflow-specific mechanism under investigation.
 `columns` returns an object of column arrays. `json` validates and returns an
 entire JSON document stored in one string cell, preserving its exact numeric text.
-Ordinary string cells are never silently decoded. Successful engine cache hits
+Ordinary string cells are never silently decoded. `value` and `json` take the
+only column of a single-column result when `column` is omitted; two or more
+columns remain ambiguous and must still name one. Successful engine cache hits
 are eligible both for direct return and for historical retention.
 
 Direct return also follows the output's input graph and refuses outputs derived
@@ -65,7 +67,9 @@ unverified prose answer. Preview observations remain available for inspection.
 
 Task context preserves prior user requests and answers. It does not replay prior
 tool actions/reasoning. Catalog cards include input references, a bounded
-definition preview, current schema/status, and available historical task ranges.
+definition preview, and current schema/status. Available historical task ranges
+follow the cards in one block, because they advance on every task and would
+otherwise change the text of every card each request.
 Normal edits and `observe` select operators; the renderer follows their actual
 ancestors for full definitions and stops at historical sources. There is no
 mandatory extra context-selection inference. UDF internals remain opaque.

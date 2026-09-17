@@ -282,8 +282,19 @@ def test_udf_is_unknown_even_when_it_preserves_row_count():
 def test_udf_wrong_shape_and_signature_have_explicit_diagnostics():
     with pytest.raises(runtime.NativeError, match="UDF_RETURN_TYPE"):
         runtime.execute_native(spec("UDF", code="def process(source):\n    return [1, 2]"), [pd.DataFrame({"x": [1]})])
+    # Inputs bind positionally, so a renamed parameter is correct code.
+    runtime.validate_native(spec("UDF", code="def process(other):\n    return other"))
+    # Arity, not naming, is what makes a binding impossible.
     with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
-        runtime.validate_native(spec("UDF", code="def process(other):\n    return other"))
+        runtime.validate_native(spec("UDF", code="def process(a, b):\n    return a"))
+    with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
+        runtime.validate_native(spec("UDF", code="def process(*frames):\n    return frames[0]"))
+
+
+def test_udf_renamed_parameter_receives_the_input_frame_positionally():
+    frame = pd.DataFrame({"x": [1, 2]})
+    result = runtime.execute_native(spec("UDF", code="def process(anything):\n    return anything"), [frame])
+    assert result["x"].tolist() == [1, 2]
 
 
 def test_a_keyerror_in_an_internal_dictionary_is_not_mislabeled_as_column_access():

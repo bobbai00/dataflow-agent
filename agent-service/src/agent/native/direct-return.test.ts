@@ -88,3 +88,26 @@ test("empty records are valid and scalar strings remain strings", () => {
     )
   ).toBe('"9007199254740993"');
 });
+test("a single-column result needs no column name; an ambiguous one still does", () => {
+  // Omitting the column was previously an error, costing a model call to supply
+  // the only name the result could have had.
+  expect(resolveDirectReturn({ operator: "total", format: "value" }, info)).toBe("90");
+  const text = '{"languages":[{"name":"Go"}]}';
+  expect(resolveDirectReturn({ operator: "answer", format: "json" }, { ...info, result: [{ profit: text }] })).toBe(
+    text
+  );
+  const pair = {
+    ...info,
+    result: [{ profit: 90, units: 4 }],
+    resultSchema: [
+      { name: "profit", type: "double", encoding: "json-number" },
+      { name: "units", type: "long", encoding: "json-number" },
+    ],
+  };
+  expect(() => resolveDirectReturn({ operator: "total", format: "value" }, pair)).toThrow(
+    "value/json require an existing column"
+  );
+  expect(resolveDirectReturn({ operator: "total", format: "value", column: "units" }, pair)).toBe("4");
+  // Inference never rescues a named column that the result does not have.
+  expect(() => resolveDirectReturn({ operator: "total", format: "value", column: "missing" }, info)).toThrow();
+});

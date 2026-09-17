@@ -177,3 +177,48 @@ test("completed task messages form a stable prefix and observations end the acti
   expect(third[1]).toMatchObject({ role: "assistant", content: "First answer" });
   expect(third.at(-1)?.role).toBe("tool");
 });
+
+test("an unchanged operator's card is byte-identical as its saved task range advances", () => {
+  const state = new WorkflowState();
+  for (const [id, type, inputs] of [
+    ["source", "Scan", []],
+    ["eligible", "Filter", ["source"]],
+    ["totals", "Aggregate", ["eligible"]],
+  ] as const)
+    state.addOperator({
+      operatorID: id,
+      operatorType: "DataProcessing",
+      operatorVersion: "1",
+      operatorProperties: {},
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      nativeOp: { type, properties: {}, inputs: [...inputs], version: "v2" },
+    });
+  const render = (upTo: number) =>
+    assembleTaskContext(
+      {
+        visibleSteps: [{ id: "u1", role: "user", messageId: "one", content: "Next", isBegin: true } as any],
+        workflowState: state,
+        snapshotStorage: new WorkflowSnapshotStorage(() => []),
+        settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "" },
+        compilationResult: null,
+      },
+      {
+        available: () => Array.from({ length: upTo }, (_, i) => i + 1),
+        catalog: () => [],
+      } as any
+    ).find(message => String(message.content).startsWith("# Current operator catalog"))!.content as string;
+  const [after3, after4] = [render(3), render(4)];
+  const cards = (text: string) => text.split("\n").filter(line => line.startsWith("{"));
+  // The range advances on every task for every operator. Held inside the cards
+  // it changed the text of every card each request, including operators nobody
+  // had touched, and made the block longer for no added information.
+  expect(cards(after4)).toEqual(cards(after3));
+  expect(cards(after3).join("\n")).toContain("totals");
+  expect(cards(after3).join("\n")).not.toContain("saved tasks");
+  // The ranges themselves still advance, in one block after the cards.
+  expect(after3).toContain("# Saved task outputs");
+  expect(after3).toContain("source: 1-3");
+  expect(after4).toContain("source: 1-4");
+});
