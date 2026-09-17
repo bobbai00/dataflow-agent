@@ -136,9 +136,21 @@ native KramaBench execution and evaluator. Report the answer-type primary
 score, mean primary score, exact passes (score >= 1), and input-readiness or
 execution failures explicitly. Never silently drop an unavailable task.
 
-Keep first-pass accuracy/cost separate from two symmetric recovery rounds on
-non-passing tasks. Preserve every prior attempt before retrying. Use captured
-`stats.json` cache-aware cost; distinguish the recorded-rate token estimate from
-a provider invoice, and never turn missing usage into zero cost. Audit actual
-input messages, cache tokens, samples, and references before interpreting any
-cost or accuracy difference as a benefit of compaction.
+The user requires **one original attempt per task, with no automatic reruns**.
+Use only the first-pass score and cost, never the latest or best of several
+attempts. Failed and partially correct tasks stay in the result. Extra retries
+were initially started before this clarification; their preserved artifacts,
+scores and costs are excluded from the primary comparison, and further retry
+launches are stopped. Do not resume the historical recovery supervisor.
+
+Use captured `stats.json` cache-aware cost; distinguish the recorded-rate token
+estimate from a provider invoice, and never turn missing usage into zero cost.
+Audit actual input messages, cache tokens, samples, and references before
+interpreting any cost or accuracy difference as a benefit of compaction.
+
+The [single-pass analysis report](../benchmark/Kramabench/judgment_runs/evidence_compaction_20260916/REPORT.md)
+contains all three new 104-task results, the explicitly labeled historical
+Native baseline, per-task metric/cost exports, reproducible native aggregation,
+and the complete first-pass context audit. The Native baseline uses V1; this is
+not a same-version V2 no-evidence ablation. Mean cost per task uses the 103
+actually dispatched tasks; scores retain all 104, including the input blocker.
