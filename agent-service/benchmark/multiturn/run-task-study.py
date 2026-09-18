@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--seed', type=int, default=1729)
     args = parser.parse_args()
     arms = args.arms.split(',')
-    assert all(arm in ['code', 'base', 'compact', 'return', 'context', 'tasks', 'reuse'] for arm in arms)
+    assert all(arm in ['code', 'coderetain', 'base', 'compact', 'return', 'context', 'tasks', 'reuse'] for arm in arms)
     assert args.workers > 0 and args.native_workers > 0 and args.recovery_rounds >= 0
     fixtures, out, kb_root = args.fixtures.resolve(), args.out.resolve(), args.kb_root.resolve()
     families = args.families.split(',') if args.families else sorted(p.parent.name for p in fixtures.glob('*/session.json'))
@@ -74,11 +74,11 @@ def main():
 
     def run(family, arm, label):
         directory = out / label
-        if arm == 'code':
+        if arm in ('code', 'coderetain'):
             command = [str(kb_root / '.venv/bin/python'), str(HERE / 'run-task-code.py'),
                        str(fixtures / family / 'session.json'), str(directory),
                        '--kb-root', str(kb_root), '--env-file', str(args.env_file.resolve()),
-                       '--transport', manifest['code_transport']]
+                       '--transport', manifest['code_transport']] + (['--retention'] if arm == 'coderetain' else [])
         else:
             command = ['bun', 'run', str(HERE / 'run-task-native.ts'),
                        str(fixtures / family / 'session.json'), str(directory), arm]
