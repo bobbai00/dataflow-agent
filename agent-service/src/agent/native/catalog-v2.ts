@@ -312,7 +312,7 @@ export const NATIVE_V2_OPERATORS: readonly NativeOperatorDef[] = [
     "UDF",
     "many",
     "unknown",
-    "UDF is the Python escape hatch for work outside the available catalog. Define load() with no inputs, or process(input_id, ...) with exact ordered input IDs. Return one pandas DataFrame with unique string columns and engine-compatible scalars. No semantic row-preservation guarantee.",
+    "UDF is the Python escape hatch for work outside the available catalog. Define load() with no inputs, or process(a, b, ...) with one positional parameter per entry of inputs, bound in that order (parameter names are yours). Return one pandas DataFrame with unique string columns and engine-compatible scalars. No semantic row-preservation guarantee.",
     object({ code: str }, ["code"])
   ),
 ];

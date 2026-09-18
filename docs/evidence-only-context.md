@@ -4,6 +4,13 @@ Branch: `refactor/evidence-only-context`, based on `feat/native-python-dataflow`
 at `a056ae975`, which includes dependent operator batching and explicit observe.
 This is a breaking context/API cleanup, not a relabeling of previous evaluations.
 
+For the detailed current implementation reference, including formulas,
+collection limits, shared-budget selection, and actual model-context examples
+for all four configurations in DELTA/LATEST, see
+[Data and flow evidence: computation and model context](data-flow-evidence.md).
+The verification statements below describe the original cleanup checkpoint;
+they are not a live campaign-status report.
+
 ## Supported contract
 
 The only **evidence exposure** controls are `dataEvidence` and `flowEvidence`,

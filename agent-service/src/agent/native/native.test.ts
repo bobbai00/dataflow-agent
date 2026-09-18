@@ -169,10 +169,14 @@ describe("native codegen", () => {
     expect(s.code).toContain("rates.merge(rates,");
   });
 
-  test("UDF parameters must match the input ids", () => {
+  test("UDF parameters bind positionally: arity must match the inputs, names are free", () => {
     expect(() =>
-      compileNativeOp({ type: "UDF", inputs: ["x"], properties: { code: "def process(y):\n    return y" } })
-    ).toThrow(/must equal the input operator ids/);
+      compileNativeOp({ type: "UDF", inputs: ["x"], properties: { code: "def process(y, z):\n    return y" } })
+    ).toThrow(/one positional parameter per input/);
+    // `def process(climate, malta)` for inputs ["climate_data", "malta_dates"] is valid Python and
+    // used to cost a full repair turn (archeology-hard-1 step 6 → 7); names no longer have to match.
+    const renamed = compileNativeOp({ type: "UDF", inputs: ["x"], properties: { code: "def process(y):\n    return y" } });
+    expect(renamed.operatorType).toBe("DataProcessing");
     const ok = compileNativeOp({ type: "UDF", inputs: ["x"], properties: { code: "def process(x):\n    return x" } });
     expect(ok.operatorType).toBe("DataProcessing");
     const loader = compileNativeOp({

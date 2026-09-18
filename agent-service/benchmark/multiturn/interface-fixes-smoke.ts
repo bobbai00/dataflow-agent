@@ -144,7 +144,7 @@ try {
   });
   assert.equal(batchResult.operators[0].status, "error");
   assert.match(batchResult.operators[0].message, /CALLBACK_SIGNATURE/);
-  assert.match(batchResult.operators[0].message, /names are yours to choose/);
+  assert.match(batchResult.operators[0].message, /names are yours/);
   assert.deepEqual(batchResult.observationErrors, ["Cannot observe 'never_created': operator does not exist."]);
 
   // 4. The saved-task range advances every task. Kept inside the cards it
