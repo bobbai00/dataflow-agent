@@ -64,6 +64,9 @@ export function validateNativeCatalogSettings(
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
     nativeTaskReuse?: boolean;
+    nativeTaskReceipts?: boolean;
+    nativeCompactIndex?: boolean;
+    nativeDemandExecution?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -96,6 +99,9 @@ export function validateNativeCatalogSettings(
     "nativeDirectReturn",
     "nativeCompactPrompt",
     "nativeTaskReuse",
+    "nativeTaskReceipts",
+    "nativeCompactIndex",
+    "nativeDemandExecution",
   ] as const) {
     if (settings[name] !== undefined && typeof settings[name] !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);
@@ -103,5 +109,13 @@ export function validateNativeCatalogSettings(
   }
   if (settings.nativeTaskReuse && (!settings.nativeTaskContext || !settings.nativeCompactPrompt))
     throw new NativeCatalogSettingsError("nativeTaskReuse requires nativeTaskContext and nativeCompactPrompt");
+  // Receipts and the compact index are renderings of the task context; demand
+  // execution reads what a task demanded from the same batches. None has a
+  // meaning outside that context.
+  for (const name of ["nativeTaskReceipts", "nativeCompactIndex", "nativeDemandExecution"] as const)
+    if (settings[name] && !settings.nativeTaskContext)
+      throw new NativeCatalogSettingsError(`${name} requires nativeTaskContext`);
+  if (settings.nativeTaskReceipts && !settings.nativeTaskHistory)
+    throw new NativeCatalogSettingsError("nativeTaskReceipts requires nativeTaskHistory");
   return version;
 }

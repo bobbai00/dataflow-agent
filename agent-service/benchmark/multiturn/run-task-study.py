@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--seed', type=int, default=1729)
     args = parser.parse_args()
     arms = args.arms.split(',')
-    assert all(arm in ['code', 'coderetain', 'base', 'compact', 'return', 'context', 'tasks', 'reuse'] for arm in arms)
+    assert all(arm in ['code', 'coderetain', 'base', 'compact', 'return', 'context', 'tasks', 'reuse', 'maint', 'demand'] for arm in arms)
     assert args.workers > 0 and args.native_workers > 0 and args.recovery_rounds >= 0
     fixtures, out, kb_root = args.fixtures.resolve(), args.out.resolve(), args.kb_root.resolve()
     families = args.families.split(',') if args.families else sorted(p.parent.name for p in fixtures.glob('*/session.json'))
@@ -82,7 +82,7 @@ def main():
         else:
             command = ['bun', 'run', str(HERE / 'run-task-native.ts'),
                        str(fixtures / family / 'session.json'), str(directory), arm]
-        with (native_gate if arm != 'code' else threading.Semaphore(1)):
+        with (native_gate if arm not in ('code', 'coderetain') else threading.Semaphore(1)):
             started = time.time()
             with (out / (label + '.log')).open('w') as log:
                 process = subprocess.run(command, cwd=ROOT, env=os.environ, stdout=log, stderr=subprocess.STDOUT)

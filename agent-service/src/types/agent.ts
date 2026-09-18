@@ -172,6 +172,9 @@ export interface AgentSettings {
   nativeTaskContext?: boolean;
   nativeTaskCache?: boolean;
   nativeTaskReuse?: boolean;
+  nativeTaskReceipts?: boolean;
+  nativeCompactIndex?: boolean;
+  nativeDemandExecution?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
@@ -544,6 +547,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeTaskContext: false,
   nativeTaskCache: true,
   nativeTaskReuse: false,
+  nativeTaskReceipts: false,
+  nativeCompactIndex: false,
+  nativeDemandExecution: false,
   nativeDirectReturn: false,
   nativeCompactPrompt: false,
   dataEvidence: false,
@@ -667,6 +673,9 @@ export interface AgentSettingsApi {
   nativeTaskContext?: boolean;
   nativeTaskCache?: boolean;
   nativeTaskReuse?: boolean;
+  nativeTaskReceipts?: boolean;
+  nativeCompactIndex?: boolean;
+  nativeDemandExecution?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
@@ -775,6 +784,9 @@ export interface UpdateAgentSettingsRequest {
   nativeTaskContext?: boolean;
   nativeTaskCache?: boolean;
   nativeTaskReuse?: boolean;
+  nativeTaskReceipts?: boolean;
+  nativeCompactIndex?: boolean;
+  nativeDemandExecution?: boolean;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;

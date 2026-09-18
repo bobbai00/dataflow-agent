@@ -311,11 +311,19 @@ export function computeOperatorAccess(
   return access;
 }
 
-import { TaskHistory } from "./native/task-history";
+import {
+  TaskHistory,
+  emptyTaskEffects,
+  historicalReferences,
+  receiptFromEffects,
+  type TaskEffects,
+} from "./native/task-history";
 import { assembleTaskContext } from "./native/task-context";
 import { taskModePrompt } from "./native/task-prompt";
 import { resolveDirectReturn } from "./native/direct-return";
-import { assertFullDataReturn } from "./native/input-coverage";
+import { assertFullDataReturn, emptyAncestors } from "./native/input-coverage";
+import { needsCompleteResult, readRetainedRows, withCompleteRows } from "./native/complete-return";
+import { isSuccessfulOperatorResult } from "../types/execution";
 import { retainTaskResult } from "../api/task-results-api";
 
 export class TexeraAgent {
@@ -351,6 +359,22 @@ export class TexeraAgent {
 
   private currentMessageId: string | undefined = undefined;
   private readonly nativeValidationRepair = new NativeValidationRepair();
+  /** Empty-ancestor refusals already raised, keyed by operator and the empty
+   * set; an unchanged second return passes, so the guard costs one look. */
+  private readonly emptyReturnsSeen = new Set<string>();
+  /** What each task did to the graph, as the runtime saw it — batch outcomes,
+   * historical references, executed and invalidated operators, the direct
+   * return — keyed by the task's message and sealed into its receipt. */
+  private readonly taskEffects = new Map<string, TaskEffects>();
+  private effectsFor(messageId: string | undefined): TaskEffects {
+    const key = messageId ?? "";
+    let effects = this.taskEffects.get(key);
+    if (!effects) {
+      effects = emptyTaskEffects();
+      this.taskEffects.set(key, effects);
+    }
+    return effects;
+  }
   private readonly taskHistory = new TaskHistory(async (operator, info) => {
     if (!this.delegateConfig || !info.materialization?.executionId)
       throw new Error("Retention requires an engine materialization");
@@ -1447,6 +1471,9 @@ export class TexeraAgent {
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
     nativeTaskReuse?: boolean;
+    nativeTaskReceipts?: boolean;
+    nativeCompactIndex?: boolean;
+    nativeDemandExecution?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -1510,6 +1537,9 @@ export class TexeraAgent {
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
       nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
       nativeTaskReuse: updates.nativeTaskReuse ?? this.settings.nativeTaskReuse,
+      nativeTaskReceipts: updates.nativeTaskReceipts ?? this.settings.nativeTaskReceipts,
+      nativeCompactIndex: updates.nativeCompactIndex ?? this.settings.nativeCompactIndex,
+      nativeDemandExecution: updates.nativeDemandExecution ?? this.settings.nativeDemandExecution,
       nativeDirectReturn: updates.nativeDirectReturn ?? this.settings.nativeDirectReturn,
       nativeCompactPrompt: updates.nativeCompactPrompt ?? this.settings.nativeCompactPrompt,
     });
@@ -1544,6 +1574,9 @@ export class TexeraAgent {
       "nativeTaskContext",
       "nativeTaskCache",
       "nativeTaskReuse",
+      "nativeTaskReceipts",
+      "nativeCompactIndex",
+      "nativeDemandExecution",
       "nativeDirectReturn",
       "nativeCompactPrompt",
     ] as const) {
@@ -1929,6 +1962,12 @@ export class TexeraAgent {
       this.workflowState.getAllLinks()
     );
     if (errors.length) this.log.warn({ errors }, "Some task outputs could not be retained");
+    // The receipt is sealed with the task: what changed, what ran, what was
+    // left invalid, what was returned. Recorded in every history mode so the
+    // rendering setting alone decides whether a later task sees it.
+    const messageId = this.turnOrder()[task - 1];
+    const retained = this.taskHistory.catalog().find(entry => entry.task === task)?.operators.length ?? 0;
+    this.taskHistory.record(task, receiptFromEffects(this.taskEffects.get(messageId ?? ""), results, retained));
   }
 
   async sendMessage(userMessage: string, messageSource?: "chat" | "feedback"): Promise<AgentMessageResult> {
@@ -2098,10 +2137,41 @@ export class TexeraAgent {
                     this.taskHistory,
                     this.workflowState.getAllLinks()
                   );
-                  directAnswer = resolveDirectReturn(
-                    batch.return,
-                    this.snapshotStorage.getOperatorResult(this.head, batch.return.operator)
+                  let info = this.snapshotStorage.getOperatorResult(this.head, batch.return.operator);
+                  // A filter that emptied a table leaves exactly one runtime trace: zero
+                  // rows out of a non-empty input somewhere in the answer's ancestry.
+                  // Raise it once; an unchanged second return is the model's answer.
+                  const empties = emptyAncestors(
+                    batch.return.operator,
+                    this.workflowState.getAllOperators(),
+                    this.workflowState.getAllLinks(),
+                    this.snapshotStorage.getAllVisibleResults(this.head)
                   );
+                  const emptyKey = JSON.stringify([batch.return.operator, empties]);
+                  if (empties.length && !this.emptyReturnsSeen.has(emptyKey)) {
+                    this.emptyReturnsSeen.add(emptyKey);
+                    throw new Error(
+                      `EMPTY_ANCESTOR: ${empties
+                        .map(e => `${e.operator} produced 0 rows from ${e.inputRows} input rows`)
+                        .join(
+                          "; "
+                        )}. Check that operator before returning; if the empty result is intended, return again unchanged.`
+                    );
+                  }
+                  // The display copy is bounded for reading. When it is not the whole
+                  // table, deliver the retained complete copy instead of refusing.
+                  if (
+                    this.settings.nativeTaskHistory &&
+                    info &&
+                    isSuccessfulOperatorResult(info) &&
+                    info.resultMode === "table" &&
+                    needsCompleteResult(info)
+                  ) {
+                    const artifact = await this.taskHistory.materialize(batch.return.operator, info);
+                    info = withCompleteRows(info, await readRetainedRows(artifact));
+                  }
+                  directAnswer = resolveDirectReturn(batch.return, info);
+                  this.effectsFor(this.currentMessageId).returned = `${batch.return.operator} (${batch.return.format})`;
                   agentStep.content = directAnswer;
                 } catch (error) {
                   batch.observationErrors.push(error instanceof Error ? error.message : String(error));
@@ -2713,8 +2783,45 @@ export class TexeraAgent {
         }
       }
     }
-    if (editedOpIds.length === 0) return;
-    if (this.head && this.settings.nativeCatalogVersion === "v2") {
+    // Runtime facts for the task receipt, and what this step demanded. A
+    // batch's accepted/rejected outcomes, the {operator, atTask} references
+    // it used, and the ids it asked to observe or return are all read from
+    // the calls themselves, never from model prose.
+    const effects = this.effectsFor(this.currentMessageId);
+    const demanded = new Set<string>();
+    for (const tc of toolCalls) {
+      if (tc.toolName !== TOOL_NAME_DATAFLOW) continue;
+      const input = tc.input as any;
+      for (const id of input?.observe ?? []) if (typeof id === "string") demanded.add(id);
+      if (typeof input?.return?.operator === "string") demanded.add(input.return.operator);
+      const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === tc.toolCallId)?.output);
+      for (const outcome of batch?.operators ?? []) {
+        if (outcome.status === "error" || outcome.status === "blocked")
+          effects.rejected.set(outcome.id, outcome.message ?? outcome.status);
+        else effects.rejected.delete(outcome.id);
+      }
+      for (const spec of input?.operators ?? [])
+        for (const ref of historicalReferences(spec)) effects.historical.add(ref);
+    }
+    for (const id of editedOpIds) effects.edited.add(id);
+    // Demand-driven execution: an observe or return of an operator that has no
+    // valid result (never run, or invalidated by an earlier edit) executes it.
+    const demandDriven = !!this.settings.nativeDemandExecution && this.settings.agentMode === AgentMode.NATIVE;
+    // A descendant of this step's edit is about to be invalidated whatever its
+    // current result says, so demanding it means executing it after the edit.
+    const invalidatedByEdit = new Set(
+      demandDriven ? editedOpIds.flatMap(id => this.workflowState.getDownstreamOperators(id)) : []
+    );
+    const demandedMissing = demandDriven
+      ? [...demanded].filter(
+          id =>
+            this.workflowState.getOperator(id) &&
+            (invalidatedByEdit.has(id) ||
+              !isSuccessfulOperatorResult(this.snapshotStorage.getOperatorResult(this.head, id)))
+        )
+      : [];
+    if (editedOpIds.length === 0 && demandedMissing.length === 0) return;
+    if (this.head && this.settings.nativeCatalogVersion === "v2" && editedOpIds.length) {
       this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
     }
     const execConfig = this.buildExecutionConfig();
@@ -2744,8 +2851,12 @@ export class TexeraAgent {
         // render shows (or decides a shape from). Materialize all descendants,
         // not just the sinks — otherwise an upstream modify leaves the
         // intermediate blocks without a fresh Result (seen in the pilot).
+        // Under demand-driven execution the descendants are only invalidated
+        // (the snapshot store drops their results when the edit's new version
+        // lands); they run when a later observe or return demands them.
         for (const down of this.workflowState.getDownstreamOperators(opId)) {
-          targets.add(down);
+          if (demandDriven) effects.notExecuted.add(down);
+          else targets.add(down);
         }
       } else {
         for (const sink of this.workflowState.getDownstreamSinks(opId)) {
@@ -2753,6 +2864,7 @@ export class TexeraAgent {
         }
       }
     }
+    for (const id of demandedMissing) targets.add(id);
     // An aborted request can still finish remotely (or return after checkout).
     // Capture ownership now; never route its data/profiles/errors via a later HEAD.
     const owningStepId = this.head;
@@ -2847,6 +2959,7 @@ export class TexeraAgent {
         onResult: (opId, operatorInfo) => {
           if (!stillOwned()) return;
           produced.add(opId);
+          effects.executed.add(opId);
           this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });

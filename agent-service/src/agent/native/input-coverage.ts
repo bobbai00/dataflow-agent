@@ -14,6 +14,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import type { OperatorInfo } from "../../types/execution";
 import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory } from "./task-history";
 
@@ -51,6 +52,48 @@ export function previewDependencies(
   };
   visit(id);
   return [...origins.values()];
+}
+
+export interface EmptyAncestor {
+  operator: string;
+  inputRows: number;
+}
+
+/** Ancestors of `id` in the current graph whose complete result has no rows
+ * although an input of theirs has some. Emptiness is not proof of a bug — a
+ * correct answer can be "nobody qualifies" — so callers raise it once and let
+ * an unchanged second request pass; but it is the one mechanical trace of a
+ * filter that emptied a table, and it must not slip into an answer unseen.
+ * Retained historical inputs are trusted as they were sealed. */
+export function emptyAncestors(
+  id: string,
+  operators: readonly OperatorPredicate[],
+  links: readonly OperatorLink[],
+  results: ReadonlyMap<string, Pick<OperatorInfo, "totalRowCount" | "error">>
+): EmptyAncestor[] {
+  const nodes = new Map(operators.map(op => [op.operatorID, op]));
+  const inputsOf = (current: string) => {
+    const declared = (nodes.get(current)?.nativeOp?.inputs ?? []) as string[];
+    const linked = links.filter(link => link.target.operatorID === current).map(link => link.source.operatorID);
+    return [...new Set([...declared, ...linked])];
+  };
+  const seen = new Set<string>();
+  const found: EmptyAncestor[] = [];
+  const visit = (current: string) => {
+    if (seen.has(current)) return;
+    seen.add(current);
+    const op = nodes.get(current);
+    if (!op || op.taskSource) return;
+    const info = results.get(current);
+    const inputs = inputsOf(current);
+    if (info && !info.error && info.totalRowCount === 0) {
+      const inputRows = Math.max(0, ...inputs.map(input => results.get(input)?.totalRowCount ?? 0));
+      if (inputRows > 0) found.push({ operator: current, inputRows });
+    }
+    for (const input of inputs) visit(input);
+  };
+  visit(id);
+  return found;
 }
 
 export function assertFullDataReturn(

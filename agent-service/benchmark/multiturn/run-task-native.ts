@@ -20,8 +20,9 @@ import { nativeTestSession } from "../e2e/native-test-session";
 import { runAgentTurn } from "../../src/api";
 
 const [sessionPath, outPath, arm = "tasks", limit = "100"] = process.argv.slice(2);
-if (!sessionPath || !outPath || !["base", "compact", "return", "context", "tasks", "reuse"].includes(arm))
-  throw new Error("Usage: run-task-native.ts session.json output-dir base|compact|return|context|tasks|reuse [limit]");
+const ARMS = ["base", "compact", "return", "context", "tasks", "reuse", "maint", "demand"];
+if (!sessionPath || !outPath || !ARMS.includes(arm))
+  throw new Error(`Usage: run-task-native.ts session.json output-dir ${ARMS.join("|")} [limit]`);
 const out = resolve(outPath);
 if (existsSync(out)) throw new Error(`Refusing to overwrite ${out}`);
 mkdirSync(out, { recursive: true });
@@ -32,10 +33,16 @@ const settings = {
   dataEvidence: true,
   flowEvidence: true,
   nativeCompactPrompt: arm !== "base",
-  nativeDirectReturn: ["return", "context", "tasks", "reuse"].includes(arm),
-  nativeTaskContext: ["context", "tasks", "reuse"].includes(arm),
-  nativeTaskHistory: ["tasks", "reuse"].includes(arm),
-  nativeTaskReuse: arm === "reuse",
+  nativeDirectReturn: ["return", "context", "tasks", "reuse", "maint", "demand"].includes(arm),
+  nativeTaskContext: ["context", "tasks", "reuse", "maint", "demand"].includes(arm),
+  nativeTaskHistory: ["tasks", "reuse", "maint", "demand"].includes(arm),
+  nativeTaskReuse: ["reuse", "maint", "demand"].includes(arm),
+  // maint = reuse + receipts + compact dependency-local index (+ complete
+  // return and the empty-ancestor guard, which ride with direct return);
+  // demand = maint + demand-driven execution.
+  nativeTaskReceipts: ["maint", "demand"].includes(arm),
+  nativeCompactIndex: ["maint", "demand"].includes(arm),
+  nativeDemandExecution: arm === "demand",
   nativeTaskCache: process.env.TASK_CACHE_BOUNDARIES !== "0",
   maxSteps: 25,
   maxOperatorResultCharLimit: 2000,

@@ -20,9 +20,72 @@ import type { ContextAssemblerInput } from "../llm-drivers/types";
 import type { OperatorPredicate } from "../../types/workflow";
 import { asNativeBatchResult } from "../tools/native-batch-tools";
 import { formatNativeError } from "../tools/result-formatting";
-import type { TaskHistory } from "./task-history";
+import { formatTaskReceipt, type TaskHistory, type TaskInput } from "./task-history";
 import { nativeOperators } from "./catalog";
 import { nativeToolName } from "../tools/native-typed-tools";
+import { collectNativeEvidence } from "./evidence";
+
+/** One line of declared operation over declared inputs: what a card says
+ * once the clipped JSON definition, Python bodies and ancestry text are gone.
+ * Full definitions stay available at the selected dependency boundary. */
+export function operatorSignature(op: OperatorPredicate): string {
+  const view = op.nativeOp;
+  if (!view) return op.operatorType;
+  const p = (view.properties ?? {}) as Record<string, any>;
+  const names = (value: unknown): string =>
+    Array.isArray(value)
+      ? value
+          .map(item =>
+            typeof item === "string" ? item : (item?.as ?? item?.col ?? item?.column ?? JSON.stringify(item))
+          )
+          .join(",")
+      : "";
+  const inputs = ((view.taskInputs ?? view.inputs ?? []) as TaskInput[]).map(ref =>
+    typeof ref === "string" ? ref : `${ref.operator}@task${ref.atTask}`
+  );
+  let head: string;
+  switch (view.type) {
+    case "Scan":
+      head = `scan(${String(p.files ?? "")
+        .split("/")
+        .pop()}${p.preview !== undefined ? `, preview=${p.preview}` : ""})`;
+      break;
+    case "Project":
+      head = p.keep ? `project(keep ${names(p.keep)})` : p.drop ? `project(drop ${names(p.drop)})` : "project(rename)";
+      break;
+    case "Aggregate":
+      head = `aggregate(group[${names(p.groupBy)}] ${((p.aggregations ?? []) as any[])
+        .map(a => `${a.fn}(${a.col ?? "*"})→${a.as ?? a.fn}`)
+        .join(" ")})`;
+      break;
+    case "Join":
+      head = `join(${p.type ?? "inner"}, on ${JSON.stringify(p.on ?? [])})`;
+      break;
+    case "Sort":
+      head = `sort(${((p.by ?? []) as any[]).map(b => `${b.col}${b.desc ? "↓" : "↑"}`).join(",")})`;
+      break;
+    case "Limit":
+      head = `limit(${p.n}${p.offset ? `,offset=${p.offset}` : ""})`;
+      break;
+    case "Window":
+      head = `window(${names(p.columns)} by [${names(p.partitionBy)}])`;
+      break;
+    case "Split":
+      head = `split(${p.column}→${names(p.into)})`;
+      break;
+    case "UDF":
+      head = "udf(opaque)";
+      break;
+    case "TaskResult":
+      head = `retained ${p.operator}@task${p.atTask}`;
+      break;
+    default: {
+      const columns = names(p.columns ?? p.column ?? p.keep);
+      head = `${nativeToolName(view.type)}(${columns})`;
+    }
+  }
+  return `${head}${inputs.length ? ` <- ${inputs.join(", ")}` : ""}`.slice(0, 200);
+}
 
 const clip = (value: string, limit: number) =>
   value.length <= limit ? value : value.slice(0, limit) + " …[details available via observe]";
@@ -70,6 +133,16 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
       providerOptions: { texera: { taskHistory: true } },
     });
     if (answer) messages.push({ role: "assistant", content: answer });
+    // The runtime's account of what the task did to the graph, sealed with the
+    // task, so a later turn can see that a request changed nothing, or which
+    // results were left invalid, without replaying the task's actions.
+    const receipt = input.settings.nativeTaskReceipts ? history?.receipt(number(step.messageId)) : undefined;
+    if (receipt)
+      messages.push({
+        role: "user",
+        content: formatTaskReceipt(number(step.messageId), receipt),
+        providerOptions: { texera: { taskHistory: true } },
+      });
   }
   // Stable completed-task messages can share a cache prefix. Current state
   // precedes the active request/actions so the last message is the actual
@@ -145,7 +218,13 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
         ? taskReuseFacts(op.operatorID, state.getAllOperators(), history)
         : "";
       if (saved.length) savedRanges.push(`${op.operatorID}: ${ranges(saved)}`);
-      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown"}; ${info?.error ? "current result unavailable" : (info?.state ?? "not executed")}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
+      const schema = info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown";
+      const status = info?.error ? "current result unavailable" : (info?.state ?? "not executed");
+      // Compact index: the declared operation over its inputs, schema, status
+      // and row count. Definitions live at the selected dependency boundary.
+      if (input.settings.nativeCompactIndex)
+        return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}`;
+      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${schema}; ${status}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
     });
   const deleted = new Map<string, number[]>();
   for (const task of history?.catalog() ?? [])
@@ -167,9 +246,34 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
     for (const link of state.getAllLinks()) if (link.target.operatorID === id) visit(link.source.operatorID);
   };
   for (const id of selected) visit(id);
-  const details = [...dependencies].map(id => {
+  // Data/flow facts for the boundary the task actually selected: row counts,
+  // kept and rejected rows, join cardinality, null shares. Measured by the
+  // engine, bounded to a few lines per operator, only with the compact index.
+  const boundaryFacts = (id: string): string[] => {
+    if (!input.settings.nativeCompactIndex) return [];
+    const op = state.getOperator(id);
+    const info = storage.getOperatorResult(head, id);
+    if (!op?.nativeOp || !info || info.error) return [];
+    try {
+      return collectNativeEvidence({
+        op,
+        info,
+        workflow: state.getWorkflowContent(),
+        resolveInput: inputId => storage.getOperatorResult(head, inputId),
+      })
+        .facts.sort((a, b) => b.priority - a.priority)
+        .slice(0, 3)
+        .map(fact => `  ${fact.text.slice(0, 200)}`);
+    } catch {
+      return [];
+    }
+  };
+  const details = [...dependencies].flatMap(id => {
     const op = state.getOperator(id)!;
-    return op.taskSource ? JSON.stringify({ input: op.taskSource, fixed: true }) : JSON.stringify(definition(op));
+    const definitionText = op.taskSource
+      ? JSON.stringify({ input: op.taskSource, fixed: true })
+      : JSON.stringify(definition(op));
+    return [definitionText, ...boundaryFacts(id)];
   });
   messages.push({
     role: "user",

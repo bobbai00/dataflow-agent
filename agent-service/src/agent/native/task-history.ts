@@ -35,6 +35,84 @@ export interface TaskOutput {
   artifact: RetainedResult;
   previewSources: PreviewOrigin[];
 }
+/** What a task did to the graph, accumulated by the runtime while the task
+ * runs: batch outcomes, the historical references its batches used, the
+ * operators the post-step path executed or left invalid, the direct return. */
+export interface TaskEffects {
+  edited: Set<string>;
+  executed: Set<string>;
+  notExecuted: Set<string>;
+  rejected: Map<string, string>;
+  historical: Set<string>;
+  returned?: string;
+}
+
+/** The sealed, immutable form rendered to later tasks. Every field is a
+ * runtime fact, never model text; it says what changed, not what was meant. */
+export interface TaskReceipt {
+  edited: string[];
+  executed: string[];
+  notExecuted: string[];
+  rejected: string[];
+  historical: string[];
+  returned?: string;
+  retained: number;
+}
+
+export function emptyTaskEffects(): TaskEffects {
+  return { edited: new Set(), executed: new Set(), notExecuted: new Set(), rejected: new Map(), historical: new Set() };
+}
+
+/** `{operator, atTask}` references in an operator spec's input slots. */
+export function historicalReferences(spec: unknown): string[] {
+  if (!spec || typeof spec !== "object") return [];
+  const record = spec as Record<string, unknown>;
+  const slots = [record.input, record.left, record.right, ...(Array.isArray(record.inputs) ? record.inputs : [])];
+  return slots.flatMap(slot =>
+    slot &&
+    typeof slot === "object" &&
+    typeof (slot as any).operator === "string" &&
+    Number.isInteger((slot as any).atTask)
+      ? [`${(slot as any).operator}@task${(slot as any).atTask}`]
+      : []
+  );
+}
+
+export function receiptFromEffects(
+  effects: TaskEffects | undefined,
+  results: ReadonlyMap<string, Pick<OperatorInfo, "state" | "error">>,
+  retained: number
+): TaskReceipt {
+  const e = effects ?? emptyTaskEffects();
+  const sorted = (values: Iterable<string>) => [...values].sort();
+  return {
+    edited: sorted(e.edited),
+    executed: sorted(e.executed),
+    // Invalidated by an edit and never demanded: still without a valid result
+    // when the task ended. Anything executed later, or whose result survived
+    // (the edit produced an identical version), is not stale.
+    notExecuted: sorted(
+      [...e.notExecuted].filter(id => !e.executed.has(id) && !isSuccessfulOperatorResult(results.get(id)))
+    ),
+    rejected: sorted(e.rejected.keys()),
+    historical: sorted(e.historical),
+    ...(e.returned ? { returned: e.returned } : {}),
+    retained,
+  };
+}
+
+export function formatTaskReceipt(task: number, receipt: TaskReceipt): string {
+  const list = (ids: string[]) =>
+    ids.length ? ids.slice(0, 12).join(", ") + (ids.length > 12 ? ` …(+${ids.length - 12})` : "") : "none";
+  const lines = [`# Task ${task} receipt`, `Edited: ${list(receipt.edited)}`, `Executed: ${list(receipt.executed)}`];
+  if (receipt.notExecuted.length) lines.push(`Not re-executed (inputs changed): ${list(receipt.notExecuted)}`);
+  if (receipt.rejected.length) lines.push(`Rejected at end of task: ${list(receipt.rejected)}`);
+  if (receipt.historical.length) lines.push(`Historical inputs: ${list(receipt.historical)}`);
+  lines.push(`Returned: ${receipt.returned ?? "answered in prose"}`);
+  lines.push(`Retained outputs: ${receipt.retained}`);
+  return lines.join("\n");
+}
+
 export const TASK_SOURCE_PREFIX = "task_archive_";
 export function taskInputId(reference: Exclude<TaskInput, string>): string {
   return (
@@ -64,6 +142,7 @@ export const taskInputSchema = {
 export class TaskHistory {
   private readonly tasks = new Map<number, Map<string, TaskOutput>>();
   private readonly retained = new Map<string, RetainedResult>();
+  private readonly receipts = new Map<number, TaskReceipt>();
   constructor(private readonly retain: (operator: string, info: OperatorInfo) => Promise<RetainedResult>) {}
 
   async seal(
@@ -86,20 +165,30 @@ export class TaskHistory {
           ...origin,
           atTask: origin.atTask ?? task,
         }));
-        const key = info.resultVersion.id;
-        let artifact = this.retained.get(key);
-        if (!artifact) {
-          artifact = await this.retain(operator.operatorID, info);
-          if (!artifact.path || !/^[a-f0-9]{64}$/.test(artifact.sha256) || artifact.rowCount !== info.totalRowCount)
-            throw new Error("Retention did not confirm the complete output");
-          this.retained.set(key, artifact);
-        }
+        const artifact = await this.materialize(operator.operatorID, info);
         outputs.set(operator.operatorID, structuredClone({ operator, info, artifact, previewSources }));
       } catch (error) {
         errors.push(`${operator.operatorID} at task ${task}: ${error instanceof Error ? error.message : error}`);
       }
     }
     return errors;
+  }
+
+  /** The complete engine output behind a display result, copied once per
+   * result version. A direct return and the later seal of the same task share
+   * the copy, so delivering a whole answer never retains anything twice. */
+  async materialize(operator: string, info: OperatorInfo): Promise<RetainedResult> {
+    if (!isSuccessfulOperatorResult(info) || !info.resultVersion?.id || !info.materialization?.executionId)
+      throw new Error(`${operator} has no complete engine materialization to retain`);
+    const key = info.resultVersion.id;
+    let artifact = this.retained.get(key);
+    if (!artifact) {
+      artifact = await this.retain(operator, info);
+      if (!artifact.path || !/^[a-f0-9]{64}$/.test(artifact.sha256) || artifact.rowCount !== info.totalRowCount)
+        throw new Error("Retention did not confirm the complete output");
+      this.retained.set(key, artifact);
+    }
+    return artifact;
   }
 
   resolve(reference: Exclude<TaskInput, string>): TaskOutput {
@@ -120,9 +209,18 @@ export class TaskHistory {
   catalog(): Array<{ task: number; operators: string[] }> {
     return [...this.tasks].map(([task, outputs]) => ({ task, operators: [...outputs.keys()] }));
   }
+  record(task: number, receipt: TaskReceipt): void {
+    if (this.receipts.has(task)) throw new Error(`Task ${task} already has a receipt`);
+    this.receipts.set(task, structuredClone(receipt));
+  }
+  receipt(task: number): TaskReceipt | undefined {
+    const receipt = this.receipts.get(task);
+    return receipt && structuredClone(receipt);
+  }
   clear(): void {
     this.tasks.clear();
     this.retained.clear();
+    this.receipts.clear();
   }
   has(task: number): boolean {
     return this.tasks.has(task);
