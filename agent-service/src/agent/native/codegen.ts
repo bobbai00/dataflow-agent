@@ -599,9 +599,11 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
         if (inputs.length > 0) throw new Error("a UDF with no parameters is a loader and takes no inputs");
         return { operatorType: "DataLoading", code };
       }
-      if (params.length !== inputs.length || params.some((q, i) => q !== inputs[i])) {
+      // Inputs bind positionally (runtime.py calls `process(*frames)`), so only
+      // the arity has to match the ordered inputs; parameter names are the author's.
+      if (params.length !== inputs.length) {
         throw new Error(
-          `UDF parameters (${params.join(", ")}) must equal the input operator ids in order (${inputs.join(", ")})`
+          `UDF process(${params.join(", ")}) takes ${params.length} parameter(s) but the operator has ${inputs.length} ordered input(s) (${inputs.join(", ")}); define one positional parameter per input`
         );
       }
       return { operatorType: "DataProcessing", code };

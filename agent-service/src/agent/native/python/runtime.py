@@ -114,16 +114,22 @@ def _validate_function(spec, source, field, entry, parameters=None):
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
         valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
-        valid = valid and (positional == parameters if parameters is not None else len(positional) == 1)
+        # Inputs bind positionally (`function(*frames)` below), so only the arity
+        # has to match the ordered inputs; the parameter names are the author's.
+        expected = len(parameters) if parameters is not None else 1
+        valid = valid and len(positional) == expected
     if not valid:
-        signature = ", ".join(parameters) if parameters is not None else "value_or_row"
-        raise _error(
-            spec,
-            "CALLBACK_SIGNATURE",
-            f"Define exactly one synchronous def {entry}({signature}), without decorators, defaults or variadic arguments.",
-            stage="compile",
-            field=field,
-        )
+        if parameters is not None:
+            message = (
+                f"Define exactly one synchronous def {entry} with {expected} positional parameter(s), one per input "
+                f"in order ({', '.join(parameters)}); names are yours. No decorators, defaults or variadic arguments."
+            )
+        else:
+            message = (
+                f"Define exactly one synchronous def {entry}(value_or_row), "
+                "without decorators, defaults or variadic arguments."
+            )
+        raise _error(spec, "CALLBACK_SIGNATURE", message, stage="compile", field=field)
     return tree
 
 
