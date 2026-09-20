@@ -173,7 +173,58 @@ unrelated branches 0/8/32); the real sessions give external validity, with
 the caveat that their scores are set by foundation-turn conventions that no
 representation fixes.
 
-## 5. Limits
+## 5. Results on the two real sessions (2026-09-20)
+
+One trial per arm, same fixtures, same model (`gpt-5.6-luna`), the fixes
+of `1f07ee766` live (validator crash, compact-card entry line). Strict
+evaluator, no judge. `logs/campaigns/dev-run2`.
+
+| arm | NFL 42 | university 21 | calls | cost | cache writes (tokens) | output tokens |
+|---|---|---|---|---|---|---|
+| `code` | 1 | 13 | 96 | $0.336 | 215k | 138k |
+| `coderetain` | **11** | **15** | 74 | $0.374 | 488k | 84k |
+| `tasks` | 0 | 5 | 211 | $0.676 | 1,565k | 197k |
+| `reuse` | 1 | 12 | 144 | $0.555 | 1,366k | 140k |
+| `maint` | 1 | 10 | 129 | $0.412 | 714k | 152k |
+| `demand` | 1 | 6 | 151 | $0.439 | 784k | 141k |
+
+By LongDS label on NFL, `coderetain` passes 10 of 33 state-change tasks
+(2 Update, 5 Rollback, 4 Counterfactual); every other arm passes at most 1.
+On university, `code` 7/12 and `coderetain` 9/12 state-change tasks, `reuse`
+6/12, `maint` 5/12. Failures are inherited in about nine of ten cases in
+every arm (a failed dependency upstream), so a session's score is set by its
+first few conventions.
+
+What the mechanisms did:
+
+- **Complete return** removed refusals over successful operators: 0 in all
+  native arms (every remaining refusal followed a UDF failure, 15 in `maint`
+  on NFL, 42 in `tasks` on university).
+- **Compact index + receipts** halved cache writes against `reuse`
+  (714k vs 1,366k tokens) and cut calls (129 vs 144) at equal accuracy on
+  NFL and −2 tasks on university (one trial; the tasks lost, 9/12/15/17,
+  are content failures of the same `times_2016_cleaned` lineage).
+- **Empty-ancestor guard** fired 5 times on university task 5 (the known
+  `721→0` filter trap). The model spent four more calls and still returned
+  the empty result as intended; the guard surfaces, it cannot decide.
+- **Demand-driven execution** deferred 4–16 undemanded recomputations per
+  session with no refusal caused by a stale result; its university score
+  (6) is one trial with ten `LinAlgError` repairs of the model's own
+  Mahalanobis code, not a mechanism effect that the traces support.
+
+What the comparison actually isolates: `code` (1) and the native arms (0–1)
+score the same on NFL; `coderetain` (11) differs from `code` only by
+retaining its Python variables between tasks. The lever on a cumulative
+session is persistent intermediate state, and the traces show the native
+arms never created any: from task 2 to task 16 each task added one UDF over
+the task-1 tables and re-derived the pipeline (see `docs/kept-frames.md`).
+Against the review's exit conditions: Milestone B's cost reduction is
+measured (cache writes −48%, calls −10%, cost −26% against `reuse`) without
+extra repair calls erasing it, but neither arm approaches the code baseline
+on the cumulative session, so no promotion; Milestone C's execution curve
+still needs the controlled families (queued).
+
+## 6. Limits
 
 Retained tables live in an engine-owned directory the agent service can
 read in the local stack; a distributed deployment needs object storage for
