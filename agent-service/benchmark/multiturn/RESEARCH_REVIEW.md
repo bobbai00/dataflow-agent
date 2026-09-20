@@ -957,3 +957,118 @@ heuristic; request-stage timestamps before any hang is diagnosed; the output
 validator offered to both arms so it is never bundled into the graph
 experiment; strict contract success kept as a headline with analytical-content
 diagnosis reported separately.
+
+## 14. Measured answer on real sessions (2026-09-20)
+
+§13.4 argued for running the reference-clean real sessions before building
+Milestone B and C. That is what happened. Two sessions, NFL task 1 (42 tasks)
+and university task 2 (21 tasks), seven arms, one trial per arm, strict
+evaluator, model `gpt-5.6-luna`, isolated stack, `logs/campaigns/dev-run2`
+and `logs/campaigns/frames-run1`. The mechanisms of §7 are built and pass a
+ten-check engine smoke with no model calls
+(`benchmark/multiturn/interface-fixes-smoke.ts`).
+
+### 14.1 Scores
+
+| arm | NFL 42 | university 21 | calls | cost | cache writes | wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| `code` | 1 | 13 | 96 | $0.336 | 215k | 14.5 min |
+| `coderetain` | **11** | **15** | 74 | $0.374 | 488k | 9.5 min |
+| `tasks` | 0 | 5 | 211 | $0.676 | 1,565k | 33.8 min |
+| `reuse` | 1 | 12 | 144 | $0.555 | 1,366k | 21.0 min |
+| `maint` | 1 | 10 | 129 | $0.412 | 714k | 22.4 min |
+| `demand` | 1 | 6 | 151 | $0.439 | 784k | 22.4 min |
+| `frames` | 0 | 6 | 146 | $0.398 | 724k | 21.9 min |
+
+The headline is that a CodeAgent which merely keeps its Python variables
+between tasks beats every Dataflow arm on both sessions. Three findings
+qualify what that means.
+
+### 14.2 The NFL gap is mostly a presentation convention
+
+Comparing answers case-insensitively (folding int/float changes nothing):
+
+| arm | strict | case-insensitive |
+| --- | --- | --- |
+| `code` | 1 | 10 |
+| `coderetain` | 11 | 11 |
+| `frames` | 0 | 5 |
+| `maint` | 1 | 4 |
+| `tasks` / `reuse` | 0 / 1 | 2 / 2 |
+| `demand` | 1 | 1 |
+
+Task 1 of that session says to clean player names by lowercasing them and to
+key the workspace by the cleaned name. The gold answers report the original
+display names. Every arm except `coderetain` carried the cleaned name into
+its answers for the rest of the session. This is not lost data: in `maint`
+the `displayName` column is still present in `season_player_workspace`, and
+the base scan carries it at every task. It is an answer-contract convention
+fixed in the foundation turn and never revisited, and it costs `code` nine
+tasks — more than the whole margin usually attributed to retention. On the
+university session the fold changes nothing, so that comparison is clean.
+
+### 14.3 A failure the receipts caught and the mechanisms did not
+
+Across the six Dataflow sessions, 35 tasks were answered by returning an
+earlier task's answer operator with no edit and no execution at all. None was
+correct. One arm handed back `task25_calc` for eleven later questions. The
+receipts state it exactly (`Edited: none | Executed: none | Returned:
+task25_calc`), which is the evidence that the runtime had the fact and simply
+did not act on it. Commit `783058efa` refuses such a return once, naming the
+task that already delivered it; an unchanged second return is allowed, as
+with the empty-ancestor guard.
+
+### 14.4 What the mechanisms did deliver
+
+Against the Dataflow control on the 42-task session, `maint` (complete
+return, receipts, compact index, empty-ancestor guard) cuts cache writes from
+1,205k to 564k tokens (−53%), calls from 106 to 91, and cost from $0.477 to
+$0.341 (−28%), with no accuracy change. Refusals of a direct return over a
+successful operator fell to zero in every arm; every remaining refusal
+follows a real operator failure. That satisfies Milestone B's exit condition
+against Dataflow itself, and fails it against CodeAgent, which is cheaper
+still on that session ($0.241).
+
+`demand` executes 1.2 operators per task where `frames` executes 2.4 on the
+controlled families, so demand-driven materialization does restrict work to
+the demanded subgraph. Its real-session accuracy is not distinguishable from
+the other arms in one trial.
+
+### 14.5 Granularity, and the mechanism built for it
+
+On NFL every Dataflow arm answered each task with one monolithic UDF, 3–5k
+characters, re-deriving the pipeline from the task-1 tables; `maint` made 251
+references to task-1 base tables and 45 to anything derived later. The
+maintenance mechanisms had almost no dependency graph to act on. On the
+university session, whose task 5 names "the cleaned dataset used for all
+later analysis", the same arm made 43 references to derived results and 1 to
+a base table. The model decomposes when the question names the intermediate
+and not otherwise.
+
+Kept frames (`docs/kept-frames.md`) makes a UDF's intermediate tables
+addressable without asking the model to plan for them: the runtime reports
+every DataFrame the function assigned and did not return, the catalog lists
+them, and `{operator, frame}` or `{operator, atTask, frame}` reads one as an
+input. It works on the real engine and in the real session: the `frames` arm
+read `task4_answer.w@4` (86×27) for tasks 5 through 10 and wrote 1.0–1.3k
+characters of code per task instead of 4k. It did not move the strict score
+in one trial, and the model reverted to monolithic UDFs later in the session.
+
+### 14.6 Verdict
+
+The property is real and now cheap: immutable task outputs, invalidation,
+demand-driven execution, receipts and complete returns all work, and the
+context policy pays for itself against the Dataflow control. What is not
+demonstrated is that any of it makes a multi-task session *more correct* than
+a code agent that keeps its variables. On these two sessions the binding
+constraints were, in order: an answer-presentation convention set in the
+foundation turn, the agent's choice to re-derive rather than decompose, and
+stale answers. The first is arm-independent, the third is now guarded, and
+the second is what kept frames attacks.
+
+The claim to test next is therefore narrower and falsifiable: *on sessions
+that actually stress dependency maintenance, does the Dataflow arm beat a
+retention-equipped CodeAgent?* The controlled families exist for exactly that
+and are running with all seven arms and three trials. One trial per arm on
+real sessions cannot separate mechanism from agent variance, and this section
+should not be read as if it could.
