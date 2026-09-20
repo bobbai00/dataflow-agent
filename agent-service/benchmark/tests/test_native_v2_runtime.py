@@ -289,6 +289,11 @@ def test_udf_wrong_shape_and_signature_have_explicit_diagnostics():
         runtime.validate_native(spec("UDF", code="def process(a, b):\n    return a"))
     with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
         runtime.validate_native(spec("UDF", code="def process(*frames):\n    return frames[0]"))
+    # A missing entry (e.g. the filter callback's name used for a UDF) names the
+    # expected def and arity instead of crashing the validator.
+    with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE.*def process with 1 positional") as info:
+        runtime.validate_native(spec("UDF", code="def apply(frame):\n    return frame"))
+    assert "names are yours" in str(info.value)
 
 
 def test_udf_renamed_parameter_receives_the_input_frame_positionally():

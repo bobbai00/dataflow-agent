@@ -69,7 +69,8 @@ export async function validateNativeV2(view: NativeOpView, operatorId: string): 
       new Response(child.stderr).text(),
     ]);
     if (timedOut) throw new Error("Python syntax validation timed out; no operator was changed.");
-    if (code !== 0) throw new Error(`Python syntax validation unavailable: ${stderr.slice(0, 500)}`);
+    // A traceback names its cause on the last line; the head is only file paths.
+    if (code !== 0) throw new Error(`Python syntax validation unavailable: ${stderr.trim().slice(-500)}`);
     const result = JSON.parse(stdout);
     if (!result.ok) throw new Error(`NATIVE_ERROR_V2:${JSON.stringify(result.diagnostic)}`);
   } finally {

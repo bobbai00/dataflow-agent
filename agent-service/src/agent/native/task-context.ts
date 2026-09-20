@@ -73,9 +73,13 @@ export function operatorSignature(op: OperatorPredicate): string {
     case "Split":
       head = `split(${p.column}→${names(p.into)})`;
       break;
-    case "UDF":
-      head = "udf(opaque)";
+    case "UDF": {
+      // The body stays opaque; the entry line is the contract a later edit has
+      // to match (its name and arity), in the author's own parameter names.
+      const entry = /^def (process|load)\(([^)]*)\)/m.exec(String(p.code ?? ""));
+      head = entry ? `udf(def ${entry[1]}(${entry[2].replace(/\s+/g, " ").trim()}))` : "udf(opaque)";
       break;
+    }
     case "TaskResult":
       head = `retained ${p.operator}@task${p.atTask}`;
       break;

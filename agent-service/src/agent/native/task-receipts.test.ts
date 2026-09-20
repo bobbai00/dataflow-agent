@@ -151,7 +151,7 @@ test("the compact index states the declared operation over its inputs and keeps 
   expect(operatorSignature(state.getOperator("totals")!)).toBe(
     "aggregate(group[] sum(value)→total count(*)→n) <- eligible"
   );
-  expect(operatorSignature(state.getOperator("report")!)).toBe("udf(opaque) <- totals, totals@task1");
+  expect(operatorSignature(state.getOperator("report")!)).toBe("udf(def process(a, b)) <- totals, totals@task1");
   const render = (nativeCompactIndex: boolean) =>
     String(
       assembleTaskContext({
