@@ -162,7 +162,10 @@ function buildMessages(layout: string | undefined, text: string, stepByEvent: Ma
     }
     return [{ role: "user", content: text }];
   }
-  if (layout === "opSplit") {
+  // opBlock shares opSplit's cut points (`### <type> operator \`id\``); it
+  // differs in what the RENDERER puts inside each block, not in how the text
+  // is framed — see serializeOperatorFull's operator-block contract.
+  if (layout === "opSplit" || layout === "opBlock") {
     // An empty dataflow (step 1) still ends with the `# Current Dataflow`
     // header, so the first message is byte-identical from step 1 onwards.
     if (!/^# Current Dataflow$/m.test(text) && !/^### /m.test(text)) {

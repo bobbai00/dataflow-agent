@@ -421,7 +421,7 @@ export interface AgentSettings {
   enableAnswerGrounding: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
+  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
    * VERSIONED MODE — the session as one immutable version DAG addressed by
    * (operatorId, turnId). Three coupled changes, one flag:
