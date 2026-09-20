@@ -169,3 +169,19 @@ test("the compact index states the declared operation over its inputs and keeps 
   // The full card still carries the clipped definition, Python included.
   expect(render(false)).toContain("def apply");
 });
+
+test("a completed task's answer is attributed to it, most recent first", () => {
+  const history = new TaskHistory(async () => ({ path: "/tmp/a.arrow", sha256: "a".repeat(64), rowCount: 1 }));
+  const effects = (returnedOperator?: string) => ({
+    ...emptyTaskEffects(),
+    ...(returnedOperator ? { returned: `${returnedOperator} (json)`, returnedOperator } : {}),
+  });
+  history.record(1, receiptFromEffects(effects("task1_answer"), new Map(), 1));
+  history.record(2, receiptFromEffects(effects(), new Map(), 1));
+  history.record(3, receiptFromEffects(effects("task1_answer"), new Map(), 1));
+  expect(history.answeredBy("task1_answer")).toBe(3);
+  expect(history.answeredBy("task2_answer")).toBeUndefined();
+  // A receipt that answered in prose names no operator.
+  expect(history.receipt(2)!.returnedOperator).toBeUndefined();
+  expect(history.receipt(1)!.returned).toBe("task1_answer (json)");
+});

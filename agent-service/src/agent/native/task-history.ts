@@ -45,6 +45,7 @@ export interface TaskEffects {
   rejected: Map<string, string>;
   historical: Set<string>;
   returned?: string;
+  returnedOperator?: string;
 }
 
 /** The sealed, immutable form rendered to later tasks. Every field is a
@@ -56,6 +57,8 @@ export interface TaskReceipt {
   rejected: string[];
   historical: string[];
   returned?: string;
+  /** The operator behind `returned`, for runtime checks rather than rendering. */
+  returnedOperator?: string;
   retained: number;
 }
 
@@ -97,6 +100,7 @@ export function receiptFromEffects(
     rejected: sorted(e.rejected.keys()),
     historical: sorted(e.historical),
     ...(e.returned ? { returned: e.returned } : {}),
+    ...(e.returnedOperator ? { returnedOperator: e.returnedOperator } : {}),
     retained,
   };
 }
@@ -233,6 +237,14 @@ export class TaskHistory {
   receipt(task: number): TaskReceipt | undefined {
     const receipt = this.receipts.get(task);
     return receipt && structuredClone(receipt);
+  }
+
+  /** The completed task that already delivered this operator as its answer.
+   * An answer belongs to the question that asked for it. */
+  answeredBy(operator: string): number | undefined {
+    for (const [task, receipt] of [...this.receipts].sort(([a], [b]) => b - a))
+      if (receipt.returnedOperator === operator) return task;
+    return undefined;
   }
   clear(): void {
     this.tasks.clear();

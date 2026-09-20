@@ -120,10 +120,13 @@ export function nativeBatchSchema(
         items: {
           anyOf: nativeOperators(version).map(def => {
             const schema = nativeToolSchema(def, options.taskHistory, options.keptFrames) as any;
+            // `frame` is runtime-owned (set on synthesized view operators); it
+            // stays out of the model's schema so it is never authored.
+            const { frame: _frame, ...properties } = schema.properties as Record<string, unknown>;
             return {
               ...schema,
               description: nativeToolDescription(def),
-              properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
+              properties: { op: { type: "string", const: nativeToolName(def.type) }, ...properties },
               required: ["op", ...schema.required],
             };
           }),

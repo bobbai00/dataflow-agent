@@ -50,6 +50,9 @@ const wid = await createWorkflow(token, name, new WorkflowState().getWorkflowCon
 let nextBatch: any;
 let directAnswer: string | undefined;
 let batchResult: any;
+/** Every batch of the current turn, in order: a turn may take several steps,
+ * which is how the model sees and answers a refusal. */
+let batchResults: any[] = [];
 let contextMessages: ModelMessage[] = [];
 const agent = new TexeraAgent({
   agentId: name,
@@ -58,15 +61,20 @@ const agent = new TexeraAgent({
   contextAssembler: () => [],
   driver: {
     runTurn: async input => {
-      // The real assembler renders the catalog here, before any model request.
-      contextMessages = (await input.prepareStep({ stepNumber: 0, messages: input.initialMessages })).messages;
-      batchResult = await (agent as any).tools.dataflow.execute(nextBatch);
-      await input.onStepFinish({
-        text: "",
-        toolCalls: [{ toolName: "dataflow", toolCallId: "call", input: nextBatch }],
-        toolResults: [{ toolCallId: "call", output: batchResult }],
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-      });
+      const batches: any[] = Array.isArray(nextBatch) ? nextBatch : [nextBatch];
+      batchResults = [];
+      for (const [step, batch] of batches.entries()) {
+        // The real assembler renders the catalog here, before any model request.
+        contextMessages = (await input.prepareStep({ stepNumber: step, messages: input.initialMessages })).messages;
+        batchResult = await (agent as any).tools.dataflow.execute(batch);
+        batchResults.push(batchResult);
+        await input.onStepFinish({
+          text: "",
+          toolCalls: [{ toolName: "dataflow", toolCallId: `call-${step}`, input: batch }],
+          toolResults: [{ toolCallId: `call-${step}`, output: batchResult }],
+          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        });
+      }
       directAnswer = input.getFinalAnswer?.();
       return {
         text: directAnswer ?? "Direct completion was refused.",
@@ -365,6 +373,46 @@ try {
   await run({ operators: [], observe: ["sum_double_then"] });
   assert.match(catalogs.at(-1)!, new RegExp(`^calc__w__at${calcTask} = frame\\(w of calc@task${calcTask}\\)`, "m"));
 
+  // 10. Stale answer: a task that edits and executes nothing cannot hand back an
+  //     earlier task's answer on the first attempt; insisting unchanged delivers it.
+  await run({
+    operators: [
+      {
+        op: "udf",
+        id: "stale_src",
+        inputs: [],
+        code: "import json\nimport pandas as pd\n\ndef load():\n    return pd.DataFrame({'answer': [json.dumps({'value': 7})]})",
+      },
+    ],
+    return: { operator: "stale_src", format: "json" },
+  });
+  const answeredAt = request;
+  assert.deepEqual(JSON.parse(directAnswer!), { value: 7 });
+  await run([
+    { operators: [], return: { operator: "stale_src", format: "json" } },
+    { operators: [], return: { operator: "stale_src", format: "json" } },
+  ]);
+  assert.match(
+    String(batchResults[0].observationErrors[0]),
+    new RegExp(`^STALE_ANSWER: stale_src is task ${answeredAt}'s answer`)
+  );
+  assert.deepEqual(batchResults[1].observationErrors, []);
+  assert.deepEqual(JSON.parse(directAnswer!), { value: 7 });
+  // A task that recomputes the operator owns its answer and is never blocked.
+  await run({
+    operators: [
+      {
+        op: "udf",
+        id: "stale_src",
+        inputs: [],
+        code: "import json\nimport pandas as pd\n\ndef load():\n    return pd.DataFrame({'answer': [json.dumps({'value': 8})]})",
+      },
+    ],
+    return: { operator: "stale_src", format: "json" },
+  });
+  assert.deepEqual(batchResults[0].observationErrors, []);
+  assert.deepEqual(JSON.parse(directAnswer!), { value: 8 });
+
   const summary = {
     passed: true,
     real_engine: getBackendConfig().executionEndpoint,
@@ -379,6 +427,7 @@ try {
       "the previous task's receipt is rendered as history",
       "an undemanded descendant of an edit stays not executed until observed, then runs",
       "a UDF's intermediate tables are listed as frames, readable live, refreshed by an edit, and replayable at a sealed task",
+      "an idle task cannot hand back an earlier task's answer unchallenged, and recomputing it is never blocked",
     ],
   };
   await Bun.write(`${out}/summary.json`, JSON.stringify(summary, null, 2));

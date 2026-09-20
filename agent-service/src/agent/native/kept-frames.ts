@@ -68,15 +68,23 @@ export function keptFramesOf(info?: OperatorInfo): KeptFrame[] {
   return frames;
 }
 
-/** `w(86×22: player, team, side, …+19), pm(10×4: player, team, side, rank)` */
-export function formatKeptFrames(frames: KeptFrame[], columnsShown = 6): string {
+/** `w(86×22: player,team,side,…), pm(10×4: player,team,side,rank)`. The column
+ * list is what tells a later task whether this is the table it needs, so it
+ * runs to a character budget rather than a fixed count. */
+export function formatKeptFrames(frames: KeptFrame[], columnBudget = 240): string {
   return frames
     .map(frame => {
       const names = frame.columns.map(column => column.name);
       const total = frame.columns.length + (frame.more ?? 0);
-      const shown = names.slice(0, columnsShown).join(",");
-      const rest = total - Math.min(names.length, columnsShown);
-      return `${frame.name}(${frame.rows}×${total}: ${shown}${rest > 0 ? `, …+${rest}` : ""})`;
+      const shown: string[] = [];
+      let length = 0;
+      for (const name of names) {
+        if (shown.length && length + name.length + 1 > columnBudget) break;
+        shown.push(name);
+        length += name.length + 1;
+      }
+      const rest = total - shown.length;
+      return `${frame.name}(${frame.rows}×${total}: ${shown.join(",")}${rest > 0 ? `, …+${rest}` : ""})`;
     })
     .join("; ");
 }

@@ -94,6 +94,13 @@ describe("kept frames", () => {
     expect(keptFramesOf(profileFor("r1", [{ name: "not valid", rows: 1, columns: [] }, ...frames]))).toEqual(frames);
     expect(keptFramesOf(profileFor("r1", "garbage"))).toEqual([]);
     expect(formatKeptFrames(frames)).toBe("w(86×2: x,x2); pm(1×9: x,x2, …+7)");
+    const wide = [
+      { name: "w", rows: 1, columns: Array.from({ length: 40 }, (_, i) => ({ name: `column_${i}`, dtype: "int64" })) },
+    ];
+    const text = formatKeptFrames(wide, 60);
+    // As many column names as fit the budget, then the count of the rest.
+    expect(text).toBe("w(1×40: column_0,column_1,column_2,column_3,column_4,column_5, …+34)");
+    expect(text.length).toBeLessThan(90);
   });
 
   test("a frame reference names a udf local, live or at a completed task", () => {
@@ -145,6 +152,13 @@ describe("kept frames", () => {
     expect(enabled(batch({ operator: "report", atTask: 2, frame: "w" }))).toBe(true);
     expect(enabled(batch({ operator: "report", atTask: 2 }))).toBe(true);
     expect(enabled(batch({ operator: "report", frame: "" }))).toBe(false);
+    // The runtime-owned `frame` property is not offered to the model at all.
+    expect(JSON.stringify(nativeBatchSchema("v2", { taskHistory: true, keptFrames: true }))).not.toContain(
+      '"frame":{"type":"string"}'
+    );
+    expect(enabled({ operators: [{ op: "udf", id: "u", inputs: [], code: "def load(): pass", frame: "w" }] })).toBe(
+      false
+    );
   });
 
   test("the setting needs the profile channel and task history", () => {

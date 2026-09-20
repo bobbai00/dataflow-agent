@@ -362,6 +362,7 @@ export class TexeraAgent {
   /** Empty-ancestor refusals already raised, keyed by operator and the empty
    * set; an unchanged second return passes, so the guard costs one look. */
   private readonly emptyReturnsSeen = new Set<string>();
+  private readonly staleReturnsSeen = new Set<string>();
   /** What each task did to the graph, as the runtime saw it — batch outcomes,
    * historical references, executed and invalidated operators, the direct
    * return — keyed by the task's message and sealed into its receipt. */
@@ -2142,6 +2143,24 @@ export class TexeraAgent {
                     this.taskHistory,
                     this.workflowState.getAllLinks()
                   );
+                  // An answer belongs to the question that asked for it. A task
+                  // that edited nothing, executed nothing and hands back an
+                  // earlier task's answer has not answered this question; in the
+                  // real sessions that happened 35 times and was never correct.
+                  // Raise it once; an unchanged second return is the model's answer.
+                  const effects = this.effectsFor(this.currentMessageId);
+                  const answeredBy =
+                    this.settings.nativeTaskHistory && effects.edited.size === 0 && effects.executed.size === 0
+                      ? this.taskHistory.answeredBy(batch.return.operator)
+                      : undefined;
+                  const staleKey = `${this.currentMessageId}:${batch.return.operator}`;
+                  if (answeredBy !== undefined && !this.staleReturnsSeen.has(staleKey)) {
+                    this.staleReturnsSeen.add(staleKey);
+                    throw new Error(
+                      `STALE_ANSWER: ${batch.return.operator} is task ${answeredBy}'s answer and this task edited and executed nothing. ` +
+                        `Compute this task's own answer, or return it again unchanged if this question asks for exactly that table.`
+                    );
+                  }
                   let info = this.snapshotStorage.getOperatorResult(this.head, batch.return.operator);
                   // A filter that emptied a table leaves exactly one runtime trace: zero
                   // rows out of a non-empty input somewhere in the answer's ancestry.
@@ -2176,7 +2195,8 @@ export class TexeraAgent {
                     info = withCompleteRows(info, await readRetainedRows(artifact));
                   }
                   directAnswer = resolveDirectReturn(batch.return, info);
-                  this.effectsFor(this.currentMessageId).returned = `${batch.return.operator} (${batch.return.format})`;
+                  effects.returned = `${batch.return.operator} (${batch.return.format})`;
+                  effects.returnedOperator = batch.return.operator;
                   agentStep.content = directAnswer;
                 } catch (error) {
                   batch.observationErrors.push(error instanceof Error ? error.message : String(error));
