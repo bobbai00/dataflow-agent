@@ -1135,3 +1135,42 @@ benchmark: LongDS sessions whose later turns reference earlier *rows* and
 contract both arms are given equally, at three trials. Everything measured
 here says the remaining Dataflow deficit on real sessions is answer-contract
 discipline and re-derivation, not state.
+
+### 14.9 Repeat of the real sessions, and the variance that invalidates 14.1
+
+`logs/campaigns/dev-run3`: the two arms the new guard touches, both sessions,
+one fresh trial, identical fixtures and model, the stale-answer guard live.
+
+| arm | session | first run | repeat |
+| --- | --- | --- | --- |
+| `maint` | NFL 42 | 1 | 1 |
+| `maint` | university 21 | 10 | **2** |
+| `frames` | NFL 42 | 0 | 1 |
+| `frames` | university 21 | 6 | **9** |
+
+The guard did what it was built to do and nothing more. On the NFL session it
+fired on seven tasks that would otherwise have handed back an old answer, and
+every one of those tasks then edited one or two operators instead of idling;
+tasks that edited nothing at all fell from seven to three. The score did not
+move, because those tasks were already failing for other reasons.
+
+The result that matters here is the variance. The same arm, on the same
+session, with the same code and a guard that never fired in that session,
+scored 10 of 21 and then 2 of 21. Thirteen of the repeat's nineteen failures
+carry *different numbers*, not different labels, so this is analytical
+divergence, not formatting. The `frames` arm moved 6 → 9 on the same session.
+
+That spread is wider than every arm-to-arm difference in 14.1. **14.1 ranks
+nothing.** It is a description of one draw per cell, and it should be read
+only for the two things that are stable across draws: cost and token
+accounting (deterministic given the trajectory) and the failure-kind
+attributions of 14.2 and 14.3, which were measured on hundreds of answers.
+Any statement of the form "arm A beats arm B on a real session" requires the
+three trials the controlled suite got, and the observed spread says the band
+is roughly ±8 of 21 on the university session.
+
+This also re-prices §13.4's proposal, which this work followed: running the
+real sessions first was right for *finding mechanisms* — re-derivation, stale
+answers, the naming conventions and the validator crash all surfaced there and
+nowhere else — and wrong for *deciding* anything, at one trial. Development
+passes should keep the diagnosis and drop the scoreboard.
