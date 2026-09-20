@@ -56,6 +56,15 @@ Why the model does this: the answer is one JSON document in one cell, so
 the shortest path is one UDF. The `reuse` guidance ("put final formatting
 in downstream report operators") was ignored in every task.
 
+The university session shows the boundary of the problem. Its task 5 asks
+for "the cleaned dataset used for all later analysis", and the model made
+that dataset an operator; 43 of the 44 input references in the remaining
+tasks point at derived results, one at a base table. When a task names the
+intermediate table, the model materializes it. When the intermediate is
+implicit in a report ("create the first combined player view … report the
+5 highest"), it lives and dies inside one UDF. Kept frames cover exactly
+the implicit case.
+
 ## 2. Mechanism
 
 **Runtime.** For a UDF with `keepFrames`, the runtime rewrites the entry
