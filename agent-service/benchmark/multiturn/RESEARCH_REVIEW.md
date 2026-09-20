@@ -1072,3 +1072,66 @@ retention-equipped CodeAgent?* The controlled families exist for exactly that
 and are running with all seven arms and three trials. One trial per arm on
 real sessions cannot separate mechanism from agent variance, and this section
 should not be read as if it could.
+
+### 14.7 The controlled families, three trials
+
+Six families × 8 tasks × 3 trials = 144 answers per arm, 126 sessions,
+$1.08 in total, `logs/campaigns/synthetic-run1`. Strict evaluator.
+
+| arm | strict | content errors | contract slips | engine timeouts | cost |
+| --- | --- | --- | --- | --- | --- |
+| `demand` | 141/144 | 2 | 1 | 0 | $0.179 |
+| `reuse` | 140/144 | 4 | 0 | 0 | $0.184 |
+| `code` | 139/144 | 5 | 0 | 0 | $0.096 |
+| `coderetain` | 139/144 | 5 | 0 | 0 | $0.116 |
+| `tasks` | 139/144 | 5 | 0 | 0 | $0.164 |
+| `frames` | 135/144 | 2 | 7 | 0 | $0.174 |
+| `maint` | 134/144 | 5 | 3 | 2 | $0.165 |
+
+Read the strict column alone and every arm is tied at 93–98%, with Dataflow
+costing 1.4–1.9× the code agents. Two things sit underneath it.
+
+First, the families are saturated. Five of six are at 23–24 of 24 for nearly
+every arm. Only `membership_values` — use the *original* cohort's ids against
+a *new* export — separates them, and there the ordering follows the mechanism
+ladder exactly: `code` 19, `coderetain` 20, `tasks` 20, `reuse` 21, `maint`
+21, `demand` 22, `frames` 24 of 24. That is the one family whose question is
+literally a reference to a previous task's rows, which is what task history
+and kept frames are.
+
+Second, the strict column hides which arm computed correctly. Splitting every
+failure by kind: the Dataflow arms with the full mechanism set make **two**
+content errors in 144 answers where both code agents make **five**; their
+strict deficit is entirely answer-contract slips (an extra `baseline_total`
+key in six of `frames`' seven) plus two engine timeouts on a foundation turn
+that poisoned two whole `maint` sessions. At n=144 a 2-vs-5 difference is
+about 1.2 standard errors — suggestive, not significant. It is reported here
+so that a larger run knows what to measure.
+
+Mechanism checks at full scale: all 76 direct-return refusals followed a real
+operator failure and none happened over a successful result; the stale-answer
+guard fired 8 times without costing those arms accuracy; `demand` executed
+1.3 operators per task against `maint`'s 1.5.
+
+### 14.8 What this settles and what it does not
+
+Settled. The maintenance property is built, correct under test, and cheap
+relative to the Dataflow control (−53% cache writes, −28% cost on a 42-task
+session). Where a question *is* a reference to earlier state, the mechanism
+ladder orders the arms correctly and kept frames is perfect. Dataflow makes
+fewer content errors than either code agent on the controlled families.
+
+Not settled, and not to be claimed. No arrangement of these mechanisms makes
+a real multi-task session more correct than a CodeAgent that keeps its
+variables, and on the real sessions Dataflow is well behind. The measured
+wins are cost against our own control and content-error counts too small to
+carry weight. The controlled families are too easy to decide anything; a
+suite that discriminates needs `membership_values`-style questions at the
+length and messiness of the real sessions.
+
+The next experiment is therefore not another mechanism. It is a discriminating
+benchmark: LongDS sessions whose later turns reference earlier *rows* and
+*intermediate* tables rather than restating a formula, scored with an answer
+contract both arms are given equally, at three trials. Everything measured
+here says the remaining Dataflow deficit on real sessions is answer-contract
+discipline and re-derivation, not state.
