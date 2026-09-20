@@ -661,7 +661,8 @@ export class TexeraAgent {
       this.systemPrompt = taskModePrompt(
         !!this.settings.nativeTaskHistory,
         !!this.settings.nativeDirectReturn,
-        !!this.settings.nativeTaskReuse
+        !!this.settings.nativeTaskReuse,
+        !!this.settings.nativeKeptFrames
       );
     } else {
       if (this.settings.nativeTaskHistory)
@@ -720,6 +721,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
+        nativeKeptFrames: this.settings.nativeKeptFrames,
       },
     };
 
@@ -1474,6 +1476,7 @@ export class TexeraAgent {
     nativeTaskReceipts?: boolean;
     nativeCompactIndex?: boolean;
     nativeDemandExecution?: boolean;
+    nativeKeptFrames?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -1540,6 +1543,7 @@ export class TexeraAgent {
       nativeTaskReceipts: updates.nativeTaskReceipts ?? this.settings.nativeTaskReceipts,
       nativeCompactIndex: updates.nativeCompactIndex ?? this.settings.nativeCompactIndex,
       nativeDemandExecution: updates.nativeDemandExecution ?? this.settings.nativeDemandExecution,
+      nativeKeptFrames: updates.nativeKeptFrames ?? this.settings.nativeKeptFrames,
       nativeDirectReturn: updates.nativeDirectReturn ?? this.settings.nativeDirectReturn,
       nativeCompactPrompt: updates.nativeCompactPrompt ?? this.settings.nativeCompactPrompt,
     });
@@ -1577,6 +1581,7 @@ export class TexeraAgent {
       "nativeTaskReceipts",
       "nativeCompactIndex",
       "nativeDemandExecution",
+      "nativeKeptFrames",
       "nativeDirectReturn",
       "nativeCompactPrompt",
     ] as const) {

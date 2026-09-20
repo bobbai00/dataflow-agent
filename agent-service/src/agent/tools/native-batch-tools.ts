@@ -22,6 +22,15 @@ import { jsonSchema, tool } from "ai";
 import type { ReActStep } from "../../types/agent";
 import { nativeOperators, type NativeCatalogVersion } from "../native/catalog";
 import type { WorkflowState } from "../workflow-state";
+import type { OperatorPredicate } from "../../types/workflow";
+import {
+  frameViewId,
+  frameViewSpec,
+  inputSlots,
+  mentionsFrame,
+  parseFrameReference,
+  type FrameReference,
+} from "../native/kept-frames";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
@@ -98,7 +107,7 @@ export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): st
 /** `op` discriminates catalog variants; `type` remains available for join kind. */
 export function nativeBatchSchema(
   version: NativeCatalogVersion = "v1",
-  options: { taskHistory?: boolean; directReturn?: boolean; compact?: boolean } = {}
+  options: { taskHistory?: boolean; directReturn?: boolean; compact?: boolean; keptFrames?: boolean } = {}
 ): Record<string, unknown> {
   const schema = {
     type: "object",
@@ -110,7 +119,7 @@ export function nativeBatchSchema(
           "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
         items: {
           anyOf: nativeOperators(version).map(def => {
-            const schema = nativeToolSchema(def, options.taskHistory) as any;
+            const schema = nativeToolSchema(def, options.taskHistory, options.keptFrames) as any;
             return {
               ...schema,
               description: nativeToolDescription(def),
@@ -167,7 +176,9 @@ export function createNativeBatchTools(
   version: NativeCatalogVersion = "v1"
 ): Record<string, any> {
   const nativeInputReferences = new Map<string, TaskInput[]>();
-  const typed = createNativeTypedTools(state, { ...context, nativeInputReferences }, version);
+  const nativeFrameViews = new Map<string, FrameReference>();
+  const keptFrames = version === "v2" && !!context?.taskHistory && context?.settings?.nativeKeptFrames === true;
+  const typed = createNativeTypedTools(state, { ...context, nativeInputReferences, nativeFrameViews }, version);
   const validators = validatorsFor(version);
   const repair = version === "v2" ? (context?.nativeValidationRepair ?? new NativeValidationRepair()) : undefined;
   const schemas = new Map(nativeOperators(version).map(def => [nativeToolName(def.type), nativeToolSchema(def)]));
@@ -191,6 +202,7 @@ export function createNativeBatchTools(
           taskHistory: !!context?.taskHistory,
           directReturn: context?.nativeDirectReturn,
           compact: context?.nativeCompactPrompt,
+          keptFrames,
         }) as any
       ),
       execute: async args => {
@@ -223,8 +235,103 @@ export function createNativeBatchTools(
           return createErrorResult("dataflow requires operators: array and optional observe: string[]");
         }
         nativeInputReferences.clear();
+        nativeFrameViews.clear();
         const inputErrors = new Map<number, string>();
-        const specs = args.operators.map((spec, index) => {
+        // Kept frames. A reference {operator, frame} in an input slot becomes
+        // the id of a derived view operator, synthesized into this batch when
+        // absent: the parent's code and inputs, returning that local. Editing
+        // a UDF in this batch refreshes every live view derived from it, so
+        // consumers of a frame recompute like any other dependents.
+        const submitted = args.operators.map(spec =>
+          spec && typeof spec === "object" ? { ...(spec as Record<string, unknown>) } : spec
+        ) as Array<Record<string, unknown>>;
+        const frameErrors = new Map<number, string>();
+        if (keptFrames) {
+          const derived = new Map<string, Record<string, unknown>>();
+          const byBatchId = new Map<string, Record<string, unknown>>();
+          for (const spec of submitted) if (spec && typeof spec.id === "string") byBatchId.set(spec.id, spec);
+          const parentOf = (reference: FrameReference): OperatorPredicate | undefined => {
+            if (reference.atTask)
+              return context!.taskHistory!.resolve({ operator: reference.operator, atTask: reference.atTask }).operator;
+            const inBatch = byBatchId.get(reference.operator);
+            if (inBatch) {
+              // The parent is (re)defined in this batch: view its submitted definition.
+              const { op, id: _id, ...params } = inBatch;
+              if (op !== "udf")
+                throw new Error(`${reference.operator} is not a udf; only udf locals are kept as frames.`);
+              return {
+                operatorID: reference.operator,
+                nativeOp: {
+                  type: "UDF",
+                  properties: { code: params.code },
+                  inputs: [],
+                  taskInputs: Array.isArray(params.inputs) ? params.inputs : [],
+                },
+              } as unknown as OperatorPredicate;
+            }
+            return state.getOperator(reference.operator);
+          };
+          submitted.forEach((spec, index) => {
+            if (!spec || typeof spec !== "object") return;
+            if ("frame" in spec) {
+              frameErrors.set(
+                index,
+                "frame is runtime-owned: read a kept frame through an input {operator, frame}, not as a udf parameter."
+              );
+              return;
+            }
+            for (const slot of inputSlots(spec)) {
+              const value = slot.get();
+              if (!mentionsFrame(value)) continue;
+              const reference = parseFrameReference(value);
+              if (!reference) {
+                frameErrors.set(
+                  index,
+                  `Invalid frame reference ${JSON.stringify(value)}: use {operator, frame} or {operator, atTask, frame}.`
+                );
+                return;
+              }
+              try {
+                const parent = parentOf(reference);
+                if (!parent)
+                  throw new Error(`${reference.operator} does not exist; a frame belongs to an existing udf.`);
+                const id = frameViewId(reference);
+                const existing = state.getOperator(id);
+                if (existing && !existing.nativeOp?.frameOf)
+                  throw new Error(`${id} is an operator of yours; rename it so the frame view can use that id.`);
+                // An existing view is current: edits to its udf refreshed it
+                // when they happened (below). Only an absent view is synthesized.
+                if (!existing && !derived.has(id) && !byBatchId.has(id)) {
+                  derived.set(id, frameViewSpec(reference, parent));
+                  nativeFrameViews.set(id, reference);
+                }
+                slot.set(id);
+              } catch (error) {
+                frameErrors.set(index, error instanceof Error ? error.message : String(error));
+                return;
+              }
+            }
+          });
+          // Live views of a UDF edited in this batch follow the new definition.
+          for (const spec of submitted) {
+            if (!spec || spec.op !== "udf" || typeof spec.id !== "string") continue;
+            for (const op of state.getAllOperators()) {
+              const frameOf = op.nativeOp?.frameOf;
+              if (!frameOf || frameOf.atTask || frameOf.operator !== spec.id) continue;
+              if (byBatchId.has(op.operatorID) || derived.has(op.operatorID)) continue;
+              derived.set(op.operatorID, {
+                op: "udf",
+                id: op.operatorID,
+                inputs: Array.isArray(spec.inputs) ? spec.inputs : [],
+                code: spec.code,
+                frame: frameOf.frame,
+              });
+              nativeFrameViews.set(op.operatorID, frameOf);
+            }
+          }
+          for (const spec of derived.values()) submitted.push(spec);
+        }
+        const specs = submitted.map((spec, index) => {
           const { op, ...params } = spec && typeof spec === "object" ? spec : {};
           let resolved = params;
           const def = nativeOperators(version).find(def => nativeToolName(def.type) === op);
@@ -268,6 +375,7 @@ export function createNativeBatchTools(
         };
         const byId = new Map<string, number>();
         for (const [index, message] of inputErrors) fail(index, message);
+        for (const [index, message] of frameErrors) fail(index, message);
         for (const spec of specs) {
           if (byId.has(spec.id)) {
             fail(byId.get(spec.id)!, `Duplicate id '${spec.id}' in one batch; submit each id once.`);

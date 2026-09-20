@@ -330,6 +330,10 @@ export interface NativeOpView {
   revision?: string;
   /** Internal execution setting, never a model-authored operator argument. */
   profileCollection?: boolean;
+  /** Internal: the runtime reports the UDF's intermediate tables as kept frames. */
+  keepFrames?: boolean;
+  /** Set on a derived view operator: which UDF local it returns, live or at a task. */
+  frameOf?: { operator: string; frame: string; atTask?: number };
   type: string;
   properties: Record<string, unknown>;
   /** Upstream operator ids in port order (= `process()` parameter order). */

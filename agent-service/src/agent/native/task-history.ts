@@ -136,6 +136,23 @@ export const taskInputSchema = {
   description:
     "Current operator id, or {operator, atTask} for its exact saved output at the end of a completed session task. Task numbers are listed in session context.",
 };
+export const taskInputSchemaWithFrames = {
+  anyOf: [
+    { type: "string" },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["operator"],
+      properties: {
+        operator: { type: "string", minLength: 1 },
+        atTask: { type: "integer", minimum: 1 },
+        frame: { type: "string", minLength: 1 },
+      },
+    },
+  ],
+  description:
+    "Current operator id; {operator, atTask} for its exact saved output at the end of a completed task; {operator, frame} for a kept frame (an intermediate DataFrame listed after a udf's card) as that udf computes it now; {operator, atTask, frame} for that frame as computed at a completed task.",
+};
 
 /** Session-owned bindings. Only the runtime creates them; model references
  * select existing data. Retention is independent of evictable engine caches. */
@@ -300,7 +317,9 @@ export function resolveTaskInputs(
       !Number.isSafeInteger(ref.atTask) ||
       ref.atTask < 1
     )
-      throw new Error("Historical input requires {operator: string, atTask: positive integer}");
+      throw new Error(
+        "Historical input requires {operator: string, atTask: positive integer}; a kept frame is {operator, frame} or {operator, atTask, frame}."
+      );
     references.push(ref);
     return history.source(ref, state, metadata, profiles);
   };

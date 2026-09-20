@@ -67,6 +67,7 @@ export function validateNativeCatalogSettings(
     nativeTaskReceipts?: boolean;
     nativeCompactIndex?: boolean;
     nativeDemandExecution?: boolean;
+    nativeKeptFrames?: boolean;
     nativeDirectReturn?: boolean;
     nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
@@ -102,6 +103,7 @@ export function validateNativeCatalogSettings(
     "nativeTaskReceipts",
     "nativeCompactIndex",
     "nativeDemandExecution",
+    "nativeKeptFrames",
   ] as const) {
     if (settings[name] !== undefined && typeof settings[name] !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);
@@ -117,5 +119,9 @@ export function validateNativeCatalogSettings(
       throw new NativeCatalogSettingsError(`${name} requires nativeTaskContext`);
   if (settings.nativeTaskReceipts && !settings.nativeTaskHistory)
     throw new NativeCatalogSettingsError("nativeTaskReceipts requires nativeTaskHistory");
+  // Kept frames are read from the engine's table profile and referenced as
+  // task inputs; without either channel the setting does nothing.
+  if (settings.nativeKeptFrames && (!settings.nativeProfileCollection || !settings.nativeTaskHistory))
+    throw new NativeCatalogSettingsError("nativeKeptFrames requires nativeProfileCollection and nativeTaskHistory");
   return version;
 }

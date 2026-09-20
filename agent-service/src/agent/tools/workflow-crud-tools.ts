@@ -33,6 +33,8 @@ import type { NativeValidationRepair } from "../native/validation-repair";
 export interface ToolContext {
   taskHistory?: import("../native/task-history").TaskHistory;
   nativeInputReferences?: Map<string, import("../native/task-history").TaskInput[]>;
+  /** Derived view operators the batch tool synthesized: id -> which UDF local they return. */
+  nativeFrameViews?: Map<string, import("../native/kept-frames").FrameReference>;
   nativeDirectReturn?: boolean;
   nativeCompactPrompt?: boolean;
   metadataStore?: WorkflowSystemMetadata;
@@ -42,6 +44,7 @@ export interface ToolContext {
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
+    nativeKeptFrames?: boolean;
   };
 }
 

@@ -302,6 +302,86 @@ def test_udf_renamed_parameter_receives_the_input_frame_positionally():
     assert result["x"].tolist() == [1, 2]
 
 
+FRAME_CODE = (
+    "import pandas as pd\n"
+    "def helper(frame):\n"
+    "    return frame.assign(x2=frame['x'] * 2)\n"
+    "def process(a):\n"
+    "    s = a\n"
+    "    _scratch = a.copy()\n"
+    "    w = helper(a)\n"
+    "    pm = w.head(1)\n"
+    "    n = len(w)\n"
+    "    if n > 100:\n"
+    "        return w\n"
+    "    return pm\n"
+)
+
+
+def test_udf_keeps_the_intermediate_frames_it_did_not_return():
+    frame = pd.DataFrame({"x": [1, 2, 3]})
+    udf = dict(spec("UDF", code=FRAME_CODE), keepFrames=True)
+    result = runtime.execute_native(udf, [frame])
+    assert result["x2"].tolist() == [2]
+    kept = result.attrs["native_v2"]["operations"]["keptFrames"]
+    # `s` aliases the input, `_scratch` is private, `pm` was returned, `n` is
+    # not a table: only `w` is an intermediate table worth reading later.
+    assert [record["name"] for record in kept] == ["w"]
+    assert kept[0]["rows"] == 3
+    assert [column["name"] for column in kept[0]["columns"]] == ["x", "x2"]
+    # Without the flag nothing is captured and the code runs unmodified.
+    plain = runtime.execute_native(spec("UDF", code=FRAME_CODE), [frame])
+    assert "keptFrames" not in plain.attrs["native_v2"]["operations"]
+
+
+def test_udf_frame_view_returns_that_local_with_nested_returns_untouched():
+    frame = pd.DataFrame({"x": [1, 2, 3]})
+    view = runtime.execute_native(spec("UDF", code=FRAME_CODE, frame="w"), [frame])
+    # helper()'s own return must still return its assignment, or w would be wrong.
+    assert view["x2"].tolist() == [2, 4, 6]
+    assert "keptFrames" not in view.attrs["native_v2"]["operations"]
+    with pytest.raises(runtime.NativeError, match="FRAME_UNAVAILABLE.*'nope'.*\\['a', 'pm', 's', 'w'\\]"):
+        runtime.execute_native(spec("UDF", code=FRAME_CODE, frame="nope"), [frame])
+    with pytest.raises(runtime.NativeError, match="FRAME_TYPE"):
+        runtime.execute_native(spec("UDF", code=FRAME_CODE, frame="n"), [frame])
+    with pytest.raises(runtime.NativeError, match="FRAME_NAME"):
+        runtime.validate_native(spec("UDF", code=FRAME_CODE, frame="not valid"))
+
+
+def test_kept_frames_are_bounded():
+    code = (
+        "import pandas as pd\ndef process(a):\n"
+        + "".join(f"    f{i} = a.head({i % 3})\n" for i in range(15))
+        + "    return a.copy()\n"
+    )
+    udf = dict(spec("UDF", code=code), keepFrames=True)
+    operations = runtime.execute_native(udf, [pd.DataFrame({"x": range(5)})]).attrs["native_v2"]["operations"]
+    assert len(operations["keptFrames"]) == runtime.KEPT_FRAMES_LIMIT
+    assert operations["keptFramesOmitted"] == 15 - runtime.KEPT_FRAMES_LIMIT
+
+
+def test_udf_keyerror_names_the_input_that_holds_the_column():
+    ledger = pd.DataFrame({"side": ["LT"], "n": [1]})
+    players = pd.DataFrame({"player": ["a"], "team": ["x"]})
+    udf = dict(spec("UDF", code="def process(players, ledger):\n    return players[['player', 'side']]"))
+    udf["inputs"] = ["season_player_workspace", "pressure_event_ledger"]
+    with pytest.raises(runtime.NativeError) as info:
+        runtime.execute_native(udf, [players, ledger])
+    message = info.value.diagnostic["message"]
+    assert info.value.diagnostic["code"] == "CALLBACK_RUNTIME"
+    assert "KeyError" in message
+    assert "'side' is in input 1 (pressure_event_ledger), not in the frame indexed here" in message
+    assert message.startswith("KeyError: ")
+    # A column no input carries lists what the inputs do carry.
+    with pytest.raises(runtime.NativeError) as info:
+        runtime.execute_native(
+            dict(udf, properties={"code": "def process(players, ledger):\n    return players[['nope']]"}),
+            [players, ledger],
+        )
+    message = info.value.diagnostic["message"]
+    assert "'nope' is in no input" in message and "input 0 (season_player_workspace) has ['player', 'team']" in message
+
+
 def test_a_keyerror_in_an_internal_dictionary_is_not_mislabeled_as_column_access():
     with pytest.raises(runtime.NativeError) as failure:
         run("Filter", pd.DataFrame({"x": [1]}), columns=["x"], func="def apply(row):\n    return {}['missing']")

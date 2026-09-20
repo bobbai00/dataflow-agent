@@ -24,6 +24,7 @@ import { formatTaskReceipt, type TaskHistory, type TaskInput } from "./task-hist
 import { nativeOperators } from "./catalog";
 import { nativeToolName } from "../tools/native-typed-tools";
 import { collectNativeEvidence } from "./evidence";
+import { formatKeptFrames, keptFramesOf } from "./kept-frames";
 
 /** One line of declared operation over declared inputs: what a card says
  * once the clipped JSON definition, Python bodies and ancestry text are gone.
@@ -74,6 +75,12 @@ export function operatorSignature(op: OperatorPredicate): string {
       head = `split(${p.column}→${names(p.into)})`;
       break;
     case "UDF": {
+      if (view.frameOf) {
+        // A derived view: one local of another UDF, live or as of a task.
+        const { operator, frame, atTask } = view.frameOf;
+        head = `frame(${frame} of ${operator}${atTask ? `@task${atTask}` : ""})`;
+        break;
+      }
       // The body stays opaque; the entry line is the contract a later edit has
       // to match (its name and arity), in the author's own parameter names.
       const entry = /^def (process|load)\(([^)]*)\)/m.exec(String(p.code ?? ""));
@@ -224,11 +231,15 @@ export function assembleTaskContext(input: ContextAssemblerInput, history?: Task
       if (saved.length) savedRanges.push(`${op.operatorID}: ${ranges(saved)}`);
       const schema = info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown";
       const status = info?.error ? "current result unavailable" : (info?.state ?? "not executed");
+      // The intermediate tables this UDF computed, from the runtime's own
+      // report: readable later as {operator, frame} without recomputing them.
+      const kept = input.settings.nativeKeptFrames ? keptFramesOf(info) : [];
+      const frames = kept.length ? `; frames: ${formatKeptFrames(kept)}` : "";
       // Compact index: the declared operation over its inputs, schema, status
       // and row count. Definitions live at the selected dependency boundary.
       if (input.settings.nativeCompactIndex)
-        return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}`;
-      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${schema}; ${status}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}`;
+        return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${frames}`;
+      return `${clip(JSON.stringify(definition(op)), 280)}; schema=${schema}; ${status}${input.settings.nativeTaskReuse && info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${reuse ? `; ancestry=${reuse}` : ""}${frames}`;
     });
   const deleted = new Map<string, number[]>();
   for (const task of history?.catalog() ?? [])

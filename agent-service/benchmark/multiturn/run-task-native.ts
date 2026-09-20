@@ -20,7 +20,7 @@ import { nativeTestSession } from "../e2e/native-test-session";
 import { runAgentTurn } from "../../src/api";
 
 const [sessionPath, outPath, arm = "tasks", limit = "100"] = process.argv.slice(2);
-const ARMS = ["base", "compact", "return", "context", "tasks", "reuse", "maint", "demand"];
+const ARMS = ["base", "compact", "return", "context", "tasks", "reuse", "maint", "demand", "frames"];
 if (!sessionPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-task-native.ts session.json output-dir ${ARMS.join("|")} [limit]`);
 const out = resolve(outPath);
@@ -33,16 +33,19 @@ const settings = {
   dataEvidence: true,
   flowEvidence: true,
   nativeCompactPrompt: arm !== "base",
-  nativeDirectReturn: ["return", "context", "tasks", "reuse", "maint", "demand"].includes(arm),
-  nativeTaskContext: ["context", "tasks", "reuse", "maint", "demand"].includes(arm),
-  nativeTaskHistory: ["tasks", "reuse", "maint", "demand"].includes(arm),
-  nativeTaskReuse: ["reuse", "maint", "demand"].includes(arm),
+  nativeDirectReturn: ["return", "context", "tasks", "reuse", "maint", "demand", "frames"].includes(arm),
+  nativeTaskContext: ["context", "tasks", "reuse", "maint", "demand", "frames"].includes(arm),
+  nativeTaskHistory: ["tasks", "reuse", "maint", "demand", "frames"].includes(arm),
+  nativeTaskReuse: ["reuse", "maint", "demand", "frames"].includes(arm),
   // maint = reuse + receipts + compact dependency-local index (+ complete
   // return and the empty-ancestor guard, which ride with direct return);
   // demand = maint + demand-driven execution.
-  nativeTaskReceipts: ["maint", "demand"].includes(arm),
-  nativeCompactIndex: ["maint", "demand"].includes(arm),
+  nativeTaskReceipts: ["maint", "demand", "frames"].includes(arm),
+  nativeCompactIndex: ["maint", "demand", "frames"].includes(arm),
   nativeDemandExecution: arm === "demand",
+  // frames = maint + kept frames: every udf's intermediate tables are listed
+  // and readable as {operator, frame} / {operator, atTask, frame} inputs.
+  nativeKeptFrames: arm === "frames",
   nativeTaskCache: process.env.TASK_CACHE_BOUNDARIES !== "0",
   maxSteps: 25,
   maxOperatorResultCharLimit: 2000,

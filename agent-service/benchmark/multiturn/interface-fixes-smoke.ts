@@ -34,6 +34,7 @@ import {
   terminateComputingUnit,
 } from "../../src/api";
 import { assertNativeCleanupSafe } from "../e2e/native-cleanup";
+import { keptFramesOf } from "../../src/agent/native/kept-frames";
 
 const out = resolve(process.argv[2] ?? "/tmp/texera-task-history/interface-fixes-smoke");
 mkdirSync(out, { recursive: true });
@@ -88,6 +89,8 @@ agent.updateSettings({
   nativeTaskReceipts: true,
   nativeCompactIndex: true,
   nativeDemandExecution: true,
+  nativeProfileCollection: true,
+  nativeKeptFrames: true,
 });
 
 let request = 0;
@@ -263,6 +266,105 @@ try {
   assert.equal(westResult?.state, "Completed");
   assert.equal(westResult?.totalRowCount, 1);
 
+  // 8. Kept frames: the runtime lists the intermediate tables a UDF assigned;
+  //    a later task reads one as an input without recomputing it, follows an
+  //    edit of that UDF, and can replay the frame as sealed at an earlier task.
+  await run({
+    operators: [
+      {
+        op: "udf",
+        id: "calc",
+        inputs: ["orders_typed"],
+        code:
+          "import json\nimport pandas as pd\n\n" +
+          "def process(orders):\n" +
+          "    w = orders.assign(double=orders['units'] * 2)\n" +
+          "    pm = w.sort_values('double', ascending=False).head(1)\n" +
+          "    return pd.DataFrame({'answer': [json.dumps({'top': int(pm['double'].iloc[0])})]})",
+      },
+    ],
+    return: { operator: "calc", format: "json" },
+  });
+  const calcTask = request;
+  assert.deepEqual(JSON.parse(directAnswer!), { top: 10 });
+  const calcInfo = (agent as any).snapshotStorage.getOperatorResult((agent as any).head, "calc");
+  assert.deepEqual(
+    keptFramesOf(calcInfo).map((frame: any) => [frame.name, frame.rows]),
+    [
+      ["w", 3],
+      ["pm", 1],
+    ]
+  );
+  await run({ operators: [], observe: ["calc"] });
+  assert.match(
+    catalogs.at(-1)!,
+    /^calc = udf\(def process\(orders\)\) <- orders_typed; .*; frames: w\(3×3: region,units,double\); pm\(1×3: region,units,double\)$/m
+  );
+  await run({
+    operators: [
+      {
+        op: "aggregate",
+        id: "sum_double",
+        input: { operator: "calc", frame: "w" },
+        groupBy: [],
+        aggregations: [{ fn: "sum", col: "double", as: "total" }],
+      },
+    ],
+    return: { operator: "sum_double", format: "row" },
+  });
+  assert.deepEqual(batchResult.observationErrors, []);
+  assert.deepEqual(JSON.parse(directAnswer!), { total: 24 });
+  assert.equal(batchResult.operators.find((o: any) => o.id === "calc__w")?.status, "added");
+  // The catalog is rendered before a batch runs; the view shows on the next request.
+  await run({ operators: [], observe: ["sum_double"] });
+  assert.match(
+    catalogs.at(-1)!,
+    /^calc__w = frame\(w of calc\) <- orders_typed; schema=region:str,units:int64,double:int64; Completed; rows=3$/m
+  );
+  // The frame follows an edit of its UDF, and so does the consumer.
+  await run({
+    operators: [
+      {
+        op: "udf",
+        id: "calc",
+        inputs: ["orders_typed"],
+        code:
+          "import json\nimport pandas as pd\n\n" +
+          "def process(orders):\n" +
+          "    w = orders.assign(double=orders['units'] * 3)\n" +
+          "    pm = w.sort_values('double', ascending=False).head(1)\n" +
+          "    return pd.DataFrame({'answer': [json.dumps({'top': int(pm['double'].iloc[0])})]})",
+      },
+    ],
+    return: { operator: "sum_double", format: "row" },
+  });
+  assert.deepEqual(batchResult.observationErrors, []);
+  assert.deepEqual(
+    batchResult.operators.map((o: any) => [o.id, o.status]),
+    [
+      ["calc", "modified"],
+      ["calc__w", "modified"],
+    ]
+  );
+  assert.deepEqual(JSON.parse(directAnswer!), { total: 36 });
+  // The frame as sealed at the earlier task is a fixed replay, unaffected by the edit.
+  await run({
+    operators: [
+      {
+        op: "aggregate",
+        id: "sum_double_then",
+        input: { operator: "calc", atTask: calcTask, frame: "w" },
+        groupBy: [],
+        aggregations: [{ fn: "sum", col: "double", as: "total" }],
+      },
+    ],
+    return: { operator: "sum_double_then", format: "row" },
+  });
+  assert.deepEqual(batchResult.observationErrors, []);
+  assert.deepEqual(JSON.parse(directAnswer!), { total: 24 });
+  await run({ operators: [], observe: ["sum_double_then"] });
+  assert.match(catalogs.at(-1)!, new RegExp(`^calc__w__at${calcTask} = frame\\(w of calc@task${calcTask}\\)`, "m"));
+
   const summary = {
     passed: true,
     real_engine: getBackendConfig().executionEndpoint,
@@ -276,6 +378,7 @@ try {
       "an answer cell beyond the display budget is returned whole from the retained copy",
       "the previous task's receipt is rendered as history",
       "an undemanded descendant of an edit stays not executed until observed, then runs",
+      "a UDF's intermediate tables are listed as frames, readable live, refreshed by an edit, and replayable at a sealed task",
     ],
   };
   await Bun.write(`${out}/summary.json`, JSON.stringify(summary, null, 2));
