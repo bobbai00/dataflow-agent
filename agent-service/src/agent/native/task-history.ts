@@ -17,11 +17,10 @@
 
 import { createHash } from "node:crypto";
 import { isSuccessfulOperatorResult, type OperatorInfo } from "../../types/execution";
-import type { OperatorLink, OperatorPredicate } from "../../types/workflow";
+import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
 import type { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import { previewDependencies, type PreviewOrigin } from "./input-coverage";
 
 export type TaskInput = string | { operator: string; atTask: number };
 export interface RetainedResult {
@@ -33,90 +32,7 @@ export interface TaskOutput {
   operator: OperatorPredicate;
   info: OperatorInfo;
   artifact: RetainedResult;
-  previewSources: PreviewOrigin[];
 }
-/** What a task did to the graph, accumulated by the runtime while the task
- * runs: batch outcomes, the historical references its batches used, the
- * operators the post-step path executed or left invalid, the direct return. */
-export interface TaskEffects {
-  edited: Set<string>;
-  executed: Set<string>;
-  notExecuted: Set<string>;
-  rejected: Map<string, string>;
-  historical: Set<string>;
-  returned?: string;
-  returnedOperator?: string;
-}
-
-/** The sealed, immutable form rendered to later tasks. Every field is a
- * runtime fact, never model text; it says what changed, not what was meant. */
-export interface TaskReceipt {
-  edited: string[];
-  executed: string[];
-  notExecuted: string[];
-  rejected: string[];
-  historical: string[];
-  returned?: string;
-  /** The operator behind `returned`, for runtime checks rather than rendering. */
-  returnedOperator?: string;
-  retained: number;
-}
-
-export function emptyTaskEffects(): TaskEffects {
-  return { edited: new Set(), executed: new Set(), notExecuted: new Set(), rejected: new Map(), historical: new Set() };
-}
-
-/** `{operator, atTask}` references in an operator spec's input slots. */
-export function historicalReferences(spec: unknown): string[] {
-  if (!spec || typeof spec !== "object") return [];
-  const record = spec as Record<string, unknown>;
-  const slots = [record.input, record.left, record.right, ...(Array.isArray(record.inputs) ? record.inputs : [])];
-  return slots.flatMap(slot =>
-    slot &&
-    typeof slot === "object" &&
-    typeof (slot as any).operator === "string" &&
-    Number.isInteger((slot as any).atTask)
-      ? [`${(slot as any).operator}@task${(slot as any).atTask}`]
-      : []
-  );
-}
-
-export function receiptFromEffects(
-  effects: TaskEffects | undefined,
-  results: ReadonlyMap<string, Pick<OperatorInfo, "state" | "error">>,
-  retained: number
-): TaskReceipt {
-  const e = effects ?? emptyTaskEffects();
-  const sorted = (values: Iterable<string>) => [...values].sort();
-  return {
-    edited: sorted(e.edited),
-    executed: sorted(e.executed),
-    // Invalidated by an edit and never demanded: still without a valid result
-    // when the task ended. Anything executed later, or whose result survived
-    // (the edit produced an identical version), is not stale.
-    notExecuted: sorted(
-      [...e.notExecuted].filter(id => !e.executed.has(id) && !isSuccessfulOperatorResult(results.get(id)))
-    ),
-    rejected: sorted(e.rejected.keys()),
-    historical: sorted(e.historical),
-    ...(e.returned ? { returned: e.returned } : {}),
-    ...(e.returnedOperator ? { returnedOperator: e.returnedOperator } : {}),
-    retained,
-  };
-}
-
-export function formatTaskReceipt(task: number, receipt: TaskReceipt): string {
-  const list = (ids: string[]) =>
-    ids.length ? ids.slice(0, 12).join(", ") + (ids.length > 12 ? ` …(+${ids.length - 12})` : "") : "none";
-  const lines = [`# Task ${task} receipt`, `Edited: ${list(receipt.edited)}`, `Executed: ${list(receipt.executed)}`];
-  if (receipt.notExecuted.length) lines.push(`Not re-executed (inputs changed): ${list(receipt.notExecuted)}`);
-  if (receipt.rejected.length) lines.push(`Rejected at end of task: ${list(receipt.rejected)}`);
-  if (receipt.historical.length) lines.push(`Historical inputs: ${list(receipt.historical)}`);
-  lines.push(`Returned: ${receipt.returned ?? "answered in prose"}`);
-  lines.push(`Retained outputs: ${receipt.retained}`);
-  return lines.join("\n");
-}
-
 export const TASK_SOURCE_PREFIX = "task_archive_";
 export function taskInputId(reference: Exclude<TaskInput, string>): string {
   return (
@@ -140,38 +56,14 @@ export const taskInputSchema = {
   description:
     "Current operator id, or {operator, atTask} for its exact saved output at the end of a completed session task. Task numbers are listed in session context.",
 };
-export const taskInputSchemaWithFrames = {
-  anyOf: [
-    { type: "string" },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["operator"],
-      properties: {
-        operator: { type: "string", minLength: 1 },
-        atTask: { type: "integer", minimum: 1 },
-        frame: { type: "string", minLength: 1 },
-      },
-    },
-  ],
-  description:
-    "Current operator id; {operator, atTask} for its exact saved output at the end of a completed task; {operator, frame} for a kept frame (an intermediate DataFrame listed after a udf's card) as that udf computes it now; {operator, atTask, frame} for that frame as computed at a completed task.",
-};
-
 /** Session-owned bindings. Only the runtime creates them; model references
  * select existing data. Retention is independent of evictable engine caches. */
 export class TaskHistory {
   private readonly tasks = new Map<number, Map<string, TaskOutput>>();
   private readonly retained = new Map<string, RetainedResult>();
-  private readonly receipts = new Map<number, TaskReceipt>();
   constructor(private readonly retain: (operator: string, info: OperatorInfo) => Promise<RetainedResult>) {}
 
-  async seal(
-    task: number,
-    operators: OperatorPredicate[],
-    results: Map<string, OperatorInfo>,
-    links: readonly OperatorLink[] = []
-  ): Promise<string[]> {
+  async seal(task: number, operators: OperatorPredicate[], results: Map<string, OperatorInfo>): Promise<string[]> {
     if (this.tasks.has(task)) throw new Error(`Task ${task} is already sealed`);
     const outputs = new Map<string, TaskOutput>();
     this.tasks.set(task, outputs);
@@ -182,12 +74,8 @@ export class TaskHistory {
       if (!info || !isSuccessfulOperatorResult(info) || !info.resultVersion?.id || !info.materialization?.executionId)
         continue;
       try {
-        const previewSources = previewDependencies(operator.operatorID, operators, this, links).map(origin => ({
-          ...origin,
-          atTask: origin.atTask ?? task,
-        }));
         const artifact = await this.materialize(operator.operatorID, info);
-        outputs.set(operator.operatorID, structuredClone({ operator, info, artifact, previewSources }));
+        outputs.set(operator.operatorID, structuredClone({ operator, info, artifact }));
       } catch (error) {
         errors.push(`${operator.operatorID} at task ${task}: ${error instanceof Error ? error.message : error}`);
       }
@@ -196,8 +84,7 @@ export class TaskHistory {
   }
 
   /** The complete engine output behind a display result, copied once per
-   * result version. A direct return and the later seal of the same task share
-   * the copy, so delivering a whole answer never retains anything twice. */
+   * result version and shared by tasks that retained that same result. */
   async materialize(operator: string, info: OperatorInfo): Promise<RetainedResult> {
     if (!isSuccessfulOperatorResult(info) || !info.resultVersion?.id || !info.materialization?.executionId)
       throw new Error(`${operator} has no complete engine materialization to retain`);
@@ -230,26 +117,9 @@ export class TaskHistory {
   catalog(): Array<{ task: number; operators: string[] }> {
     return [...this.tasks].map(([task, outputs]) => ({ task, operators: [...outputs.keys()] }));
   }
-  record(task: number, receipt: TaskReceipt): void {
-    if (this.receipts.has(task)) throw new Error(`Task ${task} already has a receipt`);
-    this.receipts.set(task, structuredClone(receipt));
-  }
-  receipt(task: number): TaskReceipt | undefined {
-    const receipt = this.receipts.get(task);
-    return receipt && structuredClone(receipt);
-  }
-
-  /** The completed task that already delivered this operator as its answer.
-   * An answer belongs to the question that asked for it. */
-  answeredBy(operator: string): number | undefined {
-    for (const [task, receipt] of [...this.receipts].sort(([a], [b]) => b - a))
-      if (receipt.returnedOperator === operator) return task;
-    return undefined;
-  }
   clear(): void {
     this.tasks.clear();
     this.retained.clear();
-    this.receipts.clear();
   }
   has(task: number): boolean {
     return this.tasks.has(task);
@@ -329,9 +199,7 @@ export function resolveTaskInputs(
       !Number.isSafeInteger(ref.atTask) ||
       ref.atTask < 1
     )
-      throw new Error(
-        "Historical input requires {operator: string, atTask: positive integer}; a kept frame is {operator, frame} or {operator, atTask, frame}."
-      );
+      throw new Error("Historical input requires {operator: string, atTask: positive integer}.");
     references.push(ref);
     return history.source(ref, state, metadata, profiles);
   };

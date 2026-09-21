@@ -62,21 +62,12 @@ export function validateNativeCatalogSettings(
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
-    nativeTaskCache?: boolean;
-    nativeTaskReuse?: boolean;
-    nativeTaskReceipts?: boolean;
-    nativeCompactIndex?: boolean;
-    nativeDemandExecution?: boolean;
-    nativeKeptFrames?: boolean;
-    nativeDirectReturn?: boolean;
-    nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
   } = {}
 ): NativeCatalogVersion {
   validateEvidenceSettings(settings);
-  if (settings.nativeTaskCache !== undefined && typeof settings.nativeTaskCache !== "boolean")
-    throw new NativeCatalogSettingsError("nativeTaskCache must be a boolean");
+  validateRetiredTaskSettings(settings);
   const version = settings.nativeCatalogVersion ?? DEFAULT_AGENT_SETTINGS.nativeCatalogVersion ?? "v1";
   if (version !== "v1" && version !== "v2") {
     throw new NativeCatalogSettingsError("Unknown native catalog version");
@@ -94,34 +85,29 @@ export function validateNativeCatalogSettings(
   ) {
     throw new NativeCatalogSettingsError("Native catalog v2 requires agentMode:native and nativeToolMode:batch");
   }
+  for (const name of ["nativeTaskHistory", "nativeTaskContext"] as const) {
+    if (settings[name] !== undefined && typeof settings[name] !== "boolean")
+      throw new NativeCatalogSettingsError(`${name} must be a boolean`);
+    if (settings[name] && version !== "v2") throw new NativeCatalogSettingsError(`${name} requires native catalog v2`);
+  }
+  return version;
+}
+
+/** Old benchmark arms must run their recorded revisions, never a remapped arm. */
+export function validateRetiredTaskSettings(settings: object): void {
   for (const name of [
-    "nativeTaskHistory",
-    "nativeTaskContext",
-    "nativeDirectReturn",
-    "nativeCompactPrompt",
+    "nativeTaskCache",
     "nativeTaskReuse",
     "nativeTaskReceipts",
     "nativeCompactIndex",
     "nativeDemandExecution",
     "nativeKeptFrames",
-  ] as const) {
-    if (settings[name] !== undefined && typeof settings[name] !== "boolean")
-      throw new NativeCatalogSettingsError(`${name} must be a boolean`);
-    if (settings[name] && version !== "v2") throw new NativeCatalogSettingsError(`${name} requires native catalog v2`);
+    "nativeDirectReturn",
+    "nativeCompactPrompt",
+  ]) {
+    if (Object.hasOwn(settings, name))
+      throw new NativeCatalogSettingsError(
+        `${name} is retired; use the shared ReAct loop with nativeTaskContext/nativeTaskHistory`
+      );
   }
-  if (settings.nativeTaskReuse && (!settings.nativeTaskContext || !settings.nativeCompactPrompt))
-    throw new NativeCatalogSettingsError("nativeTaskReuse requires nativeTaskContext and nativeCompactPrompt");
-  // Receipts and the compact index are renderings of the task context; demand
-  // execution reads what a task demanded from the same batches. None has a
-  // meaning outside that context.
-  for (const name of ["nativeTaskReceipts", "nativeCompactIndex", "nativeDemandExecution"] as const)
-    if (settings[name] && !settings.nativeTaskContext)
-      throw new NativeCatalogSettingsError(`${name} requires nativeTaskContext`);
-  if (settings.nativeTaskReceipts && !settings.nativeTaskHistory)
-    throw new NativeCatalogSettingsError("nativeTaskReceipts requires nativeTaskHistory");
-  // Kept frames are read from the engine's table profile and referenced as
-  // task inputs; without either channel the setting does nothing.
-  if (settings.nativeKeptFrames && (!settings.nativeProfileCollection || !settings.nativeTaskHistory))
-    throw new NativeCatalogSettingsError("nativeKeptFrames requires nativeProfileCollection and nativeTaskHistory");
-  return version;
 }

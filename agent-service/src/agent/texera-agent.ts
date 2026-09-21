@@ -106,6 +106,10 @@ import {
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeCatalogSettings, validateEvidenceSettings } from "./native/settings";
+import { planSeedSources } from "./native/seed-sources";
+import { TaskHistory } from "./native/task-history";
+import { withTaskCatalog } from "./native/task-context";
+import { retainTaskResult } from "../api/task-results-api";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
@@ -311,21 +315,6 @@ export function computeOperatorAccess(
   return access;
 }
 
-import {
-  TaskHistory,
-  emptyTaskEffects,
-  historicalReferences,
-  receiptFromEffects,
-  type TaskEffects,
-} from "./native/task-history";
-import { assembleTaskContext } from "./native/task-context";
-import { taskModePrompt } from "./native/task-prompt";
-import { resolveDirectReturn } from "./native/direct-return";
-import { assertFullDataReturn, emptyAncestors } from "./native/input-coverage";
-import { needsCompleteResult, readRetainedRows, withCompleteRows } from "./native/complete-return";
-import { isSuccessfulOperatorResult } from "../types/execution";
-import { retainTaskResult } from "../api/task-results-api";
-
 export class TexeraAgent {
   readonly agentId: string;
   readonly agentName: string;
@@ -359,23 +348,6 @@ export class TexeraAgent {
 
   private currentMessageId: string | undefined = undefined;
   private readonly nativeValidationRepair = new NativeValidationRepair();
-  /** Empty-ancestor refusals already raised, keyed by operator and the empty
-   * set; an unchanged second return passes, so the guard costs one look. */
-  private readonly emptyReturnsSeen = new Set<string>();
-  private readonly staleReturnsSeen = new Set<string>();
-  /** What each task did to the graph, as the runtime saw it — batch outcomes,
-   * historical references, executed and invalidated operators, the direct
-   * return — keyed by the task's message and sealed into its receipt. */
-  private readonly taskEffects = new Map<string, TaskEffects>();
-  private effectsFor(messageId: string | undefined): TaskEffects {
-    const key = messageId ?? "";
-    let effects = this.taskEffects.get(key);
-    if (!effects) {
-      effects = emptyTaskEffects();
-      this.taskEffects.set(key, effects);
-    }
-    return effects;
-  }
   private readonly taskHistory = new TaskHistory(async (operator, info) => {
     if (!this.delegateConfig || !info.materialization?.executionId)
       throw new Error("Retention requires an engine materialization");
@@ -426,7 +398,7 @@ export class TexeraAgent {
     this.modelType = config.modelType;
     this.createdAt = new Date();
     this.driver = config.driver;
-    this.contextAssembler = config.contextAssembler;
+    this.contextAssembler = withTaskCatalog(config.contextAssembler, this.taskHistory);
     this.systemPromptBuilder = config.systemPromptBuilder;
     this.systemPrompt = config.systemPrompt || "";
     this.log = createLogger("TexeraAgent", { agentId: this.agentId });
@@ -658,21 +630,9 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
-    if (this.settings.nativeCompactPrompt) {
-      this.systemPrompt = taskModePrompt(
-        !!this.settings.nativeTaskHistory,
-        !!this.settings.nativeDirectReturn,
-        !!this.settings.nativeTaskReuse,
-        !!this.settings.nativeKeptFrames
-      );
-    } else {
-      if (this.settings.nativeTaskHistory)
-        this.systemPrompt +=
-          "\nEach user request is a numbered session task. Input references may be {operator:'name',atTask:1} for the exact retained output at that task's end. The runtime assigns task numbers and saves complete outputs automatically. Missing history fails explicitly. With historical UDF inputs, name one positional argument per input in order.\n";
-      if (this.settings.nativeDirectReturn)
-        this.systemPrompt +=
-          "\nYou may finish in the same batch using return:{operator:'name',format:'row'|'records'|'value',column?:'name'}. This automatically observes and returns complete successful computed data as final JSON. row/value require exactly one row; value requires column. No separate answer-copying call is needed.\n";
-    }
+    if (this.settings.nativeTaskHistory)
+      this.systemPrompt +=
+        "\nEach user request is a numbered session task. Inputs may use {operator:'name',atTask:1} for the exact retained output at that completed task. Task numbers appear in session context; missing history fails explicitly. Historical inputs are fixed data and do not follow later edits.\n";
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -712,17 +672,14 @@ export class TexeraAgent {
     }
 
     const context: ToolContext = {
-      taskHistory: this.settings.nativeTaskHistory ? this.taskHistory : undefined,
-      nativeDirectReturn: this.settings.nativeDirectReturn,
-      nativeCompactPrompt: this.settings.nativeCompactPrompt,
       metadataStore: this.metadataStore,
       nativeValidationRepair: this.nativeValidationRepair,
+      taskHistory: this.settings.nativeTaskHistory ? this.taskHistory : undefined,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
-        nativeKeptFrames: this.settings.nativeKeptFrames,
       },
     };
 
@@ -1472,14 +1429,6 @@ export class TexeraAgent {
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
-    nativeTaskCache?: boolean;
-    nativeTaskReuse?: boolean;
-    nativeTaskReceipts?: boolean;
-    nativeCompactIndex?: boolean;
-    nativeDemandExecution?: boolean;
-    nativeKeptFrames?: boolean;
-    nativeDirectReturn?: boolean;
-    nativeCompactPrompt?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     resultSelection?: ResultSelection;
@@ -1519,6 +1468,7 @@ export class TexeraAgent {
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
     enableAnswerGrounding?: boolean;
+    seedSources?: boolean;
     messageLayout?: AgentSettings["messageLayout"];
     versionedMode?: boolean;
     versionedHeads?: boolean;
@@ -1533,20 +1483,13 @@ export class TexeraAgent {
     // particular a rejected mode change must not leave the prompt/tools split.
     validateEvidenceSettings(updates);
     const catalogVersion = validateNativeCatalogSettings({
+      ...updates,
+      nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
+      nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
       nativeCatalogVersion: updates.nativeCatalogVersion ?? this.settings.nativeCatalogVersion,
       agentMode: updates.agentMode ?? this.settings.agentMode,
       nativeToolMode: updates.nativeToolMode ?? this.settings.nativeToolMode,
       nativeProfileCollection: updates.nativeProfileCollection ?? this.settings.nativeProfileCollection,
-      nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
-      nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
-      nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
-      nativeTaskReuse: updates.nativeTaskReuse ?? this.settings.nativeTaskReuse,
-      nativeTaskReceipts: updates.nativeTaskReceipts ?? this.settings.nativeTaskReceipts,
-      nativeCompactIndex: updates.nativeCompactIndex ?? this.settings.nativeCompactIndex,
-      nativeDemandExecution: updates.nativeDemandExecution ?? this.settings.nativeDemandExecution,
-      nativeKeptFrames: updates.nativeKeptFrames ?? this.settings.nativeKeptFrames,
-      nativeDirectReturn: updates.nativeDirectReturn ?? this.settings.nativeDirectReturn,
-      nativeCompactPrompt: updates.nativeCompactPrompt ?? this.settings.nativeCompactPrompt,
     });
     if (
       updates.nativeTaskHistory !== undefined &&
@@ -1554,6 +1497,12 @@ export class TexeraAgent {
       (this.turnOrder().length > 0 || this.workflowState.getAllOperators().length > 0)
     )
       throw new NativeCatalogSettingsError("Changing task history requires a fresh agent and workflow");
+    if (
+      updates.nativeTaskContext !== undefined &&
+      updates.nativeTaskContext !== this.settings.nativeTaskContext &&
+      this.state !== AgentStateEnum.AVAILABLE
+    )
+      throw new NativeCatalogSettingsError("Cannot switch task context during an active turn");
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     if (
       collection !== (this.settings.nativeProfileCollection ?? false) &&
@@ -1573,24 +1522,12 @@ export class TexeraAgent {
       }
     }
     let promptNeedsRebuild = false;
-    this.settings.nativeProfileCollection = collection;
-    for (const name of [
-      "nativeTaskHistory",
-      "nativeTaskContext",
-      "nativeTaskCache",
-      "nativeTaskReuse",
-      "nativeTaskReceipts",
-      "nativeCompactIndex",
-      "nativeDemandExecution",
-      "nativeKeptFrames",
-      "nativeDirectReturn",
-      "nativeCompactPrompt",
-    ] as const) {
-      if (updates[name] !== undefined && updates[name] !== this.settings[name]) {
-        this.settings[name] = updates[name];
-        promptNeedsRebuild = true;
-      }
+    if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {
+      this.settings.nativeTaskHistory = updates.nativeTaskHistory;
+      promptNeedsRebuild = true;
     }
+    if (updates.nativeTaskContext !== undefined) this.settings.nativeTaskContext = updates.nativeTaskContext;
+    this.settings.nativeProfileCollection = collection;
     if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
     if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
 
@@ -1801,6 +1738,7 @@ export class TexeraAgent {
     if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
     if (updates.enableAnswerGrounding !== undefined)
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
+    if (updates.seedSources !== undefined) this.settings.seedSources = updates.seedSources;
     if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
       this.settings.messageLayout = updates.messageLayout;
       if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
@@ -1961,26 +1899,18 @@ export class TexeraAgent {
     const results = new Map(
       [...this.snapshotStorage.getAssociatedSnapshot(this.head).results].map(([id, entry]) => [id, entry.info])
     );
-    const errors = await this.taskHistory.seal(
-      task,
-      this.workflowState.getAllOperators(),
-      results,
-      this.workflowState.getAllLinks()
-    );
+    const errors = await this.taskHistory.seal(task, this.workflowState.getAllOperators(), results);
     if (errors.length) this.log.warn({ errors }, "Some task outputs could not be retained");
-    // The receipt is sealed with the task: what changed, what ran, what was
-    // left invalid, what was returned. Recorded in every history mode so the
-    // rendering setting alone decides whether a later task sees it.
-    const messageId = this.turnOrder()[task - 1];
-    const retained = this.taskHistory.catalog().find(entry => entry.task === task)?.operators.length ?? 0;
-    this.taskHistory.record(task, receiptFromEffects(this.taskEffects.get(messageId ?? ""), results, retained));
   }
 
-  async sendMessage(userMessage: string, messageSource?: "chat" | "feedback"): Promise<AgentMessageResult> {
-    await this.sealTaskHistory(this.turnOrder().length);
+  async sendMessage(
+    userMessage: string,
+    messageSource?: "chat" | "feedback",
+    options?: { sources?: readonly string[] }
+  ): Promise<AgentMessageResult> {
+    await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
-    let directAnswer: string | undefined;
 
     await this.refreshWorkflowFromBackend();
 
@@ -2018,7 +1948,14 @@ export class TexeraAgent {
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
 
-      let isFirstStep = true;
+      // Seeded source roots: a system-performed opening step (stepId 1) the
+      // model's first step then builds on. Only when the arm opts in AND the
+      // message names its sources; otherwise the turn is byte-identical.
+      if (this.settings.seedSources && options?.sources && options.sources.length > 0) {
+        if (await this.seedSourceRoots(messageId, options.sources)) stepIndex = 1;
+      }
+
+      let isFirstStep = stepIndex === 0;
       let lastPreparedMessages: ModelMessage[] | undefined;
 
       // Pass only the current user turn; prepareStep rebuilds full context each step
@@ -2031,12 +1968,8 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps: this.settings.maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
-          taskContext: this.settings.nativeTaskContext,
-          taskCache: this.settings.nativeTaskCache,
-          promptCacheKey: this.settings.nativeTaskContext ? this.agentId : undefined,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
-          getFinalAnswer: () => directAnswer,
           prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
             let compilationResult: WorkflowCompilationResponse | null = null;
             if (this.workflowState.getAllOperators().length > 0) {
@@ -2051,11 +1984,7 @@ export class TexeraAgent {
             const visibleSteps = this.getVisibleReActSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
             // prepareStep path; cache the rendered content for the sync preview.
-            const assembler = this.settings.nativeTaskContext
-              ? (input: Parameters<ContextAssembler>[0]) =>
-                  assembleTaskContext(input, this.settings.nativeTaskHistory ? this.taskHistory : undefined)
-              : this.contextAssembler;
-            const processed = await assembler({
+            const processed = await this.contextAssembler({
               visibleSteps,
               workflowState: this.workflowState,
               snapshotStorage: this.snapshotStorage,
@@ -2125,91 +2054,11 @@ export class TexeraAgent {
 
             await this.runPostStepExecution(toolCalls, toolResults);
 
-            if (this.settings.nativeDirectReturn && !this.abortController?.signal.aborted) {
-              for (const call of formattedToolCalls ?? []) {
-                const batch = asNativeBatchResult(
-                  formattedToolResults?.find(result => result.toolCallId === call.toolCallId)?.output
-                );
-                if (!batch?.return) continue;
-                try {
-                  if (
-                    batch.operators.some(op => op.status === "error" || op.status === "blocked") ||
-                    batch.observationErrors.length
-                  )
-                    throw new Error("Direct return deferred: repair the batch errors first.");
-                  assertFullDataReturn(
-                    batch.return.operator,
-                    this.workflowState.getAllOperators(),
-                    this.taskHistory,
-                    this.workflowState.getAllLinks()
-                  );
-                  // An answer belongs to the question that asked for it. A task
-                  // that edited nothing, executed nothing and hands back an
-                  // earlier task's answer has not answered this question; in the
-                  // real sessions that happened 35 times and was never correct.
-                  // Raise it once; an unchanged second return is the model's answer.
-                  const effects = this.effectsFor(this.currentMessageId);
-                  const answeredBy =
-                    this.settings.nativeTaskHistory && effects.edited.size === 0 && effects.executed.size === 0
-                      ? this.taskHistory.answeredBy(batch.return.operator)
-                      : undefined;
-                  const staleKey = `${this.currentMessageId}:${batch.return.operator}`;
-                  if (answeredBy !== undefined && !this.staleReturnsSeen.has(staleKey)) {
-                    this.staleReturnsSeen.add(staleKey);
-                    throw new Error(
-                      `STALE_ANSWER: ${batch.return.operator} is task ${answeredBy}'s answer and this task edited and executed nothing. ` +
-                        `Compute this task's own answer, or return it again unchanged if this question asks for exactly that table.`
-                    );
-                  }
-                  let info = this.snapshotStorage.getOperatorResult(this.head, batch.return.operator);
-                  // A filter that emptied a table leaves exactly one runtime trace: zero
-                  // rows out of a non-empty input somewhere in the answer's ancestry.
-                  // Raise it once; an unchanged second return is the model's answer.
-                  const empties = emptyAncestors(
-                    batch.return.operator,
-                    this.workflowState.getAllOperators(),
-                    this.workflowState.getAllLinks(),
-                    this.snapshotStorage.getAllVisibleResults(this.head)
-                  );
-                  const emptyKey = JSON.stringify([batch.return.operator, empties]);
-                  if (empties.length && !this.emptyReturnsSeen.has(emptyKey)) {
-                    this.emptyReturnsSeen.add(emptyKey);
-                    throw new Error(
-                      `EMPTY_ANCESTOR: ${empties
-                        .map(e => `${e.operator} produced 0 rows from ${e.inputRows} input rows`)
-                        .join(
-                          "; "
-                        )}. Check that operator before returning; if the empty result is intended, return again unchanged.`
-                    );
-                  }
-                  // The display copy is bounded for reading. When it is not the whole
-                  // table, deliver the retained complete copy instead of refusing.
-                  if (
-                    this.settings.nativeTaskHistory &&
-                    info &&
-                    isSuccessfulOperatorResult(info) &&
-                    info.resultMode === "table" &&
-                    needsCompleteResult(info)
-                  ) {
-                    const artifact = await this.taskHistory.materialize(batch.return.operator, info);
-                    info = withCompleteRows(info, await readRetainedRows(artifact));
-                  }
-                  directAnswer = resolveDirectReturn(batch.return, info);
-                  effects.returned = `${batch.return.operator} (${batch.return.format})`;
-                  effects.returnedOperator = batch.return.operator;
-                  agentStep.content = directAnswer;
-                } catch (error) {
-                  batch.observationErrors.push(error instanceof Error ? error.message : String(error));
-                }
-              }
-            }
-
             isFirstStep = false;
           },
         });
 
       let result = await runDriverOnce(currentUserMessage);
-      if (directAnswer !== undefined) result = { ...result, text: directAnswer };
 
       // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
       // materialized results or state recalled this turn — the property a
@@ -2347,11 +2196,7 @@ export class TexeraAgent {
    */
   getNextStepContext(): string {
     const visibleSteps = this.getVisibleReActSteps();
-    const assembler = this.settings.nativeTaskContext
-      ? (input: Parameters<ContextAssembler>[0]) =>
-          assembleTaskContext(input, this.settings.nativeTaskHistory ? this.taskHistory : undefined)
-      : this.contextAssembler;
-    const processed = assembler({
+    const processed = this.contextAssembler({
       visibleSteps,
       workflowState: this.workflowState,
       snapshotStorage: this.snapshotStorage,
@@ -2708,9 +2553,76 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
+  /**
+   * SEEDED SOURCE ROOTS — materialize the DAG's roots before the first model
+   * call of this turn. The scans of the task's listed files are the one part
+   * of the dataflow the model cannot decide differently, so the service runs
+   * them and records the result as an ordinary `dataflow` batch step: tool
+   * call, tool result and captured observations, exactly what the model's own
+   * opening scan step would have produced. Zero usage, `synthetic: "seed"`.
+   * Returns true when a seed step was recorded.
+   */
+  private async seedSourceRoots(messageId: string, sources: readonly string[]): Promise<boolean> {
+    if (
+      this.settings.agentMode !== AgentMode.NATIVE ||
+      this.settings.nativeToolMode !== "batch" ||
+      this.settings.nativeCatalogVersion !== "v2"
+    ) {
+      this.log.warn({ messageId }, "seedSources ignored: requires native batch V2");
+      return false;
+    }
+    const plan = planSeedSources(sources, this.settings.maxOperatorResultCharLimit);
+    if (plan.operators.length === 0) {
+      this.log.info({ messageId, skipped: plan.skipped }, "seedSources: nothing to seed");
+      return false;
+    }
+    const tool = this.tools[TOOL_NAME_DATAFLOW];
+    if (!tool || typeof tool.execute !== "function") return false;
+    const stepId = this.generateStepId();
+    const toolCallId = `call-${stepId}-seed`;
+    const input = { operators: plan.operators, observe: plan.observe };
+    let output: unknown;
+    let isError = false;
+    try {
+      output = await tool.execute(input, { toolCallId, messages: [] });
+    } catch (error: any) {
+      output = `[ERROR] seed failed: ${error?.message ?? String(error)}`;
+      isError = true;
+    }
+    const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
+    const toolResults = [{ toolCallId, output, isError }];
+    const afterStepContent = this.workflowState.getWorkflowContent();
+    const step: ReActStep = {
+      id: stepId,
+      parentId: this.head,
+      messageId,
+      stepId: 1,
+      timestamp: Date.now(),
+      role: "agent",
+      content: "",
+      isBegin: true,
+      isEnd: false,
+      toolCalls,
+      toolResults,
+      operatorAccess: computeOperatorAccess(toolCalls, toolResults),
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
+      synthetic: "seed",
+    };
+    this.addStep(step);
+    this.head = stepId;
+    this.maybeCreateSnapshotForHead(afterStepContent);
+    await this.runPostStepExecution(toolCalls, toolResults, { maxChars: plan.perSourceChars });
+    this.log.info(
+      { messageId, seeded: plan.observe, skipped: plan.skipped, perSourceChars: plan.perSourceChars },
+      "seeded source roots"
+    );
+    return true;
+  }
+
   private async runPostStepExecution(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
-    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
+    overrides?: { maxChars?: number }
   ): Promise<void> {
     const owningStepId = this.head;
     const owningSignal = this.abortController?.signal;
@@ -2720,7 +2632,7 @@ export class TexeraAgent {
     const options = {
       data: this.settings.dataEvidence,
       flow: this.settings.flowEvidence,
-      maxChars: this.settings.maxOperatorResultCharLimit,
+      maxChars: overrides?.maxChars ?? this.settings.maxOperatorResultCharLimit,
       maxRows: this.settings.maxResultRows,
     };
     await this.executePostStepChanges(toolCalls, toolResults);
@@ -2808,45 +2720,8 @@ export class TexeraAgent {
         }
       }
     }
-    // Runtime facts for the task receipt, and what this step demanded. A
-    // batch's accepted/rejected outcomes, the {operator, atTask} references
-    // it used, and the ids it asked to observe or return are all read from
-    // the calls themselves, never from model prose.
-    const effects = this.effectsFor(this.currentMessageId);
-    const demanded = new Set<string>();
-    for (const tc of toolCalls) {
-      if (tc.toolName !== TOOL_NAME_DATAFLOW) continue;
-      const input = tc.input as any;
-      for (const id of input?.observe ?? []) if (typeof id === "string") demanded.add(id);
-      if (typeof input?.return?.operator === "string") demanded.add(input.return.operator);
-      const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === tc.toolCallId)?.output);
-      for (const outcome of batch?.operators ?? []) {
-        if (outcome.status === "error" || outcome.status === "blocked")
-          effects.rejected.set(outcome.id, outcome.message ?? outcome.status);
-        else effects.rejected.delete(outcome.id);
-      }
-      for (const spec of input?.operators ?? [])
-        for (const ref of historicalReferences(spec)) effects.historical.add(ref);
-    }
-    for (const id of editedOpIds) effects.edited.add(id);
-    // Demand-driven execution: an observe or return of an operator that has no
-    // valid result (never run, or invalidated by an earlier edit) executes it.
-    const demandDriven = !!this.settings.nativeDemandExecution && this.settings.agentMode === AgentMode.NATIVE;
-    // A descendant of this step's edit is about to be invalidated whatever its
-    // current result says, so demanding it means executing it after the edit.
-    const invalidatedByEdit = new Set(
-      demandDriven ? editedOpIds.flatMap(id => this.workflowState.getDownstreamOperators(id)) : []
-    );
-    const demandedMissing = demandDriven
-      ? [...demanded].filter(
-          id =>
-            this.workflowState.getOperator(id) &&
-            (invalidatedByEdit.has(id) ||
-              !isSuccessfulOperatorResult(this.snapshotStorage.getOperatorResult(this.head, id)))
-        )
-      : [];
-    if (editedOpIds.length === 0 && demandedMissing.length === 0) return;
-    if (this.head && this.settings.nativeCatalogVersion === "v2" && editedOpIds.length) {
+    if (editedOpIds.length === 0) return;
+    if (this.head && this.settings.nativeCatalogVersion === "v2") {
       this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
     }
     const execConfig = this.buildExecutionConfig();
@@ -2876,12 +2751,8 @@ export class TexeraAgent {
         // render shows (or decides a shape from). Materialize all descendants,
         // not just the sinks — otherwise an upstream modify leaves the
         // intermediate blocks without a fresh Result (seen in the pilot).
-        // Under demand-driven execution the descendants are only invalidated
-        // (the snapshot store drops their results when the edit's new version
-        // lands); they run when a later observe or return demands them.
         for (const down of this.workflowState.getDownstreamOperators(opId)) {
-          if (demandDriven) effects.notExecuted.add(down);
-          else targets.add(down);
+          targets.add(down);
         }
       } else {
         for (const sink of this.workflowState.getDownstreamSinks(opId)) {
@@ -2889,7 +2760,6 @@ export class TexeraAgent {
         }
       }
     }
-    for (const id of demandedMissing) targets.add(id);
     // An aborted request can still finish remotely (or return after checkout).
     // Capture ownership now; never route its data/profiles/errors via a later HEAD.
     const owningStepId = this.head;
@@ -2984,7 +2854,6 @@ export class TexeraAgent {
         onResult: (opId, operatorInfo) => {
           if (!stillOwned()) return;
           produced.add(opId);
-          effects.executed.add(opId);
           this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });
@@ -3083,7 +2952,7 @@ export class TexeraAgent {
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
-        await this.sealTaskHistory(this.turnOrder().length);
+        await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
         this.nativeValidationRepair.clear();
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
@@ -3113,7 +2982,7 @@ export class TexeraAgent {
       // stays false in debug mode — there's no model deciding "this turn is
       // final"; the task closes naturally when the user moves on.
       const attachedMessageId = this.findOngoingUserTaskMessageId();
-      if (!attachedMessageId) await this.sealTaskHistory(this.turnOrder().length);
+      if (!attachedMessageId) await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
       let messageId: string;
       let stepId: number;
       let isBegin: boolean;

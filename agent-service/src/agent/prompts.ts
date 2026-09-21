@@ -677,14 +677,20 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
         : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
   const scope = delta
     ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the parameters/code echoed by an earlier failure."
-    : "Detailed successful tables follow the most recent batch's requested set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
+    : messageLayout === "opBlock"
+      ? "Each operator block carries its definition and the result that definition produced. An observed result stays in its block when you go on to observe something else; it is replaced only when that operator is redefined or re-executed, and an operator you have never observed shows its row count alone. Errors bypass result hiding."
+      : "Detailed successful tables follow the most recent batch's requested set. Other operators retain their definitions and compact result receipts. Errors bypass result hiding.";
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
   const template = options.nativeCatalogVersion === "v2" ? NATIVE_PYTHON_TEMPLATE : NATIVE_BATCH_TEMPLATE;
   const snapshotProgress =
     !delta && options.nativeCatalogVersion === "v2"
-      ? " These are already executed outcomes of your earlier actions, not a proposed workflow. The compact `Last completed action in this task` receipt confirms which batch or read just completed; it does not assert that every operator succeeded. Do not repeat a completed batch merely because its tool-call history is collapsed. A visible current result body has already been explicitly observed; if it already satisfies the task, answer directly without another tool call. Only a `result not requested` receipt needs a cached observe when its contents are necessary. A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
+      ? " These are already executed outcomes of your earlier actions, not a proposed workflow. The compact `Last completed action in this task` receipt confirms which batch or read just completed; it does not assert that every operator succeeded. Do not repeat a completed batch merely because its tool-call history is collapsed. A visible current result body has already been explicitly observed; if it already satisfies the task, answer directly without another tool call." +
+        (messageLayout === "opBlock"
+          ? " A block showing only `Result: executed, N rows` has never been observed; observe it when its contents are necessary. Do not re-observe an operator whose body is already in its block."
+          : " Only a `result not requested` receipt needs a cached observe when its contents are necessary.") +
+        " A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
       : "";
   return template
     .replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText(options.nativeCatalogVersion))

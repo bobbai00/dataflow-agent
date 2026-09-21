@@ -123,7 +123,18 @@ export interface AssembleContextOptions {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
+  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /**
+   * opBlock only: every operator the agent has asked to observe at least once
+   * on this path. Those operators keep a result section for the rest of the
+   * run, so the block stops depending on which step we are on.
+   *
+   * It is a SUBSCRIPTION set, not a text cache. The body is always re-rendered
+   * from the operator's live result: LATEST's contract is that what you read is
+   * what is true now, so when an upstream changes and this operator re-executes,
+   * its block must show the NEW result — not the old one, and not a row count.
+   */
+  observedEverIds?: ReadonlySet<string>;
   /** Native message layout: called once per rendered agent event with the step
    *  that produced it, so the message builder can emit that step's REAL tool
    *  calls (true toolCallIds) instead of inferring them from the rendered text. */
@@ -495,6 +506,16 @@ export function renderContextCore(
   }
   options.batchObservationsByStep = batchObservations;
 
+  // opBlock: once the agent has observed an operator, that operator keeps a
+  // result section. Only the SUBSCRIPTION is carried forward — the body is
+  // rendered from the live result every time, so an operator that re-executed
+  // because an ancestor changed shows its new table rather than a stale one.
+  if (mode === ContextMode.LATEST && options.messageLayout === "opBlock") {
+    const observedEver = new Set<string>();
+    for (const node of path) for (const id of batchObservedIds(node.step) ?? []) observedEver.add(id);
+    options.observedEverIds = observedEver;
+  }
+
   // The latest user-message content lives in its own top-of-prompt
   // `# User Task` block — single source of truth, always present, never
   // duplicated. Its step id lets renderers skip rendering the same user
@@ -763,7 +784,11 @@ export function renderContextCore(
   // not as agentMode (which only distinguishes compiled-schema rendering).
   if (mode === ContextMode.LATEST && workflowState.getAllOperators().some(op => op.nativeOp)) {
     const receipt = latestNativeActionReceipt(visibleSteps);
-    if (receipt) content += `\n\n${receipt}`;
+    // The receipt changes every step. Without a heading it is glued to the
+    // LAST operator's message, so a stable final operator is invalidated by a
+    // fact that has nothing to do with it; a `# ` heading makes splitOperators
+    // give it its own trailing message.
+    if (receipt) content += options.messageLayout === "opBlock" ? `\n\n# Last Action\n\n${receipt}` : `\n\n${receipt}`;
   }
 
   // Context-budget meter (POC): the observable signal that lets the agent decide
@@ -1781,14 +1806,19 @@ function renderLatest(
   //     away the trajectory; this re-injects the last K agent EVENTS, each as
   //     its thought + the compressed actions it produced (event-granular:
   //     one thought : N actions). Gated by the thoughtReplay flag.
-  if (options.thoughtReplay && options.reasoning && !options.agentTurns) {
-    const block = renderReasoning(options.reasoning, options.thoughtReplayK ?? 10);
-    if (block) {
-      sections.push("# Reasoning (your recent steps)");
-      sections.push("");
-      sections.push(block);
-      sections.push("");
-    }
+  // opBlock moves it to the tail: the block re-renders every step (it is the
+  // last K events), so in the head it sits inside the one message opSplit
+  // needs to be byte-stable and restarts the prefix cache at every step.
+  const reasoningAtTail = options.messageLayout === "opBlock";
+  const reasoningBlock =
+    options.thoughtReplay && options.reasoning && !options.agentTurns
+      ? renderReasoning(options.reasoning, options.thoughtReplayK ?? 10)
+      : undefined;
+  if (reasoningBlock && !reasoningAtTail) {
+    sections.push("# Reasoning (your recent steps)");
+    sections.push("");
+    sections.push(reasoningBlock);
+    sections.push("");
   }
 
   // 1c. # Agent Turns — the full Thought/Action/Observation trajectory rendered
@@ -1823,6 +1853,12 @@ function renderLatest(
   if (options.inspectionsRendered) {
     sections.push("");
     sections.push(options.inspectionsRendered);
+  }
+  if (reasoningBlock && reasoningAtTail) {
+    sections.push("");
+    sections.push("# Reasoning (your recent steps)");
+    sections.push("");
+    sections.push(reasoningBlock);
   }
   return sections.join("\n").trimEnd();
 }
@@ -3388,7 +3424,14 @@ function serializeSnapshotFull(
       lines.push(`Result: [ERROR] compilation failed: ${compilationError.type}: ${compilationError.message}`, "");
       continue;
     }
-    if (requested && !requested.has(op.operatorID) && !snapshot.results.get(op.operatorID)?.info.error) {
+    // opBlock owns this case in serializeOperatorFull, which keeps the block's
+    // field order and its subscription rule in one place.
+    if (
+      options.messageLayout !== "opBlock" &&
+      requested &&
+      !requested.has(op.operatorID) &&
+      !snapshot.results.get(op.operatorID)?.info.error
+    ) {
       const info = snapshot.results.get(op.operatorID)?.info;
       const rows = info?.totalRowCount ?? info?.outputTuples;
       lines.push(
@@ -3616,7 +3659,15 @@ function serializeOperatorFull(
   // Visibility is a serializer invariant, not only a full-snapshot caller
   // convention. Compact decks and historical layouts use this path too.
   const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
-  if (requested && !requested.has(op.operatorID) && !info?.error) {
+  const opBlock = options.messageLayout === "opBlock" && !!op.nativeOp;
+  // An operator the agent has observed before keeps its result section, and
+  // that section is rendered from the LIVE result below — never from the text
+  // captured when it was observed. If an ancestor changed and this operator
+  // re-executed, LATEST must show the new table; showing the old one would
+  // report a measurement the current dataflow never produced, and collapsing
+  // to a row count would hide the very change the agent needs to see.
+  const subscribed = opBlock && options.observedEverIds?.has(op.operatorID) === true;
+  if (requested && !requested.has(op.operatorID) && !info?.error && !subscribed) {
     const rows = info?.totalRowCount ?? info?.outputTuples;
     return [
       `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``,
@@ -3627,8 +3678,8 @@ function serializeOperatorFull(
           ]
         : []),
       info
-        ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
-        : "Result: unavailable; result not requested",
+        ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}${opBlock ? "" : "; result not requested"}`
+        : `Result: unavailable${opBlock ? "" : "; result not requested"}`,
     ].join("\n");
   }
   // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
@@ -3684,15 +3735,25 @@ function serializeOperatorFull(
     lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
     lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   }
-  if (op.nativeOp && op.nativeOp.type !== "UDF") {
-    // The agent's own parameters — always shown for typed operators; the
-    // generated code is never shown (it is not what the agent wrote).
-    lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
-  }
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
+  if (opBlock) {
+    // One field order for every operator, whatever the agent is looking at.
+    // The legacy paths swap Inputs/Properties and drop `Inputs:` on a source
+    // depending on the observe list, which rewrites the block for no reason.
+    // UDF parameters are included here: hiding the code of the operator being
+    // observed while printing it for every operator that is not is backwards.
+    lines.push(`Inputs: ${op.nativeOp!.inputs.join(", ") || "none"}`);
+    lines.push(`Properties: ${JSON.stringify(op.nativeOp!.properties)}`);
+  } else {
+    if (op.nativeOp && op.nativeOp.type !== "UDF") {
+      // The agent's own parameters — always shown for typed operators; the
+      // generated code is never shown (it is not what the agent wrote).
+      lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+    }
+    for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
+  }
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the

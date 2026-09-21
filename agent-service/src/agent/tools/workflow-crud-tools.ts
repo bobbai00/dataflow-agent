@@ -30,13 +30,11 @@ import { createToolResult, createErrorResult } from "./tools-utility";
 import { type WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import type { NativeValidationRepair } from "../native/validation-repair";
 
+import type { TaskHistory, TaskInput } from "../native/task-history";
+
 export interface ToolContext {
-  taskHistory?: import("../native/task-history").TaskHistory;
-  nativeInputReferences?: Map<string, import("../native/task-history").TaskInput[]>;
-  /** Derived view operators the batch tool synthesized: id -> which UDF local they return. */
-  nativeFrameViews?: Map<string, import("../native/kept-frames").FrameReference>;
-  nativeDirectReturn?: boolean;
-  nativeCompactPrompt?: boolean;
+  taskHistory?: TaskHistory;
+  nativeInputReferences?: Map<string, TaskInput[]>;
   metadataStore?: WorkflowSystemMetadata;
   nativeValidationRepair?: NativeValidationRepair;
   settings?: {
@@ -44,7 +42,6 @@ export interface ToolContext {
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
-    nativeKeptFrames?: boolean;
   };
 }
 

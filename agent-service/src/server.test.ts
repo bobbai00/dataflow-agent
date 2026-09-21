@@ -364,6 +364,42 @@ describe("Agent control routes", () => {
 });
 
 describe(`PATCH ${API}/agents/:id/settings`, () => {
+  test("catalog settings survive create/read/patch and retired experiments are rejected atomically", async () => {
+    const native = { agentMode: "native", nativeToolMode: "batch", nativeCatalogVersion: "v2" };
+    const created = await createAgent({ settings: { ...native, nativeTaskHistory: true, nativeTaskContext: false } });
+    expect(created.status).toBe(200);
+    const body = await readJson<any>(created);
+    expect(body.settings.nativeTaskHistory).toBe(true);
+    expect(body.settings.nativeTaskContext).toBe(false);
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { nativeTaskContext: true });
+    expect(patched.status).toBe(200);
+    expect((await readJson<any>(patched)).nativeTaskContext).toBe(true);
+    for (const name of [
+      "nativeTaskCache",
+      "nativeTaskReuse",
+      "nativeTaskReceipts",
+      "nativeCompactIndex",
+      "nativeDemandExecution",
+      "nativeKeptFrames",
+      "nativeDirectReturn",
+      "nativeCompactPrompt",
+    ]) {
+      const rejectedCreate = await createAgent({ settings: { ...native, [name]: false } });
+      expect(rejectedCreate.status).toBe(400);
+      expect(await rejectedCreate.text()).toContain("retired");
+      const rejectedPatch = await patchJson(`${API}/agents/${body.id}/settings`, {
+        nativeTaskContext: false,
+        [name]: true,
+      });
+      expect(rejectedPatch.status).toBe(400);
+      expect(await rejectedPatch.text()).toContain(name);
+    }
+    const settings = await readJson<any>(await getJson(`${API}/agents/${body.id}/settings`));
+    expect(settings.nativeTaskContext).toBe(true);
+    expect(settings.nativeTaskHistory).toBe(true);
+    expect(settings).not.toHaveProperty("nativeTaskCache");
+  });
+
   test("updates settings and returns the new values", async () => {
     const created = await readJson<{ id: string }>(await createAgent());
 

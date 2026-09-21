@@ -54,7 +54,7 @@ import {
 } from "../native/catalog";
 import { compileNativeOp } from "../native/codegen";
 import { nativeRevision, validateNativeV2 } from "../native/codegen-v2";
-import { taskInputId, taskInputSchema, taskInputSchemaWithFrames, TASK_SOURCE_PREFIX } from "../native/task-history";
+import { taskInputId, taskInputSchema, TASK_SOURCE_PREFIX } from "../native/task-history";
 
 /** Tool name for a native type: `Filter` → `filter`. */
 export function nativeToolName(type: string): string {
@@ -212,15 +212,11 @@ export function nativeToolCatalogText(): string {
 }
 
 /** JSON schema of one tool: id + input refs + the operator's own parameters. */
-export function nativeToolSchema(
-  def: NativeOperatorDef,
-  taskHistory = false,
-  keptFrames = false
-): Record<string, unknown> {
+export function nativeToolSchema(def: NativeOperatorDef, taskHistory = false): Record<string, unknown> {
   const base = def.schema as { properties?: Record<string, unknown>; required?: string[]; anyOf?: unknown[] };
   const ins = inputArgSchema(def);
   if (taskHistory) {
-    const reference = keptFrames ? taskInputSchemaWithFrames : taskInputSchema;
+    const reference = taskInputSchema;
     for (const key of Object.keys(ins.properties)) {
       ins.properties[key] = key === "inputs" ? { ...(ins.properties[key] as object), items: reference } : reference;
     }
@@ -340,10 +336,6 @@ export function createNativeTypedTools(
         const taskInputs = context?.nativeInputReferences?.get(id);
         if (taskInputs?.some(input => typeof input !== "string")) view.taskInputs = taskInputs;
         if (version === "v2" && context?.settings?.nativeProfileCollection === true) view.profileCollection = true;
-        if (version === "v2" && def.type === "UDF" && context?.settings?.nativeKeptFrames === true)
-          view.keepFrames = true;
-        const frameOf = context?.nativeFrameViews?.get(id);
-        if (frameOf) view.frameOf = frameOf;
         const bad = validateProps(def, view.properties);
         if (bad) return createErrorResult(`\`${id}\`: ${bad}`);
         for (const up of view.inputs) {

@@ -30,8 +30,6 @@ writeFileSync(fresh, csv(10));
 const session = await nativeTestSession({
   nativeTaskHistory: true,
   nativeTaskContext: true,
-  nativeDirectReturn: true,
-  nativeCompactPrompt: true,
   nativeProfileCollection: true,
   dataEvidence: true,
   flowEvidence: true,

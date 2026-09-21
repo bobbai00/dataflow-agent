@@ -40,7 +40,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--kb-root', type=Path, required=True)
     parser.add_argument('--env-file', type=Path, required=True)
-    parser.add_argument('--arms', default='code,tasks')
+    parser.add_argument('--arms', default='code,react-full,react-catalog')
     parser.add_argument('--families', default='')
     parser.add_argument('--workers', type=int, default=3)
     parser.add_argument('--native-workers', type=int, default=2)
@@ -49,7 +49,8 @@ def main():
     parser.add_argument('--seed', type=int, default=1729)
     args = parser.parse_args()
     arms = args.arms.split(',')
-    assert all(arm in ['code', 'coderetain', 'base', 'compact', 'return', 'context', 'tasks', 'reuse', 'maint', 'demand', 'frames'] for arm in arms)
+    if not all(arm in ['code', 'coderetain', 'react-full', 'react-catalog'] for arm in arms):
+        parser.error('Historical arms require their recorded revision; use code,coderetain,react-full,react-catalog.')
     assert args.workers > 0 and args.native_workers > 0 and args.recovery_rounds >= 0
     fixtures, out, kb_root = args.fixtures.resolve(), args.out.resolve(), args.kb_root.resolve()
     families = args.families.split(',') if args.families else sorted(p.parent.name for p in fixtures.glob('*/session.json'))
@@ -62,7 +63,7 @@ def main():
         fixtures={family: {name: hashlib.sha256((fixtures / family / name).read_bytes()).hexdigest()
                            for name in ['session.json', 'gold.json']} for family in families},
         recovery_rounds=args.recovery_rounds, repeat_all=args.repeat_all, seed=args.seed,
-        code_transport=os.environ.get('TASK_CODE_TRANSPORT', 'responses'), primary=[], recoveries=[],
+        code_transport=os.environ.get('TASK_CODE_TRANSPORT', 'chat'), primary=[], recoveries=[],
     )
     for family in families:
         for path in sorted((fixtures / family).glob('*.csv')) + list((fixtures / family).glob('checks.json')):

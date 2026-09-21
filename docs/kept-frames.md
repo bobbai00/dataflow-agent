@@ -1,3 +1,5 @@
+> Historical experiment: these optional modes were retired during the shared ReAct cleanup. See [the current catalog implementation](task-history-dataflow.md). Reproduce the results below at their recorded revisions.
+
 <!--
   Licensed to the Apache Software Foundation (ASF) under one
   or more contributor license agreements. See the NOTICE file

@@ -29,7 +29,6 @@ import keyword
 import linecache
 import math
 import numbers
-import re
 import traceback
 from collections.abc import Mapping
 from collections import Counter
@@ -110,8 +109,7 @@ def _validate_function(spec, source, field, entry, parameters=None):
         node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry
     ]
     valid = len(entries) == 1 and isinstance(entries[0], ast.FunctionDef)
-    # Inputs bind positionally (`function(*frames)` below), so only the arity
-    # has to match the ordered inputs; the parameter names are the author's.
+    # Validate the arity even when the entry point is missing.
     expected = len(parameters) if parameters is not None else 1
     if valid:
         node = entries[0]
@@ -196,11 +194,6 @@ def validate_native(spec):
         _validate_function(spec, props["func"], "func", "apply")
     elif kind == "UDF":
         _validate_function(spec, props["code"], "code", "process" if inputs else "load", inputs)
-        frame = props.get("frame")
-        if frame is not None and (not isinstance(frame, str) or not frame.isidentifier() or keyword.iskeyword(frame)):
-            raise _error(
-                spec, "FRAME_NAME", f"frame must name a local variable: {frame!r}", stage="validate", field="frame"
-            )
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -296,7 +289,7 @@ def validate_native(spec):
             )
 
 
-def _caught(spec, error, source, field, entry, detail=""):
+def _caught(spec, error, source, field, entry):
     frames = [frame for frame in traceback.extract_tb(error.__traceback__) if frame.filename == _filename(spec, field)]
     code = (
         "PYTHON_IMPORT"
@@ -306,111 +299,18 @@ def _caught(spec, error, source, field, entry, detail=""):
     return _error(
         spec,
         code,
-        f"{type(error).__name__}: {error}{detail}",
+        f"{type(error).__name__}: {error}",
         field=field,
         source=_location(source, entry, frames[-1].lineno if frames else 1),
     )
 
 
-KEPT_FRAMES_LIMIT = 12
-KEPT_COLUMNS_LIMIT = 32
-
-
-class _ReturnLocals(ast.NodeTransformer):
-    """Rewrites every `return` that belongs to the entry function itself into
-    `return <hook>(locals(), <value>)`. Returns inside nested functions,
-    lambdas and classes are that code's own and stay untouched."""
-
-    def __init__(self, entry, hook):
-        self.entry, self.hook, self.depth = entry, hook, 0
-
-    def visit_FunctionDef(self, node):
-        if self.depth == 0 and node.name == self.entry:
-            self.depth += 1
-            node.body = [self.visit(child) for child in node.body]
-            self.depth -= 1
-        return node
-
-    visit_AsyncFunctionDef = visit_FunctionDef
-
-    def visit_Lambda(self, node):
-        return node
-
-    def visit_ClassDef(self, node):
-        return node
-
-    def visit_Return(self, node):
-        if self.depth != 1:
-            return node
-        call = ast.Call(
-            func=ast.Name(id=self.hook, ctx=ast.Load()),
-            args=[
-                ast.Call(func=ast.Name(id="locals", ctx=ast.Load()), args=[], keywords=[]),
-                node.value or ast.Constant(None),
-            ],
-            keywords=[],
-        )
-        return ast.copy_location(ast.Return(value=ast.copy_location(call, node)), node)
-
-
-def _kept_frame_record(name, frame):
-    columns = [
-        {"name": str(column), "dtype": str(dtype)[:24]}
-        for column, dtype in list(frame.dtypes.items())[:KEPT_COLUMNS_LIMIT]
-    ]
-    record = {"name": name, "rows": int(len(frame)), "columns": columns}
-    if len(frame.columns) > KEPT_COLUMNS_LIMIT:
-        record["more"] = len(frame.columns) - KEPT_COLUMNS_LIMIT
-    return record
-
-
-def _function(spec, source, field, entry, keep=None, frame=None):
-    """`keep` (a dict with `inputs`) records the DataFrames the entry function
-    assigned and did not return: the runtime's own account of the intermediate
-    tables a UDF computed. `frame` makes the function return that local instead
-    of its own result: a view of one intermediate table, same inputs, same code."""
+def _function(spec, source, field, entry):
     filename = _filename(spec, field)
     linecache.cache[filename] = (len(source), None, source.splitlines(keepends=True), filename)
     namespace = {"__name__": "__native_user_code__"}
-    hook = "__native_v2_return__"
-    if keep is not None or frame is not None:
-        tree = _ReturnLocals(entry, hook).visit(ast.parse(source, filename=filename))
-        ast.fix_missing_locations(tree)
-        code = compile(tree, filename, "exec")
-
-        def on_return(local_values, returned):
-            if frame is not None:
-                if frame not in local_values:
-                    frames = sorted(
-                        name
-                        for name, value in local_values.items()
-                        if isinstance(value, pd.DataFrame) and not name.startswith("_")
-                    )
-                    raise _error(
-                        spec,
-                        "FRAME_UNAVAILABLE",
-                        f"{entry} assigned no local {frame!r} on the path it took; DataFrame locals here: {frames}.",
-                        field="frame",
-                    )
-                return local_values[frame]
-            inputs = keep.setdefault("inputs", [])
-            frames = keep.setdefault("frames", [])
-            for name, value in local_values.items():
-                if not isinstance(value, pd.DataFrame) or name.startswith("_") or value is returned:
-                    continue
-                if any(value is given for given in inputs):
-                    continue
-                if len(frames) >= KEPT_FRAMES_LIMIT:
-                    keep["omitted"] = keep.get("omitted", 0) + 1
-                    continue
-                frames.append(_kept_frame_record(name, value))
-            return returned
-
-        namespace[hook] = on_return
-    else:
-        code = compile(source, filename, "exec")
     try:
-        exec(code, namespace)
+        exec(compile(source, filename, "exec"), namespace)
         function = namespace[entry]
         if not callable(function):
             raise TypeError(f"{entry} was replaced by a non-callable value")
@@ -420,41 +320,10 @@ def _function(spec, source, field, entry, keep=None, frame=None):
     def call(*args):
         try:
             return function(*args)
-        except NativeError:
-            raise
-        except KeyError as error:
-            raise _caught(spec, error, source, field, entry, detail=_column_evidence(spec, error, args)) from error
         except Exception as error:
             raise _caught(spec, error, source, field, entry) from error
 
     return call
-
-
-def _column_evidence(spec, error, args):
-    """The failing key against the columns of every input frame: the one fact
-    the author could not see (which frame carries which column) at the moment
-    it matters. Only DataFrame inputs count; a KeyError inside the author's own
-    dictionaries gets no evidence."""
-    key = error.args[0] if error.args else None
-    frames = [(index, frame) for index, frame in enumerate(args) if isinstance(frame, pd.DataFrame)]
-    if not isinstance(key, str) or not frames:
-        return ""
-    # pandas reports missing label lists as "['a', 'b'] not in index" or
-    # "None of [Index(['a'], dtype='object')] are in the [columns]".
-    listed = re.match(r"^\[(.*)\] not in index", key) or re.match(r"^None of \[Index\(\[(.*?)\]", key)
-    names = [name.strip().strip("'\"") for name in listed.group(1).split(",")] if listed else [key]
-    inputs = spec.get("inputs", [])
-    label = lambda index: f"input {index}" + (f" ({inputs[index]})" if index < len(inputs) else "")
-    parts = []
-    for name in names[:3]:
-        holders = [index for index, frame in frames if name in frame.columns]
-        if holders:
-            parts.append(f"{name!r} is in {', '.join(label(i) for i in holders)}, not in the frame indexed here")
-        else:
-            parts.append(f"{name!r} is in no input")
-    if any(not [i for i, f in frames if name in f.columns] for name in names[:3]):
-        parts.append("; ".join(f"{label(i)} has {list(map(str, f.columns))[:10]}" for i, f in frames))
-    return (" Column evidence: " + "; ".join(parts) + ".")[:220]
 
 
 def _missing(value):
@@ -1888,24 +1757,8 @@ def execute_native(spec, inputs):
                 ) from error
     elif kind == "UDF":
         entry = "process" if inputs else "load"
-        copies = [frame.copy(deep=True) for frame in inputs]
-        view = props.get("frame")
-        keep = {"inputs": copies, "frames": []} if spec.get("keepFrames") is True and view is None else None
-        function = _function(spec, props["code"], "code", entry, keep=keep, frame=view)
-        result = function(*copies)
-        if view is not None and not isinstance(result, pd.DataFrame):
-            raise _error(
-                spec,
-                "FRAME_TYPE",
-                f"Local {view!r} is a {type(result).__name__}, not a DataFrame.",
-                stage="contract",
-                field="frame",
-            )
-        output = _frame(spec, result)
-        if keep is not None:
-            operations["keptFrames"] = keep["frames"]
-            if keep.get("omitted"):
-                operations["keptFramesOmitted"] = keep["omitted"]
+        function = _function(spec, props["code"], "code", entry)
+        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     _frame(spec, output)

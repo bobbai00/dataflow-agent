@@ -35,8 +35,6 @@ test("task features validate atomically and history cannot be enabled halfway th
     nativeCatalogVersion: "v2",
     nativeTaskHistory: true,
     nativeTaskContext: true,
-    nativeDirectReturn: true,
-    nativeCompactPrompt: true,
   });
   expect(a.getSettings().systemPrompt).toContain("atTask");
   expect(a.getSettings().systemPrompt).not.toContain("atTurn");

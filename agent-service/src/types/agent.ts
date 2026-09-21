@@ -90,6 +90,10 @@ export interface ReActStep {
    *  step-record time (see `computeOperatorAccess`). Absent on steps with
    *  no tool calls. */
   operatorAccess?: Record<number, ToolOperatorAccess>;
+  /** Set on steps the service performed itself, with no model request behind
+   *  them. `"seed"`: the seeded source roots recorded before the first model
+   *  call of a turn (see `seedSources`). Usage is zero by construction. */
+  synthetic?: "seed";
 }
 
 export enum OperatorResultSerializationMode {
@@ -168,16 +172,10 @@ export interface AgentSettings {
   nativeCatalogVersion?: "v1" | "v2";
   /** Collect ordinary V2 profiles, independently of model-facing exposure. */
   nativeProfileCollection?: boolean;
+  /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */
   nativeTaskHistory?: boolean;
+  /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
-  nativeTaskCache?: boolean;
-  nativeTaskReuse?: boolean;
-  nativeTaskReceipts?: boolean;
-  nativeCompactIndex?: boolean;
-  nativeDemandExecution?: boolean;
-  nativeKeptFrames?: boolean;
-  nativeDirectReturn?: boolean;
-  nativeCompactPrompt?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -429,9 +427,18 @@ export interface AgentSettings {
    * addressable tables — unverifiable in a plain transcript. Off by default.
    */
   enableAnswerGrounding: boolean;
+  /**
+   * SEEDED SOURCE ROOTS — when a message arrives with `sources`, scan every
+   * listed file and observe it BEFORE the first model call, recorded as an
+   * ordinary `dataflow` step with zero usage. A dataflow's roots are the one
+   * part of the graph the model cannot decide differently, so materializing
+   * them up front removes the scan-only opening step(s) every layout renders
+   * anyway. Off by default — control arms keep a byte-identical protocol.
+   */
+  seedSources: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
+  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
    * VERSIONED MODE — the session as one immutable version DAG addressed by
    * (operatorId, turnId). Three coupled changes, one flag:
@@ -546,14 +553,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileCollection: false,
   nativeTaskHistory: false,
   nativeTaskContext: false,
-  nativeTaskCache: true,
-  nativeTaskReuse: false,
-  nativeTaskReceipts: false,
-  nativeCompactIndex: false,
-  nativeDemandExecution: false,
-  nativeKeptFrames: false,
-  nativeDirectReturn: false,
-  nativeCompactPrompt: false,
   dataEvidence: false,
   flowEvidence: false,
   resultSelection: "all",
@@ -593,6 +592,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   indexDetailedOperators: 0,
   enableResumeTool: false,
   enableAnswerGrounding: false,
+  seedSources: false,
   versionedMode: false,
   // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
   // and without the table — it is derivable from the entries and buys nothing
@@ -671,16 +671,10 @@ export interface AgentSettingsApi {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */
   nativeTaskHistory?: boolean;
+  /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
-  nativeTaskCache?: boolean;
-  nativeTaskReuse?: boolean;
-  nativeTaskReceipts?: boolean;
-  nativeCompactIndex?: boolean;
-  nativeDemandExecution?: boolean;
-  nativeKeptFrames?: boolean;
-  nativeDirectReturn?: boolean;
-  nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;
@@ -783,16 +777,10 @@ export interface UpdateAgentSettingsRequest {
   nativeCatalogVersion?: "v1" | "v2";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
+  /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */
   nativeTaskHistory?: boolean;
+  /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
-  nativeTaskCache?: boolean;
-  nativeTaskReuse?: boolean;
-  nativeTaskReceipts?: boolean;
-  nativeCompactIndex?: boolean;
-  nativeDemandExecution?: boolean;
-  nativeKeptFrames?: boolean;
-  nativeDirectReturn?: boolean;
-  nativeCompactPrompt?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;

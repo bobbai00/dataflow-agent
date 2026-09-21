@@ -25,6 +25,7 @@ import {
   NativeCatalogSettingsError,
   validateNativeCatalogSettings,
   validateEvidenceSettings,
+  validateRetiredTaskSettings,
 } from "./agent/native/settings";
 import {
   operatorInfoToSummary,
@@ -37,7 +38,6 @@ import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
-import { createTaskResponsesModel, supportsTaskCache } from "./agent/llm-drivers/openai-task-cache";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
@@ -558,17 +558,7 @@ async function createAgentInstance(
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
   const driver: LLMDriver =
-    driverKind === "local-react"
-      ? new LocalReactTextDriver({ model })
-      : new VercelToolUseDriver({
-          model,
-          taskModel: supportsTaskCache(modelType)
-            ? createTaskResponsesModel(modelType, {
-                baseURL: `${config.modelsEndpoint}/api`,
-                apiKey: delegateConfig.userToken,
-              })
-            : undefined,
-        });
+    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -616,14 +606,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeTaskHistory: agentSettings.nativeTaskHistory,
     nativeTaskContext: agentSettings.nativeTaskContext,
-    nativeTaskCache: agentSettings.nativeTaskCache,
-    nativeTaskReuse: agentSettings.nativeTaskReuse,
-    nativeTaskReceipts: agentSettings.nativeTaskReceipts,
-    nativeCompactIndex: agentSettings.nativeCompactIndex,
-    nativeDemandExecution: agentSettings.nativeDemandExecution,
-    nativeKeptFrames: agentSettings.nativeKeptFrames,
-    nativeDirectReturn: agentSettings.nativeDirectReturn,
-    nativeCompactPrompt: agentSettings.nativeCompactPrompt,
     dataEvidence: agentSettings.dataEvidence,
     flowEvidence: agentSettings.flowEvidence,
     resultSelection: agentSettings.resultSelection,
@@ -871,14 +853,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: settings.nativeProfileCollection,
             nativeTaskHistory: settings.nativeTaskHistory,
             nativeTaskContext: settings.nativeTaskContext,
-            nativeTaskCache: settings.nativeTaskCache,
-            nativeTaskReuse: settings.nativeTaskReuse,
-            nativeTaskReceipts: settings.nativeTaskReceipts,
-            nativeCompactIndex: settings.nativeCompactIndex,
-            nativeDemandExecution: settings.nativeDemandExecution,
-            nativeKeptFrames: settings.nativeKeptFrames,
-            nativeDirectReturn: settings.nativeDirectReturn,
-            nativeCompactPrompt: settings.nativeCompactPrompt,
             dataEvidence: settings.dataEvidence,
             flowEvidence: settings.flowEvidence,
             resultSelection: (settings as any).resultSelection,
@@ -923,6 +897,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             indexDetailedOperators: (settings as any).indexDetailedOperators,
             enableResumeTool: (settings as any).enableResumeTool,
             enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+            seedSources: (settings as any).seedSources,
             messageLayout: (settings as any).messageLayout,
             versionedMode: (settings as any).versionedMode,
             versionedHeads: (settings as any).versionedHeads,
@@ -968,14 +943,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: t.Optional(t.Boolean()),
             nativeTaskHistory: t.Optional(t.Boolean()),
             nativeTaskContext: t.Optional(t.Boolean()),
-            nativeTaskCache: t.Optional(t.Boolean()),
-            nativeTaskReuse: t.Optional(t.Boolean()),
-            nativeTaskReceipts: t.Optional(t.Boolean()),
-            nativeCompactIndex: t.Optional(t.Boolean()),
-            nativeDemandExecution: t.Optional(t.Boolean()),
-            nativeKeptFrames: t.Optional(t.Boolean()),
-            nativeDirectReturn: t.Optional(t.Boolean()),
-            nativeCompactPrompt: t.Optional(t.Boolean()),
             dataEvidence: t.Optional(t.Boolean()),
             flowEvidence: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1020,6 +987,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             indexDetailedOperators: t.Optional(t.Number()),
             enableResumeTool: t.Optional(t.Boolean()),
             enableAnswerGrounding: t.Optional(t.Boolean()),
+            seedSources: t.Optional(t.Boolean()),
             messageLayout: t.Optional(t.String()),
             versionedMode: t.Optional(t.Boolean()),
             versionedHeads: t.Optional(t.Boolean()),
@@ -1207,15 +1175,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource } = body as {
+      const { content, messageSource, sources } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
+        sources?: string[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource);
+      const result = await agent.sendMessage(content, messageSource, { sources });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1232,6 +1201,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        sources: t.Optional(t.Array(t.String())),
       }),
     }
   )
@@ -1324,6 +1294,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       const agent = getAgent(id);
       const settings = body as UpdateAgentSettingsRequest;
       validateEvidenceSettings(settings);
+      validateRetiredTaskSettings(settings);
 
       log.info(
         {
@@ -1353,14 +1324,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeTaskHistory: settings.nativeTaskHistory,
         nativeTaskContext: settings.nativeTaskContext,
-        nativeTaskCache: settings.nativeTaskCache,
-        nativeTaskReuse: settings.nativeTaskReuse,
-        nativeTaskReceipts: settings.nativeTaskReceipts,
-        nativeCompactIndex: settings.nativeCompactIndex,
-        nativeDemandExecution: settings.nativeDemandExecution,
-        nativeKeptFrames: settings.nativeKeptFrames,
-        nativeDirectReturn: settings.nativeDirectReturn,
-        nativeCompactPrompt: settings.nativeCompactPrompt,
         dataEvidence: settings.dataEvidence,
         flowEvidence: settings.flowEvidence,
         resultSelection: (settings as any).resultSelection,
@@ -1422,14 +1385,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeTaskHistory: t.Optional(t.Boolean()),
         nativeTaskContext: t.Optional(t.Boolean()),
-        nativeTaskCache: t.Optional(t.Boolean()),
-        nativeTaskReuse: t.Optional(t.Boolean()),
-        nativeTaskReceipts: t.Optional(t.Boolean()),
-        nativeCompactIndex: t.Optional(t.Boolean()),
-        nativeDemandExecution: t.Optional(t.Boolean()),
-        nativeKeptFrames: t.Optional(t.Boolean()),
-        nativeDirectReturn: t.Optional(t.Boolean()),
-        nativeCompactPrompt: t.Optional(t.Boolean()),
         dataEvidence: t.Optional(t.Boolean()),
         flowEvidence: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1476,6 +1431,8 @@ interface WsMessage {
   type: "message" | "stop" | "debug";
   content?: string;
   messageSource?: "chat" | "feedback";
+  /** Seeded source roots: the task's input files/globs (see `seedSources`). */
+  sources?: string[];
 }
 
 interface WsOutgoingMessage {
@@ -1634,7 +1591,9 @@ export function buildApp() {
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
-            const result = await agent.sendMessage(msg.content, msg.messageSource);
+            const result = await agent.sendMessage(msg.content, msg.messageSource, {
+              sources: Array.isArray(msg.sources) ? msg.sources.filter(s => typeof s === "string") : undefined,
+            });
 
             agent.setStepCallback(null);
             agent.setSnapshotCallback(null);

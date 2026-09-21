@@ -1,184 +1,144 @@
-# Task history for native Dataflow
+# Task catalogs on the shared ReAct loop
 
-Research branch based on `refactor/evidence-only-context` (`c5620b9b4`).
+The multi-task extension changes session memory and retains historical data.
+Model requests, tool execution, observations, error repair and final answers use
+one ReAct implementation, aligned with the `evidence-only-context` worktree.
 
-Measured results and limitations:
-[first milestone report](../agent-service/benchmark/multiturn/TASK_HISTORY_REPORT.md).
-This configuration has not yet met the lower-cost objective.
+The [long-horizon catalog plan](long-horizon-catalog-plan.md) records the research
+hypothesis, next implementation steps, switching experiment and testing criteria.
+This document describes what is implemented today.
 
-## Contract
+## Shared implementation
 
-Each user request is a numbered **task** in the current session. Native inputs
-accept either a current operator id or `{operator: "total", atTask: 1}`. The
-qualified input reads the actual complete output recorded at task 1's end.
-Task numbers are runtime assigned. No model-generated result ids, save calls,
-report registry, or workflow checkout are needed.
+The synchronization baseline is `feat/evidence-compaction` at `fa22f4213`, plus
+that worktree's pending source-seeding implementation as inspected on 2026-09-21.
+The `opBlock` context layout and its tests are included. Source seeding remains
+opt-in and off by default. Local service-port configuration, launcher changes,
+Scala changes and benchmark-submodule edits from that worktree are not part of
+this synchronization.
 
-The agent records bindings automatically. The engine copies complete results
-to immutable Arrow files before later edits can evict their caches. The copy
-includes the table schema, empty tables, nulls and exact int64 values. A checksum
-is checked when a historical source executes. Unchanged result identities share
-one retained file. The initial implementation supports native scalar tables.
+The following use the shared implementation:
 
-The service resolves a qualified reference to an internal source operator. Its
-graph has no live edge to the original producer. Updating that producer therefore
-recomputes its current descendants while leaving historical consumers unchanged.
-Historical and current inputs can be combined in one normal batch. Runtime source
-ids and file paths are hidden in the task context; the agent uses operator names
-and task numbers. UDF inputs bind positionally — historical and current alike —
-so `process` chooses its own Python parameter names; only their count is checked.
+- `VercelToolUseDriver`: one Chat model, normal SDK tool loop and `maxSteps` limit.
+- `TexeraAgent.sendMessage`: the same preparation and completion callbacks,
+  with historical retention only at task boundaries.
+- `runPostStepExecution` and `executePostStepChanges`: the same scheduling,
+  downstream execution, invalidation, revision-pinned errors and observation capture.
+- `buildContextAssembler`, `assembleContext` and the context renderers: the same
+  DELTA/LATEST semantics and evidence budgets inside an active task.
+- System prompts and native operator definitions: the standard evidence branch
+  prompt and tool schema, with a short historical-input explanation when enabled.
 
-Missing, failed, or unretained outputs fail explicitly. A failed current edit
-blocks current dependent results; it does not invalidate earlier retained data.
-The existing partial-success batch semantics remain: this feature does not add
-transactional workflow rollback. It also cannot infer whether the model selected
-the intended population, formula, or historical task.
+Two small fixes are preserved: provider cache-write counts are read from all
+recorded response formats for cost accounting, and a missing Python UDF entry
+point reports a signature error instead of crashing its validator. Neither
+changes request caching policy or adds another ReAct path.
 
-## Independent experimental settings
+## Settings and switching
 
-All default false and require native batch catalog V2:
+Both settings default to false and require native batch catalog V2:
 
 | Setting | Purpose |
 | --- | --- |
-| `nativeCompactPrompt` | Generated catalog semantics and a fully typed wire schema with repeated descriptions removed. Runtime validation stays strict. |
-| `nativeDirectReturn` | Optional `return:{operator,format:"records"\|"columns"\|"row"\|"value"\|"json",column?}` finishes with complete successful JSON data from the same batch. |
-| `nativeTaskContext` | Prior requests/answers, compact current operator catalog, current-task observations, and complete definitions of selected dependencies. |
-| `nativeTaskHistory` | Automatic full-data retention and `atTask` inputs. Must be selected before the first task/operators. |
+| `nativeTaskContext` | Replace completed action traces with prior requests/answers and a compact operator catalog. The active task uses the configured shared assembler. |
+| `nativeTaskHistory` | Retain complete outputs and enable exact `{operator, atTask}` inputs. Select before the first task or workflow operator. |
 
-`return` implicitly observes the answer operator. Errors, truncated tables, and
-ambiguous scalar/row requests continue the normal repair loop. The model can
-still answer in prose. Direct return is a general agent optimization; the
-dependency boundary is the Dataflow-specific mechanism under investigation.
-`columns` returns an object of column arrays. `json` validates and returns an
-entire JSON document stored in one string cell, preserving its exact numeric text.
-Ordinary string cells are never silently decoded. `value` and `json` take the
-only column of a single-column result when `column` is omitted; two or more
-columns remain ambiguous and must still name one. Successful engine cache hits
-are eligible both for direct return and for historical retention.
+`withTaskCatalog` decorates the configured context assembler. With catalog
+context off, it delegates the original input unchanged. With it on, it prefixes
+completed requests, final answers, operator cards and saved-output availability,
+then delegates only the active task's steps to that same assembler. It supports
+synchronous previews and asynchronous assemblers. It does not select a different
+model, prompt, cache transport, execution policy or answer-completion mechanism.
 
-Direct return also follows the output's input graph and refuses outputs derived
-from `Scan.preview`, which is a raw discovery probe. An aggregate can contain all
-of its output rows while still using only five lines of its input file. Preview
-origins are retained with historical data, so changing today's scan cannot make
-an old partial output appear complete. Ordinary `Filter`/`Limit` operations remain
-valid analytical choices. This checks known discovery sources; it does not infer
-the user's intended cohort, inspect arbitrary Python file reads, or prevent an
-unverified prose answer. Preview observations remain available for inspection.
+To start with full history and switch later, create a native V2 batch agent with
+`nativeTaskContext: false`. If historical data will be needed, enable
+`nativeTaskHistory: true` from creation. Between completed turns:
 
-Task context preserves prior user requests and answers. It does not replay prior
-tool actions/reasoning. Catalog cards include input references, a bounded
-definition preview, and current schema/status. Available historical task ranges
-follow the cards in one block, because they advance on every task and would
-otherwise change the text of every card each request.
-Normal edits and `observe` select operators; the renderer follows their actual
-ancestors for full definitions and stops at historical sources. There is no
-mandatory extra context-selection inference. UDF internals remain opaque.
-Completed tasks form stable user/answer message pairs. Current graph context
-comes next, then the active request and its actions/observations. This permits
-prefix caching and leaves the actual observation last during a task.
-Definitions use the public operator syntax (`filter`, `input`, `left`/`right`).
+```http
+PATCH /api/agents/<id>/settings
+Content-Type: application/json
 
-## Scope and lifecycle
-
-- Agent session bindings currently live in memory. Restart/clear/import does not
-  reconstruct them. Historical files alone do not imply a restorable session.
-- `TEXERA_TASK_RESULT_DIR` must name an engine-owned directory visible to that
-  engine's Python workers. This milestone targets the isolated local stack;
-  distributed object storage and retention quotas/garbage collection are future work.
-- Files survive cache eviction and workflow cleanup, until the experiment's
-  archive directory is cleaned up. Storage/time costs are reported separately
-  from model cost. Only scalar native tables are retained; opaque binary UDF
-  objects fail retention explicitly.
-- Task selection remains model reasoning. The engine enforces exact historical
-  identity and graph dependencies, not the scientific meaning of a task.
-
-## Isolated stack
-
-The supported launcher is used with `/tmp/texera-task-history/profile.sh`.
-Agent `3041`, engine `28085` / cluster `22552`, web `28080`, compiler `29090`,
-Postgres `25432`, MinIO `29000`, LakeFS `28000`, and LLM proxy `24000`.
-Docker project/volumes/network: `texera-task-history`.
-
-Rebuild engine changes through `bin/local-dev.sh up texera-web --build`;
-`computing-unit-master` shares that distribution and has no separate build.
-Set `TEXERA_LOCAL_DEV_PROFILE` on every launcher invocation.
-On a fresh worktree, verify both `data` and `amber/data -> ../data` resolve:
-the engine's working directory is `amber`. A shell-level check from the repo
-root does not establish that the worker can read the same relative path.
-Generate Python protos before the first engine run, as required by `AGENTS.md`.
-
-## Validation and experiment protocol
-
-Tests cover immutable references, absent/failed history, graph boundaries, complete
-Arrow tables, exact int64/null/empty data, strict direct return, selected context,
-and settings validation. A live smoke replaces source bytes, edits the current
-source/cohort, consumes a historical middle row outside every saved preview, joins
-original membership to current values, and checks failure isolation.
-
-`task-coverage-smoke.ts` additionally drives scripted actions through the real
-agent loop and engine. It rejects a discovery-derived aggregate, accepts it
-after replacing the current scan with a full scan, and still rejects the old
-partial result selected through `atTask`. It makes no paid model calls.
-
-Primary comparison: six diagnostic sessions / 50 user tasks, fresh persistent
-smolagents CodeAgent versus native Dataflow, GPT-5.6 Luna, 25 model steps per task,
-2,000-character result/print budgets. CodeAgent's one-operation and reusable-function
-instruction presets are disabled; Python can freely batch and naturally reuse state.
-The six families include old cohort/new measurements, corrections across reports,
-temporary scenarios, customer rankings, a 20-task correction session, and independent
-tasks as a negative control. These are diagnostic fixtures, not a representative
-LongDS score. Dataset seeds are not additional task families.
-
-Both arms receive the same task text. Gold remains evaluator-only. Numeric JSON
-scoring uses exact keys/order and absolute numeric tolerance 0.0001. Compare complete
-primary sessions; run two additional fresh recovery sessions for each failed session
-in either arm, reporting their costs separately. Never replace primary failures.
-
-Ablations on membership and temporary-scope sessions add compact catalog, direct
-return, task context, and history in order. Attribute changes using actual traces,
-not aggregate token counts alone. Model cost uses the repository's Luna rates
-(input $0.20/M, cached input $0.02/M, output $1.20/M), with reasoning already included
-in output. These are accounting assumptions, not invoices. No universal cost or
-accuracy advantage is assumed.
-
-The initial development campaign exposed three interface problems: a missing
-`CompletedFromCache` success case, internal rather than public catalog syntax,
-and a loose compact wire schema that discarded nested type constraints. Those
-runs are retained separately from the corrected milestone. The 20-task fixture
-also originally said "per shipped unit"; the corrected version explicitly
-includes returned units in the handling-cost denominator for both agents.
-
-`prepare-task-longds.py` prepares the real 15-task GitHub-language session with
-the original public questions and explicit JSON formats shared by both arms.
-It omits no requested quantities and gives neither arm answers or dependency
-annotations. This is an adapted diagnostic, not an official LongDS score.
-Its gold Python reproduces 15/15 published answers after supplying the missing
-notebook display helper `format_decimal_json` as an identity function (upstream
-already rounds before that helper).
-
-Reproducible runners (source the isolated profile first):
-
-```bash
-python3 agent-service/benchmark/multiturn/task-study.py generate /tmp/new-fixtures
-python3 agent-service/benchmark/multiturn/run-task-study.py \
-  --fixtures /tmp/new-fixtures --out /tmp/new-campaign \
-  --kb-root /path/to/benchmark/Kramabench --env-file /path/to/.env
+{"nativeTaskContext": true}
 ```
 
-The coordinator records fixture hashes, revision, per-session traces, usage,
-primary results, and two fresh recovery sessions for every failed primary
-session. It refuses to overwrite artifacts. Keep the watched agent service's
-implementation fixed until the campaign finishes.
+The switch preserves the session's workflow, results and retained bindings.
+Switching back is supported. A switch during an active turn is rejected before
+any settings change. No automatic task-count or token threshold is introduced;
+the caller chooses the boundary. The context layer is the place to evaluate a
+future selection or switching policy.
 
+This is not yet a bounded-memory policy: prior questions/answers and the list of
+operators can still grow. The shared active-task renderer can also include the
+current workflow. The next catalog experiment should address that explicitly,
+while keeping this ReAct implementation fixed.
 
-## Prompt caching for task context
+## Historical data contract
 
-GPT-5.6 and later task-context agents use the authenticated Responses route.
-`nativeTaskCache` defaults to true and marks the fixed instruction prefix and
-last two completed-task user messages as reusable prefixes. The current graph
-and active task keep their existing text and roles. This setting takes effect
-only with `nativeTaskContext`; other models retain their existing transport.
-Set `nativeTaskCache:false` for an implicit-cache control on the same Responses
-transport. A stable per-agent cache key prevents another session from warming
-its measured history. Cache writes are recorded in `cacheCreationInputTokens`
-and must be priced separately from ordinary uncached input.
+A current operator id follows the current graph. `{operator: "total", atTask: 1}`
+reads the complete successful output retained at the end of task 1. Task numbers
+are assigned by the runtime. No model-authored save ids or checkout operation
+are required.
+
+The engine retains immutable Arrow files before later edits can evict execution
+caches. Retention preserves the schema, empty tables, nulls and int64 values;
+loading verifies the checksum. Unchanged result identities share one retained
+file. The service resolves historical inputs to runtime-owned source operators
+with no live edge to the original producer. Ordinary batch tools can combine
+current and historical inputs, and UDF arguments bind positionally.
+
+Failed or unavailable historical results fail explicitly. A failed current edit
+blocks current descendants while earlier retained data stays available. The
+usual partial-success batch contract applies. Retention does not establish that
+the agent selected the intended population or calculation.
+
+Bindings live in the agent session. Clear/import/restart does not reconstruct
+bindings from retained files. `TEXERA_TASK_RESULT_DIR` must be engine-owned and
+visible to its Python workers; distributed storage, quotas and garbage collection
+remain outside this local research implementation. Files can outlive workflow
+cleanup. The existing engine retention endpoint is unchanged by this cleanup.
+
+## Retired experiments and benchmark arms
+
+The separate Responses/cache-boundary transport, compact prompt/schema,
+direct-return/early-stop path, stale/empty-answer refusal heuristics, task
+receipts/reuse prompting, demand-execution variant and kept-frame rewriting have
+been removed. Their settings are rejected, including explicit false values;
+old experiments must run their recorded revisions.
+
+The current runner exposes new names, so saved labels keep their original meaning:
+
+```bash
+bun run agent-service/benchmark/multiturn/run-task-native.ts session.json output-dir react-full
+bun run agent-service/benchmark/multiturn/run-task-native.ts session.json output-dir react-catalog
+```
+
+These two arms have identical settings except `nativeTaskContext`; both retain
+historical results. The campaign coordinator defaults to ordinary Chat transport
+for CodeAgent as well. Historical reports and artifacts remain available under
+`agent-service/benchmark/multiturn/`, including
+[TASK_HISTORY_REPORT.md](../agent-service/benchmark/multiturn/TASK_HISTORY_REPORT.md),
+[RESEARCH_REVIEW.md](../agent-service/benchmark/multiturn/RESEARCH_REVIEW.md), and
+[LONG_HORIZON_REVIEW.md](../agent-service/benchmark/multiturn/LONG_HORIZON_REVIEW.md).
+Their measurements describe the recorded implementation, not this cleanup.
+
+## Verification
+
+The cleanup was checked with the full agent-service test suite (1,107 tests),
+TypeScript type checking and 35 Python runtime tests. New tests exercise catalog
+switching in both directions, asynchronous assembly, active-turn rejection,
+unchanged tool schemas and shared final-answer behavior, API setting rejection,
+SDK tool/prepare/finish ordering, step limits and cancellation. Historical-input
+and shared execution/diagnostic suites continue to pass.
+
+Source comparison confirms that the ReAct method, execution methods, context
+preview and server assembler/model construction match the inspected evidence
+worktree, excluding the two task-boundary retention calls. The Python missing
+entry-point fix and generalized cache-write measurement are the intentional
+shared-runtime differences listed above.
+
+A live engine smoke was not run during this cleanup: the local JVM/engine services
+were stopped. With the stack running, the maintained no-model smoke is:
+
+```bash
+bun run agent-service/benchmark/multiturn/task-history-smoke.ts
+```

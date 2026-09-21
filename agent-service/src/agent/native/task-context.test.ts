@@ -15,210 +15,149 @@
  * under the License.
  */
 import { test, expect } from "bun:test";
-import { assembleTaskContext } from "./task-context";
+import { operatorSignature, taskCatalogMemory, withTaskCatalog } from "./task-context";
+import { TaskHistory } from "./task-history";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
-import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
-import Ajv from "ajv";
-import { nativeBatchSchema } from "../tools/native-batch-tools";
+import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
+import type { ContextAssemblerInput } from "../llm-drivers/types";
+import { assembleContext } from "../util/context-utils";
 
-test("task context keeps prior requests, removes past action replay, and selects actual ancestors", () => {
+function fixture(): ContextAssemblerInput {
+  const steps: ReActStep[] = (
+    [
+      { id: "u1", role: "user", messageId: "one", content: "Keep dollars and two decimals", isBegin: true },
+      { id: "a1", parentId: "u1", role: "agent", messageId: "one", content: "OLD_ACTION_BODY" },
+      { id: "f1", parentId: "a1", role: "agent", messageId: "one", content: "First answer", isEnd: true },
+      { id: "u2", parentId: "f1", role: "user", messageId: "two", content: "Current request", isBegin: true },
+      {
+        id: "a2",
+        parentId: "u2",
+        role: "agent",
+        messageId: "two",
+        content: "Current reasoning",
+        toolCalls: [
+          { toolName: "dataflow", toolCallId: "real-call-id", input: { operators: [], observe: ["missing"] } },
+        ],
+        toolResults: [
+          {
+            toolCallId: "real-call-id",
+            output: {
+              kind: "native-batch",
+              operators: [],
+              observe: [],
+              observationErrors: ["Cannot observe 'missing': operator does not exist."],
+            },
+          },
+        ],
+      },
+    ] as Array<Partial<ReActStep> & Pick<ReActStep, "id" | "role" | "messageId" | "content">>
+  ).map((step, index) => ({ stepId: index, timestamp: index, isBegin: false, isEnd: false, ...step }));
   const state = new WorkflowState();
-  const op = (id: string, input?: string) => ({
-    operatorID: id,
-    operatorType: "DataProcessing",
+  state.addOperator({
+    operatorID: "source",
+    operatorType: "DataLoading",
     operatorVersion: "1",
     operatorProperties: {},
     inputPorts: [],
     outputPorts: [],
     showAdvanced: false,
-    nativeOp: {
-      type: "Project",
-      properties: { keep: ["value"] },
-      inputs: input ? [input] : [],
-      version: "v2" as const,
-    },
+    nativeOp: { type: "Scan", version: "v2", properties: { files: "data/source.csv" }, inputs: [] },
   });
-  state.addOperator(op("source"));
-  state.addOperator(op("total", "source"));
-  state.addOperator(op("unrelated"));
-  state.addLink({
-    linkID: "s-t",
-    source: { operatorID: "source", portID: "output-0" },
-    target: { operatorID: "total", portID: "input-0" },
-  });
-  const steps: any[] = [
-    { id: "u1", role: "user", messageId: "one", content: "Keep the original membership fixed", isBegin: true },
-    {
-      id: "a1",
-      role: "agent",
-      messageId: "one",
-      content: "long historical reasoning NEVER_REPLAY_ME",
-      toolCalls: [{ toolName: "dataflow", toolCallId: "c1", input: { operators: [] } }],
-    },
-    { id: "u2", role: "user", messageId: "two", content: "Update total", isBegin: true },
-    {
-      id: "a2",
-      role: "agent",
-      messageId: "two",
-      content: "",
-      toolCalls: [{ toolName: "dataflow", toolCallId: "c2", input: { operators: [], observe: ["total"] } }],
-      toolResults: [
-        {
-          toolCallId: "c2",
-          output: { kind: "native-batch", operators: [], observe: ["total"], observationErrors: [] },
-        },
-      ],
-    },
-  ];
-  const storage = new WorkflowSnapshotStorage(() => []);
-  storage.createSnapshot("a2", state.getWorkflowContent());
-  const rendered = JSON.stringify(
-    assembleTaskContext({
-      visibleSteps: steps,
-      workflowState: state,
-      snapshotStorage: storage,
-      settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "" },
-      compilationResult: null,
-    })
-  );
-  expect(rendered).toContain("Task 1");
-  expect(rendered).toContain("Task 2");
-  expect(rendered).toContain("Keep the original membership fixed");
-  expect(rendered).not.toContain("NEVER_REPLAY_ME");
-  const details = rendered.split("Selected dependency definitions")[1];
-  expect(details).toContain("source");
-  expect(details).toContain("total");
-  expect(details).not.toContain("unrelated");
-});
-
-test("catalog definitions use executable public syntax, including fixed inputs", () => {
-  const state = new WorkflowState();
-  const definitions = [
-    { id: "source", type: "Scan", properties: { files: "data/a.csv" }, inputs: [] },
-    {
-      id: "eligible",
-      type: "Filter",
-      properties: { columns: ["value"], func: "def apply(row):\n    return row['value'] > 0" },
-      inputs: ["source"],
-    },
-    {
-      id: "mixed",
-      type: "Join",
-      properties: { on: "id" },
-      inputs: ["source", "task_archive_hidden"],
-      taskInputs: ["source", { operator: "eligible", atTask: 1 }],
-    },
-    { id: "combined", type: "Union", properties: {}, inputs: ["source", "eligible"] },
-  ];
-  for (const { id, ...nativeOp } of definitions)
-    state.addOperator({
-      operatorID: id,
-      operatorType: "DataProcessing",
-      operatorVersion: "1",
-      operatorProperties: {},
-      inputPorts: [],
-      outputPorts: [],
-      showAdvanced: false,
-      nativeOp: { ...nativeOp, version: "v2" },
-    });
-  const messages = assembleTaskContext({
-    visibleSteps: [{ id: "u1", role: "user", messageId: "one", content: "Continue", isBegin: true } as any],
+  return {
+    visibleSteps: steps,
     workflowState: state,
-    snapshotStorage: new WorkflowSnapshotStorage(() => []),
-    settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "" },
+    snapshotStorage: new WorkflowSnapshotStorage(id =>
+      steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
+    ),
+    settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "", nativeTaskContext: true, agentMode: AgentMode.NATIVE },
     compilationResult: null,
+    turnNumberByMessageId: new Map([
+      ["one", 4],
+      ["two", 8],
+    ]),
+  };
+}
+
+test("catalog memory preserves numbered requests and final answers, without completed action replay", () => {
+  const input = fixture();
+  const messages = taskCatalogMemory(input);
+  expect(messages[0]).toEqual({ role: "user", content: "# Task 4\nKeep dollars and two decimals" });
+  expect(messages[1]).toEqual({ role: "assistant", content: "First answer" });
+  expect(JSON.stringify(messages)).not.toContain("OLD_ACTION_BODY");
+  expect(JSON.stringify(messages)).not.toContain("Current reasoning");
+  expect(JSON.stringify(messages)).not.toContain("providerOptions");
+});
+
+for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+  test(`catalog delegates active ${mode} actions, errors and tool ids to the shared renderer`, async () => {
+    const input = fixture();
+    input.settings.contextMode = mode;
+    const assemble = (value: ContextAssemblerInput) =>
+      assembleContext(value.visibleSteps, value.workflowState, value.snapshotStorage, value.settings.contextMode, {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: mode === ContextMode.DELTA ? "native" : "opBlock",
+      });
+    const active = assemble({ ...input, visibleSteps: input.visibleSteps.filter(s => s.messageId === "two") });
+    const messages = await withTaskCatalog(assemble)(input);
+    expect(messages.slice(-active.length)).toEqual(active);
+    expect(JSON.stringify(messages)).not.toContain("OLD_ACTION_BODY");
+    expect(JSON.stringify(messages)).toContain(mode === ContextMode.DELTA ? "Cannot observe" : "observation errors=1");
+    if (mode === ContextMode.DELTA) expect(JSON.stringify(messages)).toContain("real-call-id");
   });
-  const catalog = messages.find(message => String(message.content).includes("Current operator catalog"))!;
-  const specs = String(catalog.content)
-    .split("\n")
-    .filter(line => line.startsWith("{"))
-    .map(line => JSON.parse(line.split("; schema=")[0]!));
-  const validate = new Ajv({ strict: false }).compile(nativeBatchSchema("v2", { taskHistory: true }));
-  expect(validate({ operators: specs })).toBe(true);
-  expect(specs[1]).toMatchObject({ op: "filter", input: "source" });
-  expect(specs[2]).toMatchObject({ op: "join", left: "source", right: { operator: "eligible", atTask: 1 } });
-  expect(JSON.stringify(messages)).not.toContain("task_archive_hidden");
+}
+
+test("history availability includes deleted operators, without exposing retained file paths", async () => {
+  const input = fixture();
+  const history = new TaskHistory(async () => ({
+    path: "/private/archive.arrow",
+    sha256: "a".repeat(64),
+    rowCount: 5,
+  }));
+  const op = {
+    operatorID: "old",
+    nativeOp: { type: "UDF", properties: { code: "def load(): pass" }, inputs: [], version: "v2" },
+  } as any;
+  const info = {
+    state: "Completed",
+    resultVersion: { id: "v1" },
+    materialization: { executionId: "e1" },
+    totalRowCount: 5,
+  } as any;
+  for (const task of [1, 2, 4]) await history.seal(task, [op], new Map([["old", info]]));
+  const rendered = JSON.stringify(taskCatalogMemory(input, history));
+  expect(rendered).toContain("old: 1-2,4");
+  expect(rendered).not.toContain("/private/");
+  expect(rendered).not.toContain("def load");
 });
 
-test("completed task messages form a stable prefix and observations end the active context", () => {
-  const state = new WorkflowState();
-  const steps: any[] = [
-    { id: "u1", role: "user", messageId: "one", content: "First request", isBegin: true },
-    { id: "a1", role: "agent", messageId: "one", content: "First answer", isEnd: true },
-    { id: "u2", role: "user", messageId: "two", content: "Second request", isBegin: true },
-    { id: "a2", role: "agent", messageId: "two", content: "Second answer", isEnd: true },
-    { id: "u3", role: "user", messageId: "three", content: "Third request", isBegin: true },
-    {
-      id: "a3",
-      role: "agent",
-      messageId: "three",
-      content: "",
-      toolCalls: [{ toolName: "dataflow", toolCallId: "c3", input: { operators: [] } }],
-      toolResults: [
-        { toolCallId: "c3", output: { kind: "native-batch", operators: [], observe: [], observationErrors: [] } },
-      ],
+test("compact cards name historical inputs publicly and preserve the UDF arity", () => {
+  const op = {
+    operatorID: "mixed",
+    nativeOp: {
+      type: "UDF",
+      properties: { code: "def process(current, original):\n    return current" },
+      inputs: ["today", "task_archive_hidden"],
+      taskInputs: ["today", { operator: "old", atTask: 4 }],
     },
-  ];
-  const storage = new WorkflowSnapshotStorage(() => []);
-  storage.createSnapshot("a3", state.getWorkflowContent());
-  const render = (visibleSteps: any[]) =>
-    assembleTaskContext({
-      visibleSteps,
-      workflowState: state,
-      snapshotStorage: storage,
-      settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "" },
-      compilationResult: null,
-    });
-  const second = render(steps.slice(0, 3));
-  const third = render(steps);
-  expect(third.slice(0, 2)).toEqual(second.slice(0, 2));
-  expect(third[0]).toMatchObject({ role: "user", content: "# Task 1\nFirst request" });
-  expect(third[1]).toMatchObject({ role: "assistant", content: "First answer" });
-  expect(third.at(-1)?.role).toBe("tool");
+  } as any;
+  const signature = operatorSignature(op);
+  expect(signature).toContain("udf(def process(current, original))");
+  expect(signature).toContain("today, old@task4");
+  expect(signature).not.toContain("task_archive_hidden");
 });
 
-test("an unchanged operator's card is byte-identical as its saved task range advances", () => {
-  const state = new WorkflowState();
-  for (const [id, type, inputs] of [
-    ["source", "Scan", []],
-    ["eligible", "Filter", ["source"]],
-    ["totals", "Aggregate", ["eligible"]],
-  ] as const)
-    state.addOperator({
-      operatorID: id,
-      operatorType: "DataProcessing",
-      operatorVersion: "1",
-      operatorProperties: {},
-      inputPorts: [],
-      outputPorts: [],
-      showAdvanced: false,
-      nativeOp: { type, properties: {}, inputs: [...inputs], version: "v2" },
-    });
-  const render = (upTo: number) =>
-    assembleTaskContext(
-      {
-        visibleSteps: [{ id: "u1", role: "user", messageId: "one", content: "Next", isBegin: true } as any],
-        workflowState: state,
-        snapshotStorage: new WorkflowSnapshotStorage(() => []),
-        settings: { ...DEFAULT_AGENT_SETTINGS, systemPrompt: "" },
-        compilationResult: null,
-      },
-      {
-        available: () => Array.from({ length: upTo }, (_, i) => i + 1),
-        catalog: () => [],
-      } as any
-    ).find(message => String(message.content).startsWith("# Current operator catalog"))!.content as string;
-  const [after3, after4] = [render(3), render(4)];
-  const cards = (text: string) => text.split("\n").filter(line => line.startsWith("{"));
-  // The range advances on every task for every operator. Held inside the cards
-  // it changed the text of every card each request, including operators nobody
-  // had touched, and made the block longer for no added information.
-  expect(cards(after4)).toEqual(cards(after3));
-  expect(cards(after3).join("\n")).toContain("totals");
-  expect(cards(after3).join("\n")).not.toContain("saved tasks");
-  // The ranges themselves still advance, in one block after the cards.
-  expect(after3).toContain("# Saved task outputs");
-  expect(after3).toContain("source: 1-3");
-  expect(after4).toContain("source: 1-4");
+test("a disabled catalog and initialization delegate the original input unchanged", async () => {
+  for (const input of [fixture(), { ...fixture(), visibleSteps: [] }]) {
+    if (input.visibleSteps.length) input.settings.nativeTaskContext = false;
+    let seen: ContextAssemblerInput | undefined;
+    const messages = [{ role: "user" as const, content: "unchanged" }];
+    expect(
+      await withTaskCatalog(value => {
+        seen = value;
+        return messages;
+      })(input)
+    ).toBe(messages);
+    expect(seen).toBe(input);
+  }
 });

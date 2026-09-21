@@ -37,7 +37,6 @@ import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
   model: LanguageModel;
-  taskModel?: LanguageModel;
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
@@ -45,12 +44,10 @@ export interface VercelToolUseDriverOptions {
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
-  private readonly taskModel?: LanguageModel;
   private readonly temperature: number;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
-    this.taskModel = opts.taskModel;
     this.temperature = opts.temperature ?? 0.2;
   }
 
@@ -59,12 +56,12 @@ export class VercelToolUseDriver implements LLMDriver {
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
     const result = await generateText({
-      model: input.taskContext && this.taskModel ? this.taskModel : this.model,
+      model: this.model,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
+      stopWhen: stepCountIs(input.maxSteps),
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -75,18 +72,14 @@ export class VercelToolUseDriver implements LLMDriver {
         // Provider-side parallel tool-call gating. The agent serializes
         // execution into a topological order via ToolCallScheduler so it's
         // safe to let the model emit multiple tool calls in one turn.
-        openai: {
-          parallelToolCalls: input.parallelToolCalls,
-          promptCacheKey: input.promptCacheKey,
-          ...(input.taskContext && this.taskModel ? { store: false, strictJsonSchema: false } : {}),
-        },
-        texera: { taskCache: input.taskCache !== false },
+        openai: { parallelToolCalls: input.parallelToolCalls },
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
       onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
-        // Provider cache writes are a subset of total input. Read the raw body
-        // because the installed SDK drops newer OpenAI cache_write_tokens.
+        // Preserve provider cache-write accounting from the raw response;
+        // the SDK's typed usage can omit these fields. This does not alter
+        // requests, cache policy, model selection or stopping behavior.
         const stepCacheCreation = Number(
           (response as any)?.body?.usage?.input_tokens_details?.cache_write_tokens ??
             (response as any)?.body?.usage?.prompt_tokens_details?.cache_write_tokens ??
@@ -138,7 +131,7 @@ export class VercelToolUseDriver implements LLMDriver {
       cacheCreationInputTokens: cacheCreationTotal,
     };
     return {
-      text: input.getFinalAnswer?.() ?? result.text,
+      text: result.text,
       messages: result.response.messages,
       usage,
     };

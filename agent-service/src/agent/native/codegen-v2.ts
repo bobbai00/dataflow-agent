@@ -19,16 +19,13 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { deflateSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import type { NativeOpView } from "./catalog";
 import type { CompiledNativeOp } from "./codegen";
 import { NATIVE_V2_OPERATORS } from "./catalog-v2";
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-// Self-contained operator payload, compressed to avoid duplicating large
-// runtime source in every persisted workflow node. This is not prompt data.
-const runtimePayload = deflateSync(readFileSync(runtimePath), { level: 9 }).toString("base64");
+const runtimeSource = readFileSync(runtimePath, "utf8");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 export function nativeRevision(view: NativeOpView): string {
@@ -69,8 +66,7 @@ export async function validateNativeV2(view: NativeOpView, operatorId: string): 
       new Response(child.stderr).text(),
     ]);
     if (timedOut) throw new Error("Python syntax validation timed out; no operator was changed.");
-    // A traceback names its cause on the last line; the head is only file paths.
-    if (code !== 0) throw new Error(`Python syntax validation unavailable: ${stderr.trim().slice(-500)}`);
+    if (code !== 0) throw new Error(`Python syntax validation unavailable: ${stderr.slice(0, 500)}`);
     const result = JSON.parse(stdout);
     if (!result.ok) throw new Error(`NATIVE_ERROR_V2:${JSON.stringify(result.diagnostic)}`);
   } finally {
@@ -95,8 +91,7 @@ export function compileNativeV2(view: NativeOpView, operatorId: string): Compile
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_v2_runtime__"}`,
-    `import base64 as ${prefix}_base64, zlib as ${prefix}_zlib`,
-    `exec(${prefix}_zlib.decompress(${prefix}_base64.b64decode(${JSON.stringify(runtimePayload)})).decode("utf-8"), ${prefix}_scope)`,
+    `exec(${JSON.stringify(runtimeSource)}, ${prefix}_scope)`,
   ].join("\n");
   return { operatorType: source ? "DataLoading" : "DataProcessing", code };
 }
