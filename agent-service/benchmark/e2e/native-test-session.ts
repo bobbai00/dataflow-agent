@@ -40,7 +40,7 @@ import { assertNativeCleanupSafe } from "./native-cleanup";
 
 /** Real execution via debug; context is assembled from the service's actual
  * snapshots with production code. This is deliberately NOT an LLM input test. */
-export async function nativeTestSession(settings: AgentSettingsApi = {}) {
+export async function nativeTestSession(settings: AgentSettingsApi = {}, modelType = "gpt-5.6-luna") {
   const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3011";
   const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
   const name = `native-v2-smoke-${Date.now()}`;
@@ -88,7 +88,7 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}) {
         userToken: token,
         workflowId: wid,
         computingUnitId: cuid,
-        modelType: "gpt-5.6-luna",
+        modelType,
         settings: {
           agentMode: "native",
           nativeToolMode: "batch",
