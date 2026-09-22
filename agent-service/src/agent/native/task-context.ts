@@ -100,6 +100,17 @@ function ranges(numbers: number[]): string {
  * catalog replaces completed action traces, not the active task's ReAct.
  * Complete definitions and observed evidence use the shared context assembler. */
 export function taskCatalogMemory(input: ContextAssemblerInput, history?: TaskHistory): ModelMessage[] {
+  const parts = taskCatalogParts(input, history);
+  return [...parts.completed, parts.catalog];
+}
+
+/** The completed question/answer pairs and the operator catalog, kept apart
+ * because they cache differently: the pairs are append-only and belong in the
+ * prefix, the catalog is rewritten whenever the graph changes and belongs last. */
+export function taskCatalogParts(
+  input: ContextAssemblerInput,
+  history?: TaskHistory
+): { completed: ModelMessage[]; catalog: ModelMessage } {
   const tasks = input.visibleSteps.filter(step => step.role === "user" && step.isBegin);
   const number = (messageId: string) =>
     input.turnNumberByMessageId?.get(messageId) ?? tasks.findIndex(step => step.messageId === messageId) + 1;
@@ -110,6 +121,7 @@ export function taskCatalogMemory(input: ContextAssemblerInput, history?: TaskHi
     if (answer?.content) messages.push({ role: "assistant", content: answer.content });
   }
   const head = input.visibleSteps.at(-1)?.id;
+  const provenance = history?.provenance() ?? new Map();
   const catalog = input.workflowState
     .getAllOperators()
     .filter(op => !op.taskSource)
@@ -117,17 +129,28 @@ export function taskCatalogMemory(input: ContextAssemblerInput, history?: TaskHi
       const info = input.snapshotStorage.getOperatorResult(head, op.operatorID);
       const schema = info?.resultSchema?.map(f => `${f.name}:${f.type}`).join(",") ?? "unknown";
       const status = info?.error ? "current result unavailable" : (info?.state ?? "not executed");
-      return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}`;
+      const event = provenance.get(op.operatorID);
+      const saved = event
+        ? `; created@${event.created}${event.edited.length ? ` edited@${event.edited.join(",")}` : ""}${
+            event.gaps.length ? ` not saved@${event.gaps.join(",")}` : ""
+          }`
+        : "";
+      return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${saved}`;
     });
-  const saved = new Map<string, number[]>();
-  for (const task of history?.catalog() ?? [])
-    for (const id of task.operators) saved.set(id, [...(saved.get(id) ?? []), task.task]);
-  const availability = [...saved].map(([id, tasks]) => `${id}: ${ranges(tasks)}`).join("\n");
-  messages.push({
-    role: "user",
-    content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}${availability ? `\n\n# Saved task outputs, usable as {operator, atTask}\n${availability}` : ""}`,
-  });
-  return messages;
+  // An operator that has left the graph keeps its retained outputs, so it stays
+  // referenceable by task. Its line is final once it is gone.
+  for (const [id, event] of provenance) {
+    if (input.workflowState.getOperator(id)) continue;
+    catalog.push(
+      `${id} = no longer in the graph; created@${event.created}${
+        event.edited.length ? ` edited@${event.edited.join(",")}` : ""
+      }${event.gaps.length ? ` not saved@${event.gaps.join(",")}` : ""}; last saved@${event.lastSaved}`
+    );
+  }
+  return {
+    completed: messages,
+    catalog: { role: "user", content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}` },
+  };
 }
 
 /** Compose catalog memory with the configured synchronous or async assembler.
@@ -138,12 +161,16 @@ export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistor
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
     if (!current) return assemble(input);
-    const memory = taskCatalogMemory(input, input.settings.nativeTaskHistory ? history : undefined);
+    const parts = taskCatalogParts(input, input.settings.nativeTaskHistory ? history : undefined);
     const active = assemble({
       ...input,
       visibleSteps: input.visibleSteps.filter(step => step.messageId === current.messageId),
       offBranchTurns: [],
     });
-    return active instanceof Promise ? active.then(messages => [...memory, ...messages]) : [...memory, ...active];
+    // Everything append-only first, the rewritten catalog last: a prompt cache
+    // matches a prefix, so a block that changes each call must not sit in front
+    // of the tool results, which do not change once returned.
+    const order = (messages: ModelMessage[]) => [...parts.completed, ...messages, parts.catalog];
+    return active instanceof Promise ? active.then(order) : order(active);
   };
 }

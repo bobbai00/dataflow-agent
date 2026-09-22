@@ -100,7 +100,10 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       });
     const active = assemble({ ...input, visibleSteps: input.visibleSteps.filter(s => s.messageId === "two") });
     const messages = await withTaskCatalog(assemble)(input);
-    expect(messages.slice(-active.length)).toEqual(active);
+    // The active turn is delegated unchanged; the rewritten catalog follows it,
+    // so that a prompt cache can match every message the turn already produced.
+    expect(messages.at(-1)!.content).toContain("# Current operator catalog");
+    expect(messages.slice(-active.length - 1, -1)).toEqual(active);
     expect(JSON.stringify(messages)).not.toContain("OLD_ACTION_BODY");
     expect(JSON.stringify(messages)).toContain(mode === ContextMode.DELTA ? "Cannot observe" : "observation errors=1");
     if (mode === ContextMode.DELTA) expect(JSON.stringify(messages)).toContain("real-call-id");
@@ -126,9 +129,51 @@ test("history availability includes deleted operators, without exposing retained
   } as any;
   for (const task of [1, 2, 4]) await history.seal(task, [op], new Map([["old", info]]));
   const rendered = JSON.stringify(taskCatalogMemory(input, history));
-  expect(rendered).toContain("old: 1-2,4");
+  // Events, not a span: a span has to be rewritten every task, and it would
+  // also claim task 3 holds a version of `old`, which it does not.
+  // Task 3 was never sealed, so no version of anything exists at 3 and the line
+  // states only the events: created once, last retained at 4.
+  expect(rendered).toContain("old = no longer in the graph; created@1; last saved@4");
+  expect(rendered).not.toContain("old: 1-2,4");
   expect(rendered).not.toContain("/private/");
   expect(rendered).not.toContain("def load");
+});
+
+test("a catalog line states creation and edits once, and does not change while the operator does not", async () => {
+  const input = fixture();
+  const retain = async () => ({ path: "/tmp/a.arrow", sha256: "a".repeat(64), rowCount: 1 });
+  const history = new TaskHistory(retain);
+  const view = (revision: string) => ({
+    operatorID: "report",
+    nativeOp: { type: "UDF", properties: { code: "def load(): pass" }, inputs: [], version: "v2", revision },
+  });
+  const info = {
+    state: "Completed",
+    resultVersion: { id: "v1" },
+    materialization: { executionId: "e1" },
+    totalRowCount: 1,
+  } as any;
+  for (const [task, revision] of [
+    [1, "aaaa"],
+    [2, "aaaa"],
+    [3, "bbbb"],
+    [4, "bbbb"],
+  ] as Array<[number, string]>)
+    await history.seal(task, [view(revision) as any], new Map([["report", info]]));
+  const line = history.provenance().get("report")!;
+  expect(line).toEqual({ created: 1, edited: [3], lastSaved: 4, gaps: [] });
+  // The operator leaves the graph: task 5 seals without it. Its line is final.
+  const before = JSON.stringify(taskCatalogMemory(input, history));
+  await history.seal(5, [], new Map());
+  expect(JSON.stringify(taskCatalogMemory(input, history))).toBe(before);
+  // A task sealed in between that holds no version of it is a permanent gap,
+  // so a later reader cannot assume the span is unbroken.
+  const gapped = new TaskHistory(retain);
+  await gapped.seal(1, [view("aaaa") as any], new Map([["report", info]]));
+  await gapped.seal(2, [], new Map());
+  await gapped.seal(3, [view("aaaa") as any], new Map([["report", info]]));
+  expect(gapped.provenance().get("report")).toEqual({ created: 1, edited: [], lastSaved: 3, gaps: [2] });
+  expect(JSON.stringify(taskCatalogMemory(input, gapped))).toContain("created@1 not saved@2; last saved@3");
 });
 
 test("compact cards name historical inputs publicly and preserve the UDF arity", () => {

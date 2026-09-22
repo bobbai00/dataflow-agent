@@ -164,7 +164,10 @@ test("a catalog switch preserves computed results and retained bindings across t
   expect(agent.getWorkflowState().getWorkflowContent()).toEqual(workflow);
   expect(history.available("source")).toEqual([1, 2]);
   expect(retained).toEqual(["source"]);
-  expect(nextContext).toContain("source: 1");
+  // The retained version is stated on the operator's own line as an event, and
+  // the catalog is rendered after the active turn so the turn's messages cache.
+  expect(nextContext).toContain("source = scan(fixture.csv); schema=unknown; Completed; rows=0; created@1");
+  expect(JSON.parse(nextContext).messages.at(-1).content).toContain("# Current operator catalog");
   expect(agent.getSnapshotStorage().getOperatorResult(agent.getHead(), "source")?.result).toEqual([]);
   expect(agent.getAllSteps().some(step => /STALE_ANSWER|EMPTY_ANCESTOR/.test(step.content))).toBe(false);
 });

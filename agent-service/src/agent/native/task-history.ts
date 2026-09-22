@@ -114,6 +114,39 @@ export class TaskHistory {
   available(operator: string): number[] {
     return [...this.tasks].filter(([, outputs]) => outputs.has(operator)).map(([task]) => task);
   }
+  /** Creation and edit events per operator, read from the definitions sealed at
+   * each task. A version *range* is derived information that has to be rewritten
+   * every turn ("8-9" becomes "8-10"); an event is written once and never
+   * changes, so it can live in a cached prefix. `lastSaved` is the newest task
+   * holding a retained output, which an operator keeps after it leaves the graph. */
+  provenance(): Map<string, { created: number; edited: number[]; lastSaved: number; gaps: number[] }> {
+    const result = new Map<string, { created: number; edited: number[]; lastSaved: number; gaps: number[] }>();
+    const revisions = new Map<string, string | undefined>();
+    const sealed = [...this.tasks.keys()].sort((a, b) => a - b);
+    const savedAt = new Map<string, Set<number>>();
+    for (const task of sealed) {
+      for (const [id, output] of this.tasks.get(task)!) {
+        const revision = output.operator.nativeOp?.revision;
+        const seen = result.get(id);
+        if (!seen) result.set(id, { created: task, edited: [], lastSaved: task, gaps: [] });
+        else {
+          if (revisions.get(id) !== revision) seen.edited.push(task);
+          seen.lastSaved = task;
+        }
+        revisions.set(id, revision);
+        savedAt.set(id, (savedAt.get(id) ?? new Set()).add(task));
+      }
+    }
+    // A task between the first and last retention that holds no version of this
+    // operator: the reader must not assume the span is unbroken. Once a gap
+    // exists it is permanent, so naming it keeps the line append-only.
+    for (const [id, event] of result) {
+      const present = savedAt.get(id)!;
+      event.gaps = sealed.filter(task => task > event.created && task < event.lastSaved && !present.has(task));
+    }
+    return result;
+  }
+
   catalog(): Array<{ task: number; operators: string[] }> {
     return [...this.tasks].map(([task, outputs]) => ({ task, operators: [...outputs.keys()] }));
   }

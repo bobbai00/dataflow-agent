@@ -653,7 +653,19 @@ interface NativePromptLayoutOptions {
   recall?: boolean;
   batch?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
+  /** The session context replaces completed action traces with a catalog. */
+  taskCatalog?: boolean;
+  /** Each completed task's outputs are retained and addressable by task number. */
+  taskHistory?: boolean;
 }
+
+/** The agent has to be told how to read the catalog it is shown, and that a
+ * `created@` marker is an address it may write back. Stated once, in the stable
+ * head of the prompt, so it costs one cached prefix for the whole session. */
+const TASK_CATALOG_LAYOUT =
+  "\n\nThis is one session of numbered tasks. Completed tasks appear first as the question you were asked and the answer you gave. `# Current operator catalog` follows your current work, one line per operator: id, operation over its inputs, output schema, execution state and row count.";
+const TASK_HISTORY_LAYOUT =
+  " A catalog line ending `created@N` means the output that operator held at the end of task N was retained, and `edited@M` marks each later task where you changed its definition. Read any retained output by giving `{operator: 'id', atTask: N}` wherever an input id is accepted: that is the exact table as of that task, and it does not move when you edit the operator afterwards. A line with no `created@` has no saved version yet. An operator you deleted keeps its retained outputs and stays addressable, shown as `no longer in the graph`.";
 
 function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativePromptLayoutOptions): string {
   const delta = contextMode === ContextMode.DELTA;
@@ -692,9 +704,10 @@ function buildNativeBatchSystemPrompt(contextMode: ContextMode, options: NativeP
           : " Only a `result not requested` receipt needs a cached observe when its contents are necessary.") +
         " A saved inspection likewise completes that diagnostic pull; inspect it and proceed instead of repeating the failed edit."
       : "";
+  const taskLayout = options.taskCatalog ? TASK_CATALOG_LAYOUT + (options.taskHistory ? TASK_HISTORY_LAYOUT : "") : "";
   return template
     .replace("{{OPERATOR_CATALOG}}", nativeBatchCatalogText(options.nativeCatalogVersion))
-    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
+    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{INSPECTION_LOCATION}}", inspectionLocation)
     .replace("{{RECALL_TOOL}}", recall);

@@ -606,6 +606,8 @@ export class TexeraAgent {
         batch: this.settings.nativeToolMode === "batch",
         nativeCatalogVersion: this.settings.nativeCatalogVersion,
         messageLayout: this.settings.messageLayout,
+        taskCatalog: this.settings.nativeTaskContext === true,
+        taskHistory: this.settings.nativeTaskHistory === true,
       });
     } else if (this.settings.agentMode === AgentMode.GENERAL) {
       this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
