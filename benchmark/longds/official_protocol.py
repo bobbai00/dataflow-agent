@@ -20,6 +20,7 @@ answers this harness produces are extracted exactly as that runner's are;
 """
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -52,6 +53,39 @@ PERSISTENCE = {
     ),
 }
 
+LISTING_HINT = {
+    "dataflow": (
+        "- When you need the exact file names in a folder, list it with a `process` "
+        "function using `glob`; `scan(path, preview=n)` shows a file's first lines."
+    ),
+    "script": "- When you need the exact file names in a folder, list it with `os.listdir` or `glob`.",
+}
+
+# Up to this many files are listed one per line. Beyond it the inventory is the
+# data directory and its folders with file counts: upstream's agent receives the
+# directory alone and lists it itself, and a 533-file inventory (policing) is
+# 27k tokens that would otherwise ride on every model call of the session.
+INVENTORY_FULL_LIMIT = 12
+
+
+def inventory(manifest: dict) -> tuple[str, str, bool]:
+    """(heading, lines, summarized)."""
+    files = manifest["files"]
+    if len(files) <= INVENTORY_FULL_LIMIT:
+        heading = "Data files available (use these paths verbatim, they are relative — no leading slash):"
+        return heading, "\n".join(f" - {path}" for path in files), False
+    data_dir = manifest["data_dir"].rstrip("/")
+    counts: Counter = Counter()
+    for path in files:
+        rel = path[len(data_dir) + 1 :] if path.startswith(data_dir + "/") else path
+        parts = rel.split("/")
+        counts["/".join(parts[:2]) if len(parts) > 2 else (parts[0] if len(parts) == 2 else "(top level)")] += 1
+    heading = "Data directory (relative path, no leading slash) and its folders with file counts:"
+    lines = [f" - {data_dir}/  ({len(files)} files)"]
+    lines += [f"   - {folder}/: {count} files" for folder, count in sorted(counts.items())]
+    return heading, "\n".join(lines), True
+
+
 SHARED_RULES = (
     "- Do not use plotting libraries. Use text summaries and statistics.\n"
     "- Use code for every calculation rather than doing arithmetic yourself.\n"
@@ -64,7 +98,8 @@ def build_prompts(manifest: dict, arm_kind: str) -> list[dict]:
     context and question only, exactly as upstream presents them."""
     if arm_kind not in PERSISTENCE:
         raise ValueError(f"arm_kind must be one of {sorted(PERSISTENCE)}")
-    files = "\n".join(f" - {p}" for p in manifest["files"])
+    heading, files, summarized = inventory(manifest)
+    rules = PERSISTENCE[arm_kind] + (f"\n{LISTING_HINT[arm_kind]}" if summarized else "")
     prompts = []
     for index, turn in enumerate(manifest["turns"]):
         body = f"{turn['context']}\nQuestion: {turn['question']}"
@@ -72,10 +107,10 @@ def build_prompts(manifest: dict, arm_kind: str) -> list[dict]:
             body = (
                 "You are an expert data scientist working through a long analysis with me. "
                 "I will send you a series of requests, one at a time, about the same data.\n\n"
-                "Data files available (use these paths verbatim, they are relative — no leading slash):\n"
+                f"{heading}\n"
                 f"{files}\n\n"
                 "How this session works:\n"
-                f"{PERSISTENCE[arm_kind]}\n{SHARED_RULES}\n\n"
+                f"{rules}\n{SHARED_RULES}\n\n"
                 f"{ANSWER_CONTRACT}\n\n"
             ) + body
         prompts.append({"turn_id": turn["turn_id"], "prompt": body})
