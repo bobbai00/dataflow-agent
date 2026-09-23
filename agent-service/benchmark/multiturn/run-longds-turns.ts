@@ -50,7 +50,12 @@ const settings = {
   // catalog arm replaces completed turns with its own Q/A layout.
   sessionTurns: arm === "react-full",
   versionedMode: false,
-  userTaskPlacement: "bottom" as const,
+  // The task text goes before the turn's events, so every call of a turn extends
+  // the previous call's prompt (a task block placed after the events is pushed
+  // down by each new event, and no request is a prefix of the next). Measured on
+  // trial 3: with "bottom", later calls of a turn cached 35%; with "top", they
+  // reuse the whole previous prompt.
+  userTaskPlacement: "top" as const,
 };
 const session = await nativeTestSession(settings, model);
 const write = (path: string, value: unknown) => Bun.write(`${out}/${path}`, JSON.stringify(value, null, 2));
