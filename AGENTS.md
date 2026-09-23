@@ -145,6 +145,9 @@ Python in `benchmark/Kramabench/dataflow_agent.py`.
 Tools per mode: native exposes `dataflow`, `deleteOperator` and
 `inspectError`; code exposes `createOrModifyOperator` and `deleteOperator`.
 `recallState`, `resumeFrom` and `compactContext` are opt-in in either mode.
+The rendered native system prompt, tool definitions and operator reference
+live in [native-mode/](native-mode/), generated from the code by
+`bun run render:native-reference` (a test fails when they drift).
 
 ### Default agent configuration
 

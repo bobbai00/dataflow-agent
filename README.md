@@ -133,7 +133,10 @@ Optional pull tools in either mode, all off by default: `recallState`
 (`enableCompactTool`). Native mode forces provider parallel tool calls off;
 the program is the batch. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) for the
-program grammar, the operator reference and the error taxonomy.
+program grammar, the operator reference and the error taxonomy, and
+[native-mode/](native-mode/) for the complete system prompt, the exact tool
+definitions and the operator reference as the model receives them (generated
+from the code; `bun run render:native-reference` in `agent-service/`).
 
 ### Default configuration
 
