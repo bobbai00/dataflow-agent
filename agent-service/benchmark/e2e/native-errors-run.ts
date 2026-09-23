@@ -169,12 +169,20 @@ try {
   });
   agentId = agent.id;
 
-  // 1. Program syntax: nothing lands, line and column reported.
-  const syntax = await debug("dataflow", { program: 'sales = scan("x.csv"\nnames = scan("y.csv")', observe: [] });
-  check("syntax error refuses the whole program", lastObservation(syntax.context), [
-    "Program syntax error at line",
-    "Nothing was changed",
+  // 1. Program syntax: the unparseable statement fails at its line; the other
+  //    statement lands (and then fails at execution, since the file is absent).
+  const syntax = await debug("dataflow", {
+    program: 'sales_probe = scan("x.csv"\nnames_probe = scan("y.csv")',
+    observe: [],
+  });
+  check("an unparseable statement fails alone at its line", lastObservation(syntax.context), [
+    "[PROGRAM_SYNTAX; validate;",
+    "line 1",
+    "was never closed",
+    "other statements landed",
+    "scan operator `names_probe` added",
   ]);
+  await debug("deleteOperator", { id: "names_probe" });
 
   // 2. Argument layer (TypeScript): the value the model wrote, the accepted set and the signature.
   const args = await debug("dataflow", {

@@ -82,6 +82,7 @@ function clipped(value: string, limit: number): string {
 /** Repair hint per code, rendered after the message in every receipt. */
 export const REPAIR_HINTS: Record<string, string> = {
   // Program / arguments
+  PROGRAM_SYNTAX: "Fix this statement at the reported line and resubmit it alone; the other statements already landed.",
   INVALID_ARGUMENTS: "Fix the named argument to match the signature; nothing about the data has been checked yet.",
   OPERATOR_UNAVAILABLE: "Use one of the catalog operators; the engine has no other implementation.",
   OPERATOR_ID: "Table names are Python identifiers: letters, digits and underscores, not starting with a digit.",

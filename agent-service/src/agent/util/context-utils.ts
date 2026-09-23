@@ -1988,7 +1988,9 @@ function serializeTaskBody(
               actedVerb.set(outcome.id, outcome.status === "added" ? "added" : "updated");
               delta.add(outcome.id);
             } else
-              noChangeOutcome.push(`- ${outcome.op} operator \`${outcome.id}\` ${outcome.status}: ${outcome.message}`);
+              noChangeOutcome.push(
+                `- ${outcome.op === "program" ? "statement" : `${outcome.op} operator`} \`${outcome.id}\` ${outcome.status}: ${outcome.message}`
+              );
           }
           for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
           return;

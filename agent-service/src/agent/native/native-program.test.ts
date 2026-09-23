@@ -37,7 +37,8 @@ const python = process.env.UDF_PYTHON_PATH ?? fileURLToPath(new URL("../../../..
 
 async function views(program: string): Promise<Record<string, ProgramStatement>> {
   const compiled = await compileProgram(program);
-  if (!compiled.ok) throw new Error(`syntax error line ${compiled.error.line}: ${compiled.error.message}`);
+  if (compiled.errors.length)
+    throw new Error(`syntax error line ${compiled.errors[0].line}: ${compiled.errors[0].message}`);
   return Object.fromEntries(compiled.statements.map(s => [s.id, s]));
 }
 
@@ -324,14 +325,14 @@ i = process(source, fn=lambda a, b: a)
   ];
   test.each(argumentSlips)("argument slip: %s", async (_name, statement, fragments) => {
     const compiled = await compileProgram(statement);
-    if (!compiled.ok) throw new Error(`unexpected syntax error: ${compiled.error.message}`);
+    if (compiled.errors.length) throw new Error(`unexpected syntax error: ${compiled.errors[0].message}`);
     const [st] = compiled.statements;
     expect(st.error).toBeDefined();
     for (const fragment of fragments) expect(st.error!.message).toContain(fragment);
     if (!st.error!.message.startsWith("Unknown operator")) expect(st.error!.message).toContain("Signature: ");
   });
 
-  test("syntax and structure errors fail the whole program with a line number", async () => {
+  test("a statement that does not parse fails alone with its line; the rest of the program lands", async () => {
     for (const [program, message] of [
       ["x = 5", "must be an operator call"],
       ["import pandas\nx = scan('a.csv')", "Top-level imports are not allowed"],
@@ -345,12 +346,32 @@ i = process(source, fn=lambda a, b: a)
       ["x = scan(**{1: 2})", "string literals"],
     ] as const) {
       const result = await compileProgram(program);
-      expect(result.ok, program).toBe(false);
-      if (!result.ok) {
-        expect(result.error.message).toContain(message);
-        expect(result.error.line).toBeGreaterThan(0);
-      }
+      expect(result.errors.length, program).toBeGreaterThan(0);
+      expect(result.errors[0].message, program).toContain(message);
+      expect(result.errors[0].line).toBeGreaterThan(0);
     }
+    // An unclosed parenthesis costs its own statement only; a def keeps its
+    // continuation lines; a structural slip is reported at its own line.
+    const mixed = await compileProgram(
+      [
+        'a = scan("x.csv"',
+        "b = limit(a, 1)",
+        "def f(row):",
+        "    return (row['v'] +",
+        "            1) > 1",
+        "c = filter(t, f)",
+        "print(1)",
+        'd = map(t, k=int64(lambda row: "a#b("))',
+      ].join("\n")
+    );
+    expect(mixed.statements.map(s => s.id)).toEqual(["b", "c", "d"]);
+    expect(Object.keys(mixed.functions)).toEqual(["f"]);
+    expect(mixed.errors.map(e => [e.id ?? null, e.line])).toEqual([
+      ["a", 1],
+      [null, 7],
+    ]);
+    expect(mixed.errors[0].message).toContain("was never closed");
+    expect(mixed.statements[1].line).toBe(6);
   });
 
   test("revisions ignore formatting but follow the definition", async () => {
@@ -528,10 +549,35 @@ describe("native prompt", () => {
         expect(examples.length).toBeGreaterThanOrEqual(8);
         for (const example of examples) {
           const compiled = await compileProgram(example);
-          expect(compiled.ok, example).toBe(true);
-          if (compiled.ok) for (const s of compiled.statements) expect(s.error, s.source).toBeUndefined();
+          expect(compiled.errors, example).toEqual([]);
+          for (const s of compiled.statements) expect(s.error, s.source).toBeUndefined();
         }
       }
+    }
+  });
+
+  test("the prompt carries no benchmark-specific files, columns or domains", () => {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA).toLowerCase();
+    for (const token of [
+      "wildfire",
+      "noaa",
+      "roman",
+      "barrington",
+      "hanson",
+      "kalapodi",
+      "sp3",
+      "acres",
+      "fire_difference",
+      "cibersort",
+      "sentinel",
+      "astronomy",
+      "archeology",
+      "biomedical",
+      "data/legal",
+      "data/environment",
+      "kramabench",
+    ]) {
+      expect(prompt.includes(token), token).toBe(false);
     }
   });
 

@@ -22,7 +22,7 @@
  *
  * The model writes a dataflow as a program of assignments,
  *
- *     greece = filter(roman_cities, lambda row: row["Country"] == "Greece")
+ *     large = filter(orders, lambda row: row["amount"] > 100)
  *
  * one per operator: the left name is the output table's id, the positional
  * arguments are the input tables (the DAG's edges are derived from them, never
@@ -494,7 +494,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: 'cast(T, column=dtype, ..., errors="raise")',
-    doc: 'Changes column types: `cast(t, amount=float64, year=int64)`; a column whose name is not an identifier goes through `**{"Acres Burned": float64}`. dtypes are str, int64, float64, bool, datetime; `datetime(format="%Y-%m-%d", tz="UTC")` takes an explicit format and timezone (naive values need tz). A value that does not convert fails the operator, or becomes missing with errors="null". Normalize text (thousands separators, percent signs) with map first.',
+    doc: 'Changes column types: `cast(t, amount=float64, year=int64)`; a column whose name is not an identifier goes through `**{"Unit Price": float64}`. dtypes are str, int64, float64, bool, datetime; `datetime(format="%Y-%m-%d", tz="UTC")` takes an explicit format and timezone (naive values need tz). A value that does not convert fails the operator, or becomes missing with errors="null". Normalize text (thousands separators, percent signs) with map first.',
     schema: object(
       {
         columns: list(object({ column: S, dtype: DTYPE, format: S, timezone: S }, ["column", "dtype"])),

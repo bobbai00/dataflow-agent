@@ -24,7 +24,7 @@
  * Drives the `dataflow` program tool through the debug transport: a chain with
  * a process loader, observe/hidden receipts, a cached read, an upstream
  * revision that refreshes an existing descendant, a preview window with
- * skip_lines, a syntax error that changes nothing, a partial failure, an
+ * skip_lines, a statement that does not parse, a partial failure, an
  * execution error that supersedes a success, and inspectError. It creates and
  * removes its own workflow, agent and computing unit; no model is called.
  */
@@ -277,10 +277,10 @@ try {
   assert.match(lastObservation(missingWindow.context), /missing\.txt/);
   assert.ok(!lastObservation(missingWindow.context).includes("WINDOW_FOUR"), "failed revision exposed old data");
 
-  // 6. A syntax error changes nothing.
+  // 6. A statement that does not parse fails alone and lands nothing of its own.
   const before = await getSnapshot(agentId, "head", baseUrl);
   const syntax = await debug("dataflow", { program: "broken = filter(source, lambda row: row['x'] >", observe: [] });
-  assert.match(syntax.context, /syntax error at line 1/);
+  assert.match(syntax.context, /PROGRAM_SYNTAX[^\n]*line 1/);
   assert.deepEqual(
     (await getSnapshot(agentId, "head", baseUrl)).workflow,
     before.workflow,
