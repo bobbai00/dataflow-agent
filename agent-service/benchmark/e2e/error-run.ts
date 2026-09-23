@@ -24,12 +24,12 @@
  * For every spec we assert that `info.error` of the failing operator
  * contains:
  *   - the expected exception type
- *   - the user code (we look for the "Operator code:" header)
- *   - the offending line, marked with `>` (the renderer in
- *     data_processor.py prefixes the failing line with "> <num> | ...")
+ *   - the user-code line pointer the worker emits, `(line N) \`source\` - `,
+ *     whose backticked source is the offending statement
  *
- * Any spec where these don't all match means the new error format from
- * `data_processor.py:_report_exception` regressed.
+ * The worker no longer echoes the operator's code (the agent renderer appends
+ * it from the DAG), so the pointer is the whole contract. Any spec where these
+ * don't match means `data_processor.py:_report_exception` regressed.
  */
 
 import {
@@ -109,16 +109,16 @@ function assertErrorShape(spec: ErrorWorkflowSpec, info: OperatorInfo | undefine
       ok: error.includes(spec.expectedExceptionType),
     },
     {
-      label: 'contains "Operator code:" section header',
-      ok: error.includes("Operator code:"),
+      label: "contains a `(line N) `source` - ` pointer",
+      ok: /\(line \d+\) `[^`]*` - /.test(error),
     },
     {
-      label: 'contains a ">"-marked line',
-      ok: /^>\s+\d+\s+\|/m.test(error),
+      label: `the pointer carries the offending source: "${spec.expectedLineSubstring}"`,
+      ok: pointerCarriesSubstring(error, spec.expectedLineSubstring),
     },
     {
-      label: `the marked line carries the offending source: "${spec.expectedLineSubstring}"`,
-      ok: hasMarkedLineWithSubstring(error, spec.expectedLineSubstring),
+      label: "does not echo the operator code (the agent renderer appends it)",
+      ok: !error.includes("Operator code:"),
     },
   ];
 
@@ -131,15 +131,13 @@ function assertErrorShape(spec: ErrorWorkflowSpec, info: OperatorInfo | undefine
 }
 
 /**
- * Confirm that the line carrying `substring` is the one prefixed with `>`,
- * not just *some* line in the dump. Catches the regression where the marker
- * lands one line off.
+ * Confirm that the backticked source inside the `(line N) \`…\` - ` pointer
+ * carries `substring`, not just some other part of the message. Catches the
+ * regression where the pointer names the wrong line.
  */
-function hasMarkedLineWithSubstring(error: string, substring: string): boolean {
-  for (const line of error.split(/\r?\n/)) {
-    if (/^>\s/.test(line) && line.includes(substring)) return true;
-  }
-  return false;
+function pointerCarriesSubstring(error: string, substring: string): boolean {
+  const pointer = /\(line \d+\) `([^`]*)` - /.exec(error);
+  return pointer !== null && pointer[1].includes(substring);
 }
 
 async function runOne(

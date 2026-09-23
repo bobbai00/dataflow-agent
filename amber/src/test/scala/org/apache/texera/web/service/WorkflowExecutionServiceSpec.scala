@@ -59,12 +59,13 @@ class WorkflowExecutionServiceSpec extends AnyFlatSpec with Matchers {
 
   private def buildService(
       store: ExecutionStateStore,
-      errorHandler: Throwable => Unit = (_: Throwable) => ()
+      errorHandler: Throwable => Unit = (_: Throwable) => (),
+      logicalPlan: LogicalPlanPojo = LogicalPlanPojo(List.empty, List.empty, List.empty, List.empty)
   ): WorkflowExecutionService = {
     val request = WorkflowExecuteRequest(
       executionName = "test",
       engineVersion = "test",
-      logicalPlan = LogicalPlanPojo(List.empty, List.empty, List.empty, List.empty),
+      logicalPlan = logicalPlan,
       replayFromExecution = None,
       workflowSettings = WorkflowSettings(),
       emailNotificationEnabled = false,
@@ -74,6 +75,7 @@ class WorkflowExecutionServiceSpec extends AnyFlatSpec with Matchers {
       null,
       new WorkflowContext(),
       null,
+      null, // cache service is also deliberately absent in this constructor test
       request,
       store,
       errorHandler,
@@ -142,5 +144,21 @@ class WorkflowExecutionServiceSpec extends AnyFlatSpec with Matchers {
     store.metadataStore.updateState(_.withState(RUNNING))
 
     events.collect { case e: WorkflowStateEvent => e } should not be empty
+  }
+
+  it should "expose an unattempted phase record without constructing a runtime" in {
+    val service = buildService(new ExecutionStateStore())
+    service.phaseMetrics.compilation shouldBe "not_attempted"
+    service.phaseMetrics.runtimeStartAttempted shouldBe false
+  }
+
+  it should "record a real compiler-call rejection before the generic error handler runs" in {
+    val failures = mutable.ArrayBuffer.empty[Throwable]
+    val service = buildService(new ExecutionStateStore(), failures += _, logicalPlan = null)
+    service.executeWorkflow()
+    failures should have size 1
+    service.phaseMetrics.compilation shouldBe "failed"
+    service.phaseMetrics.compilationDurationMs.get should be >= 0.0
+    service.phaseMetrics.runtimeStartAttempted shouldBe false
   }
 }

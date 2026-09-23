@@ -108,9 +108,7 @@ function resultRows(info: OperatorInfo | undefined): number {
 function resultCols(info: OperatorInfo | undefined): number {
   const r = info?.result;
   if (!Array.isArray(r) || r.length === 0 || typeof r[0] !== "object" || r[0] === null) {
-    // fall back to columnStats keys
-    const stats = info?.columnStats;
-    return stats ? Object.keys(stats).filter(k => !k.startsWith("__")).length : 0;
+    return info?.resultSchema?.length ?? 0;
   }
   return Object.keys(r[0] as Record<string, unknown>).filter(k => !HIDDEN_KEYS.has(k)).length;
 }

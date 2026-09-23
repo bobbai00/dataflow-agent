@@ -45,7 +45,7 @@ function scenario(): Scenario {
       role: "agent",
       messageId: "m1",
       parentId: "u1",
-      content: "**Final Answer:** {\"rows\": 120}",
+      content: '**Final Answer:** {"rows": 120}',
       isEnd: true,
       toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "scores" } }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
@@ -57,7 +57,7 @@ function scenario(): Scenario {
       role: "agent",
       messageId: "m2",
       parentId: "u2",
-      content: "**Final Answer:** {\"median_pct\": 0.5}",
+      content: '**Final Answer:** {"median_pct": 0.5}',
       isEnd: true,
       toolCalls: [
         {
@@ -82,11 +82,7 @@ function scenario(): Scenario {
     },
   ]);
   s.storage.createSnapshot("a1", makeWorkflow([{ id: "scores", type: "DataLoading" }]));
-  s.storage.setOperatorResult(
-    "a1",
-    "scores",
-    makeInfo(120, { columnStats: { id: "(numeric): null=0, min=1, max=120" } as any })
-  );
+  s.storage.setOperatorResult("a1", "scores", makeInfo(120, {}));
   s.storage.createSnapshot(
     "a2",
     makeWorkflow(
@@ -188,11 +184,7 @@ describe("versioned catalog", () => {
         },
       ]);
       sc.storage.createSnapshot("a1", makeWorkflow([{ id: "scores", type: "DataLoading" }]));
-      sc.storage.setOperatorResult(
-        "a1",
-        "scores",
-        makeInfo(120, { columnStats: { id: "(numeric): null=0, min=1, max=120" } as any })
-      );
+      sc.storage.setOperatorResult("a1", "scores", makeInfo(120, {}));
       return sc;
     };
     const renderWith = (extra: object) => {
@@ -204,11 +196,13 @@ describe("versioned catalog", () => {
           versionedCatalog: true,
           turnNumberByMessageId: new Map([["m1", 1]]),
           ...extra,
-        } as any).map(m => m.content).join("\n")
+        } as any)
+          .map(m => m.content)
+          .join("\n")
       );
     };
     // column_stats flips its block on; nothing else moves with it.
-    expect(renderWith({ columnStats: true })).toContain("Column Schema and stats");
+    expect(renderWith({})).not.toContain("Column Schema and stats");
     expect(renderWith({})).not.toContain("Column Schema and stats");
     // schemaInResult is its own switch
     expect(renderWith({ schemaInResult: true })).toContain("Schema (");
@@ -228,7 +222,6 @@ describe("versioned catalog", () => {
       "pct",
       makeInfo(120, {
         sampleRows: [{ dbn: "x", pct: 0.5 }],
-        columnStats: { __table_hints__: "unique key: dbn || 2 duplicate rows" } as any,
       })
     );
     const withHint = String(
@@ -236,7 +229,6 @@ describe("versioned catalog", () => {
         compilationResult: null,
         agentMode: AgentMode.CODE,
         versionedCatalog: true,
-        tableStructureHint: true,
         turnNumberByMessageId: new Map([
           ["m1", 1],
           ["m2", 2],
@@ -246,9 +238,12 @@ describe("versioned catalog", () => {
         .map(m => m.content)
         .join("\n")
     );
-    const entry = withHint.slice(withHint.indexOf("#### `pct` (added)"), withHint.indexOf("### Answer", withHint.indexOf("#### `pct`")));
-    expect(entry).toContain("Output Table profile:");
-    expect(entry).toContain("unique key: dbn");
+    const entry = withHint.slice(
+      withHint.indexOf("#### `pct` (added)"),
+      withHint.indexOf("### Answer", withHint.indexOf("#### `pct`"))
+    );
+    expect(entry).not.toContain("Output Table profile:");
+    expect(entry).not.toContain("unique key: dbn");
     // and OFF without the flag — knob independence holds in the catalog too
     expect(render(scenario())).not.toContain("Output Table profile:");
   });

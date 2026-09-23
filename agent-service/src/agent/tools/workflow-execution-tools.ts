@@ -31,6 +31,8 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { partitionOpsByIndependence, type PartitionGroup } from "../util/subdag-partition";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { createLogger } from "../../logger";
+import { prepareStructuredExecutionResult } from "../native/execution-transport";
+import { orderedResultIds } from "../native/result-versions";
 
 const log = createLogger("ExecutionTools");
 
@@ -43,6 +45,7 @@ export interface ExecutionConfig {
   maxOperatorResultCharLimit?: number;
   maxOperatorResultCellCharLimit?: number;
   executionTimeoutMs?: number;
+  structuredResults?: boolean;
 }
 
 /**
@@ -335,6 +338,7 @@ async function executeWorkflowHttp(
 
   const request = {
     executionName: "agent-execution",
+    ...(config.structuredResults ? { structuredResults: true } : {}),
     logicalPlan: {
       operators: logicalPlan.operators,
       links: logicalPlan.links,
@@ -373,7 +377,8 @@ async function executeWorkflowHttp(
       throw new Error(`Execution request failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    return (await response.json()) as SyncExecutionResult;
+    const result = (await response.json()) as SyncExecutionResult;
+    return config.structuredResults ? prepareStructuredExecutionResult(result, workflowId, logicalPlan) : result;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
@@ -459,7 +464,8 @@ export function persistOperatorResults(
   onResult?: (operatorId: string, info: OperatorInfo) => void
 ): void {
   if (!onResult || !operators) return;
-  for (const [opId, info] of Object.entries(operators)) {
+  for (const opId of orderedResultIds(operators)) {
+    const info = operators[opId];
     if (!info) continue;
     const hasResult = info.result !== undefined && info.result !== null;
     const hasError = typeof info.error === "string" && info.error.length > 0;

@@ -21,9 +21,15 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
-import { getVisibleResultHeaders } from "./agent/tools/tools-utility";
+import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  operatorInfoToSummary,
+  type OperatorResultSummary as OperatorResultSummaryWs,
+} from "./api/operator-result-summary";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
+import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
+import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -51,11 +57,7 @@ import {
   ProbeRetirementConfigSchema,
   type ProbeRetirementConfig,
 } from "./agent/context/selector/probe-retirement";
-import {
-  applyRolePolicy,
-  RolePolicyConfigSchema,
-  type RolePolicyConfig,
-} from "./agent/context/selector/role-policy";
+import { applyRolePolicy, RolePolicyConfigSchema, type RolePolicyConfig } from "./agent/context/selector/role-policy";
 import {
   FoldResolvedRevisionsConfigSchema,
   type FoldResolvedRevisionsConfig,
@@ -129,9 +131,10 @@ export function selectDetailedOperators(
   return keep;
 }
 
-function lastTouchTurnByOperator(
-  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
-): { lastTouch: Map<string, number>; turnCount: number } {
+function lastTouchTurnByOperator(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): {
+  lastTouch: Map<string, number>;
+  turnCount: number;
+} {
   const order: string[] = [];
   const seen = new Set<string>();
   for (const step of visibleSteps) {
@@ -155,7 +158,9 @@ function lastTouchTurnByOperator(
 /** Operator ids touched by the turn in progress (the newest messageId group) —
  *  the ones that render RICH under the turn-history index while everything
  *  older renders as a one-line entry. */
-function currentTurnOperatorIds(visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>): string[] {
+function currentTurnOperatorIds(
+  visibleSteps: Array<{ messageId: string; toolCalls?: Array<{ input?: any }> }>
+): string[] {
   if (visibleSteps.length === 0) return [];
   const lastMessageId = visibleSteps[visibleSteps.length - 1].messageId;
   const ids = new Set<string>();
@@ -197,7 +202,7 @@ function getLearnedModel(): UtilityModel | null {
   return _learnedModel;
 }
 
-function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
+export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
   // One tuner per agent, built lazily and reused (it accumulates teacher-token
   // usage). Rebuilt if the teacher model id changes.
   let tuner: LLMContextTuner | undefined;
@@ -210,13 +215,10 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     return tuner;
   };
 
-  // The rich SDK context (`# User Task` / `# Current Dataflow` + decoration
-  // rungs). Controlled by the SELECT mode (settings.contextMode), the two
-  // DECORATE ordinal levels (flowLevel/dataLevel — which assembleContext expands
-  // into the individual decoration rungs via the catalog), plus the substrate /
-  // select / prior knobs below. The per-rung decoration booleans are NOT a
-  // public knob — they are the internal expansion target of the levels.
-  const sdkContext: ContextAssembler = async ({
+  // Layout and sampling are independent of the two explicit evidence channels.
+  // Ordinary renderers stay synchronous so debug/UI previews show the current
+  // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
+  const sdkContext: ContextAssembler = ({
     visibleSteps,
     workflowState,
     snapshotStorage,
@@ -228,10 +230,10 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
       agentMode: settings.agentMode,
+      dataEvidence: settings.dataEvidence,
+      flowEvidence: settings.flowEvidence,
       resultSelection: settings.resultSelection,
       includeOperatorProperties: settings.includeOperatorProperties,
-      flowLevel: settings.flowLevel,
-      dataLevel: settings.dataLevel,
       thoughtReplay: settings.thoughtReplay,
       agentTurns: settings.agentTurns,
       contextWindowTokens: settings.contextWindowTokens,
@@ -243,6 +245,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+      maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
       compactKeepLastSteps: settings.compactKeepLastSteps,
       showCompactMeter: settings.enableCompactTool,
       staticCompaction: settings.staticCompaction,
@@ -251,12 +254,6 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       turnHistoryIndex: settings.turnHistory === "index" ? true : undefined,
       thinObservations: settings.indexThinObservations !== false ? undefined : false,
       attemptReflection: settings.attemptReflection,
-      columnStats: settings.columnStats,
-      valueFormatFlags: settings.valueFormat,
-      tableStructureHint: settings.dataHints,
-      coercionTelemetry: settings.coercionTelemetry,
-      rowLineage: settings.rowLineage,
-      statScopes: settings.statScopes,
       // Caching is not optional: unless an arm pins a layout, LATEST ships one
       // message per operator block (opSplit) and DELTA ships the append-only
       // tool-call transcript (native), the two framings gpt-5.6-* can credit.
@@ -283,6 +280,11 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       turnNumberByMessageId,
       offBranchTurns,
     };
+    const evidenceSettings = {
+      data: settings.dataEvidence,
+      flow: settings.flowEvidence,
+      maxChars: settings.maxOperatorResultCharLimit,
+    };
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
     // base-preserving frontier decay > legacy contextMode.
@@ -293,6 +295,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       if (model) {
         const dossier = buildDossier(visibleSteps, snapshotStorage);
         const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
+        params.nativeEvidence = evidenceSettings;
         return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
           .messages;
       }
@@ -303,15 +306,20 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
     // tune() on any failure.
     if (settings.tunerConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const { params } = await getTuner(settings.tunerConfig).tune(dossier, latestTaskText(visibleSteps));
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return getTuner(settings.tunerConfig)
+        .tune(dossier, latestTaskText(visibleSteps))
+        .then(({ params }) => {
+          params.nativeEvidence = evidenceSettings;
+          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
+            .messages;
+        });
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
     // params from the live dossier. The dossier is built once and reused.
     if (settings.selectorConfig) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       const params = selectParams(dossier, settings.selectorConfig);
+      params.nativeEvidence = evidenceSettings;
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
     }
@@ -413,9 +421,12 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
           // Upstream inputs get VALUES as the budget allows — knowing an input
           // table's numbers matters more often than knowing how it was produced,
           // and code is the half the model can cheapest recall on demand.
-          upstream.reverse().slice(0, Math.max(0, TABLE_CAP)).forEach(id => {
-            overrides[id] = { result: { latest: { detail: "sample" } } };
-          });
+          upstream
+            .reverse()
+            .slice(0, Math.max(0, TABLE_CAP))
+            .forEach(id => {
+              overrides[id] = { result: { latest: { detail: "sample" } } };
+            });
           // OPERATOR SPRAWL is the other unbounded axis, and the sharper one. The
           // index lists every operator ever built: on my_uber_drivers the model
           // had created 737 by turn 30, and their index entries alone were 360 KB
@@ -474,7 +485,7 @@ function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): C
       // RULE A: role-keyed render policy (rich source / lean interior).
       if (settings.rolePolicyConfig) params = applyRolePolicy(params, dossier, settings.rolePolicyConfig);
       // Write-time render prefs: latest landed version's outputSummary /
-      // showOutputStatistics -> per-op overrides (LATEST snapshot render).
+      // outputSummary becomes a per-operator sample override (LATEST).
       if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
       return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
         .messages;
@@ -583,10 +594,13 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     maxOperatorEdits: agentSettings.maxOperatorEdits,
-    allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
+    nativeProfileCollection: agentSettings.nativeProfileCollection,
+    dataEvidence: agentSettings.dataEvidence,
+    flowEvidence: agentSettings.flowEvidence,
     resultSelection: agentSettings.resultSelection,
     contextMode: agentSettings.contextMode,
+    messageLayout: agentSettings.messageLayout,
     parallelToolCalls: agentSettings.parallelToolCalls,
     includeOperatorProperties: agentSettings.includeOperatorProperties,
     thoughtReplay: agentSettings.thoughtReplay,
@@ -599,12 +613,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     thoughtReplayK: agentSettings.thoughtReplayK,
     fewShotPrompt: agentSettings.fewShotPrompt,
     maxResultRows: agentSettings.maxResultRows,
-    flowLevel: agentSettings.flowLevel,
-    dataLevel: agentSettings.dataLevel,
     attemptReflection: agentSettings.attemptReflection,
-    columnStats: agentSettings.columnStats,
-    valueFormat: agentSettings.valueFormat,
-    dataHints: agentSettings.dataHints,
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
@@ -739,7 +748,8 @@ function parseLearnedConfigInput(raw: unknown): LearnedConfig | null | undefined
   return parsed.data;
 }
 
-const agentsRouter = new Elysia({ prefix: "/agents" })
+// Reject unknown/retired settings instead of Elysia silently stripping them.
+const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   // Error handler must live on the same Elysia instance whose routes throw, or
   // its scope will not see the errors. Elysia 1.x defaults to local scoping for
   // .onError, so attach here rather than on the outer app.
@@ -747,7 +757,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     log.error({ err: error }, "request error");
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Body schema violations and malformed JSON are client errors, not 500s.
-    if (code === "VALIDATION" || code === "PARSE") {
+    if (code === "VALIDATION" || code === "PARSE" || error instanceof NativeCatalogSettingsError) {
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
     }
@@ -793,6 +803,8 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         throw new Error("Invalid or expired token");
       }
 
+      validateNativeSettings(settings);
+
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
         userToken,
@@ -803,85 +815,89 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
 
       const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
 
-      if (settings) {
-        log.info(
-          {
-            agentId,
+      try {
+        if (settings) {
+          log.info(
+            {
+              agentId,
+              maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
+              maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
+            },
+            "applying initial agent settings"
+          );
+          agent.updateSettings({
             maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
             maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          },
-          "applying initial agent settings"
-        );
-        agent.updateSettings({
-          maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-          maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-          operatorResultSerializationMode: settings.operatorResultSerializationMode
-            ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-            : undefined,
-          toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
-          executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
-          disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
-          maxSteps: settings.maxSteps,
-          maxOperatorEdits: settings.maxOperatorEdits,
-          allowedOperatorTypes: settings.allowedOperatorTypes,
-          agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-          resultSelection: (settings as any).resultSelection,
-          contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
-          parallelToolCalls: settings.parallelToolCalls,
-          includeOperatorProperties: settings.includeOperatorProperties,
-          thoughtReplay: settings.thoughtReplay,
-          agentTurns: settings.agentTurns,
-          contextWindowTokens: settings.contextWindowTokens,
-          compactionStrategy: settings.compactionStrategy,
-          deckSampleRatio: settings.deckSampleRatio,
-          errorReflection: settings.errorReflection,
-          errorReflectionThreshold: settings.errorReflectionThreshold,
-          thoughtReplayK: settings.thoughtReplayK,
-          fewShotPrompt: settings.fewShotPrompt,
-          maxResultRows: settings.maxResultRows,
-          flowLevel: settings.flowLevel,
-          dataLevel: settings.dataLevel,
-          attemptReflection: settings.attemptReflection,
-          columnStats: settings.columnStats,
-          valueFormat: settings.valueFormat,
-          dataHints: settings.dataHints,
-          toolDialect: settings.toolDialect,
-          summarizeParams: parseSummarizePatch(settings.summarizeParams),
-          selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-          frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-          foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
-            (settings as any).foldResolvedRevisionsConfig
-          ),
-          probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-          rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-          learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
-          enableInspectTool: (settings as any).enableInspectTool,
-          enableRenderPrefs: (settings as any).enableRenderPrefs,
-          enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
-          sourceProvenanceHint: (settings as any).sourceProvenanceHint,
-          enableCompactTool: (settings as any).enableCompactTool,
-          compactKeepLastSteps: (settings as any).compactKeepLastSteps,
-          staticCompaction: (settings as any).staticCompaction,
-          userTaskPlacement: (settings as any).userTaskPlacement,
-          turnHistory: (settings as any).turnHistory,
-          enableRecallTool: (settings as any).enableRecallTool,
-          recallMaxResultChars: (settings as any).recallMaxResultChars,
-          recallOperatorLevel: (settings as any).recallOperatorLevel,
-          specAudit: (settings as any).specAudit,
-          indexRichTables: (settings as any).indexRichTables,
-          indexDetailedOperators: (settings as any).indexDetailedOperators,
-          enableResumeTool: (settings as any).enableResumeTool,
-          enableAnswerGrounding: (settings as any).enableAnswerGrounding,
-          coercionTelemetry: (settings as any).coercionTelemetry,
-          rowLineage: (settings as any).rowLineage,
-          statScopes: (settings as any).statScopes,
-          messageLayout: (settings as any).messageLayout,
-          versionedMode: (settings as any).versionedMode,
-          versionedHeads: (settings as any).versionedHeads,
-          sessionTurns: (settings as any).sessionTurns,
-          indexThinObservations: (settings as any).indexThinObservations,
-          tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
-        });
+            operatorResultSerializationMode: settings.operatorResultSerializationMode
+              ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
+              : undefined,
+            toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
+            executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
+            disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
+            maxSteps: settings.maxSteps,
+            maxOperatorEdits: settings.maxOperatorEdits,
+            agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+            nativeProfileCollection: settings.nativeProfileCollection,
+            dataEvidence: settings.dataEvidence,
+            flowEvidence: settings.flowEvidence,
+            resultSelection: (settings as any).resultSelection,
+            contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
+            parallelToolCalls: settings.parallelToolCalls,
+            includeOperatorProperties: settings.includeOperatorProperties,
+            thoughtReplay: settings.thoughtReplay,
+            agentTurns: settings.agentTurns,
+            contextWindowTokens: settings.contextWindowTokens,
+            compactionStrategy: settings.compactionStrategy,
+            deckSampleRatio: settings.deckSampleRatio,
+            errorReflection: settings.errorReflection,
+            errorReflectionThreshold: settings.errorReflectionThreshold,
+            thoughtReplayK: settings.thoughtReplayK,
+            fewShotPrompt: settings.fewShotPrompt,
+            maxResultRows: settings.maxResultRows,
+            attemptReflection: settings.attemptReflection,
+            toolDialect: settings.toolDialect,
+            summarizeParams: parseSummarizePatch(settings.summarizeParams),
+            selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
+            frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
+            foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
+              (settings as any).foldResolvedRevisionsConfig
+            ),
+            probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
+            rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
+            learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
+            enableInspectTool: (settings as any).enableInspectTool,
+            enableRenderPrefs: (settings as any).enableRenderPrefs,
+            enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
+            sourceProvenanceHint: (settings as any).sourceProvenanceHint,
+            enableCompactTool: (settings as any).enableCompactTool,
+            compactKeepLastSteps: (settings as any).compactKeepLastSteps,
+            staticCompaction: (settings as any).staticCompaction,
+            userTaskPlacement: (settings as any).userTaskPlacement,
+            turnHistory: (settings as any).turnHistory,
+            enableRecallTool: (settings as any).enableRecallTool,
+            recallMaxResultChars: (settings as any).recallMaxResultChars,
+            recallOperatorLevel: (settings as any).recallOperatorLevel,
+            specAudit: (settings as any).specAudit,
+            indexRichTables: (settings as any).indexRichTables,
+            indexDetailedOperators: (settings as any).indexDetailedOperators,
+            enableResumeTool: (settings as any).enableResumeTool,
+            enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+            seedSources: (settings as any).seedSources,
+            messageLayout: (settings as any).messageLayout,
+            versionedMode: (settings as any).versionedMode,
+            versionedHeads: (settings as any).versionedHeads,
+            sessionTurns: (settings as any).sessionTurns,
+            indexThinObservations: (settings as any).indexThinObservations,
+            tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
+          });
+        }
+      } catch (error) {
+        // Graph-dependent validation happens after bootstrap. A rejected
+        // initial configuration must not leave a registered, unusable agent.
+        agent.destroy();
+        agentStore.delete(agentId);
+        agentDrivers.delete(agentId);
+        throw error;
       }
 
       return getAgentInfo(agentId, agent);
@@ -905,9 +921,11 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
-            allowedOperatorTypes: t.Optional(t.Array(t.String())),
-            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
-            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule")])),
+            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+            nativeProfileCollection: t.Optional(t.Boolean()),
+            dataEvidence: t.Optional(t.Boolean()),
+            flowEvidence: t.Optional(t.Boolean()),
+            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
             contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
             parallelToolCalls: t.Optional(t.Boolean()),
             includeOperatorProperties: t.Optional(t.Boolean()),
@@ -921,12 +939,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             thoughtReplayK: t.Optional(t.Number()),
             fewShotPrompt: t.Optional(t.Boolean()),
             maxResultRows: t.Optional(t.Number()),
-            flowLevel: t.Optional(t.Number()),
-            dataLevel: t.Optional(t.Number()),
             attemptReflection: t.Optional(t.Boolean()),
-            columnStats: t.Optional(t.Boolean()),
-            valueFormat: t.Optional(t.Boolean()),
-            dataHints: t.Optional(t.Boolean()),
             toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
             // Deep-partial summarize() params patch; zod-validated in-handler
             // (the shape is too rich for a TypeBox mirror to earn its keep).
@@ -944,24 +957,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
             enableCompactTool: t.Optional(t.Boolean()),
             compactKeepLastSteps: t.Optional(t.Number()),
             staticCompaction: t.Optional(t.Boolean()),
-      userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-      turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
-      enableRecallTool: t.Optional(t.Boolean()),
-      recallMaxResultChars: t.Optional(t.Number()),
-      recallOperatorLevel: t.Optional(t.Boolean()),
-      specAudit: t.Optional(t.Boolean()),
-      indexRichTables: t.Optional(t.Number()),
-      indexDetailedOperators: t.Optional(t.Number()),
-      enableResumeTool: t.Optional(t.Boolean()),
-      enableAnswerGrounding: t.Optional(t.Boolean()),
-      coercionTelemetry: t.Optional(t.Boolean()),
-      rowLineage: t.Optional(t.Boolean()),
-      statScopes: t.Optional(t.Any()),
-      messageLayout: t.Optional(t.String()),
-      versionedMode: t.Optional(t.Boolean()),
-      versionedHeads: t.Optional(t.Boolean()),
-      sessionTurns: t.Optional(t.Boolean()),
-      indexThinObservations: t.Optional(t.Boolean()),
+            userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
+            turnHistory: t.Optional(t.Union([t.Literal("full"), t.Literal("index")])),
+            enableRecallTool: t.Optional(t.Boolean()),
+            recallMaxResultChars: t.Optional(t.Number()),
+            recallOperatorLevel: t.Optional(t.Boolean()),
+            specAudit: t.Optional(t.Boolean()),
+            indexRichTables: t.Optional(t.Number()),
+            indexDetailedOperators: t.Optional(t.Number()),
+            enableResumeTool: t.Optional(t.Boolean()),
+            enableAnswerGrounding: t.Optional(t.Boolean()),
+            seedSources: t.Optional(t.Boolean()),
+            messageLayout: t.Optional(t.String()),
+            versionedMode: t.Optional(t.Boolean()),
+            versionedHeads: t.Optional(t.Boolean()),
+            sessionTurns: t.Optional(t.Boolean()),
+            indexThinObservations: t.Optional(t.Boolean()),
             tunerConfig: t.Optional(t.Any()),
           })
         ),
@@ -1011,6 +1022,22 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
+  .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
+    const agent = getAgent(id);
+    const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
+    if (!authorization.ok) {
+      set.status = authorization.status;
+      return { error: authorization.error };
+    }
+    const query = inspectErrorSchema.safeParse(body);
+    if (!query.success) {
+      set.status = 400;
+      return { error: "Expected operatorId and optional revision/diagnosticId; no other fields are accepted." };
+    }
+    const inspection = agent.getSnapshotStorage().inspectNativeError(agent.getHead(), query.data);
+    if (!inspection.found) set.status = 404;
+    return inspection;
+  })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
@@ -1084,6 +1111,9 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       workflow: workflowEntry?.value ?? null,
       workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
       results,
+      ...(storage.getAssociatedSnapshot(resolvedStepId).nativeObservations !== undefined
+        ? { nativeObservations: storage.getAssociatedSnapshot(resolvedStepId).nativeObservations }
+        : {}),
     };
   })
 
@@ -1125,20 +1155,19 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource } = body as {
+      const { content, messageSource, sources } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
+        sources?: string[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource);
+      const result = await agent.sendMessage(content, messageSource, { sources });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const lastWithContent = [...steps]
-        .reverse()
-        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
       broadcastNextContext(id, agent);
       return {
         status: "complete",
@@ -1152,6 +1181,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        sources: t.Optional(t.Array(t.String())),
       }),
     }
   )
@@ -1243,6 +1273,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const settings = body as UpdateAgentSettingsRequest;
+      validateEvidenceSettings(settings);
 
       log.info(
         {
@@ -1265,8 +1296,10 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         maxOperatorEdits: settings.maxOperatorEdits,
-        allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
+        nativeProfileCollection: settings.nativeProfileCollection,
+        dataEvidence: settings.dataEvidence,
+        flowEvidence: settings.flowEvidence,
         resultSelection: (settings as any).resultSelection,
         contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
@@ -1283,12 +1316,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: settings.thoughtReplayK,
         fewShotPrompt: settings.fewShotPrompt,
         maxResultRows: settings.maxResultRows,
-        flowLevel: settings.flowLevel,
-        dataLevel: settings.dataLevel,
         attemptReflection: settings.attemptReflection,
-        columnStats: settings.columnStats,
-        valueFormat: settings.valueFormat,
-        dataHints: settings.dataHints,
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -1324,8 +1352,11 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         maxSteps: t.Optional(t.Number()),
         maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
-        allowedOperatorTypes: t.Optional(t.Array(t.String())),
-        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general")])),
+        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+        nativeProfileCollection: t.Optional(t.Boolean()),
+        dataEvidence: t.Optional(t.Boolean()),
+        flowEvidence: t.Optional(t.Boolean()),
+        resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
         parallelToolCalls: t.Optional(t.Boolean()),
         includeOperatorProperties: t.Optional(t.Boolean()),
@@ -1339,12 +1370,7 @@ const agentsRouter = new Elysia({ prefix: "/agents" })
         thoughtReplayK: t.Optional(t.Number()),
         fewShotPrompt: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
-        flowLevel: t.Optional(t.Number()),
-        dataLevel: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
-        columnStats: t.Optional(t.Boolean()),
-        valueFormat: t.Optional(t.Boolean()),
-        dataHints: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
         // Deep-partial summarize() params patch; zod-validated in-handler.
         // Pass null to clear a previously-set patch.
@@ -1374,20 +1400,8 @@ interface WsMessage {
   type: "message" | "stop" | "debug";
   content?: string;
   messageSource?: "chat" | "feedback";
-}
-
-interface OperatorResultSummaryWs {
-  state: string;
-  inputTuples: number;
-  outputTuples: number;
-  inputPortShapes?: { portIndex: number; rows: number; columns: number }[];
-  outputColumns?: number;
-  error?: string;
-  warnings?: string[];
-  consoleLogCount?: number;
-  totalRowCount?: number;
-  sampleRecords?: Record<string, any>[];
-  columnStats?: Record<string, string>;
+  /** Seeded source roots: the task's input files/globs (see `seedSources`). */
+  sources?: string[];
 }
 
 interface WsOutgoingMessage {
@@ -1399,7 +1413,7 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
-  /** Assembled next-step user-message content (markdown). Updated whenever
+  /** Assembled next-step transcript content (markdown/JSON). Updated whenever
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
   content?: string;
@@ -1407,29 +1421,6 @@ interface WsOutgoingMessage {
   stepId?: string;
   /** For "snapshot" events: the freshly recorded workflow content. */
   workflow?: any;
-}
-
-/**
- * Render one `OperatorInfo` into the wire shape the dashboard + websocket
- * clients expect. Kept separate from `getOperatorResultSummaries` so the
- * snapshots-by-stepId endpoint can reuse it instead of dumping raw
- * `OperatorInfo` (which inverts the field names — `result` vs
- * `sampleRecords` — and skips the precomputed `outputColumns`).
- */
-function operatorInfoToSummary(info: any): OperatorResultSummaryWs {
-  return {
-    state: info.state,
-    inputTuples: info.inputTuples,
-    outputTuples: info.outputTuples,
-    inputPortShapes: info.inputPortShapes,
-    outputColumns: info.result && info.result.length > 0 ? getVisibleResultHeaders(info.result[0]).length : undefined,
-    error: info.error,
-    warnings: info.warnings,
-    consoleLogCount: info.consoleLogs?.length,
-    totalRowCount: info.totalRowCount,
-    sampleRecords: info.result,
-    columnStats: info.columnStats,
-  };
 }
 
 function getOperatorResultSummaries(agent: TexeraAgent): Record<string, OperatorResultSummaryWs> {
@@ -1474,7 +1465,7 @@ function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
 }
 
 export function buildApp() {
-  return new Elysia()
+  return new Elysia({ normalize: false })
     .use(cors())
     .use(dashboardPlugin)
     .group(env.API_PREFIX, app =>
@@ -1569,7 +1560,9 @@ export function buildApp() {
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
-            const result = await agent.sendMessage(msg.content, msg.messageSource);
+            const result = await agent.sendMessage(msg.content, msg.messageSource, {
+              sources: Array.isArray(msg.sources) ? msg.sources.filter(s => typeof s === "string") : undefined,
+            });
 
             agent.setStepCallback(null);
             agent.setSnapshotCallback(null);

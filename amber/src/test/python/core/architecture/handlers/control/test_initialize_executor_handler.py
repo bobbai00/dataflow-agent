@@ -18,6 +18,7 @@
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+import pytest
 
 from core.architecture.handlers.control.initialize_executor_handler import (
     InitializeExecutorHandler,
@@ -29,12 +30,14 @@ from proto.org.apache.texera.amber.engine.architecture.rpc import (
 )
 
 
-def make_request(**kwargs) -> InitializeExecutorRequest:
+def make_request(dynamic_output_schema=False, **kwargs) -> InitializeExecutorRequest:
     """Build an InitializeExecutorRequest carrying inline Python code."""
     return InitializeExecutorRequest(
         total_worker_count=1,
         op_exec_init_info=OpExecInitInfo(
-            op_exec_with_code=OpExecWithCode(code="# code", language="python")
+            op_exec_with_code=OpExecWithCode(
+                code="# code", language="python", dynamic_output_schema=dynamic_output_schema
+            )
         ),
         is_source=False,
         **kwargs,
@@ -52,12 +55,13 @@ def make_handler() -> InitializeExecutorHandler:
 
 
 class TestInitializeExecutorHandler:
-    def test_returns_empty_return_and_initializes_executor(self):
+    @pytest.mark.parametrize("dynamic_output_schema", [False, True])
+    def test_returns_empty_return_and_initializes_executor(self, dynamic_output_schema):
         handler = make_handler()
-        result = asyncio.run(handler.initialize_executor(make_request()))
+        result = asyncio.run(handler.initialize_executor(make_request(dynamic_output_schema)))
         assert isinstance(result, EmptyReturn)
         handler.context.executor_manager.initialize_executor.assert_called_once_with(
-            "# code", False, "python"
+            "# code", False, "python", dynamic_output_schema
         )
 
     def test_stores_loop_start_state_uris_on_context(self):
@@ -66,14 +70,8 @@ class TestInitializeExecutorHandler:
         # handler must expose them on the context for a Loop End's
         # _jump_to_loop_start to select by the frame-carried loop_start_id.
         handler = make_handler()
-        asyncio.run(
-            handler.initialize_executor(
-                make_request(loop_start_state_uris={"loop-start-1": "vfs:///x/state"})
-            )
-        )
-        assert handler.context.loop_start_state_uris == {
-            "loop-start-1": "vfs:///x/state"
-        }
+        asyncio.run(handler.initialize_executor(make_request(loop_start_state_uris={"loop-start-1": "vfs:///x/state"})))
+        assert handler.context.loop_start_state_uris == {"loop-start-1": "vfs:///x/state"}
 
     def test_defaults_to_empty_map_for_plans_without_loops(self):
         # betterproto defaults an absent map field to {}; the handler must

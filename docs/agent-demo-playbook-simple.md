@@ -8,7 +8,7 @@
 Trimmed version of [agent-demo-playbook.md](agent-demo-playbook.md), built to three rules:
 **every prompt is at most two sentences**, **six or seven turns per demo**, and demo B exists
 to show *why* you need to go back to an earlier version. Both demos were run end to end on
-2026-08-31 with `claude-haiku-4.5` in **general mode** (agent **Bob**, workflows 289 and 291).
+2026-08-31 with `claude-haiku-4.5` in **general mode** (since renamed **code mode**; agent **Bob**, workflows 289 and 291).
 
 | | A — Northwind revenue views | B — Titanic, going back in time |
 |---|---|---|

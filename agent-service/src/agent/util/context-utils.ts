@@ -23,32 +23,28 @@
 
 import type { ModelMessage } from "ai";
 import type { WorkflowState } from "../workflow-state";
-import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { CompactionStrategy, ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
-import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
+import type { WorkflowCompilationResponse } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import { retiredPreviews, selectResultShapes, type ShapeDecision } from "../native/selection";
-import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
-import { formatFileIo, formatTableHints } from "../context/decorate/data/structural-profile";
-import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
+import {
+  profileDiff,
+  retiredPreviews,
+  selectResultShapes,
+  selectScopedShapes,
+  type ShapeDecision,
+} from "../native/selection";
+import { nativeOperatorName } from "../native/catalog";
+import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
 import {
   clampCodeChars,
   estimateTableChars,
   formatApproxChars,
   formatOperatorResult,
-  formatRowLineage,
   formatSchemaLine,
 } from "../tools/result-formatting";
-import { levelsToFlags } from "../context/decorate/registry";
-import type { DecorateLevel } from "../context/decorate/types";
-import { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
-import {
-  buildLineageErrorContext,
-  lineageErrorPointer,
-  upstreamInputSchema,
-} from "../context/decorate/flow/error-context";
 import { buildReasoning, renderReasoning, type Reasoning } from "../context/select/reinjection/reasoning";
 import {
   buildErrorReflection,
@@ -65,55 +61,78 @@ import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context
 import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
 import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
-import { formatNativeError, type FormatOperatorResultOptions } from "../tools/result-formatting";
+import type { FormatOperatorResultOptions } from "../tools/result-formatting";
+import { formatNativeDiagnostic } from "../native/diagnostics";
 import { createLogger } from "../../logger";
 
-/** The operator a tool call wrote: `operatorId` (code-mode tools) or, for the
- *  typed operator tools of native mode, `id`. Undefined for read-only tools. */
+/** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
+ *  (native mode's deleteOperator). Undefined for read-only tools and for the
+ *  `dataflow` program, which writes several operators (see its receipt). */
 export function writtenOperatorId(toolName: string | undefined, input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
   const inp = input as Record<string, unknown>;
   if (typeof inp.operatorId === "string" && inp.operatorId) return inp.operatorId;
-  if (toolName && (NATIVE_TOOL_NAMES.has(toolName) || toolName === "deleteOperator") && typeof inp.id === "string" && inp.id) return inp.id;
+  if (toolName === "deleteOperator" && typeof inp.id === "string" && inp.id) return inp.id;
   return undefined;
 }
 
+/** A bounded current-task receipt, not a trajectory or a table/diagnostic pull.
+ * LATEST replaces the wire history, so even a cached read needs an explicit
+ * completion marker. Tool completion does not imply successful execution. */
+export function latestNativeActionReceipt(steps: ReActStep[]): string | undefined {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    if (step.role === "user") return undefined;
+    if (step.role !== "agent" || !step.toolCalls?.length) continue;
+    const lines: string[] = [];
+    for (const call of step.toolCalls.slice(0, 4)) {
+      const result = step.toolResults?.find(item => item.toolCallId === call.toolCallId);
+      if (!result) continue;
+      const args = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
+      if (call.toolName === TOOL_NAME_DATAFLOW) {
+        const batch = asNativeBatchResult(result.output);
+        if (!batch) continue;
+        const edits = batch.operators.length
+          ? JSON.stringify(batch.operators.map(({ id, status }) => ({ id, status })))
+          : "cached read";
+        lines.push(
+          `dataflow completed: ${edits}; observe=${JSON.stringify(batch.observe)}; observation errors=${batch.observationErrors?.length ?? 0}.`
+        );
+      } else if (call.toolName === "inspectError" || call.toolName === "inspectResult") {
+        lines.push(
+          `${call.toolName} for ${JSON.stringify(args.operatorId)} completed; read the saved inspection, not another identical pull.`
+        );
+      }
+    }
+    if (!lines.length) return undefined;
+    const text = `Last completed action in this task: ${lines.join(" ")} Tool completion is not proof that every operator succeeded; use the current results and errors above.`;
+    return text.length <= 1200 ? text : text.slice(0, 1178) + " [receipt truncated]";
+  }
+  return undefined;
+}
 
 const log = createLogger("ContextAssembler");
 
-/* ============================================================================
- *  Public entry
- * ========================================================================= */
-
-/**
- * Where a data-facet channel is allowed to render, by the operator's position
- * in the DAG. `all` is the legacy behaviour; `source` / `nonsource` split the
- * evidence by which failure the operator can actually have (dirty parse at the
- * lake edge vs row loss in a transform); `off` disables the channel without
- * touching the flag that turned it on.
- */
-export type StatScope = "all" | "source" | "nonsource" | "off";
-
-/** Per-channel scope overlay. Any channel left undefined behaves as `all`. */
-export interface StatScopes {
-  columnStats?: StatScope;
-  coercion?: StatScope;
-  lineage?: StatScope;
-  structural?: StatScope;
-  valueFormat?: StatScope;
-  fileIo?: StatScope;
-}
-
 export interface AssembleContextOptions {
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opSplit" | "turnSplit";
+  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
+  /**
+   * opBlock only: every operator the agent has asked to observe at least once
+   * on this path. Those operators keep a result section for the rest of the
+   * run, so the block stops depending on which step we are on.
+   *
+   * It is a SUBSCRIPTION set, not a text cache. The body is always re-rendered
+   * from the operator's live result: LATEST's contract is that what you read is
+   * what is true now, so when an upstream changes and this operator re-executes,
+   * its block must show the NEW result — not the old one, and not a row count.
+   */
+  observedEverIds?: ReadonlySet<string>;
   /** Native message layout: called once per rendered agent event with the step
    *  that produced it, so the message builder can emit that step's REAL tool
    *  calls (true toolCallIds) instead of inferring them from the rendered text. */
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
-  /** Position-aware gating for the data-facet channels. Undefined = legacy
-   *  (a channel renders wherever its flag is on). */
-  statScopes?: StatScopes;
   /** Compilation result for the *current* workflowState. Schemas it carries
    *  are only attached to operators in the current (last) snapshot — we
    *  can't recompile historical snapshots cheaply, so non-current snapshots
@@ -123,7 +142,9 @@ export interface AssembleContextOptions {
   /** NATIVE-mode result selection for the current snapshot: "all" (every
    *  executed operator renders its full result) or "rule" (ship only what the
    *  data decided — see native/selection.ts). */
-  resultSelection?: "all" | "rule";
+  resultSelection?: "all" | "rule" | "scoped";
+  /** Event-owned requests from dataflow batches, reconstructed from receipts. */
+  batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
    *  keeps the history a byte-stable prefix across turns, which is what prompt
    *  caching matches on; see AgentSettings.userTaskPlacement. */
@@ -220,6 +241,9 @@ export interface AssembleContextOptions {
   /** Internal (computed): the `# Inspections` section re-rendering the agent's
    *  inspectResult pulls so they persist across steps. Undefined ⇒ no pulls. */
   inspectionsRendered?: string;
+  /** Internal: native DELTA pulls live at their event, keeping the wire
+   *  transcript append-only instead of moving a trailing inspection deck. */
+  inlineInspections?: boolean;
   /** Grace (events) after the resolution before prior revisions fold. Default 1. */
   foldGraceEvents?: number;
   /** Internal (computed): per-event per-operator revision-fold facts. */
@@ -242,52 +266,10 @@ export interface AssembleContextOptions {
    *  error, so it is always stripped). When false, no properties render at
    *  all (legacy paper-§4.3 strip-everything behavior). Undefined ⇒ true. */
   includeOperatorProperties?: boolean;
-  /** When true, a compact `Schema:` line (col + type, all columns) precedes
-   *  each non-error operator result, derived from `columnStats`/headers.
-   *  Off by default. Internal flag — the public knob is `dataLevel` (≥1), which
-   *  expands to this via the rung catalog. */
+  /** Context layout and result sampling are independent of data/flow evidence. */
   schemaInResult?: boolean;
-  /** When true, each non-error operator result carries the full per-column
-   *  `Column Schema and stats:` block (null/mean/min/max/distinct/top-N/datetime-range)
-   *  published by the worker. Standalone flag — independent of `dataLevel`, so
-   *  it overlays on any data level. Off by default. */
-  columnStats?: boolean;
   /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
   maxResultChars?: number;
-  /** A7: render the `Files read:` fact (independent of tableStructureHint). */
-  fileIoFacts?: boolean;
-  /** Stats-block density forwarded to the result formatter ("full" default /
-   *  "anomaly" = only facts the visible sample does not already prove). */
-  statsDensity?: "full" | "anomaly";
-  /** When true, a load-stage operator (`DataLoading`) that errored gets a
-   *  compact `Loader hint:` remediation line appended to its Result, keyed on
-   *  the exception class parsed from the error string. Off by default. */
-  loaderHint?: boolean;
-  /** When true, append a `Format hints:` line flagging string columns whose
-   *  sample values look like currency/percent/thousands-separated/etc., with the
-   *  cleaning to apply before numeric conversion. Targets silent coercion
-   *  dataloss. Off by default. */
-  valueFormatFlags?: boolean;
-  /** When true, each operator result gets a `Lineage:` line: input→output row
-   *  counts (kept %) plus a conservative alarm on empty-output / fan-out
-  /** #28: on an errored (non-loader) operator, render its direct upstream inputs'
-   *  schema + a few sample rows so the model fixes against real consumed data,
-   *  not guessed columns. Render-time only. Default false. */
-  lineageErrorContext?: boolean;
-  /** When true, a `DataLoading` operator whose output reaches NO downstream
-   *  operator (a dead/forgotten load — pure typed-DAG reachability) gets a
-   *  `Graph check ⚠` line telling the agent to wire it in or drop it. Current
-   *  snapshot only. Uniquely enabled by the dataflow graph (a free-form script
-   *  has no graph to audit). Off by default. */
-  graphAudit?: boolean;
-  /** When true, surface a coercion-dataloss line for any to_numeric/to_datetime
-   *  (errors="coerce") the worker saw silently null a material block of values,
-   *  with a sample of the dropped values. Read from `__coercion_telemetry__` on
-   *  columnStats. Alarm-only. Off by default. */
-  coercionTelemetry?: boolean;
-  /** When true, operator results carry a `Lineage:` rows-in/rows-out fact line
-   *  (see result-formatting.formatRowLineage). Off by default. */
-  rowLineage?: boolean;
   /** VERSIONED MODE render: one `# Catalog` for everything — finished turns as
    *  Task / Dataflow delta / Answer entries, the in-progress turn as the last
    *  entry with its live step log. No `# Dataflow` section, no `# Recalled
@@ -318,10 +300,15 @@ export interface AssembleContextOptions {
   /** Per-cell char cap (reused as the truncation limit for the surfaced print
    *  output block). Undefined ⇒ no cap. */
   maxOperatorResultCellCharLimit?: number;
-  /** #25/#26/#27: surface a `Data hints:` block of pre-emptive STRUCTURAL hints
-   *  (grain/key, low-cardinality partition/gate columns, empty rows/cols + dups)
-   *  computed name-agnostically by the worker. Render-time only. Default false. */
-  tableStructureHint?: boolean;
+  /** The arm's per-operator result character budget (the engine-side sample
+   *  cap). The `scoped` selection expresses its per-type sample sizes as
+   *  shares of it. Undefined ⇒ 2000, the campaign default. */
+  maxOperatorResultCharLimit?: number;
+  /** V2 exposure/budget carried through summarize's legacy mapping. This is
+   * derived from the existing data/flow settings, not a second budget. */
+  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number };
+  /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
+  nativeObservationCompaction?: boolean;
   /** Thought-replay reinjection rung (LATEST only). When on, render a
    *  `# Reasoning` block — the last `thoughtReplayK` agent EVENTS, each as its
    *  thought + the compressed actions it produced — and tag each operator with a
@@ -373,15 +360,6 @@ export interface AssembleContextOptions {
    *  Set by renderAgentEvents; read in the DELTA observation. */
   deltaInputsLeaf?: SnapshotData;
   deltaLastEditByOp?: Map<string, number>;
-  /** DECORATE ordinal levels (claude/CONTEXT-DESIGN.md §5). When set (>=0), the
-   *  flow/data facet level expands — via the rung catalog (context/decorate/
-   *  registry.levelsToFlags) — into the individual render flags above, OR-ing
-   *  them on. This is the new ordinal knob replacing the per-lever booleans;
-   *  the booleans remain valid and any explicitly-set boolean is preserved
-   *  (the level only turns rungs ON, never off). Undefined ⇒ legacy boolean
-   *  behavior, no expansion. */
-  flowLevel?: number;
-  dataLevel?: number;
   /** Internal (summarize): resolver of per-operator render extras — detail
    *  level, per-op column/tuple params, code + result history. Present only
    *  when the summarize params use a capability beyond the legacy surface;
@@ -511,22 +489,26 @@ export function renderContextCore(
   mode: ContextMode,
   options: AssembleContextOptions
 ): string {
-  // DECORATE levels → render flags (claude/CONTEXT-DESIGN.md §5). When the
-  // caller supplies ordinal facet levels, expand them through the rung catalog
-  // and OR the resulting rung flags onto `options`. Levels only turn rungs ON;
-  // an explicitly-set boolean is never cleared. Undefined levels ⇒ no-op, so
-  // existing boolean-only callers are unaffected.
-  if (options.flowLevel !== undefined || options.dataLevel !== undefined) {
-    const clamp = (n: number | undefined): DecorateLevel =>
-      Math.max(0, Math.min(3, Math.floor(n ?? 0))) as DecorateLevel;
-    const expanded = levelsToFlags(clamp(options.flowLevel), clamp(options.dataLevel));
-    const bag = options as unknown as Record<string, unknown>;
-    for (const flag of Object.keys(expanded)) {
-      bag[flag] = true;
-    }
-  }
-
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
+  const batchObservations = new Map<string, ReadonlySet<string>>();
+  // Read-only steps inherit the last batch's display selection in LATEST;
+  // every DELTA event still resolves its own immutable request independently.
+  let lastObserved: ReadonlySet<string> | undefined;
+  for (const node of path) {
+    lastObserved = batchObservedIds(node.step) ?? lastObserved;
+    if (lastObserved && node.snapshot?.reactStepId) batchObservations.set(node.snapshot.reactStepId, lastObserved);
+  }
+  options.batchObservationsByStep = batchObservations;
+
+  // opBlock: once the agent has observed an operator, that operator keeps a
+  // result section. Only the SUBSCRIPTION is carried forward — the body is
+  // rendered from the live result every time, so an operator that re-executed
+  // because an ancestor changed shows its new table rather than a stale one.
+  if (mode === ContextMode.LATEST && options.messageLayout === "opBlock") {
+    const observedEver = new Set<string>();
+    for (const node of path) for (const id of batchObservedIds(node.step) ?? []) observedEver.add(id);
+    options.observedEverIds = observedEver;
+  }
 
   // The latest user-message content lives in its own top-of-prompt
   // `# User Task` block — single source of truth, always present, never
@@ -559,12 +541,14 @@ export function renderContextCore(
   if (options.errorReflection && mode === ContextMode.LATEST) {
     options.errorReflectionMap = buildErrorReflection(path);
   }
+  options.inlineInspections = mode === ContextMode.DELTA && options.messageLayout === "native";
   let content: string;
   switch (mode) {
     case ContextMode.DELTA: {
-      // On-demand pulls persist in DELTA too (appended by renderInterleaved;
-      // the interleaved events carry the CALL but drop the tool output).
-      options.inspectionsRendered = buildInspectionsSection(path);
+      // Native tool frames keep each pull at its immutable event. Other layouts
+      // retain the established tail deck; a moving tail would otherwise stop
+      // the native transcript's reusable prefix at the first inspection.
+      options.inspectionsRendered = options.inlineInspections ? undefined : buildInspectionsSection(path);
       options.recalledStateRendered = buildRecalledStateSection(tasks);
       // Write-time render prefs (DELTA): a landed version's prefs govern the
       // observations rendered while it was active — historical ranges, so an
@@ -788,6 +772,17 @@ export function renderContextCore(
       content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
       break;
     }
+  }
+
+  // Native mode survives the legacy summarize mapping as nativeOp metadata,
+  // not as agentMode (which only distinguishes compiled-schema rendering).
+  if (mode === ContextMode.LATEST && workflowState.getAllOperators().some(op => op.nativeOp)) {
+    const receipt = latestNativeActionReceipt(visibleSteps);
+    // The receipt changes every step. Without a heading it is glued to the
+    // LAST operator's message, so a stable final operator is invalidated by a
+    // fact that has nothing to do with it; a `# ` heading makes splitOperators
+    // give it its own trailing message.
+    if (receipt) content += options.messageLayout === "opBlock" ? `\n\n# Last Action\n\n${receipt}` : `\n\n${receipt}`;
   }
 
   // Context-budget meter (POC): the observable signal that lets the agent decide
@@ -1040,6 +1035,15 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
     const eventFlags = new Map<string, boolean>();
     for (const tc of node.step.toolCalls) {
       const inp = (tc.input ?? {}) as Record<string, unknown>;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        const receipt = asNativeBatchResult(node.step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
+        for (const outcome of receipt?.operators ?? []) {
+          if (outcome.status !== "added" && outcome.status !== "modified") continue;
+          eventFlags.set(outcome.id, outcome.status === "added");
+          known.add(outcome.id);
+        }
+        continue;
+      }
       // NATIVE `addOperators`: every operator the batch LANDED (present in the
       // step's snapshot) is a create; a refused batch marks nothing.
       const batch = Array.isArray(inp.operators) ? (inp.operators as Array<Record<string, unknown>>) : undefined;
@@ -1053,10 +1057,9 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
         }
         continue;
       }
-      const opId =
-        typeof inp.operatorId === "string" ? inp.operatorId : typeof inp.id === "string" ? inp.id : "";
+      const opId = typeof inp.operatorId === "string" ? inp.operatorId : typeof inp.id === "string" ? inp.id : "";
       if (!opId) continue;
-      if (tc.toolName === "createOrModifyOperator" || NATIVE_TOOL_NAMES.has(tc.toolName)) {
+      if (tc.toolName === "createOrModifyOperator") {
         const isCreate = !known.has(opId);
         eventFlags.set(opId, isCreate);
         known.add(opId);
@@ -1081,7 +1084,15 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
   for (const node of fullPath) {
     if (node.step.role !== "agent" || !node.step.toolCalls) continue;
     for (const tc of node.step.toolCalls) {
-      if (tc.toolName !== "createOrModifyOperator" && !NATIVE_TOOL_NAMES.has(tc.toolName)) continue;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        // Every statement the program landed is one edit of that operator.
+        const batch = asNativeBatchResult(node.step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
+        for (const outcome of batch?.operators ?? [])
+          if (outcome.status === "added" || outcome.status === "modified")
+            counts.set(outcome.id, (counts.get(outcome.id) ?? 0) + 1);
+        continue;
+      }
+      if (tc.toolName !== "createOrModifyOperator") continue;
       const opId = writtenOperatorId(tc.toolName, tc.input);
       if (typeof opId === "string" && opId) counts.set(opId, (counts.get(opId) ?? 0) + 1);
     }
@@ -1382,10 +1393,6 @@ function assembleBudgetedContext(
   const suffixOptions: AssembleContextOptions = {
     ...options,
     schemaInResult: true,
-    columnStats: false,
-    tableStructureHint: false,
-    valueFormatFlags: false,
-    coercionTelemetry: false,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
     // Compaction phase profiles own the render economics — per-op extras
@@ -1494,7 +1501,6 @@ function renderCompressed(
   // stripped: the compaction phases own their render economics.
   const deckOptions: AssembleContextOptions = {
     ...options,
-    columnStats: true,
     schemaInResult: true,
     thoughtReplay: false,
     errorReflection: false,
@@ -1532,13 +1538,6 @@ function renderCompressed(
   }
 
   const leaf = lastSnapshotOf(tasks);
-  if (leaf) {
-    const flow = buildFlowSection(leaf, workflowState, suffixOptions, /*isLatest=*/ false);
-    if (flow) {
-      sections.push("");
-      sections.push(flow);
-    }
-  }
 
   return sections.join("\n").trimEnd();
 }
@@ -1763,13 +1762,6 @@ function renderInterleaved(
 
   // FLOW section over the leaf snapshot (composable with delta too — placed
   // last, after the event/snapshot trajectory). Empty ⇒ omitted.
-  if (leaf) {
-    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
-    if (flow) {
-      sections.push("");
-      sections.push(flow);
-    }
-  }
 
   // Inspections tail (see renderLatest): the interleaved events show the
   // inspectResult CALLS but not their outputs — this re-renders the pulls.
@@ -1816,14 +1808,19 @@ function renderLatest(
   //     away the trajectory; this re-injects the last K agent EVENTS, each as
   //     its thought + the compressed actions it produced (event-granular:
   //     one thought : N actions). Gated by the thoughtReplay flag.
-  if (options.thoughtReplay && options.reasoning && !options.agentTurns) {
-    const block = renderReasoning(options.reasoning, options.thoughtReplayK ?? 10);
-    if (block) {
-      sections.push("# Reasoning (your recent steps)");
-      sections.push("");
-      sections.push(block);
-      sections.push("");
-    }
+  // opBlock moves it to the tail: the block re-renders every step (it is the
+  // last K events), so in the head it sits inside the one message opSplit
+  // needs to be byte-stable and restarts the prefix cache at every step.
+  const reasoningAtTail = options.messageLayout === "opBlock";
+  const reasoningBlock =
+    options.thoughtReplay && options.reasoning && !options.agentTurns
+      ? renderReasoning(options.reasoning, options.thoughtReplayK ?? 10)
+      : undefined;
+  if (reasoningBlock && !reasoningAtTail) {
+    sections.push("# Reasoning (your recent steps)");
+    sections.push("");
+    sections.push(reasoningBlock);
+    sections.push("");
   }
 
   // 1c. # Agent Turns — the full Thought/Action/Observation trajectory rendered
@@ -1849,16 +1846,6 @@ function renderLatest(
     }
   }
 
-  // 3. # Operators needing attention — the FLOW section. A consolidated,
-  //    root-cause-first projection of failures + anomalies over the leaf
-  //    snapshot, placed last (highest-attention position). Gated by flowLevel
-  //    (expanded into the per-rung flags); empty ⇒ omitted.
-  const flow = buildFlowSection(leafSnapshot, workflowState, options, /*isLatest=*/ true);
-  if (flow) {
-    sections.push("");
-    sections.push(flow);
-  }
-
   // 4. # Inspections — the agent's on-demand inspectResult pulls, re-rendered
   //    verbatim so a pull stays visible on later steps (prepareStep REPLACES
   //    the wire messages each step; without this the tool's output would
@@ -1869,122 +1856,13 @@ function renderLatest(
     sections.push("");
     sections.push(options.inspectionsRendered);
   }
+  if (reasoningBlock && reasoningAtTail) {
+    sections.push("");
+    sections.push("# Reasoning (your recent steps)");
+    sections.push("");
+    sections.push(reasoningBlock);
+  }
   return sections.join("\n").trimEnd();
-}
-
-/**
- * FLOW section (Phase-1 trajectory/graph projection). Scans the leaf snapshot
- * in topological order (root cause before downstream symptom) and emits a
- * self-contained entry for every operator that needs attention: hard errors,
- * upstream-blocked operators, and (level-gated) soft anomalies. Reuses the same
- * pure flow renderers that previously decorated each operator inline — now
- * consolidated into one end-of-context section so the actionable signal isn't
- * buried in the DAG dump. Returns undefined when nothing needs attention.
- *
- * Level gating (via the flags flowLevel expands into):
- *   L1 loaderHint            — remediation on failed DataLoading ops
- *   L2 lineageErrorContext   — errored process op: in DELTA, the upstream input
- *                              schema + sample rows (the model can't otherwise see
- *                              them); in LATEST, where every operator's Result is
- *                              already rendered, just a pointer to the upstream's
- *                              Result (no duplication).
- *   L3 graphAudit            — dead/disconnected loaders
- */
-function buildFlowSection(
-  snapshot: SnapshotData,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  isLatest: boolean
-): string | undefined {
-  const anyFlow =
-    options.loaderHint ||
-    options.lineageErrorContext ||
-    options.graphAudit ||
-    options.errorReflection;
-  if (!anyFlow) return undefined;
-
-  const { workflow } = snapshot;
-  if (workflow.operators.length === 0) return undefined;
-  const { sortedOps, allLinks } = topoSortDag(workflow);
-
-  const entries: string[] = [];
-  const erroredOps: string[] = []; // for the fold-mode pointer index
-  for (const op of sortedOps) {
-    const info = snapshot.results.get(op.operatorID)?.info;
-    const lines: string[] = [];
-
-    if (info?.error) {
-      if (options.errorReflection) {
-        // Fold mode: error detail (input schema, history) lives on the operator's
-        // own block; here just record the id for the pointer index so any errored
-        // operator stays salient.
-        erroredOps.push(op.operatorID);
-      } else {
-        // Typed operators: the agent never saw the generated code, so the error
-        // is rewritten in its own terms (no `(line N)` pointers into Python).
-        const nativeType = op.nativeOp?.type;
-        lines.push(
-          nativeType && nativeType !== "UDF"
-            ? `error: ${formatNativeError(op.operatorID, nativeType, info.error)}`
-            : `error: ${info.error.split("\n")[0]}`
-        );
-        if (options.loaderHint && op.operatorType === "DataLoading") {
-          const hint = formatLoaderHint(info.error);
-          if (hint) lines.push(...hint.split("\n"));
-        }
-        if (options.lineageErrorContext && op.operatorType !== "DataLoading") {
-          // LATEST already renders every operator's Result, so reference the
-          // upstream instead of re-dumping it; DELTA may have omitted the
-          // upstream, so keep the full schema + sample-rows block there.
-          const block = isLatest
-            ? lineageErrorPointer(op.operatorID, snapshot, allLinks)
-            : buildLineageErrorContext(op.operatorID, snapshot, allLinks);
-          if (block) lines.push(...block.split("\n"));
-        }
-      }
-    } else if (!info) {
-      const roots = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
-      if (roots.length > 0) {
-        const noun = roots.length === 1 ? "operator" : "operators";
-        lines.push(`blocked — upstream ${noun} ${roots.map(id => `\`${id}\``).join(", ")} errored; fix those first`);
-      }
-    } else {
-    }
-
-    // Dead-loader audit (L3) — independent of execution state.
-    if (options.graphAudit && op.operatorType === "DataLoading" && workflow.operators.length > 1) {
-      const sinks = workflowState.getDownstreamSinks(op.operatorID);
-      const feedsNothing = sinks.length === 0 || (sinks.length === 1 && sinks[0] === op.operatorID);
-      if (feedsNothing) {
-        lines.push(
-          "Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it."
-        );
-      }
-    }
-
-    if (lines.length > 0) {
-      // NATIVE operators use the same header as their block: `### filter operator \`id\``.
-      entries.push(
-        op.nativeOp ? `### ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\`` : `### \`${op.operatorID}\` (${op.operatorType})`
-      );
-      for (const l of lines) entries.push(l);
-      entries.push("");
-    }
-  }
-
-  // Fold mode: a one-line pointer index keeps errored operators salient (their
-  // full detail is folded onto each operator's own block above), in root-cause
-  // (topological) order. Prepended so it sits right under the section header.
-  if (options.errorReflection && erroredOps.length > 0) {
-    const ids = erroredOps.map(id => `\`${id}\``).join(", ");
-    entries.unshift(
-      `Operators with execution errors (see each operator's block above for the error, input schema, and attempt history): ${ids} — fix \`${erroredOps[0]}\` first (root cause), then re-run.`,
-      ""
-    );
-  }
-
-  if (entries.length === 0) return undefined;
-  return ["# Operators needing attention (fix in this order)", "", ...entries].join("\n").trimEnd();
 }
 
 /* ============================================================================
@@ -2033,11 +1911,16 @@ function serializeTaskBody(
     if (node.step.role !== "agent") continue;
 
     lines.push(
-      serializeTurn(node, options.revisionFolds?.actions.get(node.eventIndex), options, createFlagsByStep.get(node.step.id))
+      serializeTurn(
+        node,
+        options.revisionFolds?.actions.get(node.eventIndex),
+        options,
+        createFlagsByStep.get(node.step.id)
+      )
     );
     lines.push("");
 
-    // VERSIONED MODE: a read-only pull's OUTPUT persists inline, as an
+    // VERSIONED MODE / NATIVE DELTA: a read-only pull's OUTPUT persists inline, as an
     // ordinary observation — snapshot or not (a pull writes nothing, so it
     // never owns a snapshot and the block below never fires for it). One rule,
     // "every action's observation stays", replaces the `# Recalled State`
@@ -2047,15 +1930,18 @@ function serializeTaskBody(
     // drops operator observations (they collapse into `### Dataflow`) but a
     // pull's output has no snapshot to collapse into — dropping it would
     // reintroduce the evaporation bug there.
-    if (options.versionedCatalog) {
+    if (options.versionedCatalog || options.inlineInspections) {
       const calls = node.step.toolCalls ?? [];
       const results = node.step.toolResults ?? [];
       const pulls: string[] = [];
       calls.forEach((tc, i) => {
-        if (tc.toolName !== "recallState" && tc.toolName !== "inspectResult") return;
-        const out = stringifyOutput(results[i]?.output).trimEnd();
+        const isInspection = tc.toolName === "inspectResult" || tc.toolName === "inspectError";
+        const inlineInspection = options.inlineInspections && isInspection;
+        if (!inlineInspection && !(options.versionedCatalog && (tc.toolName === "recallState" || isInspection))) return;
+        const output = (results.find(result => result.toolCallId === tc.toolCallId) ?? results[i])?.output;
+        const out = stringifyOutput(output).trimEnd();
         if (out.length === 0) return;
-        if (out.startsWith("[ERROR]")) pulls.push(`- ${tc.toolName}: ${conciseOutcome(out)}`);
+        if (out.startsWith("[ERROR]") && !inlineInspection) pulls.push(`- ${tc.toolName}: ${conciseOutcome(out)}`);
         else pulls.push(`- ${tc.toolName} output:\n${out.replace(/^#/gm, "####")}`);
       });
       if (pulls.length > 0) {
@@ -2068,10 +1954,8 @@ function serializeTaskBody(
 
     if (node.snapshot && !omitObservation) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // The operator-block STRUCTURAL decorations (Summary / Inputs)
-      // are LATEST's view and stay out here; the DATA-facet decorations (Schema /
-      // Data hints / Format hints) render per `dataLevel`, symmetric with LATEST
-      // (see renderRawResult). Every operator that CHANGED or
+      // Each observation uses the same evidence controls as LATEST. Every
+      // operator that CHANGED or
       // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
       // runPostStepExecution, via computeDelta case c) renders as
       // `- operator <id> <added|updated|deleted>` followed by its result. On
@@ -2090,12 +1974,39 @@ function serializeTaskBody(
       const actedVerb = new Map<string, string>();
       const deletedOps: string[] = [];
       const noChangeOutcome: string[] = [];
+      const requestedResults = batchObservedIds(node.step);
       calls.forEach((tc, i) => {
+        if (options.inlineInspections && (tc.toolName === "inspectResult" || tc.toolName === "inspectError")) return;
         const inp = tc.input as Record<string, unknown> | undefined;
         const opId = writtenOperatorId(tc.toolName, inp) ?? "";
+        if (tc.toolName === TOOL_NAME_DATAFLOW) {
+          const output = results.find(result => result.toolCallId === tc.toolCallId)?.output;
+          const receipt = asNativeBatchResult(output);
+          if (!receipt) noChangeOutcome.push(`- dataflow: ${conciseOutcome(output)}`);
+          for (const outcome of receipt?.operators ?? []) {
+            if (outcome.status === "added" || outcome.status === "modified") {
+              actedVerb.set(outcome.id, outcome.status === "added" ? "added" : "updated");
+              delta.add(outcome.id);
+            } else
+              noChangeOutcome.push(`- ${outcome.op} operator \`${outcome.id}\` ${outcome.status}: ${outcome.message}`);
+          }
+          for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
+          return;
+        }
         const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
         if (tc.toolName === "deleteOperator" && opId) {
-          deletedOps.push(opId);
+          // The CALL is not the fact; the post-step snapshot is. `deleteOperator`
+          // is refused when the operator still feeds a consumer, or when the id
+          // does not exist — reporting those as deletes told the model an
+          // operator was gone while it was still in the DAG (and still rendering
+          // in later observations).
+          // No snapshot for this step ⇒ no evidence either way; keep the prior
+          // behaviour rather than inventing a refusal.
+          if (node.snapshot?.workflow.operators.some(o => o.operatorID === opId) ?? false) {
+            noChangeOutcome.push(`- operator ${opId} (not deleted): ${conciseOutcome(results[i]?.output)}`);
+          } else {
+            deletedOps.push(opId);
+          }
         } else if (tc.toolName === "createOrModifyOperator" && opId) {
           actedVerb.set(opId, createFlags?.get(opId) ? "added" : "updated");
         } else if (batch) {
@@ -2118,9 +2029,6 @@ function serializeTaskBody(
           return;
         } else if (tc.toolName === "modifyOperator" && opId) {
           actedVerb.set(opId, "updated");
-        } else if (NATIVE_TOOL_NAMES.has(tc.toolName) && typeof inp?.id === "string") {
-          // NATIVE typed tool: upsert by id — created this step or updated.
-          actedVerb.set(inp.id as string, createFlags?.get(inp.id as string) ? "added" : "updated");
         }
         // An action whose operator isn't reflected in Δ (a rejected/no-op edit, or
         // a non-operator tool) keeps a one-line outcome so the attempt isn't lost.
@@ -2133,22 +2041,69 @@ function serializeTaskBody(
       // changed this step renders in the shape the rule gives it in the
       // post-step snapshot (full / count / header), same semantics as LATEST.
       const snapForShapes = node.snapshot;
-      const deltaShapes =
-        options.resultSelection === "rule"
-          ? selectResultShapes(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info)
-          : retiredPreviews(snapForShapes.workflow.operators, snapForShapes.workflow.links, id => snapForShapes.results.get(id)?.info);
+      const deltaShapes = selectShapes(
+        options.resultSelection,
+        snapForShapes.workflow.operators,
+        snapForShapes.workflow.links,
+        id => snapForShapes.results.get(id)?.info
+      );
 
       const obs: string[] = [];
+      const sharedUpstream = new Map<string, string>();
+      // `scoped`: operators that only re-executed (nothing about them changed)
+      // and whose profile did not move — one grouped line after the loop.
+      const rerunUnchanged: string[] = [];
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
-        if (!delta.has(op.operatorID)) continue;
+        if (!delta.has(op.operatorID) && !requestedResults?.has(op.operatorID)) continue;
+        // `scoped` selection, typed operators: compare this run with the
+        // previous run of the same operator.
+        //   - Re-executed because something upstream changed (not acted on
+        //     this step): ship the difference, not the table again — one line,
+        //     or a name on the grouped "unchanged" line. The frontier operator
+        //     (nothing reads it yet) is what the model acts on next and keeps
+        //     its full shape.
+        //   - Revised by the model (`updated`): the new version renders by its
+        //     type; a `change:` line says what moved against the old version.
+        // Both are decided from the two snapshots of THIS event and never
+        // rewritten later, so the prompt stays append-only.
+        const scoped = !requestedResults && options.resultSelection === "scoped" && !!op.nativeOp;
+        const currInfo = node.snapshot.results.get(op.operatorID)?.info;
+        const prevInfo = prev?.results.get(op.operatorID)?.info;
+        const comparable = scoped && currInfo && !currInfo.error && prevInfo && !prevInfo.error;
+        if (comparable && !actedVerb.has(op.operatorID)) {
+          const isFrontier = !node.snapshot.workflow.links.some(l => l.source.operatorID === op.operatorID);
+          if (!isFrontier) {
+            const diff = profileDiff(prevInfo!, currInfo!);
+            if (!diff) {
+              rerunUnchanged.push(`${op.nativeOp!.type.toLowerCase()} \`${op.operatorID}\``);
+              continue;
+            }
+            obs.push(`- ${op.nativeOp!.type.toLowerCase()} operator \`${op.operatorID}\` re-executed: ${diff}`);
+            continue;
+          }
+        }
         // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
         obs.push(
           op.nativeOp
-            ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${actedVerb.get(op.operatorID) ?? "updated"}`
+            ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${currInfo?.nativeError?.phase === "attempt" ? "edit rejected (not executed)" : currInfo?.nativeError?.diagnostic.stage === "dependency" ? "blocked (not executed)" : (actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated"))}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
+        // Successful hidden outputs keep a compact receipt. Errors bypass the
+        // display choice and continue through the full error renderer below.
+        if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {
+          const rows = currInfo?.totalRowCount ?? currInfo?.outputTuples;
+          obs.push(
+            currInfo
+              ? `  result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
+              : "  result: unavailable; result not requested"
+          );
+          continue;
+        }
+        if (comparable && actedVerb.get(op.operatorID) === "updated") {
+          obs.push(`  change: ${profileDiff(prevInfo!, currInfo!) ?? "none (same rows, same column profile)"}`);
+        }
         // `Inputs:` line — structure-consistent with LATEST, from the LEAF
         // snapshot's DAG (current wiring) via the same formatOperatorAdjacency
         // LATEST uses. Code mode: rendered once, on the op's most-recent edit
@@ -2156,7 +2111,7 @@ function serializeTaskBody(
         // that changed the op — moving the line on a later edit rewrote an
         // earlier observation and broke the prompt cache for everything after
         // it. Skipped for ops no longer in the leaf.
-        const leaf = options.deltaInputsLeaf;
+        const leaf = requestedResults ? node.snapshot : options.deltaInputsLeaf;
         if (leaf && (op.nativeOp ? true : options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex)) {
           const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
           if (leafOp) {
@@ -2178,7 +2133,7 @@ function serializeTaskBody(
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);
-        if (ex?.detail === "omit") continue;
+        if (ex?.detail === "omit" && !(op.nativeOp && currInfo?.error)) continue;
         // Write-time render prefs (DELTA event scoping): lower this event's
         // render per the version active at the event. Legacy formatter path
         // only (`!ex`), never-raise semantics.
@@ -2191,28 +2146,16 @@ function serializeTaskBody(
               const baseRows = options.maxResultRows ?? 0;
               renderOptions.maxResultRows = baseRows > 0 ? Math.min(baseRows, 3) : 3;
             }
-            if (pref.showOutputStatistics === false) renderOptions.columnStats = false;
           }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
-        const shape = deltaShapes?.get(op.operatorID);
+        const shape = requestedResults ? undefined : deltaShapes?.get(op.operatorID);
         if (shape && info && !info.error && shape.shape === "header") continue;
         if (shape && info && !info.error && shape.shape === "count") {
-          obs.push(`  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`);
+          obs.push(
+            `  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`
+          );
           continue;
-        }
-        // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it
-        // IS the input, since loaders have no `Inputs:` line. `23a5325fc` moved
-        // it out of the `Result:` body so consumed and produced facts stop
-        // mixing, but only added the new render to serializeOperatorFull, which
-        // is the LATEST per-operator block. DELTA lost its render and never got
-        // a replacement — formatOperatorResult still computes the line and
-        // discards it. This is that missing half: emitted at the observation's
-        // own indent, PARALLEL to `result:` rather than inside it, which is the
-        // same relationship it has to `Result:` in LATEST.
-        const fileIoFact = renderOptions.fileIoFacts && info ? formatFileIo(info) : undefined;
-        if (fileIoFact) {
-          for (const l of fileIoFact.split("\n")) obs.push(`  ${l}`);
         }
         const resultText = info
           ? renderRawResult(
@@ -2221,7 +2164,24 @@ function serializeTaskBody(
               workflowState,
               renderOptions,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
-              ex
+              ex,
+              {
+                ...shapeFormatOverrides(shape, options),
+                // Typed operators already carry the consolidated `Inputs:` line
+                // above (formatOperatorAdjacency); repeating it inside the
+                // result was a duplicate on every observation.
+                // The same event owns the failing parameters / UDF code. A
+                // later edit must not rewrite an earlier error's tool frame.
+                ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
+                nativeEvidence: nativeEvidenceAtSnapshot(
+                  op.operatorID,
+                  node.snapshot,
+                  renderOptions,
+                  true,
+                  !!ex,
+                  sharedUpstream
+                ),
+              }
             )
           : "(not executed)";
         const rlines = resultText.split("\n");
@@ -2232,6 +2192,7 @@ function serializeTaskBody(
           for (const l of rlines) obs.push(`    ${l}`);
         }
       }
+      if (rerunUnchanged.length > 0) obs.push(`- re-executed, unchanged: ${rerunUnchanged.join(", ")}`);
       obs.push(...noChangeOutcome);
 
       if (obs.length > 0) {
@@ -2250,12 +2211,12 @@ function serializeTaskBody(
  *  Turn rendering (shared)
  * ========================================================================= */
 
-/** How many inspectResult pulls stay rendered verbatim; older ones collapse
+/** How many result/error inspection pulls stay rendered verbatim; older ones collapse
  *  to a one-line note. Tail-of-prompt section, so trimming is cache-cheap. */
 const INSPECTIONS_KEEP_LAST = 8;
 
 /**
- * Build the `# Inspections` section from the path: every inspectResult tool
+ * Build the `# Inspections` section from the path: every result/error inspection
  * call paired with its output, event-ordered. The wire messages are REPLACED
  * each step (prepareStep), so without this re-render a pull's output would be
  * visible for a single step only. Returns undefined when the agent never
@@ -2264,6 +2225,7 @@ const INSPECTIONS_KEEP_LAST = 8;
 function buildInspectionsSection(path: PathNode[]): string | undefined {
   interface Pull {
     eventIndex: number;
+    toolName: string;
     operatorId: string;
     argsSummary: string;
     output: string;
@@ -2275,31 +2237,41 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
     const calls = step.toolCalls ?? [];
     const results = step.toolResults ?? [];
     calls.forEach((tc, i) => {
-      if (tc.toolName !== "inspectResult") return;
+      if (tc.toolName !== "inspectResult" && tc.toolName !== "inspectError") return;
       const inp = (tc.input ?? {}) as Record<string, unknown>;
       const parts: string[] = [];
       if (typeof inp.maxRows === "number") parts.push(`maxRows=${inp.maxRows}`);
       if (Array.isArray(inp.columns) && inp.columns.length > 0) parts.push(`columns=[${inp.columns.join(", ")}]`);
       if (inp.stats === true) parts.push("stats");
       if (typeof inp.where === "string" && inp.where) parts.push(`where=${inp.where}`);
+      if (typeof inp.revision === "string") parts.push(`revision=${inp.revision}`);
+      if (typeof inp.diagnosticId === "string") parts.push(`diagnosticId=${inp.diagnosticId}`);
       pulls.push({
         eventIndex: node.eventIndex,
+        toolName: tc.toolName,
         operatorId: typeof inp.operatorId === "string" ? inp.operatorId : "?",
         argsSummary: parts.join(", "),
-        output: stringifyOutput(results[i]?.output).trimEnd(),
+        output: stringifyOutput(
+          (results.find(result => result.toolCallId === tc.toolCallId) ?? results[i])?.output
+        ).trimEnd(),
       });
     });
   }
   if (pulls.length === 0) return undefined;
 
-  const lines: string[] = ["# Inspections (your on-demand inspectResult pulls)", ""];
+  // Preserve historical inspection traces without advertising removed tools in
+  // fresh error-only sessions.
+  const names = [...new Set(pulls.map(pull => pull.toolName))].sort().join(" / ");
+  const lines: string[] = [`# Inspections (your on-demand ${names} pulls)`, ""];
   const omitted = Math.max(0, pulls.length - INSPECTIONS_KEEP_LAST);
   if (omitted > 0) {
     lines.push(`(… ${omitted} earlier inspection${omitted === 1 ? "" : "s"} omitted …)`);
     lines.push("");
   }
   for (const pull of pulls.slice(-INSPECTIONS_KEEP_LAST)) {
-    lines.push(`## Inspection @ Event ${pull.eventIndex} — \`${pull.operatorId}\`${pull.argsSummary ? ` (${pull.argsSummary})` : ""}`);
+    lines.push(
+      `## Inspection @ Event ${pull.eventIndex} — \`${pull.operatorId}\`${pull.argsSummary ? ` (${pull.argsSummary})` : ""}`
+    );
     lines.push("");
     lines.push(pull.output.length > 0 ? pull.output : "(empty output)");
     lines.push("");
@@ -2593,7 +2565,7 @@ function renderVersionedCatalog(
     "Each finished entry: what was asked, how the dataflow changed (every operator version is " +
       "addressed as (operatorId, turn)), and what was answered. " +
       (options.recallOperatorLevel
-        ? "`recallState(ref: \"opId (turn N)\")` fetches that one version's code and values verbatim. "
+        ? '`recallState(ref: "opId (turn N)")` fetches that one version\'s code and values verbatim. '
         : "`recallState(turn)` fetches any entry's code and results verbatim. ") +
       "The last entry is the turn in progress."
   );
@@ -2628,8 +2600,7 @@ function renderVersionedCatalog(
         } else if (
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName)
+          call.toolName === "modifyOperator"
         ) {
           if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
           else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
@@ -2640,20 +2611,26 @@ function renderVersionedCatalog(
     const leaf = lastSnapshotOf([task]);
     if (verbs.size > 0) {
       sections.push("### Dataflow delta");
-      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
-        if (verb === "deleted" && !survives.has(opId)) continue;
+        // Deleted and gone: a throwaway probe the turn ends without; listing it
+        // is noise. Deleted but still in the leaf: the service REFUSED the
+        // delete (the operator still feeds a consumer), so the turn changed
+        // nothing about it — labelling it `(deleted)` was a false statement
+        // about live state.
+        if (verb === "deleted") continue;
         const op = leaf?.workflow.operators.find(o => o.operatorID === opId);
         // Typed operators: the header names the type and the entry carries the
         // parameters (the agent's own words) instead of a summary line.
         const nat = op?.nativeOp;
-        sections.push(nat ? `#### ${nat.type.toLowerCase()} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`);
+        sections.push(
+          nat ? `#### ${nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`
+        );
         if (verb === "deleted") {
           sections.push("");
           continue;
         }
-        if (nat && nat.type !== "UDF") {
-          sections.push(`Properties: ${JSON.stringify(nat.properties)}`);
+        if (nat) {
+          for (const l of nativeDefinitionLines(nat, false)) sections.push(l);
         } else {
           const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
           if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
@@ -2687,18 +2664,6 @@ function renderVersionedCatalog(
           sections.push(
             `Result: ${info.totalRowCount ?? info.result.length} rows x ${cols.length} cols${size} — Schema: ${cols.join(", ")}`
           );
-          if (options.rowLineage && info) {
-            const lin = formatRowLineage(info);
-            if (lin) sections.push(lin);
-          }
-          // Structural profile (grain/key candidates, partition columns,
-          // duplicates) in the entry itself, when the arm carries the D2
-          // channel: the facts a later turn's join/dedup decision needs,
-          // without spending a probe operator or a recall to get them.
-          if (options.tableStructureHint && info) {
-            const prof = formatTableHints(info);
-            if (prof) sections.push(prof);
-          }
         }
         sections.push("");
       }
@@ -2877,11 +2842,6 @@ function renderStructuredTurn(
       sections.push(dag);
       sections.push("");
     }
-    const flow = buildFlowSection(leaf, workflowState, options, /*isLatest=*/ false);
-    if (flow) {
-      sections.push(flow);
-      sections.push("");
-    }
   }
 
   // The pull blocks are subsections of this section, not top-level ones.
@@ -2889,11 +2849,7 @@ function renderStructuredTurn(
   // line is only demoted once. The recall tool's own output opens with an H1
   // (`# Turn 13`); demoting only the wrapper left that posing as a sibling of
   // `# Catalog` / `# Current Turn` in the prompt's structure.
-  const nest = (block: string) =>
-    block
-      .replace(/\n## /g, "\n### ")
-      .replace(/\n# /g, "\n## ")
-      .replace(/^# /, "## ");
+  const nest = (block: string) => block.replace(/\n## /g, "\n### ").replace(/\n# /g, "\n## ").replace(/^# /, "## ");
   if (options.recalledStateRendered) {
     sections.push(nest(options.recalledStateRendered));
     sections.push("");
@@ -2979,8 +2935,7 @@ function renderCatalog(
         const isWrite =
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName);
+          call.toolName === "modifyOperator";
         if (!isWrite || flags?.get(opId) === true) continue; // creation is not a revision
         const at = revisedLater.get(opId) ?? [];
         if (!at.includes(tn)) at.push(tn);
@@ -3018,8 +2973,7 @@ function renderCatalog(
         } else if (
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName)
+          call.toolName === "modifyOperator"
         ) {
           // First touch in the turn decides added-vs-revised; a later edit in the
           // same turn does not demote an operator this turn introduced.
@@ -3032,9 +2986,11 @@ function renderCatalog(
       const leaf = lastSnapshotOf([task]);
       // A throwaway probe created and deleted inside the same turn never existed
       // at the turn's end; listing it is noise the reader has to discount.
-      const survives = new Set((leaf?.workflow.operators ?? []).map(o => o.operatorID));
       for (const [opId, verb] of verbs) {
-        if (verb === "deleted" && !survives.has(opId)) continue;
+        // Gone → nothing to list; still in the leaf → the delete was refused and
+        // the turn changed nothing about that operator. Either way it is not a
+        // `- <id>` deletion entry.
+        if (verb === "deleted") continue;
         const mark = verb === "added" ? "+" : verb === "revised" ? "~" : "-";
         if (detail === "ids" || verb === "deleted") {
           lines.push(`  ${mark} ${opId}`);
@@ -3173,26 +3129,40 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
+  if (tc.toolName === TOOL_NAME_DATAFLOW && typeof inp.program === "string") {
+    // The program exactly as written; the receipt below says what landed.
+    const lines = ["- dataflow"];
+    const program = inp.program.trim();
+    if (program) {
+      lines.push("  program:");
+      for (const l of program.split("\n")) lines.push(`    ${l}`);
+    } else lines.push("  program: (empty: cached read)");
+    // Describe the submitted action, not an inferred default: saved receipts
+    // from older runs may have resolved an omitted observe differently.
+    lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "omitted"}`);
+    return lines;
+  }
   const id = typeof inp.id === "string" ? inp.id : "";
   if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
-  const type = nativeTypeForTool(tc.toolName);
-  if (!type || !id) return undefined;
-  const view = nativeViewOf(tc.toolName, inp);
-  if (!view) return undefined;
-  const verb = createFlags?.get(id) === false ? "modify" : "add";
-  const parts = [`- ${verb} ${tc.toolName} operator \`${id}\``];
-  const ins = describeInputs(type, view.inputs);
-  if (ins) parts.push(ins);
-  const props = { ...view.properties };
-  const code = type === "UDF" && typeof props.code === "string" ? (props.code as string) : undefined;
-  if (code !== undefined) delete props.code;
-  if (Object.keys(props).length > 0) parts.push(`properties: ${JSON.stringify(props)}`);
-  const lines = [parts.join("; ")];
-  if (code !== undefined) {
-    lines.push("    code:");
-    for (const l of code.split("\n")) lines.push(`      ${l}`);
-  }
-  return lines;
+  void createFlags;
+  return undefined;
+}
+
+/**
+ * A native operator's definition for the render: the `def`s it uses followed
+ * by the assignment as written. A process body is long and is not what the
+ * table looks like, so it is included only where code is asked for.
+ */
+function nativeDefinitionLines(
+  view: NonNullable<OperatorPredicate["nativeOp"]>,
+  includeProcessBody: boolean
+): string[] {
+  const body: string[] = [];
+  if (view.functions && (view.type !== "Process" || includeProcessBody))
+    for (const source of Object.values(view.functions)) body.push(...source.split("\n"));
+  if (view.source) body.push(...view.source.split("\n"));
+  else body.push(`${nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`);
+  return ["Definition:", ...body.map(l => "  " + l)];
 }
 
 /** A one-line, code-free outcome for a tool result: `ok` or the first line of
@@ -3220,24 +3190,6 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
     if (k === "code") continue; // rendered last as a block
-    if (k === "operators" && Array.isArray(v)) {
-      // NATIVE `addOperators`: one line per operator, `id (Type) <- inputs: {properties} — summary`;
-      // a UDF's code renders as its own block like a code-mode call.
-      lines.push("    operators:");
-      for (const spec of v as Array<Record<string, unknown>>) {
-        const ins = Array.isArray(spec.inputs) && spec.inputs.length > 0 ? ` <- ${(spec.inputs as string[]).join(", ")}` : "";
-        const props = (spec.properties ?? {}) as Record<string, unknown>;
-        const isUdf = spec.type === "UDF";
-        const shown = isUdf ? "" : `: ${JSON.stringify(props)}`;
-        const summary = typeof spec.summary === "string" && spec.summary.trim() ? ` — ${spec.summary.replace(/\s+/g, " ").trim()}` : "";
-        lines.push(`      - ${spec.id} (${spec.type})${ins}${shown}${summary}`);
-        if (isUdf && typeof props.code === "string") {
-          lines.push("        code:");
-          for (const l of props.code.split("\n")) lines.push(`          ${l}`);
-        }
-      }
-      continue;
-    }
     const val = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : JSON.stringify(v);
     lines.push(`    ${k}: ${val}`);
   }
@@ -3254,28 +3206,52 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
   return lines;
 }
 
-/**
- * The execution result for the DELTA `Observation:` — output table (TSV,
- * row-capped) or the FULL error. Data-facet decorations (schema / structural
- * profile / value-format / coercion) are rendered per `dataLevel`, SYMMETRIC
- * with LATEST — the data ladder means the same thing in both context modes.
- * (The operator-block STRUCTURAL lines — Summary / Inputs — remain LATEST-only;
- * they are not part of the data facet.) The engine error's `Operator
- * code:` block is intentionally KEPT (it makes the error self-contained — the
- * agent sees the failing line in its own code right where the error is), even
- * though the same code also appears in the Action.
- */
+/** Context layout and result sampling are independent of data/flow evidence. */
+/** The shape map for one snapshot under the arm's `resultSelection`:
+ *  "rule" = whether a table ships; "scoped" = also how much of it; "all" =
+ *  only spent previews retire. */
+function selectShapes(
+  selection: AssembleContextOptions["resultSelection"],
+  operators: readonly OperatorPredicate[],
+  links: WorkflowContent["links"],
+  getInfo: (opId: string) => OperatorInfo | undefined
+): Map<string, ShapeDecision> {
+  if (selection === "rule") return selectResultShapes(operators, links, getInfo);
+  if (selection === "scoped") return selectScopedShapes(operators, links, getInfo);
+  return retiredPreviews(operators, links, getInfo);
+}
+
+/** `scoped` selection: the render limits a full shape carries (columns, the
+ *  sample's share of the result character budget, the complete Schema line).
+ *  Empty for every other shape. */
+function shapeFormatOverrides(
+  shape: ShapeDecision | undefined,
+  options: AssembleContextOptions
+): Partial<FormatOperatorResultOptions> {
+  if (!shape || shape.shape !== "full") return {};
+  const o: Partial<FormatOperatorResultOptions> = {};
+  if (shape.columns) o.columns = shape.columns;
+  if (shape.budget === 0) o.detail = "shape";
+  else if (typeof shape.budget === "number" && shape.budget < 1) {
+    o.maxResultChars = Math.max(1, Math.round(shape.budget * (options.maxOperatorResultCharLimit ?? 2000)));
+  }
+  if (shape.schemaLine) o.schemaInResult = true;
+  return o;
+}
+
 function renderRawResult(
   operatorId: string,
   info: Parameters<typeof formatOperatorResult>[1],
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   resolveInputColumns?: (upstreamOpId: string) => number | undefined,
-  ex?: OperatorRenderExtras
+  ex?: OperatorRenderExtras,
+  overrides: Partial<FormatOperatorResultOptions> = {}
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
     ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, operatorId, workflowState)),
     resolveInputColumns,
+    ...overrides,
   });
   const text = raw.trim();
   return text.length > 0 ? text : "(no result)";
@@ -3332,6 +3308,7 @@ function serializeSnapshotCompact(
   if (workflow.operators.length === 0) return null;
 
   const lines: string[] = [];
+  const sharedUpstream = new Map<string, string>();
   const { sortedOps, allLinks } = topoSortDag(workflow);
   const sectionHash = "#".repeat(sectionLevel);
   const operatorLevel = sectionLevel + 1;
@@ -3343,9 +3320,20 @@ function serializeSnapshotCompact(
     const perOpOptions: AssembleContextOptions = {
       ...options,
       maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
+      nativeObservationCompaction: true,
     };
     lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, perOpOptions, /*isCurrent=*/ false, allLinks, operatorLevel)
+      serializeOperatorFull(
+        op,
+        snapshot,
+        workflowState,
+        perOpOptions,
+        /*isCurrent=*/ false,
+        allLinks,
+        operatorLevel,
+        undefined,
+        sharedUpstream
+      )
     );
     lines.push("");
   }
@@ -3374,6 +3362,7 @@ function serializeSnapshotFull(
   if (workflow.operators.length === 0) return null;
 
   const lines: string[] = [];
+  const sharedUpstream = new Map<string, string>();
   const { sortedOps, allLinks } = topoSortDag(workflow);
   const sectionHash = "#".repeat(sectionLevel);
   const operatorLevel = sectionLevel + 1;
@@ -3383,10 +3372,13 @@ function serializeSnapshotFull(
   // NATIVE result selection: decide once per snapshot which operator results
   // ship in full, as a row count, or not at all (native/selection.ts).
   // Spent previews retire in every mode (probe retirement, not result selection).
-  const shapes =
-    options.resultSelection === "rule"
-      ? selectResultShapes(workflow.operators, allLinks, id => snapshot.results.get(id)?.info)
-      : retiredPreviews(workflow.operators, allLinks, id => snapshot.results.get(id)?.info);
+  const shapes = selectShapes(
+    options.resultSelection,
+    workflow.operators,
+    allLinks,
+    id => snapshot.results.get(id)?.info
+  );
+  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
   // NATIVE: blocks in creation order, not topological order. The provider's
   // prompt cache only credits a step whose prompt EXTENDS an earlier prompt;
   // a new source inserted before existing blocks (topological order) drops
@@ -3397,8 +3389,53 @@ function serializeSnapshotFull(
   // GENERAL / CODE only, so `options.agentMode` never says NATIVE here.)
   const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
   for (const op of ordered) {
+    const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
+    if (requested && compilationError) {
+      lines.push(
+        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
+      );
+      if (op.nativeOp) lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
+      lines.push(`Result: [ERROR] compilation failed: ${compilationError.type}: ${compilationError.message}`, "");
+      continue;
+    }
+    // opBlock owns this case in serializeOperatorFull, which keeps the block's
+    // field order and its subscription rule in one place.
+    if (
+      options.messageLayout !== "opBlock" &&
+      requested &&
+      !requested.has(op.operatorID) &&
+      !snapshot.results.get(op.operatorID)?.info.error
+    ) {
+      const info = snapshot.results.get(op.operatorID)?.info;
+      const rows = info?.totalRowCount ?? info?.outputTuples;
+      lines.push(
+        `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``
+      );
+      if (op.nativeOp)
+        lines.push(
+          `Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`,
+          `Properties: ${JSON.stringify(op.nativeOp.properties)}`
+        );
+      lines.push(
+        info
+          ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
+          : "Result: unavailable; result not requested",
+        ""
+      );
+      continue;
+    }
     lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, options, isCurrent, allLinks, operatorLevel, shapes?.get(op.operatorID))
+      serializeOperatorFull(
+        op,
+        snapshot,
+        workflowState,
+        options,
+        isCurrent,
+        allLinks,
+        operatorLevel,
+        requested ? undefined : shapes?.get(op.operatorID),
+        sharedUpstream
+      )
     );
     lines.push("");
   }
@@ -3444,34 +3481,27 @@ export function computeDelta(prev: SnapshotData | undefined, curr: SnapshotData)
   return delta;
 }
 
-/* ============================================================================
- *  Per-operator serialization
- * ========================================================================= */
-
-/** The legacy (global-flag) result-format options — shared by the LATEST
- *  operator block and the DELTA observation render. */
-/**
- * Is `operatorId` a SOURCE operator — one with no inbound link? Sources read
- * the data lake; everything else reads another operator's output. The two
- * classes want different evidence: a source can lose rows only by dirty parse
- * (coercion, dropped values, file-IO), a consumer can lose them only by its own
- * transform (lineage / join rate), so a channel aimed at one is noise on the other.
- */
-function isSourceOperator(operatorId: string, workflowState: WorkflowState): boolean {
-  for (const l of workflowState.getAllLinks()) {
-    if (l?.target?.operatorID === operatorId) return false;
-  }
-  return true;
-}
-
-/**
- * Gate one data-facet channel on where the operator sits in the DAG.
- * `undefined`/"all" keeps the legacy behaviour (render wherever the flag is on).
- */
-function inScope(scope: StatScope | undefined, isSource: boolean): boolean {
-  if (!scope || scope === "all") return true;
-  if (scope === "off") return false;
-  return scope === "source" ? isSource : !isSource;
+function nativeEvidenceAtSnapshot(
+  operatorId: string,
+  snapshot: SnapshotData,
+  options: AssembleContextOptions,
+  historical: boolean,
+  compact = false,
+  sharedUpstream?: Map<string, string>
+): FormatOperatorResultOptions["nativeEvidence"] {
+  const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
+  return {
+    workflow: snapshot.workflow,
+    resolveInput: id => snapshot.results.get(id)?.info,
+    // Imported old events have no recorded exposure settings: do not invent
+    // evidence that was never present in their model-facing observations.
+    data: !historical && (options.nativeEvidence?.data ?? options.dataEvidence === true),
+    flow: !historical && (options.nativeEvidence?.flow ?? options.flowEvidence === true),
+    maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
+    frozen,
+    compact: compact || options.nativeObservationCompaction === true,
+    sharedUpstream,
+  };
 }
 
 function legacyFormatOptions(
@@ -3479,24 +3509,9 @@ function legacyFormatOptions(
   operatorId?: string,
   workflowState?: WorkflowState
 ): FormatOperatorResultOptions {
-  // Position-aware channel gating (statScopes). Without scopes configured this
-  // is exactly the previous flag pass-through — every `inScope` returns true.
-  const sc = options.statScopes;
-  const isSource = sc && operatorId && workflowState ? isSourceOperator(operatorId, workflowState) : true;
-  const on = (flag: boolean | undefined, scope: StatScope | undefined) =>
-    flag === true && inScope(scope, isSource);
   return {
     schemaInResult: options.schemaInResult,
-    columnStats: sc ? on(options.columnStats, sc.columnStats) : options.columnStats,
-    valueFormatFlags: sc ? on(options.valueFormatFlags, sc.valueFormat) : options.valueFormatFlags,
-    coercionTelemetry: sc ? on(options.coercionTelemetry, sc.coercion) : options.coercionTelemetry,
-    rowLineage: sc ? on(options.rowLineage, sc.lineage) : options.rowLineage,
     maxResultRows: options.maxResultRows,
-    tableStructureHint: sc ? on(options.tableStructureHint, sc.structural) : options.tableStructureHint,
-    // A7: the legacy (no per-operator extras) path serves DELTA arms and any
-    // arm without overrides. Omitting this dropped the `Files read:` fact for
-    // every such arm even when stats implied it.
-    fileIoFacts: sc ? on(options.fileIoFacts, sc.fileIo) : options.fileIoFacts,
   };
 }
 
@@ -3514,38 +3529,12 @@ function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextO
     detail: ex.detail === "shape" ? "shape" : undefined,
     schemaInResult: ex.column.schema,
     schemaTypes: ex.column.schemaTypes,
-    columnStats: ex.column.stats,
-    statsMetrics: ex.column.statsMetrics,
-    statsDensity: ex.column.statsDensity,
-    valueFormatFlags: ex.column.valueFormatHints,
-    coercionTelemetry: ex.column.coercionAlerts,
-    rowLineage: ex.column.lineage,
-    tableStructureHint: ex.column.structuralHints,
-    fileIoFacts: ex.column.fileIoFacts,
     maxResultRows: sampleRows,
     maxResultChars: ex.tuple.maxChars,
     sampleDuplicates: ex.tuple.duplicates,
     sampleFdHints: ex.tuple.fdHints,
   };
 }
-
-/**
- * Stage-aware loader-remediation hint (plan4, goal.md lever D / Direction-1).
- * Maps the exception CLASS parsed from a load-stage operator's error string to
- * a compact, GENERAL pandas remediation directive. Keyed only on the exception
- * class — never a task/column/domain/answer literal — so it generalizes from
- * the (stage=DataLoading, error-class) structure alone. Returns `undefined`
- * for classes that aren't a known load-failure mode (then no hint renders).
- *
- * Motivation (baseline traces): the agent already SEES the `[ERROR]` block with
- * its own code, yet loops without fixing it (e.g. legal-hard-18 retried 8 steps
- * on a `0x93` byte that is plainly Windows-1252). The missing ingredient is
- * remediation knowledge, not visibility — so we inject the fix pattern once,
- * localized to the failing loader operator.
- */
-// `formatLoaderHint` now lives in context/decorate/flow/loader-remediation and
-// is re-exported here for back-compat with any existing importers.
-export { formatLoaderHint } from "../context/decorate/flow/loader-remediation";
 
 /**
  * NATIVE result selection, "count" shape: one line — the output row count against
@@ -3598,6 +3587,10 @@ function formatOperatorAdjacency(
   opInfo?: OperatorInfo,
   snapshot?: SnapshotData
 ): string[] {
+  // V2 measured relationships belong inside the observed result's budget.
+  // Do not infer unmatched rows from output/min(input), or expose these
+  // legacy heuristics in the evidence-off framework control.
+  if (op.nativeOp) return []; // the operands are in the definition line
   const lines: string[] = [];
   const inbound = allLinks
     .filter(l => l.target.operatorID === op.operatorID)
@@ -3619,91 +3612,8 @@ function formatOperatorAdjacency(
       return shapeStr ? `${i.up} (${shapeStr})` : i.up;
     });
     lines.push("Inputs: " + parts.join(", "));
-
-    // MULTI-INPUT RETENTION. A join that silently drops the rows it should have
-    // kept is the single most expensive mistake in a long analysis: every later
-    // turn inherits the truncated population. The numbers are already on the
-    // Inputs line, and the model still walks past them — measured on
-    // march_madness turn 1, in SIX different arms: three inputs of 354/353/353
-    // rows, output 210, and no arm noticed. Every one of those runs then scored
-    // 3.1 on the task, because the answer was computed over 210 of 353 teams.
-    //
-    // The existing Lineage line cannot show this: it divides by the SUM of the
-    // inputs (1060 here), so a broken join reads as an ordinary filter. For an
-    // inner join the binding constraint is the SMALLEST input, so retention is
-    // measured against that, and stated only when rows were actually lost.
-    const inRows = inbound
-      .map(i => shapes.find(s => s.portIndex === i.port)?.rows)
-      .filter((r): r is number => typeof r === "number" && r > 0);
-    const out = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
-    if (inbound.length > 1 && inRows.length === inbound.length && typeof out === "number") {
-      const smallest = Math.min(...inRows);
-      if (out < smallest) {
-        const pct = ((100 * out) / smallest).toFixed(0);
-        lines.push(
-          `Join retention: ${out} of ${smallest} rows (${pct}% of the smallest input) — ` +
-            `${smallest - out} rows had no match. If they should have matched, the join key does not agree ` +
-            `across the inputs (spelling, spacing, case, or a different naming convention) and the population ` +
-            `every later turn inherits is now short by that many rows.`
-        );
-      }
-    }
   }
-  // VALUE LOSS. The sibling of the join fact, for values rather than rows:
-  // `pd.to_numeric(x, errors="coerce")` turns everything it cannot parse into
-  // NaN, and every mean/sum downstream then skips those rows silently. It
-  // appears at 40% of first-error turns, and nothing surfaces it — the platform's
-  // coercion telemetry only covers conversions IT performs, never the ones inside
-  // the operator's own code. Null RATES per column are already collected on both
-  // sides, so the rise is computable here, and a rate comparison survives the
-  // row-count change a filter introduces.
-  lines.push(...formatValueLoss(inbound.map(i => i.up), opInfo, snapshot));
   return lines;
-}
-
-/** Columns whose null rate rose materially between an input and the output. */
-function formatValueLoss(upstreamIds: string[], opInfo?: OperatorInfo, snapshot?: SnapshotData): string[] {
-  const nullsOf = (stats?: Record<string, string>): Map<string, number> => {
-    const out = new Map<string, number>();
-    for (const [col, text] of Object.entries(stats ?? {})) {
-      const m = /null=(\d+)/.exec(text);
-      if (m) out.set(col, Number(m[1]));
-    }
-    return out;
-  };
-  const outRows = typeof opInfo?.totalRowCount === "number" ? opInfo.totalRowCount : opInfo?.outputTuples;
-  if (!outRows || outRows <= 0) return [];
-  const outNulls = nullsOf(opInfo?.columnStats);
-  if (outNulls.size === 0) return [];
-
-  const found: string[] = [];
-  for (const up of upstreamIds) {
-    const upInfo = snapshot?.results.get(up)?.info;
-    const upRows = typeof upInfo?.totalRowCount === "number" ? upInfo.totalRowCount : upInfo?.outputTuples;
-    if (!upRows || upRows <= 0) continue;
-    const upNulls = nullsOf(upInfo?.columnStats);
-    for (const [col, after] of outNulls) {
-      const before = upNulls.get(col);
-      if (before === undefined) continue;
-      const rateBefore = before / upRows;
-      const rateAfter = after / outRows;
-      const newlyNull = Math.round((rateAfter - rateBefore) * outRows);
-      // Both a rate jump and a material count, so a 3-row table cannot trip it.
-      if (rateAfter - rateBefore >= 0.05 && newlyNull >= 25) {
-        found.push(
-          `\`${col}\` lost ${newlyNull} values (null rate ${(100 * rateBefore).toFixed(1)}% → ` +
-            `${(100 * rateAfter).toFixed(1)}%) between \`${up}\` and here`
-        );
-      }
-    }
-  }
-  if (found.length === 0) return [];
-  return [
-    "Value loss: " +
-      found.slice(0, 3).join("; ") +
-      ". A parse or coercion did not succeed on those rows; every mean, sum and count over those columns now " +
-      "skips them, so the denominator is smaller than the row count suggests.",
-  ];
 }
 
 function serializeOperatorFull(
@@ -3714,15 +3624,37 @@ function serializeOperatorFull(
   isCurrent: boolean,
   allLinks: WorkflowContent["links"],
   operatorLevel: number,
-  shape?: ShapeDecision
+  shape?: ShapeDecision,
+  sharedUpstream?: Map<string, string>
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
+  // Visibility is a serializer invariant, not only a full-snapshot caller
+  // convention. Compact decks and historical layouts use this path too.
+  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
+  const opBlock = options.messageLayout === "opBlock" && !!op.nativeOp;
+  // An operator the agent has observed before keeps its result section, and
+  // that section is rendered from the LIVE result below — never from the text
+  // captured when it was observed. If an ancestor changed and this operator
+  // re-executed, LATEST must show the new table; showing the old one would
+  // report a measurement the current dataflow never produced, and collapsing
+  // to a row count would hide the very change the agent needs to see.
+  const subscribed = opBlock && options.observedEverIds?.has(op.operatorID) === true;
+  if (requested && !requested.has(op.operatorID) && !info?.error && !subscribed) {
+    const rows = info?.totalRowCount ?? info?.outputTuples;
+    return [
+      `${"#".repeat(operatorLevel)} ${op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType} operator \`${op.operatorID}\``,
+      ...(op.nativeOp ? nativeDefinitionLines(op.nativeOp, opBlock) : []),
+      info
+        ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}${opBlock ? "" : "; result not requested"}`
+        : `Result: unavailable${opBlock ? "" : "; result not requested"}`,
+    ].join("\n");
+  }
   // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
   // history). Absent on the legacy path — rendering is then byte-identical to
   // the pre-summarize assembler.
   const ex = options.opExtras?.(op.operatorID);
   let execText: string | undefined;
-  if (info && shape && shape.shape === "header" && shape.note) {
+  if (info && !info.error && shape && shape.shape === "header" && shape.note) {
     // Retired probe: one line says why there is no table here.
     execText = shape.note;
   } else if (info && !info.error && shape && shape.shape !== "full") {
@@ -3734,12 +3666,15 @@ function serializeOperatorFull(
     // (plus the Schema line when on) — the table/stats are omitted.
     const schemaLine = ex.column.schema ? formatSchemaLine(info, ex.column.schemaTypes !== false) : undefined;
     execText = [schemaLine, ex.retirementFact].filter(Boolean).join("\n");
-  } else if (info && ex?.detail !== "omit") {
+  } else if (info && (ex?.detail !== "omit" || (op.nativeOp && info.error))) {
     execText = formatOperatorResult(op.operatorID, info, workflowState, {
       ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, op.operatorID, workflowState)),
       // LATEST renders a single consolidated `Inputs:` (with counts) at the
       // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
       inputsInResult: false,
+      ...shapeFormatOverrides(shape, options),
+      operatorAtEvent: op,
+      nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, !isCurrent, !!ex, sharedUpstream),
     });
   }
 
@@ -3762,20 +3697,22 @@ function serializeOperatorFull(
   // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
   // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
   if (op.nativeOp) {
-    lines.push(`${opHash} ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\``);
+    lines.push(`${opHash} ${nativeOperatorName(op.nativeOp.type)} operator \`${op.operatorID}\``);
   } else {
     lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
     lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   }
-  if (op.nativeOp && op.nativeOp.type !== "UDF") {
-    // The agent's own parameters — always shown for typed operators; the
-    // generated code is never shown (it is not what the agent wrote).
-    lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
-  }
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
+  if (op.nativeOp) {
+    // The definition as the model wrote it (its operands name the inputs). A
+    // process body is shown where code is asked for: opBlock keeps one field
+    // order for every operator, and the code-in-snapshot flag opts in.
+    for (const l of nativeDefinitionLines(op.nativeOp, opBlock || !!ex?.includeCode)) lines.push(l);
+  } else {
+    for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
+  }
 
   // Thought-replay back-pointer: tie this operator to the step whose thought
   // last edited it (latest-edit grain). The thought text lives once in the
@@ -3801,46 +3738,14 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
-  // A7: `Files read:` is a CONSUMED fact — for a DataLoading operator it IS the
-  // input, since loaders have no `Inputs:` line. Emitted here so both consumed
-  // facts sit TOGETHER, above `Code:` and above `Result:`; everything indented
-  // under `Result:` describes the output.
-  if (options.fileIoFacts && info) {
-    const fio = formatFileIo(info);
-    if (fio) lines.push(fio);
-  }
-
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
-  if (ex?.includeCode && !info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
-    const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+  if (ex?.includeCode && !info?.error && !op.nativeOp) {
+    const code = String(op.operatorProperties?.code ?? "").trim();
     if (code) {
       lines.push("Code:");
       for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
     }
-  }
-
-  // Schemas only on the current (last) snapshot — compilation only runs
-  // against the live workflow.
-  const showSchemas = isCurrent && options.agentMode === AgentMode.GENERAL && options.compilationResult;
-  if (showSchemas) {
-    const outputSchemas = options.compilationResult!.operatorOutputSchemas ?? {};
-    const allLinks = snapshot.workflow.links;
-    const inputSchemaMap = extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks);
-    if (inputSchemaMap) {
-      for (const [portId, schema] of Object.entries(inputSchemaMap)) {
-        if (schema) lines.push(`Input Schema (port ${parsePortIndex(portId)}): ${formatSchema(schema)}`);
-      }
-    }
-    const outputSchemaMap = outputSchemas[op.operatorID];
-    if (outputSchemaMap) {
-      const firstSchema = Object.values(outputSchemaMap).find(s => s !== undefined) as PortSchema | undefined;
-      if (firstSchema) lines.push(`Output Schema: ${formatSchema(firstSchema)}`);
-    }
-    const compilationError = options.compilationResult!.operatorErrors?.[op.operatorID] as
-      | WorkflowFatalError
-      | undefined;
-    if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
 
   if (execText && (shape?.shape === "count" || (shape?.shape === "header" && shape.note))) {
@@ -3905,7 +3810,10 @@ function serializeOperatorFull(
     for (const rv of ex.resultHistory) {
       lines.push(`Result @ step ${rv.version.eventIndex}:`);
       if (rv.version.info.error) {
-        lines.push(`  [ERROR] ${rv.version.info.error.split("\n")[0]}`);
+        const diagnostic = rv.version.info.nativeError;
+        lines.push(
+          `  [ERROR] ${diagnostic ? formatNativeDiagnostic(diagnostic.diagnostic) + `\nDiagnostic: ${diagnostic.diagnosticId}` : rv.version.info.error.split("\n")[0]}`
+        );
       } else {
         const t = formatOperatorResult(op.operatorID, rv.version.info, workflowState, {
           detail: rv.render.detail === "shape" ? "shape" : undefined,
@@ -3915,13 +3823,6 @@ function serializeOperatorFull(
           sampleFdHints: rv.render.tuple.fdHints,
           schemaInResult: rv.render.column.schema,
           schemaTypes: rv.render.column.schemaTypes,
-          columnStats: rv.render.column.stats,
-          statsMetrics: rv.render.column.statsMetrics,
-          statsDensity: rv.render.column.statsDensity,
-          valueFormatFlags: rv.render.column.valueFormatHints,
-          coercionTelemetry: rv.render.column.coercionAlerts,
-          tableStructureHint: rv.render.column.structuralHints,
-          fileIoFacts: rv.render.column.fileIoFacts,
           inputsInResult: false,
         });
         for (const l of t.split("\n")) lines.push("  " + l);
@@ -3939,13 +3840,6 @@ function serializeOperatorFull(
   if (options.errorReflection && isCurrent && info?.error) {
     const entry = options.errorReflectionMap?.get(op.operatorID);
     const threshold = options.errorReflectionThreshold ?? DEFAULT_REFLECTION_THRESHOLD;
-    // Debugging aids shown on ANY execution error: the upstream input schema (fix
-    // against real columns) and a loader-remediation hint.
-    for (const l of upstreamInputSchema(op.operatorID, snapshot, allLinks)) lines.push(l);
-    if (op.operatorType === "DataLoading") {
-      const hint = formatLoaderHint(info.error);
-      if (hint) for (const l of hint.split("\n")) lines.push(l);
-    }
     // Attempt/error HISTORY (count, repeated-error verdict, last-attempt diff) only
     // once the model has gone >= N consecutive (re)fixes on this op (it's stuck).
     if (entry && entry.consecutive >= threshold) {
@@ -3966,7 +3860,9 @@ function serializeOperatorFull(
           `${editCount - 1} prior variant(s) did not converge.`
       );
       if (info?.error) {
-        lines.push(`Latest result: [ERROR] ${info.error.split("\n")[0].slice(0, 200)}`);
+        lines.push(
+          `Latest result: [ERROR] ${info.nativeError ? `${info.nativeError.diagnostic.code}; revision ${info.nativeError.operatorRevision}; diagnostic ${info.nativeError.diagnosticId}` : info.error.split("\n")[0].slice(0, 200)}`
+        );
       } else if (info) {
         lines.push("Latest result: produced output but the task is not yet solved.");
       }
@@ -3975,10 +3871,10 @@ function serializeOperatorFull(
           "result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer " +
           "from a different operator."
       );
-      // NATIVE typed operators already show their Properties; their generated
-      // code is not what the agent wrote, so it is never echoed.
-      if (!info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
-        const code = String((op.operatorProperties as Record<string, unknown> | undefined)?.code ?? "").trim();
+      // Native operators already show their definition; their generated code is
+      // not what the agent wrote, so it is never echoed.
+      if (!info?.error && !op.nativeOp) {
+        const code = String(op.operatorProperties?.code ?? "").trim();
         if (code) {
           lines.push("Current code:");
           for (const l of code.split("\n")) lines.push("  " + l);
@@ -4098,14 +3994,4 @@ function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
     if (path[i].snapshot) return path[i].snapshot;
   }
   return undefined;
-}
-
-function formatSchema(schema: PortSchema): string {
-  const attrs = schema.map(a => `${a.attributeName}: ${a.attributeType}`);
-  return `[${attrs.join(", ")}]`;
-}
-
-function parsePortIndex(portId: string): string {
-  const idx = portId.indexOf("_");
-  return idx >= 0 ? portId.substring(0, idx) : portId;
 }

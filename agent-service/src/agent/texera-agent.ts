@@ -53,7 +53,7 @@ import {
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
-import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt } from "./prompts";
 
 /**
  * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
@@ -92,18 +92,20 @@ exact type/shape the question asks (a scalar, or a clean list) — don't leave i
 implicit in an intermediate frame.`;
 import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
 import {
-  createAddOperatorTool,
-  createModifyOperatorTool,
-  TOOL_NAME_ADD_OPERATOR,
-  TOOL_NAME_MODIFY_OPERATOR,
-} from "./tools/general-op-tools";
-import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
-import { createNativeTypedTools, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
+  asNativeBatchResult,
+  batchObservedIds,
+  createNativeTools,
+  TOOL_NAME_DATAFLOW,
+} from "./tools/native-batch-tools";
+import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
+import { planSeedSources } from "./native/seed-sources";
+import { formatNativeDiagnostic } from "./native/diagnostics";
+import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import { createInspectResultTool, TOOL_NAME_INSPECT_RESULT } from "./tools/inspect-result-tool";
+import { createInspectErrorTool, TOOL_NAME_INSPECT_ERROR } from "./tools/inspect-error-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import {
   createRecallStateTool,
@@ -136,13 +138,7 @@ import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trac
 const PERSIST_DEBOUNCE_MS = 500;
 
 /** Tool names whose successful invocation triggers post-step operator execution. */
-const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
-  TOOL_NAME_ADD_OPERATOR,
-  TOOL_NAME_MODIFY_OPERATOR,
-  TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
-  TOOL_NAME_ADD_OPERATORS,
-  ...NATIVE_TOOL_NAMES,
-]);
+const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DATAFLOW]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
@@ -247,8 +243,15 @@ export function computeOperatorAccess(
       modifiedOperatorIds: [],
     };
     const result = toolResults?.find(tr => tr.toolCallId === tc.toolCallId);
-    // `operatorId` on the code / general tools; `id` on the typed-operator
-    // tools of native mode (and their deleteOperator).
+    const batch = tc.toolName === TOOL_NAME_DATAFLOW ? asNativeBatchResult(result?.output) : undefined;
+    if (batch) {
+      entry.addedOperatorIds = batch.operators.filter(op => op.status === "added").map(op => op.id);
+      entry.modifiedOperatorIds = batch.operators.filter(op => op.status === "modified").map(op => op.id);
+      entry.viewedOperatorIds = [...batch.observe];
+      access[i] = entry;
+      return;
+    }
+    // `operatorId` on the code-mode tools; `id` on native mode's deleteOperator.
     const inputOpId = writtenOperatorId(tc.toolName, tc.input);
     if (result && !result.isError && result.output !== undefined && result.output !== null) {
       const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
@@ -269,17 +272,16 @@ export function computeOperatorAccess(
       else if (inputOpId) {
         // Fall back on the tool's declared intent when the result text is
         // not one of the known summaries (e.g. inspect/execute variants).
-        if (tc.toolName === TOOL_NAME_ADD_OPERATOR) entry.addedOperatorIds.push(inputOpId);
-        else if (
-          tc.toolName === TOOL_NAME_MODIFY_OPERATOR ||
-          tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR ||
-          tc.toolName === TOOL_NAME_DELETE_OPERATOR ||
-          NATIVE_TOOL_NAMES.has(tc.toolName)
-        )
+        if (tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR || tc.toolName === TOOL_NAME_DELETE_OPERATOR)
           entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
       }
-    } else if (inputOpId && (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR || tc.toolName === TOOL_NAME_INSPECT_RESULT)) {
+    } else if (
+      inputOpId &&
+      (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR ||
+        tc.toolName === "inspectResult" || // Historical traces only; no executable tool remains.
+        tc.toolName === TOOL_NAME_INSPECT_ERROR)
+    ) {
       // A failed read still tells the UI which operator the model looked at.
       entry.viewedOperatorIds.push(inputOpId);
     }
@@ -320,6 +322,7 @@ export class TexeraAgent {
   private reActStepsByMessageId: Map<string, ReActStep[]> = new Map();
 
   private currentMessageId: string | undefined = undefined;
+  private readonly nativeValidationRepair = new NativeValidationRepair();
   /** (operatorId, turnId) -> version. Written in EVERY mode so the backbone is
    *  always turn-tracked; only the versioned write path reads it for wiring. */
   readonly versionStore = new OperatorVersionStore();
@@ -366,7 +369,11 @@ export class TexeraAgent {
 
     this.workflowState = new WorkflowState();
     this.metadataStore = WorkflowSystemMetadata.getInstance();
-    this.snapshotStorage = new WorkflowSnapshotStorage(stepId => this.getAncestorPath(stepId));
+    this.snapshotStorage = new WorkflowSnapshotStorage(
+      stepId => this.getAncestorPath(stepId),
+      () => this.delegateConfig?.workflowId,
+      () => (this.delegateConfig?.userToken ? [this.delegateConfig.userToken] : [])
+    );
 
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
@@ -556,23 +563,17 @@ export class TexeraAgent {
         compactionEnabled
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      this.systemPrompt = buildNativeModeSystemPrompt(
-        this.settings.contextMode,
-        this.settings.enableInspectTool === true,
-        this.settings.resultSelection,
-        {
-          versioned: this.settings.versionedMode === true,
-          session: this.settings.sessionTurns === true,
-          recall: this.settings.enableRecallTool === true,
-        }
-      );
-    } else if (this.settings.agentMode === AgentMode.GENERAL) {
-      this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
+      this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, {
+        versioned: this.settings.versionedMode === true,
+        session: this.settings.sessionTurns === true,
+        recall: this.settings.enableRecallTool === true,
+        messageLayout: this.settings.messageLayout,
+      });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
         this.settings.contextMode,
         compactionEnabled,
-        this.settings.enableInspectTool === true,
+        false,
         this.settings.enableRenderPrefs === true,
         this.settings.enableCodeInSnapshot === true,
         this.settings.sourceProvenanceHint === true,
@@ -601,6 +602,11 @@ export class TexeraAgent {
       maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
       maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
       executionTimeoutMs: this.settings.executionTimeoutMs,
+      // Structured (versioned, profiled) results are what native operators
+      // produce; a delegated GUI workflow of plain Texera operators keeps the
+      // legacy transport even under native mode.
+      structuredResults:
+        this.settings.agentMode === AgentMode.NATIVE && this.workflowState.getAllOperators().some(op => op.nativeOp),
     };
   }
 
@@ -628,10 +634,12 @@ export class TexeraAgent {
 
     const context: ToolContext = {
       metadataStore: this.metadataStore,
+      nativeValidationRepair: this.nativeValidationRepair,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        nativeProfileCollection: this.settings.nativeProfileCollection,
       },
     };
 
@@ -649,22 +657,21 @@ export class TexeraAgent {
         this.isCodeShownToAgent(),
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
-    } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      // Fixed-grain typed operators: one tool per operator type (upsert by id),
-      // plus a consumer-aware delete that replaces the generic one.
-      Object.assign(tools, createNativeTypedTools(this.workflowState, context));
     } else {
-      tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
-      tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
+      // NATIVE: the `dataflow` program tool plus a consumer-aware delete that
+      // replaces the generic one.
+      Object.assign(tools, createNativeTools(this.workflowState, context));
     }
 
-    // Opt-in read-only PULL tool (Direction B): lets the model re-inspect an
-    // existing operator's cached result at more detail on demand. Reads the
-    // result at the current HEAD; never mutates the DAG or re-executes.
-    if (this.settings.enableInspectTool) {
-      tools[TOOL_NAME_INSPECT_RESULT] = createInspectResultTool({
-        getResult: (opId: string) => (this.head ? this.snapshotStorage.getOperatorResult(this.head, opId) : undefined),
-        workflowState: this.workflowState,
+    if (this.settings.agentMode === AgentMode.NATIVE) {
+      tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query => {
+        const inspected = this.snapshotStorage.inspectNativeError(this.head, query);
+        if (inspected.summary) {
+          const current = this.snapshotStorage.inspectNativeError(this.head, { operatorId: query.operatorId });
+          if (current.summary?.diagnosticId === inspected.summary.diagnosticId)
+            this.nativeValidationRepair.acknowledge(inspected.summary);
+        }
+        return inspected;
       });
     }
 
@@ -717,7 +724,7 @@ export class TexeraAgent {
 
   /**
    * Build a tool registry for `importReActSteps` replay. Includes CRUD tools
-   * for BOTH code and general modes so any exported session is replayable
+   * for BOTH code and native modes so any exported session is replayable
    * regardless of the agent's current `agentMode`. No scheduler wrapping —
    * the replay loop awaits each call sequentially.
    */
@@ -741,9 +748,8 @@ export class TexeraAgent {
     };
 
     return {
+      [TOOL_NAME_DATAFLOW]: createNativeTools(this.workflowState, context)[TOOL_NAME_DATAFLOW],
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
-      [TOOL_NAME_ADD_OPERATOR]: createAddOperatorTool(this.workflowState, operatorSchemas, context),
-      [TOOL_NAME_MODIFY_OPERATOR]: createModifyOperatorTool(this.workflowState, context),
       [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
         this.workflowState,
         operatorSchemas,
@@ -970,7 +976,14 @@ export class TexeraAgent {
     const built: string[] = [];
     for (const step of mine) {
       for (const call of step.toolCalls ?? []) {
-        if (!WRITE_TOOL_NAMES.has(call.toolName) && !NATIVE_TOOL_NAMES.has(call.toolName)) continue;
+        if (call.toolName === TOOL_NAME_DATAFLOW) {
+          const batch = asNativeBatchResult(step.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output);
+          for (const outcome of batch?.operators ?? [])
+            if ((outcome.status === "added" || outcome.status === "modified") && !built.includes(outcome.id))
+              built.push(outcome.id);
+          continue;
+        }
+        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
         const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
       }
@@ -1001,6 +1014,7 @@ export class TexeraAgent {
       };
     userStep.parentId = baseStepId;
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(baseStepId));
+    this.nativeValidationRepair.clear();
 
     const ops = (this.snapshotStorage.getWorkflow(baseStepId).operators ?? []).length;
     return {
@@ -1264,6 +1278,7 @@ export class TexeraAgent {
     // total — if no action-bearing ancestor owns a snapshot on this branch
     // we fall through to the empty root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
+    this.nativeValidationRepair.clear();
     return true;
   }
 
@@ -1300,6 +1315,7 @@ export class TexeraAgent {
     if (head === undefined) return;
     const step = this.stepsById.get(head);
     if (!step?.toolCalls || step.toolCalls.length === 0) return;
+    if (step.toolCalls.every(call => call.toolName === TOOL_NAME_INSPECT_ERROR)) return;
     if (this.snapshotStorage.hasSnapshotFor(head)) return;
     this.snapshotStorage.createSnapshot(head, content);
     this.snapshotCallback?.(head, content);
@@ -1359,8 +1375,10 @@ export class TexeraAgent {
     disabledTools?: Set<string>;
     maxSteps?: number;
     maxOperatorEdits?: number;
-    allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
+    nativeProfileCollection?: boolean;
+    dataEvidence?: boolean;
+    flowEvidence?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1375,11 +1393,6 @@ export class TexeraAgent {
     errorReflectionThreshold?: number;
     fewShotPrompt?: boolean;
     maxResultRows?: number;
-    flowLevel?: number;
-    dataLevel?: number;
-    columnStats?: boolean;
-    valueFormat?: boolean;
-    dataHints?: boolean;
     attemptReflection?: boolean;
     toolDialect?: LocalToolDialect;
     summarizeParams?: SummarizeParamsPatch | null;
@@ -1403,9 +1416,7 @@ export class TexeraAgent {
     indexDetailedOperators?: number;
     enableResumeTool?: boolean;
     enableAnswerGrounding?: boolean;
-    coercionTelemetry?: boolean;
-    rowLineage?: boolean;
-    statScopes?: AgentSettings["statScopes"];
+    seedSources?: boolean;
     messageLayout?: AgentSettings["messageLayout"];
     versionedMode?: boolean;
     versionedHeads?: boolean;
@@ -1416,7 +1427,22 @@ export class TexeraAgent {
     indexThinObservations?: boolean;
     tunerConfig?: TunerConfig | null;
   }): void {
+    // Validate the effective combination before mutating ANY setting. In
+    // particular a rejected mode change must not leave the prompt/tools split.
+    validateNativeSettings(updates);
+    const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
+    if (
+      collection !== (this.settings.nativeProfileCollection ?? false) &&
+      (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
+    ) {
+      throw new NativeCatalogSettingsError(
+        "Changing profile collection requires a fresh agent and workflow; existing operators retain their compiled setting"
+      );
+    }
     let promptNeedsRebuild = false;
+    this.settings.nativeProfileCollection = collection;
+    if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
+    if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
@@ -1444,10 +1470,6 @@ export class TexeraAgent {
       // Read by createTools() below when (re)building the code-op tool; the
       // guard's consecutive-edit counter resets with the rebuilt closure.
     }
-    if (updates.allowedOperatorTypes !== undefined) {
-      this.settings.allowedOperatorTypes = updates.allowedOperatorTypes;
-      promptNeedsRebuild = true;
-    }
     if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
       this.settings.agentMode = updates.agentMode;
       promptNeedsRebuild = true;
@@ -1471,32 +1493,14 @@ export class TexeraAgent {
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
     }
+    if (this.settings.agentMode === AgentMode.NATIVE) {
+      this.settings.parallelToolCalls = false;
+    }
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
       // Pure render-time toggle — controls whether each operator's
       // `Properties:` line is emitted in the assembled snapshot (code
       // operators are always stripped regardless). Read at next assembly.
-    }
-    if (updates.flowLevel !== undefined) {
-      this.settings.flowLevel = updates.flowLevel;
-      // DECORATE flow facet ordinal level (CONTEXT-DESIGN §5). Expanded to the
-      // flow rung flags by assembleContext via the rung catalog.
-    }
-    if (updates.dataLevel !== undefined) {
-      this.settings.dataLevel = updates.dataLevel;
-      // DECORATE data facet ordinal level (CONTEXT-DESIGN §5).
-    }
-    if (updates.columnStats !== undefined) {
-      this.settings.columnStats = updates.columnStats;
-      // Standalone Column Stats overlay (independent of dataLevel).
-    }
-    if (updates.valueFormat !== undefined) {
-      this.settings.valueFormat = updates.valueFormat;
-      // Standalone value-format-hints flag (data-derived family).
-    }
-    if (updates.dataHints !== undefined) {
-      this.settings.dataHints = updates.dataHints;
-      // Standalone structural Data-hints flag (data-derived family).
     }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
@@ -1587,11 +1591,9 @@ export class TexeraAgent {
       this.settings.learnedConfig = updates.learnedConfig ?? undefined;
     }
     if (updates.enableInspectTool !== undefined) {
-      // Adds/removes the read-only inspectResult tool from the model's tool set
-      // (createTools() below reads this and rebuilds). The code-mode prompt
-      // carries a matching `## On-demand result inspection` section.
-      this.settings.enableInspectTool = updates.enableInspectTool;
-      promptNeedsRebuild = true;
+      // Compatibility input only. Result retrieval is through batch observe;
+      // legacy clients cannot re-enable a removed tool by changing settings.
+      this.settings.enableInspectTool = false;
     }
     if (updates.enableRenderPrefs !== undefined) {
       // Write-time render prefs: gates the createOrModifyOperator params (tools
@@ -1636,10 +1638,13 @@ export class TexeraAgent {
     if (updates.enableResumeTool !== undefined) this.settings.enableResumeTool = updates.enableResumeTool;
     if (updates.enableAnswerGrounding !== undefined)
       this.settings.enableAnswerGrounding = updates.enableAnswerGrounding;
-    if (updates.coercionTelemetry !== undefined) this.settings.coercionTelemetry = updates.coercionTelemetry;
-    if (updates.rowLineage !== undefined) this.settings.rowLineage = updates.rowLineage;
-    if (updates.statScopes !== undefined) this.settings.statScopes = updates.statScopes;
-    if (updates.messageLayout !== undefined) this.settings.messageLayout = updates.messageLayout;
+    if (updates.seedSources !== undefined) this.settings.seedSources = updates.seedSources;
+    if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
+      this.settings.messageLayout = updates.messageLayout;
+      if (this.settings.agentMode === AgentMode.NATIVE) {
+        promptNeedsRebuild = true;
+      }
+    }
     if (updates.versionedMode !== undefined && updates.versionedMode !== this.settings.versionedMode) {
       // Changes the write tool's schema (strict version params), the context
       // layout, AND the prompt fragment describing both. Tools are rebuilt at
@@ -1692,7 +1697,9 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
 
-    if (promptNeedsRebuild) {
+    // An agent that has not been initialized yet has no prompt at all; the
+    // first settings update gives it one for the (possibly default) mode.
+    if (promptNeedsRebuild || !this.systemPrompt) {
       this.rebuildSystemPrompt();
     }
 
@@ -1789,11 +1796,17 @@ export class TexeraAgent {
     this.workflowState.addSubscription(subscription);
   }
 
-  async sendMessage(userMessage: string, messageSource?: "chat" | "feedback"): Promise<AgentMessageResult> {
+  async sendMessage(
+    userMessage: string,
+    messageSource?: "chat" | "feedback",
+    options?: { sources?: readonly string[] }
+  ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
 
     await this.refreshWorkflowFromBackend();
+
+    this.nativeValidationRepair.clear();
 
     this.abortController = new AbortController();
 
@@ -1827,7 +1840,14 @@ export class TexeraAgent {
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
 
-      let isFirstStep = true;
+      // Seeded source roots: a system-performed opening step (stepId 1) the
+      // model's first step then builds on. Only when the arm opts in AND the
+      // message names its sources; otherwise the turn is byte-identical.
+      if (this.settings.seedSources && options?.sources && options.sources.length > 0) {
+        if (await this.seedSourceRoots(messageId, options.sources)) stepIndex = 1;
+      }
+
+      let isFirstStep = stepIndex === 0;
       let lastPreparedMessages: ModelMessage[] | undefined;
 
       // Pass only the current user turn; prepareStep rebuilds full context each step
@@ -1866,8 +1886,9 @@ export class TexeraAgent {
               offBranchTurns: this.offBranchTurns(visibleSteps),
             });
             lastPreparedMessages = processed;
-            const firstContent = processed[0]?.content;
-            this.lastRenderedContext = typeof firstContent === "string" ? firstContent : undefined;
+            this.lastRenderedContext = processed
+              .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+              .join("\n\n");
             return { messages: processed };
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
@@ -2078,9 +2099,9 @@ export class TexeraAgent {
     // An async assembler (LLM tuner) can't be awaited in this sync preview —
     // return the content last rendered on the prepareStep path.
     if (processed instanceof Promise) return this.lastRenderedContext ?? "";
-    const first = processed[0];
-    if (!first) return "";
-    return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
+    return processed
+      .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+      .join("\n\n");
   }
 
   stop(): void {
@@ -2091,6 +2112,7 @@ export class TexeraAgent {
   }
 
   clearHistory(): void {
+    this.nativeValidationRepair.clear();
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
     this.currentMessageId = undefined;
@@ -2364,6 +2386,7 @@ export class TexeraAgent {
     // no action-bearing ancestor recorded one, we land on the empty
     // root's empty workflow.
     this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(headStep.id));
+    this.nativeValidationRepair.clear();
 
     // Recompute stepCounter from the largest numeric segment in any imported
     // id of the form `step-<agentId>-<n>-<ts>`, so subsequent generateStepId()
@@ -2420,34 +2443,169 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
+  /**
+   * SEEDED SOURCE ROOTS — materialize the DAG's roots before the first model
+   * call of this turn. The scans of the task's listed files are the one part
+   * of the dataflow the model cannot decide differently, so the service runs
+   * them and records the result as an ordinary `dataflow` batch step: tool
+   * call, tool result and captured observations, exactly what the model's own
+   * opening scan step would have produced. Zero usage, `synthetic: "seed"`.
+   * Returns true when a seed step was recorded.
+   */
+  private async seedSourceRoots(messageId: string, sources: readonly string[]): Promise<boolean> {
+    if (this.settings.agentMode !== AgentMode.NATIVE) {
+      this.log.warn({ messageId }, "seedSources ignored: requires native mode");
+      return false;
+    }
+    const plan = planSeedSources(sources, this.settings.maxOperatorResultCharLimit);
+    if (plan.operators.length === 0) {
+      this.log.info({ messageId, skipped: plan.skipped }, "seedSources: nothing to seed");
+      return false;
+    }
+    const tool = this.tools[TOOL_NAME_DATAFLOW];
+    if (!tool || typeof tool.execute !== "function") return false;
+    const stepId = this.generateStepId();
+    const toolCallId = `call-${stepId}-seed`;
+    const input = { program: plan.program, observe: plan.observe };
+    let output: unknown;
+    let isError = false;
+    try {
+      output = await tool.execute(input, { toolCallId, messages: [] });
+    } catch (error: any) {
+      output = `[ERROR] seed failed: ${error?.message ?? String(error)}`;
+      isError = true;
+    }
+    const toolCalls = [{ toolName: TOOL_NAME_DATAFLOW, toolCallId, input }];
+    const toolResults = [{ toolCallId, output, isError }];
+    const afterStepContent = this.workflowState.getWorkflowContent();
+    const step: ReActStep = {
+      id: stepId,
+      parentId: this.head,
+      messageId,
+      stepId: 1,
+      timestamp: Date.now(),
+      role: "agent",
+      content: "",
+      isBegin: true,
+      isEnd: false,
+      toolCalls,
+      toolResults,
+      operatorAccess: computeOperatorAccess(toolCalls, toolResults),
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, reasoningTokens: 0, cachedInputTokens: 0 },
+      synthetic: "seed",
+    };
+    this.addStep(step);
+    this.head = stepId;
+    this.maybeCreateSnapshotForHead(afterStepContent);
+    await this.runPostStepExecution(toolCalls, toolResults, { maxChars: plan.perSourceChars });
+    this.log.info(
+      { messageId, seeded: plan.observe, skipped: plan.skipped, perSourceChars: plan.perSourceChars },
+      "seeded source roots"
+    );
+    return true;
+  }
+
   private async runPostStepExecution(
+    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
+    overrides?: { maxChars?: number }
+  ): Promise<void> {
+    const owningStepId = this.head;
+    const owningSignal = this.abortController?.signal;
+    const requested = batchObservedIds({ toolCalls, toolResults } as Pick<ReActStep, "toolCalls" | "toolResults">);
+    // Capture exposure settings before awaiting the engine. Changing settings
+    // while the request is in flight must not rewrite this event's selection.
+    const options = {
+      data: this.settings.dataEvidence,
+      flow: this.settings.flowEvidence,
+      maxChars: overrides?.maxChars ?? this.settings.maxOperatorResultCharLimit,
+      maxRows: this.settings.maxResultRows,
+    };
+    await this.executePostStepChanges(toolCalls, toolResults);
+    if (
+      requested &&
+      owningStepId &&
+      this.head === owningStepId &&
+      !owningSignal?.aborted &&
+      this.settings.agentMode === AgentMode.NATIVE &&
+      this.snapshotStorage.hasSnapshotFor(owningStepId)
+    ) {
+      for (const call of toolCalls ?? []) {
+        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
+        const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
+        for (const outcome of batch?.operators ?? []) {
+          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
+          const view = outcome.attempted;
+          if (!view || !outcome.id) continue;
+          const diagnostic = outcome.diagnostic ?? {
+            version: 1 as const,
+            operatorId: outcome.id,
+            operatorRevision: view.revision!,
+            code: outcome.status === "blocked" ? "UPSTREAM_FAILED" : "EDIT_REJECTED",
+            stage: outcome.status === "blocked" ? ("dependency" as const) : ("validate" as const),
+            message: outcome.message,
+            hint: "Repair the rejected arguments/upstream dependency and resubmit; the DAG definition was not changed.",
+            retryable: false,
+          };
+          const summary = this.snapshotStorage.captureNativeAttemptDiagnostic(
+            owningStepId,
+            {
+              operatorID: outcome.id,
+              operatorType: "DataProcessing",
+              operatorVersion: "1",
+              operatorProperties: {},
+              inputPorts: [],
+              outputPorts: [],
+              showAdvanced: false,
+              nativeOp: view,
+            },
+            "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
+          );
+          outcome.diagnostic = summary.diagnostic;
+          this.nativeValidationRepair.bind(
+            outcome.op,
+            { id: outcome.id, inputs: view.inputs, ...view.properties },
+            summary
+          );
+          outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId} (rejected edit; DAG definition unchanged)`;
+        }
+      }
+      this.snapshotStorage.restoreNativeRejectedEdits(owningStepId);
+      this.snapshotStorage.captureNativeObservations(owningStepId, requested, options);
+    }
+  }
+
+  private async executePostStepChanges(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
   ): Promise<void> {
-    const execConfig = this.buildExecutionConfig();
-    if (!execConfig || !toolCalls || !toolResults) return;
+    if (!toolCalls || !toolResults) return;
 
     // Collect every operator successfully edited in this step.
     const editedOpIds: string[] = [];
     for (let i = 0; i < toolCalls.length; i++) {
       const tc = toolCalls[i];
-      const tr = toolResults[i];
+      const tr = toolResults.find(result => result.toolCallId === tc.toolCallId);
       if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        const batch = asNativeBatchResult(tr?.output);
+        for (const outcome of batch?.operators ?? []) {
+          if (outcome.status === "added" || outcome.status === "modified") editedOpIds.push(outcome.id);
+        }
+        continue;
+      }
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
-      const operatorId =
-        (tc.input as any)?.operatorId ?? (NATIVE_TOOL_NAMES.has(tc.toolName) ? (tc.input as any)?.id : undefined);
+      const operatorId = (tc.input as any)?.operatorId;
       if (operatorId) editedOpIds.push(operatorId);
-      // NATIVE `addOperators`: one call adds a chain; every id it landed is an edit.
-      const batch = (tc.input as any)?.operators;
-      if (Array.isArray(batch)) {
-        for (const spec of batch) {
-          if (spec && typeof spec.id === "string" && this.workflowState.getOperator(spec.id)) editedOpIds.push(spec.id);
-        }
-      }
     }
     if (editedOpIds.length === 0) return;
+    if (this.head && this.settings.agentMode === AgentMode.NATIVE) {
+      this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
+    }
+    const execConfig = this.buildExecutionConfig();
+    if (!execConfig) return;
 
     // WRITE THROUGH TO THE VERSION STORE — every mode. The store is the only
     // place a version is a thing rather than an inference; recording here (on
@@ -2482,7 +2640,81 @@ export class TexeraAgent {
         }
       }
     }
-    if (targets.size === 0) return;
+    // An aborted request can still finish remotely (or return after checkout).
+    // Capture ownership now; never route its data/profiles/errors via a later HEAD.
+    const owningStepId = this.head;
+    const owningSignal = this.abortController?.signal;
+    const stillOwned = () =>
+      owningStepId !== undefined &&
+      this.head === owningStepId &&
+      !owningSignal?.aborted &&
+      this.snapshotStorage.hasSnapshotFor(owningStepId);
+
+    // A rejected edit never entered the DAG. Executing a later consumer across
+    // it would silently use the last accepted definition instead of the model's
+    // requested computation. Keep independent branches runnable, but require an
+    // explicit accepted repair for each rejected root (including same-ID/same-code).
+    const blocked = new Map<string, { root: string; revision: string }>();
+    if (owningStepId && this.settings.agentMode === AgentMode.NATIVE) {
+      const roots = new Map(
+        Object.entries(this.snapshotStorage.getAssociatedSnapshot(owningStepId).nativeRejectedEdits ?? {}).map(
+          ([id, summary]) => [id, summary.operatorRevision]
+        )
+      );
+      for (const call of toolCalls) {
+        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
+        const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === call.toolCallId)?.output);
+        for (const outcome of batch?.operators ?? []) {
+          if (outcome.status !== "error" && outcome.status !== "blocked") continue;
+          const revision = outcome.attempted?.revision;
+          if (revision) roots.set(outcome.id, revision);
+        }
+      }
+      for (const [root, revision] of roots) {
+        for (const id of [root, ...this.workflowState.getDownstreamOperators(root)]) {
+          if (targets.delete(id)) blocked.set(id, { root, revision });
+        }
+      }
+    }
+    const persistBlocked = () => {
+      if (!stillOwned()) return;
+      // Upstream-first writes: each error invalidates its descendants; writing
+      // a downstream first and its parent last would erase the blocked receipt.
+      const pending = new Map(blocked);
+      while (pending.size) {
+        const id =
+          [...pending.keys()].find(
+            id =>
+              !this.workflowState
+                .getAllLinks()
+                .some(link => link.target.operatorID === id && pending.has(link.source.operatorID))
+          ) ?? pending.keys().next().value!;
+        const cause = pending.get(id)!;
+        pending.delete(id);
+        const op = this.workflowState.getOperator(id);
+        if (!op?.nativeOp) continue;
+        this.snapshotStorage.setOperatorResult(owningStepId!, id, {
+          state: "Blocked",
+          inputTuples: 0,
+          outputTuples: 0,
+          resultMode: "table",
+          error:
+            "NATIVE_ERROR_V2:" +
+            JSON.stringify({
+              version: 1,
+              operatorId: id,
+              operatorRevision: op.nativeOp.revision,
+              code: "UPSTREAM_FAILED",
+              stage: "dependency",
+              message: `Not executed: ${cause.root} revision ${cause.revision} was rejected. Explicitly repair/resubmit that operator before using its downstream results.`,
+            }),
+        });
+      }
+    };
+    if (targets.size === 0) {
+      persistBlocked();
+      return;
+    }
 
     // One execution covers every edit in this step. `executeWorkflowAndPersist`
     // fires `onResult` for every operator that ran on the backend — including
@@ -2494,13 +2726,12 @@ export class TexeraAgent {
     let failure: string | undefined;
     try {
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
-        abortSignal: this.abortController?.signal,
+        abortSignal: owningSignal,
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
+          if (!stillOwned()) return;
           produced.add(opId);
-          if (this.head !== undefined) {
-            this.snapshotStorage.setOperatorResult(this.head, opId, operatorInfo);
-          }
+          this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });
       if (outcome && outcome.success === false) {
@@ -2517,12 +2748,12 @@ export class TexeraAgent {
     // and again. Measured: one cyclic edge made every execution fail for 15
     // turns, and the agent burned 5 whole step budgets rewriting working code
     // because nothing ever told it the ENGINE was refusing the plan.
-    if (failure && this.head !== undefined) {
+    if (failure && stillOwned()) {
       for (const opId of targets) {
         if (produced.has(opId)) continue;
-        const existing = this.snapshotStorage.getOperatorResult(this.head, opId);
+        const existing = this.snapshotStorage.getOperatorResult(owningStepId!, opId);
         if (existing && !existing.error) continue; // keep a real earlier result
-        this.snapshotStorage.setOperatorResult(this.head, opId, {
+        this.snapshotStorage.setOperatorResult(owningStepId!, opId, {
           operatorId: opId,
           state: "ExecutionFailed",
           inputTuples: 0,
@@ -2532,6 +2763,7 @@ export class TexeraAgent {
         } as any);
       }
     }
+    persistBlocked();
   }
 
   /**
@@ -2597,6 +2829,7 @@ export class TexeraAgent {
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
+        this.nativeValidationRepair.clear();
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
 
@@ -2636,6 +2869,7 @@ export class TexeraAgent {
         isBegin = false;
       } else {
         messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+        this.nativeValidationRepair.clear();
         stepId = 0;
         isBegin = true;
       }

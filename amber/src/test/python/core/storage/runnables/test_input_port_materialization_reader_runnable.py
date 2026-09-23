@@ -56,6 +56,7 @@ def _build_reader(worker_actor_id, schema=None):
         worker_actor_id, worker_actor_id, is_control=False
     )
     reader.queue = MagicMock()
+    reader.on_schema = None
     reader.partitioner = MagicMock()
     reader.partitioner.flush.return_value = []
     return reader
@@ -101,6 +102,7 @@ class TestRunStateReadingBlock:
         instance._finished = False
         instance.channel_id = ChannelIdentity(me, me, is_control=False)
         instance.queue = MagicMock()
+        instance.on_schema = None
         instance.partitioner = MagicMock()
         # No tuple-batches and no ECM-flush payloads in these tests.
         instance.partitioner.flush.return_value = []
@@ -217,6 +219,15 @@ class TestRunTupleLoop:
     @pytest.fixture
     def me(self):
         return ActorVirtualIdentity(name="me")
+
+    def test_empty_materialization_publishes_schema_before_channel_markers(self, me):
+        reader = _build_reader(me, Schema(raw_schema={"actual": "LONG"}))
+        events = []
+        reader.on_schema = lambda schema: events.append(schema)
+        reader.emit_ecm = lambda name, alignment: events.append(name)
+        self._run_with_documents(reader, [])
+        assert events == [reader.tuple_schema, "StartChannel", "EndChannel"]
+        assert reader.finished()
 
     @staticmethod
     def _run_with_documents(reader, tuples):

@@ -19,7 +19,6 @@
 
 import { describe, expect, test } from "bun:test";
 import { formatSampleDuplicates, formatSampleFds } from "./sample-profile";
-import { filterStatsLine } from "../decorate/data/column-stats";
 
 describe("formatSampleDuplicates", () => {
   test("reports duplicate rows", () => {
@@ -91,39 +90,5 @@ describe("formatSampleFds", () => {
       { k: "a", c: 1 },
     ];
     expect(formatSampleFds(rows)).toBeUndefined();
-  });
-});
-
-describe("filterStatsLine", () => {
-  const numeric = "(numeric): null=12, mean=52.3, min=0.5, max=999.9, top_10={1=5, 2=3}";
-
-  test("'all' returns verbatim", () => {
-    expect(filterStatsLine(numeric, "all")).toBe(numeric);
-  });
-
-  test("subsets metric families, brace-aware", () => {
-    expect(filterStatsLine(numeric, ["min", "max"])).toBe("(numeric): min=0.5, max=999.9");
-    expect(filterStatsLine(numeric, ["top"])).toBe("(numeric): top_10={1=5, 2=3}");
-    expect(filterStatsLine(numeric, ["null"])).toBe("(numeric): null=12");
-  });
-
-  test("unknown families (format tag) always survive", () => {
-    const s = "(str): null=0, distinct=890, format=currency";
-    expect(filterStatsLine(s, ["min"])).toBe("(str): format=currency");
-  });
-
-  test("bool + items families", () => {
-    expect(filterStatsLine("(bool): null=0, true=5, false=3", ["true", "false"])).toBe("(bool): true=5, false=3");
-    expect(filterStatsLine("(list): null=0, items_min=1, items_max=9", ["items"])).toBe(
-      "(list): items_min=1, items_max=9"
-    );
-  });
-
-  test("empty selection keeps just the type tag", () => {
-    expect(filterStatsLine(numeric, [])).toBe("(numeric)");
-  });
-
-  test("unparseable lines return verbatim", () => {
-    expect(filterStatsLine("weird stuff", ["min"])).toBe("weird stuff");
   });
 });

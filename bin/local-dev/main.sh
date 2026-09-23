@@ -134,6 +134,13 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"      # bin/local-dev in the self tree
 SELF_ROOT="$(cd "$SELF_DIR/../.." && pwd)"     # self checkout root (tooling source)
 
+# Optional trusted local profile keeps ports, infrastructure and service URLs
+# together for an isolated deployment. It is loaded before state bookkeeping.
+if [[ -n "${TEXERA_LOCAL_DEV_PROFILE:-}" ]]; then
+    [[ -f "$TEXERA_LOCAL_DEV_PROFILE" ]] || { echo "Missing local-dev profile" >&2; exit 2; }
+    source "$TEXERA_LOCAL_DEV_PROFILE"
+fi
+
 STATE_DIR="${TEXERA_LOCAL_DEV_DIR:-/tmp/texera-local-dev}"
 LOG_DIR="$STATE_DIR/logs"
 # Per-service phase markers: shell writes `<phase>\t<epoch>` here as it
@@ -587,6 +594,9 @@ _catalog_is_rest() { [[ "${STORAGE_ICEBERG_CATALOG_TYPE:-}" == "rest" ]]; }
 # postgres mode the host gets `localhost:9000` and compose keeps the network
 # alias. In rest mode both sides must agree, hence the shared LAN IP.
 _compose_s3_endpoint() {
+    if [[ -n "${TEXERA_COMPOSE_S3_ENDPOINT:-}" ]]; then
+        printf '%s' "$TEXERA_COMPOSE_S3_ENDPOINT"; return
+    fi
     if _catalog_is_rest; then
         printf '%s' "${STORAGE_S3_ENDPOINT:-http://texera-minio:9000}"
     else
@@ -966,7 +976,15 @@ amap_set SVC_UNZIP_DEST computing-unit-master ""
 amap_set SVC_HEALTH     computing-unit-master ""
 
 amap_set SVC_TYPE   agent-service bun
-amap_set SVC_PORT   agent-service 3001
+# Separate agent worktrees may share the Texera backend. Keep the listener
+# lookup, health checks and Bun's actual bind port in agreement so managing a
+# worktree never accidentally targets the default service on :3001.
+agent_service_port="${TEXERA_AGENT_SERVICE_PORT:-3001}"
+if [[ ! "$agent_service_port" =~ ^[1-9][0-9]{0,4}$ ]] || (( agent_service_port > 65535 )); then
+    printf 'TEXERA_AGENT_SERVICE_PORT must be an integer from 1 to 65535.\n' >&2
+    exit 2
+fi
+amap_set SVC_PORT   agent-service "$agent_service_port"
 amap_set SVC_CWD    agent-service "agent-service"
 amap_set SVC_HEALTH agent-service "/api/healthcheck"
 
@@ -975,15 +993,27 @@ amap_set SVC_PORT   frontend 4200
 amap_set SVC_CWD    frontend "frontend"
 amap_set SVC_HEALTH frontend ""
 
+# Offset applies to service discovery as well as binding. The profile supplies
+# matching YAML/environment ports; the agent retains its explicit override.
+if [[ -n "${TEXERA_LOCAL_DEV_PORT_OFFSET:-}" ]]; then
+    [[ "$TEXERA_LOCAL_DEV_PORT_OFFSET" =~ ^[0-9]+$ ]] || { echo "Invalid port offset" >&2; exit 2; }
+    for _svc in "${SERVICES[@]}"; do
+        [[ "$_svc" == "agent-service" ]] && continue
+        _port=$(( $(amap_get SVC_PORT "$_svc") + TEXERA_LOCAL_DEV_PORT_OFFSET ))
+        (( _port > 0 && _port <= 65535 )) || { echo "Port offset out of range" >&2; exit 2; }
+        amap_set SVC_PORT "$_svc" "$_port"
+    done
+fi
+
 # --------- docker infra config ---------
-DOCKER_PROJECT="texera-local-dev"
+DOCKER_PROJECT="${TEXERA_DOCKER_PROJECT:-texera-local-dev}"
 # Infra orchestration is part of the tooling, not the deployed app — pin it to
 # the self tree so a deployed worktree always comes up against main's known-good
 # docker compose (the app schema/DDL it applies still comes from the source tree
 # via $REPO_ROOT).
-DOCKER_COMPOSE_FILE="$SELF_ROOT/bin/single-node/docker-compose.yml"
-DOCKER_OVERLAY_FILE="$SELF_ROOT/bin/local-dev/docker-compose.override.yml"
-DOCKER_ENV_FILE="$SELF_ROOT/bin/single-node/.env"
+DOCKER_COMPOSE_FILE="${TEXERA_DOCKER_COMPOSE_FILE:-$SELF_ROOT/bin/single-node/docker-compose.yml}"
+DOCKER_OVERLAY_FILE="${TEXERA_DOCKER_OVERLAY_FILE:-$SELF_ROOT/bin/local-dev/docker-compose.override.yml}"
+DOCKER_ENV_FILE="${TEXERA_DOCKER_ENV_FILE:-$SELF_ROOT/bin/single-node/.env}"
 # The lakekeeper trio (migrate / server / init) only exists in REST-catalog mode.
 # Dropping it in postgres mode also drops its startup dependency on the Alpine
 # package CDN: `lakekeeper-init` begins with `apk add curl jq`, so a network that
@@ -1004,6 +1034,12 @@ docker_compose_files() {
     local args=(-f "$DOCKER_COMPOSE_FILE")
     [[ -f "$DOCKER_OVERLAY_FILE" ]] && args+=(-f "$DOCKER_OVERLAY_FILE")
     printf '%s\n' "${args[@]}"
+}
+
+local_dev_compose() {
+    local files=()
+    while IFS= read -r item; do files+=("$item"); done < <(docker_compose_files)
+    docker compose -p "$DOCKER_PROJECT" --env-file "$DOCKER_ENV_FILE" "${files[@]}" "$@"
 }
 
 # --------- TUI helpers ---------
@@ -1469,7 +1505,7 @@ _warn_tooling_drift() {
 
 # Returns the count of long-lived infra services currently running under our project.
 infra_running_count() {
-    docker compose -p "$DOCKER_PROJECT" ps --services --filter status=running 2>/dev/null | grep -cxE "$(IFS=\|; echo "${DOCKER_INFRA_LONGLIVED[*]}")" || true
+    local_dev_compose ps --services --filter status=running 2>/dev/null | grep -cxE "$(IFS=\|; echo "${DOCKER_INFRA_LONGLIVED[*]}")" || true
 }
 
 # Returns one of: stopped | running | partial:N | external — aggregate view
@@ -1483,7 +1519,8 @@ infra_state() {
         echo "partial:$running"
     else
         local taken=0
-        for port in 5432 9000 8000 8181 4000; do
+        for _infra_svc in "${DOCKER_INFRA_LONGLIVED[@]}"; do
+            port=$(amap_get SVC_PORT "$_infra_svc")
             [[ -n "$(listen_pid_for_port "$port")" ]] && taken=$((taken+1))
         done
         if [[ "$taken" -gt 0 ]]; then
@@ -1502,7 +1539,7 @@ _docker_states_cache_ts=-1
 
 _refresh_docker_states_cache() {
     if (( _docker_states_cache_ts < 0 || SECONDS - _docker_states_cache_ts >= 1 )); then
-        _docker_states_cache=$(docker compose -p "$DOCKER_PROJECT" ps -a \
+        _docker_states_cache=$(local_dev_compose ps -a \
             --format '{{.Service}}|{{.State}}|{{.Status}}' 2>/dev/null)
         _docker_states_cache_ts=$SECONDS
     fi
@@ -1585,7 +1622,7 @@ infra_down() {
 # `not found: value FEEDBACK`. Probe for a canonical table and re-run
 # texera_ddl.sql if it's absent.
 infra_ensure_db_schema() {
-    local pg="texera-postgres"
+    local pg="${TEXERA_POSTGRES_CONTAINER:-texera-postgres}"
     # Wait briefly for postgres to be ready — `up -d` returned but the
     # container may still be running its own init sequence.
     local i=0
@@ -1689,7 +1726,7 @@ parse_changelog_changesets() {
 # sbt build rather than let the compile die on missing generated tables.
 infra_apply_sql_updates() {
     local seed="${1:-}"
-    local pg="texera-postgres"
+    local pg="${TEXERA_POSTGRES_CONTAINER:-texera-postgres}"
     local changelog="$REPO_ROOT/sql/changelog.xml"
     [[ -f "$changelog" ]] || return 0
 
@@ -1845,6 +1882,10 @@ _format_pct() {
 # Container name for a docker-typed service. Most use `texera-<svc>`, but
 # `litellm` ships unprefixed in upstream's compose.
 _docker_container_for() {
+    if [[ -n "${TEXERA_DOCKER_PROJECT:-}" ]]; then
+        printf "%s-%s" "$DOCKER_PROJECT" "$1"
+        return
+    fi
     case "$1" in
         litellm) printf "litellm" ;;
         *)       printf "texera-%s" "$1" ;;
@@ -1989,7 +2030,7 @@ stop_one() {
     if [[ "$(amap_get SVC_TYPE "$svc")" == "docker" ]]; then
         phase_set "$svc" stopping
         tui_step "$svc: docker compose stop $svc"
-        docker compose -p "$DOCKER_PROJECT" stop "$svc" >/dev/null 2>&1 || true
+        local_dev_compose stop "$svc" >/dev/null 2>&1 || true
         phase_clear "$svc"
         tui_ok "$svc: stopped"
         return
@@ -2021,7 +2062,7 @@ stop_one() {
 # takes file-service down with it — leaving a stack that reports N-1 services and
 # no dataset access. Gate the launch on LakeFS actually answering.
 _await_lakefs_ready() {
-    local deadline=$((SECONDS + 90)) endpoint="http://localhost:8000/api/v1/healthcheck"
+    local deadline=$((SECONDS + 90)) endpoint="${STORAGE_LAKEFS_ENDPOINT%/}/healthcheck"
     if curl -sf -o /dev/null -m 2 "$endpoint"; then
         return 0
     fi
@@ -2093,7 +2134,7 @@ start_one() {
                 _install_hint bun
                 return 1
             fi
-            ( cd "$cwd" && nohup bun run dev >"$log" 2>&1 </dev/null & )
+            ( cd "$cwd" && PORT="$(amap_get SVC_PORT "$svc")" nohup bun run dev >"$log" 2>&1 </dev/null & )
             ;;
         yarn)
             if ! command -v yarn >/dev/null 2>&1; then
@@ -2849,7 +2890,7 @@ cmd_up() {
                     continue
                 fi
                 ( cd "$cwd" && nohup "./$launcher" >"$log" 2>&1 </dev/null & ) ;;
-            bun)  ( cd "$cwd" && nohup bun run dev >"$log" 2>&1 </dev/null & ) ;;
+            bun)  ( cd "$cwd" && PORT="$(amap_get SVC_PORT "$svc")" nohup bun run dev >"$log" 2>&1 </dev/null & ) ;;
             yarn) ( cd "$cwd" && nohup yarn start  >"$log" 2>&1 </dev/null & ) ;;
         esac
     done
@@ -3220,7 +3261,7 @@ cmd_up_one() {
             if [[ "$BUILD" == "force" ]]; then
                 tui_banner "Restarting ${svc}" "docker compose restart $svc"
                 tui_step "$svc: docker compose restart $svc"
-                docker compose -p "$DOCKER_PROJECT" restart "$svc" >/dev/null 2>&1 \
+                local_dev_compose restart "$svc" >/dev/null 2>&1 \
                     && tui_ok "$svc: restarted" \
                     || { tui_err "$svc: restart failed"; return 1; }
             else
@@ -3347,7 +3388,8 @@ cmd_logs() {
         exit 1
     fi
     if [[ "$(amap_get SVC_TYPE "$svc")" == "docker" ]]; then
-        exec docker compose -p "$DOCKER_PROJECT" logs -f "$svc"
+        local_dev_compose logs -f "$svc"
+        return
     fi
     exec tail -f "$LOG_DIR/$svc.log"
 }

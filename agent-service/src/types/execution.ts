@@ -17,6 +17,26 @@
  * under the License.
  */
 
+import type { TableProfile } from "../agent/native/profiles";
+import type { NativeErrorSummary } from "../agent/native/diagnostics";
+
+export interface ResultVersion {
+  version: 1;
+  id: string;
+  workflowId: number | null;
+  operatorId: string;
+  operatorRevision: string | null;
+  definitionHash: string | null;
+  subgraphHash: string | null;
+  outputPort: number | null;
+  executionId: string | null;
+  inputs: Array<{ inputIndex: number; operatorId: string; outputPort: number; resultVersion: string | null }>;
+  sourceFingerprints: Array<{ path: string; sizeBytes: number; mtimeNs: string }> | null;
+  /** Complete binding, distinct from complete profile coverage or file freshness. */
+  complete: boolean;
+  omissions: string[];
+}
+
 interface ConsoleMessage {
   msgType: string;
   // print() output is carried in `title` (message is empty); error messages may
@@ -43,8 +63,27 @@ export interface OperatorInfo {
   truncated?: boolean;
   consoleLogs?: ConsoleMessage[];
   error?: string;
+  /** Sanitized identity/repair envelope; expanded records stay in snapshot storage. */
+  nativeError?: NativeErrorSummary;
   warnings?: string[];
   columnStats?: Record<string, string>;
+  /** Reserved machine envelopes, separate from display-truncated columnStats. */
+  resultMetadata?: Record<string, string>;
+  metadataOmissions?: string[];
+  numWorkers?: number;
+  resultSchema?: Array<{ name: string; type: string; encoding: string }>;
+  /** Execution that retrieved this response; not a claim that cached data reran. */
+  executionContext?: {
+    workflowId: number;
+    executionId: string;
+    definitionHash?: string;
+    subgraphHash?: string;
+    inputs?: Array<{ operatorId: string; inputPort: number; outputPort: number; executionId: string | null }>;
+  };
+  /** Actual producing execution (may predate retrieval); null means unknown. */
+  materialization?: { outputPort: number; executionId?: string | null; cached: boolean; subdagHash?: string | null };
+  resultVersion?: ResultVersion;
+  tableProfile?: TableProfile & { resultVersion: string };
 }
 
 export interface SyncExecutionResult {
@@ -53,4 +92,16 @@ export interface SyncExecutionResult {
   operators: Record<string, OperatorInfo>;
   compilationErrors?: Record<string, string>;
   errors?: string[];
+  executionId?: string;
+  /** Actual engine call-site measurements; absent means unknown on older backends.
+   * Separate from Python callback preflight and heuristic display state strings. */
+  phaseMetrics?: {
+    version: 1;
+    compilation: "not_attempted" | "running" | "passed" | "failed";
+    compilationDurationMs: number | null;
+    runtimeStartAttempted: boolean;
+  };
+  capabilities?: string[];
+  /** Producing identities for inputs whose table bodies were not requested. */
+  inputMaterializations?: Record<string, NonNullable<OperatorInfo["materialization"]>>;
 }

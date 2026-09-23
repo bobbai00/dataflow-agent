@@ -135,6 +135,16 @@ class TestChannelRegistration:
 
 
 class TestInputPortMaterializationReaderThreads:
+    def test_storage_schema_replaces_compile_placeholder_before_data(self):
+        manager = InputManager(worker_id=WORKER_ID, input_queue=MagicMock())
+        port_id = PortIdentity(0, False)
+        with patch.object(input_manager_module, "InputPortMaterializationReaderRunnable") as runnable_cls:
+            manager.add_input_port(port_id, Schema(raw_schema={}), ["vfs:///a"], [MagicMock()])
+            callback = runnable_cls.call_args.kwargs["on_schema"]
+        actual = Schema(raw_schema={"id": "LONG", "value": "STRING"})
+        callback(actual)
+        assert manager.get_port(port_id).get_schema() == actual
+
     @pytest.fixture
     def manager(self):
         return InputManager(worker_id=WORKER_ID, input_queue=MagicMock())

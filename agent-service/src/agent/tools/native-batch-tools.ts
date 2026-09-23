@@ -1,0 +1,359 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/**
+ * The `dataflow` tool of native mode: one program, many operators.
+ *
+ *   dataflow({ program: "greece = filter(roman_cities, lambda row: ...)\n...", observe: ["greece"] })
+ *
+ * Every assignment in the program is an upsert by name. Statements may appear
+ * in any order and refer to each other or to existing operators; the shared
+ * `ToolCallScheduler` applies them in dependency order, one post-step
+ * execution follows, and only the tables named in `observe` show their
+ * contents. A batch is not atomic: a rejected statement fails alone and its
+ * dependents are blocked, while independent statements still land.
+ */
+
+import { jsonSchema, tool } from "ai";
+import type { ReActStep } from "../../types/agent";
+import { NATIVE_BY_NAME, NATIVE_OPERATOR_NAMES, type NativeOpView } from "../native/catalog";
+import { compileProgram, type ProgramStatement } from "../native/program";
+import type { WorkflowState } from "../workflow-state";
+import type { ToolContext } from "./workflow-crud-tools";
+import { createErrorResult } from "./tools-utility";
+import { ToolCallScheduler } from "./tool-call-scheduler";
+import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
+import { NativeValidationRepair } from "../native/validation-repair";
+import {
+  applyNativeOperator,
+  createNativeDeleteTool,
+  deleteNativeOperator,
+  TOOL_NAME_NATIVE_DELETE,
+} from "./native-upsert";
+
+export const TOOL_NAME_DATAFLOW = "dataflow";
+export { TOOL_NAME_NATIVE_DELETE };
+
+export interface NativeBatchOutcome {
+  id: string;
+  /** Surface operator name (`filter`), or whatever was written when unknown. */
+  op: string;
+  status: "added" | "modified" | "error" | "blocked";
+  message: string;
+  diagnostic?: NativeDiagnostic;
+  /** For error/blocked outcomes: the definition as written, for diagnostics. */
+  attempted?: NativeOpView;
+}
+
+/** Stored as the tool result on the owning ReAct event. Observation choices
+ * are event facts, never mutable preferences on an operator. */
+export interface NativeBatchResult {
+  kind: "native-batch";
+  operators: NativeBatchOutcome[];
+  observe: string[];
+  observationErrors: string[];
+}
+
+export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const r = output as NativeBatchResult;
+  return r.kind === "native-batch" && Array.isArray(r.operators) && Array.isArray(r.observe) ? r : undefined;
+}
+
+export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResults">): NativeBatchResult[] {
+  return (step.toolCalls ?? []).flatMap(tc => {
+    if (tc.toolName !== TOOL_NAME_DATAFLOW) return [];
+    const result = asNativeBatchResult(step.toolResults?.find(tr => tr.toolCallId === tc.toolCallId)?.output);
+    return result ? [result] : [];
+  });
+}
+
+export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResults">): Set<string> | undefined {
+  const results = nativeBatchResults(step);
+  return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
+}
+
+export interface DataflowInput {
+  program: string;
+  observe?: string[];
+}
+
+export function nativeBatchSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      program: {
+        type: "string",
+        description:
+          "The dataflow, one `name = operator(...)` assignment per operator plus any `def` functions they use. Names are the tables; positional arguments are the input tables; keyword arguments are the parameters (see the operator reference in the instructions). Reusing a name revises that operator and keeps its consumers. Statements may reference each other in any order. An empty program reads cached results.",
+      },
+      observe: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Names of every table whose contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. All statements still execute; errors always appear.",
+      },
+    },
+    required: ["program"],
+  };
+}
+
+export const DATAFLOW_TOOL_DESCRIPTION =
+  "Build or revise the dataflow with a program of `name = operator(...)` assignments (operators: " +
+  NATIVE_OPERATOR_NAMES.join(", ") +
+  "). Batch a whole dependent chain in one call; the scheduler orders it. List in `observe` the tables whose contents you need; omitted/[] hides successes but never errors. An empty program with `observe` reads cached results. A rejected statement fails alone; its dependents are blocked; independent statements still land.";
+
+/**
+ * The two tools of native mode: `dataflow` and `deleteOperator`. The existing
+ * upsert (`native-upsert.ts`) owns compilation and wiring; the normal post-step
+ * path owns execution.
+ */
+export function createNativeTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
+  const repair = context?.nativeValidationRepair ?? new NativeValidationRepair();
+  return {
+    [TOOL_NAME_NATIVE_DELETE]: {
+      ...createNativeDeleteTool(state),
+      execute: async (args: { id: string }) => {
+        const result = deleteNativeOperator(state, args.id);
+        if (!result.startsWith("[ERROR]")) repair.clear(args.id);
+        return result;
+      },
+    },
+    [TOOL_NAME_DATAFLOW]: tool({
+      description: DATAFLOW_TOOL_DESCRIPTION,
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema() as any),
+      execute: async args => {
+        const repairEpoch = repair.epoch;
+        if (
+          state
+            .getAllOperators()
+            .some(
+              op => (op.nativeOp?.profileCollection === true) !== (context?.settings?.nativeProfileCollection === true)
+            )
+        ) {
+          return createErrorResult(
+            "Profile collection differs from this workflow's compiled operators; use a fresh agent and workflow."
+          );
+        }
+        if (
+          typeof args?.program !== "string" ||
+          (args.observe !== undefined &&
+            (!Array.isArray(args.observe) || args.observe.some(id => typeof id !== "string")))
+        ) {
+          return createErrorResult("dataflow requires program: string and optional observe: string[]");
+        }
+        const compiled = await compileProgram(args.program, {
+          profileCollection: context?.settings?.nativeProfileCollection === true,
+        });
+        if (!compiled.ok) {
+          return createErrorResult(
+            `Program syntax error at line ${compiled.error.line}${compiled.error.column ? `, column ${compiled.error.column}` : ""}: ${compiled.error.message}. Nothing was changed. Write one \`name = operator(...)\` per line plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`
+          );
+        }
+        const statements: ProgramStatement[] = compiled.statements;
+        const outcomes: Array<NativeBatchOutcome | undefined> = statements.map(() => undefined);
+        const fail = (
+          index: number,
+          message: string,
+          status: "error" | "blocked" = "error",
+          diagnostic = parseNativeDiagnostic(message)
+        ) => {
+          const statement = statements[index];
+          outcomes[index] = {
+            id: statement.id,
+            op: statement.op,
+            status,
+            message: diagnostic ? formatNativeDiagnostic(diagnostic) : message,
+            attempted: statement.attempted,
+            ...(diagnostic ? { diagnostic } : {}),
+          };
+        };
+        const byId = new Map<string, number>();
+        for (const [index, statement] of statements.entries()) {
+          if (byId.has(statement.id)) {
+            const message = `\`${statement.id}\` is assigned twice in one program; define each table once.`;
+            fail(byId.get(statement.id)!, message);
+            fail(index, message);
+          } else byId.set(statement.id, index);
+        }
+        for (const [index, statement] of statements.entries()) {
+          if (outcomes[index]) continue;
+          const params = repairParams(statement);
+          const paused = repair.blocked(statement.op, params);
+          if (paused) {
+            fail(index, "", "error", { ...paused, operatorRevision: statement.attempted.revision! });
+            continue;
+          }
+          if (statement.error) {
+            const diagnostic = repair.record(
+              statement.op,
+              params,
+              {
+                version: 1,
+                operatorId: statement.id,
+                operatorRevision: statement.attempted.revision!,
+                code: "INVALID_ARGUMENTS",
+                stage: "validate",
+                message: statement.error.message,
+                field: statement.error.field ?? "arguments",
+                retryable: false,
+              },
+              NATIVE_BY_NAME.get(statement.op)?.signature ?? `one of ${NATIVE_OPERATOR_NAMES.join(", ")}`,
+              JSON.stringify(["validate", "INVALID_ARGUMENTS", statement.error.field ?? "arguments"])
+            );
+            fail(index, statement.error.message, "error", diagnostic);
+          }
+        }
+
+        // Validate the resulting graph, including cycles closed through an old
+        // operator. Do this before writes so a rejected edit leaves no damage.
+        const inputs = new Map(
+          state.getAllOperators().map(op => [
+            op.operatorID,
+            state
+              .getAllLinks()
+              .filter(l => l.target.operatorID === op.operatorID)
+              .map(l => l.source.operatorID),
+          ])
+        );
+        for (const [index, statement] of statements.entries())
+          if (!outcomes[index]) inputs.set(statement.id, statement.view!.inputs);
+        for (const [index, statement] of statements.entries()) {
+          if (outcomes[index]) continue;
+          for (const id of inputs.get(statement.id) ?? []) {
+            if (!inputs.has(id) && !byId.has(id))
+              fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
+          }
+        }
+        const visited = new Set<string>();
+        const stack: string[] = [];
+        const cycle = new Set<string>();
+        const checkCycle = (id: string) => {
+          const start = stack.indexOf(id);
+          if (start >= 0) {
+            for (const member of stack.slice(start)) cycle.add(member);
+            return;
+          }
+          if (visited.has(id)) return;
+          visited.add(id);
+          stack.push(id);
+          for (const up of inputs.get(id) ?? []) checkCycle(up);
+          stack.pop();
+        };
+        for (const id of inputs.keys()) checkCycle(id);
+        for (const [index, statement] of statements.entries())
+          if (cycle.has(statement.id) && !outcomes[index])
+            fail(index, `Edit creates a dataflow cycle involving \`${statement.id}\`.`);
+
+        // Resolve producers through unchanged existing nodes too. This supplies
+        // edges to the SAME scheduler used for parallel tool calls; it does not
+        // determine execution order itself. Keep the resolved edges for failure
+        // propagation so an old upstream version cannot mask a refused revision.
+        const dependenciesById = new Map<string, string[]>();
+        for (const statement of statements) {
+          const seen = new Set<string>();
+          const dependencies: string[] = [];
+          const collect = (id: string) => {
+            if (seen.has(id)) return;
+            seen.add(id);
+            if (byId.has(id)) dependencies.push(id);
+            else for (const up of inputs.get(id) ?? []) collect(up);
+          };
+          for (const id of inputs.get(statement.id) ?? []) collect(id);
+          dependenciesById.set(statement.id, dependencies);
+        }
+        const apply = async (index: number): Promise<void> => {
+          if (outcomes[index]) return;
+          const statement = statements[index];
+          for (const id of dependenciesById.get(statement.id) ?? []) {
+            const outcome = outcomes[byId.get(id)!];
+            if (!outcome || outcome.status === "error" || outcome.status === "blocked") {
+              fail(
+                index,
+                `Input \`${id}\` was not updated successfully in this program; dependent statement skipped.`,
+                "blocked"
+              );
+              return;
+            }
+          }
+          try {
+            const existed = !!state.getOperator(statement.id);
+            const message = await applyNativeOperator(state, context, statement.id, statement.view!);
+            if (message.startsWith("[ERROR]")) {
+              let diagnostic = parseNativeDiagnostic(message);
+              if (
+                repair.epoch === repairEpoch &&
+                diagnostic &&
+                (diagnostic.stage === "validate" || diagnostic.stage === "compile")
+              )
+                diagnostic = repair.record(
+                  statement.op,
+                  repairParams(statement),
+                  diagnostic,
+                  NATIVE_BY_NAME.get(statement.op)?.signature ?? statement.op
+                );
+              fail(index, message.slice(8), "error", diagnostic);
+            } else {
+              if (repair.epoch === repairEpoch) repair.clear(statement.id);
+              outcomes[index] = { id: statement.id, op: statement.op, status: existed ? "modified" : "added", message };
+            }
+          } catch (error: any) {
+            fail(index, error?.message ?? String(error));
+          }
+        };
+        const scheduler = new ToolCallScheduler({
+          parseDeps: (_toolName, input) => dependenciesById.get(input.id) ?? [],
+          producedOpId: (_toolName, input) => input.id,
+        });
+        // Submit together, just like SDK parallel calls. The scheduler itself
+        // serializes the actual mutations in stable topological order.
+        await Promise.all(
+          statements.map((statement, index) =>
+            scheduler
+              .wrap(statement.op, {
+                execute: (_input: unknown, _options: unknown) => apply(index),
+              })
+              .execute({ id: statement.id }, undefined)
+          )
+        );
+        const requested = args.observe ?? [];
+        const observationErrors: string[] = [];
+        const observe = [...new Set(requested)].filter(id => {
+          if (state.getOperator(id)) return true;
+          observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
+          return false;
+        });
+        return {
+          kind: "native-batch",
+          operators: outcomes as NativeBatchOutcome[],
+          observe,
+          observationErrors,
+        } satisfies NativeBatchResult;
+      },
+    }),
+  };
+}
+
+/** What identifies a submission for the repeat-failure throttle: the name, the
+ * inputs and the normalized parameters (never the raw text, so whitespace does
+ * not defeat the check). */
+function repairParams(statement: ProgramStatement): Record<string, unknown> {
+  return { id: statement.id, inputs: statement.attempted.inputs, ...statement.attempted.properties };
+}

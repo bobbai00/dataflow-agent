@@ -258,6 +258,18 @@ class TestUiParameterSupport:
         assert AttributeType.BOOLEAN is AttributeType.BOOL
         assert _UiParameterSupport._parse("7", AttributeType.INTEGER) == 7
         assert _UiParameterSupport._parse("false", AttributeType.BOOLEAN) is False
+        # Aliases must not change canonical Python names, enum iteration or
+        # wire mappings used for scalar transport.
+        from core.models.schema.attribute_type import RAW_TYPE_MAPPING, TO_ARROW_MAPPING
+
+        assert AttributeType.INTEGER.name == "INT"
+        assert AttributeType.BOOLEAN.name == "BOOL"
+        assert "INTEGER" not in [item.name for item in AttributeType]
+        assert "BOOLEAN" not in [item.name for item in AttributeType]
+        assert RAW_TYPE_MAPPING.inverse[AttributeType.INTEGER] == "INTEGER"
+        assert RAW_TYPE_MAPPING.inverse[AttributeType.BOOLEAN] == "BOOLEAN"
+        assert TO_ARROW_MAPPING[AttributeType.INTEGER] == TO_ARROW_MAPPING[AttributeType.INT]
+        assert TO_ARROW_MAPPING[AttributeType.BOOLEAN] == TO_ARROW_MAPPING[AttributeType.BOOL]
 
     @pytest.mark.parametrize(
         ("raw_value", "expected"),

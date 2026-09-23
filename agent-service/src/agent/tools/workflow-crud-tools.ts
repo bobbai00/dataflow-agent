@@ -28,13 +28,16 @@ import { tool } from "ai";
 import { WorkflowState } from "../workflow-state";
 import { createToolResult, createErrorResult } from "./tools-utility";
 import { type WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import type { NativeValidationRepair } from "../native/validation-repair";
 
 export interface ToolContext {
   metadataStore?: WorkflowSystemMetadata;
+  nativeValidationRepair?: NativeValidationRepair;
   settings?: {
     maxOperatorResultCharLimit?: number;
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
+    nativeProfileCollection?: boolean;
   };
 }
 

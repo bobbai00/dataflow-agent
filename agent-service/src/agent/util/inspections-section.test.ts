@@ -85,6 +85,25 @@ function pullScenario(): Scenario {
 const OPTS = { compilationResult: null, agentMode: AgentMode.CODE, maxResultRows: 3 } as const;
 
 describe("# Inspections persistence", () => {
+  test("fresh error inspections never advertise a removed result tool", () => {
+    const scenario = pullScenario();
+    const inspected = scenario.steps.find(step => step.id === "a2")!;
+    inspected.toolCalls![0].toolName = "inspectError";
+    inspected.toolResults![0].output = "CALLBACK_RUNTIME: diagnostic marker";
+    for (const contextMode of [ContextMode.LATEST, ContextMode.DELTA]) {
+      for (const messageLayout of ["native", "block"] as const) {
+        const text = JSON.stringify(
+          assembleContext(scenario.steps, scenario.workflowState, scenario.storage, contextMode, {
+            ...OPTS,
+            messageLayout,
+          })
+        );
+        expect(text).toContain("CALLBACK_RUNTIME: diagnostic marker");
+        expect(text).not.toContain("inspectResult");
+      }
+    }
+  });
+
   test("LATEST re-renders the pull on later steps, tail-positioned", () => {
     const scenario = pullScenario();
     const text = String(

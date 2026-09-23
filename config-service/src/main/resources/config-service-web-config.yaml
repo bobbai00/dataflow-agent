@@ -18,7 +18,7 @@
 server:
   applicationConnectors:
     - type: http
-      port: 9094
+      port: ${TEXERA_CONFIG_SERVICE_PORT:-9094}
   adminConnectors: []
   requestLog:
     type: classic

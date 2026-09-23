@@ -1168,7 +1168,7 @@ class TestMainLoop:
         assert len(data_frame.frame) == 1
         assert data_frame.frame.to_pylist()[0][
             "test-1"
-        ] == b"pickle    " + pickle.dumps(mock_binary_tuple["test-1"])
+        ] == b"pyobj@1\nbuiltins.list\n" + pickle.dumps(mock_binary_tuple["test-1"])
 
         reraise()
 
@@ -1434,7 +1434,7 @@ class TestMainLoop:
         assert len(data_frame.frame) == 1
         assert data_frame.frame.to_pylist()[0][
             "test-1"
-        ] == b"pickle    " + pickle.dumps(mock_binary_tuple["test-1"])
+        ] == b"pyobj@1\nbuiltins.list\n" + pickle.dumps(mock_binary_tuple["test-1"])
         reraise()
 
     @pytest.mark.timeout(2)

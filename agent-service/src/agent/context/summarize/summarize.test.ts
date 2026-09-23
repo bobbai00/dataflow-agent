@@ -179,19 +179,6 @@ describe("summarize — code inclusion & history", () => {
 });
 
 describe("summarize — column-level metric selection", () => {
-  test("statsMetrics subset filters the worker stats strings", () => {
-    const params = latestWith({
-      operators: { defaults: { result: { latest: { column: { stats: true, statsMetrics: ["null", "distinct"] } } } } },
-    });
-    const text = summarize(input(), params).text;
-    const salesBlock = text.slice(text.indexOf("### Operator `sales`"), text.indexOf("### Operator `orphan_load`"));
-    expect(salesBlock).toContain("Column Schema and stats:");
-    expect(salesBlock).toContain("null=0, distinct=4"); // region: kept families
-    expect(salesBlock).not.toContain("top_5={West=300"); // top dropped
-    expect(salesBlock).not.toContain("mean=52.3"); // mean dropped
-    expect(salesBlock).toContain("format=currency"); // unknown families always kept
-  });
-
   test("schemaTypes:false renders the Schema line without type tags", () => {
     const params = latestWith({
       operators: { defaults: { result: { latest: { column: { schema: true, schemaTypes: false } } } } },

@@ -46,7 +46,13 @@ function turns(): RecalledTurn[] {
   const t2Workflow = makeWorkflow(
     [
       { id: "scores", type: "DataLoading", properties: { code: "def load():\n    return pd.read_csv('s.csv')" } },
-      { id: "pct", type: "DataProcessing", numInputPorts: 1, properties: { code: CODE_PCT }, displayName: "Percentile of each score" },
+      {
+        id: "pct",
+        type: "DataProcessing",
+        numInputPorts: 1,
+        properties: { code: CODE_PCT },
+        displayName: "Percentile of each score",
+      },
     ],
     [["scores", "pct"]]
   );
@@ -154,32 +160,8 @@ describe("recallState — the caller chooses the verbosity", () => {
     // Not a bare rejection: the note points at the size fact and the narrower
     // channels, so the model narrows instead of retrying with a bigger number.
     expect(out).toContain("total size");
-    expect(out).toContain("includeOutputTableColumnStats");
+    expect(out).toContain("aggregate");
     expect(out.length).toBeLessThan(RECALL_RESULT_CHARS_MAX * 3);
-  });
-
-  test("the stats switch also returns the structural profile — the whole worker channel", async () => {
-    // The worker publishes column stats AND `__table_hints__` unconditionally;
-    // the one switch must expose both, or an arm could never recall a table's
-    // grain/key facts (the engine-provides-everything principle).
-    const log = turns();
-    log[1].results = new Map([
-      [
-        "pct",
-        makeInfo(60, {
-          columnStats: {
-            player: "(string): null=0, distinct=60",
-            __table_hints__: "unique key: player || 2 duplicate rows",
-          } as any,
-        }),
-      ],
-    ]);
-    const out = await run(makeTool({}, log), { turn: 2, includeOutputTableColumnStats: true });
-    expect(out).toContain("Output Table profile:");
-    expect(out).toContain("unique key: player");
-    // and off by default: the profile is behind the same switch as the stats
-    const lean = await run(makeTool({}, log), { turn: 2 });
-    expect(lean).not.toContain("Output Table profile:");
   });
 
   test("the ceiling is configurable per arm (recallMaxResultChars)", async () => {

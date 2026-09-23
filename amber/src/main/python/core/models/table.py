@@ -21,6 +21,8 @@ from pampy import match
 from typing import Dict, Iterator, List, Optional, Tuple as TypingTuple, TypeVar
 
 from core.models import Tuple, TupleLike
+from core.models.schema.schema import Schema
+from core.models.schema.attribute_type import AttributeType
 
 TableLike = TypeVar("TableLike", pandas.DataFrame, List[TupleLike])
 
@@ -75,10 +77,10 @@ class Table(pandas.DataFrame):
         return df
 
     @staticmethod
-    def from_tuple_likes(tuple_likes: Iterator[TupleLike]):
+    def from_tuple_likes(tuple_likes: Iterator[TupleLike], schema: Optional[Schema] = None):
         # TODO: currently only validate all Tuples have the same fields.
         #  should validate types as well
-        column_names = None
+        column_names = tuple(schema.get_attr_names()) if schema is not None else None
         records = []
         for tuple_like in tuple_likes:
             tuple_ = Tuple(tuple_like)
@@ -91,9 +93,29 @@ class Table(pandas.DataFrame):
 
             records.append(tuple_.get_fields())
 
-        return pandas.DataFrame.from_records(records, columns=column_names)
+        if schema is None:
+            return pandas.DataFrame.from_records(records, columns=column_names)
+        # Keep the engine's declared domains, even when no tuple arrives. Build
+        # nullable columns directly: DataFrame.from_records first promotes
+        # integer/null pairs to float and can irreversibly round large IDs.
+        nullable_types = {
+            AttributeType.INT: "Int32",
+            AttributeType.LONG: "Int64",
+            AttributeType.DOUBLE: "Float64",
+            AttributeType.BOOL: "boolean",
+        }
+        columns = {}
+        for index, name in enumerate(column_names):
+            attr_type = schema.get_attr_type(name)
+            dtype = nullable_types.get(attr_type, object)
+            if attr_type == AttributeType.TIMESTAMP:
+                # Preserve timezone-aware values; an empty timestamp column
+                # still needs an explicit dtype for downstream inference.
+                dtype = None if records else "datetime64[ns]"
+            columns[name] = pandas.Series([row[index] for row in records], dtype=dtype)
+        return pandas.DataFrame(columns, index=range(len(records)))
 
-    def __init__(self, table_like):
+    def __init__(self, table_like, schema: Optional[Schema] = None):
         df: pandas.DataFrame
 
         if isinstance(table_like, Table):
@@ -102,7 +124,7 @@ class Table(pandas.DataFrame):
             df = self.from_data_frame(table_like)
         elif isinstance(table_like, list):
             # only supports List[TupleLike]
-            df = self.from_tuple_likes(table_like)
+            df = self.from_tuple_likes(table_like, schema=schema)
         else:
             raise TypeError(f"unsupported tablelike type {type(table_like)}")
         super().__init__(df)

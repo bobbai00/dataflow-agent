@@ -21,8 +21,8 @@
  * is actually fed?
  *
  * Motivated by the `Files read:` bug, where the prompt and the renderer had
- * drifted apart silently for months. The arm under scrutiny here is the shape
- * of GPT52C4Sample2k: LATEST + column stats ON + code in snapshot.
+ * drifted apart silently for months. Verify LATEST with code in snapshot,
+ * and prevent retired statistics overlays from returning through the prompt.
  *
  * `buildCodeModeSystemPrompt` positional args on this branch:
  *   (contextMode, compactionEnabled, inspectEnabled, renderPrefsEnabled,
@@ -36,15 +36,13 @@ import { buildCodeModeSystemPrompt } from "./prompts";
 import { ContextMode } from "../types/agent";
 
 /** The C4Sample2k shape: LATEST, code in snapshot on. */
-const latestWithCode = () =>
-  buildCodeModeSystemPrompt(ContextMode.LATEST, false, false, false, /*code*/ true, false);
+const latestWithCode = () => buildCodeModeSystemPrompt(ContextMode.LATEST, false, false, false, /*code*/ true, false);
 /** LATEST, code-blind (the only configuration where summaries carry the logic). */
-const latestNoCode = () =>
-  buildCodeModeSystemPrompt(ContextMode.LATEST, false, false, false, /*code*/ false, false);
+const latestNoCode = () => buildCodeModeSystemPrompt(ContextMode.LATEST, false, false, false, /*code*/ false, false);
 /** DELTA — never code-blind: every Action carries the code inline. */
 const delta = () => buildCodeModeSystemPrompt(ContextMode.DELTA, false, false, false, true, false);
 
-describe("LATEST + stats: the prompt describes the LATEST layout", () => {
+describe("LATEST: the prompt describes the current layout", () => {
   test("selects the code-visible LATEST fragment, not the code-blind one", () => {
     const p = latestWithCode();
     expect(p).toContain("Each operator's current code **is** shown");
@@ -99,12 +97,12 @@ describe("LATEST + stats: the prompt describes the LATEST layout", () => {
     expect((p.match(/# Agent Events/g) ?? []).length).toBe(0);
   });
 
-  test("stats ARE documented — the Result Annotations section carries them", () => {
+  test("retired statistics overlays are not advertised", () => {
     const p = latestWithCode();
-    expect(p).toContain("Column Schema and stats:");
-    expect(p).toContain("Output Table profile:");
-    // and the instruction to actually read them
-    expect(p).toContain("You MUST examine stats before deciding the next action");
+    expect(p).not.toContain("Column Schema and stats:");
+    expect(p).not.toContain("Output Table profile:");
+    expect(p).not.toContain("You MUST examine stats");
+    expect(p).toContain("Schema (N cols)");
   });
 });
 
@@ -119,7 +117,11 @@ describe("LATEST + stats: the prompt describes the LATEST layout", () => {
  * They are now selected by `noCode`, the same predicate `isCodeShownToAgent()`
  * uses, so DELTA — which carries code inline in every Action — is covered too.
  */
-const CODE_BLIND_CLAIMS = ["code is not preserved in history", "but not its code", "Your code is discarded after each step"];
+const CODE_BLIND_CLAIMS = [
+  "code is not preserved in history",
+  "but not its code",
+  "Your code is discarded after each step",
+];
 
 describe("code-visibility principles match what the agent can actually see", () => {
   test("LATEST + code: no code-blind claim survives", () => {

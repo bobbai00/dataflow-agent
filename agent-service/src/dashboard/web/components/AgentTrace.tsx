@@ -332,7 +332,7 @@ export function AgentTrace({ agentId }: { agentId: string }) {
  * Two operators with the same id are "modified" if their
  * execution-affecting fields differ. For code-mode operators we mostly
  * just need the Python `code` field, but we cast a wider net so the
- * general-mode (typed-tool) traces also get a useful highlight when the
+ * GUI-authored (typed-operator) traces also get a useful highlight when the
  * agent reconfigures a Filter / Aggregate / etc.
  */
 function operatorChanged(

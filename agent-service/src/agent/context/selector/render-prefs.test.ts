@@ -46,7 +46,7 @@ function prefsScenario(withPrefs = true): Scenario {
           toolName: "createOrModifyOperator",
           toolCallId: "t1",
           input: withPrefs
-            ? { operatorId: "loader", code: "def load(): ...", outputSummary: "minimal", showOutputStatistics: false }
+            ? { operatorId: "loader", code: "def load(): ...", outputSummary: "minimal" }
             : { operatorId: "loader", code: "def load(): ..." },
         },
       ],
@@ -60,7 +60,11 @@ function prefsScenario(withPrefs = true): Scenario {
       parentId: "a1",
       content: "tweak it",
       toolCalls: [
-        { toolName: "createOrModifyOperator", toolCallId: "t2", input: { operatorId: "loader", code: "def load(): ...v2" } },
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: "t2",
+          input: { operatorId: "loader", code: "def load(): ...v2" },
+        },
       ],
       toolResults: [{ toolCallId: "t2", output: "ok", isError: false }],
     },
@@ -72,16 +76,28 @@ function prefsScenario(withPrefs = true): Scenario {
       parentId: "a2",
       content: "clean",
       toolCalls: [
-        { toolName: "createOrModifyOperator", toolCallId: "t3", input: { operatorId: "clean", code: "def process(loader): ..." } },
+        {
+          toolName: "createOrModifyOperator",
+          toolCallId: "t3",
+          input: { operatorId: "clean", code: "def process(loader): ..." },
+        },
       ],
       toolResults: [{ toolCallId: "t3", output: "ok", isError: false }],
     },
   ]);
   const loaderOnly = makeWorkflow([{ id: "loader", type: "DataLoading" }]);
   scenario.storage.createSnapshot("a1", loaderOnly);
-  scenario.storage.setOperatorResult("a1", "loader", makeInfo(12, { sampleRows: WIDE_ROWS, columnStats: { region: "(str): null=0, distinct=12" } }));
+  scenario.storage.setOperatorResult(
+    "a1",
+    "loader",
+    makeInfo(12, { sampleRows: WIDE_ROWS, columnStats: { region: "(str): null=0, distinct=12" } })
+  );
   scenario.storage.createSnapshot("a2", loaderOnly);
-  scenario.storage.setOperatorResult("a2", "loader", makeInfo(12, { sampleRows: WIDE_ROWS, columnStats: { region: "(str): null=0, distinct=12" } }));
+  scenario.storage.setOperatorResult(
+    "a2",
+    "loader",
+    makeInfo(12, { sampleRows: WIDE_ROWS, columnStats: { region: "(str): null=0, distinct=12" } })
+  );
   scenario.storage.createSnapshot(
     "a3",
     makeWorkflow(
@@ -99,7 +115,6 @@ function prefsScenario(withPrefs = true): Scenario {
 const DELTA_OPTS = {
   compilationResult: null,
   agentMode: AgentMode.CODE,
-  columnStats: true,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;
@@ -109,7 +124,7 @@ describe("render prefs — core semantics", () => {
     const scenario = prefsScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
     // v2 (ev3) landed without prefs → current prefs are empty.
-    expect(latestRenderPrefs(dossier, "loader")).toEqual({ outputSummary: undefined, showOutputStatistics: undefined });
+    expect(latestRenderPrefs(dossier, "loader")).toEqual({ outputSummary: undefined });
     const ranges = buildRenderPrefRanges(dossier);
     // v1's prefs cover [2,3); v2 has none.
     expect(renderPrefsAt(ranges, "loader", 2)?.outputSummary).toBe("minimal");
@@ -131,7 +146,7 @@ describe("render prefs — core semantics", () => {
           {
             toolName: "createOrModifyOperator",
             toolCallId: "t1",
-            input: { operatorId: "loader", code: "def load(): ...", outputSummary: "minimal", showOutputStatistics: false },
+            input: { operatorId: "loader", code: "def load(): ...", outputSummary: "minimal" },
           },
         ],
         toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
@@ -143,13 +158,12 @@ describe("render prefs — core semantics", () => {
     const base = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
       agentMode: AgentMode.CODE,
-      columnStats: true,
       schemaInResult: true,
     });
     const params = applyRenderPrefs(base, dossier);
     const op = resolveOperatorParams(params, "loader");
     expect(op.result.latest.tuple.sampleRows).toBe(3);
-    expect(op.result.latest.column.stats).toBe(false);
+    expect(Object.hasOwn(op.result.latest.column ?? {}, "stats")).toBe(false);
   });
 
   test("never raises an existing tighter base cap", () => {
@@ -159,7 +173,6 @@ describe("render prefs — core semantics", () => {
       compilationResult: null,
       agentMode: AgentMode.CODE,
       maxResultRows: 2,
-      columnStats: true,
     });
     // Current version has no prefs anyway; nothing changes.
     expect(applyRenderPrefs(base, dossier)).toEqual(base);
@@ -185,7 +198,7 @@ describe("render prefs — DELTA event scoping (critical path)", () => {
     expect(ev2).not.toContain("v5");
     // Event 3 (v2, NO prefs — reset): standard render, stats back.
     const ev3 = on.slice(on.indexOf("## Agent Event 3"), on.indexOf("## Agent Event 4"));
-    expect(ev3).toContain("Column Schema and stats");
+    expect(ev3).not.toContain("Column Schema and stats");
     expect(ev3).toContain("v5");
   });
 
@@ -213,7 +226,7 @@ describe("render prefs — DELTA event scoping (critical path)", () => {
       })[0].content
     );
     const ev2 = off.slice(off.indexOf("## Agent Event 2"), off.indexOf("## Agent Event 3"));
-    expect(ev2).toContain("Column Schema and stats");
+    expect(ev2).not.toContain("Column Schema and stats");
     expect(ev2).toContain("v5");
   });
 });

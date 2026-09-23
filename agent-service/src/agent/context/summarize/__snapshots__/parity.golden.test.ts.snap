@@ -268,101 +268,6 @@ Inputs: by_region
 Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)"
 `;
 
-exports[`golden — LATEST decorated (flowLevel=3, dataLevel=3, thoughtReplay) 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Reasoning (your recent steps)
-
-Step 2: "Inspect the raw file first to find the real header row."
-  created \`inspect_sales\` → ok
-Step 3: "Header is at row 2 — write the real loader; also stage the regions lookup."
-  created \`sales\` → ok
-  created \`orphan_load\` → ok
-Step 4: "Aggregate revenue by region and drop the inspection scaffold."
-  created \`by_region\` → ok
-  deleted \`inspect_sales\` → ok
-Step 5: "The groupby failed — fix the aggregation code."
-  modified \`by_region\` → ERROR Python syntax error: Line 1: invalid syntax
-Step 6: "Fix the syntax and add the sorted report downstream."
-  modified \`by_region\` → ok
-  created \`report\` → ok
-Step 8: "by_region is still failing on the 'region' column — I need to fix that before answering."
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-  Schema (2 cols): id, value
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Last edited: step 3
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  2	North	5.25	$5.25	2023-01-05
-  ...	...	...	...	...
-  997	South	42	$42.00	2023-12-27
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-  Schema (4 cols): region (str), amount (numeric), price_display (str), date (datetime)
-  Format hints: "price_display" currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them
-  to_numeric(errors='coerce') on \`amount\` NULLed 12/1000 values — sample: ['N/A', 'n.a.', '—']
-  Output Table profile:
-  - grain: one row per (order_id)
-  - partition candidates: region (4 values)
-  - dirty-load: 2 duplicate rows
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Last edited: step 3
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Last edited: step 6
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Last edited: step 6
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)
-
-# Operators needing attention (fix in this order)
-
-### \`orphan_load\` (DataLoading)
-Graph check ⚠: this loaded data is not consumed by any downstream operator — wire it into the pipeline or drop it.
-
-### \`by_region\` (DataProcessing)
-error: KeyError: 'region' at line 2 of your code
-fix against the real columns/values of input \`sales\` (see its Result above); don't guess column names.
-
-### \`report\` (DataProcessing)
-blocked — upstream operator \`by_region\` errored; fix those first"
-`;
-
 exports[`golden — LATEST reflection rungs (errorReflection + attemptReflection) 1`] = `
 "# User Task
 
@@ -410,7 +315,6 @@ Result:
   def process(sales):
       df = sales.copy()
       return df.groupby('region')['amount'].sum().reset_index()
-Input schema \`sales\`: region (str), amount (num), price_display (str), date (str)
 You have modified this operator 3 times; 1 failed with an error.
 Diff from your previous modification:
   - def process(sales)
@@ -421,75 +325,6 @@ Diff from your previous modification:
 Attempt reflection: you have edited operator \`by_region\` 3 times; 2 prior variant(s) did not converge.
 Latest result: [ERROR] KeyError: 'region' at line 2 of your code
 Do NOT submit another near-variant. Change strategy: inspect this operator's UPSTREAM result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer from a different operator.
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)
-
-# Operators needing attention (fix in this order)
-
-Operators with execution errors (see each operator's block above for the error, input schema, and attempt history): \`by_region\` — fix \`by_region\` first (root cause), then re-run.
-
-### \`report\` (DataProcessing)
-blocked — upstream operator \`by_region\` errored; fix those first"
-`;
-
-exports[`golden — LATEST data overlays (columnStats + valueFormat + dataHints + maxResultRows=4) 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  ...	...	...	...	...
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-  Column Schema and stats:
-  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}, duplicate_values=996
-  - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
-  - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
-  - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
-  Format hints: "price_display" currency ($, commas) — strip $ and commas before to_numeric; coerce would NULL them
-  Output Table profile:
-  - grain: one row per (order_id)
-  - partition candidates: region (4 values)
-  - dirty-load: 2 duplicate rows
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
 
 ### Operator \`report\` (DataProcessing)
 Summary: From \`by_region\`, sort by \`amount\` desc
@@ -647,7 +482,7 @@ Observation:
 Thought: by_region is still failing on the 'region' column — I need to fix that before answering."
 `;
 
-exports[`golden — DELTA dataLevel=1 (Schema line in observations) 1`] = `
+exports[`golden — DELTA Schema line in observations 1`] = `
 "# User Task
 
 Also, which region has the max revenue?
@@ -896,11 +731,6 @@ Result:
   998	West	7.75	$7.75	2023-12-28
   999	East	130.4	$130.40	2023-12-28
   Schema (4 cols): region (str), amount (numeric), price_display (str), date (datetime)
-  Column Schema and stats:
-  - "region" (str): null=0, distinct=4, top_5={West=300, East=280, North=250, South=170}, duplicate_values=996
-  - "amount" (numeric): null=12, mean=52.3, min=0.5, max=999.9
-  - "price_display" (str): null=0, distinct=890, format=currency, duplicate_values=110
-  - "date" (datetime): null=0, min=2023-01-04, max=2023-12-28
 
 ### Operator \`orphan_load\` (DataLoading)
 Summary: Load regions_lookup.csv

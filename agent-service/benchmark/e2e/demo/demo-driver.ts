@@ -60,7 +60,7 @@ const agent = await post("", {
   workflowId: wid,
   computingUnitId: CUID,
   settings: {
-    agentMode: "general",
+    agentMode: "code",
     maxSteps: sc.maxSteps ?? 60,
     ...(sc.allowedOperatorTypes ? { allowedOperatorTypes: sc.allowedOperatorTypes } : {}),
   },

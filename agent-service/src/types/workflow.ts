@@ -68,7 +68,17 @@ export interface OperatorPredicate {
    * sees the generated `code` in `operatorProperties`; this field is for the
    * renderer and result selection, and is never forwarded in execution payloads.
    */
-  readonly nativeOp?: { type: string; properties: Record<string, unknown>; inputs: string[] };
+  readonly nativeOp?: {
+    type: string;
+    properties: Record<string, unknown>;
+    inputs: string[];
+    revision?: string;
+    profileCollection?: boolean;
+    /** The assignment as the model wrote it (`x = filter(...)`). */
+    source?: string;
+    /** Top-level `def` sources the statement refers to, by name. */
+    functions?: Record<string, string>;
+  };
 }
 
 export interface LogicalOperator {

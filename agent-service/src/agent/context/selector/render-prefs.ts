@@ -20,7 +20,7 @@
  * Agent-declared result-view preferences (write-time render knobs).
  *
  * `createOrModifyOperator` accepts optional `outputSummary` ("minimal" |
- * "standard") and `showOutputStatistics` (boolean). They are VIEW-ONLY: the
+ * "standard"). They are VIEW-ONLY: the
  * operator always computes its full output and downstream operators always
  * receive the complete data. A preference binds to the submitted VERSION and
  * lasts until the next landed edit (an edit that omits it resets to the
@@ -34,22 +34,24 @@
  */
 
 import type { Dossier } from "../summarize/dossier";
-import { applySummarizeParamsPatch, resolveOperatorParams, type OperatorParamsOverride, type SummarizeParams } from "../summarize/params";
+import {
+  applySummarizeParamsPatch,
+  resolveOperatorParams,
+  type OperatorParamsOverride,
+  type SummarizeParams,
+} from "../summarize/params";
 
 /** Rows rendered for `outputSummary: "minimal"` (first 2 + last 1). */
 export const MINIMAL_SAMPLE_ROWS = 3;
 
 /** The latest LANDED version's prefs for an operator (absent ⇒ defaults). */
-export function latestRenderPrefs(
-  dossier: Dossier,
-  operatorId: string
-): { outputSummary?: "minimal" | "standard"; showOutputStatistics?: boolean } {
+export function latestRenderPrefs(dossier: Dossier, operatorId: string): { outputSummary?: "minimal" | "standard" } {
   const d = dossier.operators.get(operatorId);
   if (!d) return {};
   for (let i = d.codeVersions.length - 1; i >= 0; i--) {
     const v = d.codeVersions[i];
     if (v.status !== "ok") continue; // rejected submissions never landed
-    return { outputSummary: v.outputSummary, showOutputStatistics: v.showOutputStatistics };
+    return { outputSummary: v.outputSummary };
   }
   return {};
 }
@@ -61,7 +63,7 @@ export function applyRenderPrefs(base: SummarizeParams, dossier: Dossier): Summa
   for (const operator of dossier.leafSnapshot.workflow.operators) {
     const operatorId = operator.operatorID;
     const prefs = latestRenderPrefs(dossier, operatorId);
-    if (prefs.outputSummary === undefined && prefs.showOutputStatistics === undefined) continue;
+    if (prefs.outputSummary === undefined) continue;
 
     const baseOperator = resolveOperatorParams(base, operatorId);
     const override: OperatorParamsOverride = { result: { latest: {} } };
@@ -76,11 +78,6 @@ export function applyRenderPrefs(base: SummarizeParams, dossier: Dossier): Summa
         changed = true;
       }
     }
-    if (prefs.showOutputStatistics === false && baseOperator.result.latest.column.stats) {
-      override.result!.latest!.column = { stats: false };
-      changed = true;
-    }
-    // showOutputStatistics === true never RAISES stats above the arm's base.
 
     if (changed) overrides[operatorId] = override;
   }
@@ -99,7 +96,6 @@ export interface RenderPrefRange {
   from: number;
   to: number; // exclusive; Infinity for the current version
   outputSummary?: "minimal" | "standard";
-  showOutputStatistics?: boolean;
 }
 
 export function buildRenderPrefRanges(dossier: Dossier): Map<string, RenderPrefRange[]> {
@@ -109,12 +105,11 @@ export function buildRenderPrefRanges(dossier: Dossier): Map<string, RenderPrefR
     const opRanges: RenderPrefRange[] = [];
     for (let i = 0; i < landed.length; i++) {
       const v = landed[i];
-      if (v.outputSummary === undefined && v.showOutputStatistics === undefined) continue;
+      if (v.outputSummary === undefined) continue;
       opRanges.push({
         from: v.eventIndex,
         to: i + 1 < landed.length ? landed[i + 1].eventIndex : Infinity,
         outputSummary: v.outputSummary,
-        showOutputStatistics: v.showOutputStatistics,
       });
     }
     if (opRanges.length > 0) ranges.set(operatorId, opRanges);

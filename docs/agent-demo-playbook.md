@@ -6,8 +6,7 @@
 > Northwind / Titanic scenarios it documents.
 
 Two ready-to-run demos of the dataflow agent (**Bob**), exercised end-to-end
-on 2026-08-29 against the local stack with `claude-haiku-4.5` in **general
-mode** (typed/native operators; Python only for computed columns). Prompts are
+on 2026-08-29 against the local stack with `claude-haiku-4.5` in **general mode** (since renamed **code mode**) (typed/native operators; Python only for computed columns). Prompts are
 short, the way a user would type them — the operator know-how lives in the
 agent's system prompt.
 
