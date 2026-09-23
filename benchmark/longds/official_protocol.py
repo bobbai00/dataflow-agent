@@ -32,8 +32,9 @@ FINAL_ANSWER_RE = re.compile(
 ANSWER_CONTRACT = (
     "Report the answer as a single-line JSON object holding exactly the "
     "quantities this question asks for, and nothing else. Follow the rounding and "
-    "scale rules stated in the task text. Do not restate the whole chain of "
-    "reasoning as the answer.\n"
+    "scale rules stated in the task text; where none is stated, give numbers exactly "
+    "as computed with at least four decimal places rather than rounding them. Do not "
+    "restate the whole chain of reasoning as the answer.\n"
     "Your last line MUST BE: **Final Answer: <single-line JSON>**"
 )
 
