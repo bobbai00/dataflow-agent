@@ -19,6 +19,7 @@ import type { ContextAssembler, ContextAssemblerInput } from "../llm-drivers/typ
 import type { OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory } from "./task-history";
 import { writtenInputs } from "./task-reference";
+import { renderLiveIndex, renderTaskEntry } from "./task-entries";
 
 /** The heading of the catalog message. The catalog is the state a task starts
  * from, rendered once per task; what the task changes appears in its own
@@ -96,32 +97,61 @@ export function taskCatalogParts(
   };
 }
 
-/** Compose catalog memory with the configured synchronous or async assembler.
+/** Compose task memory with the configured synchronous or async assembler.
  * There is one driver, one prompt, one execution path and one observation
  * renderer. Switching context changes only what completed work is replayed.
  *
- * The prompt of call N+1 must be the prompt of call N plus new messages, which
- * is the only shape a provider's prompt cache credits. So the catalog is
- * rendered once, when a task begins, and placed before that task's messages;
- * every later call of the task reuses the same text, and what the task changes
- * reaches the model through the observations the base assembler appends.
- * (Measured before this: a catalog rendered after the task's messages capped
- * every call at the system prompt, even when its text had not changed.) */
+ * With task history, completed tasks are their entries: written once at the
+ * task boundary and never changed, so the prompt of call N+1 is the prompt of
+ * call N plus new messages, the one shape a provider's prompt cache credits.
+ * Each entry message is flagged for the transport, which places its cache
+ * boundaries on the last two. The live index after them is rendered once per
+ * task, and what the task changes reaches the model through its own
+ * observations. Without history, completed tasks collapse to their
+ * request/answer pairs and the frozen catalog. */
 export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistory): ContextAssembler {
-  let frozen: { messageId: string; catalog: ModelMessage } | undefined;
+  let frozen: { messageId: string; message: ModelMessage } | undefined;
   return input => {
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
     if (!current) return assemble(input);
-    const parts = taskCatalogParts(input, input.settings.nativeTaskHistory ? history : undefined);
-    if (frozen?.messageId !== current.messageId) frozen = { messageId: current.messageId, catalog: parts.catalog };
-    const catalog = frozen.catalog;
+    const entries = input.settings.nativeTaskHistory && history ? history.entries() : undefined;
+    let memory: ModelMessage[];
+    if (entries) {
+      const head = input.visibleSteps.at(-1)?.id;
+      if (frozen?.messageId !== current.messageId) {
+        const results = new Map(
+          input.workflowState
+            .getAllOperators()
+            .map(op => [op.operatorID, input.snapshotStorage.getOperatorResult(head, op.operatorID)] as const)
+            .filter((pair): pair is readonly [string, NonNullable<(typeof pair)[1]>] => pair[1] !== undefined)
+        );
+        frozen = {
+          messageId: current.messageId,
+          message: { role: "user", content: renderLiveIndex(input.workflowState, results, history) },
+        };
+      }
+      memory = [
+        ...entries.map(
+          (entry): ModelMessage => ({
+            role: "user",
+            content: renderTaskEntry(entry),
+            providerOptions: { texera: { taskHistory: true } },
+          })
+        ),
+        frozen.message,
+      ];
+    } else {
+      const parts = taskCatalogParts(input, undefined);
+      if (frozen?.messageId !== current.messageId) frozen = { messageId: current.messageId, message: parts.catalog };
+      memory = [...parts.completed, frozen.message];
+    }
     const active = assemble({
       ...input,
       visibleSteps: input.visibleSteps.filter(step => step.messageId === current.messageId),
       offBranchTurns: [],
     });
-    const order = (messages: ModelMessage[]) => [...parts.completed, catalog, ...messages];
+    const order = (messages: ModelMessage[]) => [...memory, ...messages];
     return active instanceof Promise ? active.then(order) : order(active);
   };
 }

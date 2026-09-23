@@ -72,6 +72,8 @@ export interface OperatorInfo {
   metadataOmissions?: string[];
   numWorkers?: number;
   resultSchema?: Array<{ name: string; type: string; encoding: string }>;
+  /** A runtime remark shown with the operator's observation line, e.g. a restore's verification. */
+  note?: string;
   /** Execution that retrieved this response; not a claim that cached data reran. */
   executionContext?: {
     workflowId: number;

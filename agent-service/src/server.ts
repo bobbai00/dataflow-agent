@@ -30,6 +30,7 @@ import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
 import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
 import { inspectErrorSchema } from "./agent/native/inspect-error-query";
+import { createTaskResponsesModel, supportsTaskCache } from "./agent/llm-drivers/openai-task-cache";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -552,8 +553,20 @@ async function createAgentInstance(
   // with extra_body to inject reasoning_effort, bypassing LiteLLM's param validation.
   const driverKind = resolveDriverKind(modelType, explicitDriver);
   const model = openai.chat(modelType);
+  // Task entries carry explicit cache boundaries, which only OpenAI's Responses
+  // API accepts; the gateway forwards that route with the same delegated JWT.
   const driver: LLMDriver =
-    driverKind === "local-react" ? new LocalReactTextDriver({ model }) : new VercelToolUseDriver({ model });
+    driverKind === "local-react"
+      ? new LocalReactTextDriver({ model })
+      : new VercelToolUseDriver({
+          model,
+          taskModel: supportsTaskCache(modelType)
+            ? createTaskResponsesModel(modelType, {
+                baseURL: `${config.modelsEndpoint}/api`,
+                apiKey: delegateConfig.userToken,
+              })
+            : undefined,
+        });
   const contextAssembler = buildContextAssembler(driverKind, openai);
 
   const agent = new TexeraAgent({
@@ -598,6 +611,8 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeTaskHistory: agentSettings.nativeTaskHistory,
     nativeTaskContext: agentSettings.nativeTaskContext,
+    nativeTaskCache: agentSettings.nativeTaskCache,
+    nativeTaskRestore: agentSettings.nativeTaskRestore,
     dataEvidence: agentSettings.dataEvidence,
     flowEvidence: agentSettings.flowEvidence,
     resultSelection: agentSettings.resultSelection,
@@ -842,6 +857,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: settings.nativeProfileCollection,
             nativeTaskHistory: settings.nativeTaskHistory,
             nativeTaskContext: settings.nativeTaskContext,
+            nativeTaskCache: settings.nativeTaskCache,
+            nativeTaskRestore: settings.nativeTaskRestore,
             dataEvidence: settings.dataEvidence,
             flowEvidence: settings.flowEvidence,
             resultSelection: (settings as any).resultSelection,
@@ -929,6 +946,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeProfileCollection: t.Optional(t.Boolean()),
             nativeTaskHistory: t.Optional(t.Boolean()),
             nativeTaskContext: t.Optional(t.Boolean()),
+            nativeTaskCache: t.Optional(t.Boolean()),
+            nativeTaskRestore: t.Optional(t.Boolean()),
             dataEvidence: t.Optional(t.Boolean()),
             flowEvidence: t.Optional(t.Boolean()),
             resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
@@ -1306,6 +1325,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeTaskHistory: settings.nativeTaskHistory,
         nativeTaskContext: settings.nativeTaskContext,
+        nativeTaskCache: settings.nativeTaskCache,
+        nativeTaskRestore: settings.nativeTaskRestore,
         dataEvidence: settings.dataEvidence,
         flowEvidence: settings.flowEvidence,
         resultSelection: (settings as any).resultSelection,
@@ -1364,6 +1385,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeTaskHistory: t.Optional(t.Boolean()),
         nativeTaskContext: t.Optional(t.Boolean()),
+        nativeTaskCache: t.Optional(t.Boolean()),
+        nativeTaskRestore: t.Optional(t.Boolean()),
         dataEvidence: t.Optional(t.Boolean()),
         flowEvidence: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),

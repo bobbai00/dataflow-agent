@@ -112,6 +112,38 @@ def _encode(program, node):
     raise ProgramError(node.lineno, f"Unsupported expression {_segment(program, node)!r}.", node.col_offset)
 
 
+def _name_spans(call, statement):
+    """Identifier arguments of the call (positional and keyword, inside lists
+    and dicts too) with their (line, column) spans relative to the statement."""
+    spans = []
+
+    def walk(node):
+        if isinstance(node, ast.Name):
+            spans.append(
+                {
+                    "name": node.id,
+                    "span": [
+                        node.lineno - statement.lineno + 1,
+                        node.col_offset - (statement.col_offset if node.lineno == statement.lineno else 0),
+                        node.end_lineno - statement.lineno + 1,
+                        node.end_col_offset - (statement.col_offset if node.end_lineno == statement.lineno else 0),
+                    ],
+                }
+            )
+        elif isinstance(node, (ast.List, ast.Tuple)):
+            for item in node.elts:
+                walk(item)
+        elif isinstance(node, ast.Dict):
+            for value in node.values:
+                walk(value)
+
+    for item in call.args:
+        walk(item)
+    for keyword in call.keywords:
+        walk(keyword.value)
+    return spans
+
+
 def _arguments(program, call):
     args = []
     for item in call.args:
@@ -280,6 +312,11 @@ def _collect(text, tree, offset, statements, functions, errors):
                         "source": _segment(text, node),
                         "args": args,
                         "kwargs": kwargs,
+                        # Where each identifier argument sits in `source`, so a
+                        # caller can rewrite ids in place (restore re-points
+                        # inputs). Kept apart from the values, which identify a
+                        # submission regardless of spacing.
+                        "names": _name_spans(call, node),
                     }
                 )
                 continue

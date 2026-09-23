@@ -30,8 +30,8 @@ test("task features validate atomically and history cannot be enabled halfway th
   // Native is the default mode, so history may be chosen before the session starts.
   a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true });
   expect(a.getSettings().nativeTaskHistory).toBe(true);
-  // The prompt teaches the one reference form the program language accepts.
-  expect(a.getSettings().systemPrompt).toContain("at(name, task=N)");
+  // The prompt teaches the four state gestures, restore among them.
+  expect(a.getSettings().systemPrompt).toContain('restore=[{"operator": name, "task": N, "as": new_id}]');
   expect(a.getSettings().systemPrompt).not.toContain("atTask");
   await a.sendMessage("hello");
   expect(() => a.updateSettings({ nativeTaskHistory: false })).toThrow("fresh");
@@ -39,20 +39,23 @@ test("task features validate atomically and history cannot be enabled halfway th
   expect(a.getSettings().agentMode).toBe(AgentMode.NATIVE);
 });
 
-test("the reference form is taught whenever outputs are retained, the catalog vocabulary only with the catalog", () => {
-  const prompt = (nativeTaskHistory: boolean, nativeTaskContext: boolean) => {
+test("the state gestures are taught whenever outputs are retained, the entry layout only with the catalog", () => {
+  const prompt = (nativeTaskHistory: boolean, nativeTaskContext: boolean, nativeTaskRestore = true) => {
     const a = agent();
-    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory, nativeTaskContext });
+    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory, nativeTaskContext, nativeTaskRestore });
     return a.getSettings().systemPrompt ?? "";
   };
   const fullHistory = prompt(true, false);
-  expect(fullHistory).toContain("at(name, task=N)");
+  expect(fullHistory).toContain("restore=[");
   expect(fullHistory).toContain("numbered from 1");
-  expect(fullHistory).not.toContain("created@N");
+  expect(fullHistory).not.toContain("as an entry");
   const catalog = prompt(true, true);
-  expect(catalog).toContain("at(name, task=N)");
-  expect(catalog).toContain("created@N");
+  expect(catalog).toContain("restore=[");
+  expect(catalog).toContain("Each completed task appears once, as an entry");
+  expect(catalog).toContain("# Tables now");
+  // Entries without the restore step: the ablation arm reads history but is not taught to rebuild it.
+  expect(prompt(true, true, false)).not.toContain("restore=[");
   const catalogOnly = prompt(false, true);
-  expect(catalogOnly).toContain("# Operator catalog at the start of this task");
+  expect(catalogOnly).toContain("as an entry");
   expect(catalogOnly).not.toContain("at(name, task=N)");
 });

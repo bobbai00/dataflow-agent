@@ -116,6 +116,43 @@ try {
     observe: ["cached_history"],
   });
   assert.deepEqual(rows(cachedHistory, "cached_history"), [{ n: 1000, total: 2999000 }]);
+  // Restore rebuilds definitions on current data and says whether the result
+  // still matches the saved table. `source`'s file was overwritten after task 1,
+  // so task 1's `eligible` cannot be reproduced from it: the copy is empty and
+  // the observation says why.
+  await session.debug("Restore the original cohort for comparison.");
+  const restored = await run({
+    edits: "",
+    restore: [{ operator: "eligible", task: 1, as: "eligible_t1" }],
+    observe: ["eligible_t1"],
+  });
+  const receipts = Object.fromEntries(restored.step.toolResults[0].output.operators.map((op: any) => [op.id, op]));
+  assert.equal(receipts.eligible_t1.op, "restore");
+  assert.equal(receipts.eligible_t1.status, "added");
+  assert.match(receipts.eligible_t1.message, /copies source_t1/);
+  assert.equal(restored.snapshot.results.eligible_t1?.totalRowCount, 0);
+  assert.match(restored.serviceContext, /restored from task 1: differs \(rows 0 vs 1000 saved\)/);
+  assert.ok(!restored.serviceContext.includes("task_archive_"), "internal ids leaked with restore");
+  // A version whose inputs are retained data rebuilds identically and verifies.
+  const verified = await run({
+    edits: "",
+    restore: [{ operator: "original_total", task: 4, as: "original_total_t4" }],
+    observe: ["original_total_t4"],
+  });
+  assert.deepEqual(rows(verified, "original_total_t4"), [{ n: 1000, total: 2999000 }]);
+  assert.match(verified.serviceContext, /restored from task 4: verified, 1 rows/);
+  // Revert: the same id makes task 2's definition current again, repairing the
+  // failed revision; `total` recomputes on it.
+  const reverted = await run({
+    edits: "",
+    restore: [{ operator: "eligible", task: 2, as: "eligible" }],
+    observe: ["total"],
+  });
+  assert.equal(
+    reverted.step.toolResults[0].output.operators.find((op: any) => op.id === "eligible")?.status,
+    "modified"
+  );
+  assert.deepEqual(rows(reverted, "total"), [{ n: 200, total: 3799000 }]);
   const summary = {
     passed: true,
     requests: count,
@@ -130,6 +167,7 @@ try {
       "historical dependency remains unchanged",
       "cache hits retain their original producing execution and can be task inputs",
       "archive paths and internal archive ids hidden",
+      "restore rebuilds a saved version on current data and reports data drift; unchanged inputs verify; revert recomputes dependents",
     ],
   };
   await Bun.write(`${out}/summary.json`, JSON.stringify(summary, null, 2));

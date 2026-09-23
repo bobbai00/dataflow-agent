@@ -101,6 +101,8 @@ import { NativeCatalogSettingsError, validateNativeSettings } from "./native/set
 import { planSeedSources } from "./native/seed-sources";
 import { TaskHistory } from "./native/task-history";
 import { withTaskCatalog } from "./native/task-context";
+import { buildTaskEntry } from "./native/task-entries";
+import { verifyRestore } from "./native/task-restore";
 import { retainTaskResult } from "../api/task-results-api";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
@@ -583,6 +585,7 @@ export class TexeraAgent {
         messageLayout: this.settings.messageLayout,
         taskCatalog: this.settings.nativeTaskContext === true,
         taskHistory: this.settings.nativeTaskHistory === true,
+        taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -656,6 +659,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
+        nativeTaskRestore: this.settings.nativeTaskRestore !== false,
       },
     };
 
@@ -1382,6 +1386,8 @@ export class TexeraAgent {
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
+    nativeTaskCache?: boolean;
+    nativeTaskRestore?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     resultSelection?: ResultSelection;
@@ -1439,6 +1445,8 @@ export class TexeraAgent {
       agentMode: updates.agentMode ?? this.settings.agentMode,
       nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
+      nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
+      nativeTaskRestore: updates.nativeTaskRestore ?? this.settings.nativeTaskRestore,
     });
     // Retained outputs are numbered by task, so turning history on or off after
     // the session has started would leave tasks with and without saved versions.
@@ -1470,6 +1478,11 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
     if (updates.nativeTaskContext !== undefined) this.settings.nativeTaskContext = updates.nativeTaskContext;
+    if (updates.nativeTaskCache !== undefined) this.settings.nativeTaskCache = updates.nativeTaskCache;
+    if (updates.nativeTaskRestore !== undefined && updates.nativeTaskRestore !== this.settings.nativeTaskRestore) {
+      this.settings.nativeTaskRestore = updates.nativeTaskRestore;
+      promptNeedsRebuild = true;
+    }
     this.settings.nativeProfileCollection = collection;
     if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
     if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
@@ -1841,6 +1854,18 @@ export class TexeraAgent {
     );
     const errors = await this.taskHistory.seal(task, this.workflowState.getAllOperators(), results);
     if (errors.length) this.log.warn({ errors }, "Some task outputs could not be retained");
+    // The task's entry: its request, the changes its receipts landed, its answer.
+    const messageId = this.turnOrder()[task - 1];
+    if (messageId)
+      this.taskHistory.recordEntry(
+        buildTaskEntry({
+          task,
+          steps: this.getVisibleReActSteps().filter(step => step.messageId === messageId),
+          results,
+          state: this.workflowState,
+          history: this.taskHistory,
+        })
+      );
   }
 
   async sendMessage(
@@ -1908,6 +1933,9 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps: this.settings.maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
+          taskContext: this.settings.nativeTaskContext === true,
+          taskCache: this.settings.nativeTaskCache !== false,
+          promptCacheKey: this.settings.nativeTaskContext ? this.agentId : undefined,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
@@ -2572,6 +2600,22 @@ export class TexeraAgent {
       maxRows: this.settings.maxResultRows,
     };
     await this.executePostStepChanges(toolCalls, toolResults);
+    // A restored table is compared with the version it rebuilt, on the same
+    // engine results its observation line shows.
+    if (owningStepId && this.head === owningStepId && this.settings.nativeTaskHistory)
+      for (const call of toolCalls ?? []) {
+        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
+        const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
+        for (const item of batch?.restored ?? []) {
+          const sealed = this.taskHistory.definition(item.operator, item.task);
+          if (!sealed || !this.snapshotStorage.hasSnapshotFor(owningStepId)) continue;
+          const info = this.snapshotStorage.getOperatorResult(owningStepId, item.as);
+          this.snapshotStorage.setOperatorResult(owningStepId, item.as, {
+            ...(info ?? { state: "NotExecuted", inputTuples: 0, outputTuples: 0, resultMode: "table" }),
+            note: verifyRestore(info, sealed, item),
+          } as OperatorInfo);
+        }
+      }
     if (
       requested &&
       owningStepId &&

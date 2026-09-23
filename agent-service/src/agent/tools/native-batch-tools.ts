@@ -37,6 +37,7 @@ import { compileProgram, type ProgramStatement } from "../native/program";
 import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { TASK_SOURCE_PREFIX } from "../native/task-reference";
+import { describeRestoreRequest, planRestores, type RestorePlan, type RestoreRequest } from "../native/task-restore";
 import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
@@ -63,6 +64,8 @@ export interface NativeBatchResult {
   operators: NativeBatchOutcome[];
   observe: string[];
   observationErrors: string[];
+  /** Restores whose target landed: what they created and what they reused. */
+  restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -89,6 +92,8 @@ export interface DataflowInput {
   edits: string;
   /** Ids of operators to remove, applied before the edits. */
   delete?: string[];
+  /** Saved versions to rebuild, applied with the edits. */
+  restore?: RestoreRequest[];
   observe?: string[];
 }
 
@@ -108,6 +113,25 @@ export function nativeBatchSchema(): Record<string, unknown> {
         description:
           "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts).",
       },
+      restore: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            operator: { type: "string", description: "The table to rebuild, by the id it had." },
+            task: { type: "integer", description: "The completed task at whose end that version was saved." },
+            as: {
+              type: "string",
+              description:
+                "The id the rebuilt table gets. The same id as `operator` makes that version current again (its consumers recompute).",
+            },
+          },
+          required: ["operator", "task", "as"],
+        },
+        description:
+          "Step 2 as well, with the edits: rebuild tables as they were defined at the end of a completed task. Each restore recreates that definition under `as`, shares upstream tables whose definition is unchanged since that task, copies the changed ones as `<name>_t<task>`, and its observation says whether the result matches the saved table. Requires task history.",
+      },
       observe: {
         type: "array",
         items: { type: "string" },
@@ -122,7 +146,7 @@ export function nativeBatchSchema(): Record<string, unknown> {
 export const DATAFLOW_TOOL_DESCRIPTION =
   "Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: " +
   NATIVE_OPERATOR_NAMES.join(", ") +
-  "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.";
+  "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing. With task history, `restore` rebuilds a table as it was defined at the end of an earlier task (see the field).";
 
 /**
  * The one tool of native mode: `dataflow` (edits, deletes, observations). The
@@ -150,12 +174,59 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         }
         const isIds = (value: unknown) =>
           value === undefined || (Array.isArray(value) && value.every(id => typeof id === "string"));
-        if (typeof args?.edits !== "string" || !isIds(args.observe) || !isIds(args.delete)) {
+        const isRestore = (value: unknown) =>
+          value === undefined ||
+          (Array.isArray(value) &&
+            value.every(
+              item =>
+                item &&
+                typeof item === "object" &&
+                typeof (item as RestoreRequest).operator === "string" &&
+                typeof (item as RestoreRequest).task === "number" &&
+                typeof (item as RestoreRequest).as === "string"
+            ));
+        if (
+          typeof args?.edits !== "string" ||
+          !isIds(args.observe) ||
+          !isIds(args.delete) ||
+          !isRestore(args.restore)
+        ) {
           return createErrorResult(
-            "dataflow requires edits: string, and optionally delete: string[] and observe: string[]"
+            "dataflow requires edits: string, and optionally delete: string[], restore: [{operator, task, as}] and observe: string[]"
           );
         }
-        const compiled = await compileProgram(args.edits, {
+        // Restores are planned before compiling: each becomes the sealed
+        // statements under new ids, compiled and executed exactly like edits.
+        // A refused restore is an outcome; the rest of the call proceeds.
+        const restoreOutcomes: NativeBatchOutcome[] = [];
+        let restorePlans: RestorePlan[] = [];
+        const restoreRequests = args.restore ?? [];
+        if (restoreRequests.length && (!context?.taskHistory || context.settings?.nativeTaskRestore === false)) {
+          for (const request of restoreRequests)
+            restoreOutcomes.push({
+              id: request.as,
+              op: "restore",
+              status: "error",
+              message: `Cannot ${describeRestoreRequest(request)}: this session keeps no task history to restore from.`,
+            });
+        } else if (restoreRequests.length && context?.taskHistory) {
+          const planned = await planRestores(restoreRequests, context.taskHistory, state);
+          restorePlans = planned.plans;
+          for (const refusal of planned.refusals)
+            restoreOutcomes.push({
+              id: refusal.request.as,
+              op: "restore",
+              status: "error",
+              message: `Cannot ${describeRestoreRequest(refusal.request)}: ${refusal.message}`,
+            });
+        }
+        const restoredIds = new Map<string, RestorePlan>();
+        for (const plan of restorePlans) for (const id of plan.created) restoredIds.set(id, plan);
+        // Appended after the edits so the model's line numbers stay its own.
+        const program = restorePlans.length
+          ? [args.edits, ...restorePlans.map(plan => plan.program)].join("\n")
+          : args.edits;
+        const compiled = await compileProgram(program, {
           profileCollection: context?.settings?.nativeProfileCollection === true,
         });
         const statements: ProgramStatement[] = compiled.statements;
@@ -408,6 +479,27 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
               .execute({ id: statement.id }, undefined)
           )
         );
+        // Receipts of restored statements say what they are; a copied ancestor
+        // names the restore it serves.
+        for (const [index, statement] of statements.entries()) {
+          const plan = restoredIds.get(statement.id);
+          const outcome = outcomes[index];
+          if (!plan || !outcome || (outcome.status !== "added" && outcome.status !== "modified")) continue;
+          outcome.op = "restore";
+          outcome.message =
+            statement.id === plan.request.as
+              ? `${describeRestoreRequest(plan.request)}: ${outcome.status}` +
+                (plan.shared.length ? `; shares ${plan.shared.join(", ")}` : "") +
+                (plan.created.length > 1 ? `; copies ${plan.created.slice(1).join(", ")}` : "")
+              : `copied \`${statement.id}\` as saved at task ${plan.request.task}, for the restore of \`${plan.request.as}\``;
+        }
+        const restored = restorePlans
+          .filter(plan => {
+            const index = byId.get(plan.request.as);
+            const outcome = index === undefined ? undefined : outcomes[index];
+            return !!outcome && outcome.status !== "error" && outcome.status !== "blocked";
+          })
+          .map(plan => ({ ...plan.request, created: plan.created, shared: plan.shared }));
         const requested = args.observe ?? [];
         const observationErrors: string[] = [];
         const observe = [...new Set(requested)].filter(id => {
@@ -423,9 +515,10 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           .map(entry => entry.outcome);
         return {
           kind: "native-batch",
-          operators: [...deleteOutcomes, ...ordered],
+          operators: [...deleteOutcomes, ...restoreOutcomes, ...ordered],
           observe,
           observationErrors,
+          ...(restored.length ? { restored } : {}),
         } satisfies NativeBatchResult;
       },
     }),

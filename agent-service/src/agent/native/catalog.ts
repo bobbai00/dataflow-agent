@@ -104,6 +104,9 @@ export interface ParsedStatement {
   source: string;
   args: ParsedValue[];
   kwargs: Record<string, ParsedValue>;
+  /** Identifier arguments with their (line, column) spans in `source`, for
+   * rewriting ids in place; not part of what identifies a submission. */
+  names?: Array<{ name: string; span: [number, number, number, number] }>;
 }
 
 /** A function slot: Python source defining exactly one entry function. */

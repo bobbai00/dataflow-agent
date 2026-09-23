@@ -211,22 +211,21 @@ export interface NativePromptLayoutOptions {
   messageLayout?: AgentSettings["messageLayout"];
   /** Multi-task: completed tasks are shown as question and answer, followed by the catalog. */
   taskCatalog?: boolean;
-  /** Multi-task: each completed task's tables are retained and readable with `at(...)`. */
+  /** Multi-task: each completed task's tables are retained. */
   taskHistory?: boolean;
+  /** The `restore` step and the four state gestures are explained. */
+  taskRestore?: boolean;
 }
 
 /** Stated once, in the stable head of the prompt, so the explanation costs one
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
-const TASK_CATALOG_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Completed tasks appear first as the question you were asked and the answer you gave. `# Operator catalog at the start of this task` then lists every table as it stood when the current task began: its definition as you wrote it, its schema, its execution state and row count. Tables you define or change during this task appear in this task's observations, not in that catalog.";
-/** Whenever outputs are retained, with or without the catalog: the full-history
- * arm needs the reference form as much as the catalog arm does. */
+const TASK_ENTRIES_LAYOUT =
+  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow (added, modified, restored or deleted operators, each as the statement you wrote, with its doc, its row count and columns, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it and the tasks that changed it, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
-const TASK_HISTORY_REFERENCE =
-  ' Every table\'s output at the end of each task is retained. Pass `at(name, task=N)` wherever a table is an input to read the output `name` held at the end of task N: `original = project(at(cohort, task=2), keep=["id"])`. A saved version is fixed data; redefining `name` later does not change it, so use `at(...)` for a published result and the plain name for the current one.';
-const TASK_CATALOG_EVENTS =
-  " A catalog line ending `created@N` has a saved version from task N onward, `edited@M` marks each later task that redefined it, and `not saved@K` a task that holds none. A table you deleted keeps its saved versions and is listed as `no longer in the graph`.";
+/** The four ways analytical state evolves, each as one dataflow gesture. */
+const TASK_STATE_GESTURES =
+  ' Every table\'s output at the end of each task is saved, so state evolves in four ways. To make a revision the new default, reassign the same id: everything downstream recomputes. For a one-off alternative, build a new id from the current tables and leave the default alone. To work under an earlier version, use the tool\'s `restore=[{"operator": name, "task": N, "as": new_id}]`: it rebuilds that table as defined at the end of task N under the new id, shares upstream tables that are unchanged since then, copies the ones that changed as `<name>_t<N>`, and its observation says whether the result matches the saved table. To make an earlier version current again, restore with `as` equal to the same id. Read the version\'s definition in its entry before restoring.';
 
 /** The native-mode system prompt for a context mode and message layout. */
 export function buildNativeModeSystemPrompt(
@@ -261,11 +260,9 @@ export function buildNativeModeSystemPrompt(
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
-  const taskLayout = options.taskCatalog
-    ? TASK_CATALOG_LAYOUT + (options.taskHistory ? TASK_HISTORY_REFERENCE + TASK_CATALOG_EVENTS : "")
-    : options.taskHistory
-      ? TASK_SESSION_LAYOUT + TASK_HISTORY_REFERENCE
-      : "";
+  const taskLayout =
+    (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
+    (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "");
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)

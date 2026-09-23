@@ -90,7 +90,8 @@ test("the shared SDK loop executes tools, prepares the next step, and lets the m
   });
   for (const call of model.doGenerateCalls) {
     expect(call.providerOptions).toEqual({
-      openai: { parallelToolCalls: false },
+      openai: { parallelToolCalls: false, promptCacheKey: undefined },
+      texera: { taskCache: true },
       anthropic: { disableParallelToolUse: true },
       mistral: { parallelToolCalls: false },
     });

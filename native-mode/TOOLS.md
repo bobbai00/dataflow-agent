@@ -8,7 +8,7 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
 
 **Description sent to the model**
 
-> Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: scan, project, cast, filter, map, aggregate, join, union, distinct, sort, limit, window, unpivot, pivot, process), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.
+> Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: scan, project, cast, filter, map, aggregate, join, union, distinct, sort, limit, window, unpivot, pivot, process), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing. With task history, `restore` rebuilds a table as it was defined at the end of an earlier task (see the field).
 
 **Input schema**
 
@@ -27,6 +27,33 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
         "type": "string"
       },
       "description": "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts)."
+    },
+    "restore": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operator": {
+            "type": "string",
+            "description": "The table to rebuild, by the id it had."
+          },
+          "task": {
+            "type": "integer",
+            "description": "The completed task at whose end that version was saved."
+          },
+          "as": {
+            "type": "string",
+            "description": "The id the rebuilt table gets. The same id as `operator` makes that version current again (its consumers recompute)."
+          }
+        },
+        "required": [
+          "operator",
+          "task",
+          "as"
+        ]
+      },
+      "description": "Step 2 as well, with the edits: rebuild tables as they were defined at the end of a completed task. Each restore recreates that definition under `as`, shares upstream tables whose definition is unchanged since that task, copies the changed ones as `<name>_t<task>`, and its observation says whether the result matches the saved table. Requires task history."
     },
     "observe": {
       "type": "array",

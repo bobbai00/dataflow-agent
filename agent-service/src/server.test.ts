@@ -372,7 +372,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(patched.status).toBe(200);
     expect((await readJson<any>(patched)).nativeTaskContext).toBe(true);
     for (const name of [
-      "nativeTaskCache",
       "nativeTaskReuse",
       "nativeTaskReceipts",
       "nativeCompactIndex",
@@ -394,7 +393,9 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const settings = await readJson<any>(await getJson(`${API}/agents/${body.id}/settings`));
     expect(settings.nativeTaskContext).toBe(true);
     expect(settings.nativeTaskHistory).toBe(true);
-    expect(settings).not.toHaveProperty("nativeTaskCache");
+    // Cache boundaries and restore are live settings again, on by default.
+    expect(settings.nativeTaskCache).toBe(true);
+    expect(settings.nativeTaskRestore).toBe(true);
   });
 
   test("updates settings and returns the new values", async () => {

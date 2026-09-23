@@ -41,6 +41,8 @@ export interface ToolContext {
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
+    /** The dataflow tool's `restore` step is offered (task history must be on). */
+    nativeTaskRestore?: boolean;
   };
 }
 

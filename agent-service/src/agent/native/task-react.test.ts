@@ -73,10 +73,11 @@ test("switching to the catalog keeps the shared assembler, prompt, driver and fi
   expect(rendered).toContain("shared:Second request");
   expect(Object.keys(turns[1]!.tools)).toEqual(Object.keys(turns[0]!.tools));
   expect(turns[1]!.tools.dataflow.inputSchema.jsonSchema).toEqual(turns[0]!.tools.dataflow.inputSchema.jsonSchema);
-  for (const turn of turns) {
-    for (const key of ["taskContext", "taskCache", "promptCacheKey", "getFinalAnswer"])
-      expect(Object.hasOwn(turn, key)).toBe(false);
-  }
+  // The transport learns which turns carry task entries; the agent id keys the cache.
+  expect(turns.map(turn => [turn.taskContext, turn.taskCache, turn.promptCacheKey])).toEqual([
+    [false, true, undefined],
+    [true, true, "catalog-react"],
+  ]);
   expect(
     agent
       .getAllSteps()
@@ -164,16 +165,17 @@ test("a catalog switch preserves computed results and retained bindings across t
   expect(agent.getWorkflowState().getWorkflowContent()).toEqual(workflow);
   expect(history.available("source")).toEqual([1, 2]);
   expect(retained).toEqual(["source"]);
-  // The retained version is stated on the operator's own line as an event, and
-  // the catalog precedes the active turn's messages so every call of the turn
-  // extends the previous one.
-  expect(nextContext).toContain('source = scan(\\"data/fixture.csv\\"); schema=unknown; Completed; rows=0; created@1');
-  const contextMessages = JSON.parse(nextContext).messages as Array<{ content: string }>;
-  const catalogAt = contextMessages.findIndex(m =>
-    String(m.content).startsWith("# Operator catalog at the start of this task")
+  // The completed task is its entry (request, changes, answer), flagged for the
+  // transport's cache boundary, then the live index, then the turn's messages.
+  const contextMessages = JSON.parse(nextContext).messages as Array<{ content: string; providerOptions?: unknown }>;
+  expect(contextMessages[0]!.content).toContain("## Task 1\nRead the table");
+  expect(contextMessages[0]!.content).toContain('added    source = scan("data/fixture.csv")');
+  expect(contextMessages[0]!.content).toContain("Answer: There are no matching rows.");
+  expect(contextMessages[0]!.providerOptions).toEqual({ texera: { taskHistory: true } });
+  expect(contextMessages[1]!.content).toBe(
+    "# Tables now\nsource (t1)\n⚠ source has 0 rows; everything built on it is empty"
   );
-  expect(catalogAt).toBeGreaterThan(-1);
-  expect(catalogAt).toBeLessThan(contextMessages.length - 1);
+  expect(contextMessages.length).toBeGreaterThan(2);
   expect(agent.getSnapshotStorage().getOperatorResult(agent.getHead(), "source")?.result).toEqual([]);
   expect(agent.getAllSteps().some(step => /STALE_ANSWER|EMPTY_ANCESTOR/.test(step.content))).toBe(false);
 });
@@ -235,7 +237,6 @@ test("a task started by debug input is sealed when the next task starts, and at(
 test("retired experimental settings fail explicitly and atomically", () => {
   const { agent } = fixture();
   for (const name of [
-    "nativeTaskCache",
     "nativeTaskReuse",
     "nativeTaskReceipts",
     "nativeCompactIndex",

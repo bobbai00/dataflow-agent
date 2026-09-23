@@ -21,6 +21,7 @@ import type { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
 import type { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { historyReferenceSource, taskInputId, type TaskInput } from "./task-reference";
+import type { TaskEntry } from "./task-entries";
 
 export { TASK_SOURCE_PREFIX, taskInputId, type TaskInput } from "./task-reference";
 
@@ -39,6 +40,7 @@ export interface TaskOutput {
 export class TaskHistory {
   private readonly tasks = new Map<number, Map<string, TaskOutput>>();
   private readonly retained = new Map<string, RetainedResult>();
+  private readonly entryList = new Map<number, TaskEntry>();
   constructor(private readonly retain: (operator: string, info: OperatorInfo) => Promise<RetainedResult>) {}
 
   async seal(task: number, operators: OperatorPredicate[], results: Map<string, OperatorInfo>): Promise<string[]> {
@@ -92,6 +94,21 @@ export class TaskHistory {
   available(operator: string): number[] {
     return [...this.tasks].filter(([, outputs]) => outputs.has(operator)).map(([task]) => task);
   }
+  /** The operator as sealed at the end of `task`, with its result and artifact. */
+  definition(operator: string, task: number): TaskOutput | undefined {
+    return this.tasks.get(task)?.get(operator);
+  }
+  sealedTasks(): number[] {
+    return [...this.tasks.keys()].sort((a, b) => a - b);
+  }
+  /** The entry of a completed task: written once when the task is sealed. */
+  recordEntry(entry: TaskEntry): void {
+    if (this.entryList.has(entry.task)) throw new Error(`Task ${entry.task} already has an entry`);
+    this.entryList.set(entry.task, entry);
+  }
+  entries(): TaskEntry[] {
+    return [...this.entryList.keys()].sort((a, b) => a - b).map(task => this.entryList.get(task)!);
+  }
   /** Creation and edit events per operator, read from the definitions sealed at
    * each task. A version *range* is derived information that has to be rewritten
    * every turn ("8-9" becomes "8-10"); an event is written once and never
@@ -131,6 +148,7 @@ export class TaskHistory {
   clear(): void {
     this.tasks.clear();
     this.retained.clear();
+    this.entryList.clear();
   }
   has(task: number): boolean {
     return this.tasks.has(task);

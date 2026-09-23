@@ -64,7 +64,13 @@ export function validateEvidenceSettings(settings: object): void {
 
 /** Shared by creation (before allocating an agent) and atomic settings updates. */
 export function validateNativeSettings(
-  settings: { agentMode?: string; nativeTaskHistory?: unknown; nativeTaskContext?: unknown } = {}
+  settings: {
+    agentMode?: string;
+    nativeTaskHistory?: unknown;
+    nativeTaskContext?: unknown;
+    nativeTaskCache?: unknown;
+    nativeTaskRestore?: unknown;
+  } = {}
 ): void {
   validateEvidenceSettings(settings);
   validateRetiredTaskSettings(settings);
@@ -83,12 +89,18 @@ export function validateNativeSettings(
     if (value === true && settings.agentMode === "code")
       throw new NativeCatalogSettingsError(`${name} requires agentMode "native"`);
   }
+  // Cache boundaries and restore modify task history and do nothing without it,
+  // so their defaults are harmless in either mode.
+  for (const name of ["nativeTaskCache", "nativeTaskRestore"] as const) {
+    const value = settings[name];
+    if (value !== undefined && typeof value !== "boolean")
+      throw new NativeCatalogSettingsError(`${name} must be a boolean`);
+  }
 }
 
 /** Old benchmark arms must run their recorded revisions, never a remapped arm. */
 export function validateRetiredTaskSettings(settings: object): void {
   for (const name of [
-    "nativeTaskCache",
     "nativeTaskReuse",
     "nativeTaskReceipts",
     "nativeCompactIndex",

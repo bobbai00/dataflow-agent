@@ -37,6 +37,8 @@ import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
   model: LanguageModel;
+  /** Used for turns with task entries; carries explicit cache boundaries. */
+  taskModel?: LanguageModel;
   /** Sampling temperature. Defaults to 0.2, matching the pre-refactor
    *  hardcoded value in TexeraAgent.sendMessage. */
   temperature?: number;
@@ -44,10 +46,12 @@ export interface VercelToolUseDriverOptions {
 
 export class VercelToolUseDriver implements LLMDriver {
   private readonly model: LanguageModel;
+  private readonly taskModel?: LanguageModel;
   private readonly temperature: number;
 
   constructor(opts: VercelToolUseDriverOptions) {
     this.model = opts.model;
+    this.taskModel = opts.taskModel;
     this.temperature = opts.temperature ?? 0.2;
   }
 
@@ -56,7 +60,7 @@ export class VercelToolUseDriver implements LLMDriver {
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
     const result = await generateText({
-      model: this.model,
+      model: input.taskContext && this.taskModel ? this.taskModel : this.model,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
@@ -72,7 +76,12 @@ export class VercelToolUseDriver implements LLMDriver {
         // Provider-side parallel tool-call gating. The agent serializes
         // execution into a topological order via ToolCallScheduler so it's
         // safe to let the model emit multiple tool calls in one turn.
-        openai: { parallelToolCalls: input.parallelToolCalls },
+        openai: {
+          parallelToolCalls: input.parallelToolCalls,
+          promptCacheKey: input.promptCacheKey,
+          ...(input.taskContext && this.taskModel ? { store: false, strictJsonSchema: false } : {}),
+        },
+        texera: { taskCache: input.taskCache !== false },
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },

@@ -175,6 +175,10 @@ export interface AgentSettings {
   nativeTaskHistory?: boolean;
   /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
+  /** Cache boundaries on completed task entries (Responses transport for GPT-5.6+). */
+  nativeTaskCache?: boolean;
+  /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
+  nativeTaskRestore?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -520,6 +524,8 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // Multi-task modes on top of native mode; both off by default.
   nativeTaskHistory: false,
   nativeTaskContext: false,
+  nativeTaskCache: true,
+  nativeTaskRestore: true,
   dataEvidence: false,
   flowEvidence: false,
   resultSelection: "all",
@@ -639,6 +645,10 @@ export interface AgentSettingsApi {
   nativeTaskHistory?: boolean;
   /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
+  /** Cache boundaries on completed task entries (Responses transport for GPT-5.6+). */
+  nativeTaskCache?: boolean;
+  /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
+  nativeTaskRestore?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;
@@ -742,6 +752,10 @@ export interface UpdateAgentSettingsRequest {
   nativeTaskHistory?: boolean;
   /** Replace completed task traces with catalog memory; active ReAct stays shared. */
   nativeTaskContext?: boolean;
+  /** Cache boundaries on completed task entries (Responses transport for GPT-5.6+). */
+  nativeTaskCache?: boolean;
+  /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
+  nativeTaskRestore?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;
