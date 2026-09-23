@@ -46,7 +46,9 @@ const settings = {
   maxOperatorResultCharLimit: 2000,
   maxOperatorResultCellCharLimit: 2000,
   thoughtReplay: false,
-  sessionTurns: false,
+  // Full history needs visible task numbers to write at(name, task=N); the
+  // catalog arm replaces completed turns with its own Q/A layout.
+  sessionTurns: arm === "react-full",
   versionedMode: false,
   userTaskPlacement: "bottom" as const,
 };

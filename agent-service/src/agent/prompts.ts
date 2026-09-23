@@ -220,8 +220,13 @@ export interface NativePromptLayoutOptions {
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_CATALOG_LAYOUT =
   "\n\nThis is one session of numbered tasks. Completed tasks appear first as the question you were asked and the answer you gave. `# Current operator catalog` then lists every table: its definition as you wrote it, its schema, its execution state and row count.";
-const TASK_HISTORY_LAYOUT =
-  ' Every table\'s output at the end of each task is retained. A catalog line ending `created@N` has a saved version from task N onward, `edited@M` marks each later task that redefined it, and `not saved@K` a task that holds none. Pass `at(name, task=N)` wherever a table is an input to read that exact saved output: `original = project(at(cohort, task=2), keep=["id"])`. A saved version is fixed data; redefining `name` later does not change it, so use `at(...)` for a published result and the plain name for the current one. A table you deleted keeps its saved versions and is listed as `no longer in the graph`.';
+/** Whenever outputs are retained, with or without the catalog: the full-history
+ * arm needs the reference form as much as the catalog arm does. */
+const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
+const TASK_HISTORY_REFERENCE =
+  ' Every table\'s output at the end of each task is retained. Pass `at(name, task=N)` wherever a table is an input to read the output `name` held at the end of task N: `original = project(at(cohort, task=2), keep=["id"])`. A saved version is fixed data; redefining `name` later does not change it, so use `at(...)` for a published result and the plain name for the current one.';
+const TASK_CATALOG_EVENTS =
+  " A catalog line ending `created@N` has a saved version from task N onward, `edited@M` marks each later task that redefined it, and `not saved@K` a task that holds none. A table you deleted keeps its saved versions and is listed as `no longer in the graph`.";
 
 /** The native-mode system prompt for a context mode and message layout. */
 export function buildNativeModeSystemPrompt(
@@ -262,7 +267,11 @@ export function buildNativeModeSystemPrompt(
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
-  const taskLayout = options.taskCatalog ? TASK_CATALOG_LAYOUT + (options.taskHistory ? TASK_HISTORY_LAYOUT : "") : "";
+  const taskLayout = options.taskCatalog
+    ? TASK_CATALOG_LAYOUT + (options.taskHistory ? TASK_HISTORY_REFERENCE + TASK_CATALOG_EVENTS : "")
+    : options.taskHistory
+      ? TASK_SESSION_LAYOUT + TASK_HISTORY_REFERENCE
+      : "";
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)

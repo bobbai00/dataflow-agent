@@ -38,3 +38,21 @@ test("task features validate atomically and history cannot be enabled halfway th
   expect(() => a.updateSettings({ agentMode: AgentMode.CODE })).toThrow();
   expect(a.getSettings().agentMode).toBe(AgentMode.NATIVE);
 });
+
+test("the reference form is taught whenever outputs are retained, the catalog vocabulary only with the catalog", () => {
+  const prompt = (nativeTaskHistory: boolean, nativeTaskContext: boolean) => {
+    const a = agent();
+    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory, nativeTaskContext });
+    return a.getSettings().systemPrompt ?? "";
+  };
+  const fullHistory = prompt(true, false);
+  expect(fullHistory).toContain("at(name, task=N)");
+  expect(fullHistory).toContain("numbered from 1");
+  expect(fullHistory).not.toContain("created@N");
+  const catalog = prompt(true, true);
+  expect(catalog).toContain("at(name, task=N)");
+  expect(catalog).toContain("created@N");
+  const catalogOnly = prompt(false, true);
+  expect(catalogOnly).toContain("# Current operator catalog");
+  expect(catalogOnly).not.toContain("at(name, task=N)");
+});
