@@ -20,6 +20,11 @@ import type { OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory } from "./task-history";
 import { writtenInputs } from "./task-reference";
 
+/** The heading of the catalog message. The catalog is the state a task starts
+ * from, rendered once per task; what the task changes appears in its own
+ * observations. */
+export const TASK_CATALOG_HEADING = "# Operator catalog at the start of this task";
+
 /** The operator as the model wrote it, on one line: its own program statement
  * (`name = op(...)`), which the model already reads fluently and which changes
  * only when the operator is redefined. A catalog line built from it is stable
@@ -34,18 +39,6 @@ export function operatorSignature(op: OperatorPredicate): string {
   return statement.length <= 240 ? statement : statement.slice(0, 237) + "...";
 }
 
-function ranges(numbers: number[]): string {
-  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
-  const result: string[] = [];
-  for (let i = 0; i < sorted.length; i++) {
-    const first = sorted[i]!;
-    let last = first;
-    while (sorted[i + 1] === last + 1) last = sorted[++i]!;
-    result.push(first === last ? String(first) : `${first}-${last}`);
-  }
-  return result.join(",");
-}
-
 /** Completed questions and answers preserve inherited requirements. The
  * catalog replaces completed action traces, not the active task's ReAct.
  * Complete definitions and observed evidence use the shared context assembler. */
@@ -55,8 +48,8 @@ export function taskCatalogMemory(input: ContextAssemblerInput, history?: TaskHi
 }
 
 /** The completed question/answer pairs and the operator catalog, kept apart
- * because they cache differently: the pairs are append-only and belong in the
- * prefix, the catalog is rewritten whenever the graph changes and belongs last. */
+ * because they live differently in the prompt: the pairs only grow, the
+ * catalog is rendered from the current graph and frozen for a whole task. */
 export function taskCatalogParts(
   input: ContextAssemblerInput,
   history?: TaskHistory
@@ -99,28 +92,36 @@ export function taskCatalogParts(
   }
   return {
     completed: messages,
-    catalog: { role: "user", content: `# Current operator catalog\n${catalog.join("\n") || "Empty."}` },
+    catalog: { role: "user", content: `${TASK_CATALOG_HEADING}\n${catalog.join("\n") || "Empty."}` },
   };
 }
 
 /** Compose catalog memory with the configured synchronous or async assembler.
  * There is one driver, one prompt, one execution path and one observation
- * renderer. Switching context changes only what completed work is replayed. */
+ * renderer. Switching context changes only what completed work is replayed.
+ *
+ * The prompt of call N+1 must be the prompt of call N plus new messages, which
+ * is the only shape a provider's prompt cache credits. So the catalog is
+ * rendered once, when a task begins, and placed before that task's messages;
+ * every later call of the task reuses the same text, and what the task changes
+ * reaches the model through the observations the base assembler appends.
+ * (Measured before this: a catalog rendered after the task's messages capped
+ * every call at the system prompt, even when its text had not changed.) */
 export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistory): ContextAssembler {
+  let frozen: { messageId: string; catalog: ModelMessage } | undefined;
   return input => {
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
     if (!current) return assemble(input);
     const parts = taskCatalogParts(input, input.settings.nativeTaskHistory ? history : undefined);
+    if (frozen?.messageId !== current.messageId) frozen = { messageId: current.messageId, catalog: parts.catalog };
+    const catalog = frozen.catalog;
     const active = assemble({
       ...input,
       visibleSteps: input.visibleSteps.filter(step => step.messageId === current.messageId),
       offBranchTurns: [],
     });
-    // Everything append-only first, the rewritten catalog last: a prompt cache
-    // matches a prefix, so a block that changes each call must not sit in front
-    // of the tool results, which do not change once returned.
-    const order = (messages: ModelMessage[]) => [...parts.completed, ...messages, parts.catalog];
+    const order = (messages: ModelMessage[]) => [...parts.completed, catalog, ...messages];
     return active instanceof Promise ? active.then(order) : order(active);
   };
 }

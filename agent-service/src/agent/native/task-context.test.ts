@@ -15,7 +15,8 @@
  * under the License.
  */
 import { test, expect } from "bun:test";
-import { operatorSignature, taskCatalogMemory, withTaskCatalog } from "./task-context";
+import { operatorSignature, TASK_CATALOG_HEADING, taskCatalogMemory, withTaskCatalog } from "./task-context";
+import type { ModelMessage } from "ai";
 import { TaskHistory } from "./task-history";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -105,10 +106,11 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       });
     const active = assemble({ ...input, visibleSteps: input.visibleSteps.filter(s => s.messageId === "two") });
     const messages = await withTaskCatalog(assemble)(input);
-    // The active turn is delegated unchanged; the rewritten catalog follows it,
-    // so that a prompt cache can match every message the turn already produced.
-    expect(messages.at(-1)!.content).toContain("# Current operator catalog");
-    expect(messages.slice(-active.length - 1, -1)).toEqual(active);
+    // The active turn is delegated unchanged and follows the catalog, so every
+    // call of the turn extends the previous call's prompt.
+    const catalogAt = messages.findIndex(m => String(m.content).startsWith(TASK_CATALOG_HEADING));
+    expect(catalogAt).toBe(messages.length - active.length - 1);
+    expect(messages.slice(-active.length)).toEqual(active);
     expect(JSON.stringify(messages)).not.toContain("OLD_ACTION_BODY");
     expect(JSON.stringify(messages)).toContain(mode === ContextMode.DELTA ? "Cannot observe" : "observation errors=1");
     if (mode === ContextMode.DELTA) expect(JSON.stringify(messages)).toContain("real-call-id");
@@ -214,4 +216,45 @@ test("a disabled catalog and initialization delegate the original input unchange
     ).toBe(messages);
     expect(seen).toBe(input);
   }
+});
+
+test("the catalog is rendered once per task: later calls reuse it, the next task sees the new graph", async () => {
+  const input = fixture();
+  const decorated = withTaskCatalog(() => [{ role: "user" as const, content: "active" }]);
+  const catalogOf = (messages: ModelMessage[]) =>
+    String(messages.find(m => String(m.content).startsWith(TASK_CATALOG_HEADING))!.content);
+  const first = catalogOf(await decorated(input));
+  expect(first).toContain('source = scan("data/source.csv")');
+  input.workflowState.addOperator({
+    operatorID: "positive",
+    operatorType: "DataProcessing",
+    operatorVersion: "1",
+    operatorProperties: {},
+    inputPorts: [],
+    outputPorts: [],
+    showAdvanced: false,
+    nativeOp: {
+      type: "Filter",
+      properties: {},
+      inputs: ["source"],
+      source: 'positive = filter(source, lambda row: row["x"] > 0)',
+    },
+  });
+  // Same task: the table the task just added is in its observations, not here.
+  const second = catalogOf(await decorated(input));
+  expect(second).toBe(first);
+  expect(second).not.toContain("positive");
+  // A new task begins from the graph as it now stands.
+  input.visibleSteps.push({
+    id: "u3",
+    parentId: "a2",
+    role: "user",
+    messageId: "three",
+    content: "Next request",
+    isBegin: true,
+    isEnd: false,
+    stepId: 9,
+    timestamp: 9,
+  } as ReActStep);
+  expect(catalogOf(await decorated(input))).toContain('positive = filter(source, lambda row: row["x"] > 0)');
 });

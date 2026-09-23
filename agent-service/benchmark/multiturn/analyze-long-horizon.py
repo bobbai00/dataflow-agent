@@ -110,7 +110,8 @@ def load_current():
                     messages = first.get("inputMessages", [])
                     catalog_at = next((i for i, m in enumerate(messages)
                                        if isinstance(m.get("content"), str)
-                                       and m["content"].startswith("# Current operator catalog")), None)
+                                       and (m["content"].startswith("# Current operator catalog")
+                                            or m["content"].startswith("# Operator catalog at the start"))), None)
                     row["first_call_input_tokens"] = first["usage"]["inputTokens"]
                     if catalog_at is not None:
                         history = [str(m["content"]) for m in messages[:catalog_at]]

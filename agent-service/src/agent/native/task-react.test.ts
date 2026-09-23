@@ -69,7 +69,7 @@ test("switching to the catalog keeps the shared assembler, prompt, driver and fi
   expect(inputs[1]!.visibleSteps.map(s => s.content)).toEqual(["Second request"]);
   const rendered = JSON.stringify(prompts[1]);
   expect(rendered).toContain("First request: keep units in dollars.");
-  expect(rendered).toContain("Current operator catalog");
+  expect(rendered).toContain("Operator catalog at the start of this task");
   expect(rendered).toContain("shared:Second request");
   expect(Object.keys(turns[1]!.tools)).toEqual(Object.keys(turns[0]!.tools));
   expect(turns[1]!.tools.dataflow.inputSchema.jsonSchema).toEqual(turns[0]!.tools.dataflow.inputSchema.jsonSchema);
@@ -93,7 +93,7 @@ test("the catalog can be switched off again without clearing the session", async
   expect(agent.getHead()).toBe(head);
   await agent.sendMessage("Second request");
   expect(inputs[1]!.visibleSteps.some(s => s.content === "First request")).toBe(true);
-  expect(JSON.stringify(prompts[1])).not.toContain("Current operator catalog");
+  expect(JSON.stringify(prompts[1])).not.toContain("Operator catalog at the start");
 });
 
 test("a context switch during an active turn fails without mutating settings", async () => {
@@ -165,9 +165,15 @@ test("a catalog switch preserves computed results and retained bindings across t
   expect(history.available("source")).toEqual([1, 2]);
   expect(retained).toEqual(["source"]);
   // The retained version is stated on the operator's own line as an event, and
-  // the catalog is rendered after the active turn so the turn's messages cache.
+  // the catalog precedes the active turn's messages so every call of the turn
+  // extends the previous one.
   expect(nextContext).toContain('source = scan(\\"data/fixture.csv\\"); schema=unknown; Completed; rows=0; created@1');
-  expect(JSON.parse(nextContext).messages.at(-1).content).toContain("# Current operator catalog");
+  const contextMessages = JSON.parse(nextContext).messages as Array<{ content: string }>;
+  const catalogAt = contextMessages.findIndex(m =>
+    String(m.content).startsWith("# Operator catalog at the start of this task")
+  );
+  expect(catalogAt).toBeGreaterThan(-1);
+  expect(catalogAt).toBeLessThan(contextMessages.length - 1);
   expect(agent.getSnapshotStorage().getOperatorResult(agent.getHead(), "source")?.result).toEqual([]);
   expect(agent.getAllSteps().some(step => /STALE_ANSWER|EMPTY_ANCESTOR/.test(step.content))).toBe(false);
 });

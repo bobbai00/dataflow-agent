@@ -53,6 +53,6 @@ test("the reference form is taught whenever outputs are retained, the catalog vo
   expect(catalog).toContain("at(name, task=N)");
   expect(catalog).toContain("created@N");
   const catalogOnly = prompt(false, true);
-  expect(catalogOnly).toContain("# Current operator catalog");
+  expect(catalogOnly).toContain("# Operator catalog at the start of this task");
   expect(catalogOnly).not.toContain("at(name, task=N)");
 });

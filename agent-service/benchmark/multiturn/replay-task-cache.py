@@ -61,7 +61,8 @@ def request_body(template, messages, nonce, mode):
         "extra_body": {"prompt_cache_options": {"mode": "explicit" if mode == "explicit_only" else "implicit"}},
     }
     if mode != "implicit":
-        catalog = next(i for i, m in enumerate(messages) if m["content"].startswith("# Current operator catalog"))
+        catalog = next(i for i, m in enumerate(messages)
+                       if m["content"].startswith(("# Current operator catalog", "# Operator catalog at the start")))
         # The previous marked user boundary must still be present after adding
         # a completed task. Two boundaries permit both reuse and a new write.
         history_users = [i for i in range(1, catalog) if messages[i]["role"] == "user"]

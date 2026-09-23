@@ -219,7 +219,7 @@ export interface NativePromptLayoutOptions {
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_CATALOG_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Completed tasks appear first as the question you were asked and the answer you gave. `# Current operator catalog` then lists every table: its definition as you wrote it, its schema, its execution state and row count.";
+  "\n\nThis is one session of numbered tasks. Completed tasks appear first as the question you were asked and the answer you gave. `# Operator catalog at the start of this task` then lists every table as it stood when the current task began: its definition as you wrote it, its schema, its execution state and row count. Tables you define or change during this task appear in this task's observations, not in that catalog.";
 /** Whenever outputs are retained, with or without the catalog: the full-history
  * arm needs the reference form as much as the catalog arm does. */
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
