@@ -130,7 +130,7 @@ REST surface on `:3001` under `/api/agents` — full curl walkthrough in
 | Step | Call |
 |---|---|
 | auth | `POST :8080/api/auth/login` → JWT (the agent acts on the user's behalf) |
-| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (every context knob) |
+| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (`agentMode`, `dataEvidence`, `flowEvidence`, budgets, every context knob) |
 | run a turn | `POST /api/agents/:id/message` `{content}` — **synchronous**; returns `{answer, state, steps, headId}`; 409 while a turn runs |
 | inspect | `GET /:id/react-steps` (trace) · `/:id/workflow` (DAG) · `/:id/operator-results` · `/:id/snapshots/:stepId` |
 | tune live | `GET`/`PATCH /:id/settings` |
@@ -141,6 +141,10 @@ Multi-turn sessions: keep POSTing `/message` to the same agent — operators,
 results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
+
+Tools per mode: native exposes `dataflow`, `deleteOperator` and
+`inspectError`; code exposes `createOrModifyOperator` and `deleteOperator`.
+`recallState`, `resumeFrom` and `compactContext` are opt-in in either mode.
 
 ### Default agent configuration
 

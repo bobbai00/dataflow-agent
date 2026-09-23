@@ -96,10 +96,11 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -d '{"username":"texera","password":"texera"}' | jq -r .accessToken)
 
 # 1. create an agent bound to a workflow + computing unit
+#    (no `settings` = the defaults below: native mode, DELTA context, evidence off;
+#     pass e.g. {"agentMode":"code"} or {"dataEvidence":true,"flowEvidence":true} to change them)
 AGENT=$(curl -s -X POST $BASE/agents/ \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"modelType":"gpt-5.2","workflowId":1,"computingUnitId":1,
-       "settings":{"agentMode":"code","contextMode":"latest"}}' | jq -r .id)
+  -d '{"modelType":"gpt-5.2","workflowId":1,"computingUnitId":1}' | jq -r .id)
 
 # 2. run one turn (synchronous — returns when the agent finishes)
 curl -s -X POST $BASE/agents/$AGENT/message \
@@ -117,6 +118,23 @@ curl -s $BASE/agents/$AGENT/snapshots/head   # steps + workflow at HEAD
 curl -s -X DELETE $BASE/agents/$AGENT
 ```
 
+### Modes and tools
+
+`agentMode` selects how the model builds the dataflow. Both modes execute the
+workflow after every edit and observe the results.
+
+| Mode | Tools the model sees | What one call does |
+|---|---|---|
+| `native` (default) | `dataflow`, `deleteOperator`, `inspectError` | `dataflow({program, observe})`: a program of `name = operator(...)` statements over one catalog (scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process); `filter`/`map`/`process` carry Python. Only tables named in `observe` are shown; errors always are. `inspectError` returns a retained diagnostic. |
+| `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
+
+Optional pull tools in either mode, all off by default: `recallState`
+(`enableRecallTool`), `resumeFrom` (`enableResumeTool`), `compactContext`
+(`enableCompactTool`). Native mode forces provider parallel tool calls off;
+the program is the batch. See
+[docs/native-expression-mode.md](docs/native-expression-mode.md) for the
+program grammar, the operator reference and the error taxonomy.
+
 ### Default configuration
 
 An agent created with no `settings` uses
@@ -124,31 +142,31 @@ An agent created with no `settings` uses
 
 | Setting | Default | What it gives the model |
 |---|---|---|
+| `agentMode` | `native` | the expression program above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `false` | opt-in, selected measured table/column facts in observed V2 results |
-| `flowEvidence` | `false` | opt-in, version-matched input/output facts and operator guarantees in observed V2 results |
-| `agentMode` | `general` | one `createOrModifyOperator` tool writing Python `def load()` / `def process()` |
+| `dataEvidence` | `false` | opt-in `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
+| `flowEvidence` | `false` | opt-in `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, operator contracts) in observed results |
+| `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
+| `maxOperatorResultCharLimit` | `2000` | schema, sample rows and enabled evidence share this per-result budget; a complete small table takes priority |
+| `maxOperatorResultCellCharLimit` | `2000` | long cells are clipped and marked |
 | `maxSteps` | `100` | per-turn step budget |
-| `maxOperatorResultCharLimit` | `2000` | V2 schema, sample and enabled evidence share this per-result budget |
+| `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
+| `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 | layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
-Recall / resume / compaction are off by default. `inspectResult` is not a tool.
-For Python-native batching, use `agentMode: "native"`, `nativeToolMode: "batch"`,
-`nativeCatalogVersion: "v2"` and explicit `observe` selections. The engine's
-`nativeProfileCollection` collection switch is separate from the two exposure
-controls; keep it fixed across matched evidence comparisons.
-Legacy level/statistics settings are rejected, not translated.
-See [the evidence-only context contract](docs/evidence-only-context.md).
-For calculation formulas, collection limits, shared-budget selection, and
-rendered examples of all four configurations, see
-[Data and flow evidence](docs/data-flow-evidence.md).
+Every knob can also be changed live with `PATCH /api/agents/:id/settings`.
+Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
+`allowedOperatorTypes`, `agentMode: "general"`, and the old level/statistics
+overlays) are rejected with an error, not translated. `inspectResult` is not a
+tool. For the evidence formulas, budgets and rendered examples of all four
+evidence configurations, see [Data and flow evidence](docs/data-flow-evidence.md).
 
 Key endpoints (all under `/api/agents`):
 
 | Method | Path | What |
 |---|---|---|
-| POST | `/` | create agent — `modelType` (any LiteLLM model above), `workflowId`, `computingUnitId`, optional `settings` (context mode, budgets, all knobs) |
+| POST | `/` | create agent — `modelType` (any LiteLLM model above), `workflowId`, `computingUnitId`, optional `settings` (mode, evidence flags, budgets, every knob in the table above) |
 | GET | `/` | list agents |
 | POST | `/:id/message` | **run one turn synchronously**; body `{content}`; 409 while a turn is running |
 | GET | `/:id/react-steps` | full ReAct trace (thoughts, tool calls, observations) |

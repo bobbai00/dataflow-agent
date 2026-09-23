@@ -18,7 +18,7 @@ the human's feedback is what makes the analysis *correct*, not a nicety.
 
 Each turn reacts to the last answer: the human supplies suspicion, the agent supplies the operators.
 Three operator families, one job each — **relational** for the ETL, **visualization** for the charts,
-**`DataProcessing`** for the model — which is what the general-mode system prompt tells the agent
+**`DataProcessing`** for the model — which is what the code-mode system prompt tells the agent
 ([`agent-service/src/agent/prompts.ts`](../agent-service/src/agent/prompts.ts)).
 
 > **Verification status (2026-09-01).** All six turns verified end to end with `claude-haiku-4.5`

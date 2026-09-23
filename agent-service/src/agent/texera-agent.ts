@@ -724,7 +724,7 @@ export class TexeraAgent {
 
   /**
    * Build a tool registry for `importReActSteps` replay. Includes CRUD tools
-   * for BOTH code and general modes so any exported session is replayable
+   * for BOTH code and native modes so any exported session is replayable
    * regardless of the agent's current `agentMode`. No scheduler wrapping —
    * the replay loop awaits each call sequentially.
    */
