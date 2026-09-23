@@ -311,7 +311,9 @@ try {
   assert.match(refused.context, /still feeds/);
   const removed = await debug("dataflow", { edits: "", delete: ["valid", "positive", "blocked"] });
   assert.match(removed.context, /deleted operator `valid`/);
-  assert.match(removed.context, /deleted operator `positive`/);
+  assert.match(removed.context, /`positive` still feeds `total`/, "positive still has a consumer and must survive");
+  assert.match(removed.context, /`blocked` not found/, "a never-landed statement is not an operator");
+  assert.ok(removed.results.total?.sampleRecords, "deleting a sibling must not disturb the surviving chain");
 
   const trace = await getReActSteps(agentId, baseUrl);
   console.log(
