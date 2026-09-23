@@ -27,7 +27,7 @@ import { runAgentTurn } from "../../src/api";
 const HISTORY_REFERENCE = /\bat\(\s*[A-Za-z_]\w*\s*,\s*(?:task\s*=\s*)?\d+\s*\)/g;
 
 const [promptsPath, outPath, arm = "react-catalog", model = "gpt-5.6-luna"] = process.argv.slice(2);
-const ARMS = ["react-full", "react-catalog"];
+const ARMS = ["react-full", "react-catalog", "react-entries", "react-restore"];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
 const out = resolve(outPath);
@@ -39,8 +39,11 @@ const settings = {
   nativeProfileCollection: true,
   dataEvidence: true,
   flowEvidence: true,
-  nativeTaskContext: arm === "react-catalog",
+  // react-catalog: entries without the restore step (the memory and cache change alone);
+  // react-entries is its alias; react-restore adds the restore step and the state gestures.
+  nativeTaskContext: arm !== "react-full",
   nativeTaskHistory: true,
+  nativeTaskRestore: arm === "react-restore",
   // LongDS's own per-turn cap, as upstream's DSGym runner uses.
   maxSteps: 40,
   maxOperatorResultCharLimit: 2000,

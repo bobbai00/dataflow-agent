@@ -20,6 +20,9 @@ TASKS = {
     "community__github_programming_languages_data__task1": "github",
     "education__world_university_rankings__task2": "university",
     "social_good__center_for_policing_equity__task1": "policing",
+    "business__netflix_movies_and_tv_shows__task2": "netflix2",
+    "business__netflix_movies_and_tv_shows__task3": "netflix3",
+    "business__my_uber_drivers__task1": "uber1",
 }
 MODELS = {"luna": "gpt-5.6-luna", "terra": "gpt-5.6-terra"}
 
@@ -71,7 +74,7 @@ def fmt(value, spec: str, missing: str = "-") -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--trial", type=int, default=3)
-    ap.add_argument("--arms", default="dsgym,react-catalog")
+    ap.add_argument("--arms", default="dsgym,react-catalog,react-entries,react-restore")
     ap.add_argument("--per-turn", help="task key or short name: print both arms' per-turn score and cost side by side")
     args = ap.parse_args()
     arms = args.arms.split(",")

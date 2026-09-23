@@ -27,6 +27,9 @@ TASKS = {
     "github": "community__github_programming_languages_data__task1",
     "university": "education__world_university_rankings__task2",
     "policing": "social_good__center_for_policing_equity__task1",
+    "netflix2": "business__netflix_movies_and_tv_shows__task2",
+    "netflix3": "business__netflix_movies_and_tv_shows__task3",
+    "uber1": "business__my_uber_drivers__task1",
 }
 MODEL_TAIL = {"gpt-5.6-luna": "luna", "gpt-5.6-terra": "terra"}
 

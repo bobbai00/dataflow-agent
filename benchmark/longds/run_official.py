@@ -34,7 +34,7 @@ from official_protocol import build_prompts, extract_answer, selftest, write_rec
 WORKTREE = Path(__file__).resolve().parents[2]
 SCRIPT_ARMS = {"code"}
 DSGYM_ARMS = {"dsgym"}
-DATAFLOW_ARMS = {"react-full", "react-catalog"}
+DATAFLOW_ARMS = {"react-full", "react-catalog", "react-entries", "react-restore"}
 HERE = Path(__file__).resolve().parent
 DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py
 
