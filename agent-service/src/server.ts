@@ -29,7 +29,7 @@ import {
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
 import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
-import { inspectErrorSchema } from "./agent/tools/inspect-error-tool";
+import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";

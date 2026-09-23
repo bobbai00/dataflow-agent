@@ -142,9 +142,9 @@ results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Tools per mode: native exposes `dataflow`, `deleteOperator` and
-`inspectError`; code exposes `createOrModifyOperator` and `deleteOperator`.
-`recallState`, `resumeFrom` and `compactContext` are opt-in in either mode.
+Tools per mode: native exposes one tool, `dataflow(edits, delete, observe)`;
+code exposes `createOrModifyOperator` and `deleteOperator`. `recallState`,
+`resumeFrom` and `compactContext` are opt-in in either mode.
 The rendered native system prompt, tool definitions and operator reference
 live in [native-mode/](native-mode/), generated from the code by
 `bun run render:native-reference` (a test fails when they drift).

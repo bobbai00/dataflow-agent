@@ -71,17 +71,19 @@ fails only its statement.
 
 ## The tool
 
-`dataflow({ program, observe })` is the only way to build or read.
+`dataflow({ edits, delete, observe })` is the only tool.
 
-- `program`: the text above. An empty program with `observe` reads cached
-  results without executing anything.
-- `observe`: the tables whose contents the model wants to see. Everything else
-  still executes but shows only a receipt (`executed, N rows; result not
+- `edits`: the statements above (create or modify operators) plus the `def`s
+  they use. Empty when the call only deletes or re-reads cached results.
+- `delete`: ids of operators to remove, applied before the edits; refused while
+  another surviving operator still reads the deleted one.
+- `observe`: the ids whose table contents the model wants to see. Everything
+  else still executes but shows only a receipt (`executed, N rows; result not
   requested`). Errors are always shown.
 
-`deleteOperator({ id })` refuses while a consumer reads the operator.
-`inspectError({ operatorId, revision?, diagnosticId? })` returns a retained,
-revision-pinned diagnostic; it never returns tables.
+There is no separate delete or inspection tool: a rejected edit's diagnostic
+travels in the receipt, and a repeated identical resubmission is paused until
+corrected arguments land.
 
 ## Operators
 
@@ -96,8 +98,8 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `project(T, keep=None, drop=None, rename=None)` | Project | same |
 | `cast(T, column=dtype, ..., errors="raise")`, `datetime(format=, tz=)` | Cast | same |
 | `fill_null(T, column=value, ...)` | FillNull | same |
-| `filter(T, fn, nulls="drop")` | Filter | drop |
-| `map(T, column=dtype(fn), ...)` | Map | same |
+| `filter(T, fn)` | Filter | drop |
+| `map(T, fn)` (returns the new row as a dict) | Map | same |
 | `aggregate(T, by=[], name=reducer("col"), ...)` | Aggregate | one per group |
 | `join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")` | Join | multiply |
 | `union(T1, T2, ..., schema="strict")` | Union | add |
@@ -109,7 +111,7 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `explode(T, column, empty="drop")` | Explode | multiply |
 | `unpivot(T, columns, name="variable", value="value")` | Unpivot | add |
 | `pivot(T, index, columns, values)` | Pivot | collapse |
-| `process(T1, ..., Tn, fn=function)` | Process | unknown |
+| `process(T1, ..., Tn, fn=function, doc="...")` | Process | unknown |
 
 `map` replaces the earlier Transform and Derive; `process` replaces UDF. The
 runtime (`native/python/runtime.py`) no longer takes declared input columns
@@ -151,7 +153,7 @@ envelope: `[CODE; stage; revision R] message`, then `Hint:` (one repair hint
 per code, always present), `Field:` (the model-facing argument, e.g. `how`,
 `orderBy`, `columns[0].func`), the failing line of a submitted function
 (`scaled line 2: return row["Amount"] * 2.0`), and `Diagnostic: diag_…` for
-`inspectError`. Messages name the cause: the column, the value, the option.
+the receipt. Messages name the cause: the column, the value, the option.
 
 The layers, in the order a statement passes through them:
 
@@ -208,7 +210,7 @@ The smoke needs a running backend and agent service; it makes no LLM call and
 covers a forward-referenced chain with a process loader, hidden receipts, a
 cached read, an upstream revision refreshing a descendant, a preview window
 with `skip_lines`, a syntax error that changes nothing, a partial failure, an
-execution error superseding a success, and `inspectError`. The errors
+execution error superseding a success, and a delete through `dataflow`. The errors
 driver triggers every layer of the taxonomy through the real tool and engine
 and asserts that each receipt carries the code, stage, argument, cause and
 hint, and that consumers and bystanders of a failed operator are attributed

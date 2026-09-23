@@ -114,6 +114,8 @@ export const REPAIR_HINTS: Record<string, string> = {
   FILTER_NULL: 'Return True/False for every row, or set nulls="drop"/"keep" to decide what None means.',
   PYTHON_IMPORT: "Check package availability or import names; changing a predicate will not install a package.",
   PROCESS_RETURN_TYPE: "Return one pandas DataFrame from the process function.",
+  MAP_SCHEMA:
+    'Return the same keys from every row; use {**row, "column": value} to keep the input columns and add one.',
   OUTPUT_SCHEMA: "Return unique string column names.",
   OUTPUT_VALUE_TYPE:
     "Return scalar cells of one type per column: finite numbers, strings, booleans, UTC datetimes or None.",

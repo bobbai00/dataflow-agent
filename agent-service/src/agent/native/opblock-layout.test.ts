@@ -322,9 +322,11 @@ test("opBlock: definitions and process code do not depend on the observe list", 
   // opBlock shows the process function body in every block, observed or not;
   // opSplit keeps only the statement so the body is never in the snapshot.
   expect(observedBlock).toContain("def scored_fn(source)");
-  expect(observedBlock).toContain("scored = process(source, fn=scored_fn)");
+  expect(observedBlock).toContain('scored = process(source, fn=scored_fn, doc="legacy fixture")');
   expect(blockFor(f.render("opSplit"), "scored")).not.toContain("def scored_fn(source)");
-  expect(blockFor(f.render("opSplit"), "scored")).toContain("scored = process(source, fn=scored_fn)");
+  expect(blockFor(f.render("opSplit"), "scored")).toContain(
+    'scored = process(source, fn=scored_fn, doc="legacy fixture")'
+  );
 
   // Every block carries its definition as written, whatever the observe list.
   for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("Definition:");

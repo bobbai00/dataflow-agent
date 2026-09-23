@@ -29,7 +29,7 @@ import { nativeTestTools } from "../native/test-support";
 function setup() {
   const { state, tools } = nativeTestTools();
   const execute = (program: string, observe?: string[]): Promise<NativeBatchResult | string> =>
-    tools.dataflow.execute({ program, ...(observe !== undefined ? { observe } : {}) });
+    tools.dataflow.execute({ edits: program, ...(observe !== undefined ? { observe } : {}) });
   const batch = async (program: string, observe?: string[]): Promise<NativeBatchResult> => {
     const result = await execute(program, observe);
     if (typeof result === "string") throw new Error(result);
@@ -170,7 +170,7 @@ describe("native dataflow tool", () => {
     expect(result.operators[1].attempted?.type).toBe("Unknown");
   });
 
-  test("agent native mode exposes dataflow, deleteOperator and inspectError, and forces provider parallel calls off", () => {
+  test("agent native mode exposes only dataflow and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
       agentId: "native-tools-test",
       modelType: "test",
@@ -179,7 +179,7 @@ describe("native dataflow tool", () => {
     });
     agent.updateSettings({ agentMode: AgentMode.NATIVE, parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectError"]);
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
     expect(agent.getSettings().systemPrompt).toContain("= filter(T, fn");
     expect(agent.getSettings().systemPrompt).toContain("observe");
     agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
@@ -276,8 +276,10 @@ describe("dataflow observation history", () => {
     },
     {
       name: "process source code",
-      original: 'def broken_fn(source):\n    raise RuntimeError("old failure")\nbroken = process(source, fn=broken_fn)',
-      revision: "def broken_fn(source):\n    return source.copy()\nbroken = process(source, fn=broken_fn)",
+      original:
+        'def broken_fn(source):\n    raise RuntimeError("old failure")\nbroken = process(source, fn=broken_fn, doc="fixture")',
+      revision:
+        'def broken_fn(source):\n    return source.copy()\nbroken = process(source, fn=broken_fn, doc="fixture")',
     },
   ]) {
     test(`DELTA binds a failed ${scenario.name} definition to its event after revision and deletion`, async () => {

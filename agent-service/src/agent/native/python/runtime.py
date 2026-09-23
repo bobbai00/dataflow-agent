@@ -54,22 +54,37 @@ class _Row(Mapping):
     a distinguishable KeyError so the diagnostic can list the real columns.
     """
 
-    __slots__ = ("_index", "_values", "_reads")
+    __slots__ = ("_index", "_order", "_values", "_reads", "_copy")
 
-    def __init__(self, index, values, reads):
+    def __init__(self, index, values, reads, order=None):
         self._index = index
+        self._order = order if order is not None else tuple(index)
         self._values = values
         self._reads = reads
+        self._copy = None
 
     def __getitem__(self, key):
         position = self._index.get(key)
         if position is None:
             raise _UndeclaredColumn(key)
-        self._reads.add(key)
+        # `{**row, ...}` copies the row: Python calls keys() and then reads every
+        # key in order. That copy is not a dependency, so it is not recorded;
+        # any read outside that pattern is.
+        copy = self._copy
+        if copy is not None and copy < len(self._order) and self._order[copy] == key:
+            self._copy = None if copy + 1 == len(self._order) else copy + 1
+        else:
+            self._copy = None
+            self._reads.add(key)
         return self._values[position]
 
+    def keys(self):
+        self._copy = 0
+        return list(self._order)
+
     def __iter__(self):
-        return iter(self._index)
+        self._copy = 0
+        return iter(self._order)
 
     def __len__(self):
         return len(self._index)
@@ -78,8 +93,9 @@ class _Row(Mapping):
 def _rows(frame, reads):
     """Yield one `_Row` per input row over every column, cheaply."""
     index = {name: position for position, name in enumerate(frame.columns)}
+    order = tuple(frame.columns)
     for values in frame.itertuples(index=False, name=None):
-        yield _Row(index, tuple(map(_scalar, values)), reads)
+        yield _Row(index, tuple(map(_scalar, values)), reads, order)
 
 
 def _error(spec, code, message, *, stage="execute", field=None, source=None):
@@ -268,22 +284,20 @@ def validate_native(spec):
                 stage="validate",
                 field="offset",
             )
-    if kind in ("Map", "Cast"):
+    if kind == "Cast":
         names = []
         for i, item in enumerate(props["columns"]):
             field = f"columns[{i}]"
             if item["dtype"] not in DTYPES:
                 raise _error(spec, "DTYPE", f"Unsupported dtype {item['dtype']!r}.", stage="validate", field=field)
-            names.append(item["as"] if kind == "Map" else item["column"])
-            if kind == "Map":
-                _validate_function(spec, item["func"], f"{field}.func", item.get("entry", "apply"))
-            elif item["dtype"] != "datetime" and ("format" in item or "timezone" in item):
+            names.append(item["column"])
+            if item["dtype"] != "datetime" and ("format" in item or "timezone" in item):
                 raise _error(
                     spec, "CAST_OPTIONS", "format/timezone apply only to datetime.", stage="validate", field=field
                 )
         if len(set(names)) != len(names):
             raise _error(spec, "COLUMN_COLLISION", "Submit each output column once.", stage="validate", field="columns")
-    if kind == "Filter":
+    if kind in ("Filter", "Map"):
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
         _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
@@ -1417,35 +1431,153 @@ def _scan(spec, operations):
     return result
 
 
-def _map(spec, source, operations):
-    """Map: one declared output column per function, each reading the ORIGINAL
-    input row (so several columns in one map are independent) and adding or
-    replacing that column. Rows and their order never change. The columns each
-    function actually read are recorded as the output's measured dependencies."""
-    props = spec["properties"]
-    output = source.copy().reset_index(drop=True)
-    dependencies = {}
-    for i, item in enumerate(props["columns"]):
-        name, field, entry = item["as"], f"columns[{i}].func", item.get("entry", "apply")
-        function = _function(spec, item["func"], field, entry)
-        reads = set()
-        values = []
-        for row in _rows(source, reads):
-            value = function(row)
-            try:
-                values.append(_convert(value, item["dtype"]))
-            except (ValueError, TypeError, OverflowError) as error:
+def _map_dtype(spec, name, values, fallback, func, entry):
+    """Infer one output column's type from the values a map produced.
+    bool only when every value is bool (True is an int in Python); int64 and
+    float64 mix to float64; anything else must be one kind; an all-None
+    column keeps the input column's type when it passed through, else str."""
+    kinds = {}
+    for index, value in enumerate(values):
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            kind = "bool"
+        elif isinstance(value, int):
+            kind = "int64"
+        elif isinstance(value, float):
+            kind = "float64"
+        elif isinstance(value, str):
+            kind = "str"
+        elif isinstance(value, (datetime.datetime, pd.Timestamp)):
+            if value.tzinfo is None:
                 raise _error(
                     spec,
-                    "CALLBACK_RETURN_TYPE",
-                    f"{name}: {error}",
+                    "OUTPUT_VALUE_TYPE",
+                    f"map column {name!r} at row {index} is a timezone-naive datetime; "
+                    "attach a timezone (e.g. datetime.timezone.utc) or return an ISO-8601 string.",
                     stage="contract",
-                    field=field,
-                    source=_location(item["func"], entry, 1),
-                ) from error
-        output[name] = _series(values, item["dtype"])
-        dependencies[name] = sorted(reads)
-    operations["columnDependencies"] = dependencies
+                    field="func",
+                    source=_location(func, entry, 1),
+                )
+            kind = "datetime"
+        else:
+            raise _error(
+                spec,
+                "OUTPUT_VALUE_TYPE",
+                f"map column {name!r} at row {index} is a {type(value).__name__}; return scalar cells "
+                "(str, int, float, bool, datetime or None) and serialize nested data as JSON strings.",
+                stage="contract",
+                field="func",
+                source=_location(func, entry, 1),
+            )
+        kinds.setdefault(kind, (index, value))
+    if not kinds:
+        return fallback or "str"
+    if set(kinds) <= {"int64", "float64"}:
+        return "float64" if "float64" in kinds else "int64"
+    if len(kinds) == 1:
+        return next(iter(kinds))
+    (first_kind, (first_at, first_value)), (other_kind, (other_at, other_value)) = sorted(
+        kinds.items(), key=lambda item: item[1][0]
+    )[:2]
+    raise _error(
+        spec,
+        "OUTPUT_VALUE_TYPE",
+        f"map column {name!r} mixes types: row {first_at} has {first_value!r} ({first_kind}) but row {other_at} has "
+        f"{other_value!r} ({other_kind}). Return one type per column (None is allowed) or convert explicitly.",
+        stage="contract",
+        field="func",
+        source=_location(func, entry, 1),
+    )
+
+
+def _map(spec, source, operations):
+    """Map: `fn(row)` returns the new row as a dict and those dicts are the
+    output table. Exactly one row out per row in, in order; every row returns
+    the same keys; values are scalars or None; column types are inferred from
+    the values (see `_map_dtype`). `{**row, "x": ...}` keeps the input columns.
+    The columns the function read are recorded as measured dependencies."""
+    props = spec["properties"]
+    entry = props.get("entry", "apply")
+    function = _function(spec, props["func"], "func", entry)
+    reads = set()
+    keys = None
+    columns = {}
+
+    def accept(index, value):
+        nonlocal keys, columns
+        if not isinstance(value, dict):
+            raise _error(
+                spec,
+                "CALLBACK_RETURN_TYPE",
+                f"map must return the new row as a dict, got {type(value).__name__} at row {index}. "
+                'Use {**row, "column": value} to keep the input columns and add one.',
+                stage="contract",
+                field="func",
+                source=_location(props["func"], entry, 1),
+            )
+        row_keys = list(value.keys())
+        if keys is None:
+            if not row_keys or any(not isinstance(k, str) or not k for k in row_keys):
+                raise _error(
+                    spec,
+                    "MAP_SCHEMA",
+                    "map must return a dict with at least one non-empty string key; the keys are the output columns.",
+                    stage="contract",
+                    field="func",
+                    source=_location(props["func"], entry, 1),
+                )
+            keys = row_keys
+            columns = {key: [] for key in keys}
+        elif set(row_keys) != set(keys):
+            raise _error(
+                spec,
+                "MAP_SCHEMA",
+                f"map returned columns {sorted(row_keys)!r} at row {index} but {sorted(keys)!r} at row 0; "
+                "every row must return the same keys.",
+                stage="contract",
+                field="func",
+                source=_location(props["func"], entry, 1),
+            )
+        for key in keys:
+            columns[key].append(_scalar(value[key]))
+
+    for index, row in enumerate(_rows(source, reads)):
+        accept(index, function(row))
+    if keys is None:
+        # Empty input: learn the keys from one probe call on an all-None row;
+        # if the function cannot run on that, the output keeps the input schema.
+        probe = _Row(
+            {name: position for position, name in enumerate(source.columns)}, (None,) * len(source.columns), set()
+        )
+        try:
+            probed = function(probe)
+        except NativeError:
+            probed = None
+        if isinstance(probed, dict) and probed and all(isinstance(k, str) and k for k in probed):
+            keys = list(probed.keys())
+            columns = {key: [] for key in keys}
+        else:
+            keys = list(source.columns)
+            columns = {key: [] for key in keys}
+    output = pd.DataFrame(index=range(len(source)))
+    for key in keys:
+        fallback = _dtype(source[key]) if key in source.columns else None
+        dtype = _map_dtype(spec, key, columns[key], fallback, props["func"], entry)
+        try:
+            output[key] = _series(columns[key], dtype)
+        except (ValueError, TypeError) as error:
+            raise _error(
+                spec,
+                "OUTPUT_VALUE_TYPE",
+                f"map column {key!r}: {error}. Datetimes must carry a timezone.",
+                stage="contract",
+                field="func",
+            ) from error
+    operations["readColumns"] = sorted(reads)
+    operations["columnDependencies"] = {key: ([key] if key in source.columns else sorted(reads)) for key in keys}
+    operations["addedColumns"] = [key for key in keys if key not in source.columns]
+    operations["droppedColumns"] = [name for name in source.columns if name not in keys]
     return output
 
 

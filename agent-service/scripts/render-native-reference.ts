@@ -39,7 +39,6 @@ import { asSchema } from "ai";
 import { ContextMode } from "../src/types/agent";
 import { buildNativeModeSystemPrompt } from "../src/agent/prompts";
 import { NATIVE_OPERATORS, nativeCatalogText } from "../src/agent/native/catalog";
-import { createInspectErrorTool } from "../src/agent/tools/inspect-error-tool";
 import { nativeTestTools } from "../src/agent/native/test-support";
 
 const root = fileURLToPath(new URL("../../native-mode/", import.meta.url));
@@ -51,9 +50,8 @@ function schemaOf(tool: any): unknown {
 
 export function renderToolDefinitions(): Array<{ name: string; description: string; schema: unknown }> {
   const { tools } = nativeTestTools();
-  const inspect = createInspectErrorTool(() => ({ text: "", summary: undefined }) as any);
-  const all: Record<string, any> = { ...tools, inspectError: inspect };
-  return ["dataflow", "deleteOperator", "inspectError"].map(name => ({
+  const all: Record<string, any> = { ...tools };
+  return ["dataflow"].map(name => ({
     name,
     description: String(all[name].description),
     schema: schemaOf(all[name]),
@@ -94,7 +92,7 @@ export function renderTools(): string {
   return (
     HEADER(
       "Native mode: tool definitions",
-      "Native mode exposes three tools. The definitions below are exactly what is sent to the provider as the tool list (name, description, JSON Schema of the input). Every operator is written inside the `program` argument of `dataflow`; there is no tool per operator. Optional tools (`recallState`, `resumeFrom`, `compactContext`) are off by default and not listed here. Source: `agent-service/src/agent/tools/native-batch-tools.ts`, `native-upsert.ts`, `inspect-error-tool.ts`."
+      "Native mode exposes one tool, `dataflow`, whose three arguments create or modify operators (`edits`), remove them (`delete`) and choose which tables to see (`observe`). The definition below is exactly what is sent to the provider (name, description, JSON Schema of the input). Every operator is written inside `edits`; there is no tool per operator. Optional tools (`recallState`, `resumeFrom`, `compactContext`) are off by default and not listed here. Source: `agent-service/src/agent/tools/native-batch-tools.ts`, `native-upsert.ts`."
     ) +
     tools
       .map(
@@ -103,7 +101,7 @@ export function renderTools(): string {
       )
       .join("\n") +
     "\n## How a call is processed\n\n" +
-    "1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.\n" +
+    "1. `delete` removes the listed operators first (refused while another surviving operator reads one). `edits` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.\n" +
     "2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.\n" +
     "3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.\n" +
     "4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.\n"
@@ -122,17 +120,17 @@ export function renderOperators(): string {
     ) +
     `## Tools versus operators
 
-The model sees three **tools**: \`dataflow\`, \`deleteOperator\`, \`inspectError\` (TOOLS.md). Operators are not tools. Every operator is one statement inside the \`program\` argument of \`dataflow\`:
+The model sees one **tool**: \`dataflow(edits, delete, observe)\` (TOOLS.md). Operators are not tools. Every operator is one statement inside \`edits\`:
 
 \`\`\`python
-name = operator(input_table, ..., parameter=value, ...)
+id = operator(input_id, ..., parameter=value, ...)
 \`\`\`
 
-- The left-hand **name** is the output table and the operator's id. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per program.
-- **Positional arguments** are input tables, by name. The DAG edges are derived from them; there is no separate edge list.
+- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per program.
+- **Positional arguments** are the ids of other operators, whose output tables are the inputs. The DAG edges are derived from them; there is no separate edge list.
 - **Keyword arguments** are the operator's parameters. Types are bare names (\`str\`, \`int64\`, \`float64\`, \`bool\`, \`datetime\`); reducers and window functions are calls (\`mean("x")\`, \`count()\`, \`lag("x", 1)\`).
 - **No nesting.** \`limit(sort(t, by=["x"]), 1)\` is refused; every intermediate table gets its own statement so it can be observed, revised and reported on.
-- **Functions** are lambdas or \`def\`s written in the same program and passed by name. Only \`filter\`, \`map\` and \`process\` take them.
+- **Functions** are lambdas or \`def\`s written in the same \`edits\` and passed by name. Only \`filter\`, \`map\` and \`process\` take them; the function's return type is the contract (bool, dict, DataFrame).
 - A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
 ## The catalog (${NATIVE_OPERATORS.length} operators)
@@ -155,11 +153,11 @@ ${nativeCatalogText()}
 
 | Operator | Function shape | Contract |
 |---|---|---|
-| \`filter(T, fn, nulls="drop")\` | \`fn(row) -> bool | None\` | drop-only: a row is kept, dropped, or decided by \`nulls\` when the function returns None |
-| \`map(T, name=dtype(fn), ...)\` | each \`fn(row) -> value | None\` of the declared dtype | row-preserving: every function reads the ORIGINAL row (new columns cannot see each other), an existing name is replaced in place |
-| \`process(T1, ..., Tn, fn=f)\` | \`f(df1, ..., dfn) -> DataFrame\`; \`f()\` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes |
+| \`filter(T, fn)\` | \`fn(row) -> bool\` | drop-only: True keeps the row, False or None drops it |
+| \`map(T, fn)\` | \`fn(row) -> dict\` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; \`{**row, ...}\` keeps the input columns |
+| \`process(T1, ..., Tn, fn=f, doc="...")\` | \`f(df1, ..., dfn) -> DataFrame\`; \`f()\` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes; \`doc\` is the one sentence shown with its results |
 
-\`row\` is a read-only mapping of the input columns; a missing value is None. The columns a function actually reads are measured at run time (\`predicateColumns\` for filter, \`columnDependencies\` for map) and drive the flow evidence and lineage, so nothing about the columns is declared.
+\`row\` is a read-only mapping of the input columns; a missing value is None. The columns a function actually reads are measured at run time (\`predicateColumns\` for filter, \`readColumns\` and \`columnDependencies\` for map, where \`{**row}\` copies are not counted as reads) and drive the flow evidence and lineage, so nothing about the columns is declared.
 
 ## What an operator looks like end to end
 
@@ -173,7 +171,7 @@ Normalized view stored on the operator (\`nativeOp\`):
 
 \`\`\`json
 { "type": "Filter", "inputs": ["typed"],
-  "properties": { "func": "def apply(row):\\n    return row[\\"value\\"] is not None and row[\\"value\\"] > 0", "entry": "apply", "nulls": "drop" },
+  "properties": { "func": "def apply(row):\\n    return row[\\"value\\"] is not None and row[\\"value\\"] > 0", "entry": "apply" },
   "revision": "<hash of type + inputs + properties>" }
 \`\`\`
 

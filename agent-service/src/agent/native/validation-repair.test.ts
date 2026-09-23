@@ -57,7 +57,7 @@ test("a repeated failure carries the operator's signature, never a copy of the s
 function fixture() {
   const repair = new NativeValidationRepair();
   const { state, tools } = nativeTestTools(undefined, { nativeValidationRepair: repair });
-  const execute = (program: string): Promise<NativeBatchResult> => tools.dataflow.execute({ program });
+  const execute = (program: string): Promise<NativeBatchResult> => tools.dataflow.execute({ edits: program });
   return { state, tools, execute, repair };
 }
 
@@ -68,11 +68,11 @@ test("two argument failures show the field and signature; identical retries leav
   const first = (await execute(bad)).operators[0]!;
   expect(first.status).toBe("error");
   expect(first.message).toContain("alias");
-  expect(first.message).not.toContain("Needs inspection");
+  expect(first.message).not.toContain("identical resubmission stays paused");
   const second = (await execute(bad)).operators[0]!;
   expect(second.message).toContain("Repeated validation failure (2)");
   expect(second.message).toContain("alias");
-  expect(second.message).toContain("Needs inspection");
+  expect(second.message).toContain("identical resubmission stays paused");
   expect(second.message).toContain('Signature: aggregate(T, by=[], name=reducer("col"), ...)');
   const third = (await execute(bad)).operators[0]!;
   expect(third.message).toContain("Identical invalid submission paused");
@@ -96,7 +96,7 @@ test("a repeated error pattern escalates across changed values, while correction
   expect(mixed.operators[0]!.message).toContain("Identical invalid submission paused");
   expect(state.getOperator("dependent")).toBeUndefined();
   expect((await execute(good)).operators[0]!.status).toBe("modified");
-  expect((await execute(bad)).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await execute(bad)).operators[0]!.message).not.toContain("identical resubmission stays paused");
 });
 
 test("successful deletion and a separate agent reset failures", async () => {
@@ -104,10 +104,10 @@ test("successful deletion and a separate agent reset failures", async () => {
   await f.execute([source, good].join("\n"));
   await f.execute(bad);
   await f.execute(bad);
-  expect(await f.tools.deleteOperator.execute({ id: "answer" })).toContain("deleted");
-  expect((await f.execute(bad)).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await f.tools.dataflow.execute({ edits: "", delete: ["answer"] })).operators[0]!.status).toBe("deleted");
+  expect((await f.execute(bad)).operators[0]!.message).not.toContain("identical resubmission stays paused");
   const other = fixture();
-  expect((await other.execute(bad)).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await other.execute(bad)).operators[0]!.message).not.toContain("identical resubmission stays paused");
 });
 
 test("Python preflight failures also escalate without copying submitted source into repair hints", async () => {
@@ -121,7 +121,7 @@ test("Python preflight failures also escalate without copying submitted source i
   expect(first.diagnostic?.code).toBe("CALLBACK_SIGNATURE");
   const second = (await execute(broken)).operators[0]!;
   expect(second.message).toContain("Repeated validation failure (2)");
-  expect(second.diagnostic?.hint).toContain("Needs inspection");
+  expect(second.diagnostic?.hint).toContain("identical resubmission stays paused");
   expect(second.diagnostic?.hint).not.toContain("PRIVATE_CALLBACK_BODY");
   const validation = spyOn(codegen, "validateNativeOperator");
   try {
@@ -162,7 +162,7 @@ test("late preflight validation cannot repopulate a reset task's counters", asyn
     finish.resolve();
     await pending;
     const first = (await execute(broken)).operators[0]!;
-    expect(first.message).not.toContain("Needs inspection");
+    expect(first.message).not.toContain("identical resubmission stays paused");
     expect((await execute(broken)).operators[0]!.message).toContain("Repeated validation failure (2)");
   } finally {
     finish.resolve();
@@ -179,7 +179,7 @@ test("graph repairs may reuse identical arguments, and a refused delete does not
   await execute("dependent = limit(answer, 1)");
   await execute(bad);
   await execute(bad);
-  expect(await tools.deleteOperator.execute({ id: "answer" })).toContain("[ERROR]");
+  expect((await tools.dataflow.execute({ edits: "", delete: ["answer"] })).operators[0]!.status).toBe("error");
   expect((await execute(bad)).operators[0]!.message).toContain("Identical invalid submission paused");
 });
 
@@ -202,30 +202,25 @@ async function agentFixture() {
     if (!allowError) expect(result.error).toBeUndefined();
     return agent.getAllSteps().find((step: any) => step.id === agent.getHead()).toolResults[0].output;
   };
-  const edit = async (program = bad): Promise<NativeBatchResult> => call("dataflow", { program });
+  const edit = async (program = bad): Promise<NativeBatchResult> => call("dataflow", { edits: program });
   await agent.handleDebugInput("Repair repeated invalid arguments.");
-  await call("dataflow", { program: [source, good].join("\n") });
+  await call("dataflow", { edits: [source, good].join("\n") });
   const initialHead = agent.getHead();
   return { agent, call, edit, initialHead };
 }
 
-test("only inspection of the current diagnostic acknowledges a repair pause, including repeated identical revisions", async () => {
+test("an identical invalid resubmission stays paused until corrected arguments land", async () => {
   const { agent, call, edit } = await agentFixture();
   await edit();
-  const stale = agent.snapshotStorage.inspectNativeError(agent.getHead(), { operatorId: "answer" }).summary;
   await edit();
-  await call("inspectError", { operatorId: "answer", diagnosticId: stale.diagnosticId });
-  expect((await edit()).operators[0]!.message).toContain("Identical invalid submission paused");
-  await call("inspectError", { operatorId: "missing" }, true);
   expect((await edit()).operators[0]!.message).toContain("Identical invalid submission paused");
   const before = agent.getWorkflowState().getWorkflowContent();
-  const current = agent.snapshotStorage.inspectNativeError(agent.getHead(), { operatorId: "answer" }).summary;
-  const inspected = await call("inspectError", { operatorId: "answer", diagnosticId: current.diagnosticId });
-  expect(inspected).toContain("Current error inspection");
+  expect((await edit()).operators[0]!.message).toContain("Identical invalid submission paused");
   expect(agent.getWorkflowState().getWorkflowContent()).toEqual(before);
+  const fixed = await call("dataflow", { edits: good });
+  expect(["added", "modified"]).toContain(fixed.operators[0].status);
   const retry = (await edit()).operators[0]!;
   expect(retry.message).not.toContain("Identical invalid submission paused");
-  expect(retry.message).not.toContain("Needs inspection");
 });
 
 test("reordered identical arguments keep their actual submitted revision in the paused diagnostic", async () => {
@@ -233,14 +228,13 @@ test("reordered identical arguments keep their actual submitted revision in the 
   await edit();
   await edit();
   const result = await call("dataflow", {
-    program: 'answer = aggregate(alias="n", T=source)'.replace('alias="n", T=source', 'source, alias="n"'),
+    edits: 'answer = aggregate(alias="n", T=source)'.replace('alias="n", T=source', 'source, alias="n"'),
   });
   expect(result.operators[0].message).toContain("Identical invalid submission paused");
   expect(result.operators[0].diagnostic.code).toBe("INVALID_ARGUMENTS");
   const inspected = agent.snapshotStorage.inspectNativeError(agent.getHead(), { operatorId: "answer" });
   expect(inspected.summary.operatorRevision).toBe(result.operators[0].attempted.revision);
-  await call("inspectError", { operatorId: "answer" });
-  expect((await edit()).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await edit()).operators[0]!.message).toContain("Identical invalid submission paused");
 });
 
 test("repair state survives tool rebuilding, but resets on checkout, new debug task, new model task, and clear", async () => {
@@ -250,29 +244,29 @@ test("repair state survives tool rebuilding, but resets on checkout, new debug t
   agent.tools = agent.createTools();
   expect((await edit()).operators[0]!.message).toContain("Identical invalid submission paused");
   expect(agent.checkout(initialHead)).toBe(true);
-  expect((await edit()).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await edit()).operators[0]!.message).not.toContain("identical resubmission stays paused");
   await edit();
   await agent.handleDebugInput("A new task.");
-  expect((await edit()).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await edit()).operators[0]!.message).not.toContain("identical resubmission stays paused");
   await edit();
   let modelResult: NativeBatchResult | undefined;
   agent.driver = {
     runTurn: async ({ tools }: any) => {
-      modelResult = await tools.dataflow.execute({ program: bad });
+      modelResult = await tools.dataflow.execute({ edits: bad });
       return { text: "", messages: [], usage: {} };
     },
   };
   await agent.sendMessage("Another task.");
-  expect(modelResult!.operators[0]!.message).not.toContain("Needs inspection");
+  expect(modelResult!.operators[0]!.message).not.toContain("identical resubmission stays paused");
   agent.clearHistory();
-  expect((await edit()).operators[0]!.message).not.toContain("Needs inspection");
+  expect((await edit()).operators[0]!.message).not.toContain("identical resubmission stays paused");
 });
 
 test("the current repair hint remains visible in DELTA and LATEST after independent work", async () => {
   const { agent, call, edit } = await agentFixture();
   await edit();
   await edit();
-  await call("dataflow", { program: 'other = scan("data/other.csv")', observe: [] });
+  await call("dataflow", { edits: 'other = scan("data/other.csv")', observe: [] });
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     const rendered = JSON.stringify(
       assembleContext(agent.getReActSteps(), agent.workflowState, agent.snapshotStorage, mode, {
@@ -282,8 +276,7 @@ test("the current repair hint remains visible in DELTA and LATEST after independ
       })
     );
     expect(rendered).toContain("Repeated validation failure (2)");
-    expect(rendered).toContain("Needs inspection");
+    expect(rendered).toContain("identical resubmission stays paused");
     expect(rendered).toContain("Signature:");
-    expect(rendered).toContain("inspectError");
   }
 });
