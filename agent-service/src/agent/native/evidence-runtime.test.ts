@@ -59,9 +59,9 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     path.write_text('x\\n1\\nbad\\n""\\n', encoding='utf8')
     execute('source', 'Scan', [], files=str(path), allText=True)
     execute('typed', 'Cast', ['source'], columns=[dict(column='x', dtype='int64')], errors='null')
-    execute('filled', 'FillNull', ['typed'], values={'x': 0})
-    execute('transformed', 'Map', ['filled'], columns=[dict(**{'as': 'x'}, dtype='int64', func="def apply(row):\\n    return row['x'] * 2", entry='apply')])
-    execute('derived', 'Map', ['transformed'], columns=[dict(**{'as': 'y'}, dtype='int64', func="def apply(row):\\n    return row['x'] + 1", entry='apply')])
+    execute('filled', 'Map', ['typed'], func="def apply(row):\\n    return {**row, 'x': 0 if row['x'] is None else row['x']}", entry='apply')
+    execute('transformed', 'Map', ['filled'], func="def apply(row):\\n    return {**row, 'x': row['x'] * 2}", entry='apply')
+    execute('derived', 'Map', ['transformed'], func="def apply(row):\\n    return {**row, 'y': row['x'] + 1}", entry='apply')
     execute('projected', 'Project', ['derived'], keep=['y'], rename={'y': 'value'})
     execute('filtered', 'Filter', ['typed'], func="def apply(row):\\n    return row['x'] is not None", entry='apply')
     execute('aggregate', 'Aggregate', ['typed'], aggregations=[dict(fn='mean', col='x', **{'as': 'mean'})])
@@ -75,16 +75,12 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('empty_groups', 'Aggregate', ['empty'], groupBy=['x'], aggregations=[dict(fn='count', **{'as': 'n'})])
     execute('empty_global', 'Aggregate', ['empty'], aggregations=[dict(fn='count', **{'as': 'n'})])
     execute('udf', 'Process', ['typed'], code='def process(typed):\\n    return typed', entry='process')
-    execute('shape_source', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':['a','b'], 'label':['x:y','z'], 'tags':['[1,null,2]','[]'], 'y1':[10,20], 'y2':[15,25]})")
-    execute('split', 'Split', ['shape_source'], column='label', into=['code', 'description'], separator=':')
-    execute('explode', 'Explode', ['split'], column='tags', encoding='json')
-    execute('unpivot', 'Unpivot', ['explode'], columns=['y1','y2'])
+    execute('shape_source', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':['a','a','a'], 'tags':[1,2,3], 'y1':[10,10,10], 'y2':[15,15,15]})")
+    execute('unpivot', 'Unpivot', ['shape_source'], columns=['y1','y2'])
     execute('window', 'Window', ['unpivot'], partitionBy=['id','tags'], orderBy=[dict(col='variable')], columns=[dict(fn='lag', col='value', **{'as': 'previous'})])
     execute('pivot', 'Pivot', ['window'], index=['id','tags'], columns='variable', values='previous')
     execute('shape_empty', 'Filter', ['shape_source'], func='def apply(row):\\n    return False', entry='apply')
-    execute('empty_split', 'Split', ['shape_empty'], column='label', into=['code', 'description'], separator=':')
-    execute('empty_explode', 'Explode', ['empty_split'], column='tags', encoding='json')
-    execute('empty_unpivot', 'Unpivot', ['empty_explode'], columns=['y1','y2'])
+    execute('empty_unpivot', 'Unpivot', ['shape_empty'], columns=['y1','y2'])
     execute('empty_window', 'Window', ['empty_unpivot'], partitionBy=['id','tags'], orderBy=[dict(col='variable')], columns=[dict(fn='lag', col='value', **{'as': 'previous'})])
     execute('empty_pivot', 'Pivot', ['empty_window'], index=['id','tags'], columns='variable', values='previous')
 print(json.dumps(records))
@@ -200,14 +196,10 @@ print(json.dumps(records))
   expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
   expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
   expect(facts.get("udf")).toContain("row/column mapping unknown");
-  expect(facts.get("split")).toContain('"code","description"');
-  expect(facts.get("explode")).toContain("Explode output=3 from 2 parents");
-  expect(facts.get("explode")).toContain("empty/null parents=1");
   expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
   expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
   expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');
   expect(facts.get("pivot")).toContain("Pivot unique pairs=6, index groups=3, generated columns=2, absent cells=0");
-  expect(facts.get("empty_explode")).toContain("output=0 from 0 parents");
   expect(facts.get("empty_unpivot")).toContain("output=0*2=0");
   expect(facts.get("empty_window")).toContain("partitions=0");
   expect(facts.get("empty_pivot")).toContain("unique pairs=0, index groups=0, generated columns=0");

@@ -20,7 +20,7 @@
 /**
  * The `dataflow` tool of native mode: one program, many operators.
  *
- *   dataflow({ program: "greece = filter(roman_cities, lambda row: ...)\n...", observe: ["greece"] })
+ *   dataflow({ edits: "large = filter(orders, lambda row: ...)\n...", observe: ["greece"] })
  *
  * Every assignment in the program is an upsert by name. Statements may appear
  * in any order and refer to each other or to existing operators; the shared
@@ -41,21 +41,15 @@ import { createErrorResult } from "./tools-utility";
 import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
-import {
-  applyNativeOperator,
-  createNativeDeleteTool,
-  deleteNativeOperator,
-  TOOL_NAME_NATIVE_DELETE,
-} from "./native-upsert";
+import { applyNativeOperator, deleteNativeOperator } from "./native-upsert";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
-export { TOOL_NAME_NATIVE_DELETE };
 
 export interface NativeBatchOutcome {
   id: string;
   /** Surface operator name (`filter`), or whatever was written when unknown. */
   op: string;
-  status: "added" | "modified" | "error" | "blocked";
+  status: "added" | "modified" | "deleted" | "error" | "blocked";
   message: string;
   diagnostic?: NativeDiagnostic;
   /** For error/blocked outcomes: the definition as written, for diagnostics. */
@@ -91,7 +85,10 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
 }
 
 export interface DataflowInput {
-  program: string;
+  /** Statements that create or modify operators, plus the `def`s they use. */
+  edits: string;
+  /** Ids of operators to remove, applied before the edits. */
+  delete?: string[];
   observe?: string[];
 }
 
@@ -100,43 +97,41 @@ export function nativeBatchSchema(): Record<string, unknown> {
     type: "object",
     additionalProperties: false,
     properties: {
-      program: {
+      edits: {
         type: "string",
         description:
-          "The dataflow, one `name = operator(...)` assignment per operator plus any `def` functions they use. Names are the tables; positional arguments are the input tables; keyword arguments are the parameters (see the operator reference in the instructions). Reusing a name revises that operator and keeps its consumers. Statements may reference each other in any order. An empty program reads cached results.",
+          "Step 2, applied after the deletes: statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results.",
+      },
+      delete: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts).",
       },
       observe: {
         type: "array",
         items: { type: "string" },
         description:
-          "Names of every table whose contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. All statements still execute; errors always appear.",
+          "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear.",
       },
     },
-    required: ["program"],
+    required: ["edits"],
   };
 }
 
 export const DATAFLOW_TOOL_DESCRIPTION =
-  "Build or revise the dataflow with a program of `name = operator(...)` assignments (operators: " +
+  "Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: " +
   NATIVE_OPERATOR_NAMES.join(", ") +
-  "). Batch a whole dependent chain in one call; the scheduler orders it. List in `observe` the tables whose contents you need; omitted/[] hides successes but never errors. An empty program with `observe` reads cached results. A rejected statement fails alone; its dependents are blocked; independent statements still land.";
+  "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.";
 
 /**
- * The two tools of native mode: `dataflow` and `deleteOperator`. The existing
- * upsert (`native-upsert.ts`) owns compilation and wiring; the normal post-step
- * path owns execution.
+ * The one tool of native mode: `dataflow` (edits, deletes, observations). The
+ * existing upsert (`native-upsert.ts`) owns compilation and wiring; the normal
+ * post-step path owns execution.
  */
 export function createNativeTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
   const repair = context?.nativeValidationRepair ?? new NativeValidationRepair();
   return {
-    [TOOL_NAME_NATIVE_DELETE]: {
-      ...createNativeDeleteTool(state),
-      execute: async (args: { id: string }) => {
-        const result = deleteNativeOperator(state, args.id);
-        if (!result.startsWith("[ERROR]")) repair.clear(args.id);
-        return result;
-      },
-    },
     [TOOL_NAME_DATAFLOW]: tool({
       description: DATAFLOW_TOOL_DESCRIPTION,
       inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema() as any),
@@ -153,23 +148,61 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             "Profile collection differs from this workflow's compiled operators; use a fresh agent and workflow."
           );
         }
-        if (
-          typeof args?.program !== "string" ||
-          (args.observe !== undefined &&
-            (!Array.isArray(args.observe) || args.observe.some(id => typeof id !== "string")))
-        ) {
-          return createErrorResult("dataflow requires program: string and optional observe: string[]");
-        }
-        const compiled = await compileProgram(args.program, {
-          profileCollection: context?.settings?.nativeProfileCollection === true,
-        });
-        if (!compiled.ok) {
+        const isIds = (value: unknown) =>
+          value === undefined || (Array.isArray(value) && value.every(id => typeof id === "string"));
+        if (typeof args?.edits !== "string" || !isIds(args.observe) || !isIds(args.delete)) {
           return createErrorResult(
-            `Program syntax error at line ${compiled.error.line}${compiled.error.column ? `, column ${compiled.error.column}` : ""}: ${compiled.error.message}. Nothing was changed. Write one \`name = operator(...)\` per line plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`
+            "dataflow requires edits: string, and optionally delete: string[] and observe: string[]"
           );
         }
+        const compiled = await compileProgram(args.edits, {
+          profileCollection: context?.settings?.nativeProfileCollection === true,
+        });
         const statements: ProgramStatement[] = compiled.statements;
+        // Deletes apply first. A delete is refused while a consumer survives the
+        // call: one that is neither deleted here nor redefined in `edits` with
+        // inputs that no longer include the deleted id.
+        const deleteIds = [...new Set(args.delete ?? [])];
+        const deleteSet = new Set(deleteIds);
+        const deleteOutcomes: NativeBatchOutcome[] = [];
+        for (const id of deleteIds) {
+          const repointed = new Set(statements.filter(st => st.view && !st.view.inputs.includes(id)).map(st => st.id));
+          const handled = new Set([...deleteSet, ...repointed]);
+          const message = deleteNativeOperator(state, id, handled);
+          const failed = message.startsWith("[ERROR]");
+          if (!failed) repair.clear(id);
+          deleteOutcomes.push({
+            id,
+            op: "delete",
+            status: failed ? "error" : "deleted",
+            message: failed ? message.slice(8) : message,
+          });
+        }
         const outcomes: Array<NativeBatchOutcome | undefined> = statements.map(() => undefined);
+        // A statement that did not parse fails alone, at its line; the rest of
+        // the program lands. Its dependents are blocked below like any other
+        // failed input.
+        const syntaxIds = new Set(compiled.errors.map(e => e.id).filter((id): id is string => !!id));
+        const syntaxOutcomes: NativeBatchOutcome[] = compiled.errors.map(error => {
+          const where = `line ${error.line}${error.column ? `, column ${error.column}` : ""}`;
+          const diagnostic: NativeDiagnostic = {
+            version: 1,
+            operatorId: error.id ?? where,
+            operatorRevision: "unversioned",
+            code: "PROGRAM_SYNTAX",
+            stage: "validate",
+            message: `${where}: ${error.message.replace(/\.?$/, ".")} This statement was skipped; the other statements landed. Write one \`name = operator(...)\` per statement plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`,
+            field: "edits",
+            retryable: false,
+          };
+          return {
+            id: error.id ?? where,
+            op: "edits",
+            status: "error",
+            message: formatNativeDiagnostic(diagnostic),
+            diagnostic,
+          };
+        });
         const fail = (
           index: number,
           message: string,
@@ -278,7 +311,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         for (const [index, statement] of statements.entries()) {
           if (outcomes[index]) continue;
           for (const id of inputs.get(statement.id) ?? []) {
-            if (!inputs.has(id) && !byId.has(id))
+            if (syntaxIds.has(id) && !inputs.has(id))
+              fail(index, `Input \`${id}\` did not parse in this program; dependent statement skipped.`, "blocked");
+            else if (!inputs.has(id) && !byId.has(id))
               fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
           }
         }
@@ -380,9 +415,15 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
           return false;
         });
+        const ordered = [
+          ...statements.map((statement, index) => ({ line: statement.line, outcome: outcomes[index]! })),
+          ...compiled.errors.map((error, index) => ({ line: error.line, outcome: syntaxOutcomes[index] })),
+        ]
+          .sort((a, b) => a.line - b.line)
+          .map(entry => entry.outcome);
         return {
           kind: "native-batch",
-          operators: outcomes as NativeBatchOutcome[],
+          operators: [...deleteOutcomes, ...ordered],
           observe,
           observationErrors,
         } satisfies NativeBatchResult;

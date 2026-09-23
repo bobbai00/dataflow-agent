@@ -218,7 +218,8 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
   // The observed operator shows its body, with its operator semantics intact.
   expect(hasBody(blockFor(messages, "selected"))).toBe(true);
   expect(blockFor(messages, "selected")).toContain("Flow measurement: Filter kept=3/5");
-  expect(blockFor(messages, "selected")).toContain("Flow guarantee: Filter: stable subset");
+  // The author's doc leads the guarantee of a custom operator.
+  expect(blockFor(messages, "selected")).toContain("Flow guarantee: Filter: legacy fixture; stable subset");
 
   // The two the agent did not ask for carry a row count and nothing else. An
   // unobserved table is not leaked just because the layout retains bodies.
@@ -322,9 +323,11 @@ test("opBlock: definitions and process code do not depend on the observe list", 
   // opBlock shows the process function body in every block, observed or not;
   // opSplit keeps only the statement so the body is never in the snapshot.
   expect(observedBlock).toContain("def scored_fn(source)");
-  expect(observedBlock).toContain("scored = process(source, fn=scored_fn)");
+  expect(observedBlock).toContain('scored = process(source, fn=scored_fn, doc="legacy fixture")');
   expect(blockFor(f.render("opSplit"), "scored")).not.toContain("def scored_fn(source)");
-  expect(blockFor(f.render("opSplit"), "scored")).toContain("scored = process(source, fn=scored_fn)");
+  expect(blockFor(f.render("opSplit"), "scored")).toContain(
+    'scored = process(source, fn=scored_fn, doc="legacy fixture")'
+  );
 
   // Every block carries its definition as written, whatever the observe list.
   for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("Definition:");

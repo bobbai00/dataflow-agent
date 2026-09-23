@@ -465,7 +465,7 @@ test("production post-step hook records cached observations without running the 
   const result = await createNativeTools(f.state, {
     settings: { nativeProfileCollection: true },
   } as any).dataflow.execute({
-    program: "",
+    edits: "",
     observe: ["selected"],
   });
   let executions = 0;
@@ -479,7 +479,7 @@ test("production post-step hook records cached observations without running the 
   );
   try {
     await agent.runPostStepExecution(
-      [{ toolName: "dataflow", toolCallId: "observe", input: { program: "", observe: ["selected"] } }],
+      [{ toolName: "dataflow", toolCallId: "observe", input: { edits: "", observe: ["selected"] } }],
       [{ toolCallId: "observe", output: result }]
     );
     const observed = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;

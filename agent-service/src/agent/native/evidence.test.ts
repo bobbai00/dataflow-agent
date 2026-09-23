@@ -245,14 +245,6 @@ test("result bindings remain exact audit metadata without a model-facing version
 test("shape measurements validate their row equations and reject stale or inconsistent counters", () => {
   for (const [kind, properties, rows, operations, validFact, corrupt] of [
     [
-      "Explode",
-      { column: "x", encoding: "json" },
-      6,
-      { explode: { emptyParents: 2, arrayElements: 6, nullElements: 1, maxElements: 3 } },
-      "flow.explode",
-      { explode: { emptyParents: 2, arrayElements: 99, nullElements: 1, maxElements: 3 } },
-    ],
-    [
       "Unpivot",
       { columns: ["x", "y"] },
       10,
@@ -290,14 +282,14 @@ test("shape measurements validate their row equations and reject stale or incons
   }
 });
 
-test("filter uses exact kept/input denominator and declared null policy", () => {
+test("filter uses exact kept/input denominator and counts None verdicts as drops", () => {
   const f = fixture();
   const facts = collectNativeEvidence(f).facts;
   expect(facts.find(x => x.id === "flow.filter")?.kind).toBe("measurement");
   expect(factText(f)).toContain("kept=3/5");
   expect(factText(f)).toContain("rejected=2");
   expect(factText(f)).toContain("null predicates=1");
-  expect(factText(f)).toContain("nulls=drop");
+  expect(factText(f)).toContain("a None verdict drops the row");
   expect(factText(f)).toContain('predicate column "x": input (full=5 rows) null=1/5');
 });
 
@@ -437,7 +429,7 @@ test("equijoin distinguishes matched output contribution from row and key covera
 });
 
 test("projection/derive guarantees are contractual, UDF remains unknown at equal row counts", () => {
-  for (const kind of ["Project", "Map", "FillNull", "Cast", "Sort"]) {
+  for (const kind of ["Project", "Map", "Cast", "Sort"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
     f.info.tableProfile!.native!.outputRows = 5;

@@ -24,8 +24,8 @@
  * Drives the `dataflow` program tool through the debug transport: a chain with
  * a process loader, observe/hidden receipts, a cached read, an upstream
  * revision that refreshes an existing descendant, a preview window with
- * skip_lines, a syntax error that changes nothing, a partial failure, an
- * execution error that supersedes a success, and inspectError. It creates and
+ * skip_lines, a statement that does not parse, a partial failure, an
+ * execution error that supersedes a success, and a delete through the same tool. It creates and
  * removes its own workflow, agent and computing unit; no model is called.
  */
 import { strict as assert } from "node:assert";
@@ -168,24 +168,20 @@ try {
   assert.equal(settings.agentMode, "native");
   assert.equal(settings.parallelToolCalls, false, "native mode must force provider parallel tool calls off");
   const systemInfo = (await fetch(`${baseUrl}/api/agents/${agentId}/system-info`).then(r => r.json())) as any;
-  assert.deepEqual(systemInfo.tools.map((tool: any) => tool.name).sort(), [
-    "dataflow",
-    "deleteOperator",
-    "inspectError",
-  ]);
+  assert.deepEqual(systemInfo.tools.map((tool: any) => tool.name).sort(), ["dataflow"]);
   assert.ok(systemInfo.systemPrompt.includes("= filter(T, fn"), "prompt must carry the operator reference");
   assert.ok(!systemInfo.systemPrompt.includes("inspectResult"));
 
   // 1. A chain listed consumers-first, with a process loader; only `total` observed.
   const first = await debug("dataflow", {
-    program: [
+    edits: [
       'total = aggregate(positive, sum_x=sum("x"))',
-      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 0)',
+      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 0, doc="Keeps rows with positive x")',
       "def load_source():",
       "    import pandas as pd",
       "    import time",
       '    return pd.DataFrame({"x": [-1, 1, 3], "label": ["SOURCE_SENTINEL", "one", "three"], "run": [str(time.time_ns())] * 3})',
-      "source = process(fn=load_source)",
+      'source = process(fn=load_source, doc="Loads three labelled rows")',
     ].join("\n"),
     observe: ["total"],
   });
@@ -200,7 +196,7 @@ try {
 
   // 2. A cached read does not execute anything.
   const snap1 = await getSnapshot(agentId, "head", baseUrl);
-  const second = await debug("dataflow", { program: "", observe: ["source"] });
+  const second = await debug("dataflow", { edits: "", observe: ["source"] });
   assert.match(second.context, /observed \(cached\)/);
   const snap2 = await getSnapshot(agentId, "head", baseUrl);
   assert.deepEqual(
@@ -212,10 +208,10 @@ try {
   // 3. Revise an upstream and add a forward-referenced chain through its existing
   //    descendant in one call; no observe means every successful body hides.
   const revision = await debug("dataflow", {
-    program: [
+    edits: [
       'answer = project(tagged_total, keep=["sum_x", "tag"])',
-      'tagged_total = map(total, tag=str(lambda row: "RECOMPUTED_SENTINEL"))',
-      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 1)',
+      'tagged_total = map(total, lambda row: {**row, "tag": "RECOMPUTED_SENTINEL"}, doc="Adds a constant tag column")',
+      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 1, doc="Keeps rows with x above 1")',
     ].join("\n"),
   });
   assert.equal(revision.results.total.sampleRecords[0].sum_x, 3, "existing downstream aggregate was not refreshed");
@@ -227,7 +223,7 @@ try {
   for (const id of ["source", "positive", "total", "tagged_total", "answer"]) assert.ok(latestHidden.includes(id));
   assert.ok(!latestHidden.includes("Output Table:"), "LATEST exposed a result without observe");
   const revisedSnapshot = await getSnapshot(agentId, "head", baseUrl);
-  const observed = await debug("dataflow", { program: "", observe: ["answer"] });
+  const observed = await debug("dataflow", { edits: "", observe: ["answer"] });
   assert.match(lastObservation(observed.context), /RECOMPUTED_SENTINEL/);
   assert.match(renderMirroredContext(ContextMode.LATEST), /Output Table:/);
   const readSnapshot = await getSnapshot(agentId, "head", baseUrl);
@@ -238,7 +234,7 @@ try {
   const previewPath = join(fixtureDir, "window.txt");
   writeFileSync(previewPath, "START_ONLY\nHEADER_ONLY\nWINDOW_TWO\nWINDOW_THREE\nWINDOW_FOUR\n");
   const previewWindow = await debug("dataflow", {
-    program: [
+    edits: [
       'window_lines = project(window, keep=["line_no", "line"])',
       `window = scan(${JSON.stringify(previewPath)}, preview=2, skip_lines=2)`,
     ].join("\n"),
@@ -253,7 +249,7 @@ try {
     "Scan preview ignored skip_lines or lost absolute positions"
   );
   const movedWindow = await debug("dataflow", {
-    program: `window = scan(${JSON.stringify(previewPath)}, preview=2, skip_lines=3)`,
+    edits: `window = scan(${JSON.stringify(previewPath)}, preview=2, skip_lines=3)`,
     observe: [],
   });
   assert.deepEqual(
@@ -269,7 +265,7 @@ try {
 
   // 5. A failed Scan revision surfaces despite observe:[] and supersedes its success.
   const missingWindow = await debug("dataflow", {
-    program: `window = scan(${JSON.stringify(join(fixtureDir, "missing.txt"))}, preview=2, skip_lines=3)`,
+    edits: `window = scan(${JSON.stringify(join(fixtureDir, "missing.txt"))}, preview=2, skip_lines=3)`,
     observe: [],
   });
   assert.ok(missingWindow.results.window?.error, "failed Scan revision retained a success");
@@ -277,10 +273,10 @@ try {
   assert.match(lastObservation(missingWindow.context), /missing\.txt/);
   assert.ok(!lastObservation(missingWindow.context).includes("WINDOW_FOUR"), "failed revision exposed old data");
 
-  // 6. A syntax error changes nothing.
+  // 6. A statement that does not parse fails alone and lands nothing of its own.
   const before = await getSnapshot(agentId, "head", baseUrl);
-  const syntax = await debug("dataflow", { program: "broken = filter(source, lambda row: row['x'] >", observe: [] });
-  assert.match(syntax.context, /syntax error at line 1/);
+  const syntax = await debug("dataflow", { edits: "broken = filter(source, lambda row: row['x'] >", observe: [] });
+  assert.match(syntax.context, /PROGRAM_SYNTAX[^\n]*line 1/);
   assert.deepEqual(
     (await getSnapshot(agentId, "head", baseUrl)).workflow,
     before.workflow,
@@ -290,10 +286,10 @@ try {
   // 7. Partial failure: an invalid statement fails, its dependent is blocked, a
   //    valid sibling lands and executes.
   const partial = await debug("dataflow", {
-    program: [
+    edits: [
       "invalid = filter(source, 4)",
       "blocked = aggregate(invalid, n=count())",
-      'valid = map(positive, doubled=int64(lambda row: row["x"] * 2))',
+      'valid = map(positive, lambda row: {**row, "doubled": row["x"] * 2}, doc="Adds doubled = 2 * x")',
     ].join("\n"),
     observe: [],
   });
@@ -303,14 +299,22 @@ try {
 
   // 8. An execution error replaces the previous success and is inspectable.
   const failed = await debug("dataflow", {
-    program: 'valid = map(positive, doubled=int64(lambda row: row["not_a_column"] * 2))',
+    edits:
+      'valid = map(positive, lambda row: {**row, "doubled": row["not_a_column"] * 2}, doc="Adds doubled from a column that does not exist")',
     observe: [],
   });
   assert.ok(failed.results.valid?.error, "previous successful result must be replaced by the new error");
   assert.match(failed.context, /not_a_column/);
   assert.match(failed.context, /MISSING_COLUMN/);
-  const inspected = await debug("inspectError", { operatorId: "valid" });
-  assert.match(inspected.context, /not_a_column/);
+  // 9. Deleting through the same tool: refused while a consumer reads the
+  //    operator, accepted once the consumer goes with it.
+  const refused = await debug("dataflow", { edits: "", delete: ["positive"] });
+  assert.match(refused.context, /still feeds/);
+  const removed = await debug("dataflow", { edits: "", delete: ["valid", "positive", "blocked"] });
+  assert.match(removed.context, /deleted operator `valid`/);
+  assert.match(removed.context, /`positive` still feeds `total`/, "positive still has a consumer and must survive");
+  assert.match(removed.context, /`blocked` not found/, "a never-landed statement is not an operator");
+  assert.ok(removed.results.total?.sampleRecords, "deleting a sibling must not disturb the surviving chain");
 
   const trace = await getReActSteps(agentId, baseUrl);
   console.log(

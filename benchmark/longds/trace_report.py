@@ -29,7 +29,7 @@ def dataflow_turns(run: Path):
         turn = int(path.parent.name[1:])
         steps = json.loads(path.read_text())
         programs = [
-            (c.get("input") or {}).get("program") or ""
+            (c.get("input") or {}).get("edits") or (c.get("input") or {}).get("program") or ""
             for s in steps
             for c in s.get("toolCalls") or []
             if c.get("toolName") == "dataflow"

@@ -29,7 +29,7 @@ import { nativeTestTools } from "../native/test-support";
 function setup() {
   const { state, tools } = nativeTestTools();
   const execute = (program: string, observe?: string[]): Promise<NativeBatchResult | string> =>
-    tools.dataflow.execute({ program, ...(observe !== undefined ? { observe } : {}) });
+    tools.dataflow.execute({ edits: program, ...(observe !== undefined ? { observe } : {}) });
   const batch = async (program: string, observe?: string[]): Promise<NativeBatchResult> => {
     const result = await execute(program, observe);
     if (typeof result === "string") throw new Error(result);
@@ -39,7 +39,7 @@ function setup() {
 }
 
 const scan = 'source = scan("data/test.csv")';
-const filter = 'selected = filter(source, lambda row: row["x"] is not None and row["x"] > 0)';
+const filter = 'selected = filter(source, lambda row: row["x"] is not None and row["x"] > 0, doc="Keeps positive x")';
 const aggregate = "total = aggregate(selected, n=count())";
 
 describe("native dataflow tool", () => {
@@ -103,7 +103,7 @@ describe("native dataflow tool", () => {
   test("duplicate names and cycles are refused before mutation, including cycles through old operators", async () => {
     const { batch, state } = setup();
     await batch([scan, filter, aggregate].join("\n"));
-    const cyclic = await batch('selected = filter(total, lambda row: row["n"] > 0)');
+    const cyclic = await batch('selected = filter(total, lambda row: row["n"] > 0, doc="Keeps positive counts")');
     expect(cyclic.operators[0].status).toBe("error");
     expect(cyclic.operators[0].message).toContain("cycle");
     expect(state.getOperator("selected")?.nativeOp?.inputs).toEqual(["source"]);
@@ -111,7 +111,11 @@ describe("native dataflow tool", () => {
     expect(duplicate.operators.every(o => o.status === "error")).toBe(true);
     expect(duplicate.operators[0].message).toContain("assigned twice");
     const fresh = await batch(
-      ["a = filter(b, lambda row: True)", "b = filter(a, lambda row: True)", 'other = scan("data/o.csv")'].join("\n")
+      [
+        'a = filter(b, lambda row: True, doc="all")',
+        'b = filter(a, lambda row: True, doc="all")',
+        'other = scan("data/o.csv")',
+      ].join("\n")
     );
     expect(fresh.operators.map(o => o.status)).toEqual(["error", "error", "added"]);
     expect(state.getOperator("a")).toBeUndefined();
@@ -126,14 +130,29 @@ describe("native dataflow tool", () => {
     expect(state.getAllOperators()).toHaveLength(0);
   });
 
-  test("a syntax error rejects the whole program with its line and changes nothing", async () => {
-    const { execute, state } = setup();
-    const result = await execute(`${scan}\nselected = filter(source, lambda row: row["x"] >\n`);
-    expect(typeof result).toBe("string");
-    expect(result).toContain("[ERROR]");
-    expect(result).toMatch(/syntax error at line \d+/);
-    expect(result).toContain("Nothing was changed");
-    expect(state.getAllOperators()).toHaveLength(0);
+  test("a statement that does not parse fails alone; the rest lands and its dependents are blocked", async () => {
+    const { batch, state } = setup();
+    const result = await batch(
+      [
+        'broken = filter(source, lambda row: row["x"] >',
+        scan,
+        "kept = limit(source, 1)",
+        "after = limit(broken, 1)",
+      ].join("\n")
+    );
+    const byId = Object.fromEntries(result.operators.map(o => [o.id, o]));
+    expect(result.operators.map(o => o.id)).toEqual(["broken", "source", "kept", "after"]);
+    expect(byId.broken.status).toBe("error");
+    expect(byId.broken.message).toContain("[PROGRAM_SYNTAX; validate;");
+    expect(byId.broken.message).toContain("line 1");
+    expect(byId.broken.message).toContain("other statements landed");
+    expect(byId.source.status).toBe("added");
+    expect(byId.kept.status).toBe("added");
+    expect(byId.after.status).toBe("blocked");
+    expect(byId.after.message).toContain("did not parse");
+    expect(state.getOperator("broken")).toBeUndefined();
+    expect(state.getOperator("after")).toBeUndefined();
+    expect(state.getOperator("kept")).toBeDefined();
   });
 
   test("unknown operators list the catalog and explain the common slip of writing the name as the operator", async () => {
@@ -155,7 +174,7 @@ describe("native dataflow tool", () => {
     expect(result.operators[1].attempted?.type).toBe("Unknown");
   });
 
-  test("agent native mode exposes dataflow, deleteOperator and inspectError, and forces provider parallel calls off", () => {
+  test("agent native mode exposes only dataflow and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
       agentId: "native-tools-test",
       modelType: "test",
@@ -164,7 +183,7 @@ describe("native dataflow tool", () => {
     });
     agent.updateSettings({ agentMode: AgentMode.NATIVE, parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectError"]);
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
     expect(agent.getSettings().systemPrompt).toContain("= filter(T, fn");
     expect(agent.getSettings().systemPrompt).toContain("observe");
     agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
@@ -261,8 +280,10 @@ describe("dataflow observation history", () => {
     },
     {
       name: "process source code",
-      original: 'def broken_fn(source):\n    raise RuntimeError("old failure")\nbroken = process(source, fn=broken_fn)',
-      revision: "def broken_fn(source):\n    return source.copy()\nbroken = process(source, fn=broken_fn)",
+      original:
+        'def broken_fn(source):\n    raise RuntimeError("old failure")\nbroken = process(source, fn=broken_fn, doc="fixture")',
+      revision:
+        'def broken_fn(source):\n    return source.copy()\nbroken = process(source, fn=broken_fn, doc="fixture")',
     },
   ]) {
     test(`DELTA binds a failed ${scenario.name} definition to its event after revision and deletion`, async () => {

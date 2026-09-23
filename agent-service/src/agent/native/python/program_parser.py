@@ -41,6 +41,8 @@ how a column whose name is not an identifier is addressed by keyword.
 """
 
 import ast
+import keyword
+import re
 import json
 import sys
 
@@ -66,7 +68,11 @@ def _encode(program, node):
         return {"kind": "const", "value": value}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
         inner = _encode(program, node.operand)
-        if inner["kind"] == "const" and isinstance(inner["value"], (int, float)) and not isinstance(inner["value"], bool):
+        if (
+            inner["kind"] == "const"
+            and isinstance(inner["value"], (int, float))
+            and not isinstance(inner["value"], bool)
+        ):
             return {"kind": "const", "value": -inner["value"] if isinstance(node.op, ast.USub) else inner["value"]}
         raise ProgramError(node.lineno, f"Unsupported expression {_segment(program, node)!r}.", node.col_offset)
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -110,7 +116,9 @@ def _arguments(program, call):
     args = []
     for item in call.args:
         if isinstance(item, ast.Starred):
-            raise ProgramError(item.lineno, "Star arguments are not supported; list the tables explicitly.", item.col_offset)
+            raise ProgramError(
+                item.lineno, "Star arguments are not supported; list the tables explicitly.", item.col_offset
+            )
         args.append(_encode(program, item))
     kwargs = {}
     for keyword in call.keywords:
@@ -118,27 +126,110 @@ def _arguments(program, call):
             # `**{"Acres Burned": float64}` — addresses columns whose names are not identifiers.
             spread = _encode(program, keyword.value)
             if spread["kind"] != "dict":
-                raise ProgramError(keyword.value.lineno, "`**` must spread a dictionary literal.", keyword.value.col_offset)
+                raise ProgramError(
+                    keyword.value.lineno, "`**` must spread a dictionary literal.", keyword.value.col_offset
+                )
             for key, value in spread["entries"]:
                 if key in kwargs:
-                    raise ProgramError(keyword.value.lineno, f"Keyword {key!r} is given twice.", keyword.value.col_offset)
+                    raise ProgramError(
+                        keyword.value.lineno, f"Keyword {key!r} is given twice.", keyword.value.col_offset
+                    )
                 kwargs[key] = value
         else:
             if keyword.arg in kwargs:
-                raise ProgramError(keyword.value.lineno, f"Keyword {keyword.arg!r} is given twice.", keyword.value.col_offset)
+                raise ProgramError(
+                    keyword.value.lineno, f"Keyword {keyword.arg!r} is given twice.", keyword.value.col_offset
+                )
             kwargs[keyword.arg] = _encode(program, keyword.value)
     return args, kwargs
 
 
-def parse_program(program):
-    try:
-        tree = ast.parse(program)
-    except SyntaxError as error:
-        return {"ok": False, "error": {"line": error.lineno or 1, "column": error.offset, "message": error.msg}}
-    functions = {}
-    statements = []
-    try:
-        for node in tree.body:
+def _syntax_error(program, error):
+    """Python's message for `global = scan(...)` is just "invalid syntax"; name
+    the keyword so the repair is one rename rather than a hunt."""
+    line = error.lineno or 1
+    text = program.split("\n")[line - 1] if 0 < line <= len(program.split("\n")) else ""
+    match = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)", text)
+    if match and keyword.iskeyword(match.group(1)):
+        return {
+            "line": line,
+            "column": match.start(1) + 1,
+            "message": (
+                f"`{match.group(1)}` is a Python keyword and cannot be a table name; "
+                f"rename it (for example `{match.group(1)}_table`)."
+            ),
+        }
+    return {"line": line, "column": error.offset, "message": error.msg}
+
+
+_STATEMENT_START = re.compile(r"(?:[A-Za-z_]\w*\s*=(?!=)|def\s+[A-Za-z_]\w*\s*\(|@)")
+_ASSIGN_TARGET = re.compile(r"\s*([A-Za-z_]\w*)\s*=(?!=)")
+
+
+def _scan_line(line, depth, quote):
+    """Track bracket depth and open string state across one line, ignoring
+    comments and the insides of strings."""
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if line.startswith(quote, i):
+                i += len(quote)
+                quote = None
+                continue
+            i += 1
+            continue
+        if ch == "#":
+            break
+        if ch in "\"'":
+            quote = line[i : i + 3] if line.startswith(ch * 3, i) else ch
+            i += len(quote)
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        i += 1
+    if quote in ("'", '"'):
+        quote = None  # an unterminated one-line string ends with its line
+    return depth, quote
+
+
+def _chunks(program):
+    """Top-level statement chunks as (first_line, text). Used only when the
+    whole program does not parse: a new chunk starts at every column-0 line;
+    while a bracket is still open, only a line that looks like a new
+    statement or def starts one, so an unclosed parenthesis costs its own
+    statement and not the rest of the program."""
+    chunks = []
+    depth, quote = 0, None
+    for number, line in enumerate(program.split("\n"), start=1):
+        stripped = line.strip()
+        at_margin = bool(line) and not line[0].isspace() and stripped and not stripped.startswith("#")
+        if at_margin and quote is None and (depth == 0 or _STATEMENT_START.match(line)):
+            chunks.append([number, []])
+            depth = 0
+        if not chunks:
+            chunks.append([number, []])
+        chunks[-1][1].append(line)
+        depth, quote = _scan_line(line, depth, quote)
+    return [(start, "\n".join(lines)) for start, lines in chunks]
+
+
+def _collect(text, tree, offset, statements, functions, errors):
+    """Walk one parsed tree; every structural violation is recorded against its
+    own statement and the walk continues."""
+    for node in tree.body:
+        target = (
+            node.targets[0].id
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+            else None
+        )
+        try:
             if isinstance(node, ast.FunctionDef):
                 if node.decorator_list:
                     raise ProgramError(node.lineno, "Decorators are not supported.", node.col_offset)
@@ -147,13 +238,17 @@ def parse_program(program):
                 functions[node.name] = {
                     "name": node.name,
                     "params": [arg.arg for arg in node.args.posonlyargs + node.args.args],
-                    "source": _segment(program, node),
-                    "line": node.lineno,
+                    "source": _segment(text, node),
+                    "line": node.lineno + offset,
                 }
                 continue
             if isinstance(node, ast.AsyncFunctionDef):
                 raise ProgramError(node.lineno, "Functions must be synchronous `def`s.", node.col_offset)
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
                 continue  # a docstring-style comment
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 raise ProgramError(
@@ -162,25 +257,27 @@ def parse_program(program):
                     node.col_offset,
                 )
             if isinstance(node, ast.Assign):
-                if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                if target is None:
                     raise ProgramError(
-                        node.lineno, "Assign each operator to exactly one plain name: `name = operator(...)`.", node.col_offset
+                        node.lineno,
+                        "Assign each operator to exactly one plain name: `name = operator(...)`.",
+                        node.col_offset,
                     )
                 call = node.value
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
                     raise ProgramError(
                         node.lineno,
-                        f"The right-hand side of {node.targets[0].id!r} must be an operator call such as `filter(...)`.",
+                        f"The right-hand side of {target!r} must be an operator call such as `filter(...)`.",
                         node.col_offset,
                     )
-                args, kwargs = _arguments(program, call)
+                args, kwargs = _arguments(text, call)
                 statements.append(
                     {
-                        "id": node.targets[0].id,
+                        "id": target,
                         "op": call.func.id,
-                        "line": node.lineno,
-                        "endLine": node.end_lineno,
-                        "source": _segment(program, node),
+                        "line": node.lineno + offset,
+                        "endLine": (node.end_lineno or node.lineno) + offset,
+                        "source": _segment(text, node),
                         "args": args,
                         "kwargs": kwargs,
                     }
@@ -191,9 +288,50 @@ def parse_program(program):
                 "Only `name = operator(...)` assignments and `def` functions are allowed at the top level.",
                 node.col_offset,
             )
-    except ProgramError as error:
-        return {"ok": False, "error": {"line": error.line, "column": error.column, "message": error.message}}
-    return {"ok": True, "statements": statements, "functions": functions}
+        except ProgramError as error:
+            errors.append(
+                {
+                    "line": error.line + offset,
+                    "column": error.column,
+                    "message": error.message,
+                    "id": target if target is not None else (node.name if isinstance(node, ast.FunctionDef) else None),
+                    "source": _segment(text, node),
+                }
+            )
+
+
+def parse_program(program):
+    """Parse a program into statements, functions and per-statement errors.
+    A statement that does not parse, or that is not `name = operator(...)`,
+    is reported at its line and skipped; the others are returned. Nothing is
+    ever executed here."""
+    statements, functions, errors = [], {}, []
+    try:
+        tree = ast.parse(program)
+    except SyntaxError:
+        for start, text in _chunks(program):
+            if not text.strip():
+                continue
+            try:
+                chunk = ast.parse(text)
+            except SyntaxError as error:
+                detail = _syntax_error(text, error)
+                match = _ASSIGN_TARGET.match(text)
+                errors.append(
+                    {
+                        "line": detail["line"] + start - 1,
+                        "column": detail["column"],
+                        "message": detail["message"],
+                        "id": match.group(1) if match else None,
+                        "source": text.strip(),
+                    }
+                )
+                continue
+            _collect(text, chunk, start - 1, statements, functions, errors)
+    else:
+        _collect(program, tree, 0, statements, functions, errors)
+    errors.sort(key=lambda e: e["line"])
+    return {"ok": True, "statements": statements, "functions": functions, "errors": errors}
 
 
 if __name__ == "__main__":

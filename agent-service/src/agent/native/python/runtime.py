@@ -54,22 +54,37 @@ class _Row(Mapping):
     a distinguishable KeyError so the diagnostic can list the real columns.
     """
 
-    __slots__ = ("_index", "_values", "_reads")
+    __slots__ = ("_index", "_order", "_values", "_reads", "_copy")
 
-    def __init__(self, index, values, reads):
+    def __init__(self, index, values, reads, order=None):
         self._index = index
+        self._order = order if order is not None else tuple(index)
         self._values = values
         self._reads = reads
+        self._copy = None
 
     def __getitem__(self, key):
         position = self._index.get(key)
         if position is None:
             raise _UndeclaredColumn(key)
-        self._reads.add(key)
+        # `{**row, ...}` copies the row: Python calls keys() and then reads every
+        # key in order. That copy is not a dependency, so it is not recorded;
+        # any read outside that pattern is.
+        copy = self._copy
+        if copy is not None and copy < len(self._order) and self._order[copy] == key:
+            self._copy = None if copy + 1 == len(self._order) else copy + 1
+        else:
+            self._copy = None
+            self._reads.add(key)
         return self._values[position]
 
+    def keys(self):
+        self._copy = 0
+        return list(self._order)
+
     def __iter__(self):
-        return iter(self._index)
+        self._copy = 0
+        return iter(self._order)
 
     def __len__(self):
         return len(self._index)
@@ -78,8 +93,9 @@ class _Row(Mapping):
 def _rows(frame, reads):
     """Yield one `_Row` per input row over every column, cheaply."""
     index = {name: position for position, name in enumerate(frame.columns)}
+    order = tuple(frame.columns)
     for values in frame.itertuples(index=False, name=None):
-        yield _Row(index, tuple(map(_scalar, values)), reads)
+        yield _Row(index, tuple(map(_scalar, values)), reads, order)
 
 
 def _error(spec, code, message, *, stage="execute", field=None, source=None):
@@ -155,7 +171,6 @@ ROW_EFFECTS = {
     "Scan": "create",
     "Project": "none",
     "Cast": "none",
-    "FillNull": "none",
     "Map": "none",
     "Filter": "drop",
     "Aggregate": "collapse",
@@ -165,8 +180,6 @@ ROW_EFFECTS = {
     "Sort": "none",
     "Limit": "drop",
     "Window": "none",
-    "Split": "none",
-    "Explode": "multiply",
     "Unpivot": "add",
     "Pivot": "collapse",
     "Process": "unknown",
@@ -224,19 +237,8 @@ def validate_native(spec):
                 stage="validate",
                 field="rename",
             )
-    elif kind == "Filter":
-        choice(props.get("nulls", "drop"), ("drop", "keep", "error"), "FILTER_ARGUMENT", "nulls")
     elif kind == "Cast":
         choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
-    elif kind == "FillNull":
-        if not isinstance(props.get("values"), dict) or not props["values"]:
-            raise _error(
-                spec,
-                "FILL_ARGUMENT",
-                "values must be a nonempty {column: value} mapping.",
-                stage="validate",
-                field="values",
-            )
     elif kind == "Distinct":
         choice(props.get("keep", "first"), ("first", "last"), "DISTINCT_ARGUMENT", "keep")
         if "columns" in props:
@@ -267,22 +269,20 @@ def validate_native(spec):
                 stage="validate",
                 field="offset",
             )
-    if kind in ("Map", "Cast"):
+    if kind == "Cast":
         names = []
         for i, item in enumerate(props["columns"]):
             field = f"columns[{i}]"
             if item["dtype"] not in DTYPES:
                 raise _error(spec, "DTYPE", f"Unsupported dtype {item['dtype']!r}.", stage="validate", field=field)
-            names.append(item["as"] if kind == "Map" else item["column"])
-            if kind == "Map":
-                _validate_function(spec, item["func"], f"{field}.func", item.get("entry", "apply"))
-            elif item["dtype"] != "datetime" and ("format" in item or "timezone" in item):
+            names.append(item["column"])
+            if item["dtype"] != "datetime" and ("format" in item or "timezone" in item):
                 raise _error(
                     spec, "CAST_OPTIONS", "format/timezone apply only to datetime.", stage="validate", field=field
                 )
         if len(set(names)) != len(names):
             raise _error(spec, "COLUMN_COLLISION", "Submit each output column once.", stage="validate", field="columns")
-    if kind == "Filter":
+    if kind in ("Filter", "Map"):
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
         _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
@@ -343,26 +343,6 @@ def validate_native(spec):
         if len(outputs) != len(set(outputs)):
             raise _error(
                 spec, "COLUMN_COLLISION", "Window output names must be unique.", stage="validate", field="columns"
-            )
-    elif kind == "Split":
-        names = props.get("into", [])
-        if len(names) < 2 or not isinstance(props.get("separator"), str) or not props["separator"]:
-            raise _error(
-                spec,
-                "SPLIT_ARGUMENT",
-                "Provide at least two output names and a nonempty literal separator.",
-                stage="validate",
-            )
-        if len(names) != len(set(names)):
-            raise _error(spec, "COLUMN_COLLISION", "Split output names must be unique.", stage="validate", field="into")
-    elif kind == "Explode":
-        if props.get("encoding") != "json" or props.get("empty", "drop") not in ("drop", "null_row"):
-            raise _error(
-                spec,
-                "EXPLODE_ARGUMENT",
-                f"empty must be one of 'drop', 'null_row', got {props.get('empty', 'drop')!r}.",
-                stage="validate",
-                field="empty",
             )
     elif kind == "Unpivot":
         if not props.get("columns"):
@@ -1416,35 +1396,153 @@ def _scan(spec, operations):
     return result
 
 
-def _map(spec, source, operations):
-    """Map: one declared output column per function, each reading the ORIGINAL
-    input row (so several columns in one map are independent) and adding or
-    replacing that column. Rows and their order never change. The columns each
-    function actually read are recorded as the output's measured dependencies."""
-    props = spec["properties"]
-    output = source.copy().reset_index(drop=True)
-    dependencies = {}
-    for i, item in enumerate(props["columns"]):
-        name, field, entry = item["as"], f"columns[{i}].func", item.get("entry", "apply")
-        function = _function(spec, item["func"], field, entry)
-        reads = set()
-        values = []
-        for row in _rows(source, reads):
-            value = function(row)
-            try:
-                values.append(_convert(value, item["dtype"]))
-            except (ValueError, TypeError, OverflowError) as error:
+def _map_dtype(spec, name, values, fallback, func, entry):
+    """Infer one output column's type from the values a map produced.
+    bool only when every value is bool (True is an int in Python); int64 and
+    float64 mix to float64; anything else must be one kind; an all-None
+    column keeps the input column's type when it passed through, else str."""
+    kinds = {}
+    for index, value in enumerate(values):
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            kind = "bool"
+        elif isinstance(value, int):
+            kind = "int64"
+        elif isinstance(value, float):
+            kind = "float64"
+        elif isinstance(value, str):
+            kind = "str"
+        elif isinstance(value, (datetime.datetime, pd.Timestamp)):
+            if value.tzinfo is None:
                 raise _error(
                     spec,
-                    "CALLBACK_RETURN_TYPE",
-                    f"{name}: {error}",
+                    "OUTPUT_VALUE_TYPE",
+                    f"map column {name!r} at row {index} is a timezone-naive datetime; "
+                    "attach a timezone (e.g. datetime.timezone.utc) or return an ISO-8601 string.",
                     stage="contract",
-                    field=field,
-                    source=_location(item["func"], entry, 1),
-                ) from error
-        output[name] = _series(values, item["dtype"])
-        dependencies[name] = sorted(reads)
-    operations["columnDependencies"] = dependencies
+                    field="func",
+                    source=_location(func, entry, 1),
+                )
+            kind = "datetime"
+        else:
+            raise _error(
+                spec,
+                "OUTPUT_VALUE_TYPE",
+                f"map column {name!r} at row {index} is a {type(value).__name__}; return scalar cells "
+                "(str, int, float, bool, datetime or None) and serialize nested data as JSON strings.",
+                stage="contract",
+                field="func",
+                source=_location(func, entry, 1),
+            )
+        kinds.setdefault(kind, (index, value))
+    if not kinds:
+        return fallback or "str"
+    if set(kinds) <= {"int64", "float64"}:
+        return "float64" if "float64" in kinds else "int64"
+    if len(kinds) == 1:
+        return next(iter(kinds))
+    (first_kind, (first_at, first_value)), (other_kind, (other_at, other_value)) = sorted(
+        kinds.items(), key=lambda item: item[1][0]
+    )[:2]
+    raise _error(
+        spec,
+        "OUTPUT_VALUE_TYPE",
+        f"map column {name!r} mixes types: row {first_at} has {first_value!r} ({first_kind}) but row {other_at} has "
+        f"{other_value!r} ({other_kind}). Return one type per column (None is allowed) or convert explicitly.",
+        stage="contract",
+        field="func",
+        source=_location(func, entry, 1),
+    )
+
+
+def _map(spec, source, operations):
+    """Map: `fn(row)` returns the new row as a dict and those dicts are the
+    output table. Exactly one row out per row in, in order; every row returns
+    the same keys; values are scalars or None; column types are inferred from
+    the values (see `_map_dtype`). `{**row, "x": ...}` keeps the input columns.
+    The columns the function read are recorded as measured dependencies."""
+    props = spec["properties"]
+    entry = props.get("entry", "apply")
+    function = _function(spec, props["func"], "func", entry)
+    reads = set()
+    keys = None
+    columns = {}
+
+    def accept(index, value):
+        nonlocal keys, columns
+        if not isinstance(value, dict):
+            raise _error(
+                spec,
+                "CALLBACK_RETURN_TYPE",
+                f"map must return the new row as a dict, got {type(value).__name__} at row {index}. "
+                'Use {**row, "column": value} to keep the input columns and add one.',
+                stage="contract",
+                field="func",
+                source=_location(props["func"], entry, 1),
+            )
+        row_keys = list(value.keys())
+        if keys is None:
+            if not row_keys or any(not isinstance(k, str) or not k for k in row_keys):
+                raise _error(
+                    spec,
+                    "MAP_SCHEMA",
+                    "map must return a dict with at least one non-empty string key; the keys are the output columns.",
+                    stage="contract",
+                    field="func",
+                    source=_location(props["func"], entry, 1),
+                )
+            keys = row_keys
+            columns = {key: [] for key in keys}
+        elif set(row_keys) != set(keys):
+            raise _error(
+                spec,
+                "MAP_SCHEMA",
+                f"map returned columns {sorted(row_keys)!r} at row {index} but {sorted(keys)!r} at row 0; "
+                "every row must return the same keys.",
+                stage="contract",
+                field="func",
+                source=_location(props["func"], entry, 1),
+            )
+        for key in keys:
+            columns[key].append(_scalar(value[key]))
+
+    for index, row in enumerate(_rows(source, reads)):
+        accept(index, function(row))
+    if keys is None:
+        # Empty input: learn the keys from one probe call on an all-None row;
+        # if the function cannot run on that, the output keeps the input schema.
+        probe = _Row(
+            {name: position for position, name in enumerate(source.columns)}, (None,) * len(source.columns), set()
+        )
+        try:
+            probed = function(probe)
+        except NativeError:
+            probed = None
+        if isinstance(probed, dict) and probed and all(isinstance(k, str) and k for k in probed):
+            keys = list(probed.keys())
+            columns = {key: [] for key in keys}
+        else:
+            keys = list(source.columns)
+            columns = {key: [] for key in keys}
+    output = pd.DataFrame(index=range(len(source)))
+    for key in keys:
+        fallback = _dtype(source[key]) if key in source.columns else None
+        dtype = _map_dtype(spec, key, columns[key], fallback, props["func"], entry)
+        try:
+            output[key] = _series(columns[key], dtype)
+        except (ValueError, TypeError) as error:
+            raise _error(
+                spec,
+                "OUTPUT_VALUE_TYPE",
+                f"map column {key!r}: {error}. Datetimes must carry a timezone.",
+                stage="contract",
+                field="func",
+            ) from error
+    operations["readColumns"] = sorted(reads)
+    operations["columnDependencies"] = {key: ([key] if key in source.columns else sorted(reads)) for key in keys}
+    operations["addedColumns"] = [key for key in keys if key not in source.columns]
+    operations["droppedColumns"] = [name for name in source.columns if name not in keys]
     return output
 
 
@@ -1484,13 +1582,9 @@ def _filter(spec, source, operations):
     for row in _rows(source, reads):
         value = _scalar(function(row))
         if value is None:
+            # None means "no verdict": the row is dropped, and the count is reported.
             missing += 1
-            policy = props.get("nulls", "drop")
-            if policy == "error":
-                raise _error(
-                    spec, "FILTER_NULL", 'Predicate returned None with nulls="error".', stage="contract", field="func"
-                )
-            value = policy == "keep"
+            value = False
         if not isinstance(value, bool):
             raise _error(
                 spec,
@@ -1593,128 +1687,6 @@ def _window(spec, source, operations):
         )
         for item in columns
     }
-    return output
-
-
-def _split(spec, source, operations):
-    props = spec["properties"]
-    name, into = props["column"], props["into"]
-    _columns(spec, source, [name], "column")
-    # Even with keepSource:false do not silently reuse/overwrite an input name.
-    _new_columns(spec, source, into, "into")
-    parts = {key: [] for key in into}
-    for position, cell in enumerate(source[name]):
-        value = _scalar(cell)
-        if value is not None and not isinstance(value, str):
-            raise _error(
-                spec,
-                "SPLIT_TYPE",
-                f"Column {name!r}, row {position}: expected string or null, got {type(value).__name__}. Cast explicitly if intended.",
-                field="column",
-            )
-        split = value.split(props["separator"], len(into) - 1) if value is not None else []
-        for i, key in enumerate(into):
-            parts[key].append(split[i] if i < len(split) else None)
-    output = source.copy().reset_index(drop=True)
-    if not props.get("keepSource", True):
-        output = output.drop(columns=[name])
-    for key in into:
-        output[key] = _series(parts[key], "str")
-    operations["columnDependencies"] = {key: [name] for key in into}
-    return output
-
-
-def _explode(spec, source, operations):
-    props, name = spec["properties"], spec["properties"]["column"]
-    _columns(spec, source, [name], "column")
-    parents, values, sample = [], [], []
-    domain, empty_parents, null_elements, elements, maximum = None, 0, 0, 0, 0
-
-    def invalid_constant(value):
-        raise ValueError(f"Non-JSON constant {value}")
-
-    for position, cell in enumerate(source[name]):
-        value = _scalar(cell)
-        if value is None:
-            array = []
-        elif not isinstance(value, str):
-            raise _error(
-                spec,
-                "EXPLODE_TYPE",
-                f"Column {name!r}, row {position}: expected a JSON-array string or null.",
-                field="column",
-            )
-        else:
-            try:
-                array = json.loads(value, parse_constant=invalid_constant)
-            except (ValueError, RecursionError) as error:
-                raise _error(
-                    spec,
-                    "EXPLODE_JSON",
-                    f"Column {name!r}, row {position}: invalid JSON array ({str(error)[:100]}).",
-                    field="column",
-                ) from error
-            if not isinstance(array, list):
-                raise _error(
-                    spec,
-                    "EXPLODE_TYPE",
-                    f"Column {name!r}, row {position}: JSON must contain an array, not {type(array).__name__}.",
-                    field="column",
-                )
-        maximum = max(maximum, len(array))
-        elements += len(array)
-        null_elements += sum(item is None for item in array)
-        empty_parents += int(not array)
-        if not array:
-            if props.get("empty", "drop") == "drop":
-                continue
-            entries = [(None, None)]
-        else:
-            entries = enumerate(array)
-        for element, value in entries:
-            if value is not None:
-                kind = (
-                    "bool"
-                    if isinstance(value, bool)
-                    else (
-                        "int64"
-                        if isinstance(value, int)
-                        else "float64" if isinstance(value, float) else "str" if isinstance(value, str) else None
-                    )
-                )
-                try:
-                    if kind is None or (domain is not None and domain != kind):
-                        raise TypeError(
-                            "elements must share one scalar type plus nulls; normalize arrays with a process function first"
-                        )
-                    value = _convert(value, kind)
-                except (TypeError, ValueError, OverflowError) as error:
-                    raise _error(
-                        spec,
-                        "EXPLODE_TYPE",
-                        f"Column {name!r}, row {position}, element {element}: {error}.",
-                        field="column",
-                    ) from error
-                domain = kind
-            parents.append(position)
-            values.append(value)
-            if len(sample) < 16:
-                sample.append({"inputPosition": position, "elementPosition": element})
-    output = source.iloc[parents].copy().reset_index(drop=True)
-    output[name] = _series(values, domain or "str")
-    operations["explode"] = {
-        "emptyParents": empty_parents,
-        "arrayElements": elements,
-        "nullElements": null_elements,
-        "maxElements": maximum,
-    }
-    operations["rowMapping"] = {
-        "inputPort": 0,
-        "kind": "array_elements",
-        "sample": sample,
-        "complete": len(values) <= len(sample),
-    }
-    operations["columnDependencies"] = {name: [name]}
     return output
 
 
@@ -1850,10 +1822,6 @@ def execute_native(spec, inputs):
         output = _union(spec, inputs, operations)
     elif kind == "Window":
         output = _window(spec, source, operations)
-    elif kind == "Split":
-        output = _split(spec, source, operations)
-    elif kind == "Explode":
-        output = _explode(spec, source, operations)
     elif kind == "Unpivot":
         output = _unpivot(spec, source, operations)
     elif kind == "Pivot":
@@ -1882,21 +1850,6 @@ def execute_native(spec, inputs):
         start = props.get("offset", 0)
         output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
         operations["removedRows"] = len(source) - len(output)
-    elif kind == "FillNull":
-        _columns(spec, source, list(props["values"]), "values")
-        output = source.copy().reset_index(drop=True)
-        for column, value in props["values"].items():
-            try:
-                replacement = _convert(value, _dtype(source[column]))
-                output[column] = (
-                    source[column].reset_index(drop=True).fillna(replacement)
-                    if replacement is not None
-                    else source[column].reset_index(drop=True)
-                )
-            except (ValueError, TypeError) as error:
-                raise _error(
-                    spec, "FILL_TYPE", f"{column}: {error}", stage="contract", field=f"values.{column}"
-                ) from error
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)

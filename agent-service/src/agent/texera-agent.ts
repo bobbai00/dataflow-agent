@@ -108,7 +108,6 @@ import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import { createInspectErrorTool, TOOL_NAME_INSPECT_ERROR } from "./tools/inspect-error-tool";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
 import {
   createRecallStateTool,
@@ -283,7 +282,7 @@ export function computeOperatorAccess(
       inputOpId &&
       (tc.toolName === TOOL_NAME_EXECUTE_OPERATOR ||
         tc.toolName === "inspectResult" || // Historical traces only; no executable tool remains.
-        tc.toolName === TOOL_NAME_INSPECT_ERROR)
+        tc.toolName === "inspectError") // Historical traces only; the tool was folded into dataflow receipts.
     ) {
       // A failed read still tells the UI which operator the model looked at.
       entry.viewedOperatorIds.push(inputOpId);
@@ -660,11 +659,10 @@ export class TexeraAgent {
       },
     };
 
-    const tools: Record<string, any> = {
-      [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
-    };
+    const tools: Record<string, any> = {};
 
     if (this.settings.agentMode === AgentMode.CODE) {
+      tools[TOOL_NAME_DELETE_OPERATOR] = createDeleteOperatorTool(this.workflowState, context);
       tools[TOOL_NAME_CREATE_OR_MODIFY_OPERATOR] = createCreateOrModifyOperatorTool(
         this.workflowState,
         operatorSchemas,
@@ -678,18 +676,6 @@ export class TexeraAgent {
       // NATIVE: the `dataflow` program tool plus a consumer-aware delete that
       // replaces the generic one.
       Object.assign(tools, createNativeTools(this.workflowState, context));
-    }
-
-    if (this.settings.agentMode === AgentMode.NATIVE) {
-      tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query => {
-        const inspected = this.snapshotStorage.inspectNativeError(this.head, query);
-        if (inspected.summary) {
-          const current = this.snapshotStorage.inspectNativeError(this.head, { operatorId: query.operatorId });
-          if (current.summary?.diagnosticId === inspected.summary.diagnosticId)
-            this.nativeValidationRepair.acknowledge(inspected.summary);
-        }
-        return inspected;
-      });
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -1332,7 +1318,7 @@ export class TexeraAgent {
     if (head === undefined) return;
     const step = this.stepsById.get(head);
     if (!step?.toolCalls || step.toolCalls.length === 0) return;
-    if (step.toolCalls.every(call => call.toolName === TOOL_NAME_INSPECT_ERROR)) return;
+    if (step.toolCalls.every(call => call.toolName === "inspectError")) return;
     if (this.snapshotStorage.hasSnapshotFor(head)) return;
     this.snapshotStorage.createSnapshot(head, content);
     this.snapshotCallback?.(head, content);
@@ -2530,7 +2516,7 @@ export class TexeraAgent {
     if (!tool || typeof tool.execute !== "function") return false;
     const stepId = this.generateStepId();
     const toolCallId = `call-${stepId}-seed`;
-    const input = { program: plan.program, observe: plan.observe };
+    const input = { edits: plan.program, observe: plan.observe };
     let output: unknown;
     let isError = false;
     try {

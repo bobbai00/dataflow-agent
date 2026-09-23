@@ -132,7 +132,7 @@ test("a catalog switch preserves computed results and retained bindings across t
       turn++;
       nextContext = JSON.stringify(await input.prepareStep({ stepNumber: 0, messages: input.initialMessages }));
       const args = {
-        program: turn === 1 ? 'source = scan("data/fixture.csv")' : "",
+        edits: turn === 1 ? 'source = scan("data/fixture.csv")' : "",
         observe: ["source"],
       };
       const output = await input.tools.dataflow.execute(args);
@@ -184,8 +184,8 @@ test("a task started by debug input is sealed when the next task starts, and at(
   const history = (agent as any).taskHistory;
   history.retain = async () => ({ path: "/test/retained.arrow", sha256: "a".repeat(64), rowCount: 0 });
   (agent as any).tools = (agent as any).createTools();
-  const call = (program: string) =>
-    agent.handleDebugInput(`Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify({ program }))})`);
+  const call = (edits: string) =>
+    agent.handleDebugInput(`Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify({ edits }))})`);
   await agent.handleDebugInput("Read the table");
   await call('source = scan("data/fixture.csv")');
   agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, "source", {

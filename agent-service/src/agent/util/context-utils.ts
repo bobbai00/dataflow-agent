@@ -1988,8 +1988,11 @@ function serializeTaskBody(
             if (outcome.status === "added" || outcome.status === "modified") {
               actedVerb.set(outcome.id, outcome.status === "added" ? "added" : "updated");
               delta.add(outcome.id);
-            } else
-              noChangeOutcome.push(`- ${outcome.op} operator \`${outcome.id}\` ${outcome.status}: ${outcome.message}`);
+            } else if (outcome.status === "deleted") noChangeOutcome.push(`- deleted operator \`${outcome.id}\``);
+            else
+              noChangeOutcome.push(
+                `- ${outcome.op === "edits" || outcome.op === "program" ? "statement" : outcome.op === "delete" ? "delete" : `${outcome.op} operator`} \`${outcome.id}\` ${outcome.status}: ${outcome.message}`
+              );
           }
           for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
           return;
@@ -3131,14 +3134,17 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
-  if (tc.toolName === TOOL_NAME_DATAFLOW && typeof inp.program === "string") {
-    // The program exactly as written; the receipt below says what landed.
+  const edits = typeof inp.edits === "string" ? inp.edits : typeof inp.program === "string" ? inp.program : undefined;
+  if (tc.toolName === TOOL_NAME_DATAFLOW && edits !== undefined) {
+    // The statements exactly as written; the receipt below says what landed.
     const lines = ["- dataflow"];
-    const program = inp.program.trim();
-    if (program) {
-      lines.push("  program:");
-      for (const l of program.split("\n")) lines.push(`    ${l}`);
-    } else lines.push("  program: (empty: cached read)");
+    if (Array.isArray(inp.delete) && inp.delete.length) lines.push(`  delete: ${JSON.stringify(inp.delete)}`);
+    const text = edits.trim();
+    if (text) {
+      lines.push("  edits:");
+      for (const l of text.split("\n")) lines.push(`    ${l}`);
+    } else
+      lines.push(Array.isArray(inp.delete) && inp.delete.length ? "  edits: (none)" : "  edits: (empty: cached read)");
     // Describe the submitted action, not an inferred default: saved receipts
     // from older runs may have resolved an omitted observe differently.
     lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "omitted"}`);

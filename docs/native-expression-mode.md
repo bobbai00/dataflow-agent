@@ -39,16 +39,16 @@ cannot silently become new arms.
 ## The program
 
 ```python
-def rank_value(row):
-    rank = row["Barrington Atlas Rank"]
-    if rank is None:
-        return None
-    parts = [p.strip() for p in rank.split("or")]
-    return sum(float(p) for p in parts) / len(parts)
+def rating_value(row):
+    text = row["rating"]
+    if text is None:
+        return {"product": row["product"], "numeric_rating": None}
+    parts = [p.strip() for p in text.split("or")]
+    return {"product": row["product"], "numeric_rating": sum(float(p) for p in parts) / len(parts)}
 
-greece_cities = filter(roman_cities, lambda row: row["Country"] == "Greece")
-greece_numeric_rank = map(greece_cities, numeric_rank=float64(rank_value))
-average_greece_rank = aggregate(greece_numeric_rank, average_rank=mean("numeric_rank"))
+domestic = filter(reviews, lambda row: row["country"] == "Greece", doc="Keeps reviews whose country is Greece")
+rated = map(domestic, rating_value, doc="Keeps product and the numeric rating parsed from the rating text")
+average_rating = aggregate(rated, by=["product"], average=mean("numeric_rating"))
 ```
 
 1. One assignment per operator. The left name is the output table; assigning
@@ -65,22 +65,29 @@ average_greece_rank = aggregate(greece_numeric_rank, average_rank=mean("numeric_
 5. A column whose name is not an identifier is addressed by string:
    `row["Acres Burned"]`, `**{"Acres Burned": float64}`.
 
-A syntax error anywhere fails the whole call ("Program syntax error at line
-N … Nothing was changed"). An argument error fails only its statement.
+A statement that does not parse fails alone (`PROGRAM_SYNTAX` at its line,
+its dependents blocked, the other statements landed). An argument error
+fails only its statement.
 
 ## The tool
 
-`dataflow({ program, observe })` is the only way to build or read.
+`dataflow({ edits, delete, observe })` is the only tool. A call runs four
+steps in a fixed order, and the prompt tells the model so:
 
-- `program`: the text above. An empty program with `observe` reads cached
-  results without executing anything.
-- `observe`: the tables whose contents the model wants to see. Everything else
-  still executes but shows only a receipt (`executed, N rows; result not
-  requested`). Errors are always shown.
+1. `delete`: ids of operators to remove. Refused while another operator that
+   survives the call still reads the deleted one (a consumer deleted or
+   re-pointed in the same call counts as handled).
+2. `edits`: the statements above (create or modify operators) plus the `def`s
+   they use. Empty when the call only deletes or re-reads cached results.
+3. Execution: new and modified operators run with everything downstream of
+   them; untouched operators keep their results.
+4. `observe`: the ids whose table contents the model wants to see. Everything
+   else shows only a receipt (`executed, N rows; result not requested`).
+   Errors are always shown.
 
-`deleteOperator({ id })` refuses while a consumer reads the operator.
-`inspectError({ operatorId, revision?, diagnosticId? })` returns a retained,
-revision-pinned diagnostic; it never returns tables.
+There is no separate delete or inspection tool: a rejected edit's diagnostic
+travels in the receipt, and a repeated identical resubmission is paused until
+corrected arguments land.
 
 ## Operators
 
@@ -94,9 +101,8 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)` | Scan | created |
 | `project(T, keep=None, drop=None, rename=None)` | Project | same |
 | `cast(T, column=dtype, ..., errors="raise")`, `datetime(format=, tz=)` | Cast | same |
-| `fill_null(T, column=value, ...)` | FillNull | same |
-| `filter(T, fn, nulls="drop")` | Filter | drop |
-| `map(T, column=dtype(fn), ...)` | Map | same |
+| `filter(T, fn, doc="...")` | Filter | drop |
+| `map(T, fn, doc="...")` (returns the new row as a dict) | Map | same |
 | `aggregate(T, by=[], name=reducer("col"), ...)` | Aggregate | one per group |
 | `join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")` | Join | multiply |
 | `union(T1, T2, ..., schema="strict")` | Union | add |
@@ -104,13 +110,17 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `sort(T, by, nulls="last")` | Sort | same |
 | `limit(T, n, offset=0)` | Limit | drop |
 | `window(T, partition_by=[], order_by=[...], name=fn, ...)` | Window | same |
-| `split(T, column, into, separator, keep_source=True)` | Split | same |
-| `explode(T, column, empty="drop")` | Explode | multiply |
 | `unpivot(T, columns, name="variable", value="value")` | Unpivot | add |
 | `pivot(T, index, columns, values)` | Pivot | collapse |
-| `process(T1, ..., Tn, fn=function)` | Process | unknown |
+| `process(T1, ..., Tn, fn=function, doc="...")` | Process | unknown |
 
-`map` replaces the earlier Transform and Derive; `process` replaces UDF. The
+`map` replaces the earlier Transform and Derive; `process` replaces UDF;
+`fill_null`, `split` and `explode` were retired on 2026-09-23 because traces
+never needed them (a `map` expresses each). Every custom operator (`filter`,
+`map`, `process`) takes a required one-sentence `doc` stating the logical
+semantics of its function; it is stored on the operator and leads its flow
+guarantee in observed results, since nothing else about custom code can be
+measured. The
 runtime (`native/python/runtime.py`) no longer takes declared input columns
 for filter and map: every function sees the whole row, and the columns it
 actually read are recorded (`operations.predicateColumns`,
@@ -150,13 +160,13 @@ envelope: `[CODE; stage; revision R] message`, then `Hint:` (one repair hint
 per code, always present), `Field:` (the model-facing argument, e.g. `how`,
 `orderBy`, `columns[0].func`), the failing line of a submitted function
 (`scaled line 2: return row["Amount"] * 2.0`), and `Diagnostic: diag_…` for
-`inspectError`. Messages name the cause: the column, the value, the option.
+the receipt. Messages name the cause: the column, the value, the option.
 
 The layers, in the order a statement passes through them:
 
 | Layer | Stage | Catches | Codes |
 |---|---|---|---|
-| Program parse | syntax | the whole call is refused, nothing lands | `Program syntax error at line N, column M` |
+| Program parse | validate | the statement that does not parse fails at its line; dependents blocked; the rest lands | `PROGRAM_SYNTAX` |
 | Argument normalizer (TypeScript) | validate | unknown keyword, enum, type, table count, undefined function, non-window function; carries the signature | `INVALID_ARGUMENTS` |
 | Runtime validate (Python, no data) | validate / compile | argument rules, Python syntax, entry signature, duplicate outputs | `*_ARGUMENT`, `*_OPTIONS`, `DTYPE`, `INPUT_PORTS`, `OPERATOR_ID`, `COLUMN_COLLISION`, `PYTHON_SYNTAX`, `CALLBACK_SIGNATURE` |
 | Runtime execute (Python, with data) | execute / contract | missing columns, value and type failures, custom-code failures, output contract | `MISSING_COLUMN`, `SCAN_*`, `CAST_INVALID_VALUE`, `FILL_TYPE`, `FILTER_NULL`, `CALLBACK_*`, `PYTHON_IMPORT`, `AGGREGATE_TYPE/RANGE`, `JOIN_TYPE/CARDINALITY`, `UNION_SCHEMA/TYPE`, `SPLIT_TYPE`, `EXPLODE_JSON/TYPE`, `UNPIVOT_TYPE`, `PIVOT_NULL_KEY/DUPLICATE`, `PROCESS_RETURN_TYPE`, `OUTPUT_SCHEMA`, `OUTPUT_VALUE_TYPE`, `ROW_CONTRACT` |
@@ -207,7 +217,7 @@ The smoke needs a running backend and agent service; it makes no LLM call and
 covers a forward-referenced chain with a process loader, hidden receipts, a
 cached read, an upstream revision refreshing a descendant, a preview window
 with `skip_lines`, a syntax error that changes nothing, a partial failure, an
-execution error superseding a success, and `inspectError`. The errors
+execution error superseding a success, and a delete through `dataflow`. The errors
 driver triggers every layer of the taxonomy through the real tool and engine
 and asserts that each receipt carries the code, stage, argument, cause and
 hint, and that consumers and bystanders of a failed operator are attributed

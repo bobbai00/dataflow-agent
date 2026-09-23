@@ -116,7 +116,12 @@ try {
       tool_calls: steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0),
       historical_inputs: steps
         .flatMap(s => s.toolCalls ?? [])
-        .reduce((n, c) => n + (String((c.input as any)?.program ?? "").match(HISTORY_REFERENCE) ?? []).length, 0),
+        .reduce(
+          (n, c) =>
+            n +
+            (String((c.input as any)?.edits ?? (c.input as any)?.program ?? "").match(HISTORY_REFERENCE) ?? []).length,
+          0
+        ),
     };
     await write(`${directory}/stats.json`, stats);
     answers.push({ turn_id: turn.turn_id, answer, error, steps: steps.length, stats });

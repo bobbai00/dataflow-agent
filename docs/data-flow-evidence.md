@@ -419,23 +419,22 @@ recover exact unmatched rows; that old heuristic is not used.
 
 ### 4.5 Row-preserving transformations
 
-`Project`, `Cast`, `FillNull`, `Transform`, `Derive`, `Sort`, `Window`, and `Split`
-have declared row-preserving behavior. Their contracts specify changed columns,
-dependencies, and order behavior; this is not inferred by parsing function
-bodies. Examples include:
+`Project`, `Cast`, `Map`, `Sort` and `Window` have declared row-preserving
+behavior. Their contracts specify changed columns, dependencies, and order
+behavior; this is not inferred by parsing function bodies. Examples include:
 
 - Project: selected/renamed columns; same rows and order.
-- Transform: only the declared columns change; same rows and order.
-- Derive: new output columns have explicit input-column dependencies.
+- Map: one row out per row in, same order; the added and dropped columns and
+  the columns the function read are measured at run time, and the author's
+  `doc` leads the guarantee.
 - Sort: stable sorting, preserving row identities but changing order.
-- Split: literal splitting with null padding for missing pieces.
 
 For `Cast`, the runtime counts conversion failures by column. With
 `errors="null"`, failed conversions produce null and the failure count can be
 shown; with `errors="raise"`, a bad conversion stops execution and becomes an
 error, not a successful lossy result.
 
-For Cast/Transform/Derive/FillNull, a null-change fact is eligible only when the
+For Cast/Map, a null-change fact is eligible only when the
 operation preserves the row count, the column is relevant, both before/after
 column profiles are full, and the null count actually changed:
 

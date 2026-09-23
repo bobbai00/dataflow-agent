@@ -490,7 +490,7 @@ describe("formatOperatorResult - who is blamed when the run stops", () => {
   async function stateWithFailedJoin() {
     const { state, tools } = nativeTestTools();
     const result = await tools.dataflow.execute({
-      program: [
+      edits: [
         'sales = scan("data/sales.csv")',
         'names = scan("data/names.csv")',
         'labeled = join(sales, names, on="region", how="left", validate="many_to_one")',

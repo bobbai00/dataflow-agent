@@ -219,12 +219,8 @@ def test_multiple_sort_keys_and_null_placement_are_stable():
 def test_float_infinity_cannot_silently_become_a_null_in_json_transport():
     with pytest.raises(runtime.NativeError, match="INPUT_VALUE_TYPE"):
         execute("Union", pd.DataFrame({"x": [float("inf")]}), pd.DataFrame({"x": [1.0]}))
-    with pytest.raises(runtime.NativeError, match="CALLBACK_RETURN_TYPE"):
-        execute(
-            "Map",
-            pd.DataFrame({"x": [1.0]}),
-            columns=[{"as": "y", "dtype": "float64", "func": "def apply(row):\n    return float('inf')"}],
-        )
+    with pytest.raises(runtime.NativeError, match="OUTPUT_VALUE_TYPE"):
+        execute("Map", pd.DataFrame({"x": [1.0]}), func="def apply(row):\n    return {**row, 'y': float('inf')}")
 
 
 def test_join_and_union_do_not_round_nullable_object_integers():

@@ -158,7 +158,7 @@ export class NativeValidationRepair {
     return {
       ...failure.diagnostic,
       message: `${prefix}${detail}${example}`,
-      hint: "Needs inspection: call inspectError for this operator's current diagnostic, or submit corrected arguments that follow the signature.",
+      hint: "An identical resubmission stays paused; submit corrected arguments that follow the signature and the diagnostic above.",
       retryable: false,
     };
   }

@@ -169,16 +169,24 @@ try {
   });
   agentId = agent.id;
 
-  // 1. Program syntax: nothing lands, line and column reported.
-  const syntax = await debug("dataflow", { program: 'sales = scan("x.csv"\nnames = scan("y.csv")', observe: [] });
-  check("syntax error refuses the whole program", lastObservation(syntax.context), [
-    "Program syntax error at line",
-    "Nothing was changed",
+  // 1. Program syntax: the unparseable statement fails at its line; the other
+  //    statement lands (and then fails at execution, since the file is absent).
+  const syntax = await debug("dataflow", {
+    edits: 'sales_probe = scan("x.csv"\nnames_probe = scan("y.csv")',
+    observe: [],
+  });
+  check("an unparseable statement fails alone at its line", lastObservation(syntax.context), [
+    "[PROGRAM_SYNTAX; validate;",
+    "line 1",
+    "was never closed",
+    "other statements landed",
+    "scan operator `names_probe` added",
   ]);
+  await debug("dataflow", { edits: "", delete: ["names_probe"] });
 
   // 2. Argument layer (TypeScript): the value the model wrote, the accepted set and the signature.
   const args = await debug("dataflow", {
-    program: [
+    edits: [
       `sales = scan("${fixtureDir}/sales.csv")`,
       `names = scan("${fixtureDir}/names.csv")`,
       'bad_join = join(sales, names, on="region", how="outer_left")',
@@ -205,7 +213,7 @@ try {
 
   // 3. Execute layer (Python, with data): cast failure names column and value; blocked consumer names the root.
   const cast = await debug("dataflow", {
-    program: ["typed = cast(sales, amount=float64)", 'total = aggregate(typed, s=sum("amount"))'].join("\n"),
+    edits: ["typed = cast(sales, amount=float64)", 'total = aggregate(typed, s=sum("amount"))'].join("\n"),
     observe: ["total"],
   });
   const castText = lastObservation(cast.context);
@@ -223,11 +231,11 @@ try {
 
   // 4. Custom code: the failing line of the submitted function and the missing column by name.
   const callback = await debug("dataflow", {
-    program: [
+    edits: [
       "def scaled(row):",
-      '    return row["Amount"] * 2.0',
+      '    return {**row, "twice": row["Amount"] * 2.0}',
       'typed = cast(sales, amount=float64, errors="null")',
-      "doubled = map(typed, twice=float64(scaled))",
+      'doubled = map(typed, scaled, doc="Adds twice = 2 * Amount")',
     ].join("\n"),
     observe: ["doubled"],
   });
@@ -244,7 +252,7 @@ try {
   // (not blamed on an operator it never reads), while a real consumer names its
   // upstream root.
   const cardinality = await debug("dataflow", {
-    program: [
+    edits: [
       'labeled = join(typed, names, on="region", how="left", validate="many_to_one")',
       "label_count = aggregate(labeled, n=count())",
       "typed_count = aggregate(typed, n=count())",
@@ -281,11 +289,17 @@ try {
     "a bystander must not be blamed on a non-upstream operator"
   );
   // Remove the failing join and its consumer so the next execution is clean.
-  const removed = await debug("deleteOperator", { id: "label_count" });
-  check("deleteOperator reports the removal", removed.context.slice(-400), ["operator label_count deleted"]);
-  await debug("deleteOperator", { id: "labeled" });
+  const refused = await debug("dataflow", { edits: "", delete: ["labeled"] });
+  check("a delete is refused while a consumer still reads the operator", lastObservation(refused.context), [
+    "`labeled` still feeds `label_count`",
+  ]);
+  const removed = await debug("dataflow", { edits: "", delete: ["label_count", "labeled"] });
+  check("deleting the consumer and its producer together succeeds", lastObservation(removed.context), [
+    "deleted operator `label_count`",
+    "deleted operator `labeled`",
+  ]);
   const unionErr = await debug("dataflow", {
-    program: 'both = union(typed, names, schema="strict")',
+    edits: 'both = union(typed, names, schema="strict")',
     observe: ["both"],
   });
   check("union schema names the columns that differ", lastObservation(unionErr.context), [
@@ -295,14 +309,14 @@ try {
     'schema="align"',
     "Field: schema",
   ]);
-  await debug("deleteOperator", { id: "both" });
+  await debug("dataflow", { edits: "", delete: ["both"] });
 
   // 6. Process contract: wrong return type; and a scan header problem.
   const processErr = await debug("dataflow", {
-    program: [
+    edits: [
       "def summarize(t):",
       "    return [len(t)]",
-      "summary = process(typed, fn=summarize)",
+      'summary = process(typed, fn=summarize, doc="Counts the rows")',
       `dup = scan("${fixtureDir}/dup.csv")`,
     ].join("\n"),
     observe: ["summary", "dup"],
@@ -319,11 +333,16 @@ try {
     "header=False",
   ]);
 
-  // 7. inspectError returns the retained diagnostic for the current failure.
-  const inspected = await debug("inspectError", { operatorId: "summary" });
-  check("inspectError returns the retained diagnostic with the submitted source", inspected.context.slice(-3000), [
-    "PROCESS_RETURN_TYPE",
-    "summarize",
+  // 7. A row-to-row map that returns different keys per row is a schema error naming both rows.
+  const mapErr = await debug("dataflow", {
+    edits:
+      'uneven = map(typed, lambda row: {**row, "flag": 1} if row["amount"] is None else {"only": 1}, doc="Returns different keys depending on amount")',
+    observe: ["uneven"],
+  });
+  check("a map returning different keys per row is a schema error", lastObservation(mapErr.context), [
+    "[MAP_SCHEMA; contract; revision ",
+    "every row must return the same keys",
+    "Hint: Return the same keys from every row",
   ]);
 
   console.log(report.join("\n"));

@@ -38,14 +38,13 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
         : [original];
     }
     case "Map": {
-      // Dependencies are measured at execution (the columns the function read),
-      // so they are only known once this operator has a result.
-      const outputs = (Array.isArray(p.columns) ? p.columns : []).map(c => record(c).as);
-      if (!outputs.includes(name)) return [name];
+      // The function returns the whole row, so both the output columns and
+      // their dependencies are measured at execution; before a result exists
+      // a column is assumed to pass through under its own name.
       const measured = record(
         context.resolveInput(op.operatorID)?.tableProfile?.native?.operations?.columnDependencies
       );
-      return names(measured[name]);
+      return name in measured ? names(measured[name]) : [name];
     }
     case "Aggregate": {
       if (names(p.groupBy).includes(name)) return [name];
@@ -64,8 +63,6 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
           ]
         : [name];
     }
-    case "Split":
-      return names(p.into).includes(name) ? names([p.column]) : [name];
     case "Unpivot":
       return name === (p.valueColumn ?? "value") || name === (p.nameColumn ?? "variable") ? names(p.columns) : [name];
     case "Pivot":
@@ -86,12 +83,10 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
       return !coalesced && right.has(original) && left.has(original) ? [original] : [];
     }
     case "Cast":
-    case "FillNull":
     case "Filter":
     case "Distinct":
     case "Sort":
     case "Limit":
-    case "Explode":
     case "Union":
       return [name];
     default:

@@ -47,66 +47,73 @@ def run(kind, frame, **properties):
     return runtime.execute_native(spec(kind, **properties), [frame])
 
 
-def test_map_preserves_duplicate_index_order_and_measures_read_columns():
+def test_map_returns_the_new_row_and_measures_read_columns():
     source = pd.DataFrame({"x": [2, 4, 1], "keep": ["a", "b", "c"]}, index=[8, 8, -2])
-    result = run(
-        "Map",
-        source,
-        columns=[{"as": "doubled", "dtype": "int64", "func": "def apply(row):\n    return row['x'] * 2"}],
-    )
+    result = run("Map", source, func="def apply(row):\n    return {**row, 'doubled': row['x'] * 2}")
     assert result["doubled"].tolist() == [4, 8, 2]
     assert result["keep"].tolist() == ["a", "b", "c"]
     assert list(result.columns) == ["x", "keep", "doubled"]
+    assert str(result["doubled"].dtype) == "Int64"
     assert source.columns.tolist() == ["x", "keep"]
-    assert result.attrs["native_v2"]["operations"]["columnDependencies"] == {"doubled": ["x"]}
+    operations = result.attrs["native_v2"]["operations"]
+    assert operations["columnDependencies"] == {"x": ["x"], "keep": ["keep"], "doubled": ["x"]}
+    assert operations["addedColumns"] == ["doubled"] and operations["droppedColumns"] == []
+    assert operations["readColumns"] == ["x"]
+
+
+def test_map_can_drop_and_rename_by_returning_other_keys():
+    source = pd.DataFrame({"x": [1, 2], "y": ["a", "b"]})
+    result = run("Map", source, func="def apply(row):\n    return {'label': row['y'], 'twice': row['x'] * 2}")
+    assert list(result.columns) == ["label", "twice"]
+    assert result["twice"].tolist() == [2, 4]
+    assert result.attrs["native_v2"]["operations"]["droppedColumns"] == ["x", "y"]
 
 
 def test_callbacks_receive_none_and_preserve_literal_words():
     result = run(
         "Map",
         pd.DataFrame({"x": [None, np.nan, pd.NA, "false null true"]}),
-        columns=[
-            {
-                "as": "x",
-                "dtype": "str",
-                "func": "def apply(row):\n    return 'null' if row['x'] is None else row['x']",
-            }
-        ],
+        func="def apply(row):\n    return {'x': 'null' if row['x'] is None else row['x']}",
     )
     assert result["x"].tolist() == ["null", "null", "null", "false null true"]
     assert list(result.columns) == ["x"]
 
 
-def test_empty_map_has_typed_output_without_invoking_callback():
-    result = run(
-        "Map",
-        pd.DataFrame({"x": pd.Series(dtype="int64")}),
-        columns=[{"as": "v", "dtype": "float64", "func": "def apply(row):\n    raise RuntimeError('must not run')"}],
+def test_empty_map_learns_its_columns_from_a_probe_or_keeps_the_input_schema():
+    empty = pd.DataFrame({"x": pd.Series(dtype="int64")})
+    learned = run("Map", empty, func="def apply(row):\n    return {**row, 'v': 1.5}")
+    assert learned.empty and list(learned.columns) == ["x", "v"]
+    assert str(learned["x"].dtype) == "Int64" and str(learned["v"].dtype) == "string"
+    kept = run("Map", empty, func="def apply(row):\n    return {**row, 'v': row['x'] * 2}")
+    assert kept.empty and list(kept.columns) == ["x"]
+
+
+@pytest.mark.parametrize(
+    "returned,dtype",
+    [("2.5", "Float64"), ("True", "boolean"), ("'2'", "string"), ("7", "Int64"), ("None", "string")],
+)
+def test_map_infers_each_column_type_from_its_values(returned, dtype):
+    result = run("Map", pd.DataFrame({"x": [1]}), func=f"def apply(row):\n    return {{**row, 'v': {returned}}}")
+    assert str(result["v"].dtype) == dtype
+
+
+def test_map_promotes_ints_to_float_and_rejects_incompatible_mixes():
+    promoted = run(
+        "Map", pd.DataFrame({"x": [1, 2]}), func="def apply(row):\n    return {'v': 1 if row['x'] == 1 else 2.5}"
     )
-    assert result.empty and str(result["v"].dtype) == "Float64"
-
-
-@pytest.mark.parametrize("returned", ["[1, 2]", "{'a': 1}", "'2'", "2.5", "True"])
-def test_map_rejects_non_integer_output(returned):
+    assert str(promoted["v"].dtype) == "Float64" and promoted["v"].tolist() == [1.0, 2.5]
     with pytest.raises(runtime.NativeError) as failure:
-        run(
-            "Map",
-            pd.DataFrame({"x": [1]}),
-            columns=[{"as": "v", "dtype": "int64", "func": f"def apply(row):\n    return {returned}"}],
-        )
+        run("Map", pd.DataFrame({"x": [1, 2]}), func="def apply(row):\n    return {'v': 1 if row['x'] == 1 else 'a'}")
+    assert failure.value.diagnostic["code"] == "OUTPUT_VALUE_TYPE"
+    assert "row 0" in failure.value.diagnostic["message"] and "row 1" in failure.value.diagnostic["message"]
+    with pytest.raises(runtime.NativeError) as failure:
+        run("Map", pd.DataFrame({"x": [1]}), func="def apply(row):\n    return 5")
     assert failure.value.diagnostic["code"] == "CALLBACK_RETURN_TYPE"
 
 
-def test_multiple_mapped_columns_read_original_input_not_each_other():
+def test_map_columns_read_the_original_row_not_each_other():
     with pytest.raises(runtime.NativeError, match="MISSING_COLUMN"):
-        run(
-            "Map",
-            pd.DataFrame({"x": [1]}),
-            columns=[
-                {"as": "y", "dtype": "int64", "func": "def apply(row):\n    return row['x']"},
-                {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return row['y']"},
-            ],
-        )
+        run("Map", pd.DataFrame({"x": [1]}), func="def apply(row):\n    return {**row, 'y': row['x'], 'z': row['y']}")
 
 
 @pytest.mark.parametrize(
@@ -172,24 +179,18 @@ def test_missing_column_is_actionable_and_row_mapping_cannot_be_mutated():
     assert kept.attrs["native_v2"]["operations"]["predicateColumns"] == ["x"]
 
 
-@pytest.mark.parametrize("policy,expected", [("drop", [3]), ("keep", [None, 3])])
-def test_filter_null_policy_and_stable_subset(policy, expected):
+def test_filter_drops_none_verdicts_counts_them_and_keeps_a_stable_subset():
     source = pd.DataFrame({"x": pd.Series([None, 1, 3], dtype="Int64")})
-    result = run(
-        "Filter",
-        source,
-        columns=["x"],
-        nulls=policy,
-        func="def apply(row):\n    return None if row['x'] is None else row['x'] > 1",
-    )
-    assert [None if pd.isna(v) else v for v in result["x"]] == expected
+    result = run("Filter", source, func="def apply(row):\n    return None if row['x'] is None else row['x'] > 1")
+    assert [None if pd.isna(v) else v for v in result["x"]] == [3]
+    operations = result.attrs["native_v2"]["operations"]
+    assert (operations["keptRows"], operations["rejectedRows"], operations["nullPredicates"]) == (1, 2, 1)
 
 
-@pytest.mark.parametrize("value,code", [("'false'", "CALLBACK_RETURN_TYPE"), ("None", "FILTER_NULL")])
-def test_filter_never_uses_truthiness_or_silently_swallows_null_error(value, code):
+def test_filter_never_uses_truthiness():
     with pytest.raises(runtime.NativeError) as failure:
-        run("Filter", pd.DataFrame({"x": [1]}), columns=[], nulls="error", func=f"def apply(row):\n    return {value}")
-    assert failure.value.diagnostic["code"] == code
+        run("Filter", pd.DataFrame({"x": [1]}), func="def apply(row):\n    return 'false'")
+    assert failure.value.diagnostic["code"] == "CALLBACK_RETURN_TYPE"
 
 
 def test_import_failure_is_distinct_and_points_at_submitted_import():
@@ -231,31 +232,15 @@ def test_datetime_cast_requires_timezone_for_naive_values_and_normalizes_utc():
     assert result["x"].iloc[0] == pd.Timestamp("2024-01-01T08:00:00Z")
 
 
-def test_fill_null_only_changes_missing_cells_and_checks_type():
-    source = pd.DataFrame({"x": pd.Series([1, None, 0], dtype="Int64")})
-    assert run("FillNull", source, values={"x": 5})["x"].tolist() == [1, 5, 0]
-    with pytest.raises(runtime.NativeError, match="FILL_TYPE"):
-        run("FillNull", source, values={"x": "oops"})
-
-
-def test_map_replaces_in_place_and_collisions_fail_before_callbacks():
-    source = pd.DataFrame({"x": [1], "y": [2]})
-    replaced = run("Map", source, columns=[{"as": "x", "dtype": "int64", "func": "def apply(row):\n    return 7"}])
-    assert list(replaced.columns) == ["x", "y"] and replaced["x"].tolist() == [7]
-    with pytest.raises(runtime.NativeError, match="COLUMN_COLLISION"):
-        runtime.validate_native(
-            spec(
-                "Map",
-                columns=[
-                    {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return 1"},
-                    {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return 2"},
-                ],
-            )
-        )
+def test_map_replaces_in_place_and_schema_slips_fail_clearly():
+    source = pd.DataFrame({"x": [1, 2], "y": [2, 3]})
+    replaced = run("Map", source, func="def apply(row):\n    return {**row, 'x': 7}")
+    assert list(replaced.columns) == ["x", "y"] and replaced["x"].tolist() == [7, 7]
+    with pytest.raises(runtime.NativeError) as failure:
+        run("Map", source, func="def apply(row):\n    return {**row, 'k': 1} if row['x'] == 1 else {**row, 'm': 1}")
+    assert failure.value.diagnostic["code"] == "MAP_SCHEMA"
     with pytest.raises(runtime.NativeError, match="MISSING_COLUMN"):
-        run(
-            "Map", source, columns=[{"as": "z", "dtype": "int64", "func": "def apply(row):\n    return row['missing']"}]
-        )
+        run("Map", source, func="def apply(row):\n    return {**row, 'z': row['missing']}")
     with pytest.raises(runtime.NativeError, match="COLUMN_COLLISION"):
         run("Project", source, rename={"x": "y"})
 
