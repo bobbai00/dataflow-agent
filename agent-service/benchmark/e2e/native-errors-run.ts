@@ -235,7 +235,7 @@ try {
       "def scaled(row):",
       '    return {**row, "twice": row["Amount"] * 2.0}',
       'typed = cast(sales, amount=float64, errors="null")',
-      "doubled = map(typed, scaled)",
+      'doubled = map(typed, scaled, doc="Adds twice = 2 * Amount")',
     ].join("\n"),
     observe: ["doubled"],
   });
@@ -335,7 +335,8 @@ try {
 
   // 7. A row-to-row map that returns different keys per row is a schema error naming both rows.
   const mapErr = await debug("dataflow", {
-    edits: 'uneven = map(typed, lambda row: {**row, "flag": 1} if row["amount"] is None else {"only": 1})',
+    edits:
+      'uneven = map(typed, lambda row: {**row, "flag": 1} if row["amount"] is None else {"only": 1}, doc="Returns different keys depending on amount")',
     observe: ["uneven"],
   });
   check("a map returning different keys per row is a schema error", lastObservation(mapErr.context), [

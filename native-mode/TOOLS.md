@@ -8,7 +8,7 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
 
 **Description sent to the model**
 
-> Build, modify, delete and observe the dataflow in one call. `edits` holds `id = operator(...)` statements (operators: scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process); `delete` lists ids to remove first; `observe` lists the ids whose table contents you need (omitted/[] hides successes but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results.
+> Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: scan, project, cast, filter, map, aggregate, join, union, distinct, sort, limit, window, unpivot, pivot, process), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.
 
 **Input schema**
 
@@ -19,21 +19,21 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
   "properties": {
     "edits": {
       "type": "string",
-      "description": "Statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results."
+      "description": "Step 2, applied after the deletes: statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results."
     },
     "delete": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Ids of operators to remove before the edits apply. Refused for an operator that another surviving operator still reads."
+      "description": "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts)."
     },
     "observe": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Everything still executes; errors always appear."
+      "description": "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear."
     }
   },
   "required": [
@@ -44,7 +44,7 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
 
 ## How a call is processed
 
-1. `delete` removes the listed operators first (refused while another surviving operator reads one). `edits` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.
+1. `delete` removes the listed operators first (refused while another surviving operator reads one; a consumer deleted or re-pointed in the same call counts as handled). Only then is `edits` parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.
 2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.
 3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.
 4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.

@@ -39,7 +39,7 @@ function setup() {
 }
 
 const scan = 'source = scan("data/test.csv")';
-const filter = 'selected = filter(source, lambda row: row["x"] is not None and row["x"] > 0)';
+const filter = 'selected = filter(source, lambda row: row["x"] is not None and row["x"] > 0, doc="Keeps positive x")';
 const aggregate = "total = aggregate(selected, n=count())";
 
 describe("native dataflow tool", () => {
@@ -103,7 +103,7 @@ describe("native dataflow tool", () => {
   test("duplicate names and cycles are refused before mutation, including cycles through old operators", async () => {
     const { batch, state } = setup();
     await batch([scan, filter, aggregate].join("\n"));
-    const cyclic = await batch('selected = filter(total, lambda row: row["n"] > 0)');
+    const cyclic = await batch('selected = filter(total, lambda row: row["n"] > 0, doc="Keeps positive counts")');
     expect(cyclic.operators[0].status).toBe("error");
     expect(cyclic.operators[0].message).toContain("cycle");
     expect(state.getOperator("selected")?.nativeOp?.inputs).toEqual(["source"]);
@@ -111,7 +111,11 @@ describe("native dataflow tool", () => {
     expect(duplicate.operators.every(o => o.status === "error")).toBe(true);
     expect(duplicate.operators[0].message).toContain("assigned twice");
     const fresh = await batch(
-      ["a = filter(b, lambda row: True)", "b = filter(a, lambda row: True)", 'other = scan("data/o.csv")'].join("\n")
+      [
+        'a = filter(b, lambda row: True, doc="all")',
+        'b = filter(a, lambda row: True, doc="all")',
+        'other = scan("data/o.csv")',
+      ].join("\n")
     );
     expect(fresh.operators.map(o => o.status)).toEqual(["error", "error", "added"]);
     expect(state.getOperator("a")).toBeUndefined();

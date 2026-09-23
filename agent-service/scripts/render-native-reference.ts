@@ -101,7 +101,7 @@ export function renderTools(): string {
       )
       .join("\n") +
     "\n## How a call is processed\n\n" +
-    "1. `delete` removes the listed operators first (refused while another surviving operator reads one). `edits` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.\n" +
+    "1. `delete` removes the listed operators first (refused while another surviving operator reads one; a consumer deleted or re-pointed in the same call counts as handled). Only then is `edits` parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.\n" +
     "2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.\n" +
     "3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.\n" +
     "4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.\n"
@@ -153,9 +153,11 @@ ${nativeCatalogText()}
 
 | Operator | Function shape | Contract |
 |---|---|---|
-| \`filter(T, fn)\` | \`fn(row) -> bool\` | drop-only: True keeps the row, False or None drops it |
-| \`map(T, fn)\` | \`fn(row) -> dict\` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; \`{**row, ...}\` keeps the input columns |
-| \`process(T1, ..., Tn, fn=f, doc="...")\` | \`f(df1, ..., dfn) -> DataFrame\`; \`f()\` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes; \`doc\` is the one sentence shown with its results |
+| \`filter(T, fn, doc="...")\` | \`fn(row) -> bool\` | drop-only: True keeps the row, False or None drops it |
+| \`map(T, fn, doc="...")\` | \`fn(row) -> dict\` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; \`{**row, ...}\` keeps the input columns |
+| \`process(T1, ..., Tn, fn=f, doc="...")\` | \`f(df1, ..., dfn) -> DataFrame\`; \`f()\` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes |
+
+Every custom operator carries a required \`doc\`: one sentence stating the logical semantics of the function (which rows a filter keeps, what row a map returns, what table a process produces). It is stored with the operator and leads the operator's flow guarantee in observed results, because nothing else about custom code can be measured.
 
 \`row\` is a read-only mapping of the input columns; a missing value is None. The columns a function actually reads are measured at run time (\`predicateColumns\` for filter, \`readColumns\` and \`columnDependencies\` for map, where \`{**row}\` copies are not counted as reads) and drive the flow evidence and lineage, so nothing about the columns is declared.
 
@@ -164,14 +166,14 @@ ${nativeCatalogText()}
 Program statement:
 
 \`\`\`python
-positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0)
+positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0, doc="Keeps rows with a positive value")
 \`\`\`
 
 Normalized view stored on the operator (\`nativeOp\`):
 
 \`\`\`json
 { "type": "Filter", "inputs": ["typed"],
-  "properties": { "func": "def apply(row):\\n    return row[\\"value\\"] is not None and row[\\"value\\"] > 0", "entry": "apply" },
+  "properties": { "func": "def apply(row):\\n    return row[\\"value\\"] is not None and row[\\"value\\"] > 0", "entry": "apply", "doc": "Keeps rows with a positive value" },
   "revision": "<hash of type + inputs + properties>" }
 \`\`\`
 

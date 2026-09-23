@@ -19,16 +19,15 @@ id = operator(input_id, ..., parameter=value, ...)
 - **Functions** are lambdas or `def`s written in the same `edits` and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
 - A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
-## The catalog (18 operators)
+## The catalog (15 operators)
 
 | Operator | Engine type | Inputs | Row effect | Signature |
 |---|---|---|---|---|
 | `scan` | Scan | 0 | create | `scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)` |
 | `project` | Project | 1 | none | `project(T, keep=None, drop=None, rename=None)` |
 | `cast` | Cast | 1 | none | `cast(T, column=dtype, ..., errors="raise")` |
-| `fill_null` | FillNull | 1 | none | `fill_null(T, column=value, ...)` |
-| `filter` | Filter | 1 | drop | `filter(T, fn)` |
-| `map` | Map | 1 | none | `map(T, fn)` |
+| `filter` | Filter | 1 | drop | `filter(T, fn, doc="what the predicate keeps")` |
+| `map` | Map | 1 | none | `map(T, fn, doc="what the new row holds")` |
 | `aggregate` | Aggregate | 1 | collapse | `aggregate(T, by=[], name=reducer("col"), ...)` |
 | `join` | Join | 2 | multiply | `join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")` |
 | `union` | Union | 1 or more (0 for a `process` loader) | add | `union(T1, T2, ..., schema="strict")` |
@@ -36,8 +35,6 @@ id = operator(input_id, ..., parameter=value, ...)
 | `sort` | Sort | 1 | none | `sort(T, by, nulls="last")` |
 | `limit` | Limit | 1 | drop | `limit(T, n, offset=0)` |
 | `window` | Window | 1 | none | `window(T, partition_by=[], order_by=[...], name=fn, ...)` |
-| `split` | Split | 1 | none | `split(T, column, into, separator, keep_source=True)` |
-| `explode` | Explode | 1 | multiply | `explode(T, column, empty="drop")` |
 | `unpivot` | Unpivot | 1 | add | `unpivot(T, columns, name="variable", value="value")` |
 | `pivot` | Pivot | 1 | collapse | `pivot(T, index, columns, values)` |
 | `process` | Process | 1 or more (0 for a `process` loader) | unknown | `process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")` |
@@ -58,14 +55,11 @@ T2 = project(T, keep=None, drop=None, rename=None)
 T2 = cast(T, column=dtype, ..., errors="raise")
     Changes column types: `cast(t, amount=float64, year=int64)`; a column whose name is not an identifier goes through `**{"Unit Price": float64}`. dtypes are str, int64, float64, bool, datetime; `datetime(format="%Y-%m-%d", tz="UTC")` takes an explicit format and timezone (naive values need tz). A value that does not convert fails the operator, or becomes missing with errors="null". Normalize text (thousands separators, percent signs) with map first.
 
-T2 = fill_null(T, column=value, ...)
-    Replaces missing cells of each named column with the given literal (compatible with the column's type). Rows are unchanged; no imputation or forward fill. Example: `filled = fill_null(orders, quantity=0, region="unknown")`.
+T2 = filter(T, fn, doc="what the predicate keeps")
+    Keeps the rows for which `fn(row)` returns True: `big = filter(orders, lambda row: row["amount"] is not None and row["amount"] > 100, doc="Keeps orders with an amount above 100")`. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True to keep, False or None to drop; anything else, including a truthy string, is a contract error. Row order is preserved; the columns the function reads are measured, not declared. `doc` is one sentence stating the logical semantics of the predicate (which rows survive); it is shown with the results.
 
-T2 = filter(T, fn)
-    Keeps the rows for which `fn(row)` returns True: `kept = filter(orders, lambda row: row["amount"] is not None and row["amount"] > 100)`. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True to keep, False or None to drop; anything else, including a truthy string, is a contract error. Row order is preserved; the columns the function reads are measured, not declared.
-
-T2 = map(T, fn)
-    Transforms every row: `fn(row)` returns the new row as a dict and those dicts are the output table: `priced = map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]})`. `{**row, ...}` keeps the input columns; a dict without it keeps only the keys you return (rename or drop columns that way). One row out per row in, in the same order; every row must return the same keys; values are scalars or None; column types are inferred from the values (ints and floats mix to float64, one type per column otherwise). Missing values arrive as None; handle them explicitly.
+T2 = map(T, fn, doc="what the new row holds")
+    Transforms every row: `fn(row)` returns the new row as a dict and those dicts are the output table: `priced = map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]}, doc="Adds unit_price = amount / quantity, None when quantity is missing or zero")`. `{**row, ...}` keeps the input columns; a dict without it keeps only the keys you return (rename or drop columns that way). One row out per row in, in the same order; every row must return the same keys; values are scalars or None; column types are inferred from the values (ints and floats mix to float64, one type per column otherwise). Missing values arrive as None; handle them explicitly. `doc` is one sentence stating the logical semantics of the function (which columns it adds, changes or drops, and how); it is shown with the results.
 
 T2 = aggregate(T, by=[], name=reducer("col"), ...)
     One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.
@@ -88,12 +82,6 @@ T2 = limit(T, n, offset=0)
 T2 = window(T, partition_by=[], order_by=[...], name=fn, ...)
     Adds columns computed within partitions in the given order, then restores the input row order: `window(t, partition_by=["team"], order_by=["date"], prev=lag("score", 1), rank=dense_rank())`. Functions: lag(col, offset=1), lead(col, offset=1), row_number(), rank(), dense_rank(). Ranks are 1-based; ties follow the order keys, so add a tie-break key when it matters. Null partition keys form one partition; null order values sort last.
 
-T2 = split(T, column, into, separator, keep_source=True)
-    Splits a string column on a literal separator (no regex) into at least two new columns, at most len(into)-1 times; missing pieces are null and the remainder stays in the last column. Null input gives null outputs; a non-string column or a name collision fails. Example: `parts = split(orders, column="code", into=["prefix", "number"], separator="-")`.
-
-T2 = explode(T, column, empty="drop")
-    Expands a column of JSON-array strings into one row per element (other cells repeat), replacing the column with the elements. All non-null elements must share one scalar type. empty="drop" removes null/empty parents; "null_row" keeps one null row for them. Example: `tags_long = explode(orders, column="tags_json")`.
-
 T2 = unpivot(T, columns, name="variable", value="value")
     Wide to long: one output row per input row and listed column, keeping the other columns as keys and adding `name` (the column's name) and `value` (its value, nulls included). The listed columns need compatible types; cast first on mismatch. Example: `monthly = unpivot(wide, columns=["Jan", "Feb", "Mar"], name="month", value="rainfall")`.
 
@@ -101,16 +89,18 @@ T2 = pivot(T, index, columns, values)
     Long to wide: one row per distinct index combination, one column per distinct value of `columns`, cells from `values`. Each (index, columns) pair must occur once: aggregate first if combining is intended. Absent cells are null; null pivot keys fail. The output schema depends on the data: observe it before naming its columns downstream. Example: `wide = pivot(by_region_year, index=["region"], columns="year", values="total")`.
 
 T2 = process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")
-    Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence saying what the function does; it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.
+    Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.
 ```
 
 ## The three custom operators
 
 | Operator | Function shape | Contract |
 |---|---|---|
-| `filter(T, fn)` | `fn(row) -> bool` | drop-only: True keeps the row, False or None drops it |
-| `map(T, fn)` | `fn(row) -> dict` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; `{**row, ...}` keeps the input columns |
-| `process(T1, ..., Tn, fn=f, doc="...")` | `f(df1, ..., dfn) -> DataFrame`; `f()` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes; `doc` is the one sentence shown with its results |
+| `filter(T, fn, doc="...")` | `fn(row) -> bool` | drop-only: True keeps the row, False or None drops it |
+| `map(T, fn, doc="...")` | `fn(row) -> dict` (the new row) | row-preserving: one dict per row, same keys in every row, column types inferred from the values; `{**row, ...}` keeps the input columns |
+| `process(T1, ..., Tn, fn=f, doc="...")` | `f(df1, ..., dfn) -> DataFrame`; `f()` with no inputs is a loader | unknown: any rows, unique string column names, scalar cells, UTC datetimes |
+
+Every custom operator carries a required `doc`: one sentence stating the logical semantics of the function (which rows a filter keeps, what row a map returns, what table a process produces). It is stored with the operator and leads the operator's flow guarantee in observed results, because nothing else about custom code can be measured.
 
 `row` is a read-only mapping of the input columns; a missing value is None. The columns a function actually reads are measured at run time (`predicateColumns` for filter, `readColumns` and `columnDependencies` for map, where `{**row}` copies are not counted as reads) and drive the flow evidence and lineage, so nothing about the columns is declared.
 
@@ -119,14 +109,14 @@ T2 = process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loa
 Program statement:
 
 ```python
-positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0)
+positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0, doc="Keeps rows with a positive value")
 ```
 
 Normalized view stored on the operator (`nativeOp`):
 
 ```json
 { "type": "Filter", "inputs": ["typed"],
-  "properties": { "func": "def apply(row):\n    return row[\"value\"] is not None and row[\"value\"] > 0", "entry": "apply" },
+  "properties": { "func": "def apply(row):\n    return row[\"value\"] is not None and row[\"value\"] > 0", "entry": "apply", "doc": "Keeps rows with a positive value" },
   "revision": "<hash of type + inputs + properties>" }
 ```
 

@@ -179,24 +179,18 @@ def test_missing_column_is_actionable_and_row_mapping_cannot_be_mutated():
     assert kept.attrs["native_v2"]["operations"]["predicateColumns"] == ["x"]
 
 
-@pytest.mark.parametrize("policy,expected", [("drop", [3]), ("keep", [None, 3])])
-def test_filter_null_policy_and_stable_subset(policy, expected):
+def test_filter_drops_none_verdicts_counts_them_and_keeps_a_stable_subset():
     source = pd.DataFrame({"x": pd.Series([None, 1, 3], dtype="Int64")})
-    result = run(
-        "Filter",
-        source,
-        columns=["x"],
-        nulls=policy,
-        func="def apply(row):\n    return None if row['x'] is None else row['x'] > 1",
-    )
-    assert [None if pd.isna(v) else v for v in result["x"]] == expected
+    result = run("Filter", source, func="def apply(row):\n    return None if row['x'] is None else row['x'] > 1")
+    assert [None if pd.isna(v) else v for v in result["x"]] == [3]
+    operations = result.attrs["native_v2"]["operations"]
+    assert (operations["keptRows"], operations["rejectedRows"], operations["nullPredicates"]) == (1, 2, 1)
 
 
-@pytest.mark.parametrize("value,code", [("'false'", "CALLBACK_RETURN_TYPE"), ("None", "FILTER_NULL")])
-def test_filter_never_uses_truthiness_or_silently_swallows_null_error(value, code):
+def test_filter_never_uses_truthiness():
     with pytest.raises(runtime.NativeError) as failure:
-        run("Filter", pd.DataFrame({"x": [1]}), columns=[], nulls="error", func=f"def apply(row):\n    return {value}")
-    assert failure.value.diagnostic["code"] == code
+        run("Filter", pd.DataFrame({"x": [1]}), func="def apply(row):\n    return 'false'")
+    assert failure.value.diagnostic["code"] == "CALLBACK_RETURN_TYPE"
 
 
 def test_import_failure_is_distinct_and_points_at_submitted_import():
@@ -236,13 +230,6 @@ def test_datetime_cast_requires_timezone_for_naive_values_and_normalizes_utc():
         run("Cast", source, columns=[{"column": "x", "dtype": "datetime"}])
     result = run("Cast", source, columns=[{"column": "x", "dtype": "datetime", "timezone": "America/Los_Angeles"}])
     assert result["x"].iloc[0] == pd.Timestamp("2024-01-01T08:00:00Z")
-
-
-def test_fill_null_only_changes_missing_cells_and_checks_type():
-    source = pd.DataFrame({"x": pd.Series([1, None, 0], dtype="Int64")})
-    assert run("FillNull", source, values={"x": 5})["x"].tolist() == [1, 5, 0]
-    with pytest.raises(runtime.NativeError, match="FILL_TYPE"):
-        run("FillNull", source, values={"x": "oops"})
 
 
 def test_map_replaces_in_place_and_schema_slips_fail_clearly():

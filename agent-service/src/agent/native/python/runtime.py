@@ -172,7 +172,6 @@ ROW_EFFECTS = {
     "Scan": "create",
     "Project": "none",
     "Cast": "none",
-    "FillNull": "none",
     "Map": "none",
     "Filter": "drop",
     "Aggregate": "collapse",
@@ -182,8 +181,6 @@ ROW_EFFECTS = {
     "Sort": "none",
     "Limit": "drop",
     "Window": "none",
-    "Split": "none",
-    "Explode": "multiply",
     "Unpivot": "add",
     "Pivot": "collapse",
     "Process": "unknown",
@@ -241,19 +238,8 @@ def validate_native(spec):
                 stage="validate",
                 field="rename",
             )
-    elif kind == "Filter":
-        choice(props.get("nulls", "drop"), ("drop", "keep", "error"), "FILTER_ARGUMENT", "nulls")
     elif kind == "Cast":
         choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
-    elif kind == "FillNull":
-        if not isinstance(props.get("values"), dict) or not props["values"]:
-            raise _error(
-                spec,
-                "FILL_ARGUMENT",
-                "values must be a nonempty {column: value} mapping.",
-                stage="validate",
-                field="values",
-            )
     elif kind == "Distinct":
         choice(props.get("keep", "first"), ("first", "last"), "DISTINCT_ARGUMENT", "keep")
         if "columns" in props:
@@ -358,26 +344,6 @@ def validate_native(spec):
         if len(outputs) != len(set(outputs)):
             raise _error(
                 spec, "COLUMN_COLLISION", "Window output names must be unique.", stage="validate", field="columns"
-            )
-    elif kind == "Split":
-        names = props.get("into", [])
-        if len(names) < 2 or not isinstance(props.get("separator"), str) or not props["separator"]:
-            raise _error(
-                spec,
-                "SPLIT_ARGUMENT",
-                "Provide at least two output names and a nonempty literal separator.",
-                stage="validate",
-            )
-        if len(names) != len(set(names)):
-            raise _error(spec, "COLUMN_COLLISION", "Split output names must be unique.", stage="validate", field="into")
-    elif kind == "Explode":
-        if props.get("encoding") != "json" or props.get("empty", "drop") not in ("drop", "null_row"):
-            raise _error(
-                spec,
-                "EXPLODE_ARGUMENT",
-                f"empty must be one of 'drop', 'null_row', got {props.get('empty', 'drop')!r}.",
-                stage="validate",
-                field="empty",
             )
     elif kind == "Unpivot":
         if not props.get("columns"):
@@ -1617,13 +1583,9 @@ def _filter(spec, source, operations):
     for row in _rows(source, reads):
         value = _scalar(function(row))
         if value is None:
+            # None means "no verdict": the row is dropped, and the count is reported.
             missing += 1
-            policy = props.get("nulls", "drop")
-            if policy == "error":
-                raise _error(
-                    spec, "FILTER_NULL", 'Predicate returned None with nulls="error".', stage="contract", field="func"
-                )
-            value = policy == "keep"
+            value = False
         if not isinstance(value, bool):
             raise _error(
                 spec,
@@ -1726,128 +1688,6 @@ def _window(spec, source, operations):
         )
         for item in columns
     }
-    return output
-
-
-def _split(spec, source, operations):
-    props = spec["properties"]
-    name, into = props["column"], props["into"]
-    _columns(spec, source, [name], "column")
-    # Even with keepSource:false do not silently reuse/overwrite an input name.
-    _new_columns(spec, source, into, "into")
-    parts = {key: [] for key in into}
-    for position, cell in enumerate(source[name]):
-        value = _scalar(cell)
-        if value is not None and not isinstance(value, str):
-            raise _error(
-                spec,
-                "SPLIT_TYPE",
-                f"Column {name!r}, row {position}: expected string or null, got {type(value).__name__}. Cast explicitly if intended.",
-                field="column",
-            )
-        split = value.split(props["separator"], len(into) - 1) if value is not None else []
-        for i, key in enumerate(into):
-            parts[key].append(split[i] if i < len(split) else None)
-    output = source.copy().reset_index(drop=True)
-    if not props.get("keepSource", True):
-        output = output.drop(columns=[name])
-    for key in into:
-        output[key] = _series(parts[key], "str")
-    operations["columnDependencies"] = {key: [name] for key in into}
-    return output
-
-
-def _explode(spec, source, operations):
-    props, name = spec["properties"], spec["properties"]["column"]
-    _columns(spec, source, [name], "column")
-    parents, values, sample = [], [], []
-    domain, empty_parents, null_elements, elements, maximum = None, 0, 0, 0, 0
-
-    def invalid_constant(value):
-        raise ValueError(f"Non-JSON constant {value}")
-
-    for position, cell in enumerate(source[name]):
-        value = _scalar(cell)
-        if value is None:
-            array = []
-        elif not isinstance(value, str):
-            raise _error(
-                spec,
-                "EXPLODE_TYPE",
-                f"Column {name!r}, row {position}: expected a JSON-array string or null.",
-                field="column",
-            )
-        else:
-            try:
-                array = json.loads(value, parse_constant=invalid_constant)
-            except (ValueError, RecursionError) as error:
-                raise _error(
-                    spec,
-                    "EXPLODE_JSON",
-                    f"Column {name!r}, row {position}: invalid JSON array ({str(error)[:100]}).",
-                    field="column",
-                ) from error
-            if not isinstance(array, list):
-                raise _error(
-                    spec,
-                    "EXPLODE_TYPE",
-                    f"Column {name!r}, row {position}: JSON must contain an array, not {type(array).__name__}.",
-                    field="column",
-                )
-        maximum = max(maximum, len(array))
-        elements += len(array)
-        null_elements += sum(item is None for item in array)
-        empty_parents += int(not array)
-        if not array:
-            if props.get("empty", "drop") == "drop":
-                continue
-            entries = [(None, None)]
-        else:
-            entries = enumerate(array)
-        for element, value in entries:
-            if value is not None:
-                kind = (
-                    "bool"
-                    if isinstance(value, bool)
-                    else (
-                        "int64"
-                        if isinstance(value, int)
-                        else "float64" if isinstance(value, float) else "str" if isinstance(value, str) else None
-                    )
-                )
-                try:
-                    if kind is None or (domain is not None and domain != kind):
-                        raise TypeError(
-                            "elements must share one scalar type plus nulls; normalize arrays with a process function first"
-                        )
-                    value = _convert(value, kind)
-                except (TypeError, ValueError, OverflowError) as error:
-                    raise _error(
-                        spec,
-                        "EXPLODE_TYPE",
-                        f"Column {name!r}, row {position}, element {element}: {error}.",
-                        field="column",
-                    ) from error
-                domain = kind
-            parents.append(position)
-            values.append(value)
-            if len(sample) < 16:
-                sample.append({"inputPosition": position, "elementPosition": element})
-    output = source.iloc[parents].copy().reset_index(drop=True)
-    output[name] = _series(values, domain or "str")
-    operations["explode"] = {
-        "emptyParents": empty_parents,
-        "arrayElements": elements,
-        "nullElements": null_elements,
-        "maxElements": maximum,
-    }
-    operations["rowMapping"] = {
-        "inputPort": 0,
-        "kind": "array_elements",
-        "sample": sample,
-        "complete": len(values) <= len(sample),
-    }
-    operations["columnDependencies"] = {name: [name]}
     return output
 
 
@@ -1983,10 +1823,6 @@ def execute_native(spec, inputs):
         output = _union(spec, inputs, operations)
     elif kind == "Window":
         output = _window(spec, source, operations)
-    elif kind == "Split":
-        output = _split(spec, source, operations)
-    elif kind == "Explode":
-        output = _explode(spec, source, operations)
     elif kind == "Unpivot":
         output = _unpivot(spec, source, operations)
     elif kind == "Pivot":
@@ -2015,21 +1851,6 @@ def execute_native(spec, inputs):
         start = props.get("offset", 0)
         output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
         operations["removedRows"] = len(source) - len(output)
-    elif kind == "FillNull":
-        _columns(spec, source, list(props["values"]), "values")
-        output = source.copy().reset_index(drop=True)
-        for column, value in props["values"].items():
-            try:
-                replacement = _convert(value, _dtype(source[column]))
-                output[column] = (
-                    source[column].reset_index(drop=True).fillna(replacement)
-                    if replacement is not None
-                    else source[column].reset_index(drop=True)
-                )
-            except (ValueError, TypeError) as error:
-                raise _error(
-                    spec, "FILL_TYPE", f"{column}: {error}", stage="contract", field=f"values.{column}"
-                ) from error
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)

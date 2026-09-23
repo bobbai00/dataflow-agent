@@ -99,19 +99,19 @@ export function nativeBatchSchema(): Record<string, unknown> {
       edits: {
         type: "string",
         description:
-          "Statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results.",
+          "Step 2, applied after the deletes: statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results.",
       },
       delete: {
         type: "array",
         items: { type: "string" },
         description:
-          "Ids of operators to remove before the edits apply. Refused for an operator that another surviving operator still reads.",
+          "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts).",
       },
       observe: {
         type: "array",
         items: { type: "string" },
         description:
-          "Ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Everything still executes; errors always appear.",
+          "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear.",
       },
     },
     required: ["edits"],
@@ -119,9 +119,9 @@ export function nativeBatchSchema(): Record<string, unknown> {
 }
 
 export const DATAFLOW_TOOL_DESCRIPTION =
-  "Build, modify, delete and observe the dataflow in one call. `edits` holds `id = operator(...)` statements (operators: " +
+  "Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: " +
   NATIVE_OPERATOR_NAMES.join(", ") +
-  "); `delete` lists ids to remove first; `observe` lists the ids whose table contents you need (omitted/[] hides successes but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results.";
+  "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.";
 
 /**
  * The one tool of native mode: `dataflow` (edits, deletes, observations). The

@@ -193,7 +193,6 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       Distinct: `Distinct keys=${p.columns === undefined ? "whole row" : json(p.columns)}`,
       Limit: `Limit n=${p.n}, offset=${p.offset ?? 0}`,
       Union: "Union concatenates inputs without deduplication",
-      Explode: `Explode column=${json(p.column)}`,
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
       Process: "Process row/column mapping unknown; upstream calculation summary stops here",
@@ -318,13 +317,15 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     omissions.push(...profile.omissions);
   }
 
+  /** The author's `doc` of a custom operator (filter, map, process) leads its guarantee. */
+  const docOf = (props: Record<string, unknown>): string =>
+    typeof props.doc === "string" && props.doc ? `${props.doc}; ` : "";
   const contract: Record<string, string> = {
     Scan: "source creation; preview is not the full parsed source",
     Project: `row identities preserved, same order; selection/rename=${json(p)}`,
     Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
-    FillNull: `row identities preserved, same order; only missing cells in ${json(Object.keys(record(p.values)))} may change`,
-    Map: `row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
-    Filter: `stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}; nulls=${p.nulls ?? "drop"}`,
+    Map: `${docOf(p)}row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
+    Filter: `${docOf(p)}stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
     Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
     Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
     Union: "concatenation preserves all rows and input-port order; no deduplication",
@@ -332,11 +333,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Limit: `stable positional slice; offset=${p.offset ?? 0}, n=${p.n}; not a top-k claim without Sort`,
     Sort: `row identities preserved; stable sort by=${json(p.by ?? [])}; nulls=${p.nulls ?? "last"}`,
     Window: `row identities preserved, input order restored; partition keys=${json(p.partitionBy ?? [])}; stable order=${json(p.orderBy ?? [])}, nulls last; outputs=${json(p.columns ?? [])}`,
-    Split: `row identities preserved, same order; ${json(p.column)} split literally into=${json(p.into)}, missing pieces padded with null`,
-    Explode: `JSON-array elements in parent/element order, other columns repeated; empty=${p.empty ?? "drop"}; parent identity is internal, not a user column`,
     Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-    Process: `${typeof p.doc === "string" && p.doc ? `${p.doc}; ` : ""}row/column mapping unknown; equal row counts do not prove preservation`,
+    Process: `${docOf(p)}row/column mapping unknown; equal row counts do not prove preservation`,
   };
   if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
 
@@ -400,16 +399,13 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       count(nullPredicates) &&
       keptRows === out &&
       keptRows + rejectedRows === ns[0] &&
-      nullPredicates <= ns[0] &&
-      ((p.nulls ?? "drop") !== "error" || nullPredicates === 0) &&
-      ((p.nulls ?? "drop") !== "drop" || nullPredicates <= rejectedRows) &&
-      (p.nulls !== "keep" || nullPredicates <= keptRows)
+      nullPredicates <= rejectedRows
     ) {
       add(
         "flow.filter",
         "flow",
         "measurement",
-        `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (nulls=${p.nulls ?? "drop"}).`,
+        `Filter kept=${fraction(out, ns[0])}, rejected=${rejectedRows}, null predicates=${nullPredicates} (a None verdict drops the row).`,
         96
       );
     } else omissions.push("invalid_filter_counters");
@@ -577,26 +573,6 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         } else omissions.push("window_output_counters_unavailable");
       }
     } else omissions.push("invalid_window_counters");
-  } else if (view.type === "Explode") {
-    const x = record(operations.explode);
-    if (
-      [x.emptyParents, x.arrayElements, x.nullElements, x.maxElements].every(count) &&
-      x.emptyParents <= ns[0] &&
-      x.nullElements <= x.arrayElements &&
-      x.maxElements <= x.arrayElements &&
-      x.arrayElements >= ns[0] - x.emptyParents &&
-      (x.arrayElements === 0 ? x.maxElements === 0 : x.maxElements > 0) &&
-      x.arrayElements <= (ns[0] - x.emptyParents) * x.maxElements &&
-      x.arrayElements + (p.empty === "null_row" ? x.emptyParents : 0) === out
-    ) {
-      add(
-        "flow.explode",
-        "flow",
-        "measurement",
-        `Explode output=${out} from ${ns[0]} parents; array elements=${x.arrayElements}, null elements=${x.nullElements}; empty/null parents=${x.emptyParents} (empty=${p.empty ?? "drop"}), max elements per parent=${x.maxElements}.`,
-        94
-      );
-    } else omissions.push("invalid_explode_counters");
   } else if (view.type === "Unpivot") {
     const x = record(operations.unpivot),
       columns = names(p.columns);
@@ -685,7 +661,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       75
     );
   }
-  if (["Cast", "Map", "FillNull"].includes(view.type) && ns[0] === out) {
+  if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")
       for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
         if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0))

@@ -51,7 +51,7 @@ const upstream: NativeEvidenceFact = {
   family: "flow",
   kind: "measurement",
   priority: 98,
-  text: 'Flow upstream source: Filter predicate columns=["x"]. Filter kept=3/5, rejected=2, null predicates=0 (nulls=drop).',
+  text: 'Flow upstream source: Filter predicate columns=["x"]. Filter kept=3/5, rejected=2, null predicates=0 (a None verdict drops the row).',
   upstream: { operatorId: "source", resultVersion: "version-a" },
 };
 
