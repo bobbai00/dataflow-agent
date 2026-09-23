@@ -60,7 +60,7 @@ def main() -> int:
         ]
         if args.turn_limit:
             command += ["--turn-limit", str(args.turn_limit)]
-        held = gate if arm != "code" else threading.Semaphore(1)
+        held = gate if arm not in ("code", "dsgym") else threading.Semaphore(1)
         with held:
             started = time.time()
             log = args.out / f"{sut}__{task}.log"

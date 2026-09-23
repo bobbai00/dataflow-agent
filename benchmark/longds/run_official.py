@@ -33,7 +33,10 @@ from official_protocol import build_prompts, extract_answer, selftest, write_rec
 
 WORKTREE = Path(__file__).resolve().parents[2]
 SCRIPT_ARMS = {"code"}
+DSGYM_ARMS = {"dsgym"}
 DATAFLOW_ARMS = {"react-full", "react-catalog"}
+HERE = Path(__file__).resolve().parent
+DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py
 
 
 def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
@@ -110,6 +113,54 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     return answers
 
 
+def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit):
+    """The paper's own agent: DSGym's MultiTurnReActDSAgent, SYSTEM_PROMPT and
+    <python>/<answer> protocol, unchanged (dsgym_agent.py), over a local
+    persistent Jupyter kernel that speaks its executor manager's HTTP contract
+    (dsgym_executor.py) instead of the docker sandbox."""
+    import socket
+    import urllib.request
+    from dotenv import load_dotenv
+
+    load_dotenv(env_file, override=False)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    executor_url = f"http://127.0.0.1:{port}"
+    api_base = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/") + "/v1"
+    with (out_dir / "executor.log").open("w") as executor_log, (out_dir / "runner.log").open("w") as log:
+        executor = subprocess.Popen(
+            [str(KB_ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"), "--port", str(port)],
+            cwd=WORKTREE, stdout=executor_log, stderr=subprocess.STDOUT,
+        )
+        try:
+            for _ in range(120):
+                try:
+                    urllib.request.urlopen(f"{executor_url}/health", timeout=1).read()
+                    break
+                except Exception:
+                    time.sleep(0.5)
+            else:
+                raise RuntimeError("dsgym_executor.py did not come up")
+            command = [
+                str(DSGYM_PYTHON), str(HERE / "dsgym_agent.py"),
+                "--manifest", str(prepared / "manifest.json"), "--gold", str(prepared / "gold.json"),
+                "--model", model, "--out", str(out_dir / "agent"),
+                "--executor-url", executor_url, "--api-base", api_base,
+            ]
+            if turn_limit:
+                command += ["--turn-limit", str(turn_limit)]
+            subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=False)
+        finally:
+            executor.terminate()
+            try:
+                executor.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                executor.kill()
+    answers_path = out_dir / "agent/answers.json"
+    return json.loads(answers_path.read_text()) if answers_path.exists() else []
+
+
 def run_dataflow_arm(prompts, out_dir, arm, model, turn_timeout):
     """One agent-service session for the whole task, driven by the Bun runner."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -134,7 +185,7 @@ def run_dataflow_arm(prompts, out_dir, arm, model, turn_timeout):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True, help="prepared task key")
-    ap.add_argument("--arm", required=True, choices=sorted(SCRIPT_ARMS | DATAFLOW_ARMS))
+    ap.add_argument("--arm", required=True, choices=sorted(SCRIPT_ARMS | DSGYM_ARMS | DATAFLOW_ARMS))
     ap.add_argument("--model", default="gpt-5.6-luna")
     ap.add_argument("--sut", help="run name (default: LongDS_Official_<arm>_<model tail>)")
     ap.add_argument("--turn-limit", type=int)
@@ -153,7 +204,7 @@ def main() -> int:
     prepared = PREPARED / args.task
     manifest = json.loads((prepared / "manifest.json").read_text())
     gold = json.loads((prepared / "gold.json").read_text())
-    kind = "script" if args.arm in SCRIPT_ARMS else "dataflow"
+    kind = "script" if args.arm in SCRIPT_ARMS | DSGYM_ARMS else "dataflow"
     prompts = build_prompts(manifest, kind)[: args.turn_limit]
 
     sut = args.sut or f"LongDS_Official_{args.arm}_{args.model.split('-')[-1]}"
@@ -170,14 +221,21 @@ def main() -> int:
                 "arm_kind": kind,
                 "model": args.model,
                 "turns": len(prompts),
-                "protocol": "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape",
+                "protocol": (
+                    "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; "
+                    "sandbox = local persistent kernel (dsgym_executor.py)"
+                    if args.arm in DSGYM_ARMS
+                    else "longds-official: upstream context/question, file inventory, final-answer marker; no answer shape"
+                ),
                 "judge": "run judge_longds.py --judge-model deepseek/deepseek-v4-pro",
             },
             indent=2,
         )
     )
     started = time.time()
-    if kind == "script":
+    if args.arm in DSGYM_ARMS:
+        answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit)
+    elif kind == "script":
         answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
     else:
         answers = run_dataflow_arm(prompts, run_dir, args.arm, args.model, args.turn_timeout)
