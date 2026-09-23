@@ -47,7 +47,7 @@ test("inspectResult cannot be enabled in any mode or by live settings changes", 
         await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
           "not found"
         );
-        expect(info.tools.some(tool => tool.name === "inspectError")).toBe(config.agentMode === AgentMode.NATIVE);
+        expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
         subject.updateSettings({ maxSteps: 20 });
         expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
       }
@@ -62,11 +62,7 @@ test("initialization and delegate rebuilds cannot restore result inspection", as
   const initialized = spyOn(metadata, "isInitialized").mockReturnValue(true);
   try {
     await subject.initialize();
-    expect(subject.getSystemInfo().tools.map(tool => tool.name)).toEqual([
-      "deleteOperator",
-      "dataflow",
-      "inspectError",
-    ]);
+    expect(subject.getSystemInfo().tools.map(tool => tool.name)).toEqual(["dataflow"]);
     subject.setDelegateConfig({ userToken: "", workflowId: 0 });
     expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
     await expect(subject.executeTool("inspectResult", { operatorId: "source" })).rejects.toThrow("not found");
@@ -92,7 +88,7 @@ test("the model driver receives no result-inspection schema", async () => {
   await subject.sendMessage("Answer without executing a workflow.");
   expect(dispatchedTools).toBeDefined();
   expect(dispatchedTools).not.toContain("inspectResult");
-  expect(dispatchedTools).toContain("inspectError");
+  expect(dispatchedTools).toEqual(["dataflow"]);
 });
 
 test("legacy prompt-builder inspection flags cannot advertise a removed tool", () => {

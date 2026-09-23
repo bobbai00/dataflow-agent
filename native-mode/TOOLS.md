@@ -2,13 +2,13 @@
 
 # Native mode: tool definitions
 
-Native mode exposes three tools. The definitions below are exactly what is sent to the provider as the tool list (name, description, JSON Schema of the input). Every operator is written inside the `program` argument of `dataflow`; there is no tool per operator. Optional tools (`recallState`, `resumeFrom`, `compactContext`) are off by default and not listed here. Source: `agent-service/src/agent/tools/native-batch-tools.ts`, `native-upsert.ts`, `inspect-error-tool.ts`.
+Native mode exposes one tool, `dataflow`, whose three arguments create or modify operators (`edits`), remove them (`delete`) and choose which tables to see (`observe`). The definition below is exactly what is sent to the provider (name, description, JSON Schema of the input). Every operator is written inside `edits`; there is no tool per operator. Optional tools (`recallState`, `resumeFrom`, `compactContext`) are off by default and not listed here. Source: `agent-service/src/agent/tools/native-batch-tools.ts`, `native-upsert.ts`.
 
 ## `dataflow`
 
 **Description sent to the model**
 
-> Build or revise the dataflow with a program of `name = operator(...)` assignments (operators: scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process). Batch a whole dependent chain in one call; the scheduler orders it. List in `observe` the tables whose contents you need; omitted/[] hides successes but never errors. An empty program with `observe` reads cached results. A rejected statement fails alone; its dependents are blocked; independent statements still land.
+> Build, modify, delete and observe the dataflow in one call. `edits` holds `id = operator(...)` statements (operators: scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process); `delete` lists ids to remove first; `observe` lists the ids whose table contents you need (omitted/[] hides successes but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results.
 
 **Input schema**
 
@@ -17,87 +17,34 @@ Native mode exposes three tools. The definitions below are exactly what is sent 
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "program": {
+    "edits": {
       "type": "string",
-      "description": "The dataflow, one `name = operator(...)` assignment per operator plus any `def` functions they use. Names are the tables; positional arguments are the input tables; keyword arguments are the parameters (see the operator reference in the instructions). Reusing a name revises that operator and keeps its consumers. Statements may reference each other in any order. An empty program reads cached results."
+      "description": "Statements that create or modify operators, one `id = operator(input_id, ..., parameter=value)` per line, plus any `def` functions they use. Reusing an id modifies that operator and keeps its consumers. Statements may reference each other in any order. Empty when you only delete or re-read cached results."
+    },
+    "delete": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ids of operators to remove before the edits apply. Refused for an operator that another surviving operator still reads."
     },
     "observe": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Names of every table whose contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. All statements still execute; errors always appear."
+      "description": "Ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Everything still executes; errors always appear."
     }
   },
   "required": [
-    "program"
+    "edits"
   ]
-}
-```
-
-## `deleteOperator`
-
-**Description sent to the model**
-
-> Delete an operator (and its links). Refused while other operators still read its output — re-point or delete those first.
-
-**Input schema**
-
-```json
-{
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "id": {
-      "type": "string",
-      "description": "Name of the operator to delete."
-    }
-  },
-  "required": [
-    "id"
-  ]
-}
-```
-
-## `inspectError`
-
-**Description sent to the model**
-
-> Inspect a retained, revision-pinned operator error with bounded submitted-source context and repair details. Read-only: no execution, workflow edit or successful table output. With only operatorId, reads the current failure; after repair use revision or diagnosticId for a historical error. Missing/pruned records are unavailable, not reconstructed from current code.
-
-**Input schema**
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "operatorId": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Operator that owns the diagnostic."
-    },
-    "revision": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Exact failed revision; searches retained events on the active branch."
-    },
-    "diagnosticId": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Exact diagnostic ID from an error receipt; disambiguates repeated executions."
-    }
-  },
-  "required": [
-    "operatorId"
-  ],
-  "additionalProperties": false,
-  "$schema": "http://json-schema.org/draft-07/schema#"
 }
 ```
 
 ## How a call is processed
 
-1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.
+1. `delete` removes the listed operators first (refused while another surviving operator reads one). `edits` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.
 2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.
 3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.
 4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.

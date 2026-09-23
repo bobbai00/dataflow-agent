@@ -374,7 +374,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "create",
     signature:
       'scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)',
-    doc: "Reads a file or glob (csv, tsv, txt, xlsx, html, json, parquet; format=lines/fwf/whitespace for non-delimited text) into a table. `preview=n` shows the first n RAW lines (or sheet rows) from `skip_lines` instead of parsing: use it on an unfamiliar file, then scan for real. `all_text=True` keeps codes like 001 as text; `names` requires header=False and one name per column; `sheet` picks an Excel sheet or HTML table index; `file_column` records each row's source file.",
+    doc: 'Reads a file or glob (csv, tsv, txt, xlsx, html, json, parquet; format=lines/fwf/whitespace for non-delimited text) into a table. `preview=n` shows the first n RAW lines (or sheet rows) from `skip_lines` instead of parsing: use it on an unfamiliar file, then scan for real. `all_text=True` keeps codes like 001 as text; `names` requires header=False and one name per column; `sheet` picks an Excel sheet or HTML table index; `file_column` records each row\'s source file. Example: `orders = scan("data/orders.csv")`.',
     schema: object(
       {
         files: { oneOf: [S, list(S)] },
@@ -463,7 +463,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: "project(T, keep=None, drop=None, rename=None)",
-    doc: "Keeps (in the given order) or drops the listed columns, then renames with a {old: new} mapping. At least one of the three. Rows are unchanged; a missing column or a name collision fails.",
+    doc: 'Keeps (in the given order) or drops the listed columns, then renames with a {old: new} mapping. At least one of the three. Rows are unchanged; a missing column or a name collision fails. Example: `trimmed = project(orders, keep=["region", "amount"], rename={"amount": "total"})`.',
     schema: {
       ...object({
         keep: NONEMPTY_NAMES,
@@ -531,7 +531,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: "fill_null(T, column=value, ...)",
-    doc: "Replaces missing cells of each named column with the given literal (compatible with the column's type). Rows are unchanged; no imputation or forward fill.",
+    doc: 'Replaces missing cells of each named column with the given literal (compatible with the column\'s type). Rows are unchanged; no imputation or forward fill. Example: `filled = fill_null(orders, quantity=0, region="unknown")`.',
     schema: object(
       {
         values: {
@@ -554,14 +554,11 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Filter",
     inputs: 1,
     rowEffect: "drop",
-    signature: 'filter(T, fn, nulls="drop")',
-    doc: 'Keeps the rows for which `fn(row)` returns True. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True/False, or None to defer to `nulls` (drop, keep or error); anything else, including truthy strings, is a contract error. Row order is preserved. The columns the function reads are measured, not declared.',
-    schema: object({ func: S, entry: S, nulls: { type: "string", enum: ["drop", "keep", "error"] } }, [
-      "func",
-      "entry",
-    ]),
+    signature: "filter(T, fn)",
+    doc: 'Keeps the rows for which `fn(row)` returns True: `kept = filter(orders, lambda row: row["amount"] is not None and row["amount"] > 100)`. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True to keep, False or None to drop; anything else, including a truthy string, is a contract error. Row order is preserved; the columns the function reads are measured, not declared.',
+    schema: object({ func: S, entry: S }, ["func", "entry"]),
     normalize(rest, kwargs, context) {
-      keywords("filter", kwargs, ["fn", "nulls"]);
+      keywords("filter", kwargs, ["fn"]);
       if (rest.length > 1) fail("filter takes the input table and one predicate function.");
       const fnValue = rest[0] ?? kwargs.fn;
       if (!fnValue) fail("filter needs a predicate: filter(t, lambda row: ...) or filter(t, fn=my_function).", "fn");
@@ -571,9 +568,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           `filter's function takes exactly one parameter (the row); ${slot.entry} takes ${slot.params.length}.`,
           "fn"
         );
-      const props: Record<string, unknown> = { func: slot.source, entry: slot.entry };
-      if (kwargs.nulls) props.nulls = oneOf(kwargs.nulls, "nulls", ["drop", "keep", "error"]);
-      return props;
+      return { func: slot.source, entry: slot.entry };
     },
   },
   {
@@ -581,32 +576,19 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Map",
     inputs: 1,
     rowEffect: "none",
-    signature: "map(T, column=dtype(fn), ...)",
-    doc: 'Adds or replaces columns, one per keyword: `map(t, ratio=float64(lambda row: row["a"] / row["b"]))`. Each `fn(row)` reads the ORIGINAL input row and returns one value of the declared dtype (str, int64, float64, bool, datetime) or None; several columns in one map are therefore independent, and a column that depends on another new column goes in a separate map. Rows and their order never change; unnamed columns pass through. Missing values arrive as None; handle them explicitly.',
-    schema: object(
-      { columns: list(object({ as: S, dtype: DTYPE, func: S, entry: S }, ["as", "dtype", "func", "entry"])) },
-      ["columns"]
-    ),
+    signature: "map(T, fn)",
+    doc: 'Transforms every row: `fn(row)` returns the new row as a dict and those dicts are the output table: `priced = map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]})`. `{**row, ...}` keeps the input columns; a dict without it keeps only the keys you return (rename or drop columns that way). One row out per row in, in the same order; every row must return the same keys; values are scalars or None; column types are inferred from the values (ints and floats mix to float64, one type per column otherwise). Missing values arrive as None; handle them explicitly.',
+    schema: object({ func: S, entry: S }, ["func", "entry"]),
     normalize(rest, kwargs, context) {
-      noPositional("map", rest, "one input table");
-      const columns: Array<Record<string, unknown>> = [];
-      for (const [key, value] of Object.entries(kwargs)) {
-        if (value.kind !== "call" || !(DTYPES as readonly string[]).includes(value.name) || value.args.length !== 1)
-          fail(
-            `map output \`${key}\` must be written as ${key}=<dtype>(function), e.g. ${key}=float64(lambda row: ...); dtypes: ${DTYPES.join(", ")}.`,
-            key
-          );
-        const call = value as Extract<ParsedValue, { kind: "call" }>;
-        const slot = functionSlot(call.args[0], key, context);
-        if (slot.params.length !== 1)
-          fail(
-            `map's function for \`${key}\` takes exactly one parameter (the row); ${slot.entry} takes ${slot.params.length}.`,
-            key
-          );
-        columns.push({ as: key, dtype: call.name, func: slot.source, entry: slot.entry });
-      }
-      if (!columns.length) fail("map needs at least one column=dtype(function) argument.");
-      return { columns };
+      keywords("map", kwargs, ["fn"]);
+      if (rest.length > 1) fail("map takes the input table and one row function.");
+      const fnValue = rest[0] ?? kwargs.fn;
+      if (!fnValue)
+        fail('map needs a row function: map(t, lambda row: {**row, "new": ...}) or map(t, fn=my_function).', "fn");
+      const slot = functionSlot(fnValue!, "fn", context);
+      if (slot.params.length !== 1)
+        fail(`map's function takes exactly one parameter (the row); ${slot.entry} takes ${slot.params.length}.`, "fn");
+      return { func: slot.source, entry: slot.entry };
     },
   },
   {
@@ -615,7 +597,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "collapse",
     signature: 'aggregate(T, by=[], name=reducer("col"), ...)',
-    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first.',
+    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
     schema: object(
       {
         groupBy: NAMES,
@@ -713,7 +695,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: "many",
     rowEffect: "add",
     signature: 'union(T1, T2, ..., schema="strict")',
-    doc: 'Stacks two or more tables, keeping every row in input order. schema="strict" requires identical column names and types; "align" takes the union of columns in first-seen order and fills absent cells with null. Type mismatches need an explicit cast; nothing is deduplicated.',
+    doc: 'Stacks two or more tables, keeping every row in input order. schema="strict" requires identical column names and types; "align" takes the union of columns in first-seen order and fills absent cells with null. Type mismatches need an explicit cast; nothing is deduplicated. Example: `all_orders = union(orders_2024, orders_2025, schema="strict")`.',
     schema: object({ schema: { type: "string", enum: ["strict", "align"] } }),
     normalize(rest, kwargs) {
       noPositional("union", rest, "input tables only");
@@ -729,7 +711,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "drop",
     signature: 'distinct(T, columns=None, keep="first")',
-    doc: "Removes duplicate rows by the listed key columns (or the whole row). Missing values compare equal. keep decides which whole row survives; relative order is preserved.",
+    doc: 'Removes duplicate rows by the listed key columns (or the whole row). Missing values compare equal. keep decides which whole row survives; relative order is preserved. Example: `one_per_customer = distinct(orders, columns=["customer_id"], keep="first")`.',
     schema: object({ columns: NONEMPTY_NAMES, keep: { type: "string", enum: ["first", "last"] } }),
     normalize(rest, kwargs) {
       noPositional("distinct", rest, "one input table");
@@ -746,7 +728,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: 'sort(T, by, nulls="last")',
-    doc: 'Stable sort by one or more keys: by=["total"] ascending, or by=[("total", "desc"), "name"]. Ties keep their input order; nulls go last unless nulls="first".',
+    doc: 'Stable sort by one or more keys: by=["total"] ascending, or by=[("total", "desc"), "name"]. Ties keep their input order; nulls go last unless nulls="first". Example: `ranked = sort(by_region, by=[("total", "desc"), "region"])`.',
     schema: object(
       {
         by: list(object({ col: S, desc: { type: "boolean" } }, ["col"])),
@@ -770,7 +752,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "drop",
     signature: "limit(T, n, offset=0)",
-    doc: "Keeps n rows starting at offset, in the current order. Sort first for a meaningful top-k; past the end you get an empty table with the same columns.",
+    doc: "Keeps n rows starting at offset, in the current order. Sort first for a meaningful top-k; past the end you get an empty table with the same columns. Example: `top_three = limit(ranked, 3)`.",
     schema: object({ n: { type: "integer", minimum: 1 }, offset: { type: "integer", minimum: 0 } }, ["n"]),
     normalize(rest, kwargs) {
       keywords("limit", kwargs, ["n", "offset"]);
@@ -849,7 +831,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: "split(T, column, into, separator, keep_source=True)",
-    doc: "Splits a string column on a literal separator (no regex) into at least two new columns, at most len(into)-1 times; missing pieces are null and the remainder stays in the last column. Null input gives null outputs; a non-string column or a name collision fails.",
+    doc: 'Splits a string column on a literal separator (no regex) into at least two new columns, at most len(into)-1 times; missing pieces are null and the remainder stays in the last column. Null input gives null outputs; a non-string column or a name collision fails. Example: `parts = split(orders, column="code", into=["prefix", "number"], separator="-")`.',
     schema: object({ column: S, into: { ...NAMES, minItems: 2 }, separator: S, keepSource: { type: "boolean" } }, [
       "column",
       "into",
@@ -878,7 +860,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "multiply",
     signature: 'explode(T, column, empty="drop")',
-    doc: 'Expands a column of JSON-array strings into one row per element (other cells repeat), replacing the column with the elements. All non-null elements must share one scalar type. empty="drop" removes null/empty parents; "null_row" keeps one null row for them.',
+    doc: 'Expands a column of JSON-array strings into one row per element (other cells repeat), replacing the column with the elements. All non-null elements must share one scalar type. empty="drop" removes null/empty parents; "null_row" keeps one null row for them. Example: `tags_long = explode(orders, column="tags_json")`.',
     schema: object(
       { column: S, encoding: { const: "json", type: "string" }, empty: { type: "string", enum: ["drop", "null_row"] } },
       ["column", "encoding"]
@@ -900,7 +882,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "add",
     signature: 'unpivot(T, columns, name="variable", value="value")',
-    doc: "Wide to long: one output row per input row and listed column, keeping the other columns as keys and adding `name` (the column's name) and `value` (its value, nulls included). The listed columns need compatible types; cast first on mismatch.",
+    doc: 'Wide to long: one output row per input row and listed column, keeping the other columns as keys and adding `name` (the column\'s name) and `value` (its value, nulls included). The listed columns need compatible types; cast first on mismatch. Example: `monthly = unpivot(wide, columns=["Jan", "Feb", "Mar"], name="month", value="rainfall")`.',
     schema: object({ columns: NONEMPTY_NAMES, nameColumn: S, valueColumn: S }, ["columns"]),
     normalize(rest, kwargs) {
       keywords("unpivot", kwargs, ["columns", "name", "value"]);
@@ -919,7 +901,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "collapse",
     signature: "pivot(T, index, columns, values)",
-    doc: "Long to wide: one row per distinct index combination, one column per distinct value of `columns`, cells from `values`. Each (index, columns) pair must occur once: aggregate first if combining is intended. Absent cells are null; null pivot keys fail. The output schema depends on the data: observe it before naming its columns downstream.",
+    doc: 'Long to wide: one row per distinct index combination, one column per distinct value of `columns`, cells from `values`. Each (index, columns) pair must occur once: aggregate first if combining is intended. Absent cells are null; null pivot keys fail. The output schema depends on the data: observe it before naming its columns downstream. Example: `wide = pivot(by_region_year, index=["region"], columns="year", values="total")`.',
     schema: object({ index: NAMES, columns: S, values: S }, ["index", "columns", "values"]),
     normalize(rest, kwargs) {
       keywords("pivot", kwargs, ["index", "columns", "values"]);
@@ -937,12 +919,12 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Process",
     inputs: "many",
     rowEffect: "unknown",
-    signature: "process(T1, ..., Tn, fn=function)   or   process(fn=loader)",
-    doc: "The Python escape hatch for what no other operator does (custom parsers, unusual formats, statistics, fitting). `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (names are yours), and returning one DataFrame with unique string column names and scalar cells; with no input tables it takes no parameters and loads data itself. Import packages inside the function. The engine measures only input and output row counts: the row/column mapping of a process is unknown, so prefer the typed operators when they can express the step.",
-    schema: object({ code: S, entry: S }, ["code", "entry"]),
+    signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
+    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence saying what the function does; it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
+    schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
     normalize(rest, kwargs, context) {
-      keywords("process", kwargs, ["fn"]);
-      if (rest.length > 1) fail("process takes its input tables, then fn=.");
+      keywords("process", kwargs, ["fn", "doc"]);
+      if (rest.length > 1) fail("process takes its input tables, then fn= and doc=.");
       const fnValue = rest[0] ?? kwargs.fn;
       if (!fnValue) fail("process needs fn=<function defined in this program>.", "fn");
       const slot = functionSlot(fnValue!, "fn", context);
@@ -951,7 +933,10 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           `process(${context.inputs.join(", ") || ""}) has ${context.inputs.length} input table(s) but ${slot.entry} takes ${slot.params.length} parameter(s); define one parameter per input table, in order.`,
           "fn"
         );
-      return { code: slot.source, entry: slot.entry };
+      const doc = kwargs.doc;
+      const text = doc && doc.kind === "const" && typeof doc.value === "string" ? doc.value.trim() : "";
+      if (!text) fail('process needs doc="one sentence saying what the function does".', "doc");
+      return { code: slot.source, entry: slot.entry, doc: text };
     },
   },
 ];

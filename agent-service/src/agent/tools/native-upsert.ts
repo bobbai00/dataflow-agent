@@ -26,7 +26,6 @@
  * forwarded to the engine).
  */
 
-import { jsonSchema, tool } from "ai";
 import { WorkflowState } from "../workflow-state";
 import { autoLayoutWorkflow } from "../util/auto-layout";
 import { WorkflowUtilService } from "../util/workflow-utils";
@@ -35,8 +34,6 @@ import { createToolResult, createErrorResult } from "./tools-utility";
 import type { ToolContext } from "./workflow-crud-tools";
 import { NATIVE_BY_TYPE, NATIVE_ID_RE, nativeOperatorName, type NativeOpView } from "../native/catalog";
 import { compileNativeOp, validateNativeOperator } from "../native/codegen";
-
-export const TOOL_NAME_NATIVE_DELETE = "deleteOperator";
 
 /** `inputs: a` / `inputs: left = a, right = b` — the phrase used in receipts and renders. */
 export function describeInputs(type: string, inputs: string[]): string {
@@ -125,12 +122,37 @@ export async function applyNativeOperator(
   if (existing) {
     // MODIFY: same id, new parameters/inputs. Keep the id and outgoing links.
     if (!existing.nativeOp) return createErrorResult(`\`${id}\` is not a native operator; delete it first.`);
-    if (compiled.operatorType !== existing.operatorType) {
-      return createErrorResult(
-        `\`${id}\` is a ${nativeOperatorName(existing.nativeOp.type)} (a ${existing.operatorType}); it cannot become a ${def.name}. Delete it and define a new one.`
-      );
-    }
     const position = workflowState.getOperatorPosition(id);
+    if (compiled.operatorType !== existing.operatorType) {
+      // A source becoming a processing operator (or the reverse) changes the
+      // engine operator type: replace the node but keep its id and consumers.
+      const outgoing = workflowState.getAllLinks().filter(l => l.source.operatorID === id);
+      workflowState.deleteOperator(id);
+      let replacement: OperatorPredicate;
+      try {
+        replacement = workflowUtil.getNewOperatorPredicate(compiled.operatorType, nativeDisplayName(view));
+      } catch (e: any) {
+        return createErrorResult(`\`${id}\`: ${e?.message ?? String(e)}`);
+      }
+      replacement = {
+        ...replacement,
+        operatorID: id,
+        operatorProperties: { ...replacement.operatorProperties, code: compiled.code },
+        nativeOp: view,
+      };
+      workflowState.addOperator(replacement, position);
+      if (compiled.operatorType === "DataProcessing" && distinctInputs(view.inputs).length > 1) {
+        workflowState.updateOperatorInputPorts(id, distinctInputs(view.inputs).length);
+      }
+      wireInputs(workflowState, id, view.inputs);
+      for (const link of outgoing)
+        workflowState.addLink({
+          ...link,
+          source: { operatorID: id, portID: replacement.outputPorts[0]?.portID || "output-0" },
+        });
+      autoLayoutWorkflow(workflowState);
+      return createToolResult(`modified ${phrase}`);
+    }
     for (const l of workflowState.getLinksConnectedToOperator(id)) {
       if (l.target.operatorID === id) workflowState.deleteLink(l.linkID);
     }
@@ -171,11 +193,16 @@ export async function applyNativeOperator(
   return createToolResult(`added ${phrase}`);
 }
 
-/** Delete an operator nothing reads any more. */
-export function deleteNativeOperator(workflowState: WorkflowState, id: string): string {
+/** Delete an operator nothing reads any more. `handled` names consumers the
+ * same call removes or re-points, which therefore do not block the delete. */
+export function deleteNativeOperator(
+  workflowState: WorkflowState,
+  id: string,
+  handled: ReadonlySet<string> = new Set()
+): string {
   const op = workflowState.getOperator(id);
   if (!op) return createErrorResult(`Operator \`${id}\` not found`);
-  const consumers = consumersOf(workflowState, id);
+  const consumers = consumersOf(workflowState, id).filter(c => !handled.has(c));
   if (consumers.length > 0) {
     return createErrorResult(
       `\`${id}\` still feeds ${consumers.map(c => `\`${c}\``).join(", ")}; re-point or delete those first.`
@@ -183,19 +210,4 @@ export function deleteNativeOperator(workflowState: WorkflowState, id: string): 
   }
   workflowState.deleteOperator(id);
   return createToolResult(`deleted operator \`${id}\``);
-}
-
-/** The consumer-aware `deleteOperator` tool of native mode. */
-export function createNativeDeleteTool(workflowState: WorkflowState) {
-  return tool({
-    description:
-      "Delete an operator (and its links). Refused while other operators still read its output — re-point or delete those first.",
-    inputSchema: jsonSchema<{ id: string }>({
-      type: "object",
-      additionalProperties: false,
-      properties: { id: { type: "string", description: "Name of the operator to delete." } },
-      required: ["id"],
-    } as any),
-    execute: async (args: { id: string }) => deleteNativeOperator(workflowState, args.id),
-  });
 }

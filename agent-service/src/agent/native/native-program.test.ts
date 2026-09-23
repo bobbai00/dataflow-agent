@@ -77,16 +77,16 @@ describe("program → operator definitions", () => {
   test("every operator normalizes from its expression to the runtime properties", async () => {
     const v = await views(`
 def rank_value(row):
-    rank = row["Barrington Atlas Rank"]
-    return None if rank is None else float(rank.split("or")[0])
+    rating = row["rating"]
+    return {**row, "numeric_rank": None if rating is None else float(rating.split("or")[0]), "flag": row["x"] > 1}
 
 raw = scan("data/x.csv", preview=8, skip_lines=3)
 source = scan(["data/a.csv", "data/b.csv"], format="csv", header=False, names=["a", "b"], all_text=True, file_column="src", sheet=0, encoding="utf-8", delim=";", comment="#")
 kept = project(source, keep=["a", "b"], rename={"a": "alpha"})
-typed = cast(kept, alpha=float64, **{"Acres Burned": int64}, when=datetime(format="%Y-%m-%d", tz="UTC"), errors="null")
-filled = fill_null(typed, alpha=0.0, **{"Acres Burned": 0})
-greece = filter(source, lambda row: row["Country"] == "Greece", nulls="keep")
-ranked = map(greece, numeric_rank=float64(rank_value), flag=bool(lambda row: row["x"] > 1))
+typed = cast(kept, alpha=float64, **{"Unit Price": int64}, when=datetime(format="%Y-%m-%d", tz="UTC"), errors="null")
+filled = fill_null(typed, alpha=0.0, **{"Unit Price": 0})
+greece = filter(source, lambda row: row["Country"] == "Greece")
+ranked = map(greece, rank_value)
 totals = aggregate(ranked, by=["region"], total=sum("amount"), n=count(), names=count("name"), spread=stddev("amount"))
 labeled = join(totals, names_table, on=[("region", "region_id")], how="left", nulls_equal=True, suffix="_r", validate="many_to_one")
 pairs = join(totals, totals, how="cross")
@@ -108,8 +108,8 @@ def load_positions():
     import pandas as pd
     return pd.DataFrame({"a": [1]})
 
-corr = process(top, fn=correlate)
-positions = process(fn=load_positions)
+corr = process(top, fn=correlate, doc="Correlation between a and b")
+positions = process(fn=load_positions, doc="Loads one row")
 `);
     for (const [id, statement] of Object.entries(v)) expect(statement.error, id).toBeUndefined();
     expect(v.raw.view!.properties).toEqual({ files: "data/x.csv", preview: 8, skipLines: 3 });
@@ -129,25 +129,20 @@ positions = process(fn=load_positions)
     expect(v.typed.view!.properties).toEqual({
       columns: [
         { column: "alpha", dtype: "float64" },
-        { column: "Acres Burned", dtype: "int64" },
+        { column: "Unit Price", dtype: "int64" },
         { column: "when", dtype: "datetime", format: "%Y-%m-%d", timezone: "UTC" },
       ],
       errors: "null",
     });
-    expect(v.filled.view!.properties).toEqual({ values: { alpha: 0, "Acres Burned": 0 } });
+    expect(v.filled.view!.properties).toEqual({ values: { alpha: 0, "Unit Price": 0 } });
     expect(v.greece.view!.properties).toEqual({
       func: 'def apply(row):\n    return row["Country"] == "Greece"',
       entry: "apply",
-      nulls: "keep",
     });
     expect(v.greece.view!.inputs).toEqual(["source"]);
-    const ranked = v.ranked.view!.properties.columns as any[];
-    expect(ranked.map(c => [c.as, c.dtype, c.entry])).toEqual([
-      ["numeric_rank", "float64", "rank_value"],
-      ["flag", "bool", "apply"],
-    ]);
-    expect(ranked[0].func).toContain("def rank_value(row):");
-    expect(v.ranked.view!.functions).toEqual({ rank_value: ranked[0].func });
+    expect(v.ranked.view!.properties.entry).toBe("rank_value");
+    expect(v.ranked.view!.properties.func).toContain("def rank_value(row):");
+    expect(v.ranked.view!.functions).toEqual({ rank_value: String(v.ranked.view!.properties.func) });
     expect(v.totals.view!.properties).toEqual({
       groupBy: ["region"],
       aggregations: [
@@ -195,6 +190,7 @@ positions = process(fn=load_positions)
     expect(v.corr.view!.type).toBe("Process");
     expect(v.corr.view!.inputs).toEqual(["top"]);
     expect(v.corr.view!.properties.entry).toBe("correlate");
+    expect(v.corr.view!.properties.doc).toBe("Correlation between a and b");
     expect(v.positions.view!.inputs).toEqual([]);
     expect(v.positions.view!.properties.entry).toBe("load_positions");
     for (const statement of Object.values(v)) expect(statement.view!.revision).toMatch(/^[a-f0-9]{16}$/);
@@ -206,14 +202,13 @@ def parse_count(row, column):
     value = row[column]
     return None if value is None else float(value.replace(",", ""))
 
-typed = map(source, fraud=float64(lambda row: parse_count(row, "Fraud")), other=float64(lambda row: parse_count(row, "Other")))
+typed = map(source, lambda row: {**row, "fraud": parse_count(row, "Fraud"), "other": parse_count(row, "Other")})
 kept = filter(typed, lambda row: parse_count(row, "Fraud") is not None)
 `);
-    for (const column of v.typed.view!.properties.columns as any[]) {
-      expect(column.func).toContain("def parse_count(row, column):");
-      expect(column.func.indexOf("def parse_count(")).toBeLessThan(column.func.indexOf("def apply(row):"));
-      expect(column.entry).toBe("apply");
-    }
+    const shipped = v.typed.view!.properties.func as string;
+    expect(shipped).toContain("def parse_count(row, column):");
+    expect(shipped.indexOf("def parse_count(")).toBeLessThan(shipped.indexOf("def apply(row):"));
+    expect(v.typed.view!.properties.entry).toBe("apply");
     expect(v.kept.view!.properties.func).toContain("def parse_count(");
     expect(v.typed.view!.functions).toHaveProperty("parse_count");
   });
@@ -226,11 +221,11 @@ def clean(text):
 def to_number(row):
     return float(clean(row["amount"]))
 
-typed = map(source, amount=float64(to_number))
+typed = map(source, to_number)
 `);
-    const func = (v.typed.view!.properties.columns as any[])[0].func as string;
+    const func = v.typed.view!.properties.func as string;
     expect(func.indexOf("def clean(")).toBeLessThan(func.indexOf("def to_number("));
-    expect((v.typed.view!.properties.columns as any[])[0].entry).toBe("to_number");
+    expect(v.typed.view!.properties.entry).toBe("to_number");
   });
 
   test("argument errors are per statement and name the field and the signature", async () => {
@@ -249,7 +244,7 @@ i = process(source, fn=lambda a, b: a)
     const message = (id: string) => v[id].error!.message;
     expect(message("source")).toContain("scan needs the file path");
     expect(message("a")).toContain("must be a lambda or the name of a function");
-    expect(message("b")).toContain("x=<dtype>(function)");
+    expect(message("b")).toContain("map does not take a keyword `x`");
     expect(message("c")).toContain("must be a reducer call");
     expect(message("d")).toContain("join needs on=");
     expect(message("e")).toContain('"asc", "desc"');
@@ -269,7 +264,7 @@ i = process(source, fn=lambda a, b: a)
     [
       "unknown keyword",
       'a = filter(t, lambda row: True, nullz="drop")',
-      ["does not take a keyword `nullz`", "accepted keywords: fn, nulls"],
+      ["does not take a keyword `nullz`", "accepted keywords: fn"],
     ],
     [
       "enum out of range",
@@ -290,8 +285,8 @@ i = process(source, fn=lambda a, b: a)
       'a = aggregate(t, n=filter_count("x"))',
       ["must be a reducer call", "count, count_distinct, sum, mean"],
     ],
-    ["lambda with two parameters", "a = map(t, k=int64(lambda row, i: 1))", ["takes exactly one parameter", "takes 2"]],
-    ["map value without dtype", "a = map(t, k=lambda row: 1)", ["k=<dtype>(function)"]],
+    ["lambda with two parameters", "a = map(t, lambda row, i: {})", ["takes exactly one parameter", "takes 2"]],
+    ["map without a function", "a = map(t)", ["map needs a row function"]],
     ["undefined function", "a = filter(t, is_ok)", ["is_ok", "not a function defined in this program"]],
     ["invalid sort direction", 'a = sort(t, by=[("x", "down")])', ['got "down"']],
     ["invalid scan format", 'a = scan("d.csv", format="feather")', ['got "feather"']],
@@ -361,7 +356,7 @@ i = process(source, fn=lambda a, b: a)
         "            1) > 1",
         "c = filter(t, f)",
         "print(1)",
-        'd = map(t, k=int64(lambda row: "a#b("))',
+        'd = map(t, lambda row: {"k": "a#b("})',
       ].join("\n")
     );
     expect(mixed.statements.map(s => s.id)).toEqual(["b", "c", "d"]);
@@ -375,9 +370,9 @@ i = process(source, fn=lambda a, b: a)
   });
 
   test("revisions ignore formatting but follow the definition", async () => {
-    const a = (await views('x = filter(t, lambda row: row["v"] > 1, nulls="drop")')).x.view!.revision;
-    const b = (await views('x = filter( t ,  nulls = "drop", fn = lambda row: row["v"] > 1 )')).x.view!.revision;
-    const c = (await views('x = filter(t, lambda row: row["v"] > 2, nulls="drop")')).x.view!.revision;
+    const a = (await views('x = filter(t, lambda row: row["v"] > 1)')).x.view!.revision;
+    const b = (await views('x = filter( t ,  fn = lambda row: row["v"] > 1 )')).x.view!.revision;
+    const c = (await views('x = filter(t, lambda row: row["v"] > 2)')).x.view!.revision;
     expect(a).toBe(b);
     expect(a).not.toBe(c);
   });
@@ -399,7 +394,7 @@ describe("generated Python", () => {
   test("a reversed relational chain lands, wires and runs through the generated entry points", async () => {
     const { state, tools } = nativeTestTools();
     const result = await tools.dataflow.execute({
-      program: `
+      edits: `
 answer = limit(ordered, 1)
 ordered = sort(totals, by=[("n", "desc")])
 totals = aggregate(dedup, by=["g"], n=count())
@@ -414,8 +409,8 @@ def second_fn():
     import pandas as pd
     return pd.DataFrame({'g': ['b', 'b'], 'v': [2, 3]})
 
-first = process(fn=first_fn)
-second = process(fn=second_fn)
+first = process(fn=first_fn, doc="first")
+second = process(fn=second_fn, doc="second")
 `,
       observe: ["answer"],
     });
@@ -431,15 +426,15 @@ second = process(fn=second_fn)
   test("filter, map and a self-join execute with measured predicate columns and dependencies", async () => {
     const { state, tools } = nativeTestTools();
     const result = await tools.dataflow.execute({
-      program: `
+      edits: `
 def load():
     import pandas as pd
     return pd.DataFrame({'id': [1, 2, 3], 'x': ['1', '2', None], 'y': [10, 20, 30]})
 
-source = process(fn=load)
+source = process(fn=load, doc="loads the fixture")
 typed = cast(source, x=int64)
 positive = filter(typed, lambda row: row["x"] is not None and row["x"] > 1)
-scored = map(positive, score=float64(lambda row: row["x"] * row["y"] / 2), label=str(lambda row: "big" if row["y"] > 15 else "small"))
+scored = map(positive, lambda row: {**row, "score": row["x"] * row["y"] / 2, "label": "big" if row["y"] > 15 else "small"})
 pairs = join(scored, scored, on="id", validate="one_to_one", suffix="_b")
 `,
       observe: ["pairs"],
@@ -460,7 +455,12 @@ pairs = join(scored, scored, on="id", validate="one_to_one", suffix="_b")
       { input: state.getOperator("scored")!.operatorProperties.code, encoding: "utf8", timeout: 30_000 }
     );
     expect(attrs.status).toBe(0);
-    expect(JSON.parse(attrs.stdout)).toEqual({ columnDependencies: { score: ["x", "y"], label: ["y"] } });
+    expect(JSON.parse(attrs.stdout)).toEqual({
+      readColumns: ["x", "y"],
+      columnDependencies: { id: ["id"], x: ["x"], y: ["y"], score: ["x", "y"], label: ["x", "y"] },
+      addedColumns: ["score", "label"],
+      droppedColumns: [],
+    });
     const predicate = spawnSync(
       python,
       [
@@ -486,15 +486,15 @@ long = unpivot(items, columns=["y2024", "y2025"])
 lagged = window(long, partition_by=["code", "tags"], order_by=["variable"], previous=lag("value", 1))
 wide = pivot(lagged, index=["code", "tags"], columns="variable", values="previous")`;
     const source = (value: number) =>
-      `def load():\n    import pandas as pd\n    return pd.DataFrame({'label': ['A:Alpha'], 'tags': ['[1,2]'], 'y2024': [${value}], 'y2025': [${value + 5}]})\nsource = process(fn=load)`;
-    const first = await tools.dataflow.execute({ program: `${shapes}\n${source(10)}`, observe: ["wide"] });
+      `def load():\n    import pandas as pd\n    return pd.DataFrame({'label': ['A:Alpha'], 'tags': ['[1,2]'], 'y2024': [${value}], 'y2025': [${value + 5}]})\nsource = process(fn=load, doc="loads the fixture")`;
+    const first = await tools.dataflow.execute({ edits: `${shapes}\n${source(10)}`, observe: ["wide"] });
     expect(first.operators.map((o: any) => o.status)).toEqual(Array(6).fill("added"));
     expect(execute(state, "wide")).toEqual([
       { code: "A", tags: 1, y2024: null, y2025: 10 },
       { code: "A", tags: 2, y2024: null, y2025: 10 },
     ]);
     const changed = await tools.dataflow.execute({
-      program: `answer = project(wide, keep=["code", "tags", "y2025"])\n${source(20)}`,
+      edits: `answer = project(wide, keep=["code", "tags", "y2025"])\n${source(20)}`,
       observe: ["answer"],
     });
     expect(changed.operators.map((o: any) => o.status)).toEqual(["added", "modified"]);
@@ -507,9 +507,9 @@ wide = pivot(lagged, index=["code", "tags"], columns="variable", values="previou
 
   test("invalid options fail before mutation, blocking only dependents", async () => {
     const { state, tools } = nativeTestTools();
-    await tools.dataflow.execute({ program: 'source = scan("data/placeholder.csv")' });
+    await tools.dataflow.execute({ edits: 'source = scan("data/placeholder.csv")' });
     const result = await tools.dataflow.execute({
-      program: `
+      edits: `
 bad = window(source, order_by=["label"], r=rank("x"))
 blocked = project(bad, keep=["r"])
 parts = split(source, "label", ["code", "description"], ":")
@@ -540,7 +540,7 @@ describe("native prompt", () => {
         expect(prompt).not.toContain("DuckDB");
         expect(prompt).toContain(nativeCatalogText());
         for (const def of NATIVE_OPERATORS) expect(prompt).toContain(`= ${def.signature}`);
-        expect(prompt).toContain("inspectError");
+        expect(prompt).not.toContain("inspectError");
         expect(prompt).toContain("observe");
         expect(prompt.includes("recallState")).toBe("recall" in layout);
         if (mode === ContextMode.LATEST) expect(prompt).toContain("already executed outcomes");
@@ -589,7 +589,7 @@ describe("native prompt", () => {
       "= process(",
       "fn=correlate",
       "lambda row:",
-      'dataflow("", observe=',
+      'dataflow(edits="", observe=',
     ]) {
       expect(prompt).toContain(needle);
     }

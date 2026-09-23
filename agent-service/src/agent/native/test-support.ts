@@ -92,23 +92,26 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
         defs.push(renamed(p.func, /def\s+apply\s*\(/, `${id}_predicate`));
         args.push(`${id}_predicate`);
       }
-      kw("nulls", p.nulls);
       break;
     }
     case "derive":
     case "transform": {
+      // Legacy per-column functions become one row function returning
+      // `{**row, col: fn(row), ...}` (map is row-to-row now).
       args.push(input);
+      const entries: string[] = [];
       for (const column of p.columns as Array<Record<string, any>>) {
         const name = op === "derive" ? column.as : column.column;
         const fn = `${id}_${name}`.replace(/\W/g, "_");
         if (op === "derive") defs.push(renamed(column.func, /def\s+apply\s*\(/, fn));
         else {
-          // Transform's `apply(value)` becomes a row function over that column.
           defs.push(renamed(column.func, /def\s+apply\s*\(/, `${fn}_value`));
           defs.push(`def ${fn}(row):\n    return ${fn}_value(row[${JSON.stringify(name)}])`);
         }
-        args.push(`${name}=${column.dtype}(${fn})`);
+        entries.push(`${JSON.stringify(name)}: ${fn}(row)`);
       }
+      defs.push(`def ${id}_row(row):\n    return {**row, ${entries.join(", ")}}`);
+      args.push(`${id}_row`);
       break;
     }
     case "cast": {
@@ -220,6 +223,7 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
       defs.push(renamed(p.code, /def\s+(load|process)\s*\(/, fn));
       args.push(...((inputs as string[] | undefined) ?? []));
       args.push(`fn=${fn}`);
+      args.push('doc="legacy fixture"');
       break;
     }
     default:
@@ -245,7 +249,7 @@ export function programOf(specs: LegacySpec[]): string {
 
 /** `{ operators, observe }` in the old shape → the tool's `{ program, observe }`. */
 export function dataflowInput(args: { operators: LegacySpec[]; observe?: string[] }): DataflowInput {
-  return { program: programOf(args.operators), ...(args.observe !== undefined ? { observe: args.observe } : {}) };
+  return { edits: programOf(args.operators), ...(args.observe !== undefined ? { observe: args.observe } : {}) };
 }
 
 /** The native tools over a fresh state with the code-mode operator metadata. */

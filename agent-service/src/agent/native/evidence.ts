@@ -323,7 +323,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Project: `row identities preserved, same order; selection/rename=${json(p)}`,
     Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
     FillNull: `row identities preserved, same order; only missing cells in ${json(Object.keys(record(p.values)))} may change`,
-    Map: `row identities preserved, same order; outputs=${json(names((Array.isArray(p.columns) ? p.columns : []).map(c => record(c).as)))}; dependencies measured from the columns each function read`,
+    Map: `row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
     Filter: `stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}; nulls=${p.nulls ?? "drop"}`,
     Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
     Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
@@ -336,7 +336,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Explode: `JSON-array elements in parent/element order, other columns repeated; empty=${p.empty ?? "drop"}; parent identity is internal, not a user column`,
     Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-    Process: "row/column mapping unknown; equal row counts do not prove preservation",
+    Process: `${typeof p.doc === "string" && p.doc ? `${p.doc}; ` : ""}row/column mapping unknown; equal row counts do not prove preservation`,
   };
   if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
 

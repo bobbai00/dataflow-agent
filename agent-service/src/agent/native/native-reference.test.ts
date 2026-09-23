@@ -34,13 +34,13 @@ test("native-mode/ reference documents match the code that produces them", () =>
   }
 });
 
-test("the tool definitions are the three native tools with their schemas", () => {
+test("the tool definition is the one native tool with its schema", () => {
   const tools = renderToolDefinitions();
-  expect(tools.map(t => t.name)).toEqual(["dataflow", "deleteOperator", "inspectError"]);
+  expect(tools.map(t => t.name)).toEqual(["dataflow"]);
   for (const t of tools) {
     expect(t.description.length).toBeGreaterThan(40);
     expect((t.schema as any).type).toBe("object");
   }
   const dataflow = tools[0].schema as any;
-  expect(Object.keys(dataflow.properties)).toEqual(["program", "observe"]);
+  expect(Object.keys(dataflow.properties)).toEqual(["edits", "delete", "observe"]);
 });

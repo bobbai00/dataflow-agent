@@ -160,7 +160,7 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
     expect(seed!.toolCalls).toHaveLength(1);
     expect(seed!.toolCalls![0]!.toolName).toBe("dataflow");
     expect(seed!.toolCalls![0]!.input).toEqual({
-      program:
+      edits:
         'roman_cities = scan("data/archeology/input/roman_cities.csv")\nnotes = scan("data/archeology/input/notes.txt", format="lines")',
       observe: ["roman_cities", "notes"],
     });

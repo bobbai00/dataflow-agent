@@ -236,12 +236,6 @@ export function buildNativeModeSystemPrompt(
         ? " A block showing only `Result: executed, N rows` has never been observed; observe it when its contents are necessary. Do not re-observe an operator whose body is already in its block."
         : " Only a `result not requested` receipt needs a cached observe when its contents are necessary.") +
       " A saved inspection likewise completes that diagnostic pull; read it and proceed instead of repeating the failed edit.";
-  const inspectionLocation =
-    options.versioned || (options.session && inlineInspection)
-      ? "Saved inspection outputs appear with their original step observations in the current turn."
-      : inlineInspection
-        ? "Each saved inspection remains in its original tool-result frame after later edits; it is not refreshed from the live result."
-        : "Recent saved inspection outputs remain under `# Inspections`; they are not refreshed from the live result.";
   const scope = delta
     ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the definition echoed by an earlier failure."
     : messageLayout === "opBlock"
@@ -253,7 +247,6 @@ export function buildNativeModeSystemPrompt(
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
     .replace("{{OBSERVATION_SCOPE}}", scope)
-    .replace("{{INSPECTION_LOCATION}}", inspectionLocation)
     .replace("{{RECALL_TOOL}}", recall);
 }
 

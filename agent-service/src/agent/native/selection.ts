@@ -256,13 +256,10 @@ export function referencedColumns(
     for (const n of names) if (typeof n === "string" && n && known.has(n) && !out.includes(n)) out.push(n);
   };
   switch (nat.type) {
-    case "Map": {
-      // Output names are declared; the columns each function read are measured
-      // at execution and not available to the shape rule.
-      if (side === "all")
-        for (const c of Array.isArray(p.columns) ? (p.columns as Array<Record<string, unknown>>) : []) add(c?.as);
+    case "Map":
+      // Output columns and the columns the function read are both measured at
+      // execution and are not available to the shape rule.
       break;
-    }
     case "Join":
       for (const pair of Array.isArray(p.on) ? (p.on as unknown[]) : []) add(...strs(pair));
       break;

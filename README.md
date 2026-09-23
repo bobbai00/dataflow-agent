@@ -125,7 +125,7 @@ workflow after every edit and observe the results.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow`, `deleteOperator`, `inspectError` | `dataflow({program, observe})`: a program of `name = operator(...)` statements over one catalog (scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process); `filter`/`map`/`process` carry Python. Only tables named in `observe` are shown; errors always are. `inspectError` returns a retained diagnostic. |
+| `native` (default) | `dataflow` | `dataflow({edits, delete, observe})`: `edits` holds `id = operator(input_id, ...)` statements over one catalog (scan, project, cast, fill_null, filter, map, aggregate, join, union, distinct, sort, limit, window, split, explode, unpivot, pivot, process); `delete` removes operators; only tables named in `observe` are shown, errors always are. Three operators carry Python and are classified by what the function returns: `filter` (row to bool), `map` (row to the new row as a dict), `process` (tables to a DataFrame, with a one-sentence `doc`). |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
 Optional pull tools in either mode, all off by default: `recallState`

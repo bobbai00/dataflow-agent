@@ -45,7 +45,7 @@ async function fixture() {
   const call = async (name: string, args: any) => {
     const input =
       name === "dataflow" && Array.isArray(args?.operators)
-        ? { program: programOf(args.operators as LegacySpec[]), ...(args.observe ? { observe: args.observe } : {}) }
+        ? { edits: programOf(args.operators as LegacySpec[]), ...(args.observe ? { observe: args.observe } : {}) }
         : args;
     const result = await agent.handleDebugInput(
       `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
@@ -118,32 +118,26 @@ test("unknown operator edits also supersede old successful values without preten
   expect(agent.getWorkflowState().getOperator("answer").nativeOp.type).toBe("Filter");
 });
 
-test("inspectError is V2-only, read-only, and its pinned output persists across layouts and repair", async () => {
+test("there is no inspection tool; a rejected edit's diagnostic is rendered in every layout", async () => {
   const { agent, call, bad } = await fixture();
   await call("dataflow", { operators: [bad], observe: [] });
-  expect(agent.tools.inspectError).toBeDefined();
-  const before = agent.getWorkflowState().getWorkflowContent();
-  const inspectedHead = await call("inspectError", { operatorId: "answer" });
-  const pull = agent.getAllSteps().find((step: any) => step.id === inspectedHead);
-  const output = pull.toolResults[0].output;
-  expect(output).toContain("REJECTED_SOURCE");
-  expect(agent.getWorkflowState().getWorkflowContent()).toEqual(before);
-  expect(agent.getSnapshotStorage().hasSnapshotFor(inspectedHead)).toBe(false);
-  await call("dataflow", { operators: [{ ...bad, func: "def apply(row):\n    return True" }], observe: [] });
+  expect(agent.tools.inspectError).toBeUndefined();
+  expect(agent.tools.deleteOperator).toBeUndefined();
+  const failed = agent.getAllSteps().find((step: any) => step.id === agent.getHead());
+  const outcome = failed.toolResults[0].output.operators[0];
+  expect(outcome.status).toBe("error");
+  expect(outcome.diagnostic?.code).toBeDefined();
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
-    for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const)
-      for (const extra of [{}, { sessionTurns: true }, { versionedCatalog: true }, { turnHistoryIndex: true }]) {
-        const rendered = JSON.stringify(
-          assembleContext(agent.getReActSteps(), agent.workflowState, agent.snapshotStorage, mode, {
-            agentMode: AgentMode.NATIVE,
-            messageLayout,
-            ...extra,
-          })
-        );
-        // The stored pull is the authority, not a rerender from the repaired DAG.
-        expect(rendered).toContain(JSON.stringify(output).slice(1, -1));
-        expect(rendered).not.toContain("GENERATED_RUNTIME_NOT_FOR_THE_MODEL");
-      }
+    for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
+      const rendered = JSON.stringify(
+        assembleContext(agent.getReActSteps(), agent.workflowState, agent.snapshotStorage, mode, {
+          agentMode: AgentMode.NATIVE,
+          messageLayout,
+        })
+      );
+      expect(rendered).toContain(outcome.diagnostic.code);
+      expect(rendered).not.toContain("GENERATED_RUNTIME_NOT_FOR_THE_MODEL");
+    }
   agent.settings.agentMode = AgentMode.CODE;
   expect(agent.createTools().inspectError).toBeUndefined();
 });
@@ -158,7 +152,7 @@ test("late or aborted post-step callbacks cannot attach attempt diagnostics to a
       else agent.head = "another-head";
     };
     await agent.runPostStepExecution(
-      [{ toolName: "dataflow", toolCallId: "late", input: { program: programOf([bad as LegacySpec]), observe: [] } }],
+      [{ toolName: "dataflow", toolCallId: "late", input: { edits: programOf([bad as LegacySpec]), observe: [] } }],
       [
         {
           toolCallId: "late",
