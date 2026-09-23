@@ -44,7 +44,7 @@ export const inspectErrorSchema = z
 export function createInspectErrorTool(inspect: (query: NativeErrorQuery) => { text: string }) {
   return tool({
     description:
-      "Inspect a retained, revision-pinned V2 operator error with bounded submitted-source context and repair details. " +
+      "Inspect a retained, revision-pinned operator error with bounded submitted-source context and repair details. " +
       "Read-only: no execution, workflow edit or successful table output. With only operatorId, reads the current failure; " +
       "after repair use revision or diagnosticId for a historical error. Missing/pruned records are unavailable, not reconstructed from current code.",
     inputSchema: inspectErrorSchema,

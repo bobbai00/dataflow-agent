@@ -19,7 +19,8 @@
     "trace-gen": "bun run benchmark/llm-training-data-generation/run.ts",
     "trace-eval": "bun run benchmark/llm-training-data-generation/evaluate.ts",
     "dashboard:build": "bun run src/dashboard/build.ts",
-    "dashboard:dev": "bun run src/dashboard/build.ts --watch"
+    "dashboard:dev": "bun run src/dashboard/build.ts --watch",
+    "render:native-reference": "bun run scripts/render-native-reference.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "3.0.73",

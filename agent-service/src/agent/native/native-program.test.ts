@@ -307,6 +307,20 @@ i = process(source, fn=lambda a, b: a)
       ["values must be a nonempty string"],
     ],
     ["unknown operator", 'a = select(t, keep=["x"])', ["Unknown operator `select`", "Available: scan, project"]],
+    [
+      "nested operator call",
+      'a = limit(sort(t, by=["x"]), 1)',
+      [
+        "limit takes the input table as its first positional argument",
+        "Nested operator calls are not supported",
+        'assign sort(t, by=["x"]) to its own name',
+      ],
+    ],
+    [
+      "nested call in a many-input operator",
+      'a = union(t, distinct(u, columns=["g"]))',
+      ["union takes input tables by name", "Nested operator calls are not supported"],
+    ],
   ];
   test.each(argumentSlips)("argument slip: %s", async (_name, statement, fragments) => {
     const compiled = await compileProgram(statement);
@@ -324,6 +338,7 @@ i = process(source, fn=lambda a, b: a)
       ["print(1)", "Only `name = operator(...)` assignments and `def` functions"],
       ["a, b = scan('x.csv')", "exactly one plain name"],
       ["x = scan('a.csv'", "was never closed"],
+      ["global = scan('a.csv')", "`global` is a Python keyword and cannot be a table name"],
       ["def f(row):\n    return 1\ndef f(row):\n    return 2", "defined twice"],
       ["x = filter(t, lambda row, y=1: True)", "plain positional parameters"],
       ["x = filter(t, *tables)", "Star arguments"],

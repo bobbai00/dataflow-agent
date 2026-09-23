@@ -41,6 +41,8 @@ how a column whose name is not an identifier is addressed by keyword.
 """
 
 import ast
+import keyword
+import re
 import json
 import sys
 
@@ -66,7 +68,11 @@ def _encode(program, node):
         return {"kind": "const", "value": value}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
         inner = _encode(program, node.operand)
-        if inner["kind"] == "const" and isinstance(inner["value"], (int, float)) and not isinstance(inner["value"], bool):
+        if (
+            inner["kind"] == "const"
+            and isinstance(inner["value"], (int, float))
+            and not isinstance(inner["value"], bool)
+        ):
             return {"kind": "const", "value": -inner["value"] if isinstance(node.op, ast.USub) else inner["value"]}
         raise ProgramError(node.lineno, f"Unsupported expression {_segment(program, node)!r}.", node.col_offset)
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -110,7 +116,9 @@ def _arguments(program, call):
     args = []
     for item in call.args:
         if isinstance(item, ast.Starred):
-            raise ProgramError(item.lineno, "Star arguments are not supported; list the tables explicitly.", item.col_offset)
+            raise ProgramError(
+                item.lineno, "Star arguments are not supported; list the tables explicitly.", item.col_offset
+            )
         args.append(_encode(program, item))
     kwargs = {}
     for keyword in call.keywords:
@@ -118,23 +126,47 @@ def _arguments(program, call):
             # `**{"Acres Burned": float64}` — addresses columns whose names are not identifiers.
             spread = _encode(program, keyword.value)
             if spread["kind"] != "dict":
-                raise ProgramError(keyword.value.lineno, "`**` must spread a dictionary literal.", keyword.value.col_offset)
+                raise ProgramError(
+                    keyword.value.lineno, "`**` must spread a dictionary literal.", keyword.value.col_offset
+                )
             for key, value in spread["entries"]:
                 if key in kwargs:
-                    raise ProgramError(keyword.value.lineno, f"Keyword {key!r} is given twice.", keyword.value.col_offset)
+                    raise ProgramError(
+                        keyword.value.lineno, f"Keyword {key!r} is given twice.", keyword.value.col_offset
+                    )
                 kwargs[key] = value
         else:
             if keyword.arg in kwargs:
-                raise ProgramError(keyword.value.lineno, f"Keyword {keyword.arg!r} is given twice.", keyword.value.col_offset)
+                raise ProgramError(
+                    keyword.value.lineno, f"Keyword {keyword.arg!r} is given twice.", keyword.value.col_offset
+                )
             kwargs[keyword.arg] = _encode(program, keyword.value)
     return args, kwargs
+
+
+def _syntax_error(program, error):
+    """Python's message for `global = scan(...)` is just "invalid syntax"; name
+    the keyword so the repair is one rename rather than a hunt."""
+    line = error.lineno or 1
+    text = program.split("\n")[line - 1] if 0 < line <= len(program.split("\n")) else ""
+    match = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)", text)
+    if match and keyword.iskeyword(match.group(1)):
+        return {
+            "line": line,
+            "column": match.start(1) + 1,
+            "message": (
+                f"`{match.group(1)}` is a Python keyword and cannot be a table name; "
+                f"rename it (for example `{match.group(1)}_table`)."
+            ),
+        }
+    return {"line": line, "column": error.offset, "message": error.msg}
 
 
 def parse_program(program):
     try:
         tree = ast.parse(program)
     except SyntaxError as error:
-        return {"ok": False, "error": {"line": error.lineno or 1, "column": error.offset, "message": error.msg}}
+        return {"ok": False, "error": _syntax_error(program, error)}
     functions = {}
     statements = []
     try:
@@ -153,7 +185,11 @@ def parse_program(program):
                 continue
             if isinstance(node, ast.AsyncFunctionDef):
                 raise ProgramError(node.lineno, "Functions must be synchronous `def`s.", node.col_offset)
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
                 continue  # a docstring-style comment
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 raise ProgramError(
@@ -164,7 +200,9 @@ def parse_program(program):
             if isinstance(node, ast.Assign):
                 if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
                     raise ProgramError(
-                        node.lineno, "Assign each operator to exactly one plain name: `name = operator(...)`.", node.col_offset
+                        node.lineno,
+                        "Assign each operator to exactly one plain name: `name = operator(...)`.",
+                        node.col_offset,
                     )
                 call = node.value
                 if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):

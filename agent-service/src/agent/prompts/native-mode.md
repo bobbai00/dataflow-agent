@@ -38,11 +38,12 @@ average_greece_rank = aggregate(greece_numeric_rank, average_rank=mean("numeric_
 
 Rules:
 
-1. The left-hand name is the output table. Assigning to an existing name revises that operator and keeps everything that reads from it; every table it feeds re-executes.
+1. The left-hand name is the output table. Assigning to an existing name revises that operator and keeps everything that reads from it; every table it feeds re-executes. Names are Python identifiers that are not Python keywords (`global`, `class`, `from`, `in`, `lambda` ...) and not operator names.
 2. Positional arguments are the input tables (by name); keyword arguments are the parameters. Nothing else may appear at the top level: no imports, no loose expressions. Import packages inside the function that needs them.
-3. Statements may refer to tables defined later in the same program or in earlier calls; the scheduler orders them. A statement whose input was rejected is blocked, independent statements still land, and the DAG is never left half-edited by one bad line.
-4. Functions are lambdas or `def`s from the same program, passed by name. Types are bare names: `str`, `int64`, `float64`, `bool`, `datetime`. Reducers and window functions are calls: `mean("x")`, `count()`, `lag("x", 1)`.
-5. A column whose name is not an identifier is addressed by string: `row["Acres Burned"]`, `**{"Acres Burned": float64}`.
+3. One operator per statement, never nested. `top = limit(sort(t, by=["x"]), 1)` is refused; write `ordered = sort(t, by=["x"])` and then `top = limit(ordered, 1)`. Every intermediate table has a name so it can be observed, revised and reported on. Assign each name once per program.
+4. Statements may refer to tables defined later in the same program or in earlier calls; the scheduler orders them. A statement whose input was rejected is blocked, independent statements still land, and the DAG is never left half-edited by one bad line.
+5. Functions are lambdas or `def`s from the same program, passed by name. Types are bare names: `str`, `int64`, `float64`, `bool`, `datetime`. Reducers and window functions are calls: `mean("x")`, `count()`, `lag("x", 1)`.
+6. A column whose name is not an identifier is addressed by string: `row["Acres Burned"]`, `**{"Acres Burned": float64}`.
 
 ## Operators
 

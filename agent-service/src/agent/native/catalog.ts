@@ -987,6 +987,11 @@ export function splitInputs(
   if (def.inputs === "many") {
     let n = 0;
     while (n < args.length && isTable(args[n])) n++;
+    const next = args[n];
+    if (next?.kind === "call" && NATIVE_BY_NAME.has(next.name))
+      throw new NativeArgumentError(
+        `${def.name} takes input tables by name, got ${show(next)}. Nested operator calls are not supported: assign ${show(next)} to its own name on a previous line and pass that name.`
+      );
     return {
       inputs: args.slice(0, n).map(a => (a as Extract<ParsedValue, { kind: "name" }>).name),
       rest: args.slice(n),
@@ -996,10 +1001,15 @@ export function splitInputs(
   const inputs: string[] = [];
   for (let i = 0; i < count; i++) {
     const value = args[i];
-    if (!isTable(value))
+    if (!isTable(value)) {
+      const nested = value?.kind === "call" && NATIVE_BY_NAME.has(value.name);
       throw new NativeArgumentError(
-        `${def.name} takes ${count === 1 ? "the input table" : "the left and right tables"} as ${count === 1 ? "its first positional argument" : "its first two positional arguments"}${value ? `, got ${show(value)}` : ""}.`
+        `${def.name} takes ${count === 1 ? "the input table" : "the left and right tables"} as ${count === 1 ? "its first positional argument" : "its first two positional arguments"}${value ? `, got ${show(value)}` : ""}.` +
+          (nested
+            ? ` Nested operator calls are not supported: assign ${show(value)} to its own name on a previous line and pass that name.`
+            : "")
       );
+    }
     inputs.push(value.name);
   }
   return { inputs, rest: args.slice(count) };
