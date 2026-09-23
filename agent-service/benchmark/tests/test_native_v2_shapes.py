@@ -17,7 +17,6 @@
 
 """Hand-computed shape contracts, including empty and scalar transport domains."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -121,112 +120,6 @@ def test_window_actionable_errors(column, code):
         run("Window", pd.DataFrame({"v": [1]}), orderBy=[{"col": "v"}], columns=[column])
 
 
-def test_split_is_literal_padded_bounded_and_null_safe():
-    frame = pd.DataFrame({"label": ["a.*b.*c.*d", "a", None, "", ".*b"], "id": [1, 2, 3, 4, 5]}, index=[9, 9, 9, -1, 0])
-    result = run("Split", frame, column="label", into=["a", "b", "rest"], separator=".*", keepSource=False)
-    assert list(result.columns) == ["id", "a", "b", "rest"]
-    assert values(result, "a") == ["a", "a", None, "", ""]
-    assert values(result, "b") == ["b", None, None, None, "b"]
-    assert values(result, "rest") == ["c.*d", None, None, None, None]
-    assert all(str(result[name].dtype) == "string" for name in ["a", "b", "rest"])
-    assert result.attrs["native_v2"]["operations"]["columnDependencies"] == {
-        name: ["label"] for name in ["a", "b", "rest"]
-    }
-    empty = run("Split", frame.iloc[:0], column="label", into=["x", "y"], separator=":")
-    assert empty.empty and list(empty.columns) == ["label", "id", "x", "y"]
-
-
-@pytest.mark.parametrize(
-    "frame,properties,code",
-    [
-        (pd.DataFrame({"x": [1]}), {"column": "x", "into": ["a", "b"], "separator": ":"}, "SPLIT_TYPE"),
-        (
-            pd.DataFrame({"x": ["a:b"]}),
-            {"column": "x", "into": ["x", "b"], "separator": ":", "keepSource": False},
-            "COLUMN_COLLISION",
-        ),
-        (pd.DataFrame({"x": ["a:b"]}), {"column": "x", "into": ["a", "a"], "separator": ":"}, "COLUMN_COLLISION"),
-        (pd.DataFrame({"x": ["a:b"]}), {"column": "x", "into": ["a", "b"], "separator": ""}, "SPLIT_ARGUMENT"),
-    ],
-)
-def test_split_does_not_coerce_or_overwrite(frame, properties, code):
-    with pytest.raises(runtime.NativeError, match=code):
-        run("Split", frame, **properties)
-
-
-def test_explode_json_order_empty_policy_private_parent_mapping_and_exact_int64():
-    large = 9007199254740993
-    frame = pd.DataFrame({"tags": [f"[1, null, {large}]", "[]", None, "[2]"], "id": [5, 6, 7, 8]}, index=[9, 9, -1, 2])
-    result = run("Explode", frame, column="tags", encoding="json")
-    assert values(result, "tags") == [1, None, large, 2]
-    assert values(result, "id") == [5, 5, 5, 8]
-    assert list(result.columns) == ["tags", "id"] and str(result["tags"].dtype) == "Int64"
-    ops = result.attrs["native_v2"]["operations"]
-    assert ops["explode"] == {"emptyParents": 2, "arrayElements": 4, "nullElements": 1, "maxElements": 3}
-    assert ops["rowMapping"]["sample"] == [
-        {"inputPosition": 0, "elementPosition": 0},
-        {"inputPosition": 0, "elementPosition": 1},
-        {"inputPosition": 0, "elementPosition": 2},
-        {"inputPosition": 3, "elementPosition": 0},
-    ]
-    kept = run("Explode", frame, column="tags", encoding="json", empty="null_row")
-    assert values(kept, "id") == [5, 5, 5, 6, 7, 8]
-    assert values(kept, "tags") == [1, None, large, None, None, 2]
-
-
-@pytest.mark.parametrize(
-    "serialized,expected,dtype",
-    [
-        ('["001", "NULL", null, ""]', ["001", "NULL", None, ""], "string"),
-        ("[true, false, null]", [True, False, None], "boolean"),
-        ("[1.5, null, 2.0]", [1.5, None, 2.0], "Float64"),
-        ("[null]", [None], "string"),
-    ],
-)
-def test_explode_scalar_domains(serialized, expected, dtype):
-    output = run("Explode", pd.DataFrame({"x": [serialized]}), column="x", encoding="json")
-    assert values(output, "x") == expected and str(output["x"].dtype) == dtype
-
-
-def test_explode_empty_output_and_parent_metadata_are_bounded():
-    frame = pd.DataFrame({"x": ["[]", None], "id": pd.Series([1, 2], dtype="Int64")})
-    result = run("Explode", frame, column="x", encoding="json")
-    assert result.empty and list(result.columns) == ["x", "id"] and str(result["x"].dtype) == "string"
-    wide = run("Explode", pd.DataFrame({"x": [json.dumps(list(range(40)))]}), column="x", encoding="json")
-    mapping = wide.attrs["native_v2"]["operations"]["rowMapping"]
-    assert len(mapping["sample"]) <= 16 and mapping["complete"] is False
-
-
-@pytest.mark.parametrize(
-    "serialized,code",
-    [
-        ("bad", "EXPLODE_JSON"),
-        ("{}", "EXPLODE_TYPE"),
-        ("null", "EXPLODE_TYPE"),
-        ("[{}]", "EXPLODE_TYPE"),
-        ("[[1]]", "EXPLODE_TYPE"),
-        ("[1, true]", "EXPLODE_TYPE"),
-        ('[1, "2"]', "EXPLODE_TYPE"),
-        ("[1, 2.0]", "EXPLODE_TYPE"),
-        ("[NaN]", "EXPLODE_JSON"),
-        ("[Infinity]", "EXPLODE_JSON"),
-        ("[1e999]", "EXPLODE_TYPE"),
-        ("[9223372036854775808]", "EXPLODE_TYPE"),
-        (42, "EXPLODE_TYPE"),
-    ],
-)
-def test_explode_rejects_non_json_mixed_and_untransportable_elements(serialized, code):
-    with pytest.raises(runtime.NativeError, match=code) as error:
-        run("Explode", pd.DataFrame({"x": [serialized]}), column="x", encoding="json")
-    assert error.value.diagnostic["field"] == "column"
-    assert "row 0" in error.value.diagnostic["message"]
-
-
-def test_explode_type_is_consistent_across_parent_rows():
-    with pytest.raises(runtime.NativeError, match="EXPLODE_TYPE"):
-        run("Explode", pd.DataFrame({"x": ['["a"]', "[true]"]}), column="x", encoding="json")
-
-
 def test_unpivot_order_null_cells_types_and_zero_key_columns():
     large = 9007199254740993
     frame = pd.DataFrame(
@@ -302,8 +195,6 @@ def test_pivot_rejects_unusable_dynamic_names(keys, code):
 def test_shape_parameter_errors_are_preflight_not_worker_execution():
     cases = [
         ("Window", {"orderBy": [{"col": "x"}], "columns": [{"fn": "rank", "as": "r", "offset": 1}]}, "WINDOW_ARGUMENT"),
-        ("Split", {"column": "x", "into": ["a", "b"], "separator": ""}, "SPLIT_ARGUMENT"),
-        ("Explode", {"column": "x", "encoding": "python"}, "EXPLODE_ARGUMENT"),
         ("Pivot", {"index": ["x"], "columns": "x", "values": "v"}, "PIVOT_ARGUMENT"),
     ]
     for kind, properties, code in cases:
@@ -323,29 +214,27 @@ def test_all_shapes_round_trip_engine_schema_tuples_and_arrow(empty):
     large = 9007199254740993
     frame = pd.DataFrame(
         {
-            "label": ["A:Alpha"],
-            "tags": ["[1,2]"],
-            "y1": pd.Series([large], dtype="Int64"),
-            "y2": pd.Series([7], dtype="Int64"),
-            "__row_index__": ["user_value"],
-            "__is_visualization__": [True],
+            "label": ["A", "A"],
+            "tags": pd.Series([1, 2], dtype="Int64"),
+            "y1": pd.Series([large, large], dtype="Int64"),
+            "y2": pd.Series([7, 7], dtype="Int64"),
+            "__row_index__": ["user_value", "user_value"],
+            "__is_visualization__": [True, True],
         }
     )
     if empty:
         frame = frame.iloc[:0]
     chain = [
-        ("Split", {"column": "label", "into": ["entity", "description"], "separator": ":"}),
-        ("Explode", {"column": "tags", "encoding": "json"}),
         ("Unpivot", {"columns": ["y1", "y2"]}),
         (
             "Window",
             {
-                "partitionBy": ["entity", "tags"],
+                "partitionBy": ["label", "tags"],
                 "orderBy": [{"col": "variable"}],
                 "columns": [{"fn": "lag", "col": "value", "as": "previous"}],
             },
         ),
-        ("Pivot", {"index": ["entity", "tags"], "columns": "variable", "values": "previous"}),
+        ("Pivot", {"index": ["label", "tags"], "columns": "variable", "values": "previous"}),
     ]
     processor = DataProcessor.__new__(DataProcessor)
     for kind, properties in chain:
@@ -371,4 +260,4 @@ def test_all_shapes_round_trip_engine_schema_tuples_and_arrow(empty):
         if kind == "Window" and not empty:
             assert values(frame, "previous") == [None, large, None, large]
         if kind == "Pivot":
-            assert list(frame.columns) == (["entity", "tags"] if empty else ["entity", "tags", "y1", "y2"])
+            assert list(frame.columns) == (["label", "tags"] if empty else ["label", "tags", "y1", "y2"])

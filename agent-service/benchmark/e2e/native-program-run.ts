@@ -176,7 +176,7 @@ try {
   const first = await debug("dataflow", {
     edits: [
       'total = aggregate(positive, sum_x=sum("x"))',
-      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 0)',
+      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 0, doc="Keeps rows with positive x")',
       "def load_source():",
       "    import pandas as pd",
       "    import time",
@@ -210,8 +210,8 @@ try {
   const revision = await debug("dataflow", {
     edits: [
       'answer = project(tagged_total, keep=["sum_x", "tag"])',
-      'tagged_total = map(total, lambda row: {**row, "tag": "RECOMPUTED_SENTINEL"})',
-      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 1)',
+      'tagged_total = map(total, lambda row: {**row, "tag": "RECOMPUTED_SENTINEL"}, doc="Adds a constant tag column")',
+      'positive = filter(source, lambda row: row["x"] is not None and row["x"] > 1, doc="Keeps rows with x above 1")',
     ].join("\n"),
   });
   assert.equal(revision.results.total.sampleRecords[0].sum_x, 3, "existing downstream aggregate was not refreshed");
@@ -289,7 +289,7 @@ try {
     edits: [
       "invalid = filter(source, 4)",
       "blocked = aggregate(invalid, n=count())",
-      'valid = map(positive, lambda row: {**row, "doubled": row["x"] * 2})',
+      'valid = map(positive, lambda row: {**row, "doubled": row["x"] * 2}, doc="Adds doubled = 2 * x")',
     ].join("\n"),
     observe: [],
   });
@@ -299,7 +299,8 @@ try {
 
   // 8. An execution error replaces the previous success and is inspectable.
   const failed = await debug("dataflow", {
-    edits: 'valid = map(positive, lambda row: {**row, "doubled": row["not_a_column"] * 2})',
+    edits:
+      'valid = map(positive, lambda row: {**row, "doubled": row["not_a_column"] * 2}, doc="Adds doubled from a column that does not exist")',
     observe: [],
   });
   assert.ok(failed.results.valid?.error, "previous successful result must be replaced by the new error");

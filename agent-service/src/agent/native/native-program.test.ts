@@ -84,9 +84,8 @@ raw = scan("data/x.csv", preview=8, skip_lines=3)
 source = scan(["data/a.csv", "data/b.csv"], format="csv", header=False, names=["a", "b"], all_text=True, file_column="src", sheet=0, encoding="utf-8", delim=";", comment="#")
 kept = project(source, keep=["a", "b"], rename={"a": "alpha"})
 typed = cast(kept, alpha=float64, **{"Unit Price": int64}, when=datetime(format="%Y-%m-%d", tz="UTC"), errors="null")
-filled = fill_null(typed, alpha=0.0, **{"Unit Price": 0})
-greece = filter(source, lambda row: row["Country"] == "Greece")
-ranked = map(greece, rank_value)
+greece = filter(source, lambda row: row["Country"] == "Greece", doc="Keeps the rows whose Country is Greece")
+ranked = map(greece, rank_value, doc="Adds numeric_rank parsed from rating and a flag for x above 1")
 totals = aggregate(ranked, by=["region"], total=sum("amount"), n=count(), names=count("name"), spread=stddev("amount"))
 labeled = join(totals, names_table, on=[("region", "region_id")], how="left", nulls_equal=True, suffix="_r", validate="many_to_one")
 pairs = join(totals, totals, how="cross")
@@ -95,9 +94,7 @@ unique = distinct(both, columns=["region"], keep="last")
 ordered = sort(unique, by=[("total", "desc"), "region"], nulls="first")
 top = limit(ordered, 3, offset=1)
 prior = window(ordered, partition_by=["region"], order_by=[("total", "desc")], previous=lag("total", 1), nxt=lead("total"), rk=dense_rank())
-parts = split(source, "label", ["code", "description"], ":", keep_source=False)
-items = explode(parts, "tags", empty="null_row")
-long = unpivot(items, columns=["y1", "y2"], name="year", value="amount")
+long = unpivot(source, columns=["y1", "y2"], name="year", value="amount")
 wide = pivot(long, index=["code"], columns="year", values="amount")
 
 def correlate(t):
@@ -134,13 +131,14 @@ positions = process(fn=load_positions, doc="Loads one row")
       ],
       errors: "null",
     });
-    expect(v.filled.view!.properties).toEqual({ values: { alpha: 0, "Unit Price": 0 } });
     expect(v.greece.view!.properties).toEqual({
       func: 'def apply(row):\n    return row["Country"] == "Greece"',
       entry: "apply",
+      doc: "Keeps the rows whose Country is Greece",
     });
     expect(v.greece.view!.inputs).toEqual(["source"]);
     expect(v.ranked.view!.properties.entry).toBe("rank_value");
+    expect(v.ranked.view!.properties.doc).toBe("Adds numeric_rank parsed from rating and a flag for x above 1");
     expect(v.ranked.view!.properties.func).toContain("def rank_value(row):");
     expect(v.ranked.view!.functions).toEqual({ rank_value: String(v.ranked.view!.properties.func) });
     expect(v.totals.view!.properties).toEqual({
@@ -178,13 +176,6 @@ positions = process(fn=load_positions, doc="Loads one row")
         { fn: "dense_rank", as: "rk" },
       ],
     });
-    expect(v.parts.view!.properties).toEqual({
-      column: "label",
-      into: ["code", "description"],
-      separator: ":",
-      keepSource: false,
-    });
-    expect(v.items.view!.properties).toEqual({ column: "tags", encoding: "json", empty: "null_row" });
     expect(v.long.view!.properties).toEqual({ columns: ["y1", "y2"], nameColumn: "year", valueColumn: "amount" });
     expect(v.wide.view!.properties).toEqual({ index: ["code"], columns: "year", values: "amount" });
     expect(v.corr.view!.type).toBe("Process");
@@ -202,8 +193,8 @@ def parse_count(row, column):
     value = row[column]
     return None if value is None else float(value.replace(",", ""))
 
-typed = map(source, lambda row: {**row, "fraud": parse_count(row, "Fraud"), "other": parse_count(row, "Other")})
-kept = filter(typed, lambda row: parse_count(row, "Fraud") is not None)
+typed = map(source, lambda row: {**row, "fraud": parse_count(row, "Fraud"), "other": parse_count(row, "Other")}, doc="Adds fraud and other as numbers parsed from the text columns")
+kept = filter(typed, lambda row: parse_count(row, "Fraud") is not None, doc="Keeps rows with a parseable Fraud value")
 `);
     const shipped = v.typed.view!.properties.func as string;
     expect(shipped).toContain("def parse_count(row, column):");
@@ -221,7 +212,7 @@ def clean(text):
 def to_number(row):
     return float(clean(row["amount"]))
 
-typed = map(source, to_number)
+typed = map(source, to_number, doc="Adds the numeric amount")
 `);
     const func = v.typed.view!.properties.func as string;
     expect(func.indexOf("def clean(")).toBeLessThan(func.indexOf("def to_number("));
@@ -264,7 +255,7 @@ i = process(source, fn=lambda a, b: a)
     [
       "unknown keyword",
       'a = filter(t, lambda row: True, nullz="drop")',
-      ["does not take a keyword `nullz`", "accepted keywords: fn"],
+      ["does not take a keyword `nullz`", "accepted keywords: fn, doc"],
     ],
     [
       "enum out of range",
@@ -290,7 +281,13 @@ i = process(source, fn=lambda a, b: a)
     ["undefined function", "a = filter(t, is_ok)", ["is_ok", "not a function defined in this program"]],
     ["invalid sort direction", 'a = sort(t, by=[("x", "down")])', ['got "down"']],
     ["invalid scan format", 'a = scan("d.csv", format="feather")', ['got "feather"']],
-    ["invalid explode policy", 'a = explode(t, column="j", empty="skip")', ['got "skip"', '"drop", "null_row"']],
+    ["filter without doc", "a = filter(t, lambda row: True)", ['filter needs doc="one sentence stating which rows']],
+    [
+      "map without doc",
+      "a = map(t, lambda row: {**row})",
+      ['map needs doc="one sentence stating what the returned row'],
+    ],
+    ["doc that is not a string", "a = map(t, lambda row: {**row}, doc=describe)", ["map needs doc="]],
     ["invalid distinct keep", 'a = distinct(t, columns=["g"], keep="middle")', ['got "middle"']],
     ["invalid union schema", 'a = union(t, u, schema="loose")', ['got "loose"']],
     ["invalid cast policy", 'a = cast(t, x=int64, errors="skip")', ['got "skip"']],
@@ -354,9 +351,9 @@ i = process(source, fn=lambda a, b: a)
         "def f(row):",
         "    return (row['v'] +",
         "            1) > 1",
-        "c = filter(t, f)",
+        'c = filter(t, f, doc="c")',
         "print(1)",
-        'd = map(t, lambda row: {"k": "a#b("})',
+        'd = map(t, lambda row: {"k": "a#b("}, doc="d")',
       ].join("\n")
     );
     expect(mixed.statements.map(s => s.id)).toEqual(["b", "c", "d"]);
@@ -370,9 +367,9 @@ i = process(source, fn=lambda a, b: a)
   });
 
   test("revisions ignore formatting but follow the definition", async () => {
-    const a = (await views('x = filter(t, lambda row: row["v"] > 1)')).x.view!.revision;
-    const b = (await views('x = filter( t ,  fn = lambda row: row["v"] > 1 )')).x.view!.revision;
-    const c = (await views('x = filter(t, lambda row: row["v"] > 2)')).x.view!.revision;
+    const a = (await views('x = filter(t, lambda row: row["v"] > 1, doc="v above 1")')).x.view!.revision;
+    const b = (await views('x = filter( t ,  fn = lambda row: row["v"] > 1 , doc = "v above 1" )')).x.view!.revision;
+    const c = (await views('x = filter(t, lambda row: row["v"] > 2, doc="v above 1")')).x.view!.revision;
     expect(a).toBe(b);
     expect(a).not.toBe(c);
   });
@@ -433,8 +430,8 @@ def load():
 
 source = process(fn=load, doc="loads the fixture")
 typed = cast(source, x=int64)
-positive = filter(typed, lambda row: row["x"] is not None and row["x"] > 1)
-scored = map(positive, lambda row: {**row, "score": row["x"] * row["y"] / 2, "label": "big" if row["y"] > 15 else "small"})
+positive = filter(typed, lambda row: row["x"] is not None and row["x"] > 1, doc="Keeps rows with x above 1")
+scored = map(positive, lambda row: {**row, "score": row["x"] * row["y"] / 2, "label": "big" if row["y"] > 15 else "small"}, doc="Adds score = x * y / 2 and a size label from y")
 pairs = join(scored, scored, on="id", validate="one_to_one", suffix="_b")
 `,
       observe: ["pairs"],
@@ -477,18 +474,16 @@ pairs = join(scored, scored, on="id", validate="one_to_one", suffix="_b")
     });
   });
 
-  test("shape operators run through split, explode, unpivot, window and pivot, and a source revision refreshes them", async () => {
+  test("shape operators run through unpivot, window and pivot, and a source revision refreshes them", async () => {
     const { state, tools } = nativeTestTools();
     const shapes = `
-parts = split(source, "label", ["code", "description"], ":")
-items = explode(parts, "tags")
-long = unpivot(items, columns=["y2024", "y2025"])
+long = unpivot(source, columns=["y2024", "y2025"])
 lagged = window(long, partition_by=["code", "tags"], order_by=["variable"], previous=lag("value", 1))
 wide = pivot(lagged, index=["code", "tags"], columns="variable", values="previous")`;
     const source = (value: number) =>
-      `def load():\n    import pandas as pd\n    return pd.DataFrame({'label': ['A:Alpha'], 'tags': ['[1,2]'], 'y2024': [${value}], 'y2025': [${value + 5}]})\nsource = process(fn=load, doc="loads the fixture")`;
+      `def load():\n    import pandas as pd\n    return pd.DataFrame({'code': ['A', 'A'], 'tags': [1, 2], 'y2024': [${value}, ${value}], 'y2025': [${value + 5}, ${value + 5}]})\nsource = process(fn=load, doc="loads the fixture")`;
     const first = await tools.dataflow.execute({ edits: `${shapes}\n${source(10)}`, observe: ["wide"] });
-    expect(first.operators.map((o: any) => o.status)).toEqual(Array(6).fill("added"));
+    expect(first.operators.map((o: any) => o.status)).toEqual(Array(4).fill("added"));
     expect(execute(state, "wide")).toEqual([
       { code: "A", tags: 1, y2024: null, y2025: 10 },
       { code: "A", tags: 2, y2024: null, y2025: 10 },
@@ -502,7 +497,7 @@ wide = pivot(lagged, index=["code", "tags"], columns="variable", values="previou
       { code: "A", tags: 1, y2025: 20 },
       { code: "A", tags: 2, y2025: 20 },
     ]);
-    expect(state.getAllLinks()).toHaveLength(6);
+    expect(state.getAllLinks()).toHaveLength(4);
   });
 
   test("invalid options fail before mutation, blocking only dependents", async () => {
@@ -512,7 +507,7 @@ wide = pivot(lagged, index=["code", "tags"], columns="variable", values="previou
       edits: `
 bad = window(source, order_by=["label"], r=rank("x"))
 blocked = project(bad, keep=["r"])
-parts = split(source, "label", ["code", "description"], ":")
+parts = project(source, keep=["label"])
 crossed = join(source, source, how="cross", validate="one_to_one")`,
       observe: [],
     });

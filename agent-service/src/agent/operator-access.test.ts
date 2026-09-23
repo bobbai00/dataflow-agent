@@ -81,11 +81,11 @@ describe("computeOperatorAccess", () => {
     const access = computeOperatorAccess(
       [
         call("dataflow", "a", {
-          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 1)",
+          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 1, doc='amount above 1')",
           observe: ["web_fraud"],
         }),
         call("dataflow", "m", {
-          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 2)",
+          edits: "web_fraud = filter(contributors, lambda row: row['amount'] > 2, doc='amount above 2')",
           observe: [],
         }),
         call("deleteOperator", "d", { id: "probe" }),

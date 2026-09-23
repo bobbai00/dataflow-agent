@@ -92,6 +92,7 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
         defs.push(renamed(p.func, /def\s+apply\s*\(/, `${id}_predicate`));
         args.push(`${id}_predicate`);
       }
+      args.push('doc="legacy fixture"');
       break;
     }
     case "derive":
@@ -112,6 +113,7 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
       }
       defs.push(`def ${id}_row(row):\n    return {**row, ${entries.join(", ")}}`);
       args.push(`${id}_row`);
+      args.push('doc="legacy fixture"');
       break;
     }
     case "cast": {
@@ -126,11 +128,6 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
       }
       args.push(`**{${spread.join(", ")}}`);
       kw("errors", p.errors);
-      break;
-    }
-    case "fill_null": {
-      args.push(input);
-      args.push(`**${py(p.values)}`);
       break;
     }
     case "project": {
@@ -187,20 +184,6 @@ export function statementOf(spec: LegacySpec): { defs: string[]; statement: stri
         );
         args.push(`${c.as}=${c.fn}(${inner.join(", ")})`);
       }
-      break;
-    }
-    case "split": {
-      args.push(input);
-      kw("column", p.column);
-      kw("into", p.into);
-      kw("separator", p.separator);
-      kw("keep_source", p.keepSource);
-      break;
-    }
-    case "explode": {
-      args.push(input);
-      kw("column", p.column);
-      kw("empty", p.empty);
       break;
     }
     case "unpivot": {

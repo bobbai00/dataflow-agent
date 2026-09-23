@@ -39,16 +39,16 @@ cannot silently become new arms.
 ## The program
 
 ```python
-def rank_value(row):
-    rank = row["Barrington Atlas Rank"]
-    if rank is None:
-        return None
-    parts = [p.strip() for p in rank.split("or")]
-    return sum(float(p) for p in parts) / len(parts)
+def rating_value(row):
+    text = row["rating"]
+    if text is None:
+        return {"product": row["product"], "numeric_rating": None}
+    parts = [p.strip() for p in text.split("or")]
+    return {"product": row["product"], "numeric_rating": sum(float(p) for p in parts) / len(parts)}
 
-greece_cities = filter(roman_cities, lambda row: row["Country"] == "Greece")
-greece_numeric_rank = map(greece_cities, numeric_rank=float64(rank_value))
-average_greece_rank = aggregate(greece_numeric_rank, average_rank=mean("numeric_rank"))
+domestic = filter(reviews, lambda row: row["country"] == "Greece", doc="Keeps reviews whose country is Greece")
+rated = map(domestic, rating_value, doc="Keeps product and the numeric rating parsed from the rating text")
+average_rating = aggregate(rated, by=["product"], average=mean("numeric_rating"))
 ```
 
 1. One assignment per operator. The left name is the output table; assigning
@@ -71,15 +71,19 @@ fails only its statement.
 
 ## The tool
 
-`dataflow({ edits, delete, observe })` is the only tool.
+`dataflow({ edits, delete, observe })` is the only tool. A call runs four
+steps in a fixed order, and the prompt tells the model so:
 
-- `edits`: the statements above (create or modify operators) plus the `def`s
-  they use. Empty when the call only deletes or re-reads cached results.
-- `delete`: ids of operators to remove, applied before the edits; refused while
-  another surviving operator still reads the deleted one.
-- `observe`: the ids whose table contents the model wants to see. Everything
-  else still executes but shows only a receipt (`executed, N rows; result not
-  requested`). Errors are always shown.
+1. `delete`: ids of operators to remove. Refused while another operator that
+   survives the call still reads the deleted one (a consumer deleted or
+   re-pointed in the same call counts as handled).
+2. `edits`: the statements above (create or modify operators) plus the `def`s
+   they use. Empty when the call only deletes or re-reads cached results.
+3. Execution: new and modified operators run with everything downstream of
+   them; untouched operators keep their results.
+4. `observe`: the ids whose table contents the model wants to see. Everything
+   else shows only a receipt (`executed, N rows; result not requested`).
+   Errors are always shown.
 
 There is no separate delete or inspection tool: a rejected edit's diagnostic
 travels in the receipt, and a repeated identical resubmission is paused until
@@ -97,9 +101,8 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)` | Scan | created |
 | `project(T, keep=None, drop=None, rename=None)` | Project | same |
 | `cast(T, column=dtype, ..., errors="raise")`, `datetime(format=, tz=)` | Cast | same |
-| `fill_null(T, column=value, ...)` | FillNull | same |
-| `filter(T, fn)` | Filter | drop |
-| `map(T, fn)` (returns the new row as a dict) | Map | same |
+| `filter(T, fn, doc="...")` | Filter | drop |
+| `map(T, fn, doc="...")` (returns the new row as a dict) | Map | same |
 | `aggregate(T, by=[], name=reducer("col"), ...)` | Aggregate | one per group |
 | `join(L, R, on, how="inner", nulls_equal=False, suffix="_right", validate="many_to_many")` | Join | multiply |
 | `union(T1, T2, ..., schema="strict")` | Union | add |
@@ -107,13 +110,17 @@ reference is generated from it, so prompt, parser and engine cannot drift.
 | `sort(T, by, nulls="last")` | Sort | same |
 | `limit(T, n, offset=0)` | Limit | drop |
 | `window(T, partition_by=[], order_by=[...], name=fn, ...)` | Window | same |
-| `split(T, column, into, separator, keep_source=True)` | Split | same |
-| `explode(T, column, empty="drop")` | Explode | multiply |
 | `unpivot(T, columns, name="variable", value="value")` | Unpivot | add |
 | `pivot(T, index, columns, values)` | Pivot | collapse |
 | `process(T1, ..., Tn, fn=function, doc="...")` | Process | unknown |
 
-`map` replaces the earlier Transform and Derive; `process` replaces UDF. The
+`map` replaces the earlier Transform and Derive; `process` replaces UDF;
+`fill_null`, `split` and `explode` were retired on 2026-09-23 because traces
+never needed them (a `map` expresses each). Every custom operator (`filter`,
+`map`, `process`) takes a required one-sentence `doc` stating the logical
+semantics of its function; it is stored on the operator and leads its flow
+guarantee in observed results, since nothing else about custom code can be
+measured. The
 runtime (`native/python/runtime.py`) no longer takes declared input columns
 for filter and map: every function sees the whole row, and the columns it
 actually read are recorded (`operations.predicateColumns`,

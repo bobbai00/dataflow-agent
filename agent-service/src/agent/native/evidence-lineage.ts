@@ -63,8 +63,6 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
           ]
         : [name];
     }
-    case "Split":
-      return names(p.into).includes(name) ? names([p.column]) : [name];
     case "Unpivot":
       return name === (p.valueColumn ?? "value") || name === (p.nameColumn ?? "variable") ? names(p.columns) : [name];
     case "Pivot":
@@ -85,12 +83,10 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
       return !coalesced && right.has(original) && left.has(original) ? [original] : [];
     }
     case "Cast":
-    case "FillNull":
     case "Filter":
     case "Distinct":
     case "Sort":
     case "Limit":
-    case "Explode":
     case "Union":
       return [name];
     default:

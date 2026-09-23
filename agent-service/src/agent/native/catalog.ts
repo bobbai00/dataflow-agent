@@ -47,9 +47,9 @@ export type RowEffect =
   | "add"
   /** Aggregate / Pivot: collapses rows to one per group. */
   | "collapse"
-  /** Join / Explode: can drop or multiply rows. */
+  /** Join: can drop or multiply rows. */
   | "multiply"
-  /** Project / Cast / Map / Sort / Window / Split / FillNull: row set untouched. */
+  /** Project / Cast / Map / Sort / Window: row set untouched. */
   | "none"
   /** Process: anything. */
   | "unknown";
@@ -128,14 +128,14 @@ export interface NormalizeContext {
 }
 
 export interface NativeOperatorDef {
-  /** Surface function name in the program: `filter`, `fill_null`, … */
+  /** Surface function name in the program: `filter`, `aggregate`, … */
   name: string;
-  /** Runtime type in `python/runtime.py`: `Filter`, `FillNull`, … */
+  /** Runtime type in `python/runtime.py`: `Filter`, `Aggregate`, … */
   type: string;
   /** Number of input tables: 0 (source), 1, 2 (join) or "many" (union, process). */
   inputs: 0 | 1 | 2 | "many";
   rowEffect: RowEffect;
-  /** Call signature shown in the system prompt, e.g. `filter(T, fn, nulls="drop")`. */
+  /** Call signature shown in the system prompt, e.g. `filter(T, fn, doc="...")`. */
   signature: string;
   /** One-paragraph contract shown under the signature. */
   doc: string;
@@ -210,11 +210,6 @@ function int(value: ParsedValue, field: string, minimum = Number.NEGATIVE_INFINI
     `${field} must be an integer${Number.isFinite(minimum) ? ` >= ${minimum}` : ""}, got ${show(value)}.`,
     field
   );
-}
-
-function scalar(value: ParsedValue, field: string): string | number | boolean | null {
-  if (value.kind === "const") return value.value;
-  return fail(`${field} must be a literal value, got ${show(value)}.`, field);
 }
 
 function strList(value: ParsedValue, field: string, minItems = 0): string[] {
@@ -324,6 +319,13 @@ function keywords(op: string, kwargs: Record<string, ParsedValue>, allowed: read
   for (const key of Object.keys(kwargs))
     if (!allowed.includes(key))
       fail(`${op} does not take a keyword \`${key}\`; accepted keywords: ${allowed.join(", ")}.`, key);
+}
+
+/** The required `doc="..."` of a custom operator: one constant sentence stating the function's logical semantics. */
+function docText(op: string, value: ParsedValue | undefined, meaning: string): string {
+  const text = value && value.kind === "const" && typeof value.value === "string" ? value.value.trim() : "";
+  if (!text) fail(`${op} needs doc="one sentence stating ${meaning}".`, "doc");
+  return text;
 }
 
 function noPositional(op: string, rest: ParsedValue[], expected: string): void {
@@ -526,49 +528,33 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     },
   },
   {
-    name: "fill_null",
-    type: "FillNull",
-    inputs: 1,
-    rowEffect: "none",
-    signature: "fill_null(T, column=value, ...)",
-    doc: 'Replaces missing cells of each named column with the given literal (compatible with the column\'s type). Rows are unchanged; no imputation or forward fill. Example: `filled = fill_null(orders, quantity=0, region="unknown")`.',
-    schema: object(
-      {
-        values: {
-          type: "object",
-          minProperties: 1,
-          additionalProperties: { type: ["string", "number", "boolean", "null"] },
-        },
-      },
-      ["values"]
-    ),
-    normalize(rest, kwargs) {
-      noPositional("fill_null", rest, "one input table");
-      const values = Object.fromEntries(Object.entries(kwargs).map(([key, value]) => [key, scalar(value, key)]));
-      if (!Object.keys(values).length) fail("fill_null needs at least one column=value argument.");
-      return { values };
-    },
-  },
-  {
     name: "filter",
     type: "Filter",
     inputs: 1,
     rowEffect: "drop",
-    signature: "filter(T, fn)",
-    doc: 'Keeps the rows for which `fn(row)` returns True: `kept = filter(orders, lambda row: row["amount"] is not None and row["amount"] > 100)`. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True to keep, False or None to drop; anything else, including a truthy string, is a contract error. Row order is preserved; the columns the function reads are measured, not declared.',
-    schema: object({ func: S, entry: S }, ["func", "entry"]),
+    signature: 'filter(T, fn, doc="what the predicate keeps")',
+    doc: 'Keeps the rows for which `fn(row)` returns True: `big = filter(orders, lambda row: row["amount"] is not None and row["amount"] > 100, doc="Keeps orders with an amount above 100")`. `row` is a read-only mapping of the input columns (`row["col"]`; a missing value is None). Return True to keep, False or None to drop; anything else, including a truthy string, is a contract error. Row order is preserved; the columns the function reads are measured, not declared. `doc` is one sentence stating the logical semantics of the predicate (which rows survive); it is shown with the results.',
+    schema: object({ func: S, entry: S, doc: S }, ["func", "entry", "doc"]),
     normalize(rest, kwargs, context) {
-      keywords("filter", kwargs, ["fn"]);
-      if (rest.length > 1) fail("filter takes the input table and one predicate function.");
+      keywords("filter", kwargs, ["fn", "doc"]);
+      if (rest.length > 1) fail("filter takes the input table, one predicate function and doc=.");
       const fnValue = rest[0] ?? kwargs.fn;
-      if (!fnValue) fail("filter needs a predicate: filter(t, lambda row: ...) or filter(t, fn=my_function).", "fn");
+      if (!fnValue)
+        fail(
+          'filter needs a predicate: filter(t, lambda row: ..., doc="...") or filter(t, fn=my_function, doc="...").',
+          "fn"
+        );
       const slot = functionSlot(fnValue!, "fn", context);
       if (slot.params.length !== 1)
         fail(
           `filter's function takes exactly one parameter (the row); ${slot.entry} takes ${slot.params.length}.`,
           "fn"
         );
-      return { func: slot.source, entry: slot.entry };
+      return {
+        func: slot.source,
+        entry: slot.entry,
+        doc: docText("filter", kwargs.doc, "which rows the predicate keeps"),
+      };
     },
   },
   {
@@ -576,19 +562,22 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Map",
     inputs: 1,
     rowEffect: "none",
-    signature: "map(T, fn)",
-    doc: 'Transforms every row: `fn(row)` returns the new row as a dict and those dicts are the output table: `priced = map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]})`. `{**row, ...}` keeps the input columns; a dict without it keeps only the keys you return (rename or drop columns that way). One row out per row in, in the same order; every row must return the same keys; values are scalars or None; column types are inferred from the values (ints and floats mix to float64, one type per column otherwise). Missing values arrive as None; handle them explicitly.',
-    schema: object({ func: S, entry: S }, ["func", "entry"]),
+    signature: 'map(T, fn, doc="what the new row holds")',
+    doc: 'Transforms every row: `fn(row)` returns the new row as a dict and those dicts are the output table: `priced = map(orders, lambda row: {**row, "unit_price": None if row["quantity"] in (None, 0) else row["amount"] / row["quantity"]}, doc="Adds unit_price = amount / quantity, None when quantity is missing or zero")`. `{**row, ...}` keeps the input columns; a dict without it keeps only the keys you return (rename or drop columns that way). One row out per row in, in the same order; every row must return the same keys; values are scalars or None; column types are inferred from the values (ints and floats mix to float64, one type per column otherwise). Missing values arrive as None; handle them explicitly. `doc` is one sentence stating the logical semantics of the function (which columns it adds, changes or drops, and how); it is shown with the results.',
+    schema: object({ func: S, entry: S, doc: S }, ["func", "entry", "doc"]),
     normalize(rest, kwargs, context) {
-      keywords("map", kwargs, ["fn"]);
-      if (rest.length > 1) fail("map takes the input table and one row function.");
+      keywords("map", kwargs, ["fn", "doc"]);
+      if (rest.length > 1) fail("map takes the input table, one row function and doc=.");
       const fnValue = rest[0] ?? kwargs.fn;
       if (!fnValue)
-        fail('map needs a row function: map(t, lambda row: {**row, "new": ...}) or map(t, fn=my_function).', "fn");
+        fail(
+          'map needs a row function: map(t, lambda row: {**row, "new": ...}, doc="...") or map(t, fn=my_function, doc="...").',
+          "fn"
+        );
       const slot = functionSlot(fnValue!, "fn", context);
       if (slot.params.length !== 1)
         fail(`map's function takes exactly one parameter (the row); ${slot.entry} takes ${slot.params.length}.`, "fn");
-      return { func: slot.source, entry: slot.entry };
+      return { func: slot.source, entry: slot.entry, doc: docText("map", kwargs.doc, "what the returned row holds") };
     },
   },
   {
@@ -826,57 +815,6 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     },
   },
   {
-    name: "split",
-    type: "Split",
-    inputs: 1,
-    rowEffect: "none",
-    signature: "split(T, column, into, separator, keep_source=True)",
-    doc: 'Splits a string column on a literal separator (no regex) into at least two new columns, at most len(into)-1 times; missing pieces are null and the remainder stays in the last column. Null input gives null outputs; a non-string column or a name collision fails. Example: `parts = split(orders, column="code", into=["prefix", "number"], separator="-")`.',
-    schema: object({ column: S, into: { ...NAMES, minItems: 2 }, separator: S, keepSource: { type: "boolean" } }, [
-      "column",
-      "into",
-      "separator",
-    ]),
-    normalize(rest, kwargs) {
-      keywords("split", kwargs, ["column", "into", "separator", "keep_source"]);
-      const [column, into, separator] = rest;
-      const props: Record<string, unknown> = {
-        column: str(column ?? kwargs.column ?? fail("split needs column=.", "column"), "column"),
-        into: strList(
-          into ?? kwargs.into ?? fail("split needs into=[...] with at least two names.", "into"),
-          "into",
-          2
-        ),
-        separator: str(separator ?? kwargs.separator ?? fail("split needs separator=.", "separator"), "separator"),
-      };
-      if (rest.length > 3) fail("split takes column, into and separator.");
-      if (kwargs.keep_source) props.keepSource = bool(kwargs.keep_source, "keep_source");
-      return props;
-    },
-  },
-  {
-    name: "explode",
-    type: "Explode",
-    inputs: 1,
-    rowEffect: "multiply",
-    signature: 'explode(T, column, empty="drop")',
-    doc: 'Expands a column of JSON-array strings into one row per element (other cells repeat), replacing the column with the elements. All non-null elements must share one scalar type. empty="drop" removes null/empty parents; "null_row" keeps one null row for them. Example: `tags_long = explode(orders, column="tags_json")`.',
-    schema: object(
-      { column: S, encoding: { const: "json", type: "string" }, empty: { type: "string", enum: ["drop", "null_row"] } },
-      ["column", "encoding"]
-    ),
-    normalize(rest, kwargs) {
-      keywords("explode", kwargs, ["column", "empty"]);
-      if (rest.length > 1) fail("explode takes the input table and the column.");
-      const props: Record<string, unknown> = {
-        column: str(rest[0] ?? kwargs.column ?? fail("explode needs the column to expand.", "column"), "column"),
-        encoding: "json",
-      };
-      if (kwargs.empty) props.empty = oneOf(kwargs.empty, "empty", ["drop", "null_row"]);
-      return props;
-    },
-  },
-  {
     name: "unpivot",
     type: "Unpivot",
     inputs: 1,
@@ -920,7 +858,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: "many",
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
-    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence saying what the function does; it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
+    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
     schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
     normalize(rest, kwargs, context) {
       keywords("process", kwargs, ["fn", "doc"]);
@@ -933,10 +871,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
           `process(${context.inputs.join(", ") || ""}) has ${context.inputs.length} input table(s) but ${slot.entry} takes ${slot.params.length} parameter(s); define one parameter per input table, in order.`,
           "fn"
         );
-      const doc = kwargs.doc;
-      const text = doc && doc.kind === "const" && typeof doc.value === "string" ? doc.value.trim() : "";
-      if (!text) fail('process needs doc="one sentence saying what the function does".', "doc");
-      return { code: slot.source, entry: slot.entry, doc: text };
+      return { code: slot.source, entry: slot.entry, doc: docText("process", kwargs.doc, "what the function does") };
     },
   },
 ];
@@ -948,7 +883,7 @@ export const NATIVE_OPERATOR_NAMES: readonly string[] = NATIVE_OPERATORS.map(d =
 /** Operator ids double as Python identifiers in the program and in generated code. */
 export const NATIVE_ID_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** Surface name for a runtime type: `FillNull` → `fill_null`. */
+/** Surface name for a runtime type: `Aggregate` → `aggregate`, `Process` → `process`. */
 export function nativeOperatorName(type: string): string {
   return NATIVE_BY_TYPE.get(type)?.name ?? type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 }

@@ -115,7 +115,7 @@ test("Python preflight failures also escalate without copying submitted source i
   await execute(source);
   // Variadic parameters pass the catalog's arity check and fail Python's contract check.
   const broken =
-    "def PRIVATE_CALLBACK_BODY(row, *rest):\n    return True\nanswer = filter(source, PRIVATE_CALLBACK_BODY)";
+    'def PRIVATE_CALLBACK_BODY(row, *rest):\n    return True\nanswer = filter(source, PRIVATE_CALLBACK_BODY, doc="Keeps every row")';
   const first = (await execute(broken)).operators[0]!;
   expect(first.status).toBe("error");
   expect(first.diagnostic?.code).toBe("CALLBACK_SIGNATURE");
@@ -130,7 +130,9 @@ test("Python preflight failures also escalate without copying submitted source i
   } finally {
     validation.mockRestore();
   }
-  expect((await execute("answer = filter(source, lambda row: True)")).operators[0]!.status).toBe("added");
+  expect((await execute('answer = filter(source, lambda row: True, doc="Keeps every row")')).operators[0]!.status).toBe(
+    "added"
+  );
 });
 
 test("late preflight validation cannot repopulate a reset task's counters", async () => {
@@ -154,7 +156,7 @@ test("late preflight validation cannot repopulate a reset task's counters", asyn
         })
     );
   });
-  const broken = "answer = filter(source, lambda row: True)";
+  const broken = 'answer = filter(source, lambda row: True, doc="Keeps every row")';
   try {
     const pending = execute(broken);
     await entered.promise;
