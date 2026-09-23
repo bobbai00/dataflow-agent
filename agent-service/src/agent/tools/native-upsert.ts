@@ -35,6 +35,7 @@ import { createToolResult, createErrorResult } from "./tools-utility";
 import type { ToolContext } from "./workflow-crud-tools";
 import { NATIVE_BY_TYPE, NATIVE_ID_RE, nativeOperatorName, type NativeOpView } from "../native/catalog";
 import { compileNativeOp, validateNativeOperator } from "../native/codegen";
+import { writtenInputs } from "../native/task-reference";
 
 export const TOOL_NAME_NATIVE_DELETE = "deleteOperator";
 
@@ -120,7 +121,7 @@ export async function applyNativeOperator(
     return createErrorResult(`\`${id}\`: ${e?.message ?? String(e)}`);
   }
   const existing = workflowState.getOperator(id);
-  const phrase = `${def.name} operator \`${id}\`${view.inputs.length ? "; " + describeInputs(def.type, view.inputs) : ""}`;
+  const phrase = `${def.name} operator \`${id}\`${view.inputs.length ? "; " + describeInputs(def.type, writtenInputs(view)) : ""}`;
 
   if (existing) {
     // MODIFY: same id, new parameters/inputs. Keep the id and outgoing links.

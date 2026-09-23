@@ -51,3 +51,16 @@ export function taskInputId(reference: Exclude<TaskInput, string>): string {
 export function historyReferenceSource(reference: Exclude<TaskInput, string>): string {
   return `${HISTORY_REFERENCE}(${reference.operator}, task=${reference.atTask})`;
 }
+
+/** An operator's inputs as the model wrote them: a saved-table read shows as
+ * `at(name, task=N)`, never as the runtime source it resolved to. */
+export function writtenInputs(view: { inputs: string[]; taskInputs?: TaskInput[] }): string[] {
+  return view.taskInputs?.map(ref => (typeof ref === "string" ? ref : historyReferenceSource(ref))) ?? view.inputs;
+}
+
+/** The runtime source behind an `at(...)` read has no line of its own: the
+ * model never names it, and its consumer's definition already shows the read.
+ * Only a failed read of the saved file is rendered. */
+export function isHiddenTaskSource(op: { taskSource?: unknown }, info?: { error?: unknown }): boolean {
+  return !!op.taskSource && !info?.error;
+}

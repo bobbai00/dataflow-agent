@@ -1840,6 +1840,14 @@ export class TexeraAgent {
     this.workflowState.addSubscription(subscription);
   }
 
+  /** The task HEAD belongs to, which a new task boundary closes. Not
+   * `currentMessageId`: every debug input clears it when it returns, so a task
+   * started by debug input would never be sealed. */
+  private headTaskNumber(): number | undefined {
+    const messageId = this.head ? this.stepsById.get(this.head)?.messageId : undefined;
+    return messageId ? this.turnNumberOf(messageId) : undefined;
+  }
+
   private async sealTaskHistory(task: number | undefined): Promise<void> {
     if (!this.settings.nativeTaskHistory || !task || this.taskHistory.has(task)) return;
     const results = new Map(
@@ -1854,7 +1862,7 @@ export class TexeraAgent {
     messageSource?: "chat" | "feedback",
     options?: { sources?: readonly string[] }
   ): Promise<AgentMessageResult> {
-    await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
+    await this.sealTaskHistory(this.headTaskNumber());
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
 
@@ -2885,7 +2893,7 @@ export class TexeraAgent {
     try {
       // Plain user text → start a new task (fresh messageId, stepId 0).
       if (!looksLikeFunctionCall(content)) {
-        await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
+        await this.sealTaskHistory(this.headTaskNumber());
         this.nativeValidationRepair.clear();
         const messageId = `dbg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
         this.currentMessageId = messageId;
@@ -2915,7 +2923,7 @@ export class TexeraAgent {
       // stays false in debug mode — there's no model deciding "this turn is
       // final"; the task closes naturally when the user moves on.
       const attachedMessageId = this.findOngoingUserTaskMessageId();
-      if (!attachedMessageId) await this.sealTaskHistory(this.turnNumberOf(this.currentMessageId ?? ""));
+      if (!attachedMessageId) await this.sealTaskHistory(this.headTaskNumber());
       let messageId: string;
       let stepId: number;
       let isBegin: boolean;

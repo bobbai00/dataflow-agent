@@ -63,6 +63,7 @@ import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
+import { isHiddenTaskSource, writtenInputs } from "../native/task-reference";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
@@ -2057,6 +2058,7 @@ function serializeTaskBody(
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID) && !requestedResults?.has(op.operatorID)) continue;
+        if (isHiddenTaskSource(op, node.snapshot.results.get(op.operatorID)?.info)) continue;
         // `scoped` selection, typed operators: compare this run with the
         // previous run of the same operator.
         //   - Re-executed because something upstream changed (not acted on
@@ -3317,6 +3319,7 @@ function serializeSnapshotCompact(
   lines.push("");
   for (const op of sortedOps) {
     const info = snapshot.results.get(op.operatorID)?.info;
+    if (isHiddenTaskSource(op, info)) continue;
     const perOpOptions: AssembleContextOptions = {
       ...options,
       maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
@@ -3389,6 +3392,7 @@ function serializeSnapshotFull(
   // GENERAL / CODE only, so `options.agentMode` never says NATIVE here.)
   const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
   for (const op of ordered) {
+    if (isHiddenTaskSource(op, snapshot.results.get(op.operatorID)?.info)) continue;
     const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
     if (requested && compilationError) {
       lines.push(
@@ -3413,7 +3417,7 @@ function serializeSnapshotFull(
       );
       if (op.nativeOp)
         lines.push(
-          `Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`,
+          `Inputs: ${writtenInputs(op.nativeOp).join(", ") || "none"}`,
           `Properties: ${JSON.stringify(op.nativeOp.properties)}`
         );
       lines.push(

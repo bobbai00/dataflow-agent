@@ -18,6 +18,7 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { nativeTestSession } from "../e2e/native-test-session";
+import { TASK_SOURCE_PREFIX } from "../../src/agent/native/task-reference";
 
 const out = resolve(process.argv[2] ?? "/tmp/texera-task-history/smoke");
 mkdirSync(out, { recursive: true });
@@ -80,6 +81,8 @@ try {
   assert.deepEqual(rows(mixed, "old_udf"), [{ id: 1234, value: 2468 }]);
   assert.deepEqual(mixed.snapshot.results.total?.resultVersion, currentVersion);
   assert.ok(!mixed.serviceContext.includes("/retained-results/"), "archive storage paths leaked into model context");
+  assert.ok(!mixed.serviceContext.includes(TASK_SOURCE_PREFIX), "internal archive ids leaked into model context");
+  assert.match(mixed.serviceContext, /inputs: at\(eligible, task=1\)/);
   await session.debug("Submit a failed current revision.");
   const cached = await run({
     program: aggregate("original_total", "at(eligible, task=1)"),
@@ -124,7 +127,7 @@ try {
       "failed task has no successful history binding",
       "historical dependency remains unchanged",
       "cache hits retain their original producing execution and can be task inputs",
-      "archive paths hidden",
+      "archive paths and internal archive ids hidden",
     ],
   };
   await Bun.write(`${out}/summary.json`, JSON.stringify(summary, null, 2));

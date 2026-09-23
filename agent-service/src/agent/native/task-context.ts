@@ -17,7 +17,8 @@
 import type { ModelMessage } from "ai";
 import type { ContextAssembler, ContextAssemblerInput } from "../llm-drivers/types";
 import type { OperatorPredicate } from "../../types/workflow";
-import type { TaskHistory, TaskInput } from "./task-history";
+import type { TaskHistory } from "./task-history";
+import { writtenInputs } from "./task-reference";
 
 /** The operator as the model wrote it, on one line: its own program statement
  * (`name = op(...)`), which the model already reads fluently and which changes
@@ -26,12 +27,8 @@ import type { TaskHistory, TaskInput } from "./task-history";
 export function operatorSignature(op: OperatorPredicate): string {
   const view = op.nativeOp;
   if (!view) return `${op.operatorID} = ${op.operatorType}`;
-  // Without a written statement, name inputs publicly: a saved-table input is
-  // `at(name, task=N)`, never the internal id of the source that serves it.
-  const inputs = ((view.taskInputs ?? view.inputs) as TaskInput[]).map(ref =>
-    typeof ref === "string" ? ref : `at(${ref.operator}, task=${ref.atTask})`
-  );
-  const statement = (view.source ?? `${op.operatorID} = ${view.type}(${inputs.join(", ")})`)
+  // Without a written statement, name inputs as the model would write them.
+  const statement = (view.source ?? `${op.operatorID} = ${view.type}(${writtenInputs(view).join(", ")})`)
     .replace(/\s+/g, " ")
     .trim();
   return statement.length <= 240 ? statement : statement.slice(0, 237) + "...";

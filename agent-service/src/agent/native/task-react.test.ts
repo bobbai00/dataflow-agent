@@ -19,6 +19,8 @@ import { TexeraAgent } from "../texera-agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import type { ContextAssemblerInput, DriverRunTurnInput } from "../llm-drivers/types";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { assembleContext } from "../util/context-utils";
+import { TASK_SOURCE_PREFIX } from "./task-reference";
 
 function fixture(catalog = false, asynchronous = false) {
   const inputs: ContextAssemblerInput[] = [];
@@ -168,6 +170,60 @@ test("a catalog switch preserves computed results and retained bindings across t
   expect(JSON.parse(nextContext).messages.at(-1).content).toContain("# Current operator catalog");
   expect(agent.getSnapshotStorage().getOperatorResult(agent.getHead(), "source")?.result).toEqual([]);
   expect(agent.getAllSteps().some(step => /STALE_ANSWER|EMPTY_ANCESTOR/.test(step.content))).toBe(false);
+});
+
+test("a task started by debug input is sealed when the next task starts, and at() reads it", async () => {
+  const { agent } = fixture();
+  agent.updateSettings({ nativeTaskHistory: true });
+  const history = (agent as any).taskHistory;
+  history.retain = async () => ({ path: "/test/retained.arrow", sha256: "a".repeat(64), rowCount: 0 });
+  (agent as any).tools = (agent as any).createTools();
+  const call = (program: string) =>
+    agent.handleDebugInput(`Function(name="dataflow", arguments=${JSON.stringify(JSON.stringify({ program }))})`);
+  await agent.handleDebugInput("Read the table");
+  await call('source = scan("data/fixture.csv")');
+  agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, "source", {
+    state: "Completed",
+    resultMode: "table",
+    result: [],
+    totalRowCount: 0,
+    inputTuples: 0,
+    outputTuples: 0,
+    resultVersion: { id: "result-1" },
+    materialization: { executionId: "execution-1", outputPort: 0, cached: false },
+  } as any);
+  await agent.handleDebugInput("Use the saved table");
+  expect(history.available("source")).toEqual([1]);
+  await call('copy = project(at(source, task=1), keep=["id"])');
+  const outcome = agent.getAllSteps().find(step => step.id === agent.getHead())!.toolResults![0]!.output as any;
+  expect(outcome.operators.map((op: any) => [op.id, op.status])).toEqual([["copy", "added"]]);
+  const reader = agent.getWorkflowState().getOperator("copy")!;
+  expect(reader.nativeOp?.taskInputs).toEqual([{ operator: "source", atTask: 1 }]);
+  const sourceId = reader.nativeOp!.inputs[0]!;
+  expect(agent.getWorkflowState().getOperator(sourceId)?.taskSource).toEqual({ operator: "source", atTask: 1 });
+  // The model reads the reference it wrote; the runtime source stays internal.
+  expect(outcome.operators[0].message).toContain("inputs: at(source, task=1)");
+  const completed = (rows: number) =>
+    ({
+      state: "Completed",
+      resultMode: "table",
+      result: [],
+      totalRowCount: rows,
+      inputTuples: 0,
+      outputTuples: rows,
+    }) as any;
+  agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, sourceId, completed(0));
+  agent.getSnapshotStorage().setOperatorResult(agent.getHead()!, "copy", completed(0));
+  for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
+    const rendered = assembleContext(agent.getAllSteps(), agent.getWorkflowState(), agent.getSnapshotStorage(), mode, {
+      agentMode: AgentMode.NATIVE,
+      resultSelection: "all",
+    })
+      .map(message => String(message.content))
+      .join("\n");
+    expect(rendered).toContain("at(source, task=1)");
+    expect(rendered).not.toContain(TASK_SOURCE_PREFIX);
+  }
 });
 
 test("retired experimental settings fail explicitly and atomically", () => {
