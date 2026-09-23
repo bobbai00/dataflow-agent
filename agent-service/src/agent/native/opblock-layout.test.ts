@@ -45,7 +45,8 @@ import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { createNativeBatchTools } from "../tools/native-batch-tools";
+import { createNativeTools } from "../tools/native-batch-tools";
+import { dataflowInput, type LegacySpec } from "./test-support";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
@@ -53,11 +54,10 @@ function fixture() {
   const state = new WorkflowState();
   const metadata = new WorkflowSystemMetadata();
   metadata.seedCodeModeDefaults();
-  const tools = createNativeBatchTools(
-    state,
-    { metadataStore: metadata, settings: { nativeProfileCollection: true } } as any,
-    "v2"
-  );
+  const tools = createNativeTools(state, {
+    metadataStore: metadata,
+    settings: { nativeProfileCollection: true },
+  } as any);
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(
     id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id),
@@ -65,7 +65,7 @@ function fixture() {
   );
 
   const record = async (id: string, operators: Record<string, unknown>[], observe: string[]) => {
-    const input = { operators, observe };
+    const input = dataflowInput({ operators: operators as LegacySpec[], observe });
     const output = await tools.dataflow.execute(input);
     steps.push({
       id,
@@ -306,7 +306,7 @@ test("opBlock: observing a new operator subscribes it from then on", async () =>
   expect(hasBody(blockFor(f.render("opBlock"), "final"))).toBe(true);
 });
 
-test("opBlock: field order and UDF parameters do not depend on the observe list", async () => {
+test("opBlock: definitions and process code do not depend on the observe list", async () => {
   const f = fixture();
   const udf = {
     op: "udf",
@@ -319,18 +319,15 @@ test("opBlock: field order and UDF parameters do not depend on the observe list"
   f.storage.captureNativeObservations("A", ["scored"], { data: true, flow: true, maxChars: 2000 });
 
   const observedBlock = blockFor(f.render("opBlock"), "scored");
-  // The code of the operator being looked at is present. opSplit hides it here
-  // while printing it for every operator that is NOT being looked at.
-  expect(observedBlock).toContain("def process(source)");
-  expect(blockFor(f.render("opSplit"), "scored")).not.toContain("def process(source)");
+  // opBlock shows the process function body in every block, observed or not;
+  // opSplit keeps only the statement so the body is never in the snapshot.
+  expect(observedBlock).toContain("def scored_fn(source)");
+  expect(observedBlock).toContain("scored = process(source, fn=scored_fn)");
+  expect(blockFor(f.render("opSplit"), "scored")).not.toContain("def scored_fn(source)");
+  expect(blockFor(f.render("opSplit"), "scored")).toContain("scored = process(source, fn=scored_fn)");
 
-  // Inputs precedes Properties for every operator, observed or not.
-  const order = (block: string) => [block.indexOf("Inputs:"), block.indexOf("Properties:")];
-  for (const id of ["source", "scored"]) {
-    const [inputs, properties] = order(blockFor(f.render("opBlock"), id));
-    expect(inputs).toBeGreaterThanOrEqual(0);
-    expect(properties).toBeGreaterThan(inputs);
-  }
+  // Every block carries its definition as written, whatever the observe list.
+  for (const id of ["source", "scored"]) expect(blockFor(f.render("opBlock"), id)).toContain("Definition:");
 });
 
 test("opBlock: the volatile tail sections get their own messages", async () => {

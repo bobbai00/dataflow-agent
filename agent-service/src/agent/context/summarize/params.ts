@@ -428,7 +428,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     // because recallState covers old definitions). Cataloguing has to REPLACE the
     // event log with the live snapshot, not delete state.
     currentSnapshot: isLatest || options.turnHistoryIndex === true,
-    compiledSchemas: options.agentMode === AgentMode.GENERAL,
+    compiledSchemas: false,
     resultSelection: options.resultSelection ?? "all",
     messageLayout: options.messageLayout,
     flow: {

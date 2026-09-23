@@ -18,70 +18,23 @@ import type { ModelMessage } from "ai";
 import type { ContextAssembler, ContextAssemblerInput } from "../llm-drivers/types";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory, TaskInput } from "./task-history";
-import { nativeToolName } from "../tools/native-typed-tools";
 
-/** A compact description, not executable code or a claim of semantic validity. */
+/** The operator as the model wrote it, on one line: its own program statement
+ * (`name = op(...)`), which the model already reads fluently and which changes
+ * only when the operator is redefined. A catalog line built from it is stable
+ * across calls, which is what lets a prompt cache reuse it. */
 export function operatorSignature(op: OperatorPredicate): string {
   const view = op.nativeOp;
-  if (!view) return op.operatorType;
-  const p = (view.properties ?? {}) as Record<string, any>;
-  const names = (value: unknown): string =>
-    Array.isArray(value)
-      ? value
-          .map(item =>
-            typeof item === "string" ? item : (item?.as ?? item?.col ?? item?.column ?? JSON.stringify(item))
-          )
-          .join(",")
-      : "";
-  const inputs = ((view.taskInputs ?? view.inputs ?? []) as TaskInput[]).map(ref =>
-    typeof ref === "string" ? ref : `${ref.operator}@task${ref.atTask}`
+  if (!view) return `${op.operatorID} = ${op.operatorType}`;
+  // Without a written statement, name inputs publicly: a saved-table input is
+  // `at(name, task=N)`, never the internal id of the source that serves it.
+  const inputs = ((view.taskInputs ?? view.inputs) as TaskInput[]).map(ref =>
+    typeof ref === "string" ? ref : `at(${ref.operator}, task=${ref.atTask})`
   );
-  let head: string;
-  switch (view.type) {
-    case "Scan":
-      head = `scan(${String(p.files ?? "")
-        .split("/")
-        .pop()}${p.preview !== undefined ? `, preview=${p.preview}` : ""})`;
-      break;
-    case "Project":
-      head = p.keep ? `project(keep ${names(p.keep)})` : p.drop ? `project(drop ${names(p.drop)})` : "project(rename)";
-      break;
-    case "Aggregate":
-      head = `aggregate(group[${names(p.groupBy)}] ${((p.aggregations ?? []) as any[])
-        .map(a => `${a.fn}(${a.col ?? "*"})→${a.as ?? a.fn}`)
-        .join(" ")})`;
-      break;
-    case "Join":
-      head = `join(${p.type ?? "inner"}, on ${JSON.stringify(p.on ?? [])})`;
-      break;
-    case "Sort":
-      head = `sort(${((p.by ?? []) as any[]).map(b => `${b.col}${b.desc ? "↓" : "↑"}`).join(",")})`;
-      break;
-    case "Limit":
-      head = `limit(${p.n}${p.offset ? `,offset=${p.offset}` : ""})`;
-      break;
-    case "Window":
-      head = `window(${names(p.columns)} by [${names(p.partitionBy)}])`;
-      break;
-    case "Split":
-      head = `split(${p.column}→${names(p.into)})`;
-      break;
-    case "UDF": {
-      // The body stays opaque; the entry line is the contract a later edit has
-      // to match (its name and arity), in the author's own parameter names.
-      const entry = /^def (process|load)\(([^)]*)\)/m.exec(String(p.code ?? ""));
-      head = entry ? `udf(def ${entry[1]}(${entry[2].replace(/\s+/g, " ").trim()}))` : "udf(opaque)";
-      break;
-    }
-    case "TaskResult":
-      head = `retained ${p.operator}@task${p.atTask}`;
-      break;
-    default: {
-      const columns = names(p.columns ?? p.column ?? p.keep);
-      head = `${nativeToolName(view.type)}(${columns})`;
-    }
-  }
-  return `${head}${inputs.length ? ` <- ${inputs.join(", ")}` : ""}`.slice(0, 200);
+  const statement = (view.source ?? `${op.operatorID} = ${view.type}(${inputs.join(", ")})`)
+    .replace(/\s+/g, " ")
+    .trim();
+  return statement.length <= 240 ? statement : statement.slice(0, 237) + "...";
 }
 
 function ranges(numbers: number[]): string {
@@ -135,7 +88,7 @@ export function taskCatalogParts(
             event.gaps.length ? ` not saved@${event.gaps.join(",")}` : ""
           }`
         : "";
-      return `${op.operatorID} = ${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${saved}`;
+      return `${operatorSignature(op)}; schema=${schema}; ${status}${info?.totalRowCount !== undefined ? `; rows=${info.totalRowCount}` : ""}${saved}`;
     });
   // An operator that has left the graph keeps its retained outputs, so it stays
   // referenceable by task. Its line is final once it is gone.

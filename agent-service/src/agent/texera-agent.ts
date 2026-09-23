@@ -53,7 +53,7 @@ import {
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
-import { buildCodeModeSystemPrompt, buildGeneralModeSystemPrompt } from "./prompts";
+import { buildCodeModeSystemPrompt } from "./prompts";
 
 /**
  * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
@@ -92,20 +92,12 @@ exact type/shape the question asks (a scalar, or a clean list) — don't leave i
 implicit in an intermediate frame.`;
 import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
 import {
-  createAddOperatorTool,
-  createModifyOperatorTool,
-  TOOL_NAME_ADD_OPERATOR,
-  TOOL_NAME_MODIFY_OPERATOR,
-} from "./tools/general-op-tools";
-import { TOOL_NAME_ADD_OPERATORS } from "./tools/native-op-tools";
-import { createNativeTypedTools, rejectedNativeViewOf, NATIVE_TOOL_NAMES } from "./tools/native-typed-tools";
-import {
   asNativeBatchResult,
   batchObservedIds,
-  createNativeBatchTools,
+  createNativeTools,
   TOOL_NAME_DATAFLOW,
 } from "./tools/native-batch-tools";
-import { NativeCatalogSettingsError, validateNativeCatalogSettings, validateEvidenceSettings } from "./native/settings";
+import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
 import { planSeedSources } from "./native/seed-sources";
 import { TaskHistory } from "./native/task-history";
 import { withTaskCatalog } from "./native/task-context";
@@ -149,14 +141,7 @@ import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trac
 const PERSIST_DEBOUNCE_MS = 500;
 
 /** Tool names whose successful invocation triggers post-step operator execution. */
-const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([
-  TOOL_NAME_ADD_OPERATOR,
-  TOOL_NAME_MODIFY_OPERATOR,
-  TOOL_NAME_CREATE_OR_MODIFY_OPERATOR,
-  TOOL_NAME_ADD_OPERATORS,
-  TOOL_NAME_DATAFLOW,
-  ...NATIVE_TOOL_NAMES,
-]);
+const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DATAFLOW]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
@@ -269,8 +254,7 @@ export function computeOperatorAccess(
       access[i] = entry;
       return;
     }
-    // `operatorId` on the code / general tools; `id` on the typed-operator
-    // tools of native mode (and their deleteOperator).
+    // `operatorId` on the code-mode tools; `id` on native mode's deleteOperator.
     const inputOpId = writtenOperatorId(tc.toolName, tc.input);
     if (result && !result.isError && result.output !== undefined && result.output !== null) {
       const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
@@ -291,13 +275,7 @@ export function computeOperatorAccess(
       else if (inputOpId) {
         // Fall back on the tool's declared intent when the result text is
         // not one of the known summaries (e.g. inspect/execute variants).
-        if (tc.toolName === TOOL_NAME_ADD_OPERATOR) entry.addedOperatorIds.push(inputOpId);
-        else if (
-          tc.toolName === TOOL_NAME_MODIFY_OPERATOR ||
-          tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR ||
-          tc.toolName === TOOL_NAME_DELETE_OPERATOR ||
-          NATIVE_TOOL_NAMES.has(tc.toolName)
-        )
+        if (tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR || tc.toolName === TOOL_NAME_DELETE_OPERATOR)
           entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
       }
@@ -599,18 +577,14 @@ export class TexeraAgent {
         compactionEnabled
       );
     } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, false, this.settings.resultSelection, {
+      this.systemPrompt = buildNativeModeSystemPrompt(this.settings.contextMode, {
         versioned: this.settings.versionedMode === true,
         session: this.settings.sessionTurns === true,
         recall: this.settings.enableRecallTool === true,
-        batch: this.settings.nativeToolMode === "batch",
-        nativeCatalogVersion: this.settings.nativeCatalogVersion,
         messageLayout: this.settings.messageLayout,
         taskCatalog: this.settings.nativeTaskContext === true,
         taskHistory: this.settings.nativeTaskHistory === true,
       });
-    } else if (this.settings.agentMode === AgentMode.GENERAL) {
-      this.systemPrompt = buildGeneralModeSystemPrompt(this.metadataStore, this.settings.allowedOperatorTypes);
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
         this.settings.contextMode,
@@ -632,9 +606,6 @@ export class TexeraAgent {
     if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
       this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
-    if (this.settings.nativeTaskHistory)
-      this.systemPrompt +=
-        "\nEach user request is a numbered session task. Inputs may use {operator:'name',atTask:1} for the exact retained output at that completed task. Task numbers appear in session context; missing history fails explicitly. Historical inputs are fixed data and do not follow later edits.\n";
     this.settings.systemPrompt = this.systemPrompt;
   }
 
@@ -647,7 +618,11 @@ export class TexeraAgent {
       maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
       maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
       executionTimeoutMs: this.settings.executionTimeoutMs,
-      structuredResults: this.settings.nativeCatalogVersion === "v2",
+      // Structured (versioned, profiled) results are what native operators
+      // produce; a delegated GUI workflow of plain Texera operators keeps the
+      // legacy transport even under native mode.
+      structuredResults:
+        this.settings.agentMode === AgentMode.NATIVE && this.workflowState.getAllOperators().some(op => op.nativeOp),
     };
   }
 
@@ -699,25 +674,13 @@ export class TexeraAgent {
         this.isCodeShownToAgent(),
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
-    } else if (this.settings.agentMode === AgentMode.NATIVE) {
-      // Fixed-grain typed operators: one tool per operator type (upsert by id),
-      // plus a consumer-aware delete that replaces the generic one.
-      Object.assign(
-        tools,
-        this.settings.nativeToolMode === "batch"
-          ? createNativeBatchTools(this.workflowState, context, this.settings.nativeCatalogVersion)
-          : createNativeTypedTools(this.workflowState, context)
-      );
     } else {
-      tools[TOOL_NAME_ADD_OPERATOR] = createAddOperatorTool(this.workflowState, operatorSchemas, context);
-      tools[TOOL_NAME_MODIFY_OPERATOR] = createModifyOperatorTool(this.workflowState, context);
+      // NATIVE: the `dataflow` program tool plus a consumer-aware delete that
+      // replaces the generic one.
+      Object.assign(tools, createNativeTools(this.workflowState, context));
     }
 
-    if (
-      this.settings.agentMode === AgentMode.NATIVE &&
-      this.settings.nativeToolMode === "batch" &&
-      this.settings.nativeCatalogVersion === "v2"
-    ) {
+    if (this.settings.agentMode === AgentMode.NATIVE) {
       tools[TOOL_NAME_INSPECT_ERROR] = createInspectErrorTool(query => {
         const inspected = this.snapshotStorage.inspectNativeError(this.head, query);
         if (inspected.summary) {
@@ -778,7 +741,7 @@ export class TexeraAgent {
 
   /**
    * Build a tool registry for `importReActSteps` replay. Includes CRUD tools
-   * for BOTH code and general modes so any exported session is replayable
+   * for BOTH code and native modes so any exported session is replayable
    * regardless of the agent's current `agentMode`. No scheduler wrapping —
    * the replay loop awaits each call sequentially.
    */
@@ -802,10 +765,8 @@ export class TexeraAgent {
     };
 
     return {
-      [TOOL_NAME_DATAFLOW]: createNativeBatchTools(this.workflowState, context)[TOOL_NAME_DATAFLOW],
+      [TOOL_NAME_DATAFLOW]: createNativeTools(this.workflowState, context)[TOOL_NAME_DATAFLOW],
       [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
-      [TOOL_NAME_ADD_OPERATOR]: createAddOperatorTool(this.workflowState, operatorSchemas, context),
-      [TOOL_NAME_MODIFY_OPERATOR]: createModifyOperatorTool(this.workflowState, context),
       [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
         this.workflowState,
         operatorSchemas,
@@ -1032,7 +993,14 @@ export class TexeraAgent {
     const built: string[] = [];
     for (const step of mine) {
       for (const call of step.toolCalls ?? []) {
-        if (!WRITE_TOOL_NAMES.has(call.toolName) && !NATIVE_TOOL_NAMES.has(call.toolName)) continue;
+        if (call.toolName === TOOL_NAME_DATAFLOW) {
+          const batch = asNativeBatchResult(step.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output);
+          for (const outcome of batch?.operators ?? [])
+            if ((outcome.status === "added" || outcome.status === "modified") && !built.includes(outcome.id))
+              built.push(outcome.id);
+          continue;
+        }
+        if (!WRITE_TOOL_NAMES.has(call.toolName)) continue;
         const opId = writtenOperatorId(call.toolName, call.input);
         if (typeof opId === "string" && !built.includes(opId)) built.push(opId);
       }
@@ -1424,10 +1392,7 @@ export class TexeraAgent {
     disabledTools?: Set<string>;
     maxSteps?: number;
     maxOperatorEdits?: number;
-    allowedOperatorTypes?: string[];
     agentMode?: AgentMode;
-    nativeToolMode?: "typed" | "batch";
-    nativeCatalogVersion?: "v1" | "v2";
     nativeProfileCollection?: boolean;
     nativeTaskHistory?: boolean;
     nativeTaskContext?: boolean;
@@ -1483,22 +1448,21 @@ export class TexeraAgent {
   }): void {
     // Validate the effective combination before mutating ANY setting. In
     // particular a rejected mode change must not leave the prompt/tools split.
-    validateEvidenceSettings(updates);
-    const catalogVersion = validateNativeCatalogSettings({
+    validateNativeSettings({
       ...updates,
+      agentMode: updates.agentMode ?? this.settings.agentMode,
       nativeTaskHistory: updates.nativeTaskHistory ?? this.settings.nativeTaskHistory,
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
-      nativeCatalogVersion: updates.nativeCatalogVersion ?? this.settings.nativeCatalogVersion,
-      agentMode: updates.agentMode ?? this.settings.agentMode,
-      nativeToolMode: updates.nativeToolMode ?? this.settings.nativeToolMode,
-      nativeProfileCollection: updates.nativeProfileCollection ?? this.settings.nativeProfileCollection,
     });
+    // Retained outputs are numbered by task, so turning history on or off after
+    // the session has started would leave tasks with and without saved versions.
     if (
       updates.nativeTaskHistory !== undefined &&
       updates.nativeTaskHistory !== (this.settings.nativeTaskHistory ?? false) &&
       (this.turnOrder().length > 0 || this.workflowState.getAllOperators().length > 0)
     )
       throw new NativeCatalogSettingsError("Changing task history requires a fresh agent and workflow");
+    // The projection may change between completed tasks, never inside one.
     if (
       updates.nativeTaskContext !== undefined &&
       updates.nativeTaskContext !== this.settings.nativeTaskContext &&
@@ -1514,15 +1478,6 @@ export class TexeraAgent {
         "Changing profile collection requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
-    if (catalogVersion !== (this.settings.nativeCatalogVersion ?? "v1")) {
-      if (this.state !== AgentStateEnum.AVAILABLE)
-        throw new NativeCatalogSettingsError("Cannot switch native catalog during an active turn");
-      if (this.workflowState.getAllOperators().some(op => (op.nativeOp?.version ?? "v1") !== catalogVersion)) {
-        throw new NativeCatalogSettingsError(
-          "Cannot switch catalog for an existing workflow; explicit migration is required"
-        );
-      }
-    }
     let promptNeedsRebuild = false;
     if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {
       this.settings.nativeTaskHistory = updates.nativeTaskHistory;
@@ -1532,11 +1487,6 @@ export class TexeraAgent {
     this.settings.nativeProfileCollection = collection;
     if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
     if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
-
-    if (catalogVersion !== this.settings.nativeCatalogVersion) {
-      this.settings.nativeCatalogVersion = catalogVersion;
-      promptNeedsRebuild = true;
-    }
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
@@ -1564,10 +1514,6 @@ export class TexeraAgent {
       // Read by createTools() below when (re)building the code-op tool; the
       // guard's consecutive-edit counter resets with the rebuilt closure.
     }
-    if (updates.allowedOperatorTypes !== undefined) {
-      this.settings.allowedOperatorTypes = updates.allowedOperatorTypes;
-      promptNeedsRebuild = true;
-    }
     if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
       this.settings.agentMode = updates.agentMode;
       promptNeedsRebuild = true;
@@ -1576,10 +1522,6 @@ export class TexeraAgent {
       // Render-time selection of result blocks; the native prompt describes the
       // shapes the agent will see, so it rebuilds too.
       this.settings.resultSelection = updates.resultSelection;
-      promptNeedsRebuild = true;
-    }
-    if (updates.nativeToolMode !== undefined && updates.nativeToolMode !== this.settings.nativeToolMode) {
-      this.settings.nativeToolMode = updates.nativeToolMode;
       promptNeedsRebuild = true;
     }
     if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
@@ -1595,7 +1537,7 @@ export class TexeraAgent {
       // The wrap/unwrap decision lives in createTools(); the call below
       // rebuilds the tool set so the change takes effect on the next turn.
     }
-    if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
+    if (this.settings.agentMode === AgentMode.NATIVE) {
       this.settings.parallelToolCalls = false;
     }
     if (updates.includeOperatorProperties !== undefined) {
@@ -1743,7 +1685,7 @@ export class TexeraAgent {
     if (updates.seedSources !== undefined) this.settings.seedSources = updates.seedSources;
     if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
       this.settings.messageLayout = updates.messageLayout;
-      if (this.settings.agentMode === AgentMode.NATIVE && this.settings.nativeToolMode === "batch") {
+      if (this.settings.agentMode === AgentMode.NATIVE) {
         promptNeedsRebuild = true;
       }
     }
@@ -1799,7 +1741,9 @@ export class TexeraAgent {
       promptNeedsRebuild = true;
     }
 
-    if (promptNeedsRebuild) {
+    // An agent that has not been initialized yet has no prompt at all; the
+    // first settings update gives it one for the (possibly default) mode.
+    if (promptNeedsRebuild || !this.systemPrompt) {
       this.rebuildSystemPrompt();
     }
 
@@ -2565,12 +2509,8 @@ export class TexeraAgent {
    * Returns true when a seed step was recorded.
    */
   private async seedSourceRoots(messageId: string, sources: readonly string[]): Promise<boolean> {
-    if (
-      this.settings.agentMode !== AgentMode.NATIVE ||
-      this.settings.nativeToolMode !== "batch" ||
-      this.settings.nativeCatalogVersion !== "v2"
-    ) {
-      this.log.warn({ messageId }, "seedSources ignored: requires native batch V2");
+    if (this.settings.agentMode !== AgentMode.NATIVE) {
+      this.log.warn({ messageId }, "seedSources ignored: requires native mode");
       return false;
     }
     const plan = planSeedSources(sources, this.settings.maxOperatorResultCharLimit);
@@ -2582,7 +2522,7 @@ export class TexeraAgent {
     if (!tool || typeof tool.execute !== "function") return false;
     const stepId = this.generateStepId();
     const toolCallId = `call-${stepId}-seed`;
-    const input = { operators: plan.operators, observe: plan.observe };
+    const input = { program: plan.program, observe: plan.observe };
     let output: unknown;
     let isError = false;
     try {
@@ -2643,21 +2583,19 @@ export class TexeraAgent {
       owningStepId &&
       this.head === owningStepId &&
       !owningSignal?.aborted &&
-      this.settings.nativeCatalogVersion === "v2" &&
+      this.settings.agentMode === AgentMode.NATIVE &&
       this.snapshotStorage.hasSnapshotFor(owningStepId)
     ) {
       for (const call of toolCalls ?? []) {
-        if (call.toolName !== TOOL_NAME_DATAFLOW || !Array.isArray(call.input?.operators)) continue;
+        if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
         const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
-        for (const [index, outcome] of (batch?.operators ?? []).entries()) {
+        for (const outcome of batch?.operators ?? []) {
           if (outcome.status !== "error" && outcome.status !== "blocked") continue;
-          const spec = call.input.operators[index];
-          if (!spec || typeof spec !== "object" || typeof spec.id !== "string" || !spec.id) continue;
-          const { op, ...params } = spec;
-          const view = rejectedNativeViewOf(op, params);
+          const view = outcome.attempted;
+          if (!view || !outcome.id) continue;
           const diagnostic = outcome.diagnostic ?? {
             version: 1 as const,
-            operatorId: spec.id,
+            operatorId: outcome.id,
             operatorRevision: view.revision!,
             code: outcome.status === "blocked" ? "UPSTREAM_FAILED" : "EDIT_REJECTED",
             stage: outcome.status === "blocked" ? ("dependency" as const) : ("validate" as const),
@@ -2668,7 +2606,7 @@ export class TexeraAgent {
           const summary = this.snapshotStorage.captureNativeAttemptDiagnostic(
             owningStepId,
             {
-              operatorID: spec.id,
+              operatorID: outcome.id,
               operatorType: "DataProcessing",
               operatorVersion: "1",
               operatorProperties: {},
@@ -2680,7 +2618,11 @@ export class TexeraAgent {
             "NATIVE_ERROR_V2:" + JSON.stringify(diagnostic)
           );
           outcome.diagnostic = summary.diagnostic;
-          if (typeof op === "string") this.nativeValidationRepair.bind(op, params, summary);
+          this.nativeValidationRepair.bind(
+            outcome.op,
+            { id: outcome.id, inputs: view.inputs, ...view.properties },
+            summary
+          );
           outcome.message = `${formatNativeDiagnostic(summary.diagnostic)}\nDiagnostic: ${summary.diagnosticId} (rejected edit; DAG definition unchanged)`;
         }
       }
@@ -2711,19 +2653,11 @@ export class TexeraAgent {
       if (tr?.isError) continue;
       const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
       if (resultText.startsWith("[ERROR]")) continue;
-      const operatorId =
-        (tc.input as any)?.operatorId ?? (NATIVE_TOOL_NAMES.has(tc.toolName) ? (tc.input as any)?.id : undefined);
+      const operatorId = (tc.input as any)?.operatorId;
       if (operatorId) editedOpIds.push(operatorId);
-      // NATIVE `addOperators`: one call adds a chain; every id it landed is an edit.
-      const batch = (tc.input as any)?.operators;
-      if (Array.isArray(batch)) {
-        for (const spec of batch) {
-          if (spec && typeof spec.id === "string" && this.workflowState.getOperator(spec.id)) editedOpIds.push(spec.id);
-        }
-      }
     }
     if (editedOpIds.length === 0) return;
-    if (this.head && this.settings.nativeCatalogVersion === "v2") {
+    if (this.head && this.settings.agentMode === AgentMode.NATIVE) {
       this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
     }
     const execConfig = this.buildExecutionConfig();
@@ -2777,7 +2711,7 @@ export class TexeraAgent {
     // requested computation. Keep independent branches runnable, but require an
     // explicit accepted repair for each rejected root (including same-ID/same-code).
     const blocked = new Map<string, { root: string; revision: string }>();
-    if (owningStepId && this.settings.nativeCatalogVersion === "v2") {
+    if (owningStepId && this.settings.agentMode === AgentMode.NATIVE) {
       const roots = new Map(
         Object.entries(this.snapshotStorage.getAssociatedSnapshot(owningStepId).nativeRejectedEdits ?? {}).map(
           ([id, summary]) => [id, summary.operatorRevision]
@@ -2786,12 +2720,9 @@ export class TexeraAgent {
       for (const call of toolCalls) {
         if (call.toolName !== TOOL_NAME_DATAFLOW) continue;
         const batch = asNativeBatchResult(toolResults.find(result => result.toolCallId === call.toolCallId)?.output);
-        for (const [index, outcome] of (batch?.operators ?? []).entries()) {
+        for (const outcome of batch?.operators ?? []) {
           if (outcome.status !== "error" && outcome.status !== "blocked") continue;
-          const spec = call.input?.operators?.[index];
-          if (!spec || typeof spec !== "object") continue;
-          const { op, ...params } = spec;
-          const revision = rejectedNativeViewOf(op, params).revision;
+          const revision = outcome.attempted?.revision;
           if (revision) roots.set(outcome.id, revision);
         }
       }

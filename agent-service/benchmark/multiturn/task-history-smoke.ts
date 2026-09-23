@@ -42,52 +42,37 @@ const run = async (args: any) => {
   return result;
 };
 const rows = (result: any, id: string) => result.snapshot.results[id]?.sampleRecords;
-const filter = (cutoff: number) => ({
-  op: "filter",
-  id: "eligible",
-  input: "source",
-  columns: ["id"],
-  func: `def apply(row):\n    return row['id'] >= ${cutoff}`,
-});
-const aggregate = (id: string, input: any) => ({
-  op: "aggregate",
-  id,
-  input,
-  aggregations: [
-    { fn: "count", as: "n" },
-    { fn: "sum", col: "value", as: "total" },
-  ],
-});
+const filter = (cutoff: number) => `eligible = filter(source, lambda row: row["id"] >= ${cutoff})`;
+const aggregate = (id: string, input: string) => `${id} = aggregate(${input}, n=count(), total=sum("value"))`;
+const scan = (path: string) => `source = scan(${JSON.stringify(path)})`;
+const program = (...lines: string[]) => lines.join("\n");
 try {
   assert.equal((await session.settings()).nativeTaskHistory, true);
   await session.debug("Establish the initial cohort and total.");
   const first = await run({
-    operators: [{ op: "scan", id: "source", files: old }, filter(1000), aggregate("total", "eligible")],
+    program: program(scan(old), filter(1000), aggregate("total", "eligible")),
     observe: ["total"],
   });
   assert.deepEqual(rows(first, "total"), [{ n: 1000, total: 2999000 }]);
   await session.debug("Change source and eligibility."); // seals task 1 before any mutation
   writeFileSync(old, "id,value\n0,999\n");
   const changed = await run({
-    operators: [{ op: "scan", id: "source", files: fresh }, filter(1800)],
+    program: program(scan(fresh), filter(1800)),
     observe: ["total"],
   });
   assert.deepEqual(rows(changed, "total"), [{ n: 200, total: 3799000 }]);
   const currentVersion = changed.snapshot.results.total?.resultVersion;
   await session.debug("Combine original membership with new values and recover original total.");
   const mixed = await run({
-    operators: [
-      { op: "project", id: "original_ids", input: { operator: "eligible", atTask: 1 }, keep: ["id"] },
-      { op: "join", id: "new_values", left: "source", right: "original_ids", on: "id", validate: "one_to_one" },
+    program: program(
+      'original_ids = project(at(eligible, task=1), keep=["id"])',
+      'new_values = join(source, original_ids, on="id", validate="one_to_one")',
       aggregate("mixed_total", "new_values"),
-      aggregate("original_total", { operator: "eligible", atTask: 1 }),
-      {
-        op: "udf",
-        id: "old_udf",
-        inputs: [{ operator: "eligible", atTask: 1 }],
-        code: "def process(original):\n    return original.iloc[[234]][['id','value']]",
-      },
-    ],
+      aggregate("original_total", "at(eligible, task=1)"),
+      "def pick(original):",
+      '    return original.iloc[[234]][["id", "value"]]',
+      "old_udf = process(at(eligible, task=1), fn=pick)"
+    ),
     observe: ["mixed_total", "original_total", "old_udf"],
   });
   assert.deepEqual(rows(mixed, "mixed_total"), [{ n: 1000, total: 14995000 }]);
@@ -97,12 +82,12 @@ try {
   assert.ok(!mixed.serviceContext.includes("/retained-results/"), "archive storage paths leaked into model context");
   await session.debug("Submit a failed current revision.");
   const cached = await run({
-    operators: [aggregate("original_total", { operator: "eligible", atTask: 1 })],
+    program: aggregate("original_total", "at(eligible, task=1)"),
     observe: ["original_total"],
   });
   assert.equal(cached.snapshot.results.original_total?.state, "CompletedFromCache");
   const failed = await run({
-    operators: [{ ...filter(1800), columns: ["missing"], func: "def apply(row):\n    return row['missing'] > 0" }],
+    program: 'eligible = filter(source, lambda row: row["missing"] > 0)',
     observe: ["total"],
   });
   assert.ok(failed.snapshot.results.eligible?.error);
@@ -116,15 +101,13 @@ try {
     mixed.snapshot.results.original_total?.materialization.executionId
   );
   await session.debug("Verify missing historical success cannot bind to current data.");
-  const denied = await run({ operators: [aggregate("bad_history", { operator: "eligible", atTask: 4 })] });
+  const denied = await run({ program: aggregate("bad_history", "at(eligible, task=4)") });
   assert.match(JSON.stringify(denied.step.toolResults), /unavailable/);
   assert.ok(!denied.snapshot.workflow?.operators.some((op: any) => op.operatorID === "bad_history"));
-  const recovered = await run({ operators: [], observe: ["original_total"] });
+  const recovered = await run({ program: "", observe: ["original_total"] });
   assert.deepEqual(rows(recovered, "original_total"), [{ n: 1000, total: 2999000 }]);
   const cachedHistory = await run({
-    operators: [
-      { op: "project", id: "cached_history", input: { operator: "original_total", atTask: 4 }, keep: ["n", "total"] },
-    ],
+    program: 'cached_history = project(at(original_total, task=4), keep=["n", "total"])',
     observe: ["cached_history"],
   });
   assert.deepEqual(rows(cachedHistory, "cached_history"), [{ n: 1000, total: 2999000 }]);

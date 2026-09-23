@@ -18,7 +18,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatOperatorResult, formatSchemaLine } from "./result-formatting";
+import { formatOperatorResult, formatSchemaLine, readsFrom } from "./result-formatting";
+import { nativeTestTools } from "../native/test-support";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, OperatorLink, PortDescription } from "../../types/workflow";
@@ -478,5 +479,64 @@ describe("scoped columns", () => {
     expect(text).not.toMatch(/\t2021/);
     expect(text).not.toContain("Column Schema and stats");
     expect(text).not.toContain('- "yards"');
+  });
+});
+
+describe("formatOperatorResult - who is blamed when the run stops", () => {
+  // The engine aborts the whole run at the first failure and hands every
+  // unfinished operator the failed operator's payload. A consumer is told its
+  // upstream failed; a bystander is told the run stopped elsewhere and that its
+  // own definition is not implicated.
+  async function stateWithFailedJoin() {
+    const { state, tools } = nativeTestTools();
+    const result = await tools.dataflow.execute({
+      program: [
+        'sales = scan("data/sales.csv")',
+        'names = scan("data/names.csv")',
+        'labeled = join(sales, names, on="region", how="left", validate="many_to_one")',
+        "label_count = aggregate(labeled, n=count())",
+        "sales_count = aggregate(sales, n=count())",
+      ].join("\n"),
+      observe: [],
+    });
+    if (typeof result === "string") throw new Error(result);
+    const revision = state.getOperator("labeled")!.nativeOp!.revision!;
+    const payload =
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({
+        version: 1,
+        operatorId: "labeled",
+        operatorRevision: revision,
+        code: "JOIN_CARDINALITY",
+        stage: "contract",
+        message: "many_to_one requires unique eligible right keys; duplicate ('west',).",
+        field: "validate",
+      });
+    return { state, payload };
+  }
+
+  test("a consumer names its failed upstream; a bystander is told the run stopped elsewhere", async () => {
+    const { state, payload } = await stateWithFailedJoin();
+    const consumer = formatOperatorResult("label_count", makeOpInfo({ error: payload }), state);
+    expect(consumer).toContain("aggregate `label_count` not executed; upstream `labeled` failed");
+    expect(consumer).toContain("JOIN_CARDINALITY");
+    const bystander = formatOperatorResult("sales_count", makeOpInfo({ error: payload }), state);
+    expect(bystander).toContain(
+      "aggregate `sales_count` not executed; the run stopped when `labeled` failed (JOIN_CARDINALITY)"
+    );
+    expect(bystander).toContain("`sales_count` does not read from `labeled`");
+    expect(bystander).not.toContain("upstream");
+    const root = formatOperatorResult("labeled", makeOpInfo({ error: payload }), state);
+    expect(root).toContain("join `labeled` failed: [JOIN_CARDINALITY; contract; revision ");
+    expect(root).toContain("Hint: Inspect key uniqueness");
+    expect(root).toContain("Field: validate");
+  });
+
+  test("readsFrom follows native inputs transitively", async () => {
+    const { state } = await stateWithFailedJoin();
+    expect(readsFrom("label_count", "sales", undefined, state)).toBe(true);
+    expect(readsFrom("label_count", "names", undefined, state)).toBe(true);
+    expect(readsFrom("sales_count", "labeled", undefined, state)).toBe(false);
+    expect(readsFrom("sales", "sales", undefined, state)).toBe(false);
   });
 });

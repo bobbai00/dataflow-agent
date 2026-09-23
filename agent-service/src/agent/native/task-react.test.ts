@@ -48,8 +48,6 @@ function fixture(catalog = false, asynchronous = false) {
   (agent as any).metadataStore = metadata;
   agent.updateSettings({
     agentMode: AgentMode.NATIVE,
-    nativeToolMode: "batch",
-    nativeCatalogVersion: "v2",
     contextMode: ContextMode.DELTA,
     nativeTaskContext: catalog,
   });
@@ -132,7 +130,7 @@ test("a catalog switch preserves computed results and retained bindings across t
       turn++;
       nextContext = JSON.stringify(await input.prepareStep({ stepNumber: 0, messages: input.initialMessages }));
       const args = {
-        operators: turn === 1 ? [{ op: "scan", id: "source", files: "data/fixture.csv" }] : [],
+        program: turn === 1 ? 'source = scan("data/fixture.csv")' : "",
         observe: ["source"],
       };
       const output = await input.tools.dataflow.execute(args);
@@ -166,7 +164,7 @@ test("a catalog switch preserves computed results and retained bindings across t
   expect(retained).toEqual(["source"]);
   // The retained version is stated on the operator's own line as an event, and
   // the catalog is rendered after the active turn so the turn's messages cache.
-  expect(nextContext).toContain("source = scan(fixture.csv); schema=unknown; Completed; rows=0; created@1");
+  expect(nextContext).toContain('source = scan(\\"data/fixture.csv\\"); schema=unknown; Completed; rows=0; created@1');
   expect(JSON.parse(nextContext).messages.at(-1).content).toContain("# Current operator catalog");
   expect(agent.getSnapshotStorage().getOperatorResult(agent.getHead(), "source")?.result).toEqual([]);
   expect(agent.getAllSteps().some(step => /STALE_ANSWER|EMPTY_ANCESTOR/.test(step.content))).toBe(false);

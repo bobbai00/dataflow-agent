@@ -26,7 +26,8 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
 import { TexeraAgent } from "../texera-agent";
-import { createNativeBatchTools } from "../tools/native-batch-tools";
+import { createNativeTools } from "../tools/native-batch-tools";
+import { dataflowInput, type LegacySpec } from "./test-support";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
@@ -35,18 +36,17 @@ function fixture() {
   const state = new WorkflowState();
   const metadata = new WorkflowSystemMetadata();
   metadata.seedCodeModeDefaults();
-  const tools = createNativeBatchTools(
-    state,
-    { metadataStore: metadata, settings: { nativeProfileCollection: true } } as any,
-    "v2"
-  );
+  const tools = createNativeTools(state, {
+    metadataStore: metadata,
+    settings: { nativeProfileCollection: true },
+  } as any);
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(
     id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id),
     () => 17
   );
   const record = async (id: string, operators: Record<string, unknown>[], observe: string[] = []) => {
-    const input = { operators, observe };
+    const input = dataflowInput({ operators: operators as LegacySpec[], observe });
     const output = await tools.dataflow.execute(input);
     expect(output.observe).toEqual(observe);
     steps.push({
@@ -243,8 +243,6 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
           settings: {
             ...DEFAULT_AGENT_SETTINGS,
             agentMode: AgentMode.NATIVE,
-            nativeCatalogVersion: "v2",
-            nativeToolMode: "batch",
             contextMode: mode,
             dataEvidence,
             flowEvidence,
@@ -460,15 +458,16 @@ test("production post-step hook records cached observations without running the 
   agent.workflowState = f.state;
   agent.head = "A";
   agent.delegateConfig = { userToken: "test", workflowId: 17 };
-  agent.settings.nativeCatalogVersion = "v2";
+  agent.settings.agentMode = AgentMode.NATIVE;
   agent.settings.dataEvidence = true;
   agent.settings.flowEvidence = true;
   agent.settings.maxOperatorResultCharLimit = 700;
-  const result = await createNativeBatchTools(
-    f.state,
-    { settings: { nativeProfileCollection: true } } as any,
-    "v2"
-  ).dataflow.execute({ operators: [], observe: ["selected"] });
+  const result = await createNativeTools(f.state, {
+    settings: { nativeProfileCollection: true },
+  } as any).dataflow.execute({
+    program: "",
+    observe: ["selected"],
+  });
   let executions = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(
@@ -480,7 +479,7 @@ test("production post-step hook records cached observations without running the 
   );
   try {
     await agent.runPostStepExecution(
-      [{ toolName: "dataflow", toolCallId: "observe", input: { operators: [], observe: ["selected"] } }],
+      [{ toolName: "dataflow", toolCallId: "observe", input: { program: "", observe: ["selected"] } }],
       [{ toolCallId: "observe", output: result }]
     );
     const observed = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
@@ -538,7 +537,7 @@ for (const scenario of ["settings", "checkout", "abort"] as const) {
     agent.snapshotStorage = f.storage;
     agent.workflowState = f.state;
     agent.head = "A";
-    agent.settings.nativeCatalogVersion = "v2";
+    agent.settings.agentMode = AgentMode.NATIVE;
     agent.settings.flowEvidence = true;
     agent.settings.dataEvidence = true;
     agent.abortController = new AbortController();

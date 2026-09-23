@@ -32,7 +32,6 @@ import numbers
 import traceback
 from collections.abc import Mapping
 from collections import Counter
-from types import MappingProxyType
 
 
 class NativeError(ValueError):
@@ -46,21 +45,41 @@ class _UndeclaredColumn(KeyError):
 
 
 class _Row(Mapping):
-    """A fresh read-only row, with distinguishable undeclared-column errors."""
+    """A read-only view of one input row.
 
-    def __init__(self, values):
-        self._values = MappingProxyType(values)
+    The callback sees every input column by name. Each column it actually reads
+    is recorded in `reads`, so the operator's dependencies are measured from what
+    the function did rather than declared up front — that measured set is what
+    flow evidence and lineage ranking consume. A name that is not a column raises
+    a distinguishable KeyError so the diagnostic can list the real columns.
+    """
+
+    __slots__ = ("_index", "_values", "_reads")
+
+    def __init__(self, index, values, reads):
+        self._index = index
+        self._values = values
+        self._reads = reads
 
     def __getitem__(self, key):
-        if key not in self._values:
+        position = self._index.get(key)
+        if position is None:
             raise _UndeclaredColumn(key)
-        return self._values[key]
+        self._reads.add(key)
+        return self._values[position]
 
     def __iter__(self):
-        return iter(self._values)
+        return iter(self._index)
 
     def __len__(self):
-        return len(self._values)
+        return len(self._index)
+
+
+def _rows(frame, reads):
+    """Yield one `_Row` per input row over every column, cheaply."""
+    index = {name: position for position, name in enumerate(frame.columns)}
+    for values in frame.itertuples(index=False, name=None):
+        yield _Row(index, tuple(map(_scalar, values)), reads)
 
 
 def _error(spec, code, message, *, stage="execute", field=None, source=None):
@@ -137,8 +156,7 @@ ROW_EFFECTS = {
     "Project": "none",
     "Cast": "none",
     "FillNull": "none",
-    "Transform": "none",
-    "Derive": "none",
+    "Map": "none",
     "Filter": "drop",
     "Aggregate": "collapse",
     "Join": "multiply",
@@ -151,7 +169,7 @@ ROW_EFFECTS = {
     "Explode": "multiply",
     "Unpivot": "add",
     "Pivot": "collapse",
-    "UDF": "unknown",
+    "Process": "unknown",
 }
 DTYPES = {"str": "string", "int64": "Int64", "float64": "Float64", "bool": "boolean", "datetime": "datetime64[ns, UTC]"}
 
@@ -159,41 +177,115 @@ DTYPES = {"str": "string", "int64": "Int64", "float64": "Float64", "bool": "bool
 def validate_native(spec):
     """Validate Python source/port contracts without importing runtime packages."""
     kind = spec["type"]
-    if spec.get("version") != "v2" or kind not in ROW_EFFECTS:
-        raise _error(spec, "CATALOG_VERSION", "Expected a supported V2 operator.", stage="validate")
+    if kind not in ROW_EFFECTS:
+        raise _error(spec, "OPERATOR_UNAVAILABLE", f"Unknown operator type {kind!r}.", stage="validate")
     inputs = spec.get("inputs", [])
     for name in [spec.get("id", "operator"), *inputs]:
         if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
     if len(set(inputs)) != len(inputs) and kind != "Join":
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
-    expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "UDF") else 1
+    expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
         raise _error(spec, "INPUT_PORTS", f"{kind} requires {expected} input ports.", stage="validate")
     if kind == "Union" and len(inputs) < 2:
         raise _error(spec, "INPUT_PORTS", "Union requires at least two inputs.", stage="validate")
     props = spec["properties"]
-    if kind == "Project" and "keep" in props and "drop" in props:
-        raise _error(spec, "PROJECT_OPTIONS", "keep and drop are mutually exclusive.", stage="validate")
-    if kind in ("Transform", "Derive", "Cast"):
+
+    def choice(value, allowed, code, field):
+        if value not in allowed:
+            raise _error(
+                spec,
+                code,
+                f"{field} must be one of {', '.join(repr(a) for a in allowed)}, got {value!r}.",
+                stage="validate",
+                field=field,
+            )
+
+    def names_list(value, code, field):
+        if not isinstance(value, list) or not value or not all(isinstance(v, str) and v for v in value):
+            raise _error(spec, code, f"{field} must be a nonempty list of column names.", stage="validate", field=field)
+        if len(set(value)) != len(value):
+            raise _error(spec, "COLUMN_COLLISION", f"{field} lists a column twice.", stage="validate", field=field)
+
+    if kind == "Project":
+        if "keep" in props and "drop" in props:
+            raise _error(spec, "PROJECT_OPTIONS", "keep and drop are mutually exclusive.", stage="validate")
+        if not any(key in props for key in ("keep", "drop", "rename")):
+            raise _error(spec, "PROJECT_OPTIONS", "Provide keep, drop or rename.", stage="validate")
+        for key in ("keep", "drop"):
+            if key in props:
+                names_list(props[key], "PROJECT_OPTIONS", key)
+        if "rename" in props and (not isinstance(props["rename"], dict) or not props["rename"]):
+            raise _error(
+                spec,
+                "PROJECT_OPTIONS",
+                "rename must be a nonempty {old: new} mapping.",
+                stage="validate",
+                field="rename",
+            )
+    elif kind == "Filter":
+        choice(props.get("nulls", "drop"), ("drop", "keep", "error"), "FILTER_ARGUMENT", "nulls")
+    elif kind == "Cast":
+        choice(props.get("errors", "raise"), ("raise", "null"), "CAST_OPTIONS", "errors")
+    elif kind == "FillNull":
+        if not isinstance(props.get("values"), dict) or not props["values"]:
+            raise _error(
+                spec,
+                "FILL_ARGUMENT",
+                "values must be a nonempty {column: value} mapping.",
+                stage="validate",
+                field="values",
+            )
+    elif kind == "Distinct":
+        choice(props.get("keep", "first"), ("first", "last"), "DISTINCT_ARGUMENT", "keep")
+        if "columns" in props:
+            names_list(props["columns"], "DISTINCT_ARGUMENT", "columns")
+    elif kind == "Union":
+        choice(props.get("schema", "strict"), ("strict", "align"), "UNION_ARGUMENT", "schema")
+    elif kind == "Sort":
+        keys = props.get("by")
+        if not isinstance(keys, list) or not keys:
+            raise _error(spec, "SORT_ARGUMENT", "by needs at least one sort key.", stage="validate", field="by")
+        for i, item in enumerate(keys):
+            if not isinstance(item, dict) or not isinstance(item.get("col"), str) or not item["col"]:
+                raise _error(spec, "SORT_ARGUMENT", "Each sort key names a column.", stage="validate", field=f"by[{i}]")
+            if "desc" in item and not isinstance(item["desc"], bool):
+                raise _error(
+                    spec, "SORT_ARGUMENT", "Sort direction is asc or desc.", stage="validate", field=f"by[{i}]"
+                )
+        choice(props.get("nulls", "last"), ("first", "last"), "SORT_ARGUMENT", "nulls")
+    elif kind == "Limit":
+        n, offset = props.get("n"), props.get("offset", 0)
+        if type(n) is not int or n < 1:
+            raise _error(spec, "LIMIT_ARGUMENT", f"n must be an integer >= 1, got {n!r}.", stage="validate", field="n")
+        if type(offset) is not int or offset < 0:
+            raise _error(
+                spec,
+                "LIMIT_ARGUMENT",
+                f"offset must be an integer >= 0, got {offset!r}.",
+                stage="validate",
+                field="offset",
+            )
+    if kind in ("Map", "Cast"):
         names = []
         for i, item in enumerate(props["columns"]):
             field = f"columns[{i}]"
             if item["dtype"] not in DTYPES:
                 raise _error(spec, "DTYPE", f"Unsupported dtype {item['dtype']!r}.", stage="validate", field=field)
-            names.append(item["as"] if kind == "Derive" else item["column"])
-            if kind != "Cast":
-                _validate_function(spec, item["func"], f"{field}.func", "apply")
+            names.append(item["as"] if kind == "Map" else item["column"])
+            if kind == "Map":
+                _validate_function(spec, item["func"], f"{field}.func", item.get("entry", "apply"))
             elif item["dtype"] != "datetime" and ("format" in item or "timezone" in item):
                 raise _error(
                     spec, "CAST_OPTIONS", "format/timezone apply only to datetime.", stage="validate", field=field
                 )
         if len(set(names)) != len(names):
             raise _error(spec, "COLUMN_COLLISION", "Submit each output column once.", stage="validate", field="columns")
-    elif kind == "Filter":
-        _validate_function(spec, props["func"], "func", "apply")
-    elif kind == "UDF":
-        _validate_function(spec, props["code"], "code", "process" if inputs else "load", inputs)
+    if kind == "Filter":
+        _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
+    elif kind == "Process":
+        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -266,7 +358,11 @@ def validate_native(spec):
     elif kind == "Explode":
         if props.get("encoding") != "json" or props.get("empty", "drop") not in ("drop", "null_row"):
             raise _error(
-                spec, "EXPLODE_ARGUMENT", "encoding must be json; empty is drop or null_row.", stage="validate"
+                spec,
+                "EXPLODE_ARGUMENT",
+                f"empty must be one of 'drop', 'null_row', got {props.get('empty', 'drop')!r}.",
+                stage="validate",
+                field="empty",
             )
     elif kind == "Unpivot":
         if not props.get("columns"):
@@ -291,15 +387,19 @@ def validate_native(spec):
 
 def _caught(spec, error, source, field, entry):
     frames = [frame for frame in traceback.extract_tb(error.__traceback__) if frame.filename == _filename(spec, field)]
-    code = (
-        "PYTHON_IMPORT"
-        if isinstance(error, ImportError)
-        else "UNDECLARED_COLUMN" if isinstance(error, _UndeclaredColumn) else "CALLBACK_RUNTIME"
-    )
+    if isinstance(error, _UndeclaredColumn):
+        code, message = (
+            "MISSING_COLUMN",
+            f"The function read column {error.args[0]!r}, which the input table does not have.",
+        )
+    elif isinstance(error, ImportError):
+        code, message = "PYTHON_IMPORT", f"{type(error).__name__}: {error}"
+    else:
+        code, message = "CALLBACK_RUNTIME", f"{type(error).__name__}: {error}"
     return _error(
         spec,
         code,
-        f"{type(error).__name__}: {error}",
+        message,
         field=field,
         source=_location(source, entry, frames[-1].lineno if frames else 1),
     )
@@ -352,7 +452,7 @@ def _columns(spec, frame, names, field):
 def _frame(spec, value):
     if not isinstance(value, pd.DataFrame):
         raise _error(
-            spec, "UDF_RETURN_TYPE", f"Expected a pandas DataFrame, got {type(value).__name__}.", stage="contract"
+            spec, "PROCESS_RETURN_TYPE", f"Expected a pandas DataFrame, got {type(value).__name__}.", stage="contract"
         )
     if not all(isinstance(name, str) for name in value.columns) or value.columns.has_duplicates:
         raise _error(spec, "OUTPUT_SCHEMA", "Table columns must be unique string names.", stage="contract")
@@ -366,8 +466,24 @@ def _frame(spec, value):
                     f"Column {name!r} contains infinity, which cannot be faithfully represented in result JSON. Return a finite value, a missing value or an explicit string.",
                     stage="contract",
                 )
+        if pd.api.types.is_datetime64_any_dtype(column.dtype) and getattr(column.dt, "tz", None) is None:
+            raise _error(
+                spec,
+                "OUTPUT_VALUE_TYPE",
+                f"Column {name!r} contains timezone-naive datetimes. Localize them (e.g. .dt.tz_localize('UTC')) or return ISO-8601 strings.",
+                stage="contract",
+            )
         if column.dtype == object:
             inferred = pd.api.types.infer_dtype(column, skipna=True)
+            if inferred in ("datetime", "date") and any(
+                getattr(v, "tzinfo", None) is None for v in column.dropna() if hasattr(v, "tzinfo")
+            ):
+                raise _error(
+                    spec,
+                    "OUTPUT_VALUE_TYPE",
+                    f"Column {name!r} contains timezone-naive datetimes. Localize them (e.g. .dt.tz_localize('UTC')) or return ISO-8601 strings.",
+                    stage="contract",
+                )
             if inferred not in (
                 "string",
                 "unicode",
@@ -582,8 +698,28 @@ def _aggregate(spec, frame, operations):
     return output
 
 
+JOIN_TYPES = ("inner", "left", "right", "full", "cross")
+JOIN_VALIDATIONS = ("many_to_many", "many_to_one", "one_to_many", "one_to_one")
+
+
 def _join_keys(spec):
     props = spec["properties"]
+    for value, allowed, field in (
+        (props.get("type", "inner"), JOIN_TYPES, "how"),
+        (props.get("validate", "many_to_many"), JOIN_VALIDATIONS, "validate"),
+    ):
+        if value not in allowed:
+            raise _error(
+                spec,
+                "JOIN_ARGUMENT",
+                f"{field} must be one of {', '.join(repr(a) for a in allowed)}, got {value!r}.",
+                stage="validate",
+                field=field,
+            )
+    if not isinstance(props.get("rightSuffix", "_right"), str) or not props.get("rightSuffix", "_right"):
+        raise _error(spec, "JOIN_ARGUMENT", "suffix must be a nonempty string.", stage="validate", field="suffix")
+    if not isinstance(props.get("nullsEqual", False), bool):
+        raise _error(spec, "JOIN_ARGUMENT", "nulls_equal must be true or false.", stage="validate", field="nulls_equal")
     if props.get("type", "inner") == "cross":
         if props.get("validate", "many_to_many") != "many_to_many":
             raise _error(
@@ -746,13 +882,29 @@ def _join(spec, left, right, operations):
 def _union(spec, frames, operations):
     mode = spec["properties"].get("schema", "strict")
     names = list(dict.fromkeys(name for frame in frames for name in frame.columns))
-    if mode == "strict" and any(set(frame.columns) != set(frames[0].columns) for frame in frames[1:]):
-        raise _error(
-            spec,
-            "UNION_SCHEMA",
-            "Strict union requires the same named columns; use schema:align for absent columns.",
-            field="schema",
-        )
+    if mode == "strict":
+        first = set(frames[0].columns)
+        for position, frame in enumerate(frames[1:], start=2):
+            columns = set(frame.columns)
+            if columns == first:
+                continue
+            missing = sorted(first - columns)
+            extra = sorted(columns - first)
+            detail = "; ".join(
+                part
+                for part in (
+                    f"input {position} lacks {missing}" if missing else "",
+                    f"input {position} adds {extra}" if extra else "",
+                )
+                if part
+            )
+            raise _error(
+                spec,
+                "UNION_SCHEMA",
+                f"Strict union requires the same named columns: {detail}. "
+                'Project or rename the inputs to match, or use schema="align" to fill absent columns with null.',
+                field="schema",
+            )
     types = {}
     for name in names:
         kinds = {_logical_dtype(frame[name]) for frame in frames if name in frame.columns} - {None}
@@ -814,7 +966,7 @@ def _validate_scan_options(spec, fmt):
         raise _error(spec, "SCAN_OPTIONS", message, stage="validate")
 
     if "names" in props and props.get("header", True):
-        reject("names requires header:false; use Project.rename to rename an existing header.")
+        reject("names requires header=False; use project(T, rename={...}) to rename an existing header.")
     if "delim" in props and props["delim"] != "whitespace" and len(props["delim"]) != 1:
         reject("delim must be a single literal character or whitespace.")
     if fmt is None:
@@ -826,7 +978,9 @@ def _validate_scan_options(spec, fmt):
     if "sheet" in props and (fmt not in ("excel", "html") or (fmt == "html" and not isinstance(props["sheet"], int))):
         reject("sheet selects an Excel sheet or a numeric HTML table index.")
     if fmt in ("binary", "parquet") and props.get("preview") and props.get("skipLines", 0):
-        reject("Binary pointer previews cannot use skipLines; inspect metadata without an offset or use a UDF loader.")
+        reject(
+            "Binary pointer previews cannot use skipLines; inspect metadata without an offset or load the file with a process function."
+        )
     common = {"files", "format", "preview", "fileColumn", "allText"}
     allowed = {
         "csv": {"header", "names", "skipLines", "encoding", "delim", "comment"},
@@ -851,7 +1005,7 @@ def _validate_scan_options(spec, fmt):
         raise _error(
             spec,
             "SCAN_FORMAT",
-            "This binary format needs a Python UDF loader; Scan preview can show its file metadata.",
+            "This binary format needs a process loader (a Python function); Scan preview can show its file metadata.",
             stage="validate",
         )
 
@@ -915,7 +1069,7 @@ def _scan_header(spec, raw, source_meta):
             raise _error(
                 spec,
                 "SCAN_HEADER",
-                "No header is available. Use a raw preview, or header:false with explicit names for an empty source.",
+                "No header is available. Use a raw preview, or header=False with explicit names for an empty source.",
                 field="header",
             )
         unresolved = []
@@ -944,7 +1098,7 @@ def _scan_header(spec, raw, source_meta):
         raise _error(
             spec,
             "SCAN_HEADER",
-            "Duplicate header names are not renamed automatically; preview and use header:false/names or a UDF parser.",
+            "Duplicate header names are not renamed automatically; preview and use header=False with names=[...], or a process parser.",
             field="header",
         )
     output.columns = names
@@ -1006,7 +1160,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 "file": [path.name],
                 "size_bytes": [path.stat().st_size],
                 "note": [
-                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a UDF for other binary formats."
+                    "Binary file metadata only; not parsed data rows. Use full Scan for parquet or a process loader for other binary formats."
                 ],
             }
         )
@@ -1116,7 +1270,7 @@ def _scan_read(spec, path, fmt, source_meta):
                             else:
                                 if name in flat:
                                     raise ValueError(
-                                        f"Flattened JSON field collision at {name!r}; use a UDF parser with explicit names"
+                                        f"Flattened JSON field collision at {name!r}; use a process parser with explicit names"
                                     )
                                 flat[name] = value
 
@@ -1125,7 +1279,7 @@ def _scan_read(spec, path, fmt, source_meta):
                 output = pd.DataFrame(flattened, dtype=object)
             else:
                 raise ValueError(
-                    "JSON Scan expects records, one object, or a dictionary of column arrays; use UDF for other layouts"
+                    "JSON Scan expects records, one object, or a dictionary of column arrays; use a process loader for other layouts"
                 )
             _frame(spec, output)
             return _scan_infer(output, props.get("allText", False), infer_text=False)
@@ -1228,7 +1382,7 @@ def _scan(spec, operations):
             raise _error(
                 spec,
                 "PYTHON_IMPORT",
-                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or use an available UDF reader.",
+                f"Reader for {fmt} is unavailable: {error}. Install its worker dependency or load the file with a process function.",
                 field="files",
             ) from error
         except Exception as error:
@@ -1262,39 +1416,21 @@ def _scan(spec, operations):
     return result
 
 
-def _map_columns(spec, source, operations):
-    props, kind = spec["properties"], spec["type"]
+def _map(spec, source, operations):
+    """Map: one declared output column per function, each reading the ORIGINAL
+    input row (so several columns in one map are independent) and adding or
+    replacing that column. Rows and their order never change. The columns each
+    function actually read are recorded as the output's measured dependencies."""
+    props = spec["properties"]
     output = source.copy().reset_index(drop=True)
+    dependencies = {}
     for i, item in enumerate(props["columns"]):
-        name = item["as"] if kind == "Derive" else item["column"]
-        columns = item["inputs"] if kind == "Derive" else [name]
-        _columns(spec, source, columns, f"columns[{i}]")
-        if kind == "Derive" and name in source.columns and not props.get("replace", False):
-            raise _error(
-                spec,
-                "COLUMN_COLLISION",
-                f"Column {name!r} already exists; set replace:true explicitly.",
-                field=f"columns[{i}].as",
-            )
-    for i, item in enumerate(props["columns"]):
-        name = item["as"] if kind == "Derive" else item["column"]
-        field = f"columns[{i}].func"
-        function = _function(spec, item["func"], field, "apply")
-        if kind == "Derive":
-            columns = item["inputs"]
-            arguments = (
-                _Row(dict(zip(columns, map(_scalar, row))))
-                for row in source[columns].itertuples(index=False, name=None)
-            )
-            # Pandas produces no tuples for zero-column frames; constants still
-            # require exactly one invocation per input row.
-            if not columns:
-                arguments = (_Row({}) for _ in range(len(source)))
-        else:
-            arguments = map(_scalar, source[name])
+        name, field, entry = item["as"], f"columns[{i}].func", item.get("entry", "apply")
+        function = _function(spec, item["func"], field, entry)
+        reads = set()
         values = []
-        for argument in arguments:
-            value = function(argument)
+        for row in _rows(source, reads):
+            value = function(row)
             try:
                 values.append(_convert(value, item["dtype"]))
             except (ValueError, TypeError, OverflowError) as error:
@@ -1304,13 +1440,11 @@ def _map_columns(spec, source, operations):
                     f"{name}: {error}",
                     stage="contract",
                     field=field,
-                    source=_location(item["func"], "apply", 1),
+                    source=_location(item["func"], entry, 1),
                 ) from error
         output[name] = _series(values, item["dtype"])
-    operations["columnDependencies"] = {
-        (item["as"] if kind == "Derive" else item["column"]): item["inputs"] if kind == "Derive" else [item["column"]]
-        for item in props["columns"]
-    }
+        dependencies[name] = sorted(reads)
+    operations["columnDependencies"] = dependencies
     return output
 
 
@@ -1330,7 +1464,7 @@ def _cast(spec, source, operations):
                     raise _error(
                         spec,
                         "CAST_INVALID_VALUE",
-                        f"Cannot cast {name!r} to {item['dtype']}: {error}. Normalize the input or explicitly set errors:null.",
+                        f"Cannot cast {name!r} to {item['dtype']}: {error}. Normalize the input or explicitly set errors=\"null\".",
                         field=f"columns[{i}]",
                     ) from error
                 failed += 1
@@ -1343,19 +1477,18 @@ def _cast(spec, source, operations):
 
 def _filter(spec, source, operations):
     props = spec["properties"]
-    columns = props["columns"]
-    _columns(spec, source, columns, "columns")
-    function = _function(spec, props["func"], "func", "apply")
+    entry = props.get("entry", "apply")
+    function = _function(spec, props["func"], "func", entry)
     mask, missing = [], 0
-    rows = source[columns].itertuples(index=False, name=None) if columns else (() for _ in range(len(source)))
-    for row in rows:
-        value = _scalar(function(_Row(dict(zip(columns, map(_scalar, row))))))
+    reads = set()
+    for row in _rows(source, reads):
+        value = _scalar(function(row))
         if value is None:
             missing += 1
             policy = props.get("nulls", "drop")
             if policy == "error":
                 raise _error(
-                    spec, "FILTER_NULL", "Predicate returned None with nulls:error.", stage="contract", field="func"
+                    spec, "FILTER_NULL", 'Predicate returned None with nulls="error".', stage="contract", field="func"
                 )
             value = policy == "keep"
         if not isinstance(value, bool):
@@ -1365,10 +1498,17 @@ def _filter(spec, source, operations):
                 f"Filter requires bool or None, got {type(value).__name__}.",
                 stage="contract",
                 field="func",
-                source=_location(props["func"], "apply", 1),
+                source=_location(props["func"], entry, 1),
             )
         mask.append(value)
-    operations.update({"keptRows": sum(mask), "rejectedRows": len(mask) - sum(mask), "nullPredicates": missing})
+    operations.update(
+        {
+            "keptRows": sum(mask),
+            "rejectedRows": len(mask) - sum(mask),
+            "nullPredicates": missing,
+            "predicateColumns": sorted(reads),
+        }
+    )
     return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
 
 
@@ -1544,7 +1684,9 @@ def _explode(spec, source, operations):
                 )
                 try:
                     if kind is None or (domain is not None and domain != kind):
-                        raise TypeError("elements must share one scalar type plus nulls; normalize arrays in UDF first")
+                        raise TypeError(
+                            "elements must share one scalar type plus nulls; normalize arrays with a process function first"
+                        )
                     value = _convert(value, kind)
                 except (TypeError, ValueError, OverflowError) as error:
                     raise _error(
@@ -1677,9 +1819,9 @@ def execute_native(spec, inputs):
             _frame(spec, frame)
         except NativeError as error:
             # This is a consumed-table boundary, before any user callback.
-            # Blaming the consumer's output prompts ineffective UDF rewrites.
+            # Blaming the consumer's output prompts ineffective process rewrites.
             code = error.diagnostic["code"].replace("OUTPUT_", "INPUT_")
-            if code == "UDF_RETURN_TYPE":
+            if code == "PROCESS_RETURN_TYPE":
                 code = "INPUT_TABLE_TYPE"
             producer = spec["inputs"][index]
             message = (
@@ -1692,8 +1834,8 @@ def execute_native(spec, inputs):
     operations = {}
     if kind == "Scan":
         output = _scan(spec, operations)
-    elif kind in ("Transform", "Derive"):
-        output = _map_columns(spec, source, operations)
+    elif kind == "Map":
+        output = _map(spec, source, operations)
     elif kind == "Cast":
         output = _cast(spec, source, operations)
     elif kind == "Filter":
@@ -1755,8 +1897,8 @@ def execute_native(spec, inputs):
                 raise _error(
                     spec, "FILL_TYPE", f"{column}: {error}", stage="contract", field=f"values.{column}"
                 ) from error
-    elif kind == "UDF":
-        entry = "process" if inputs else "load"
+    elif kind == "Process":
+        entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
         output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
     else:
@@ -1782,8 +1924,21 @@ def execute_native(spec, inputs):
 if __name__ == "__main__":
     import sys
 
-    try:
-        validate_native(json.load(sys.stdin))
-        print(json.dumps({"ok": True}))
-    except NativeError as error:
-        print(json.dumps({"ok": False, "diagnostic": error.diagnostic}))
+    request = json.load(sys.stdin)
+    if isinstance(request, dict) and "program" in request:
+        # Parse a native program (see program_parser.py); no operator semantics.
+        from program_parser import parse_program
+
+        print(json.dumps(parse_program(request["program"]), ensure_ascii=True))
+    else:
+        # Validate one spec or a list of specs: Python syntax and entry signatures
+        # of every function slot, plus argument contracts. Nothing is executed.
+        specs = request if isinstance(request, list) else [request]
+        results = []
+        for spec in specs:
+            try:
+                validate_native(spec)
+                results.append({"ok": True})
+            except NativeError as error:
+                results.append({"ok": False, "diagnostic": error.diagnostic})
+        print(json.dumps(results if isinstance(request, list) else results[0]))

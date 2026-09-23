@@ -98,7 +98,7 @@ describe("mapLegacyToParams — the presets", () => {
     // …including with every legacy knob turned on:
     const maxed = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
-      agentMode: AgentMode.GENERAL,
+      agentMode: AgentMode.CODE,
       thoughtReplay: true,
       agentTurns: true,
       errorReflection: true,
@@ -107,10 +107,5 @@ describe("mapLegacyToParams — the presets", () => {
       contextWindowTokens: 1000,
     });
     expect(needsExtras(maxed)).toBe(false);
-  });
-
-  test("GENERAL agent mode maps to compiledSchemas", () => {
-    const p = mapLegacyToParams(ContextMode.LATEST, { compilationResult: null, agentMode: AgentMode.GENERAL });
-    expect(p.compiledSchemas).toBe(true);
   });
 });

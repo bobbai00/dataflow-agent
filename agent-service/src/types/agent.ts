@@ -101,15 +101,17 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
- * (Python `def load()` / `def process(...)`); GENERAL uses typed
- * `addOperator`/`modifyOperator` tools and embeds operator schemas in the prompt.
+ * Agent operating mode.
+ *  - NATIVE (default): the model writes a program of `name = operator(...)`
+ *    expressions over the fixed operator catalog (`native/catalog.ts`), with
+ *    three custom operators that carry Python (filter, map, process). The
+ *    service compiles every operator to Python for the engine.
+ *  - CODE: the previous script-based approach — every operator is one free
+ *    Python `def load()` / `def process(...)` function written through
+ *    `createOrModifyOperator`.
  */
 export enum AgentMode {
   CODE = "code",
-  GENERAL = "general",
-  /** Fixed-grain typed operators (Scan/Filter/Project/Compute/Aggregate/Join/
-   *  Union/Distinct/Sort/Limit + UDF) compiled to Python by the service. */
   NATIVE = "native",
 }
 
@@ -164,13 +166,10 @@ export interface AgentSettings {
    * the L1 (semantic thrashing) × L2 (super-linear context) cost blow-up.
    */
   maxOperatorEdits: number;
-  allowedOperatorTypes: string[];
   agentMode: AgentMode;
-  /** Native operator interface. Batch also forces provider parallel calls off. */
-  nativeToolMode?: "typed" | "batch";
-  /** Explicit Python catalog opt-in. Requires native + batch; V1 remains default. */
-  nativeCatalogVersion?: "v1" | "v2";
-  /** Collect ordinary V2 profiles, independently of model-facing exposure. */
+  /** Collect table profiles and operator counters in the engine, independently
+   *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
+   *  each operator, so it cannot change on an existing workflow. */
   nativeProfileCollection?: boolean;
   /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */
   nativeTaskHistory?: boolean;
@@ -514,43 +513,11 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   executionTimeoutMs: 240000,
   maxSteps: 100,
   maxOperatorEdits: 0,
-  // Three families, one job each (the general-mode prompt says the same thing):
-  //   relational — load, shape and summarize tabular data;
-  //   visualization — render a chart from a relational table;
-  //   DataProcessing — custom Python for anything the typed operators cannot
-  //     express, ML training/inference included.
-  // No sklearn / Split operators: model work belongs in `DataProcessing`.
-  allowedOperatorTypes: [
-    // Relational
-    "CSVFileScan",
-    "Filter",
-    "Projection",
-    "TypeCasting",
-    "Sort",
-    "Limit",
-    "Distinct",
-    "Union",
-    "Intersect",
-    "Difference",
-    "KeywordSearch",
-    "HashJoin",
-    "Aggregate",
-    // Visualization
-    "BarChart",
-    "LineChart",
-    "PieChart",
-    "Histogram",
-    "Scatterplot",
-    "HeatMap",
-    "BoxViolinPlot",
-    "WordCloud",
-    // Custom logic / ML, in Python
-    "DataProcessing",
-  ],
-  agentMode: AgentMode.GENERAL,
-  nativeToolMode: "typed",
-  nativeCatalogVersion: "v1",
-  nativeProfileCollection: false,
+  agentMode: AgentMode.NATIVE,
+  // Collected by default so evidence can be switched on without rebuilding
+  // the workflow; exposure stays opt-in below.
+  nativeProfileCollection: true,
+  // Multi-task modes on top of native mode; both off by default.
   nativeTaskHistory: false,
   nativeTaskContext: false,
   dataEvidence: false,
@@ -665,10 +632,7 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general" | "native";
-  nativeToolMode?: "typed" | "batch";
-  nativeCatalogVersion?: "v1" | "v2";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */
@@ -771,10 +735,7 @@ export interface UpdateAgentSettingsRequest {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general" | "native";
-  nativeToolMode?: "typed" | "batch";
-  nativeCatalogVersion?: "v1" | "v2";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   /** Retain complete outputs for exact {operator, atTask} inputs. Set on a fresh session. */

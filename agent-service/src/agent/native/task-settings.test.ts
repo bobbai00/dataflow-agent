@@ -27,17 +27,12 @@ function agent() {
 }
 test("task features validate atomically and history cannot be enabled halfway through a session", async () => {
   const a = agent();
-  expect(() => a.updateSettings({ nativeTaskHistory: true })).toThrow();
-  expect(a.getSettings().nativeTaskHistory).toBeFalsy();
-  a.updateSettings({
-    agentMode: AgentMode.NATIVE,
-    nativeToolMode: "batch",
-    nativeCatalogVersion: "v2",
-    nativeTaskHistory: true,
-    nativeTaskContext: true,
-  });
-  expect(a.getSettings().systemPrompt).toContain("atTask");
-  expect(a.getSettings().systemPrompt).not.toContain("atTurn");
+  // Native is the default mode, so history may be chosen before the session starts.
+  a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true });
+  expect(a.getSettings().nativeTaskHistory).toBe(true);
+  // The prompt teaches the one reference form the program language accepts.
+  expect(a.getSettings().systemPrompt).toContain("at(name, task=N)");
+  expect(a.getSettings().systemPrompt).not.toContain("atTask");
   await a.sendMessage("hello");
   expect(() => a.updateSettings({ nativeTaskHistory: false })).toThrow("fresh");
   expect(() => a.updateSettings({ agentMode: AgentMode.CODE })).toThrow();

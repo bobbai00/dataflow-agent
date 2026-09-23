@@ -223,7 +223,7 @@ export function paramsToRenderOptions(
   return {
     compilationResult,
     nativeEvidence: params.nativeEvidence,
-    agentMode: params.compiledSchemas ? AgentMode.GENERAL : AgentMode.CODE,
+    agentMode: AgentMode.CODE,
     resultSelection: params.resultSelection,
     // The renderer needs the layout for one decision: in the native transcript
     // a later turn's request is also rendered inline (see renderAgentEvents).

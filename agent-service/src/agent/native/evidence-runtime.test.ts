@@ -60,10 +60,10 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('source', 'Scan', [], files=str(path), allText=True)
     execute('typed', 'Cast', ['source'], columns=[dict(column='x', dtype='int64')], errors='null')
     execute('filled', 'FillNull', ['typed'], values={'x': 0})
-    execute('transformed', 'Transform', ['filled'], columns=[dict(column='x', dtype='int64', func='def apply(value):\\n    return value * 2')])
-    execute('derived', 'Derive', ['transformed'], columns=[dict(**{'as': 'y'}, inputs=['x'], dtype='int64', func="def apply(row):\\n    return row['x'] + 1")])
+    execute('transformed', 'Map', ['filled'], columns=[dict(**{'as': 'x'}, dtype='int64', func="def apply(row):\\n    return row['x'] * 2", entry='apply')])
+    execute('derived', 'Map', ['transformed'], columns=[dict(**{'as': 'y'}, dtype='int64', func="def apply(row):\\n    return row['x'] + 1", entry='apply')])
     execute('projected', 'Project', ['derived'], keep=['y'], rename={'y': 'value'})
-    execute('filtered', 'Filter', ['typed'], columns=['x'], func="def apply(row):\\n    return row['x'] is not None")
+    execute('filtered', 'Filter', ['typed'], func="def apply(row):\\n    return row['x'] is not None", entry='apply')
     execute('aggregate', 'Aggregate', ['typed'], aggregations=[dict(fn='mean', col='x', **{'as': 'mean'})])
     execute('joined', 'Join', ['typed', 'typed'], on='x', type='full', nullsEqual=True)
     execute('crossed', 'Join', ['filtered', 'typed'], type='cross')
@@ -71,17 +71,17 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('distinct', 'Distinct', ['unioned'])
     execute('sorted', 'Sort', ['unioned'], by=[dict(col='x', desc=True)])
     execute('limited', 'Limit', ['sorted'], n=1, offset=1)
-    execute('empty', 'Filter', ['typed'], columns=[], func='def apply(row):\\n    return False')
+    execute('empty', 'Filter', ['typed'], func='def apply(row):\\n    return False', entry='apply')
     execute('empty_groups', 'Aggregate', ['empty'], groupBy=['x'], aggregations=[dict(fn='count', **{'as': 'n'})])
     execute('empty_global', 'Aggregate', ['empty'], aggregations=[dict(fn='count', **{'as': 'n'})])
-    execute('udf', 'UDF', ['typed'], code='def process(typed):\\n    return typed')
-    execute('shape_source', 'UDF', [], code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':['a','b'], 'label':['x:y','z'], 'tags':['[1,null,2]','[]'], 'y1':[10,20], 'y2':[15,25]})")
+    execute('udf', 'Process', ['typed'], code='def process(typed):\\n    return typed', entry='process')
+    execute('shape_source', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'id':['a','b'], 'label':['x:y','z'], 'tags':['[1,null,2]','[]'], 'y1':[10,20], 'y2':[15,25]})")
     execute('split', 'Split', ['shape_source'], column='label', into=['code', 'description'], separator=':')
     execute('explode', 'Explode', ['split'], column='tags', encoding='json')
     execute('unpivot', 'Unpivot', ['explode'], columns=['y1','y2'])
     execute('window', 'Window', ['unpivot'], partitionBy=['id','tags'], orderBy=[dict(col='variable')], columns=[dict(fn='lag', col='value', **{'as': 'previous'})])
     execute('pivot', 'Pivot', ['window'], index=['id','tags'], columns='variable', values='previous')
-    execute('shape_empty', 'Filter', ['shape_source'], columns=[], func='def apply(row):\\n    return False')
+    execute('shape_empty', 'Filter', ['shape_source'], func='def apply(row):\\n    return False', entry='apply')
     execute('empty_split', 'Split', ['shape_empty'], column='label', into=['code', 'description'], separator=':')
     execute('empty_explode', 'Explode', ['empty_split'], column='tags', encoding='json')
     execute('empty_unpivot', 'Unpivot', ['empty_explode'], columns=['y1','y2'])
@@ -106,7 +106,6 @@ print(json.dumps(records))
     showAdvanced: false,
     nativeOp: {
       type: s.type,
-      version: "v2",
       revision: s.revision,
       inputs: s.inputs,
       properties: s.properties,

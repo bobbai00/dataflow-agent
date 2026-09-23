@@ -21,7 +21,7 @@ import { expect, spyOn, test } from "bun:test";
 import { AgentMode, ContextMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import { nativeViewOf } from "../tools/native-typed-tools";
+import { programOf, type LegacySpec } from "./test-support";
 import { assembleContext } from "../util/context-utils";
 import * as executionTools from "../tools/workflow-execution-tools";
 
@@ -39,11 +39,16 @@ async function fixture() {
   const metadata = new WorkflowSystemMetadata();
   metadata.seedCodeModeDefaults();
   agent.metadataStore = metadata;
-  Object.assign(agent.settings, { agentMode: AgentMode.NATIVE, nativeToolMode: "batch", nativeCatalogVersion: "v2" });
+  Object.assign(agent.settings, { agentMode: AgentMode.NATIVE });
   agent.tools = agent.createTools();
-  const call = async (name: string, args: unknown) => {
+  // Tests describe operators as small objects; the tool receives the program.
+  const call = async (name: string, args: any) => {
+    const input =
+      name === "dataflow" && Array.isArray(args?.operators)
+        ? { program: programOf(args.operators as LegacySpec[]), ...(args.observe ? { observe: args.observe } : {}) }
+        : args;
     const result = await agent.handleDebugInput(
-      `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(args))})`
+      `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
     );
     expect(result.error).toBeUndefined();
     return agent.getHead() as string;
@@ -71,7 +76,7 @@ async function fixture() {
     id: "answer",
     input: "source",
     columns: ["x"],
-    func: "def apply(row):\n    return REJECTED_SOURCE +",
+    func: "def apply(row, *REJECTED_SOURCE):\n    return True",
   };
   return { agent, call, first, bad };
 }
@@ -82,10 +87,10 @@ test("production debug/post-step path pins a rejected revision and blocks stale 
   const head = await call("dataflow", { operators: [bad], observe: ["final"] });
   const storage = agent.getSnapshotStorage();
   const inspected = storage.inspectNativeError(head, { operatorId: "answer" });
-  const { op, ...params } = bad;
+  const outcome = agent.getAllSteps().find((step: any) => step.id === head).toolResults[0].output.operators[0];
   expect(inspected.found).toBe(true);
-  expect(inspected.summary?.operatorRevision).toBe(nativeViewOf(op, params, "v2")!.revision);
-  expect(inspected.summary?.diagnostic.code).toBe("PYTHON_SYNTAX");
+  expect(inspected.summary?.operatorRevision).toBe(outcome.attempted.revision);
+  expect(inspected.summary?.diagnostic.code).toBe("CALLBACK_SIGNATURE");
   expect(inspected.text).toContain("REJECTED_SOURCE");
   expect(inspected.summary?.executionId).toBeNull();
   expect(agent.getWorkflowState().getWorkflowContent()).toEqual(before);
@@ -139,7 +144,7 @@ test("inspectError is V2-only, read-only, and its pinned output persists across 
         expect(rendered).toContain(JSON.stringify(output).slice(1, -1));
         expect(rendered).not.toContain("GENERATED_RUNTIME_NOT_FOR_THE_MODEL");
       }
-  agent.settings.nativeCatalogVersion = "v1";
+  agent.settings.agentMode = AgentMode.CODE;
   expect(agent.createTools().inspectError).toBeUndefined();
 });
 
@@ -153,7 +158,7 @@ test("late or aborted post-step callbacks cannot attach attempt diagnostics to a
       else agent.head = "another-head";
     };
     await agent.runPostStepExecution(
-      [{ toolName: "dataflow", toolCallId: "late", input: { operators: [bad], observe: [] } }],
+      [{ toolName: "dataflow", toolCallId: "late", input: { program: programOf([bad as LegacySpec]), observe: [] } }],
       [
         {
           toolCallId: "late",
@@ -210,7 +215,7 @@ test("V2 error details bypass successful-result omission and do not claim reject
         opExtras: () => ({ detail: "omit", column: {}, tuple: {}, codeHistory: [], resultHistory: [] }) as any,
       })
     );
-    expect(rendered).toContain("PYTHON_SYNTAX");
+    expect(rendered).toContain("CALLBACK_SIGNATURE");
     expect(rendered).toContain("UPSTREAM_FAILED");
     expect(rendered).not.toContain("operator `answer` re-executed");
     expect(rendered).not.toContain("operator `final` re-executed");

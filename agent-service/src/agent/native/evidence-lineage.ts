@@ -28,7 +28,7 @@ const record = (x: unknown): Record<string, any> =>
  * This ranks existing evidence; it does not claim cellwise equivalence. */
 function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, port: number, name: string): string[] {
   const view = op.nativeOp;
-  if (view?.version !== "v2") return [];
+  if (!view) return [];
   const p = view.properties;
   switch (view.type) {
     case "Project": {
@@ -37,9 +37,15 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
         ? []
         : [original];
     }
-    case "Derive": {
-      const derived = (Array.isArray(p.columns) ? p.columns : []).find(c => record(c).as === name);
-      return derived ? names(record(derived).inputs) : [name];
+    case "Map": {
+      // Dependencies are measured at execution (the columns the function read),
+      // so they are only known once this operator has a result.
+      const outputs = (Array.isArray(p.columns) ? p.columns : []).map(c => record(c).as);
+      if (!outputs.includes(name)) return [name];
+      const measured = record(
+        context.resolveInput(op.operatorID)?.tableProfile?.native?.operations?.columnDependencies
+      );
+      return names(measured[name]);
     }
     case "Aggregate": {
       if (names(p.groupBy).includes(name)) return [name];
@@ -81,7 +87,6 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
     }
     case "Cast":
     case "FillNull":
-    case "Transform":
     case "Filter":
     case "Distinct":
     case "Sort":
@@ -90,7 +95,7 @@ function inputColumns(context: NativeEvidenceContext, op: OperatorPredicate, por
     case "Union":
       return [name];
     default:
-      return []; // UDF and unknown contracts are opaque, never parse code.
+      return []; // Process and unknown contracts are opaque, never parse code.
   }
 }
 
@@ -116,8 +121,8 @@ export function downstreamRelevantColumns(
     for (const edge of consumers.get(id) ?? []) {
       if (++edges > 64) return relevant;
       if (
-        edge.op.nativeOp?.version !== "v2" ||
-        edge.op.nativeOp.type === "UDF" ||
+        !edge.op.nativeOp ||
+        edge.op.nativeOp.type === "Process" ||
         edge.op.operatorID === context.op.operatorID ||
         path.some(e => e.op.operatorID === edge.op.operatorID)
       )
@@ -139,7 +144,7 @@ export function boundInputs(context: NativeEvidenceContext): NativeEvidenceConte
   const view = context.op.nativeOp;
   if (
     context.info.error ||
-    view?.version !== "v2" ||
+    !view ||
     !v?.complete ||
     v.operatorId !== context.op.operatorID ||
     v.operatorRevision !== view.revision ||
@@ -153,7 +158,7 @@ export function boundInputs(context: NativeEvidenceContext): NativeEvidenceConte
     const ref = v.inputs[i];
     if (
       !op ||
-      op.nativeOp?.version !== "v2" ||
+      !op.nativeOp ||
       !info ||
       info.error ||
       !input?.complete ||

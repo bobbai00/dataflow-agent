@@ -16,10 +16,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { TaskHistory, type RetainedResult } from "./task-history";
-import { createNativeBatchTools, nativeBatchSchema } from "../tools/native-batch-tools";
+import { createNativeTools } from "../tools/native-batch-tools";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
-import Ajv from "ajv";
 
 const info = (id: string) =>
   ({
@@ -98,15 +97,35 @@ describe("task history", () => {
     expect(() => failed.resolve({ operator: "source", atTask: 1 })).toThrow("unavailable");
   });
 
-  test("task input schema is opt-in and accepts only positive integral task numbers", () => {
-    const plain = new Ajv({ strict: false }).compile(nativeBatchSchema("v2"));
-    const enabled = new Ajv({ strict: false }).compile(nativeBatchSchema("v2", { taskHistory: true }));
-    const batch = (atTask: unknown) => ({
-      operators: [{ op: "project", id: "old", input: { operator: "source", atTask }, keep: ["x"] }],
-    });
-    expect(plain(batch(1))).toBe(false);
-    expect(enabled(batch(1))).toBe(true);
-    for (const x of [0, -1, 1.5, "1"]) expect(enabled(batch(x))).toBe(false);
+  test("at(name, task=N) is a saved-table reference; malformed forms and a session without history are refused", async () => {
+    const state = new WorkflowState();
+    const metadata = new WorkflowSystemMetadata();
+    metadata.seedCodeModeDefaults();
+    // No task history: the reference parses, then its statement is refused with the reason.
+    const plain = createNativeTools(state, { metadataStore: metadata });
+    const off = await plain.dataflow.execute({ program: 'old = project(at(source, task=1), keep=["x"])' });
+    expect(off.operators[0].status).toBe("error");
+    expect(off.operators[0].message).toContain("keeps no task history");
+    // With history, only a table name and a positive integral task number are accepted.
+    const history = new TaskHistory(async () => artifact("11"));
+    await history.seal(1, [source], new Map([["source", info("11")]]));
+    const tools = createNativeTools(state, { metadataStore: metadata, taskHistory: history });
+    for (const bad of [
+      "at(source)",
+      "at(source, task=0)",
+      "at(source, task=1.5)",
+      'at("source", task=1)',
+      "at(source, task=1, x=2)",
+    ]) {
+      const result = await tools.dataflow.execute({ program: `old = project(${bad}, keep=["x"])` });
+      expect(result.operators[0].status).toBe("error");
+      expect(result.operators[0].message).toContain("write at(name, task=N)");
+    }
+    // Both spellings of the task number are the same reference.
+    for (const good of ["at(source, task=1)", "at(source, 1)"]) {
+      const result = await tools.dataflow.execute({ program: `old = project(${good}, keep=["x"])` });
+      expect(result.operators[0].status).not.toBe("error");
+    }
   });
 
   test("historical edges terminate at stored data; editing today's producer cannot touch them", async () => {
@@ -115,22 +134,32 @@ describe("task history", () => {
     metadata.seedCodeModeDefaults();
     const history = new TaskHistory(async () => artifact("11"));
     await history.seal(1, [source], new Map([["source", info("11")]]));
-    const tools = createNativeBatchTools(state, { metadataStore: metadata, taskHistory: history }, "v2");
+    const tools = createNativeTools(state, { metadataStore: metadata, taskHistory: history });
     const result = await tools.dataflow.execute({
-      operators: [
-        { op: "scan", id: "source", files: "data/new.csv" },
-        { op: "project", id: "original", input: { operator: "source", atTask: 1 }, keep: ["x"] },
-        { op: "project", id: "current", input: "source", keep: ["x"] },
-      ],
+      program: [
+        'source = scan("data/new.csv")',
+        'original = project(at(source, task=1), keep=["x"])',
+        'current = project(source, keep=["x"])',
+      ].join("\n"),
     });
     expect(result.operators.map((x: any) => x.status)).toEqual(["added", "added", "added"]);
     expect(state.getDownstreamOperators("source")).toContain("current");
     expect(state.getDownstreamOperators("source")).not.toContain("original");
     expect(state.getOperator("original")!.nativeOp!.taskInputs).toEqual([{ operator: "source", atTask: 1 }]);
-    const missing = await tools.dataflow.execute({
-      operators: [{ op: "project", id: "bad", input: { operator: "source", atTask: 2 }, keep: ["x"] }],
-    });
+    // The retained source renders as the expression that reads it, never as its id.
+    const served = state.getOperator(state.getOperator("original")!.nativeOp!.inputs[0])!;
+    expect(served.taskSource).toEqual({ operator: "source", atTask: 1 });
+    expect(served.nativeOp!.source).toBe("at(source, task=1)");
+    // A task with no saved version: refused alone, nothing created.
+    const missing = await tools.dataflow.execute({ program: 'bad = project(at(source, task=2), keep=["x"])' });
     expect(missing.operators[0].status).toBe("error");
+    expect(missing.operators[0].message).toContain("unavailable");
     expect(state.getOperator("bad")).toBeUndefined();
+    // The internal id is not a table name the model may write.
+    const internal = await tools.dataflow.execute({
+      program: `leak = project(${state.getOperator("original")!.nativeOp!.inputs[0]}, keep=["x"])`,
+    });
+    expect(internal.operators[0].status).toBe("error");
+    expect(internal.operators[0].message).toContain("read a saved table with at(name, task=N)");
   });
 });

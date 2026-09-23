@@ -149,31 +149,47 @@ Context-tuning matrix configs, all green: `latest` default;
 `delta + contextWindowTokens=6000 + sliding`;
 `delta + turnHistory=index + indexDetailedOperators=6 + indexRichTables=2`.
 
-Note: `bun run e2e:errors` asserts the OLD engine-side error format
-(`Operator code:` + `>`-marked line echoed by the worker). The current design
-sends exception + line pointer from the engine and lets the agent-service
-append the operator code from `operatorProperties`, so that suite's
-expectations are stale on `feat/turn-resume` too — not a regression of this
-merge.
+`bun run e2e:errors` checks the worker's error contract: the exception type
+and a `(line N) \`source\` - ` pointer at the offending statement; the
+agent-service appends the operator code from `operatorProperties` itself.
+Native-mode smokes: `bun run benchmark/e2e/native-program-run.ts` (a program
+through the real engine) and `bun run benchmark/e2e/native-errors-run.ts`
+(every error layer rendered as the model sees it). Both need
+`TEXERA_AGENT_SERVICE_ENDPOINT` pointing at the running agent-service.
 
-### Context parameters (tuning knobs)
+### Agent settings (tuning knobs)
 
 Passed as `settings` on agent creation (`POST /api/agents/`) or via
-`PATCH /api/agents/:id/settings`:
+`PATCH /api/agents/:id/settings`. Defaults are `DEFAULT_AGENT_SETTINGS` in
+`agent-service/src/types/agent.ts`; the README lists them.
 
 | Knob | Values | What it does |
 |---|---|---|
-| `contextMode` | `latest` \| `delta` | LATEST = task + current snapshot only; DELTA = full event trajectory |
+| `agentMode` | `native` (default) \| `code` | native: the model writes the dataflow as a `name = operator(...)` program (`dataflow` tool); code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
+| `dataEvidence` | bool (default `false`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
+| `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
+| `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
+| `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
+| `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |
+| `contextMode` | `delta` (default) \| `latest` | DELTA = full event trajectory, append-only for the provider cache; LATEST = task + current snapshot |
+| `messageLayout` | `native` (default) \| `block` \| `blockSplit` \| `turnSplit` \| `opSplit` \| `opBlock` | how the transcript is split into messages; `opSplit`/`opBlock` are LATEST layouts with one message per operator |
 | `contextWindowTokens` | int (0 = unbounded) | DELTA budget; overflow triggers compaction |
 | `compactionStrategy` | `compress` \| `sliding` | fold old events into a stats deck vs. evict oldest |
 | `deckSampleRatio` | 0..1 (default 0.10) | fraction of folded operators' rows kept as a peek |
-| `maxResultRows` | int | rows rendered per operator result |
-| `columnStats` | bool | per-column stats block on each result (suppressed by design when the complete small table is already visible in the context) |
-| `thoughtReplay` / `thoughtReplayK` | bool / int | LATEST `# Reasoning` block of last K events |
+| `maxResultRows` | int (0 = no cap) | rows rendered per operator result |
+| `maxSteps` | int (default 100) | per-turn step budget |
+| `toolTimeoutSeconds` / `executionTimeoutMinutes` | int | per tool call / per workflow execution |
+| `parallelToolCalls` | bool (default `true`) | provider-side parallel tool calls; forced off in native mode |
+| `thoughtReplay` / `thoughtReplayK` | bool / int | recent reasoning re-injected (default on, K=10) |
 | `turnHistory` | `full` \| `index` | prior turns verbatim vs. compact catalogue |
-| `indexDetailedOperators` | int | how many operators keep full index entries |
-| `indexRichTables` | int | how many upstream operators render sample rows |
-| `flowLevel` / `dataLevel` | int | flow/data annotation rungs |
+| `indexDetailedOperators` / `indexRichTables` | int | index caps for `turnHistory: index` |
+| `seedSources` | bool (default `false`) | scan and observe the files passed as `sources` with the message before the first model call |
+| `enableRecallTool` / `enableResumeTool` / `enableCompactTool` | bool (default `false`) | expose `recallState` / `resumeFrom` / `compactContext` |
+| `disabledTools` | string[] | hide tools by name |
+
+Retired knobs (`nativeToolMode`, `nativeCatalogVersion`, `allowedOperatorTypes`,
+`columnStats`, `flowLevel`/`dataLevel`, `agentMode: "general"`) are rejected
+with an error rather than mapped.
 
 ## Troubleshooting
 

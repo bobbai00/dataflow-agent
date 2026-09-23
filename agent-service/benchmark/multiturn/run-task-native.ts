@@ -19,6 +19,9 @@ import { resolve } from "node:path";
 import { nativeTestSession } from "../e2e/native-test-session";
 import { runAgentTurn } from "../../src/api";
 
+/** A saved-table read in a submitted program: `at(name, task=N)` or `at(name, N)`. */
+const HISTORY_REFERENCE = /\bat\(\s*[A-Za-z_]\w*\s*,\s*(?:task\s*=\s*)?\d+\s*\)/g;
+
 const [sessionPath, outPath, arm = "react-catalog", limit = "100"] = process.argv.slice(2);
 // New arm names: archived experiments must use their recorded revisions.
 const ARMS = ["react-full", "react-catalog"];
@@ -31,7 +34,6 @@ if (existsSync(out)) throw new Error(`Refusing to overwrite ${out}`);
 mkdirSync(out, { recursive: true });
 const spec = await Bun.file(sessionPath).json();
 const settings = {
-  nativeCatalogVersion: "v2" as const,
   nativeProfileCollection: true,
   dataEvidence: true,
   flowEvidence: true,
@@ -105,7 +107,7 @@ try {
       tool_calls: steps.reduce((n, s) => n + (s.toolCalls?.length ?? 0), 0),
       historical_inputs: steps
         .flatMap(s => s.toolCalls ?? [])
-        .reduce((n, c) => n + (JSON.stringify(c.input).match(/"atTask":/g) ?? []).length, 0),
+        .reduce((n, c) => n + (String((c.input as any)?.program ?? "").match(HISTORY_REFERENCE) ?? []).length, 0),
     };
     await write(`${directory}/stats.json`, stats);
     console.log(JSON.stringify({ arm, task: i + 1, ...stats }));

@@ -74,12 +74,15 @@ export interface OperatorPredicate {
     type: string;
     properties: Record<string, unknown>;
     inputs: string[];
-    taskInputs?: import("../agent/native/task-history").TaskInput[];
-    version?: "v1" | "v2";
     revision?: string;
     profileCollection?: boolean;
-    keepFrames?: boolean;
-    frameOf?: { operator: string; frame: string; atTask?: number };
+    /** The assignment as the model wrote it (`x = filter(...)`). */
+    source?: string;
+    /** Top-level `def` sources the statement refers to, by name. */
+    functions?: Record<string, string>;
+    /** Multi-task: the inputs as written, where an `at(table, task=N)` reference
+     * stands in port order for the runtime-owned source that serves it. */
+    taskInputs?: import("../agent/native/task-history").TaskInput[];
   };
 }
 

@@ -18,12 +18,11 @@
  */
 
 import { expect, spyOn, test } from "bun:test";
-import Ajv from "ajv";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
-import { nativeBatchSchema } from "../tools/native-batch-tools";
+import { compileProgram } from "./program";
 import {
   planSeedSources,
   seedOperatorId,
@@ -32,8 +31,6 @@ import {
   SEED_MAX_SOURCES,
   SEED_MIN_CHARS_PER_SOURCE,
 } from "./seed-sources";
-
-const validateBatch = new Ajv({ strict: false }).compile(nativeBatchSchema("v2"));
 
 test("seed ids are stable identifiers derived from the file stem and never collide", () => {
   const taken = new Set<string>();
@@ -48,7 +45,7 @@ test("seed ids are stable identifiers derived from the file stem and never colli
   expect(seedOperatorId("***", taken)).toBe("source");
 });
 
-test("the seed batch is a valid V2 dataflow call: tabular files auto-detect, text files read as raw lines, binaries are skipped", () => {
+test("the seed program is a valid dataflow: tabular files auto-detect, text files read as raw lines, binaries are skipped", async () => {
   const plan = planSeedSources(
     [
       "data/a/cities.csv",
@@ -63,8 +60,15 @@ test("the seed batch is a valid V2 dataflow call: tabular files auto-detect, tex
   expect(plan.operators.map(o => o.id)).toEqual(["cities", "climate", "notes", "orbit"]);
   expect(plan.operators.map(o => o.format)).toEqual([undefined, undefined, "lines", "lines"]);
   expect(plan.observe).toEqual(["cities", "climate", "notes", "orbit"]);
-  expect(plan.skipped).toEqual([{ path: "data/a/regions.gpkg", reason: "binary format needs a UDF loader" }]);
-  expect(validateBatch({ operators: plan.operators, observe: plan.observe })).toBe(true);
+  expect(plan.skipped).toEqual([{ path: "data/a/regions.gpkg", reason: "binary format needs a process loader" }]);
+  expect(plan.program.split("\n")).toEqual([
+    'cities = scan("data/a/cities.csv")',
+    'climate = scan("data/a/climate.xlsx")',
+    'notes = scan("data/a/notes.txt", format="lines")',
+    'orbit = scan("data/a/orbit.tle", format="lines")',
+  ]);
+  const compiled = await compileProgram(plan.program);
+  expect(compiled.ok && compiled.statements.every(s => s.view)).toBe(true);
   // Four sources share the budget without shrinking below one result's limit.
   expect(plan.perSourceChars).toBe(2000);
 });
@@ -128,13 +132,7 @@ function seededAgent(settings: Record<string, unknown>, onPrepare?: (messages: u
       },
     },
   });
-  agent.updateSettings({
-    agentMode: AgentMode.NATIVE,
-    nativeToolMode: "batch",
-    nativeCatalogVersion: "v2",
-    contextMode: ContextMode.DELTA,
-    ...settings,
-  } as any);
+  agent.updateSettings({ agentMode: AgentMode.NATIVE, contextMode: ContextMode.DELTA, ...settings } as any);
   return { agent, restore: () => initialized.mockRestore(), dispatched: () => dispatched };
 }
 
@@ -162,10 +160,8 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
     expect(seed!.toolCalls).toHaveLength(1);
     expect(seed!.toolCalls![0]!.toolName).toBe("dataflow");
     expect(seed!.toolCalls![0]!.input).toEqual({
-      operators: [
-        { op: "scan", id: "roman_cities", files: "data/archeology/input/roman_cities.csv" },
-        { op: "scan", id: "notes", files: "data/archeology/input/notes.txt", format: "lines" },
-      ],
+      program:
+        'roman_cities = scan("data/archeology/input/roman_cities.csv")\nnotes = scan("data/archeology/input/notes.txt", format="lines")',
       observe: ["roman_cities", "notes"],
     });
     const batch = seed!.toolResults![0]!.output as {
@@ -221,8 +217,8 @@ test("seeding is inert unless the arm opts in and the message names sources", as
   }
 });
 
-test("seeding requires the native batch V2 catalog and records nothing elsewhere", async () => {
-  const { agent, restore } = seededAgent({ seedSources: true, nativeCatalogVersion: "v1" });
+test("seeding requires native mode and records nothing in code mode", async () => {
+  const { agent, restore } = seededAgent({ seedSources: true, agentMode: AgentMode.CODE });
   try {
     await agent.initialize();
     await agent.sendMessage("Question.", "chat", { sources: ["data/a/x.csv"] });

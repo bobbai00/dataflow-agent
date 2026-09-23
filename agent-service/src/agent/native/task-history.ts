@@ -15,14 +15,15 @@
  * under the License.
  */
 
-import { createHash } from "node:crypto";
 import { isSuccessfulOperatorResult, type OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { WorkflowUtilService } from "../util/workflow-utils";
 import type { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { historyReferenceSource, taskInputId, type TaskInput } from "./task-reference";
 
-export type TaskInput = string | { operator: string; atTask: number };
+export { TASK_SOURCE_PREFIX, taskInputId, type TaskInput } from "./task-reference";
+
 export interface RetainedResult {
   path: string;
   sha256: string;
@@ -33,29 +34,6 @@ export interface TaskOutput {
   info: OperatorInfo;
   artifact: RetainedResult;
 }
-export const TASK_SOURCE_PREFIX = "task_archive_";
-export function taskInputId(reference: Exclude<TaskInput, string>): string {
-  return (
-    TASK_SOURCE_PREFIX +
-    createHash("sha256")
-      .update(JSON.stringify({ operator: reference.operator, atTask: reference.atTask }))
-      .digest("hex")
-      .slice(0, 20)
-  );
-}
-export const taskInputSchema = {
-  anyOf: [
-    { type: "string" },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["operator", "atTask"],
-      properties: { operator: { type: "string", minLength: 1 }, atTask: { type: "integer", minimum: 1 } },
-    },
-  ],
-  description:
-    "Current operator id, or {operator, atTask} for its exact saved output at the end of a completed session task. Task numbers are listed in session context.",
-};
 /** Session-owned bindings. Only the runtime creates them; model references
  * select existing data. Retention is independent of evictable engine caches. */
 export class TaskHistory {
@@ -198,49 +176,12 @@ export class TaskHistory {
         type: "TaskResult",
         properties: reference,
         inputs: [],
-        version: "v2",
+        // Renders as the expression that reads it, never as the internal id.
+        source: historyReferenceSource(reference),
         revision: output.artifact.sha256.slice(0, 16),
         profileCollection: profiles,
       },
     });
     return id;
   }
-}
-
-/** Resolve only operator-input slots; column lists and callback text are data. */
-export function resolveTaskInputs(
-  params: Record<string, unknown>,
-  arity: number | "many",
-  history: TaskHistory,
-  state: WorkflowState,
-  metadata: WorkflowSystemMetadata,
-  profiles = false
-): { params: Record<string, unknown>; references: TaskInput[] } {
-  const references: TaskInput[] = [];
-  const resolve = (value: unknown): unknown => {
-    if (typeof value === "string") {
-      if (value.startsWith(TASK_SOURCE_PREFIX))
-        throw new Error("Internal historical sources must be referenced with {operator, atTask}");
-      references.push(value);
-      return value;
-    }
-    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-    const ref = value as Exclude<TaskInput, string>;
-    if (
-      Object.keys(ref).sort().join() !== "atTask,operator" ||
-      typeof ref.operator !== "string" ||
-      !Number.isSafeInteger(ref.atTask) ||
-      ref.atTask < 1
-    )
-      throw new Error("Historical input requires {operator: string, atTask: positive integer}.");
-    references.push(ref);
-    return history.source(ref, state, metadata, profiles);
-  };
-  const next = { ...params };
-  if (arity === 1) next.input = resolve(next.input);
-  else if (arity === 2) {
-    next.left = resolve(next.left);
-    next.right = resolve(next.right);
-  } else if (arity === "many" && Array.isArray(next.inputs)) next.inputs = next.inputs.map(resolve);
-  return { params: next, references };
 }

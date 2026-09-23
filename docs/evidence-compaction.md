@@ -113,7 +113,8 @@ coverage, unknown distinct counts, no budget refill, no expansion, stale or
 undisplayed overlap, clipped reference targets, matching versions, legacy
 stored observations, DELTA prefix stability, LATEST refresh, and cached observe.
 
-The live `benchmark/e2e/native-compaction-run.ts` suite uses the real service and
+The live `benchmark/e2e/native-program-run.ts` smoke (2026-09-22; the earlier
+`native-compaction-run.ts` drove the retired JSON batch tool) uses the real service and
 engine with forward-referenced dependent operators, two observed outputs, and
 a second cached observe. It checks all four evidence configurations in both
 DELTA and LATEST, inspects actual assembled service context, and verifies frozen

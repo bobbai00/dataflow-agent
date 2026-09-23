@@ -26,10 +26,14 @@ A fork of [Apache Texera](https://texera.apache.org/) extended with a
 building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
-1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop over
-   workflow-CRUD/execution tools, with a heavily instrumented
-   context-assembly layer (DELTA/LATEST modes, sampling budgets, column
-   stats, turn indexing — every knob is a runtime setting).
+1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
+   two modes — **native** (default: the model writes the dataflow as a program
+   of `name = operator(...)` expressions over one operator catalog, with
+   `filter`/`map`/`process` carrying Python; see
+   [docs/native-expression-mode.md](docs/native-expression-mode.md)) and
+   **code** (every operator a free Python function) — plus a heavily
+   instrumented context-assembly layer (DELTA/LATEST modes, sampling budgets,
+   evidence, turn indexing — every knob is a runtime setting).
 2. **Engine extensions in `amber/`** — result/column-stats telemetry, UDF
    error reporting that points at user code, operator port-result caching,
    dynamic output schemas: the engine-side features the agent's context
@@ -94,8 +98,10 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   (logical → physical plan) → CU-managing (allocate) → Amber engine
   (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
 - **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
-  sbt build. Tools live in `src/agent/tools/` (operator CRUD, code authoring,
-  execution, inspection/recall); context assembly in `src/agent/context/` and
+  sbt build. Tools live in `src/agent/tools/` (`dataflow` program tool and
+  upsert for native mode, code authoring for code mode, execution,
+  inspection/recall); the native catalog, program parser and Python runtime
+  in `src/agent/native/`; context assembly in `src/agent/context/` and
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
   agent-service** — it is a process boundary.
@@ -124,7 +130,7 @@ REST surface on `:3001` under `/api/agents` — full curl walkthrough in
 | Step | Call |
 |---|---|
 | auth | `POST :8080/api/auth/login` → JWT (the agent acts on the user's behalf) |
-| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (every context knob) |
+| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (`agentMode`, `dataEvidence`, `flowEvidence`, budgets, every context knob) |
 | run a turn | `POST /api/agents/:id/message` `{content}` — **synchronous**; returns `{answer, state, steps, headId}`; 409 while a turn runs |
 | inspect | `GET /:id/react-steps` (trace) · `/:id/workflow` (DAG) · `/:id/operator-results` · `/:id/snapshots/:stepId` |
 | tune live | `GET`/`PATCH /:id/settings` |
@@ -136,26 +142,33 @@ results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
+Tools per mode: native exposes `dataflow`, `deleteOperator` and
+`inspectError`; code exposes `createOrModifyOperator` and `deleteOperator`.
+`recallState`, `resumeFrom` and `compactContext` are opt-in in either mode.
+
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs. This branch removes legacy level/statistics
-overlays. **`contextMode: delta`**, **`dataEvidence: false`** and
-**`flowEvidence: false`** are the defaults. The two booleans independently
-control selected evidence in explicitly observed V2 results. Also on:
-`agentMode: general`, `parallelToolCalls: true`, `maxSteps: 100`,
+created with no `settings` runs: **`agentMode: native`** (the expression
+program; `code` is the other mode), **`contextMode: delta`**,
+**`nativeProfileCollection: true`**, **`dataEvidence: false`** and
+**`flowEvidence: false`**. The two booleans independently control selected
+evidence in explicitly observed results; collection is compiled into each
+operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
+(K=10). Native mode forces provider parallel tool calls off (the program is
+the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
 "index"` all off), and every pull tool (recall / inspect / resume / compact) is
 off. See [README.md §2](README.md) for the full table.
 
-Use `nativeCatalogVersion: "v2"` with native batch mode for this evidence
-contract. `nativeProfileCollection` controls physical collection, not exposure.
-Schema, samples and selected evidence share one result budget; a complete
-small table suppresses redundant data facts. `inspectResult` is never exposed.
-Old level/statistics settings produce an error, not a compatibility mapping.
-See [docs/evidence-only-context.md](docs/evidence-only-context.md). Historical
-benchmark arms must run their recorded revisions; do not reinterpret old labels.
+Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
+`allowedOperatorTypes`, and the old level/statistics overlays) produce an
+error, not a compatibility mapping. Schema, samples and selected evidence share
+one result budget; a complete small table suppresses redundant data facts.
+`inspectResult` is never exposed. See
+[docs/native-expression-mode.md](docs/native-expression-mode.md) and
+[docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark
+arms must run their recorded revisions; do not reinterpret old labels.
 
 Benchmark arms override these per experiment (`Kramabench/systems/dataflow_system.py`,
 `benchmark/longds/arms.py`), so an arm's configuration and the service default

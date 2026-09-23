@@ -65,8 +65,6 @@ collection policy, layout, and budget, changing only these two booleans:
 ```json
 {
   "agentMode": "native",
-  "nativeToolMode": "batch",
-  "nativeCatalogVersion": "v2",
   "nativeProfileCollection": true,
   "parallelToolCalls": false,
   "contextMode": "delta",
@@ -1041,9 +1039,10 @@ passed.** The four result bodies, the complete-table example, and the tight-budg
 example were also checked against the Markdown text after formatting. Generated
 Python stubs are local build artifacts, not part of this documentation commit.
 
-The live `native-evidence-run.ts` and `native-diagnostics-run.ts` suites cover
-both layouts, the four evidence arms, dependent batching, cached observation,
-error repair, and hidden-result behavior against a running Texera backend.
+The live `benchmark/e2e/native-program-run.ts` smoke (2026-09-22; it replaced
+the `native-evidence-run.ts` / `native-diagnostics-run.ts` drivers of the
+retired JSON batch tool) covers dependent batching, cached observation, error
+repair and hidden-result behavior against a running Texera backend.
 They are distinct from local unit tests and from paid real-model evaluation;
 this documentation change does not initiate a new benchmark run.
 

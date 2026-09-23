@@ -91,6 +91,8 @@ export interface SeedScanSpec {
 
 export interface SeedPlan {
   operators: SeedScanSpec[];
+  /** The seed as a native program: one `id = scan("path")` per source. */
+  program: string;
   observe: string[];
   skipped: Array<{ path: string; reason: string }>;
   /** Observation budget per seeded source, in characters. */
@@ -135,6 +137,7 @@ export function planSeedSources(sources: readonly string[], maxResultChars: numb
   if (paths.length > SEED_MAX_SOURCES) {
     return {
       operators: [],
+      program: "",
       observe: [],
       skipped: paths.map(path => ({ path, reason: `more than ${SEED_MAX_SOURCES} sources listed` })),
       perSourceChars: maxResultChars,
@@ -145,7 +148,7 @@ export function planSeedSources(sources: readonly string[], maxResultChars: numb
   for (const path of paths) {
     const ext = extname(path.replace(/[*?[\]{}]+/g, "")).toLowerCase();
     if (BINARY_EXTENSIONS.has(ext)) {
-      skipped.push({ path, reason: "binary format needs a UDF loader" });
+      skipped.push({ path, reason: "binary format needs a process loader" });
       continue;
     }
     const spec: SeedScanSpec = { op: "scan", id: seedOperatorId(path, taken), files: path };
@@ -154,8 +157,14 @@ export function planSeedSources(sources: readonly string[], maxResultChars: numb
   }
   return {
     operators,
+    program: operators.map(seedStatement).join("\n"),
     observe: operators.map(o => o.id),
     skipped,
     perSourceChars: seedPerSourceChars(operators.length, maxResultChars),
   };
+}
+
+/** `id = scan("path")`, exactly as the model would write it. */
+export function seedStatement(spec: SeedScanSpec): string {
+  return `${spec.id} = scan(${JSON.stringify(spec.files)}${spec.format ? `, format=${JSON.stringify(spec.format)}` : ""})`;
 }

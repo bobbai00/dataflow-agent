@@ -229,7 +229,7 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
     resources.agentId = agentInfo.id;
     agentName = agentInfo.name;
     const reportedMode = agentInfo.settings?.agentMode;
-    agentMode = reportedMode === "code" ? AgentMode.CODE : reportedMode === "general" ? AgentMode.GENERAL : "unknown";
+    agentMode = reportedMode === "code" ? AgentMode.CODE : reportedMode === "native" ? AgentMode.NATIVE : "unknown";
 
     prompt = adapter.buildPrompt(task, { datasetPathPrefix });
     log(`task ${task.id}: running agent turn (timeout=${TURN_TIMEOUT_MS}ms)`);

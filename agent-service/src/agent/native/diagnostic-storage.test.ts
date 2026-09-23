@@ -32,8 +32,7 @@ function workflow(revision = "r1", text = "ORIGINAL_SOURCE"): WorkflowContent {
     operatorVersion: "1",
     operatorProperties: { code: "GENERATED_RUNTIME_NOT_FOR_THE_MODEL" },
     nativeOp: {
-      version: "v2",
-      type: "UDF",
+      type: "Process",
       revision: id === "answer" ? revision : "input-r1",
       inputs,
       properties: { code: `def process(source):\n    note = '${text}'\n    raise ValueError('failure')` },

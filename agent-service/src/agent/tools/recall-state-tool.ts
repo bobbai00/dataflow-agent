@@ -266,7 +266,7 @@ function createOperatorRecallTool(deps: RecallStateDeps) {
           return out.join("\n").trimEnd();
         }
 
-        if (includeCode && op.nativeOp && op.nativeOp.type !== "UDF") {
+        if (includeCode && op.nativeOp && op.nativeOp.type !== "Process") {
           // Typed operator: the agent wrote parameters, never the generated code.
           out.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
         } else if (includeCode) {

@@ -149,30 +149,27 @@ describe(`POST ${API}/agents`, () => {
     expect(settings.messageLayout).toBe("native");
   });
 
-  test("native batch settings survive create and force provider parallel calls off", async () => {
-    const created = await createAgent({
-      settings: { agentMode: "native", nativeToolMode: "batch", parallelToolCalls: true },
-    });
+  test("native mode survives create and forces provider parallel calls off; code mode keeps them", async () => {
+    const created = await createAgent({ settings: { agentMode: "native", parallelToolCalls: true } });
     expect(created.status).toBe(200);
-    const body = await readJson<{ id: string; settings: { nativeToolMode: string; parallelToolCalls: boolean } }>(
-      created
-    );
-    expect(body.settings.nativeToolMode).toBe("batch");
+    const body = await readJson<{ id: string; settings: { agentMode: string; parallelToolCalls: boolean } }>(created);
+    expect(body.settings.agentMode).toBe("native");
     expect(body.settings.parallelToolCalls).toBe(false);
     const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
-      agentMode: "native",
-      nativeToolMode: "typed",
+      agentMode: "code",
       parallelToolCalls: true,
       resultSelection: "all",
     });
     expect(patched.status).toBe(200);
-    const settings = await readJson<{ nativeToolMode: string; parallelToolCalls: boolean }>(patched);
-    expect(settings.nativeToolMode).toBe("typed");
+    const settings = await readJson<{ agentMode: string; parallelToolCalls: boolean }>(patched);
+    expect(settings.agentMode).toBe("code");
     expect(settings.parallelToolCalls).toBe(true);
   });
 
-  test("rejects unknown native tool modes", async () => {
-    expect((await createAgent({ settings: { agentMode: "native", nativeToolMode: "unknown" } })).status).toBe(400);
+  test("rejects retired native settings and unknown modes", async () => {
+    expect((await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch" } })).status).toBe(400);
+    expect((await createAgent({ settings: { agentMode: "native", nativeCatalogVersion: "v2" } })).status).toBe(400);
+    expect((await createAgent({ settings: { agentMode: "general" } })).status).toBe(400);
   });
 
   test("creates an agent for the delegating user", async () => {
@@ -365,7 +362,7 @@ describe("Agent control routes", () => {
 
 describe(`PATCH ${API}/agents/:id/settings`, () => {
   test("catalog settings survive create/read/patch and retired experiments are rejected atomically", async () => {
-    const native = { agentMode: "native", nativeToolMode: "batch", nativeCatalogVersion: "v2" };
+    const native = { agentMode: "native" };
     const created = await createAgent({ settings: { ...native, nativeTaskHistory: true, nativeTaskContext: false } });
     expect(created.status).toBe(200);
     const body = await readJson<any>(created);
@@ -446,8 +443,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       await createAgent({
         settings: {
           agentMode: "native",
-          nativeToolMode: "batch",
-          nativeCatalogVersion: "v2",
           nativeProfileCollection: true,
           dataEvidence: true,
           flowEvidence: false,

@@ -62,7 +62,12 @@ function fixture(): ContextAssemblerInput {
     inputPorts: [],
     outputPorts: [],
     showAdvanced: false,
-    nativeOp: { type: "Scan", version: "v2", properties: { files: "data/source.csv" }, inputs: [] },
+    nativeOp: {
+      type: "Scan",
+      properties: { files: "data/source.csv" },
+      inputs: [],
+      source: 'source = scan("data/source.csv")',
+    },
   });
   return {
     visibleSteps: steps,
@@ -176,20 +181,24 @@ test("a catalog line states creation and edits once, and does not change while t
   expect(JSON.stringify(taskCatalogMemory(input, gapped))).toContain("created@1 not saved@2; last saved@3");
 });
 
-test("compact cards name historical inputs publicly and preserve the UDF arity", () => {
-  const op = {
+test("a catalog line is the statement as written, and never names a saved table by its internal id", () => {
+  // What the program tool produces: the statement text, internal ids in `inputs`.
+  const written = {
     operatorID: "mixed",
     nativeOp: {
-      type: "UDF",
-      properties: { code: "def process(current, original):\n    return current" },
+      type: "Process",
+      properties: {},
       inputs: ["today", "task_archive_hidden"],
       taskInputs: ["today", { operator: "old", atTask: 4 }],
+      source: "mixed = process(today, at(old, task=4), fn=compare)",
+      functions: { compare: "def compare(current, original):\n    return current" },
     },
   } as any;
-  const signature = operatorSignature(op);
-  expect(signature).toContain("udf(def process(current, original))");
-  expect(signature).toContain("today, old@task4");
-  expect(signature).not.toContain("task_archive_hidden");
+  expect(operatorSignature(written)).toBe("mixed = process(today, at(old, task=4), fn=compare)");
+  // A view with no statement text still names the saved input publicly.
+  const bare = { ...written, nativeOp: { ...written.nativeOp, source: undefined } };
+  expect(operatorSignature(bare)).toBe("mixed = Process(today, at(old, task=4))");
+  for (const view of [written, bare]) expect(operatorSignature(view)).not.toContain("task_archive");
 });
 
 test("a disabled catalog and initialization delegate the original input unchanged", async () => {

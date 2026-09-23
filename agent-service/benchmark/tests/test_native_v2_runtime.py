@@ -47,83 +47,64 @@ def run(kind, frame, **properties):
     return runtime.execute_native(spec(kind, **properties), [frame])
 
 
-def test_derive_preserves_duplicate_index_order_and_only_declared_output():
+def test_map_preserves_duplicate_index_order_and_measures_read_columns():
     source = pd.DataFrame({"x": [2, 4, 1], "keep": ["a", "b", "c"]}, index=[8, 8, -2])
     result = run(
-        "Derive",
+        "Map",
         source,
-        columns=[
-            {
-                "as": "doubled",
-                "inputs": ["x"],
-                "dtype": "int64",
-                "func": "def apply(row):\n    return row['x'] * 2",
-            }
-        ],
+        columns=[{"as": "doubled", "dtype": "int64", "func": "def apply(row):\n    return row['x'] * 2"}],
     )
     assert result["doubled"].tolist() == [4, 8, 2]
     assert result["keep"].tolist() == ["a", "b", "c"]
     assert list(result.columns) == ["x", "keep", "doubled"]
     assert source.columns.tolist() == ["x", "keep"]
+    assert result.attrs["native_v2"]["operations"]["columnDependencies"] == {"doubled": ["x"]}
 
 
 def test_callbacks_receive_none_and_preserve_literal_words():
     result = run(
-        "Transform",
+        "Map",
         pd.DataFrame({"x": [None, np.nan, pd.NA, "false null true"]}),
         columns=[
             {
-                "column": "x",
+                "as": "x",
                 "dtype": "str",
-                "func": "def apply(value):\n    return 'null' if value is None else value",
+                "func": "def apply(row):\n    return 'null' if row['x'] is None else row['x']",
             }
         ],
     )
     assert result["x"].tolist() == ["null", "null", "null", "false null true"]
+    assert list(result.columns) == ["x"]
 
 
-def test_empty_derive_has_typed_output_without_invoking_callback():
+def test_empty_map_has_typed_output_without_invoking_callback():
     result = run(
-        "Derive",
+        "Map",
         pd.DataFrame({"x": pd.Series(dtype="int64")}),
-        columns=[
-            {
-                "as": "v",
-                "inputs": ["x"],
-                "dtype": "float64",
-                "func": "def apply(row):\n    raise RuntimeError('must not run')",
-            }
-        ],
+        columns=[{"as": "v", "dtype": "float64", "func": "def apply(row):\n    raise RuntimeError('must not run')"}],
     )
     assert result.empty and str(result["v"].dtype) == "Float64"
 
 
 @pytest.mark.parametrize("returned", ["[1, 2]", "{'a': 1}", "'2'", "2.5", "True"])
-def test_derive_rejects_non_integer_output(returned):
+def test_map_rejects_non_integer_output(returned):
     with pytest.raises(runtime.NativeError) as failure:
         run(
-            "Derive",
+            "Map",
             pd.DataFrame({"x": [1]}),
-            columns=[
-                {
-                    "as": "v",
-                    "inputs": ["x"],
-                    "dtype": "int64",
-                    "func": f"def apply(row):\n    return {returned}",
-                }
-            ],
+            columns=[{"as": "v", "dtype": "int64", "func": f"def apply(row):\n    return {returned}"}],
         )
     assert failure.value.diagnostic["code"] == "CALLBACK_RETURN_TYPE"
 
 
-def test_multiple_derived_columns_read_original_input_not_each_other():
+def test_multiple_mapped_columns_read_original_input_not_each_other():
     with pytest.raises(runtime.NativeError, match="MISSING_COLUMN"):
         run(
-            "Derive",
+            "Map",
             pd.DataFrame({"x": [1]}),
             columns=[
-                {"as": "y", "inputs": ["x"], "dtype": "int64", "func": "def apply(row):\n    return row['x']"},
-                {"as": "z", "inputs": ["y"], "dtype": "int64", "func": "def apply(row):\n    return row['y']"},
+                {"as": "y", "dtype": "int64", "func": "def apply(row):\n    return row['x']"},
+                {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return row['y']"},
             ],
         )
 
@@ -176,16 +157,19 @@ def test_error_is_structured_and_source_mapped_to_submitted_callback():
     assert json.loads(encoded) == diagnostic
 
 
-def test_undeclared_column_is_actionable_and_row_mapping_cannot_be_mutated():
+def test_missing_column_is_actionable_and_row_mapping_cannot_be_mutated():
     for function, code in [
-        ("def apply(row):\n    return row['hidden'] > 0", "UNDECLARED_COLUMN"),
+        ("def apply(row):\n    return row['absent'] > 0", "MISSING_COLUMN"),
         ("def apply(row):\n    row['x'] = 10\n    return True", "CALLBACK_RUNTIME"),
     ]:
-        source = pd.DataFrame({"x": [1], "hidden": [3]})
+        source = pd.DataFrame({"x": [1], "other": [3]})
         with pytest.raises(runtime.NativeError) as failure:
-            run("Filter", source, columns=["x"], func=function)
+            run("Filter", source, func=function)
         assert failure.value.diagnostic["code"] == code
         assert source["x"].tolist() == [1]
+    kept = run("Filter", pd.DataFrame({"x": [1, 5], "other": [3, 4]}), func="def apply(row):\n    return row['x'] > 2")
+    assert kept["x"].tolist() == [5]
+    assert kept.attrs["native_v2"]["operations"]["predicateColumns"] == ["x"]
 
 
 @pytest.mark.parametrize("policy,expected", [("drop", [3]), ("keep", [None, 3])])
@@ -254,53 +238,57 @@ def test_fill_null_only_changes_missing_cells_and_checks_type():
         run("FillNull", source, values={"x": "oops"})
 
 
-def test_column_collisions_and_missing_inputs_fail_before_callbacks():
+def test_map_replaces_in_place_and_collisions_fail_before_callbacks():
     source = pd.DataFrame({"x": [1], "y": [2]})
+    replaced = run("Map", source, columns=[{"as": "x", "dtype": "int64", "func": "def apply(row):\n    return 7"}])
+    assert list(replaced.columns) == ["x", "y"] and replaced["x"].tolist() == [7]
     with pytest.raises(runtime.NativeError, match="COLUMN_COLLISION"):
-        run(
-            "Derive",
-            source,
-            columns=[{"as": "x", "inputs": [], "dtype": "int64", "func": "def apply(row):\n    return 1"}],
+        runtime.validate_native(
+            spec(
+                "Map",
+                columns=[
+                    {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return 1"},
+                    {"as": "z", "dtype": "int64", "func": "def apply(row):\n    return 2"},
+                ],
+            )
         )
     with pytest.raises(runtime.NativeError, match="MISSING_COLUMN"):
         run(
-            "Transform",
-            source,
-            columns=[{"column": "missing", "dtype": "int64", "func": "def apply(value):\n    return 1"}],
+            "Map", source, columns=[{"as": "z", "dtype": "int64", "func": "def apply(row):\n    return row['missing']"}]
         )
     with pytest.raises(runtime.NativeError, match="COLUMN_COLLISION"):
         run("Project", source, rename={"x": "y"})
 
 
-def test_udf_is_unknown_even_when_it_preserves_row_count():
-    udf = spec("UDF", code="def process(source):\n    return source.iloc[::-1].copy()")
+def test_process_is_unknown_even_when_it_preserves_row_count():
+    udf = spec("Process", code="def process(source):\n    return source.iloc[::-1].copy()")
     result = runtime.execute_native(udf, [pd.DataFrame({"x": [1, 2]})])
     assert result["x"].tolist() == [2, 1]
     assert result.attrs["native_v2"]["rowEffect"] == "unknown"
 
 
-def test_udf_wrong_shape_and_signature_have_explicit_diagnostics():
-    with pytest.raises(runtime.NativeError, match="UDF_RETURN_TYPE"):
-        runtime.execute_native(spec("UDF", code="def process(source):\n    return [1, 2]"), [pd.DataFrame({"x": [1]})])
+def test_process_wrong_shape_and_signature_have_explicit_diagnostics():
+    with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
+        runtime.execute_native(
+            spec("Process", code="def process(source):\n    return [1, 2]"), [pd.DataFrame({"x": [1]})]
+        )
     # Inputs bind positionally, so a renamed parameter is correct code.
-    runtime.validate_native(spec("UDF", code="def process(other):\n    return other"))
+    runtime.validate_native(spec("Process", code="def process(other):\n    return other"))
     # Arity, not naming, is what makes a binding impossible.
     with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
-        runtime.validate_native(spec("UDF", code="def process(a, b):\n    return a"))
+        runtime.validate_native(spec("Process", code="def process(a, b):\n    return a"))
     with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
-        runtime.validate_native(spec("UDF", code="def process(*frames):\n    return frames[0]"))
-    # A missing entry (e.g. the filter callback's name used for a UDF) names the
-    # expected def and arity instead of crashing the validator.
-    with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE.*def process with 1 positional") as info:
-        runtime.validate_native(spec("UDF", code="def apply(frame):\n    return frame"))
-    assert "names are yours" in str(info.value)
+        runtime.validate_native(spec("Process", code="def process(*frames):\n    return frames[0]"))
+    # A missing entry point names the expected def instead of crashing the
+    # validator (it once raised UnboundLocalError and the agent repaired blind).
+    with pytest.raises(runtime.NativeError, match="CALLBACK_SIGNATURE"):
+        runtime.validate_native(spec("Process", code="def apply(frame):\n    return frame"))
 
 
-def test_udf_renamed_parameter_receives_the_input_frame_positionally():
+def test_process_renamed_parameter_receives_the_input_frame_positionally():
     frame = pd.DataFrame({"x": [1, 2]})
-    result = runtime.execute_native(spec("UDF", code="def process(anything):\n    return anything"), [frame])
+    result = runtime.execute_native(spec("Process", code="def process(anything):\n    return anything"), [frame])
     assert result["x"].tolist() == [1, 2]
-
 
 
 def test_a_keyerror_in_an_internal_dictionary_is_not_mislabeled_as_column_access():
@@ -309,11 +297,11 @@ def test_a_keyerror_in_an_internal_dictionary_is_not_mislabeled_as_column_access
     assert failure.value.diagnostic["code"] == "CALLBACK_RUNTIME"
 
 
-def test_udf_rejects_nested_values_before_the_engine_transport_fails():
+def test_process_rejects_nested_values_before_the_engine_transport_fails():
     with pytest.raises(runtime.NativeError, match="OUTPUT_VALUE_TYPE"):
         runtime.execute_native(
             spec(
-                "UDF",
+                "Process",
                 code="def process(source):\n    import pandas as pd\n    return pd.DataFrame({'nested': [[1, 2]]})",
             ),
             [pd.DataFrame({"x": [1]})],

@@ -60,9 +60,8 @@ export interface AgentSettingsApi {
   /** Maximum number of steps per message */
   maxSteps?: number;
   /** List of allowed operator types (empty = all operators allowed) */
-  allowedOperatorTypes?: string[];
-  /** Agent operating mode: "code" (Python load/process) or "general" (typed operators) */
-  agentMode?: "code" | "general";
+  /** Agent operating mode: "native" (operator expressions + filter/map/process) or "code" (Python load/process) */
+  agentMode?: "code" | "native";
   /** Snapshot-selection policy for ReAct context (paper §5): "delta"
    *  interleaves snapshots with only changed operators rendered in full,
    *  "latest" emits one trailing snapshot of the current state. The agent
@@ -1338,7 +1337,6 @@ export class AgentService {
             executionTimeoutMinutes: 10,
             disabledTools: [],
             maxSteps: 10,
-            allowedOperatorTypes: [],
           })
         )
       );
@@ -1371,17 +1369,6 @@ export class AgentService {
           return throwError(() => new Error(errorMsg));
         })
       );
-  }
-
-  /**
-   * Get all available operator types for an agent.
-   */
-  public getAvailableOperatorTypes(agentId: string): Observable<Array<{ type: string; description: string }>> {
-    return this.http
-      .get<
-        Array<{ type: string; description: string }>
-      >(`${this.AGENT_API_BASE}/agents/${agentId}/operator-types`, this.agentHeaders(agentId))
-      .pipe(catchError(() => of([])));
   }
 
   // ============================================================================

@@ -91,8 +91,6 @@ export async function nativeTestSession(settings: AgentSettingsApi = {}, modelTy
         modelType,
         settings: {
           agentMode: "native",
-          nativeToolMode: "batch",
-          nativeCatalogVersion: "v2",
           contextMode: "delta",
           resultSelection: "all",
           parallelToolCalls: false,

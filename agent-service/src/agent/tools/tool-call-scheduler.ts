@@ -56,8 +56,6 @@
  *     would in serial mode.
  */
 
-import { NATIVE_TOOL_NAMES, nativeInputsOf } from "./native-typed-tools";
-
 export type DependencyExtractor = (toolName: string, input: any) => string[];
 export type ProducedOpExtractor = (toolName: string, input: any) => string | undefined;
 export type IsDeleteFn = (toolName: string) => boolean;
@@ -93,9 +91,6 @@ export function defaultParseDeps(toolName: string, input: any): string[] {
     return out;
   }
 
-  // NATIVE typed tools (`filter`, `join`, …): deps are the input references.
-  if (NATIVE_TOOL_NAMES.has(toolName)) return nativeInputsOf(toolName, input);
-
   return [];
 }
 
@@ -108,10 +103,6 @@ export function defaultProducedOpId(toolName: string, input: any): string | unde
     toolName === "deleteOperator"
   ) {
     const id = (input as any).operatorId ?? (input as any).id;
-    return typeof id === "string" && id.length > 0 ? id : undefined;
-  }
-  if (NATIVE_TOOL_NAMES.has(toolName)) {
-    const id = (input as any).id;
     return typeof id === "string" && id.length > 0 ? id : undefined;
   }
   return undefined;
@@ -152,10 +143,7 @@ export interface SchedulerOptions {
  * executed; the validation inside each tool's `execute` will produce a
  * meaningful error per call.
  */
-export function computeTopologicalOrder(
-  batch: ScheduledCall[],
-  opts: Required<SchedulerOptions>
-): number[] {
+export function computeTopologicalOrder(batch: ScheduledCall[], opts: Required<SchedulerOptions>): number[] {
   const n = batch.length;
   if (n <= 1) return batch.map((_, i) => i);
 

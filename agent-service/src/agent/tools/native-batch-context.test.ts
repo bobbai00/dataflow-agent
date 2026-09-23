@@ -24,7 +24,8 @@ import { assembleContext, latestNativeActionReceipt } from "../util/context-util
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { createNativeBatchTools, type NativeBatchResult } from "./native-batch-tools";
+import { createNativeTools, type NativeBatchResult } from "./native-batch-tools";
+import { dataflowInput, type LegacySpec } from "../native/test-support";
 
 const source = { op: "scan", id: "source", files: "data/test.csv" };
 const selected = { op: "filter", id: "selected", input: "source", predicate: "x > 0" };
@@ -34,12 +35,13 @@ function fixture() {
   const state = new WorkflowState();
   const metadata = new WorkflowSystemMetadata();
   metadata.seedCodeModeDefaults();
-  const tools = createNativeBatchTools(state, { metadataStore: metadata });
+  const tools = createNativeTools(state, { metadataStore: metadata });
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(id =>
     steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
   );
-  const record = async (id: string, args: Record<string, unknown>): Promise<NativeBatchResult> => {
+  const record = async (id: string, legacy: Record<string, unknown>): Promise<NativeBatchResult> => {
+    const args = dataflowInput(legacy as { operators: LegacySpec[]; observe?: string[] });
     const output = await tools.dataflow.execute(args);
     steps.push({
       id,
@@ -169,7 +171,7 @@ describe("explicit batch observations across context modes", () => {
           } else {
             expect(hidden).not.toContain("total_old_public_marker");
             for (const id of ["source", "selected", "total"]) expect(hidden).toContain(id);
-            expect(hidden).toContain("x > 10");
+            expect(hidden).toContain("> 10");
           }
 
           const hiddenMessages = render();

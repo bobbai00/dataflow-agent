@@ -17,6 +17,11 @@
   under the License.
 -->
 
+> **Superseded on 2026-09-22.** The JSON batch tool, the V1/V2 catalogs and
+> `nativeToolMode` / `nativeCatalogVersion` described here were replaced by the
+> expression program of [native-expression-mode.md](native-expression-mode.md).
+> The observe/receipt and scheduling contract still holds; the call shape is `dataflow({program, observe})`.
+
 # Native batches and requested observations
 
 Create or update an agent with `agentMode: "native"` and

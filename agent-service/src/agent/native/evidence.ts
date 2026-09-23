@@ -19,7 +19,7 @@
 
 import type { OperatorInfo, ResultVersion } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
-import { nativeOperators } from "./catalog";
+import { NATIVE_BY_TYPE } from "./catalog";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
 import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
@@ -110,8 +110,21 @@ function declaredColumns(op: OperatorPredicate): string[] {
   return result;
 }
 
+/** Columns a filter/map function actually read, recorded by the runtime. Known
+ * only once the operator has executed; ranking degrades gracefully before. */
+function measuredColumns(info: OperatorInfo | undefined): string[] {
+  const operations = record(info?.tableProfile?.native?.operations);
+  return [
+    ...names(operations.predicateColumns),
+    ...Object.values(record(operations.columnDependencies)).flatMap(value => names(value)),
+  ];
+}
+
 function relevance(context: NativeEvidenceContext): Set<string> {
-  return downstreamRelevantColumns(context, declaredColumns);
+  return downstreamRelevantColumns(context, op => [
+    ...declaredColumns(op),
+    ...measuredColumns(context.resolveInput(op.operatorID)),
+  ]);
 }
 
 function validProfile(info: OperatorInfo): boolean {
@@ -160,7 +173,10 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   omissions: string[];
 } {
   const result = collectLocalEvidence(context);
-  const queue = (context.op.nativeOp?.type === "UDF" ? [] : boundInputs(context)).map(input => ({ input, depth: 1 }));
+  const queue = (context.op.nativeOp?.type === "Process" ? [] : boundInputs(context)).map(input => ({
+    input,
+    depth: 1,
+  }));
   const seen = new Set([context.op.operatorID]);
   let summaries = 0;
   for (let visited = 0; queue.length && visited < 32 && summaries < 3; visited++) {
@@ -173,14 +189,14 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
     const semantic: Record<string, string> = {
       Aggregate: `Aggregate group keys=${json(p.groupBy ?? [])}`,
       Join: `Join type=${p.type ?? "inner"}, keys=${json(p.on ?? [])}`,
-      Filter: `Filter predicate columns=${json(p.columns ?? [])}`,
+      Filter: `Filter predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
       Distinct: `Distinct keys=${p.columns === undefined ? "whole row" : json(p.columns)}`,
       Limit: `Limit n=${p.n}, offset=${p.offset ?? 0}`,
       Union: "Union concatenates inputs without deduplication",
       Explode: `Explode column=${json(p.column)}`,
       Unpivot: `Unpivot columns=${json(p.columns ?? [])}`,
       Pivot: `Pivot index=${json(p.index ?? [])}, key=${json(p.columns)}`,
-      UDF: "UDF row/column mapping unknown; upstream calculation summary stops here",
+      Process: "Process row/column mapping unknown; upstream calculation summary stops here",
     };
     if (semantic[view.type]) {
       const local = collectLocalEvidence(input);
@@ -191,14 +207,14 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
       result.facts.push({
         id: `flow.upstream.${op.operatorID}.${version.id}`,
         family: "flow",
-        kind: measurements.length ? "measurement" : view.type === "UDF" ? "warning" : "guarantee",
+        kind: measurements.length ? "measurement" : view.type === "Process" ? "warning" : "guarantee",
         text: `Flow upstream ${op.operatorID}: ${semantic[view.type]}.${measurements.length ? " " + measurements.map(f => f.text.replace(/^Flow measurement: /, "")).join(" ") : ""}`,
         priority: 98 - depth / 10,
         upstream: { operatorId: op.operatorID, resultVersion: version.id },
       });
       summaries++;
     }
-    if (view.type === "UDF") continue;
+    if (view.type === "Process") continue;
     if (depth < 8) queue.push(...boundInputs(input).map(next => ({ input: next, depth: depth + 1 })));
     else if (view.inputs.length) result.omissions.push("upstream_depth_bound");
   }
@@ -233,14 +249,14 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     });
   if (
     info.error ||
-    view?.version !== "v2" ||
+    !view ||
     !version?.complete ||
     version.operatorId !== op.operatorID ||
     version.operatorRevision !== view.revision
   ) {
     return { facts, omissions: ["result_binding_unavailable"] };
   }
-  const def = nativeOperators("v2").find(o => o.type === view.type);
+  const def = NATIVE_BY_TYPE.get(view.type);
   if (!def) return { facts, omissions: ["operator_contract_unavailable"] };
   const p = view.properties;
   const relevant = relevance(context);
@@ -307,9 +323,8 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Project: `row identities preserved, same order; selection/rename=${json(p)}`,
     Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
     FillNull: `row identities preserved, same order; only missing cells in ${json(Object.keys(record(p.values)))} may change`,
-    Transform: `row identities preserved, same order; only declared columns ${json(names((Array.isArray(p.columns) ? p.columns : []).map(c => record(c).column)))} change`,
-    Derive: `row identities preserved, same order; declared dependencies=${json((Array.isArray(p.columns) ? p.columns : []).map(c => ({ output: record(c).as, inputs: record(c).inputs })))}`,
-    Filter: `stable subset of input rows; predicate columns=${json(p.columns ?? [])}; nulls=${p.nulls ?? "drop"}`,
+    Map: `row identities preserved, same order; outputs=${json(names((Array.isArray(p.columns) ? p.columns : []).map(c => record(c).as)))}; dependencies measured from the columns each function read`,
+    Filter: `stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}; nulls=${p.nulls ?? "drop"}`,
     Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
     Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
     Union: "concatenation preserves all rows and input-port order; no deduplication",
@@ -321,7 +336,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Explode: `JSON-array elements in parent/element order, other columns repeated; empty=${p.empty ?? "drop"}; parent identity is internal, not a user column`,
     Unpivot: `one output per input row then selected column, including null cells; value dependencies=${json(p.columns ?? [])}`,
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
-    UDF: "row/column mapping unknown; equal row counts do not prove preservation",
+    Process: "row/column mapping unknown; equal row counts do not prove preservation",
   };
   if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
 
@@ -364,7 +379,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   if (view.type === "Filter") {
     const input = inputs[0]!;
     if (validProfile(input))
-      for (const name of names(p.columns)) {
+      for (const name of names(operations.predicateColumns)) {
         if (context.columns?.length && !context.columns.includes(name)) continue;
         const before = own(input.tableProfile!.columns, name) ? input.tableProfile!.columns[name] : undefined;
         const after = own(profile!.columns, name) ? profile!.columns[name] : undefined;
@@ -661,16 +676,16 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           );
       }
     } else omissions.push("scan_coverage_unavailable");
-  } else if (view.type === "UDF") {
+  } else if (view.type === "Process") {
     add(
-      "flow.udf.counts",
+      "flow.process.counts",
       "flow",
       "measurement",
-      `UDF input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
+      `Process input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
       75
     );
   }
-  if (["Cast", "Transform", "Derive", "FillNull"].includes(view.type) && ns[0] === out) {
+  if (["Cast", "Map", "FillNull"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")
       for (const [name, failures] of Object.entries(record(operations.conversionFailures))) {
         if (count(failures) && failures <= ns[0] && (p.errors === "null" || failures === 0))

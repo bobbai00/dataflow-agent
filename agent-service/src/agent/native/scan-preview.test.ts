@@ -204,20 +204,20 @@ describe("Scan preview executes an offset window", () => {
 
   test("binary pointer preview rejects an inapplicable offset instead of ignoring it", () => {
     const files = fixture("data.npz", "pointer-only fixture");
-    expect(preview({ files, preview: 2, skipLines: 1 }).error).toMatch(/skipLines.*binary.*preview/i);
+    expect(preview({ files, preview: 2, skipLines: 1 }).error).toMatch(/binary pointer previews cannot use skipLines/i);
     const initial = preview({ files, preview: 2 });
     expect(initial.error).toBeUndefined();
     expect(initial.rows?.[0]?.file).toBe("data.npz");
-    expect(initial.rows?.[0]?.note).toContain("udf loader");
+    expect(initial.rows?.[0]?.note).toContain("process loader");
   });
 
-  test("legacy full lines loading keeps its existing relative numbering", () => {
+  test("full lines loading keeps absolute physical line numbers after skipLines", () => {
     const files = fixture("data.txt", "header\na\nb\n");
     expect(preview({ files, format: "lines", skipLines: 1 })).toEqual({
       columns: ["line_no", "line"],
       rows: [
-        { line_no: 0, line: "a" },
-        { line_no: 1, line: "b" },
+        { line_no: 1, line: "a" },
+        { line_no: 2, line: "b" },
       ],
     });
   });

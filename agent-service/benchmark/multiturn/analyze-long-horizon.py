@@ -99,6 +99,9 @@ def load_current():
                 for step in trace:
                     row["code_characters"] += len(step.get("code_action") or "")
                     for call in step.get("toolCalls", []):
+                        # Program-mode calls carry the whole program; older
+                        # JSON-batch traces carry code per operator.
+                        row["code_characters"] += len(str(call.get("input", {}).get("program") or ""))
                         for op in call.get("input", {}).get("operators", []):
                             row["code_characters"] += len(str(op.get("code", "")))
                 first = next((s for s in trace if s.get("role") == "agent"
