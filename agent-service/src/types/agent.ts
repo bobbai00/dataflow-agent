@@ -90,6 +90,10 @@ export interface ReActStep {
    *  step-record time (see `computeOperatorAccess`). Absent on steps with
    *  no tool calls. */
   operatorAccess?: Record<number, ToolOperatorAccess>;
+  /** Set on steps the service performed itself, with no model request behind
+   *  them. `"seed"`: the seeded source roots recorded before the first model
+   *  call of a turn (see `seedSources`). Usage is zero by construction. */
+  synthetic?: "seed";
 }
 
 export enum OperatorResultSerializationMode {
@@ -97,15 +101,17 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Agent operating mode. CODE uses the unified `createOrModifyOperator` tool
- * (Python `def load()` / `def process(...)`); GENERAL uses typed
- * `addOperator`/`modifyOperator` tools and embeds operator schemas in the prompt.
+ * Agent operating mode.
+ *  - NATIVE (default): the model writes a program of `name = operator(...)`
+ *    expressions over the fixed operator catalog (`native/catalog.ts`), with
+ *    three custom operators that carry Python (filter, map, process). The
+ *    service compiles every operator to Python for the engine.
+ *  - CODE: the previous script-based approach — every operator is one free
+ *    Python `def load()` / `def process(...)` function written through
+ *    `createOrModifyOperator`.
  */
 export enum AgentMode {
   CODE = "code",
-  GENERAL = "general",
-  /** Fixed-grain typed operators (Scan/Filter/Project/Compute/Aggregate/Join/
-   *  Union/Distinct/Sort/Limit + UDF) compiled to Python by the service. */
   NATIVE = "native",
 }
 
@@ -160,13 +166,10 @@ export interface AgentSettings {
    * the L1 (semantic thrashing) × L2 (super-linear context) cost blow-up.
    */
   maxOperatorEdits: number;
-  allowedOperatorTypes: string[];
   agentMode: AgentMode;
-  /** Native operator interface. Batch also forces provider parallel calls off. */
-  nativeToolMode?: "typed" | "batch";
-  /** Explicit Python catalog opt-in. Requires native + batch; V1 remains default. */
-  nativeCatalogVersion?: "v1" | "v2";
-  /** Collect ordinary V2 profiles, independently of model-facing exposure. */
+  /** Collect table profiles and operator counters in the engine, independently
+   *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
+   *  each operator, so it cannot change on an existing workflow. */
   nativeProfileCollection?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
@@ -419,6 +422,15 @@ export interface AgentSettings {
    * addressable tables — unverifiable in a plain transcript. Off by default.
    */
   enableAnswerGrounding: boolean;
+  /**
+   * SEEDED SOURCE ROOTS — when a message arrives with `sources`, scan every
+   * listed file and observe it BEFORE the first model call, recorded as an
+   * ordinary `dataflow` step with zero usage. A dataflow's roots are the one
+   * part of the graph the model cannot decide differently, so materializing
+   * them up front removes the scan-only opening step(s) every layout renders
+   * anyway. Off by default — control arms keep a byte-identical protocol.
+   */
+  seedSources: boolean;
   /** Context layout and result sampling are independent of data/flow evidence. */
   /** Context layout and result sampling are independent of data/flow evidence. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
@@ -497,43 +509,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   executionTimeoutMs: 240000,
   maxSteps: 100,
   maxOperatorEdits: 0,
-  // Three families, one job each (the general-mode prompt says the same thing):
-  //   relational — load, shape and summarize tabular data;
-  //   visualization — render a chart from a relational table;
-  //   DataProcessing — custom Python for anything the typed operators cannot
-  //     express, ML training/inference included.
-  // No sklearn / Split operators: model work belongs in `DataProcessing`.
-  allowedOperatorTypes: [
-    // Relational
-    "CSVFileScan",
-    "Filter",
-    "Projection",
-    "TypeCasting",
-    "Sort",
-    "Limit",
-    "Distinct",
-    "Union",
-    "Intersect",
-    "Difference",
-    "KeywordSearch",
-    "HashJoin",
-    "Aggregate",
-    // Visualization
-    "BarChart",
-    "LineChart",
-    "PieChart",
-    "Histogram",
-    "Scatterplot",
-    "HeatMap",
-    "BoxViolinPlot",
-    "WordCloud",
-    // Custom logic / ML, in Python
-    "DataProcessing",
-  ],
-  agentMode: AgentMode.GENERAL,
-  nativeToolMode: "typed",
-  nativeCatalogVersion: "v1",
-  nativeProfileCollection: false,
+  agentMode: AgentMode.NATIVE,
+  // Collected by default so evidence can be switched on without rebuilding
+  // the workflow; exposure stays opt-in below.
+  nativeProfileCollection: true,
   dataEvidence: false,
   flowEvidence: false,
   resultSelection: "all",
@@ -573,6 +552,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   indexDetailedOperators: 0,
   enableResumeTool: false,
   enableAnswerGrounding: false,
+  seedSources: false,
   versionedMode: false,
   // Default OFF: the A/B measured wrong-reference errors at 0.8%/write with
   // and without the table — it is derivable from the entries and buys nothing
@@ -645,10 +625,7 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general" | "native";
-  nativeToolMode?: "typed" | "batch";
-  nativeCatalogVersion?: "v1" | "v2";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   dataEvidence?: boolean;
@@ -747,10 +724,7 @@ export interface UpdateAgentSettingsRequest {
   disabledTools?: string[];
   maxSteps?: number;
   maxOperatorEdits?: number;
-  allowedOperatorTypes?: string[];
-  agentMode?: "code" | "general" | "native";
-  nativeToolMode?: "typed" | "batch";
-  nativeCatalogVersion?: "v1" | "v2";
+  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   dataEvidence?: boolean;

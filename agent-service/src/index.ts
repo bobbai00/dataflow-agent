@@ -23,4 +23,3 @@ export { WorkflowSnapshotStorage } from "./agent/workflow-snapshot-storage";
 export { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 export * from "./agent/tools";
 export { TexeraAgent, type TexeraAgentConfig, type AgentMessageResult } from "./agent/texera-agent";
-export { buildSystemPrompt } from "./agent/prompts";

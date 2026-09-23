@@ -17,12 +17,13 @@
  * under the License.
  */
 
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { formatOperatorResult } from "../tools/result-formatting";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
-import { formatNativeDiagnostic, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
+import { REPAIR_HINTS, formatNativeDiagnostic, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { assembleContext } from "../util/context-utils";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
@@ -61,7 +62,7 @@ test("blocked consumers point to a root failure without repeating its source and
   // If the root's own error was not returned, retain this only copy of it.
   expect(formatOperatorResult("blocked", info, state)).toContain(diagnostic.message);
 });
-function fixture(type = "UDF") {
+function fixture(type = "Process") {
   const op: OperatorPredicate = {
     operatorID: "answer",
     operatorType: "DataProcessing",
@@ -70,12 +71,11 @@ function fixture(type = "UDF") {
       code: "def process(source):\n    return generated_runtime(source)\n" + "GENERATED_BOILERPLATE\n".repeat(2000),
     },
     nativeOp: {
-      version: "v2",
       revision,
       type,
       inputs: ["source"],
       properties:
-        type === "UDF"
+        type === "Process"
           ? { code: "def process(source):\n    denominator = 0\n    return source / denominator" }
           : { columns: ["x"], func: "def apply(row):\n    denominator = 0\n    return row['x'] / denominator" },
     },
@@ -90,8 +90,8 @@ function fixture(type = "UDF") {
     code: "CALLBACK_RUNTIME",
     stage: "execute",
     message: "ZeroDivisionError: division by zero",
-    field: type === "UDF" ? "code" : "func",
-    source: { entry: type === "UDF" ? "process" : "apply", line: 3, excerpt: "    return source / denominator" },
+    field: type === "Process" ? "code" : "func",
+    source: { entry: type === "Process" ? "process" : "apply", line: 3, excerpt: "    return source / denominator" },
   };
   const info: OperatorInfo = {
     state: "Failed",
@@ -105,8 +105,8 @@ function fixture(type = "UDF") {
   return { op, diagnostic, info, state };
 }
 
-test("V2 failures never echo the embedded runtime, including UDF and shape-only views", () => {
-  for (const type of ["UDF", "Filter"])
+test("V2 failures never echo the embedded runtime, including process and shape-only views", () => {
+  for (const type of ["Process", "Filter"])
     for (const detail of ["shape", "sample"] as const) {
       const { op, info, state } = fixture(type);
       const rendered = formatOperatorResult("answer", info, state, { detail, operatorAtEvent: op });
@@ -184,7 +184,7 @@ test("a wrong-revision payload cannot borrow the current submitted source", () =
   expect(rendered).not.toContain("GENERATED_BOILERPLATE");
 });
 
-test("V2 UDF code/reflection and flow-error decorations use submitted code and bounded diagnostics", () => {
+test("V2 process code/reflection and flow-error decorations use submitted code and bounded diagnostics", () => {
   for (const failed of [false, true]) {
     const { op, info, state } = fixture();
     const steps: ReActStep[] = [];
@@ -231,4 +231,50 @@ test("V2 UDF code/reflection and flow-error decorations use submitted code and b
     if (failed) expect(rendered).toContain("CALLBACK_RUNTIME");
     else expect(rendered).toContain("return source / denominator");
   }
+});
+
+describe("error taxonomy rendering", () => {
+  test("every code the runtime or the tool layer can raise has a repair hint", () => {
+    const runtime = readFileSync(new URL("./python/runtime.py", import.meta.url), "utf8");
+    const codes = new Set<string>();
+    for (const match of runtime.matchAll(/_error\(\s*spec,\s*"([A-Z_]+)"/g)) codes.add(match[1]);
+    for (const match of runtime.matchAll(/"(INPUT_[A-Z_]+)"/g)) codes.add(match[1]);
+    codes.add("SCAN_OPTIONS"); // raised through the local `reject` helper
+    for (const code of ["INVALID_ARGUMENTS", "UPSTREAM_FAILED"]) codes.add(code);
+    const missing = [...codes].filter(code => !REPAIR_HINTS[code]);
+    expect(missing).toEqual([]);
+    expect(codes.size).toBeGreaterThan(40);
+  });
+
+  test("a runtime diagnostic renders code, stage, revision, cause, hint and the offending argument", () => {
+    const text = formatNativeDiagnostic({
+      version: 1,
+      operatorId: "joined",
+      operatorRevision: "abc123",
+      code: "JOIN_ARGUMENT",
+      stage: "validate",
+      message: "how must be one of 'inner', 'left', 'right', 'full', 'cross', got 'semi'.",
+      field: "how",
+    });
+    expect(text).toStartWith("[JOIN_ARGUMENT; validate; revision abc123]");
+    expect(text).toContain("got 'semi'");
+    expect(text).toContain("Hint: how is inner/left/right/full/cross");
+    expect(text).toContain("Field: how");
+  });
+
+  test("a callback failure renders the failing line of the submitted function", () => {
+    const text = formatNativeDiagnostic({
+      version: 1,
+      operatorId: "cleaned",
+      operatorRevision: "abc123",
+      code: "MISSING_COLUMN",
+      stage: "execute",
+      message: "The function read column 'Acres', which the input table does not have.",
+      field: "columns[0].func",
+      source: { entry: "apply", line: 2, excerpt: "    return row['Acres'] * 2" },
+    });
+    expect(text).toContain("Field: columns[0].func");
+    expect(text).toContain("apply line 2: return row['Acres'] * 2");
+    expect(text).toContain("Hint: Observe the current input schema");
+  });
 });

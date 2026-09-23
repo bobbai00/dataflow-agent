@@ -70,7 +70,7 @@ export interface ShapeDecision {
 }
 
 /** Consumers whose result depends on the grain of their input table. */
-const GRAIN_SENSITIVE = new Set(["Aggregate", "Join", "UDF"]);
+const GRAIN_SENSITIVE = new Set(["Aggregate", "Join", "Process"]);
 
 /** `files` of a Scan as a list of path patterns. */
 function scanFiles(op: OperatorPredicate): string[] {
@@ -166,7 +166,7 @@ function decide(
     case "Scan":
     case "Aggregate":
     case "Join":
-    case "UDF":
+    case "Process":
       return { shape: "full" };
     case "Filter":
     case "Distinct":
@@ -177,7 +177,7 @@ function decide(
     case "Project":
     case "Sort":
       return { shape: "header" };
-    case "Compute":
+    case "Map":
       return { shape: "full" };
     default:
       return { shape: "full" };
@@ -225,24 +225,7 @@ const SCOPED_BUDGET: Record<string, number> = {
 const TEXT_FILTER_BUDGET = 0.2;
 
 /** Types whose table IS the summary: small, every column, no scoping. */
-const WHOLE_TABLE = new Set(["Scan", "UDF", "Aggregate", "Distinct", "Limit"]);
-
-const IDENT_RE = /"([^"]+)"|\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
-
-/** Column names an SQL expression mentions, among `known`. String literals are
- *  blanked first so `'web fraud'` never reads as a column. */
-function identifiersIn(expr: unknown, known: ReadonlySet<string>): string[] {
-  if (typeof expr !== "string") return [];
-  const out: string[] = [];
-  const bare = expr.replace(/'(?:[^']|'')*'/g, " ");
-  IDENT_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = IDENT_RE.exec(bare)) !== null) {
-    const name = m[1] ?? m[2];
-    if (name && known.has(name) && !out.includes(name)) out.push(name);
-  }
-  return out;
-}
+const WHOLE_TABLE = new Set(["Scan", "Process", "Aggregate", "Distinct", "Limit"]);
 
 /** An operator's output columns, from its stats or, failing that, its sample. */
 function columnsOf(info: OperatorInfo | undefined): string[] {
@@ -273,13 +256,11 @@ export function referencedColumns(
     for (const n of names) if (typeof n === "string" && n && known.has(n) && !out.includes(n)) out.push(n);
   };
   switch (nat.type) {
-    case "Filter":
-      add(...identifiersIn(p.predicate, known));
-      break;
-    case "Compute": {
-      const cols = (p.columns as Record<string, unknown> | undefined) ?? {};
-      if (side === "all") add(...Object.keys(cols));
-      for (const e of Object.values(cols)) add(...identifiersIn(e, known));
+    case "Map": {
+      // Output names are declared; the columns each function read are measured
+      // at execution and not available to the shape rule.
+      if (side === "all")
+        for (const c of Array.isArray(p.columns) ? (p.columns as Array<Record<string, unknown>>) : []) add(c?.as);
       break;
     }
     case "Join":

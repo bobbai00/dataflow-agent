@@ -74,7 +74,6 @@ class MockAgentService {
     }> => of({ systemPrompt: "", tools: [] })
   );
   public getAgentSettings = vi.fn((): Observable<AgentSettingsApi> => of({}));
-  public getAvailableOperatorTypes = vi.fn((): Observable<Array<{ type: string; description: string }>> => of([]));
   public updateAgentSettings = vi.fn(
     (_agentId: string, settings: Partial<AgentSettingsApi>): Observable<AgentSettingsApi> =>
       of(settings as AgentSettingsApi)
@@ -508,17 +507,11 @@ describe("AgentChatComponent", () => {
   });
 
   describe("showSystemInfo / refreshSystemInfo", () => {
-    it("populates prompt and tools, applies default settings, and sorts operator types", () => {
+    it("populates prompt and tools and applies default settings", () => {
       createComponent();
-      const tool = { name: "createOperator", description: "Creates an operator", inputSchema: {}, enabled: true };
+      const tool = { name: "dataflow", description: "Builds the dataflow", inputSchema: {}, enabled: true };
       agentService.getSystemInfo.mockReturnValue(of({ systemPrompt: "SYSTEM PROMPT TEXT", tools: [tool] }));
       agentService.getAgentSettings.mockReturnValue(of({}));
-      agentService.getAvailableOperatorTypes.mockReturnValue(
-        of([
-          { type: "PythonUDF", description: "Runs Python code" },
-          { type: "CSVScan", description: "Reads a CSV file" },
-        ])
-      );
 
       component.showSystemInfo();
 
@@ -531,9 +524,7 @@ describe("AgentChatComponent", () => {
       expect(component.settingsToolTimeoutSeconds).toBe(120);
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
-      expect(component.settingsAllowedOperatorTypes).toEqual([]);
-      // Operator types come back sorted alphabetically:
-      expect(component.allAvailableOperatorTypes.map(t => t.type)).toEqual(["CSVScan", "PythonUDF"]);
+      expect(component.settingsAgentMode).toBe("native");
     });
 
     it("applies explicit settings values from the server", () => {
@@ -545,7 +536,7 @@ describe("AgentChatComponent", () => {
           toolTimeoutSeconds: 33,
           executionTimeoutMinutes: 4,
           maxSteps: 5,
-          allowedOperatorTypes: ["CSVScan"],
+          agentMode: "code",
         })
       );
 
@@ -556,7 +547,7 @@ describe("AgentChatComponent", () => {
       expect(component.settingsToolTimeoutSeconds).toBe(33);
       expect(component.settingsExecutionTimeoutMinutes).toBe(4);
       expect(component.settingsMaxSteps).toBe(5);
-      expect(component.settingsAllowedOperatorTypes).toEqual(["CSVScan"]);
+      expect(component.settingsAgentMode).toBe("code");
     });
 
     it("closeSystemInfoModal hides the modal", () => {
@@ -622,65 +613,6 @@ describe("AgentChatComponent", () => {
       agentService.updateAgentSettings.mockReturnValue(throwError(() => new Error("nope")));
       component.saveMaxCharLimit();
       expect(notification.success).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("operator type selection", () => {
-    const csv = { type: "CSVScan", description: "Reads a CSV file" };
-    const python = { type: "PythonUDF", description: "Runs Python code" };
-
-    it("toggling on adds without duplicates and saves; toggling off removes", () => {
-      createComponent();
-      component.allAvailableOperatorTypes = [csv, python];
-      component.settingsAllowedOperatorTypes = ["CSVScan"];
-
-      component.toggleOperatorType("PythonUDF", true);
-      expect(component.settingsAllowedOperatorTypes).toEqual(["CSVScan", "PythonUDF"]);
-      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, {
-        allowedOperatorTypes: ["CSVScan", "PythonUDF"],
-      });
-      expect(notification.success).toHaveBeenLastCalledWith("2 operators enabled");
-
-      // Enabling an already-enabled type must not duplicate it.
-      component.toggleOperatorType("PythonUDF", true);
-      expect(component.settingsAllowedOperatorTypes).toEqual(["CSVScan", "PythonUDF"]);
-
-      component.toggleOperatorType("CSVScan", false);
-      expect(component.settingsAllowedOperatorTypes).toEqual(["PythonUDF"]);
-      expect(component.isOperatorTypeEnabled("PythonUDF")).toBe(true);
-      expect(component.isOperatorTypeEnabled("CSVScan")).toBe(false);
-    });
-
-    it("enableAllOperatorTypes selects every known type; deselectAllOperatorTypes clears", () => {
-      createComponent();
-      component.allAvailableOperatorTypes = [csv, python];
-
-      component.enableAllOperatorTypes();
-      expect(component.settingsAllowedOperatorTypes).toEqual(["CSVScan", "PythonUDF"]);
-      expect(notification.success).toHaveBeenLastCalledWith("2 operators enabled");
-
-      component.deselectAllOperatorTypes();
-      expect(component.settingsAllowedOperatorTypes).toEqual([]);
-      // An empty allow-list means "all operators enabled".
-      expect(notification.success).toHaveBeenLastCalledWith("All operators enabled");
-      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { allowedOperatorTypes: [] });
-    });
-
-    it("filters operator types by type or description, case-insensitively", () => {
-      createComponent();
-      component.allAvailableOperatorTypes = [csv, python];
-
-      component.operatorTypeSearchQuery = "";
-      expect(component.getFilteredOperatorTypes()).toEqual([csv, python]);
-
-      component.operatorTypeSearchQuery = "PYTHON";
-      expect(component.getFilteredOperatorTypes()).toEqual([python]);
-
-      component.operatorTypeSearchQuery = "csv file";
-      expect(component.getFilteredOperatorTypes()).toEqual([csv]);
-
-      component.operatorTypeSearchQuery = "zzz";
-      expect(component.getFilteredOperatorTypes()).toEqual([]);
     });
   });
 
@@ -1007,15 +939,9 @@ describe("AgentChatComponent", () => {
             tools: [{ name: "createOperator", description: "Creates an operator", inputSchema: {}, enabled: true }],
           })
         );
-        agentService.getAvailableOperatorTypes.mockReturnValue(
-          of([
-            { type: "PythonUDF", description: "Runs Python code" },
-            { type: "CSVScan", description: "Reads a CSV file" },
-          ])
-        );
       });
 
-      it("opens from the toolbar info button and renders all four tab headers", async () => {
+      it("opens from the toolbar info button and renders all three tab headers", async () => {
         const infoButton = fixture.nativeElement.querySelector(".chat-toolbar button") as HTMLButtonElement;
         infoButton.click();
         fixture.detectChanges();
@@ -1027,12 +953,12 @@ describe("AgentChatComponent", () => {
         expect(bodyText).toContain("System Prompt");
         expect(bodyText).toContain("Tools (1)");
         expect(bodyText).toContain("Parameters");
-        expect(bodyText).toContain("Operators");
+        expect(bodyText).not.toContain("Operators");
         // The first tab is active by default and shows the fetched prompt.
         expect(bodyText).toContain("SYSTEM PROMPT TEXT");
       });
 
-      it("renders the tools list, parameter inputs, and sorted operator toggles per tab", async () => {
+      it("renders the tools list and parameter inputs per tab", async () => {
         component.showSystemInfo();
         fixture.detectChanges();
         await flushAsyncRendering();
@@ -1050,20 +976,6 @@ describe("AgentChatComponent", () => {
         expect(paramsText).toContain("Tool Execution Timeout (seconds)");
         expect(paramsText).toContain("Workflow Execution Timeout (minutes)");
         expect(paramsText).toContain("Max Steps per Message");
-
-        clickTab("Operators");
-        // Scope to the modal: the chat's own Debug-mode nz-switch lives outside it.
-        expect(document.querySelectorAll(".ant-modal .ant-tabs-tabpane-active nz-switch").length).toBe(2);
-        const operatorsText = document.body.textContent ?? "";
-        // Sorted alphabetically: CSVScan renders before PythonUDF.
-        expect(operatorsText.indexOf("CSVScan")).toBeGreaterThan(-1);
-        expect(operatorsText.indexOf("CSVScan")).toBeLessThan(operatorsText.indexOf("PythonUDF"));
-
-        // A query with no matches renders the empty-state hint instead of rows.
-        component.operatorTypeSearchQuery = "nomatch-xyz";
-        flushOverlay();
-        expect(document.querySelectorAll(".ant-modal .ant-tabs-tabpane-active nz-switch").length).toBe(0);
-        expect(document.body.textContent).toContain('No operators match "nomatch-xyz"');
       });
     });
   });

@@ -71,27 +71,45 @@ describe("computeOperatorAccess", () => {
     expect(access![3].viewedOperatorIds).toEqual(["filter1"]);
   });
 
-  test("native mode: typed-operator tools carry `id` and lower-case receipts", () => {
+  test("native mode: the dataflow receipt names what landed and what was observed", () => {
+    const batch = (operators: Array<{ id: string; status: string }>, observe: string[]) => ({
+      kind: "native-batch",
+      operators: operators.map(o => ({ ...o, op: "filter", message: "" })),
+      observe,
+      observationErrors: [],
+    });
     const access = computeOperatorAccess(
       [
-        call("filter", "a", { id: "web_fraud", input: "contributors", predicate: "amount > 1" }),
-        call("filter", "m", { id: "web_fraud", input: "contributors", predicate: "amount > 2" }),
+        call("dataflow", "a", {
+          program: "web_fraud = filter(contributors, lambda row: row['amount'] > 1)",
+          observe: ["web_fraud"],
+        }),
+        call("dataflow", "m", {
+          program: "web_fraud = filter(contributors, lambda row: row['amount'] > 2)",
+          observe: [],
+        }),
         call("deleteOperator", "d", { id: "probe" }),
-        call("compute", "f", { id: "ratio", input: "web_fraud", columns: { r: "amount / 2" } }),
       ],
       [
-        result("a", "added filter operator `web_fraud`; inputs: contributors"),
-        result("m", "modified filter operator `web_fraud`; inputs: contributors"),
+        result("a", batch([{ id: "web_fraud", status: "added" }], ["web_fraud"])),
+        result(
+          "m",
+          batch(
+            [
+              { id: "web_fraud", status: "modified" },
+              { id: "bad", status: "error" },
+            ],
+            []
+          )
+        ),
         result("d", "deleted operator `probe`"),
-        result("f", "some receipt the regexes do not know"),
       ]
     );
     expect(access![0].addedOperatorIds).toEqual(["web_fraud"]);
+    expect(access![0].viewedOperatorIds).toEqual(["web_fraud"]);
     expect(access![1].modifiedOperatorIds).toEqual(["web_fraud"]);
+    expect(access![1].addedOperatorIds).toEqual([]);
     expect(access![2].modifiedOperatorIds).toEqual(["probe"]);
-    // unknown receipt → the tool's declared intent: a typed tool writes its `id`
-    expect(access![3].modifiedOperatorIds).toEqual(["ratio"]);
-    expect(access![3].addedOperatorIds).toEqual([]);
   });
 
   test("errored tool calls record nothing except the viewed operator of a failed read", () => {

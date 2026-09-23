@@ -23,10 +23,10 @@
 
 import type { ModelMessage } from "ai";
 import type { WorkflowState } from "../workflow-state";
-import type { OperatorPredicate, OperatorPortSchemaMap, PortSchema, WorkflowContent } from "../../types/workflow";
+import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { CompactionStrategy, ReActStep } from "../../types/agent";
 import { AgentMode, ContextMode } from "../../types/agent";
-import type { WorkflowCompilationResponse, WorkflowFatalError } from "../../api/compile-api";
+import type { WorkflowCompilationResponse } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
 import {
@@ -36,9 +36,8 @@ import {
   selectScopedShapes,
   type ShapeDecision,
 } from "../native/selection";
-import { NATIVE_TOOL_NAMES, describeInputs, nativeTypeForTool, nativeViewOf } from "../tools/native-typed-tools";
+import { nativeOperatorName } from "../native/catalog";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
-import { extractOperatorInputPortSchemaMap } from "./workflow-utils";
 import {
   clampCodeChars,
   estimateTableChars,
@@ -62,23 +61,18 @@ import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context
 import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
 import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
-import { formatNativeError, type FormatOperatorResultOptions } from "../tools/result-formatting";
+import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
 import { createLogger } from "../../logger";
 
-/** The operator a tool call wrote: `operatorId` (code-mode tools) or, for the
- *  typed operator tools of native mode, `id`. Undefined for read-only tools. */
+/** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
+ *  (native mode's deleteOperator). Undefined for read-only tools and for the
+ *  `dataflow` program, which writes several operators (see its receipt). */
 export function writtenOperatorId(toolName: string | undefined, input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
   const inp = input as Record<string, unknown>;
   if (typeof inp.operatorId === "string" && inp.operatorId) return inp.operatorId;
-  if (
-    toolName &&
-    (NATIVE_TOOL_NAMES.has(toolName) || toolName === "deleteOperator") &&
-    typeof inp.id === "string" &&
-    inp.id
-  )
-    return inp.id;
+  if (toolName === "deleteOperator" && typeof inp.id === "string" && inp.id) return inp.id;
   return undefined;
 }
 
@@ -1065,7 +1059,7 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
       }
       const opId = typeof inp.operatorId === "string" ? inp.operatorId : typeof inp.id === "string" ? inp.id : "";
       if (!opId) continue;
-      if (tc.toolName === "createOrModifyOperator" || NATIVE_TOOL_NAMES.has(tc.toolName)) {
+      if (tc.toolName === "createOrModifyOperator") {
         const isCreate = !known.has(opId);
         eventFlags.set(opId, isCreate);
         known.add(opId);
@@ -1090,7 +1084,15 @@ function buildEditCountsByOp(fullPath: PathNode[]): Map<string, number> {
   for (const node of fullPath) {
     if (node.step.role !== "agent" || !node.step.toolCalls) continue;
     for (const tc of node.step.toolCalls) {
-      if (tc.toolName !== "createOrModifyOperator" && !NATIVE_TOOL_NAMES.has(tc.toolName)) continue;
+      if (tc.toolName === TOOL_NAME_DATAFLOW) {
+        // Every statement the program landed is one edit of that operator.
+        const batch = asNativeBatchResult(node.step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output);
+        for (const outcome of batch?.operators ?? [])
+          if (outcome.status === "added" || outcome.status === "modified")
+            counts.set(outcome.id, (counts.get(outcome.id) ?? 0) + 1);
+        continue;
+      }
+      if (tc.toolName !== "createOrModifyOperator") continue;
       const opId = writtenOperatorId(tc.toolName, tc.input);
       if (typeof opId === "string" && opId) counts.set(opId, (counts.get(opId) ?? 0) + 1);
     }
@@ -2027,9 +2029,6 @@ function serializeTaskBody(
           return;
         } else if (tc.toolName === "modifyOperator" && opId) {
           actedVerb.set(opId, "updated");
-        } else if (NATIVE_TOOL_NAMES.has(tc.toolName) && typeof inp?.id === "string") {
-          // NATIVE typed tool: upsert by id — created this step or updated.
-          actedVerb.set(inp.id as string, createFlags?.get(inp.id as string) ? "added" : "updated");
         }
         // An action whose operator isn't reflected in Δ (a rejected/no-op edit, or
         // a non-operator tool) keeps a one-line outcome so the attempt isn't lost.
@@ -2134,7 +2133,7 @@ function serializeTaskBody(
         // summarize(): per-op extras apply to the observation render too —
         // detail "omit" keeps the verb line but drops the result body.
         const ex = options.opExtras?.(op.operatorID);
-        if (ex?.detail === "omit" && !(op.nativeOp?.version === "v2" && currInfo?.error)) continue;
+        if (ex?.detail === "omit" && !(op.nativeOp && currInfo?.error)) continue;
         // Write-time render prefs (DELTA event scoping): lower this event's
         // render per the version active at the event. Legacy formatter path
         // only (`!ex`), never-raise semantics.
@@ -2601,8 +2600,7 @@ function renderVersionedCatalog(
         } else if (
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName)
+          call.toolName === "modifyOperator"
         ) {
           if (!verbs.has(opId)) verbs.set(opId, flags?.get(opId) === true ? "added" : "revised");
           else if (verbs.get(opId) === "deleted") verbs.set(opId, "revised");
@@ -2625,14 +2623,14 @@ function renderVersionedCatalog(
         // parameters (the agent's own words) instead of a summary line.
         const nat = op?.nativeOp;
         sections.push(
-          nat ? `#### ${nat.type.toLowerCase()} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`
+          nat ? `#### ${nativeOperatorName(nat.type)} operator \`${opId}\` (${verb})` : `#### \`${opId}\` (${verb})`
         );
         if (verb === "deleted") {
           sections.push("");
           continue;
         }
-        if (nat && nat.type !== "UDF") {
-          sections.push(`Properties: ${JSON.stringify(nat.properties)}`);
+        if (nat) {
+          for (const l of nativeDefinitionLines(nat, false)) sections.push(l);
         } else {
           const summary = (op as any)?.customDisplayName || (op?.operatorProperties as any)?.summary;
           if (summary) sections.push(`Summary: ${clip(summary, 200)}`);
@@ -2937,8 +2935,7 @@ function renderCatalog(
         const isWrite =
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName);
+          call.toolName === "modifyOperator";
         if (!isWrite || flags?.get(opId) === true) continue; // creation is not a revision
         const at = revisedLater.get(opId) ?? [];
         if (!at.includes(tn)) at.push(tn);
@@ -2976,8 +2973,7 @@ function renderCatalog(
         } else if (
           call.toolName === "createOrModifyOperator" ||
           call.toolName === "addOperator" ||
-          call.toolName === "modifyOperator" ||
-          NATIVE_TOOL_NAMES.has(call.toolName)
+          call.toolName === "modifyOperator"
         ) {
           // First touch in the turn decides added-vs-revised; a later edit in the
           // same turn does not demote an operator this turn introduced.
@@ -3133,15 +3129,14 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
-  if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(inp.operators)) {
+  if (tc.toolName === TOOL_NAME_DATAFLOW && typeof inp.program === "string") {
+    // The program exactly as written; the receipt below says what landed.
     const lines = ["- dataflow"];
-    for (const spec of inp.operators) {
-      if (!spec || typeof spec !== "object") continue;
-      const { op, ...params } = spec as Record<string, unknown>;
-      const nested =
-        typeof op === "string" ? renderNativeToolCall({ toolName: op, input: params }, createFlags) : undefined;
-      lines.push(...(nested ?? [`- invalid operator: ${JSON.stringify(spec)}`]).map(line => `  ${line}`));
-    }
+    const program = inp.program.trim();
+    if (program) {
+      lines.push("  program:");
+      for (const l of program.split("\n")) lines.push(`    ${l}`);
+    } else lines.push("  program: (empty: cached read)");
     // Describe the submitted action, not an inferred default: saved receipts
     // from older runs may have resolved an omitted observe differently.
     lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "omitted"}`);
@@ -3149,24 +3144,25 @@ function renderNativeToolCall(
   }
   const id = typeof inp.id === "string" ? inp.id : "";
   if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
-  const type = nativeTypeForTool(tc.toolName);
-  if (!type || !id) return undefined;
-  const view = nativeViewOf(tc.toolName, inp);
-  if (!view) return undefined;
-  const verb = createFlags?.get(id) === false ? "modify" : "add";
-  const parts = [`- ${verb} ${tc.toolName} operator \`${id}\``];
-  const ins = describeInputs(type, view.inputs);
-  if (ins) parts.push(ins);
-  const props = { ...view.properties };
-  const code = type === "UDF" && typeof props.code === "string" ? (props.code as string) : undefined;
-  if (code !== undefined) delete props.code;
-  if (Object.keys(props).length > 0) parts.push(`properties: ${JSON.stringify(props)}`);
-  const lines = [parts.join("; ")];
-  if (code !== undefined) {
-    lines.push("    code:");
-    for (const l of code.split("\n")) lines.push(`      ${l}`);
-  }
-  return lines;
+  void createFlags;
+  return undefined;
+}
+
+/**
+ * A native operator's definition for the render: the `def`s it uses followed
+ * by the assignment as written. A process body is long and is not what the
+ * table looks like, so it is included only where code is asked for.
+ */
+function nativeDefinitionLines(
+  view: NonNullable<OperatorPredicate["nativeOp"]>,
+  includeProcessBody: boolean
+): string[] {
+  const body: string[] = [];
+  if (view.functions && (view.type !== "Process" || includeProcessBody))
+    for (const source of Object.values(view.functions)) body.push(...source.split("\n"));
+  if (view.source) body.push(...view.source.split("\n"));
+  else body.push(`${nativeOperatorName(view.type)}(${view.inputs.join(", ")}) ${JSON.stringify(view.properties)}`);
+  return ["Definition:", ...body.map(l => "  " + l)];
 }
 
 /** A one-line, code-free outcome for a tool result: `ok` or the first line of
@@ -3194,28 +3190,6 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
     if (k === "code") continue; // rendered last as a block
-    if (k === "operators" && Array.isArray(v)) {
-      // NATIVE `addOperators`: one line per operator, `id (Type) <- inputs: {properties} — summary`;
-      // a UDF's code renders as its own block like a code-mode call.
-      lines.push("    operators:");
-      for (const spec of v as Array<Record<string, unknown>>) {
-        const ins =
-          Array.isArray(spec.inputs) && spec.inputs.length > 0 ? ` <- ${(spec.inputs as string[]).join(", ")}` : "";
-        const props = (spec.properties ?? {}) as Record<string, unknown>;
-        const isUdf = spec.type === "UDF";
-        const shown = isUdf ? "" : `: ${JSON.stringify(props)}`;
-        const summary =
-          typeof spec.summary === "string" && spec.summary.trim()
-            ? ` — ${spec.summary.replace(/\s+/g, " ").trim()}`
-            : "";
-        lines.push(`      - ${spec.id} (${spec.type})${ins}${shown}${summary}`);
-        if (isUdf && typeof props.code === "string") {
-          lines.push("        code:");
-          for (const l of props.code.split("\n")) lines.push(`          ${l}`);
-        }
-      }
-      continue;
-    }
     const val = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : JSON.stringify(v);
     lines.push(`    ${k}: ${val}`);
   }
@@ -3616,9 +3590,7 @@ function formatOperatorAdjacency(
   // V2 measured relationships belong inside the observed result's budget.
   // Do not infer unmatched rows from output/min(input), or expose these
   // legacy heuristics in the evidence-off framework control.
-  if (op.nativeOp?.version === "v2") {
-    return op.nativeOp.inputs.length ? ["Inputs: " + op.nativeOp.inputs.join(", ")] : [];
-  }
+  if (op.nativeOp) return []; // the operands are in the definition line
   const lines: string[] = [];
   const inbound = allLinks
     .filter(l => l.target.operatorID === op.operatorID)
@@ -3670,13 +3642,8 @@ function serializeOperatorFull(
   if (requested && !requested.has(op.operatorID) && !info?.error && !subscribed) {
     const rows = info?.totalRowCount ?? info?.outputTuples;
     return [
-      `${"#".repeat(operatorLevel)} ${op.nativeOp?.type.toLowerCase() ?? op.operatorType} operator \`${op.operatorID}\``,
-      ...(op.nativeOp
-        ? [
-            `Inputs: ${op.nativeOp.inputs.join(", ") || "none"}`,
-            `Properties: ${JSON.stringify(op.nativeOp.properties)}`,
-          ]
-        : []),
+      `${"#".repeat(operatorLevel)} ${op.nativeOp ? nativeOperatorName(op.nativeOp.type) : op.operatorType} operator \`${op.operatorID}\``,
+      ...(op.nativeOp ? nativeDefinitionLines(op.nativeOp, opBlock) : []),
       info
         ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}${opBlock ? "" : "; result not requested"}`
         : `Result: unavailable${opBlock ? "" : "; result not requested"}`,
@@ -3699,7 +3666,7 @@ function serializeOperatorFull(
     // (plus the Schema line when on) — the table/stats are omitted.
     const schemaLine = ex.column.schema ? formatSchemaLine(info, ex.column.schemaTypes !== false) : undefined;
     execText = [schemaLine, ex.retirementFact].filter(Boolean).join("\n");
-  } else if (info && (ex?.detail !== "omit" || (op.nativeOp?.version === "v2" && info.error))) {
+  } else if (info && (ex?.detail !== "omit" || (op.nativeOp && info.error))) {
     execText = formatOperatorResult(op.operatorID, info, workflowState, {
       ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, op.operatorID, workflowState)),
       // LATEST renders a single consolidated `Inputs:` (with counts) at the
@@ -3730,7 +3697,7 @@ function serializeOperatorFull(
   // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
   // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
   if (op.nativeOp) {
-    lines.push(`${opHash} ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\``);
+    lines.push(`${opHash} ${nativeOperatorName(op.nativeOp.type)} operator \`${op.operatorID}\``);
   } else {
     lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
     lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
@@ -3738,20 +3705,12 @@ function serializeOperatorFull(
   // A header-only shape (Project / Sort / unchanged Compute) carries no result
   // section: the table is the input table transformed exactly as Properties say.
   const headerOnly = shape?.shape === "header" && info && !info.error;
-  if (opBlock) {
-    // One field order for every operator, whatever the agent is looking at.
-    // The legacy paths swap Inputs/Properties and drop `Inputs:` on a source
-    // depending on the observe list, which rewrites the block for no reason.
-    // UDF parameters are included here: hiding the code of the operator being
-    // observed while printing it for every operator that is not is backwards.
-    lines.push(`Inputs: ${op.nativeOp!.inputs.join(", ") || "none"}`);
-    lines.push(`Properties: ${JSON.stringify(op.nativeOp!.properties)}`);
+  if (op.nativeOp) {
+    // The definition as the model wrote it (its operands name the inputs). A
+    // process body is shown where code is asked for: opBlock keeps one field
+    // order for every operator, and the code-in-snapshot flag opts in.
+    for (const l of nativeDefinitionLines(op.nativeOp, opBlock || !!ex?.includeCode)) lines.push(l);
   } else {
-    if (op.nativeOp && op.nativeOp.type !== "UDF") {
-      // The agent's own parameters — always shown for typed operators; the
-      // generated code is never shown (it is not what the agent wrote).
-      lines.push(`Properties: ${JSON.stringify(op.nativeOp.properties)}`);
-    }
     for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
   }
 
@@ -3781,37 +3740,12 @@ function serializeOperatorFull(
 
   // summarize(): opt-in current-code block. Errors already embed the code in
   // the [ERROR] result render, so only healthy operators get it here.
-  if (ex?.includeCode && !info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
-    const code = String(
-      (op.nativeOp?.version === "v2" ? op.nativeOp.properties : op.operatorProperties)?.code ?? ""
-    ).trim();
+  if (ex?.includeCode && !info?.error && !op.nativeOp) {
+    const code = String(op.operatorProperties?.code ?? "").trim();
     if (code) {
       lines.push("Code:");
       for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
     }
-  }
-
-  // Schemas only on the current (last) snapshot — compilation only runs
-  // against the live workflow.
-  const showSchemas = isCurrent && options.agentMode === AgentMode.GENERAL && options.compilationResult;
-  if (showSchemas) {
-    const outputSchemas = options.compilationResult!.operatorOutputSchemas ?? {};
-    const allLinks = snapshot.workflow.links;
-    const inputSchemaMap = extractOperatorInputPortSchemaMap(op.operatorID, op, outputSchemas, allLinks);
-    if (inputSchemaMap) {
-      for (const [portId, schema] of Object.entries(inputSchemaMap)) {
-        if (schema) lines.push(`Input Schema (port ${parsePortIndex(portId)}): ${formatSchema(schema)}`);
-      }
-    }
-    const outputSchemaMap = outputSchemas[op.operatorID];
-    if (outputSchemaMap) {
-      const firstSchema = Object.values(outputSchemaMap).find(s => s !== undefined) as PortSchema | undefined;
-      if (firstSchema) lines.push(`Output Schema: ${formatSchema(firstSchema)}`);
-    }
-    const compilationError = options.compilationResult!.operatorErrors?.[op.operatorID] as
-      | WorkflowFatalError
-      | undefined;
-    if (compilationError) lines.push(`Compilation Error: ${compilationError.message}`);
   }
 
   if (execText && (shape?.shape === "count" || (shape?.shape === "header" && shape.note))) {
@@ -3937,12 +3871,10 @@ function serializeOperatorFull(
           "result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer " +
           "from a different operator."
       );
-      // NATIVE typed operators already show their Properties; their generated
-      // code is not what the agent wrote, so it is never echoed.
-      if (!info?.error && (!op.nativeOp || op.nativeOp.type === "UDF")) {
-        const code = String(
-          (op.nativeOp?.version === "v2" ? op.nativeOp.properties : op.operatorProperties)?.code ?? ""
-        ).trim();
+      // Native operators already show their definition; their generated code is
+      // not what the agent wrote, so it is never echoed.
+      if (!info?.error && !op.nativeOp) {
+        const code = String(op.operatorProperties?.code ?? "").trim();
         if (code) {
           lines.push("Current code:");
           for (const l of code.split("\n")) lines.push("  " + l);
@@ -4062,14 +3994,4 @@ function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
     if (path[i].snapshot) return path[i].snapshot;
   }
   return undefined;
-}
-
-function formatSchema(schema: PortSchema): string {
-  const attrs = schema.map(a => `${a.attributeName}: ${a.attributeType}`);
-  return `[${attrs.join(", ")}]`;
-}
-
-function parsePortIndex(portId: string): string {
-  const idx = portId.indexOf("_");
-  return idx >= 0 ? portId.substring(0, idx) : portId;
 }

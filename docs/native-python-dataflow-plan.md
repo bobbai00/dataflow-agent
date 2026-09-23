@@ -17,6 +17,11 @@
   ~ under the License.
 -->
 
+> **Superseded on 2026-09-22.** The JSON batch tool, the V1/V2 catalogs and
+> `nativeToolMode` / `nativeCatalogVersion` described here were replaced by the
+> expression program of [native-expression-mode.md](native-expression-mode.md).
+> Operator semantics remain the reference; Transform/Derive are now `map`, UDF is `process`, and arguments are expression keywords, not JSON fields.
+
 # Python-native operators and budgeted dataflow evidence
 
 Status: implemented opt-in V2 contract and completed pilot, 2026-09-15.

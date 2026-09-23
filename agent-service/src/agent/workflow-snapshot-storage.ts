@@ -189,7 +189,7 @@ export class WorkflowSnapshotStorage {
     for (const id of new Set(ids)) {
       const op = snapshot.workflow.operators.find(o => o.operatorID === id);
       const info = snapshot.results.get(id)?.info;
-      if (op?.nativeOp?.version !== "v2" || !info || info.error) continue;
+      if (!op?.nativeOp || !info || info.error) continue;
       observations.push([
         id,
         selectNativeObservation({
@@ -240,7 +240,7 @@ export class WorkflowSnapshotStorage {
 
     const id = this.generateSnapshotId();
     const ownedWorkflow = structuredClone(workflow);
-    if (ownedWorkflow.operators.some(op => op.nativeOp?.version === "v2")) freezeSnapshotValue(ownedWorkflow);
+    if (ownedWorkflow.operators.some(op => op.nativeOp)) freezeSnapshotValue(ownedWorkflow);
     const snapshot: SnapshotData = {
       id,
       parentId: parentSnapshotId,
@@ -307,14 +307,11 @@ export class WorkflowSnapshotStorage {
     if (!bound) return;
     delete bound.nativeError;
     const nativeOp = snapshot.workflow.operators.find(op => op.operatorID === operatorId);
-    if (bound.error && nativeOp?.nativeOp?.version === "v2") {
+    if (bound.error && nativeOp?.nativeOp) {
       bound.nativeError = this.recordNativeFailure(snapshot, nativeOp, bound);
       bound.error = "NATIVE_ERROR_V2:" + JSON.stringify(bound.nativeError.diagnostic);
     }
-    if (
-      bound.resultVersion ||
-      snapshot.workflow.operators.find(o => o.operatorID === operatorId)?.nativeOp?.version === "v2"
-    ) {
+    if (bound.resultVersion || snapshot.workflow.operators.find(o => o.operatorID === operatorId)?.nativeOp) {
       const invalidate = (root: string, includeRoot = false) => {
         if (includeRoot) snapshot.results.delete(root);
         const pending = [root];

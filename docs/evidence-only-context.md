@@ -1,5 +1,12 @@
 # Evidence-only context checkpoint
 
+> **Superseded on 2026-09-22.** The JSON batch tool, the V1/V2 catalogs and
+> `nativeToolMode` / `nativeCatalogVersion` described here were replaced by the
+> expression program of [native-expression-mode.md](native-expression-mode.md).
+> The two evidence booleans are unchanged; the example settings below predate
+> the single catalog.
+
+
 Branch: `refactor/evidence-only-context`, based on `feat/native-python-dataflow`
 at `a056ae975`, which includes dependent operator batching and explicit observe.
 This is a breaking context/API cleanup, not a relabeling of previous evaluations.
@@ -30,8 +37,6 @@ budget, and physical profile collection setting for all four arms. Example:
 ```json
 {
   "agentMode": "native",
-  "nativeToolMode": "batch",
-  "nativeCatalogVersion": "v2",
   "nativeProfileCollection": true,
   "parallelToolCalls": false,
   "contextMode": "delta",

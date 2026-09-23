@@ -145,7 +145,7 @@ export function bindResultVersion(
   delete info.tableProfile;
   const op = workflow.operators.find(o => o.operatorID === operatorId);
   const native = op?.nativeOp;
-  if (native?.version !== "v2") return info;
+  if (!native) return info;
   const context = info.executionContext;
   const previous = current.get(operatorId);
   const proof = workflowProof(workflow);

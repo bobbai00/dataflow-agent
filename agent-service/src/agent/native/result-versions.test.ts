@@ -35,7 +35,7 @@ function op(id: string, inputs: string[] = [], type = inputs.length ? "project" 
     inputPorts: [...new Set(inputs)].map((_, i) => ({ portID: `${id}-in-${i}` })),
     outputPorts: [{ portID: `${id}-out` }],
     showAdvanced: false,
-    nativeOp: { version: "v2", revision, type, inputs, properties: {}, profileCollection: true },
+    nativeOp: { revision, type, inputs, properties: {}, profileCollection: true },
   };
 }
 function workflow(operators = [op("source"), op("answer", ["source"])]): WorkflowContent {

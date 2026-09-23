@@ -17,10 +17,23 @@
  * under the License.
  */
 
-import Ajv from "ajv";
+/**
+ * The `dataflow` tool of native mode: one program, many operators.
+ *
+ *   dataflow({ program: "greece = filter(roman_cities, lambda row: ...)\n...", observe: ["greece"] })
+ *
+ * Every assignment in the program is an upsert by name. Statements may appear
+ * in any order and refer to each other or to existing operators; the shared
+ * `ToolCallScheduler` applies them in dependency order, one post-step
+ * execution follows, and only the tables named in `observe` show their
+ * contents. A batch is not atomic: a rejected statement fails alone and its
+ * dependents are blocked, while independent statements still land.
+ */
+
 import { jsonSchema, tool } from "ai";
 import type { ReActStep } from "../../types/agent";
-import { nativeOperators, type NativeCatalogVersion } from "../native/catalog";
+import { NATIVE_BY_NAME, NATIVE_OPERATOR_NAMES, type NativeOpView } from "../native/catalog";
+import { compileProgram, type ProgramStatement } from "../native/program";
 import type { WorkflowState } from "../workflow-state";
 import type { ToolContext } from "./workflow-crud-tools";
 import { createErrorResult } from "./tools-utility";
@@ -28,23 +41,24 @@ import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
 import {
-  createNativeTypedTools,
-  nativeInputsOf,
-  nativeToolDescription,
-  nativeToolName,
-  nativeToolSchema,
-  rejectedNativeViewOf,
+  applyNativeOperator,
+  createNativeDeleteTool,
+  deleteNativeOperator,
   TOOL_NAME_NATIVE_DELETE,
-} from "./native-typed-tools";
+} from "./native-upsert";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
+export { TOOL_NAME_NATIVE_DELETE };
 
 export interface NativeBatchOutcome {
   id: string;
+  /** Surface operator name (`filter`), or whatever was written when unknown. */
   op: string;
   status: "added" | "modified" | "error" | "blocked";
   message: string;
   diagnostic?: NativeDiagnostic;
+  /** For error/blocked outcomes: the definition as written, for diagnostics. */
+  attempted?: NativeOpView;
 }
 
 /** Stored as the tool result on the owning ReAct event. Observation choices
@@ -75,102 +89,59 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
   return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
 }
 
-/** Schematic object signatures, generated from the same catalog as validation.
- * The deprecated scan.columns field only exists to issue a migration error;
- * don't advertise it as an available scan operation. */
-export function nativeBatchCatalogText(version: NativeCatalogVersion = "v1"): string {
-  return nativeOperators(version)
-    .map(def => {
-      const schema = nativeToolSchema(def) as { properties: Record<string, unknown>; required: string[] };
-      const fields = Object.keys(schema.properties)
-        .filter(name => !(def.type === "Scan" && name === "columns"))
-        .map(name => (schema.required.includes(name) ? name : `${name}?`));
-      // Full semantics are already attached to the tool schema. Keep only the
-      // field index here instead of paying for the same descriptions twice.
-      return `{op: "${nativeToolName(def.type)}", ${fields.join(", ")}}`;
-    })
-    .join("\n");
+export interface DataflowInput {
+  program: string;
+  observe?: string[];
 }
 
-/** `op` discriminates catalog variants; `type` remains available for join kind. */
-export function nativeBatchSchema(version: NativeCatalogVersion = "v1"): Record<string, unknown> {
+export function nativeBatchSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
     properties: {
-      operators: {
-        type: "array",
+      program: {
+        type: "string",
         description:
-          "One stage of the dataflow. Each item is an upsert by id, using the parameters of its op. Batch whole dependent chains and branches: input ids can reference existing operators or any item in this batch, regardless of array order. Use [] to request already-computed results without edits.",
-        items: {
-          anyOf: nativeOperators(version).map(def => {
-            const schema = nativeToolSchema(def) as any;
-            return {
-              ...schema,
-              description: nativeToolDescription(def),
-              properties: { op: { type: "string", const: nativeToolName(def.type) }, ...schema.properties },
-              required: ["op", ...schema.required],
-            };
-          }),
-        },
+          "The dataflow, one `name = operator(...)` assignment per operator plus any `def` functions they use. Names are the tables; positional arguments are the input tables; keyword arguments are the parameters (see the operator reference in the instructions). Reusing a name revises that operator and keeps its consumers. Statements may reference each other in any order. An empty program reads cached results.",
       },
       observe: {
         type: "array",
         items: { type: "string" },
         description:
-          "Explicitly list every operator id whose result content you want to see, including existing or re-executed downstream operators. Omitted or [] returns compact receipts only, with no successful table bodies. All edits still execute; errors always appear. Use operators:[] with observe to retrieve cached results later.",
+          "Names of every table whose contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. All statements still execute; errors always appear.",
       },
     },
-    required: ["operators"],
+    required: ["program"],
   };
 }
 
-const ajv = new Ajv({ allErrors: true, strict: false });
-const versionValidators = new Map<NativeCatalogVersion, Map<string, ReturnType<typeof ajv.compile>>>();
-function validatorsFor(version: NativeCatalogVersion) {
-  let validators = versionValidators.get(version);
-  if (!validators) {
-    validators = new Map(
-      nativeOperators(version).map(def => [nativeToolName(def.type), ajv.compile(nativeToolSchema(def))])
-    );
-    versionValidators.set(version, validators);
-  }
-  return validators;
-}
+export const DATAFLOW_TOOL_DESCRIPTION =
+  "Build or revise the dataflow with a program of `name = operator(...)` assignments (operators: " +
+  NATIVE_OPERATOR_NAMES.join(", ") +
+  "). Batch a whole dependent chain in one call; the scheduler orders it. List in `observe` the tables whose contents you need; omitted/[] hides successes but never errors. An empty program with `observe` reads cached results. A rejected statement fails alone; its dependents are blocked; independent statements still land.";
 
-/** Explicit mixed-operator batching. The existing typed upsert implementation
- * owns compilation and wiring; the normal post-step path owns execution. */
-export function createNativeBatchTools(
-  state: WorkflowState,
-  context?: ToolContext,
-  version: NativeCatalogVersion = "v1"
-): Record<string, any> {
-  const typed = createNativeTypedTools(state, context, version);
-  const validators = validatorsFor(version);
-  const repair = version === "v2" ? (context?.nativeValidationRepair ?? new NativeValidationRepair()) : undefined;
-  const schemas = new Map(nativeOperators(version).map(def => [nativeToolName(def.type), nativeToolSchema(def)]));
-  const deleteTool = typed[TOOL_NAME_NATIVE_DELETE];
+/**
+ * The two tools of native mode: `dataflow` and `deleteOperator`. The existing
+ * upsert (`native-upsert.ts`) owns compilation and wiring; the normal post-step
+ * path owns execution.
+ */
+export function createNativeTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
+  const repair = context?.nativeValidationRepair ?? new NativeValidationRepair();
   return {
     [TOOL_NAME_NATIVE_DELETE]: {
-      ...deleteTool,
+      ...createNativeDeleteTool(state),
       execute: async (args: { id: string }) => {
-        const result = await deleteTool.execute(args);
-        if (typeof result === "string" && !result.startsWith("[ERROR]")) repair?.clear(args.id);
+        const result = deleteNativeOperator(state, args.id);
+        if (!result.startsWith("[ERROR]")) repair.clear(args.id);
         return result;
       },
     },
     [TOOL_NAME_DATAFLOW]: tool({
-      description:
-        version === "v2"
-          ? "Build or revise a stage using the Python V2 catalog. Batch dependent chains, forward references and existing-DAG edits in one call; the shared scheduler resolves their order. Explicitly list result IDs in observe; omitted/[] hides successes but never errors. operators:[] observes cached data without execution. Independent valid edits can succeed when another edit fails; its dependents are blocked."
-          : "Build or revise a whole dataflow stage in one call. operators is a heterogeneous array: {op:'scan',id,files,...}, {op:'filter',id,input,predicate}, {op:'aggregate',id,input,aggregations,...}, etc. Batch dependent chains and branches to avoid extra round trips when inputs and operations are known. The shared tool-call scheduler orders upserts by dependency, including forward references. Successful edits trigger one post-step execution phase; disconnected branches may use separate backend requests. Explicitly include ids in observe to receive result content; omitted or [] gives receipts only. Failures remain visible for all operators. Independent valid operators still land when another item fails; dependents of a refused edit are blocked. Use operators:[] with observe to read cached results without re-execution.",
-      inputSchema: jsonSchema<{ operators: Array<Record<string, unknown>>; observe?: string[] }>(
-        nativeBatchSchema(version) as any
-      ),
+      description: DATAFLOW_TOOL_DESCRIPTION,
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema() as any),
       execute: async args => {
-        const repairEpoch = repair?.epoch;
+        const repairEpoch = repair.epoch;
         if (
-          version === "v2" &&
           state
             .getAllOperators()
             .some(
@@ -181,91 +152,73 @@ export function createNativeBatchTools(
             "Profile collection differs from this workflow's compiled operators; use a fresh agent and workflow."
           );
         }
-        if (state.getAllOperators().some(op => (op.nativeOp?.version ?? "v1") !== version)) {
-          return createErrorResult(
-            `Cannot mix native catalog versions; this batch is ${version}. Use a separate workflow or an explicit migration.`
-          );
-        }
         if (
-          !Array.isArray(args?.operators) ||
+          typeof args?.program !== "string" ||
           (args.observe !== undefined &&
             (!Array.isArray(args.observe) || args.observe.some(id => typeof id !== "string")))
         ) {
-          return createErrorResult("dataflow requires operators: array and optional observe: string[]");
+          return createErrorResult("dataflow requires program: string and optional observe: string[]");
         }
-        const specs = args.operators.map((spec, index) => {
-          const { op, ...params } = spec && typeof spec === "object" ? spec : {};
-          return {
-            index,
-            op: typeof op === "string" ? op : "",
-            id: typeof params.id === "string" ? params.id : "",
-            params,
-          };
+        const compiled = await compileProgram(args.program, {
+          profileCollection: context?.settings?.nativeProfileCollection === true,
         });
-        const outcomes: Array<NativeBatchOutcome | undefined> = specs.map(() => undefined);
+        if (!compiled.ok) {
+          return createErrorResult(
+            `Program syntax error at line ${compiled.error.line}${compiled.error.column ? `, column ${compiled.error.column}` : ""}: ${compiled.error.message}. Nothing was changed. Write one \`name = operator(...)\` per line plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`
+          );
+        }
+        const statements: ProgramStatement[] = compiled.statements;
+        const outcomes: Array<NativeBatchOutcome | undefined> = statements.map(() => undefined);
         const fail = (
           index: number,
           message: string,
           status: "error" | "blocked" = "error",
           diagnostic = parseNativeDiagnostic(message)
         ) => {
+          const statement = statements[index];
           outcomes[index] = {
-            id: specs[index].id,
-            op: specs[index].op,
+            id: statement.id,
+            op: statement.op,
             status,
             message: diagnostic ? formatNativeDiagnostic(diagnostic) : message,
+            attempted: statement.attempted,
             ...(diagnostic ? { diagnostic } : {}),
           };
         };
         const byId = new Map<string, number>();
-        for (const spec of specs) {
-          if (byId.has(spec.id)) {
-            fail(byId.get(spec.id)!, `Duplicate id '${spec.id}' in one batch; submit each id once.`);
-            fail(spec.index, `Duplicate id '${spec.id}' in one batch; submit each id once.`);
-          } else byId.set(spec.id, spec.index);
+        for (const [index, statement] of statements.entries()) {
+          if (byId.has(statement.id)) {
+            const message = `\`${statement.id}\` is assigned twice in one program; define each table once.`;
+            fail(byId.get(statement.id)!, message);
+            fail(index, message);
+          } else byId.set(statement.id, index);
         }
-        for (const spec of specs) {
-          if (outcomes[spec.index]) continue;
-          const paused = repair?.blocked(spec.op, spec.params);
+        for (const [index, statement] of statements.entries()) {
+          if (outcomes[index]) continue;
+          const params = repairParams(statement);
+          const paused = repair.blocked(statement.op, params);
           if (paused) {
-            fail(spec.index, "", "error", {
-              ...paused,
-              operatorRevision: rejectedNativeViewOf(spec.op, spec.params).revision!,
-            });
+            fail(index, "", "error", { ...paused, operatorRevision: statement.attempted.revision! });
             continue;
           }
-          const validate = validators.get(spec.op);
-          if (!validate) fail(spec.index, `Unknown op '${spec.op}'. Available: ${[...validators.keys()].join(", ")}.`);
-          else if (!validate(spec.params)) {
-            const errors = validate.errors ?? [];
-            const fieldOf = (error: (typeof errors)[number]) => {
-              const name = error.params.missingProperty ?? error.params.additionalProperty;
-              return `${error.instancePath}${name ? `/${name}` : ""}` || "parameters";
-            };
-            const message = `Invalid ${spec.op} parameters: ${errors
-              .map(
-                e =>
-                  `${repair ? fieldOf(e) : e.instancePath || "parameters"} ${e.message}${repair && e.params.allowedValues ? `: ${JSON.stringify(e.params.allowedValues)}` : ""}`
-              )
-              .slice(0, 4)
-              .join("; ")}`;
-            const diagnostic = repair?.record(
-              spec.op,
-              spec.params,
+          if (statement.error) {
+            const diagnostic = repair.record(
+              statement.op,
+              params,
               {
                 version: 1,
-                operatorId: spec.id,
-                operatorRevision: rejectedNativeViewOf(spec.op, spec.params).revision!,
+                operatorId: statement.id,
+                operatorRevision: statement.attempted.revision!,
                 code: "INVALID_ARGUMENTS",
                 stage: "validate",
-                message,
-                field: errors[0] ? fieldOf(errors[0]) : "parameters",
+                message: statement.error.message,
+                field: statement.error.field ?? "arguments",
                 retryable: false,
               },
-              schemas.get(spec.op)!,
-              JSON.stringify(errors.map(e => [e.instancePath, e.keyword, e.params]).sort())
+              NATIVE_BY_NAME.get(statement.op)?.signature ?? `one of ${NATIVE_OPERATOR_NAMES.join(", ")}`,
+              JSON.stringify(["validate", "INVALID_ARGUMENTS", statement.error.field ?? "arguments"])
             );
-            fail(spec.index, message, "error", diagnostic);
+            fail(index, statement.error.message, "error", diagnostic);
           }
         }
 
@@ -280,12 +233,13 @@ export function createNativeBatchTools(
               .map(l => l.source.operatorID),
           ])
         );
-        for (const spec of specs) if (!outcomes[spec.index]) inputs.set(spec.id, nativeInputsOf(spec.op, spec.params));
-        for (const spec of specs) {
-          if (outcomes[spec.index]) continue;
-          for (const id of inputs.get(spec.id) ?? []) {
+        for (const [index, statement] of statements.entries())
+          if (!outcomes[index]) inputs.set(statement.id, statement.view!.inputs);
+        for (const [index, statement] of statements.entries()) {
+          if (outcomes[index]) continue;
+          for (const id of inputs.get(statement.id) ?? []) {
             if (!inputs.has(id) && !byId.has(id))
-              fail(spec.index, `Input operator '${id}' does not exist or appear in this batch.`);
+              fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
           }
         }
         const visited = new Set<string>();
@@ -304,17 +258,16 @@ export function createNativeBatchTools(
           stack.pop();
         };
         for (const id of inputs.keys()) checkCycle(id);
-        for (const spec of specs)
-          if (cycle.has(spec.id) && !outcomes[spec.index])
-            fail(spec.index, `Edit creates a dataflow cycle involving '${spec.id}'.`);
+        for (const [index, statement] of statements.entries())
+          if (cycle.has(statement.id) && !outcomes[index])
+            fail(index, `Edit creates a dataflow cycle involving \`${statement.id}\`.`);
 
-        // Resolve batch producers through unchanged existing nodes too. This
-        // supplies edges to the SAME scheduler used for parallel tool calls;
-        // it does not determine execution order itself. Keep the resolved edges
-        // for failure propagation so an old upstream version cannot mask a
-        // refused revision.
+        // Resolve producers through unchanged existing nodes too. This supplies
+        // edges to the SAME scheduler used for parallel tool calls; it does not
+        // determine execution order itself. Keep the resolved edges for failure
+        // propagation so an old upstream version cannot mask a refused revision.
         const dependenciesById = new Map<string, string[]>();
-        for (const spec of specs) {
+        for (const statement of statements) {
           const seen = new Set<string>();
           const dependencies: string[] = [];
           const collect = (id: string) => {
@@ -323,39 +276,43 @@ export function createNativeBatchTools(
             if (byId.has(id)) dependencies.push(id);
             else for (const up of inputs.get(id) ?? []) collect(up);
           };
-          for (const id of inputs.get(spec.id) ?? []) collect(id);
-          dependenciesById.set(spec.id, dependencies);
+          for (const id of inputs.get(statement.id) ?? []) collect(id);
+          dependenciesById.set(statement.id, dependencies);
         }
         const apply = async (index: number): Promise<void> => {
           if (outcomes[index]) return;
-          const spec = specs[index];
-          for (const id of dependenciesById.get(spec.id) ?? []) {
+          const statement = statements[index];
+          for (const id of dependenciesById.get(statement.id) ?? []) {
             const outcome = outcomes[byId.get(id)!];
             if (!outcome || outcome.status === "error" || outcome.status === "blocked") {
               fail(
                 index,
-                `Input '${id}' was not updated successfully in this batch; dependent edit skipped.`,
+                `Input \`${id}\` was not updated successfully in this program; dependent statement skipped.`,
                 "blocked"
               );
               return;
             }
           }
           try {
-            const existed = !!state.getOperator(spec.id);
-            const result = await typed[spec.op].execute(spec.params);
-            const message = typeof result === "string" ? result : JSON.stringify(result);
+            const existed = !!state.getOperator(statement.id);
+            const message = await applyNativeOperator(state, context, statement.id, statement.view!);
             if (message.startsWith("[ERROR]")) {
               let diagnostic = parseNativeDiagnostic(message);
               if (
-                repair?.epoch === repairEpoch &&
+                repair.epoch === repairEpoch &&
                 diagnostic &&
                 (diagnostic.stage === "validate" || diagnostic.stage === "compile")
               )
-                diagnostic = repair?.record(spec.op, spec.params, diagnostic, schemas.get(spec.op)!) ?? diagnostic;
+                diagnostic = repair.record(
+                  statement.op,
+                  repairParams(statement),
+                  diagnostic,
+                  NATIVE_BY_NAME.get(statement.op)?.signature ?? statement.op
+                );
               fail(index, message.slice(8), "error", diagnostic);
             } else {
-              if (repair?.epoch === repairEpoch) repair?.clear(spec.id);
-              outcomes[index] = { id: spec.id, op: spec.op, status: existed ? "modified" : "added", message };
+              if (repair.epoch === repairEpoch) repair.clear(statement.id);
+              outcomes[index] = { id: statement.id, op: statement.op, status: existed ? "modified" : "added", message };
             }
           } catch (error: any) {
             fail(index, error?.message ?? String(error));
@@ -363,24 +320,24 @@ export function createNativeBatchTools(
         };
         const scheduler = new ToolCallScheduler({
           parseDeps: (_toolName, input) => dependenciesById.get(input.id) ?? [],
+          producedOpId: (_toolName, input) => input.id,
         });
         // Submit together, just like SDK parallel calls. The scheduler itself
-        // serializes the actual mutations in stable topological order. This is
-        // internal scheduling, not provider parallel tool calling or execution.
+        // serializes the actual mutations in stable topological order.
         await Promise.all(
-          specs.map(spec =>
+          statements.map((statement, index) =>
             scheduler
-              .wrap(spec.op, {
-                execute: (_input: unknown, _options: unknown) => apply(spec.index),
+              .wrap(statement.op, {
+                execute: (_input: unknown, _options: unknown) => apply(index),
               })
-              .execute(spec.params, undefined)
+              .execute({ id: statement.id }, undefined)
           )
         );
         const requested = args.observe ?? [];
         const observationErrors: string[] = [];
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
-          observationErrors.push(`Cannot observe '${id}': operator does not exist.`);
+          observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
           return false;
         });
         return {
@@ -392,4 +349,11 @@ export function createNativeBatchTools(
       },
     }),
   };
+}
+
+/** What identifies a submission for the repeat-failure throttle: the name, the
+ * inputs and the normalized parameters (never the raw text, so whitespace does
+ * not defeat the check). */
+function repairParams(statement: ProgramStatement): Record<string, unknown> {
+  return { id: statement.id, inputs: statement.attempted.inputs, ...statement.attempted.properties };
 }

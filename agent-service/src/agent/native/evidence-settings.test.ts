@@ -20,14 +20,13 @@
 import { expect, test } from "bun:test";
 import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summarize/params";
-import { nativeBatchCatalogText, nativeBatchSchema } from "../tools/native-batch-tools";
-import { nativeOperators } from "./catalog";
+import { NATIVE_OPERATORS, nativeCatalogText } from "./catalog";
 import { profileDiff } from "./selection";
 import { parseRolePolicyConfig } from "../context/selector/role-policy";
 import { TexeraAgent } from "../texera-agent";
-import { validateNativeCatalogSettings } from "./settings";
+import { validateNativeSettings } from "./settings";
 
-const native = { agentMode: AgentMode.NATIVE, nativeToolMode: "batch", nativeCatalogVersion: "v2" };
+const native = { agentMode: AgentMode.NATIVE };
 const removed = [
   "flowLevel",
   "dataLevel",
@@ -39,12 +38,12 @@ const removed = [
   "statScopes",
 ];
 
-test("catalog lists all operations without duplicating their tool signatures", () => {
-  const catalog = nativeBatchCatalogText("v2");
-  expect(catalog.split("\n")).toHaveLength(nativeOperators("v2").length);
-  expect(catalog).not.toContain(" — ");
-  const variants = (nativeBatchSchema("v2") as any).properties.operators.items.anyOf;
-  expect(variants.map((variant: any) => variant.description)).toEqual(nativeOperators("v2").map(op => op.signature));
+test("the prompt's operator reference lists every operator's signature once", () => {
+  const catalog = nativeCatalogText();
+  for (const def of NATIVE_OPERATORS) {
+    expect(catalog.split(`= ${def.signature}`)).toHaveLength(2);
+    expect(catalog).toContain(def.doc);
+  }
 });
 
 test("nested rendering overrides cannot restore old evidence channels", () => {
@@ -83,7 +82,7 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
 
 for (const key of removed) {
   test(`creation rejects removed ${key} rather than silently migrating it`, () => {
-    expect(() => validateNativeCatalogSettings({ ...native, [key]: false })).toThrow(/removed/i);
+    expect(() => validateNativeSettings({ ...native, [key]: false })).toThrow(/removed/i);
   });
   test(`live update rejects removed ${key} atomically`, () => {
     const agent = new TexeraAgent({
@@ -128,7 +127,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
 for (const key of ["dataEvidence", "flowEvidence"]) {
   test(`${key} is a boolean, never a truthy level or string`, () => {
     for (const value of [1, "true", null]) {
-      expect(() => validateNativeCatalogSettings({ ...native, [key]: value })).toThrow(/boolean/);
+      expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(/boolean/);
     }
   });
 }

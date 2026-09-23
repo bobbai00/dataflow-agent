@@ -99,7 +99,7 @@ export class NativeValidationRepair {
     op: string,
     params: Record<string, unknown>,
     diagnostic: NativeDiagnostic,
-    schema: Record<string, unknown>,
+    signature: string,
     pattern = JSON.stringify([diagnostic.stage, diagnostic.code, diagnostic.field])
   ): NativeDiagnostic {
     const id = diagnostic.operatorId;
@@ -124,7 +124,7 @@ export class NativeValidationRepair {
         // source text in the existing private diagnostic record only.
         ...(source ? { source: { ...source, excerpt: "" } } : {}),
       },
-      example: JSON.stringify({ op, ...(nativeSchemaExample(schema) as object) }),
+      example: signature,
     };
     entry.submissions.set(fingerprint(op, params), failure);
     return count >= 2 ? this.render(failure, count, false) : diagnostic;
@@ -151,14 +151,14 @@ export class NativeValidationRepair {
 
   private render(failure: Failure, count: number, blocked: boolean): NativeDiagnostic {
     const prefix = `${blocked ? "Identical invalid submission paused" : `Repeated validation failure (${count})`}: `;
-    const example = `\nSchema example: ${failure.example}`;
+    const example = `\nSignature: ${failure.example}`;
     // Preserve the complete schema example inside the diagnostic renderer's
     // 400-character message allowance; field/hint have their own allowances.
     const detail = failure.diagnostic.message.slice(0, Math.max(0, 400 - prefix.length - example.length));
     return {
       ...failure.diagnostic,
       message: `${prefix}${detail}${example}`,
-      hint: "Needs inspection: call inspectError for this operator's current diagnostic, or submit corrected arguments. Replace example placeholders with real names/source.",
+      hint: "Needs inspection: call inspectError for this operator's current diagnostic, or submit corrected arguments that follow the signature.",
       retryable: false,
     };
   }

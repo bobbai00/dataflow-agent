@@ -56,7 +56,6 @@ function fixture(type = "Filter", properties: Record<string, unknown> = { column
     showAdvanced: false,
     nativeOp: {
       type: kind,
-      version: "v2",
       revision: "0123456789abcdef",
       inputs,
       properties: props,
@@ -126,7 +125,7 @@ function fixture(type = "Filter", properties: Record<string, unknown> = { column
     inputOperators: inputs,
     inputRows: inputs.map(() => 5),
     outputRows: 3,
-    operations: type === "Filter" ? { keptRows: 3, rejectedRows: 2, nullPredicates: 1 } : {},
+    operations: type === "Filter" ? { keptRows: 3, rejectedRows: 2, nullPredicates: 1, predicateColumns: ["x"] } : {},
   };
   return { op, info, workflow, results, resolveInput: (id: string) => results.get(id) };
 }
@@ -438,13 +437,13 @@ test("equijoin distinguishes matched output contribution from row and key covera
 });
 
 test("projection/derive guarantees are contractual, UDF remains unknown at equal row counts", () => {
-  for (const kind of ["Project", "Transform", "Derive", "FillNull", "Cast", "Sort"]) {
+  for (const kind of ["Project", "Map", "FillNull", "Cast", "Sort"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
     f.info.tableProfile!.native!.outputRows = 5;
     expect(collectNativeEvidence(f).facts.find(x => x.id === "flow.contract")?.kind).toBe("guarantee");
   }
-  const f = fixture("UDF");
+  const f = fixture("Process");
   f.info.totalRowCount = 5;
   expect(factText(f)).toContain("row/column mapping unknown");
   expect(factText(f)).not.toContain("row identities preserved");
@@ -496,7 +495,7 @@ test("unknown or truncated data is never labelled a complete table", () => {
 });
 
 test("true null, literal NULL, unsafe int64 and reserved-looking user columns survive rendering", () => {
-  const f = fixture("UDF");
+  const f = fixture("Process");
   f.info.totalRowCount = 1;
   f.info.truncated = false;
   f.info.resultSchema = [
@@ -551,15 +550,25 @@ test("downstream dependencies cross renames and derives without parsing callback
   };
   downstream("pass", "Project", "answer", {});
   downstream("project", "Project", "pass", { rename: { z_amount: "amount" } });
-  downstream("derive", "Derive", "project", {
-    columns: [{ as: "total", inputs: ["amount"], func: "lambda value: value * 2" }],
+  downstream("derive", "Map", "project", {
+    columns: [{ as: "total", dtype: "int64", func: "lambda value: value * 2", entry: "apply" }],
   });
+  // A map's dependencies are measured when it runs, so lineage needs its result.
+  const derived = structuredClone(f.info);
+  derived.tableProfile!.native = {
+    operatorType: "Map",
+    inputOperators: ["project"],
+    inputRows: [3],
+    outputRows: 3,
+    operations: { columnDependencies: { total: ["amount"] } },
+  } as any;
+  f.results.set("derive", derived);
   downstream("filter", "Filter", "derive", { columns: ["total"] });
   const selection = observe(f, { flow: false, maxChars: 550 });
   expect(selection.selected).toContain("data.column.z_amount.counts");
   expect(selection.text).not.toContain("lambda");
   // Opaque UDF code cannot establish column lineage, even if names match.
-  f.workflow.operators[1].nativeOp!.type = "UDF";
+  f.workflow.operators[1].nativeOp!.type = "Process";
   f.workflow.operators[1].nativeOp!.properties = { code: "secret callback" };
   expect(observe(f, { flow: false, maxChars: 550 }).selected).not.toContain("data.column.z_amount.counts");
 });
@@ -670,7 +679,7 @@ test("upstream summaries stop at stale edges and opaque UDFs", () => {
   f.info.resultVersion!.inputs[0].resultVersion = "older";
   expect(observe(f).text).not.toContain("account");
   f.info.resultVersion!.inputs[0].resultVersion = f.results.get("left")!.resultVersion!.id;
-  f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!.type = "UDF";
+  f.workflow.operators.find(op => op.operatorID === "left")!.nativeOp!.type = "Process";
   const text = observe(f).text;
   expect(text).toContain("mapping unknown");
   expect(text).not.toContain("groups=5 from 10 rows");
@@ -679,7 +688,7 @@ test("upstream summaries stop at stale edges and opaque UDFs", () => {
 
 test("an observed UDF itself is an opaque calculation boundary", () => {
   const f = calculationFixture();
-  f.op.nativeOp!.type = "UDF";
+  f.op.nativeOp!.type = "Process";
   const selection = observe(f);
   expect(selection.text).toContain("mapping unknown");
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(false);

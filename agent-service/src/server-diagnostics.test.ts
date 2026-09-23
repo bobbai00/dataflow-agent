@@ -98,7 +98,7 @@ async function create() {
     {
       modelType: "test",
       workflowId: 17,
-      settings: { agentMode: "native", nativeToolMode: "batch", nativeCatalogVersion: "v2" },
+      settings: { agentMode: "native" },
     },
     token()
   );
@@ -127,8 +127,10 @@ test("diagnostic endpoint fails closed on missing credentials, forged signatures
 
 test("authorized diagnostic inspection is pinned, bounded and read-only; ordinary snapshots omit private records", async () => {
   const id = await create();
+  // A variadic loader passes the catalog's arity check and fails Python's
+  // signature contract: a per-statement, revision-pinned attempt diagnostic.
   const args = {
-    operators: [{ op: "udf", id: "answer", inputs: [], code: "def process():\n    return ORIGINAL_FAILURE +" }],
+    program: "def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer)",
     observe: [],
   };
   const debug = await createdAgent.handleDebugInput(

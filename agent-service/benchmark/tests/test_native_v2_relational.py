@@ -161,7 +161,8 @@ def test_join_empty_cross_missing_keys_mismatched_types_and_suffix_collision():
         ({}, "JOIN_KEYS"),
         ({"type": "cross", "on": "id"}, "JOIN_KEYS"),
         ({"on": "missing"}, "MISSING_COLUMN"),
-        ({"on": "id", "rightSuffix": ""}, "COLUMN_COLLISION"),
+        ({"on": "id", "rightSuffix": ""}, "JOIN_ARGUMENT"),
+        ({"on": "id", "type": "semi"}, "JOIN_ARGUMENT"),
     ]:
         with pytest.raises(runtime.NativeError, match=code):
             execute("Join", left, right, **properties)
@@ -181,8 +182,11 @@ def test_union_strict_align_null_columns_and_port_order():
     assert list(aligned.columns) == ["a", "b", "c"] and len(aligned) == 3
     assert rows(aligned)[2] == {"a": None, "b": None, "c": True}
     assert aligned.attrs["native_v2"]["operations"]["alignedMissingColumns"] == [["c"], ["a", "b"]]
-    with pytest.raises(runtime.NativeError, match="UNION_SCHEMA"):
-        execute("Union", left, pd.DataFrame({"a": [2]}))
+    with pytest.raises(runtime.NativeError, match="UNION_SCHEMA") as union_error:
+        execute("Union", left, pd.DataFrame({"a": [2], "z": [0]}))
+    union_message = json.loads(str(union_error.value).split("NATIVE_ERROR_V2:", 1)[1])["message"]
+    assert "input 2 lacks ['b']; input 2 adds ['z']" in union_message
+    assert 'schema="align"' in union_message
     with pytest.raises(runtime.NativeError, match="UNION_TYPE"):
         execute("Union", left, right.astype({"a": "string"}))
 
@@ -213,8 +217,14 @@ def test_multiple_sort_keys_and_null_placement_are_stable():
 
 
 def test_float_infinity_cannot_silently_become_a_null_in_json_transport():
-    with pytest.raises(runtime.NativeError, match="OUTPUT_VALUE_TYPE"):
+    with pytest.raises(runtime.NativeError, match="INPUT_VALUE_TYPE"):
         execute("Union", pd.DataFrame({"x": [float("inf")]}), pd.DataFrame({"x": [1.0]}))
+    with pytest.raises(runtime.NativeError, match="CALLBACK_RETURN_TYPE"):
+        execute(
+            "Map",
+            pd.DataFrame({"x": [1.0]}),
+            columns=[{"as": "y", "dtype": "float64", "func": "def apply(row):\n    return float('inf')"}],
+        )
 
 
 def test_join_and_union_do_not_round_nullable_object_integers():

@@ -18,42 +18,34 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import Ajv from "ajv";
-import { createNativeBatchTools, nativeBatchSchema, type NativeBatchResult } from "./native-batch-tools";
-import { WorkflowState } from "../workflow-state";
-import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { type NativeBatchResult } from "./native-batch-tools";
 import { TexeraAgent, computeOperatorAccess } from "../texera-agent";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
+import { nativeTestTools } from "../native/test-support";
 
 function setup() {
-  const state = new WorkflowState();
-  const metadata = new WorkflowSystemMetadata();
-  metadata.seedCodeModeDefaults();
-  const tools = createNativeBatchTools(state, { metadataStore: metadata });
-  const execute = (args: Record<string, unknown>): Promise<NativeBatchResult> => tools.dataflow.execute(args);
-  return { state, execute };
+  const { state, tools } = nativeTestTools();
+  const execute = (program: string, observe?: string[]): Promise<NativeBatchResult | string> =>
+    tools.dataflow.execute({ program, ...(observe !== undefined ? { observe } : {}) });
+  const batch = async (program: string, observe?: string[]): Promise<NativeBatchResult> => {
+    const result = await execute(program, observe);
+    if (typeof result === "string") throw new Error(result);
+    return result;
+  };
+  return { state, tools, execute, batch };
 }
 
-const scan = { op: "scan", id: "source", files: "data/test.csv" };
-const filter = { op: "filter", id: "selected", input: "source", predicate: "x > 0" };
-const aggregate = { op: "aggregate", id: "total", input: "selected", aggregations: [{ fn: "count" }] };
+const scan = 'source = scan("data/test.csv")';
+const filter = 'selected = filter(source, lambda row: row["x"] is not None and row["x"] > 0)';
+const aggregate = "total = aggregate(selected, n=count())";
 
-describe("native batch tools", () => {
-  test("schema retains typed catalog parameters without colliding with join.type", () => {
-    const validate = new Ajv({ strict: false }).compile(nativeBatchSchema());
-    expect(
-      validate({ operators: [scan, { op: "join", id: "pairs", left: "a", right: "b", type: "left", on: "id" }] })
-    ).toBe(true);
-    expect(validate({ operators: [{ ...filter, unsupported: true }] })).toBe(false);
-    expect(validate({ operators: [{ op: "filter", id: "x", input: "source" }] })).toBe(false);
-  });
-
-  test("one heterogeneous batch orders forward references without implicitly observing any output", async () => {
-    const { execute, state } = setup();
-    const result = await execute({ operators: [aggregate, filter, scan] });
+describe("native dataflow tool", () => {
+  test("one program orders forward references without implicitly observing any output", async () => {
+    const { batch, state } = setup();
+    const result = await batch([aggregate, filter, scan].join("\n"));
     expect(result.operators.map(o => [o.id, o.status])).toEqual([
       ["total", "added"],
       ["selected", "added"],
@@ -62,86 +54,129 @@ describe("native batch tools", () => {
     expect(result.observe).toEqual([]);
     expect(state.getAllOperators().map(o => o.operatorID)).toEqual(["source", "selected", "total"]);
     expect(state.getAllLinks().length).toBe(2);
+    // The definition travels with the operator, as written.
+    expect(state.getOperator("selected")?.nativeOp?.source).toBe(filter);
+    expect(state.getOperator("selected")?.nativeOp?.type).toBe("Filter");
+    expect(state.getOperator("selected")?.nativeOp?.properties.entry).toBe("apply");
   });
 
   test("explicit empty observations suppress display, retaining all edits and their receipts", async () => {
-    const { execute, state } = setup();
-    const result = await execute({ operators: [scan, filter, aggregate], observe: [] });
+    const { batch, state } = setup();
+    const result = await batch([scan, filter, aggregate].join("\n"), []);
     expect(result.observe).toEqual([]);
     expect(result.operators.every(o => o.status === "added")).toBe(true);
     expect(state.getAllOperators()).toHaveLength(3);
   });
 
-  test("upserts keep downstream consumers, and observe can request an unchanged existing output", async () => {
-    const { execute, state } = setup();
-    await execute({ operators: [scan, filter, aggregate] });
-    const result = await execute({ operators: [{ ...filter, predicate: "x > 10" }], observe: ["total", "source"] });
+  test("reassigning a name revises the operator, keeps its consumers, and observe may name unchanged tables", async () => {
+    const { batch, state } = setup();
+    await batch([scan, filter, aggregate].join("\n"));
+    const revised = filter.replace("> 0", "> 10");
+    const result = await batch(revised, ["total", "source"]);
     expect(result.operators[0].status).toBe("modified");
     expect(result.observe).toEqual(["total", "source"]);
-    expect(state.getOperator("selected")?.nativeOp?.properties.predicate).toBe("x > 10");
+    expect(state.getOperator("selected")?.nativeOp?.properties.func).toContain("> 10");
     expect(state.getAllLinks().some(l => l.source.operatorID === "selected" && l.target.operatorID === "total")).toBe(
       true
     );
-    const read = await execute({ operators: [], observe: ["source", "missing"] });
+    const read = await batch("", ["source", "missing"]);
+    expect(read.operators).toEqual([]);
     expect(read.observe).toEqual(["source"]);
     expect(read.observationErrors[0]).toContain("missing");
   });
 
-  test("invalid upstream revision blocks dependents instead of using the previous version, while independent work lands", async () => {
-    const { execute, state } = setup();
-    await execute({ operators: [scan, filter] });
-    const result = await execute({
-      operators: [aggregate, { ...filter, predicate: 5 }, { op: "scan", id: "other", files: "data/other.csv" }],
-    });
+  test("an invalid statement fails alone, blocks its dependents, and leaves the old revision in place", async () => {
+    const { batch, state } = setup();
+    await batch([scan, filter].join("\n"));
+    const result = await batch(
+      [aggregate, "selected = filter(source, 5)", 'other = scan("data/other.csv")'].join("\n")
+    );
     expect(result.operators.map(o => o.status)).toEqual(["blocked", "error", "added"]);
     expect(result.operators[0].message).toContain("selected");
+    expect(result.operators[1].message).toContain("fn must be a lambda or the name of a function");
+    expect(result.operators[1].message).toContain("Signature: filter(T, fn");
+    expect(result.operators[1].attempted?.type).toBe("Filter");
     expect(state.getOperator("total")).toBeUndefined();
-    expect(state.getOperator("selected")?.nativeOp?.properties.predicate).toBe("x > 0");
+    expect(state.getOperator("selected")?.nativeOp?.properties.func).toContain("> 0");
   });
 
-  test("duplicate IDs and cycles are refused before mutation, including cycles through old operators", async () => {
-    const { execute, state } = setup();
-    await execute({ operators: [scan, filter, aggregate] });
-    const cyclic = await execute({ operators: [{ ...filter, input: "total" }] });
+  test("duplicate names and cycles are refused before mutation, including cycles through old operators", async () => {
+    const { batch, state } = setup();
+    await batch([scan, filter, aggregate].join("\n"));
+    const cyclic = await batch('selected = filter(total, lambda row: row["n"] > 0)');
     expect(cyclic.operators[0].status).toBe("error");
     expect(cyclic.operators[0].message).toContain("cycle");
     expect(state.getOperator("selected")?.nativeOp?.inputs).toEqual(["source"]);
-    const duplicate = await execute({ operators: [scan, scan] });
+    const duplicate = await batch([scan, scan].join("\n"));
     expect(duplicate.operators.every(o => o.status === "error")).toBe(true);
-    const fresh = await execute({
-      operators: [
-        { ...filter, id: "a", input: "b" },
-        { ...filter, id: "b", input: "a" },
-        { ...scan, id: "other" },
-      ],
-    });
+    expect(duplicate.operators[0].message).toContain("assigned twice");
+    const fresh = await batch(
+      ["a = filter(b, lambda row: True)", "b = filter(a, lambda row: True)", 'other = scan("data/o.csv")'].join("\n")
+    );
     expect(fresh.operators.map(o => o.status)).toEqual(["error", "error", "added"]);
     expect(state.getOperator("a")).toBeUndefined();
   });
 
-  test("agent batch mode exposes batch and delete only, and forces provider parallel calls off", () => {
+  test("an input table that exists nowhere is refused with its name, before anything lands", async () => {
+    const { batch, state } = setup();
+    const result = await batch(["a = limit(ghost, 1)", "b = limit(a, 1)"].join("\n"));
+    expect(result.operators.map(o => o.status)).toEqual(["error", "blocked"]);
+    expect(result.operators[0].message).toContain("Input table `ghost` does not exist");
+    expect(result.operators[1].message).toContain("Input `a` was not updated successfully");
+    expect(state.getAllOperators()).toHaveLength(0);
+  });
+
+  test("a syntax error rejects the whole program with its line and changes nothing", async () => {
+    const { execute, state } = setup();
+    const result = await execute(`${scan}\nselected = filter(source, lambda row: row["x"] >\n`);
+    expect(typeof result).toBe("string");
+    expect(result).toContain("[ERROR]");
+    expect(result).toMatch(/syntax error at line \d+/);
+    expect(result).toContain("Nothing was changed");
+    expect(state.getAllOperators()).toHaveLength(0);
+  });
+
+  test("unknown operators list the catalog and explain the common slip of writing the name as the operator", async () => {
+    const { batch } = setup();
+    const result = await batch(
+      [
+        scan,
+        "greece = greece(source)",
+        "other = compute(source, x=1)",
+        "def helper(row):\n    return True",
+        "kept = helper(source)",
+      ].join("\n")
+    );
+    expect(result.operators.map(o => o.status)).toEqual(["added", "error", "error", "error"]);
+    expect(result.operators[1].message).toContain("Unknown operator `greece`");
+    expect(result.operators[1].message).toContain("goes on the right-hand side");
+    expect(result.operators[2].message).toContain("Available: scan, project, cast");
+    expect(result.operators[3].message).toContain("is a function you defined");
+    expect(result.operators[1].attempted?.type).toBe("Unknown");
+  });
+
+  test("agent native mode exposes dataflow, deleteOperator and inspectError, and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
-      agentId: "batch-test",
+      agentId: "native-tools-test",
       modelType: "test",
       driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
       contextAssembler: () => [],
     });
-    agent.updateSettings({ agentMode: AgentMode.NATIVE, nativeToolMode: "batch", parallelToolCalls: true });
+    agent.updateSettings({ agentMode: AgentMode.NATIVE, parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
-    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator"]);
-    expect(agent.getSettings().systemPrompt).toContain("operators");
+    expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow", "deleteOperator", "inspectError"]);
+    expect(agent.getSettings().systemPrompt).toContain("= filter(T, fn");
     expect(agent.getSettings().systemPrompt).toContain("observe");
-    expect(agent.getSettings().systemPrompt).not.toContain("parallel tool calls");
-    agent.updateSettings({ nativeToolMode: "typed", parallelToolCalls: true });
-    expect((agent as any).tools.scan).toBeDefined();
+    agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
+    expect((agent as any).tools.createOrModifyOperator).toBeDefined();
     expect((agent as any).tools.dataflow).toBeUndefined();
     expect(agent.getSettings().parallelToolCalls).toBe(true);
   });
 });
 
-describe("batch observation history", () => {
-  test("historical native DELTA inspection evidence keeps its saved event after later actions", async () => {
-    const { execute, state } = setup();
+describe("dataflow observation history", () => {
+  function history() {
+    const { batch, state } = setup();
     const steps: ReActStep[] = [];
     const storage = new WorkflowSnapshotStorage(id =>
       steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
@@ -162,14 +197,24 @@ describe("batch observation history", () => {
       });
       storage.createSnapshot(id, state.getWorkflowContent());
     };
+    const dataflow = async (id: string, program: string, observe: string[] = []) => {
+      const input = { program, observe };
+      const output = await batch(program, observe);
+      record(id, "dataflow", input, output);
+      return output;
+    };
+    return { batch, state, steps, storage, record, dataflow };
+  }
+
+  test("historical native DELTA inspection evidence keeps its saved event after later actions", async () => {
+    const { state, steps, storage, record, dataflow } = history();
     const render = (mode = ContextMode.DELTA, messageLayout: "native" | "block" = "native") =>
       assembleContext(steps, state, storage, mode, {
         agentMode: AgentMode.NATIVE,
         resultSelection: "all",
         messageLayout,
       });
-    const args = { operators: [scan], observe: [] };
-    record("s1", "dataflow", args, await execute(args));
+    await dataflow("s1", scan, []);
     let cached: OperatorInfo = {
       state: "Completed",
       inputTuples: 0,
@@ -193,10 +238,7 @@ describe("batch observation history", () => {
     expect(JSON.stringify(frame)).toContain("first_pull_sample_marker");
     expect(JSON.stringify(frame)).toContain("distinct=90");
     expect(JSON.stringify(before)).not.toContain("# Inspections");
-    // A later upsert changes both the live result and operator definition, but
-    // the original inspection is an immutable output of the earlier tool call.
-    const revision = { operators: [{ ...scan, files: "data/revised.csv" }], observe: [] };
-    record("s3", "dataflow", revision, await execute(revision));
+    await dataflow("s3", 'source = scan("data/revised.csv")', []);
     cached = { ...cached, result: [{ value: "second_pull_sample_marker" }] };
     storage.setOperatorResult("s3", "source", cached);
     expect(render().slice(0, before.length)).toEqual(before);
@@ -213,69 +255,38 @@ describe("batch observation history", () => {
 
   for (const scenario of [
     {
-      name: "typed properties",
-      original: { op: "distinct", id: "broken", input: "source", columns: ["Source"] },
-      revision: { op: "distinct", id: "broken", input: "source", columns: ["source"] },
-      failedDefinition: 'Operator properties: {"columns":["Source"]}',
-      currentDefinition: 'Operator properties: {"columns":["source"]}',
+      name: "typed arguments",
+      original: 'broken = distinct(source, columns=["Source"])',
+      revision: 'broken = distinct(source, columns=["source"])',
     },
     {
-      name: "UDF source code",
-      original: {
-        op: "udf",
-        id: "broken",
-        inputs: ["source"],
-        code: 'def process(source):\n    raise RuntimeError("old failure")',
-      },
-      revision: {
-        op: "udf",
-        id: "broken",
-        inputs: ["source"],
-        code: "def process(source):\n    return source.copy()",
-      },
-      failedDefinition: 'raise RuntimeError("old failure")',
-      currentDefinition: "return source.copy()",
+      name: "process source code",
+      original: 'def broken_fn(source):\n    raise RuntimeError("old failure")\nbroken = process(source, fn=broken_fn)',
+      revision: "def broken_fn(source):\n    return source.copy()\nbroken = process(source, fn=broken_fn)",
     },
   ]) {
-    test(`DELTA binds failed ${scenario.name} to the event after revision and deletion`, async () => {
-      const { execute, state } = setup();
-      const steps: ReActStep[] = [];
-      const storage = new WorkflowSnapshotStorage(id =>
-        steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
-      );
-      const record = (id: string, toolName: string, input: unknown, output: unknown) => {
-        steps.push({
-          id,
-          parentId: steps.at(-1)?.id,
-          messageId: "m",
-          stepId: steps.length + 1,
-          timestamp: 1,
-          role: "agent",
-          content: "",
-          isBegin: false,
-          isEnd: false,
-          toolCalls: [{ toolName, toolCallId: id, input }],
-          toolResults: [{ toolCallId: id, output }],
-        });
-        storage.createSnapshot(id, state.getWorkflowContent());
-      };
-      const firstToolFrame = () => {
+    test(`DELTA binds a failed ${scenario.name} definition to its event after revision and deletion`, async () => {
+      const { state, steps, storage, record, dataflow } = history();
+      const frames = () => {
         const messages = assembleContext(steps, state, storage, ContextMode.DELTA, {
           agentMode: AgentMode.NATIVE,
           resultSelection: "all",
           messageLayout: "native",
         });
+        const call = messages
+          .filter(m => m.role === "assistant")
+          .flatMap(m => (Array.isArray(m.content) ? m.content : []))
+          .find(p => p.type === "tool-call" && p.toolCallId === "s1");
         const result = messages
           .filter(m => m.role === "tool")
           .flatMap(m => (Array.isArray(m.content) ? m.content : []))
           .find(p => p.type === "tool-result" && p.toolCallId === "s1");
+        expect(call).toBeDefined();
         expect(result).toBeDefined();
-        return JSON.stringify(result);
+        return { call: JSON.stringify(call), result: JSON.stringify(result) };
       };
-      const firstArgs = { operators: [scan, scenario.original], observe: [] };
-      const first = await execute(firstArgs);
+      const first = await dataflow("s1", `${scan}\n${scenario.original}`, []);
       expect(first.operators.every(o => o.status === "added")).toBe(true);
-      record("s1", "dataflow", firstArgs, first);
       storage.setOperatorResult("s1", "broken", {
         state: "Failed",
         inputTuples: 0,
@@ -283,29 +294,24 @@ describe("batch observation history", () => {
         resultMode: "table",
         error: "original_failure_marker",
       });
-      const before = firstToolFrame();
-      // JSON escapes the native tool result, so normalize both expected strings
-      // the same way without depending on the observation's indentation.
-      expect(before).toContain("original_failure_marker");
-      expect(before).toContain(scenario.failedDefinition.replaceAll('"', '\\"'));
-      expect(before).not.toContain(scenario.currentDefinition.replaceAll('"', '\\"'));
-      const revisedArgs = { operators: [scenario.revision], observe: [] };
-      const revised = await execute(revisedArgs);
-      expect(revised.operators[0].status).toBe("modified");
-      record("s2", "dataflow", revisedArgs, revised);
-      expect(firstToolFrame()).toBe(before);
+      const before = frames();
+      // The event's tool call carries the definition the model wrote; the
+      // failure sits in that event's result. Neither moves when the definition
+      // is later revised or the operator deleted.
+      expect(before.call).toContain(JSON.stringify(scenario.original).slice(1, -1));
+      expect(before.call).not.toContain(JSON.stringify(scenario.revision).slice(1, -1));
+      expect(before.result).toContain("original_failure_marker");
+      const revised = await dataflow("s2", scenario.revision, []);
+      expect(revised.operators.at(-1)!.status).toBe("modified");
+      expect(frames()).toEqual(before);
       expect(state.deleteOperator("broken")).toBe(true);
       record("s3", "deleteOperator", { id: "broken" }, "deleted");
-      expect(firstToolFrame()).toBe(before);
+      expect(frames()).toEqual(before);
     });
   }
 
   test("DELTA keeps each request at its event, shows hidden execution receipts and errors, and supports cached observations", async () => {
-    const { execute, state } = setup();
-    const steps: ReActStep[] = [];
-    const storage = new WorkflowSnapshotStorage(id =>
-      steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)
-    );
+    const { state, steps, storage, dataflow } = history();
     const info = (id: string, value: string, error?: string) =>
       ({
         operatorID: id,
@@ -315,34 +321,16 @@ describe("batch observation history", () => {
         result: [{ value }],
         error,
       }) as unknown as OperatorInfo;
-    const add = async (id: string, args: Record<string, unknown>, results: Record<string, OperatorInfo>) => {
-      const output = await execute(args);
-      steps.push({
-        id,
-        parentId: steps.at(-1)?.id,
-        messageId: "m",
-        stepId: steps.length + 1,
-        timestamp: 1,
-        role: "agent",
-        content: "",
-        isBegin: false,
-        isEnd: false,
-        toolCalls: [{ toolName: "dataflow", toolCallId: id, input: args }],
-        toolResults: [{ toolCallId: id, output }],
-      });
-      storage.createSnapshot(id, state.getWorkflowContent());
+    const add = async (id: string, program: string, observe: string[], results: Record<string, OperatorInfo>) => {
+      const output = await dataflow(id, program, observe);
       for (const [opId, result] of Object.entries(results)) storage.setOperatorResult(id, opId, result);
       return output;
     };
-    const first = await add(
-      "s1",
-      { operators: [scan, filter, aggregate], observe: ["total"] },
-      {
-        source: info("source", "hidden_source"),
-        selected: info("selected", "hidden_selected"),
-        total: info("total", "shown_total"),
-      }
-    );
+    const first = await add("s1", [scan, filter, aggregate].join("\n"), ["total"], {
+      source: info("source", "hidden_source"),
+      selected: info("selected", "hidden_selected"),
+      total: info("total", "shown_total"),
+    });
     const render = (mode = ContextMode.DELTA) =>
       assembleContext(steps, state, storage, mode, { agentMode: AgentMode.NATIVE, resultSelection: "all" })
         .map(m => m.content)
@@ -353,18 +341,15 @@ describe("batch observation history", () => {
     expect(before).not.toContain("hidden_selected");
     expect(before).toContain("result not requested");
     expect(before).not.toContain("(not executed)");
-    expect(before).toContain('properties: {"predicate":"x > 0"}');
+    // The action is the program as written.
+    expect(before).toContain(filter);
     expect(computeOperatorAccess(steps[0].toolCalls, steps[0].toolResults)?.[0].addedOperatorIds.sort()).toEqual([
       "selected",
       "source",
       "total",
     ]);
     expect(first.observe).toEqual(["total"]);
-    await add(
-      "s2",
-      { operators: [{ op: "scan", id: "bad", files: "bad.csv" }], observe: ["source"] },
-      { bad: info("bad", "", "file missing") }
-    );
+    await add("s2", 'bad = scan("bad.csv")', ["source"], { bad: info("bad", "", "file missing") });
     const after = render();
     expect(after).toContain("hidden_source");
     expect(after).toContain("file missing");

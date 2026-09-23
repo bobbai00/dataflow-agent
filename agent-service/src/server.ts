@@ -21,11 +21,7 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { TexeraAgent } from "./agent/texera-agent";
-import {
-  NativeCatalogSettingsError,
-  validateNativeCatalogSettings,
-  validateEvidenceSettings,
-} from "./agent/native/settings";
+import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import {
   operatorInfoToSummary,
   type OperatorResultSummary as OperatorResultSummaryWs,
@@ -598,10 +594,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     maxOperatorEdits: agentSettings.maxOperatorEdits,
-    allowedOperatorTypes: agentSettings.allowedOperatorTypes,
     agentMode: agentSettings.agentMode,
-    nativeToolMode: agentSettings.nativeToolMode,
-    nativeCatalogVersion: agentSettings.nativeCatalogVersion,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     dataEvidence: agentSettings.dataEvidence,
     flowEvidence: agentSettings.flowEvidence,
@@ -810,7 +803,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         throw new Error("Invalid or expired token");
       }
 
-      validateNativeCatalogSettings(settings);
+      validateNativeSettings(settings);
 
       const userInfo = extractUserFromToken(userToken);
       const delegateConfig: AgentDelegateConfig = {
@@ -843,10 +836,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
             maxSteps: settings.maxSteps,
             maxOperatorEdits: settings.maxOperatorEdits,
-            allowedOperatorTypes: settings.allowedOperatorTypes,
             agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-            nativeToolMode: settings.nativeToolMode,
-            nativeCatalogVersion: settings.nativeCatalogVersion,
             nativeProfileCollection: settings.nativeProfileCollection,
             dataEvidence: settings.dataEvidence,
             flowEvidence: settings.flowEvidence,
@@ -892,6 +882,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             indexDetailedOperators: (settings as any).indexDetailedOperators,
             enableResumeTool: (settings as any).enableResumeTool,
             enableAnswerGrounding: (settings as any).enableAnswerGrounding,
+            seedSources: (settings as any).seedSources,
             messageLayout: (settings as any).messageLayout,
             versionedMode: (settings as any).versionedMode,
             versionedHeads: (settings as any).versionedHeads,
@@ -930,10 +921,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             disabledTools: t.Optional(t.Array(t.String())),
             maxSteps: t.Optional(t.Number()),
             maxOperatorEdits: t.Optional(t.Number()),
-            allowedOperatorTypes: t.Optional(t.Array(t.String())),
-            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
-            nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
-            nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
+            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
             nativeProfileCollection: t.Optional(t.Boolean()),
             dataEvidence: t.Optional(t.Boolean()),
             flowEvidence: t.Optional(t.Boolean()),
@@ -979,6 +967,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             indexDetailedOperators: t.Optional(t.Number()),
             enableResumeTool: t.Optional(t.Boolean()),
             enableAnswerGrounding: t.Optional(t.Boolean()),
+            seedSources: t.Optional(t.Boolean()),
             messageLayout: t.Optional(t.String()),
             versionedMode: t.Optional(t.Boolean()),
             versionedHeads: t.Optional(t.Boolean()),
@@ -1166,15 +1155,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource } = body as {
+      const { content, messageSource, sources } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
+        sources?: string[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource);
+      const result = await agent.sendMessage(content, messageSource, { sources });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1191,6 +1181,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
+        sources: t.Optional(t.Array(t.String())),
       }),
     }
   )
@@ -1305,10 +1296,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         maxOperatorEdits: settings.maxOperatorEdits,
-        allowedOperatorTypes: settings.allowedOperatorTypes,
         agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
-        nativeToolMode: settings.nativeToolMode,
-        nativeCatalogVersion: settings.nativeCatalogVersion,
         nativeProfileCollection: settings.nativeProfileCollection,
         dataEvidence: settings.dataEvidence,
         flowEvidence: settings.flowEvidence,
@@ -1364,10 +1352,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         maxSteps: t.Optional(t.Number()),
         maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
-        allowedOperatorTypes: t.Optional(t.Array(t.String())),
-        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("general"), t.Literal("native")])),
-        nativeToolMode: t.Optional(t.Union([t.Literal("typed"), t.Literal("batch")])),
-        nativeCatalogVersion: t.Optional(t.Union([t.Literal("v1"), t.Literal("v2")])),
+        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
         nativeProfileCollection: t.Optional(t.Boolean()),
         dataEvidence: t.Optional(t.Boolean()),
         flowEvidence: t.Optional(t.Boolean()),
@@ -1415,6 +1400,8 @@ interface WsMessage {
   type: "message" | "stop" | "debug";
   content?: string;
   messageSource?: "chat" | "feedback";
+  /** Seeded source roots: the task's input files/globs (see `seedSources`). */
+  sources?: string[];
 }
 
 interface WsOutgoingMessage {
@@ -1573,7 +1560,9 @@ export function buildApp() {
           broadcastToAgent(agentId, { type: "state", state: "GENERATING" });
 
           try {
-            const result = await agent.sendMessage(msg.content, msg.messageSource);
+            const result = await agent.sendMessage(msg.content, msg.messageSource, {
+              sources: Array.isArray(msg.sources) ? msg.sources.filter(s => typeof s === "string") : undefined,
+            });
 
             agent.setStepCallback(null);
             agent.setSnapshotCallback(null);

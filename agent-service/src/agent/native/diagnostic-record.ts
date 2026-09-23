@@ -56,7 +56,7 @@ export interface DiagnosticCapture {
 function sourceAt(op: OperatorPredicate, diagnostic: NativeDiagnostic): { field: string; text: string } | undefined {
   const view = op.nativeOp;
   if (!view || view.revision !== diagnostic.operatorRevision || op.operatorID !== diagnostic.operatorId) return;
-  const field = diagnostic.field ?? (view.type === "UDF" ? "code" : undefined);
+  const field = diagnostic.field ?? (view.type === "Process" ? "code" : undefined);
   let source: unknown;
   if (field === "code" || field === "func") source = view.properties[field];
   else {

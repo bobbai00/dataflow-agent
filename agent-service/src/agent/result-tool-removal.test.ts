@@ -35,13 +35,7 @@ function agent() {
 test("inspectResult cannot be enabled in any mode or by live settings changes", async () => {
   const subject = agent();
   expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-  const configurations = [
-    { agentMode: AgentMode.GENERAL, nativeCatalogVersion: "v1" as const, nativeToolMode: "typed" as const },
-    { agentMode: AgentMode.CODE, nativeCatalogVersion: "v1" as const, nativeToolMode: "typed" as const },
-    { agentMode: AgentMode.NATIVE, nativeCatalogVersion: "v1" as const, nativeToolMode: "typed" as const },
-    { agentMode: AgentMode.NATIVE, nativeCatalogVersion: "v1" as const, nativeToolMode: "batch" as const },
-    { agentMode: AgentMode.NATIVE, nativeCatalogVersion: "v2" as const, nativeToolMode: "batch" as const },
-  ];
+  const configurations = [{ agentMode: AgentMode.CODE }, { agentMode: AgentMode.NATIVE }];
   for (const config of [...configurations, ...configurations.toReversed()]) {
     for (const contextMode of [ContextMode.DELTA, ContextMode.LATEST]) {
       for (const enableInspectTool of [false, true]) {
@@ -53,7 +47,7 @@ test("inspectResult cannot be enabled in any mode or by live settings changes", 
         await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
           "not found"
         );
-        expect(info.tools.some(tool => tool.name === "inspectError")).toBe(config.nativeCatalogVersion === "v2");
+        expect(info.tools.some(tool => tool.name === "inspectError")).toBe(config.agentMode === AgentMode.NATIVE);
         subject.updateSettings({ maxSteps: 20 });
         expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
       }
@@ -63,12 +57,7 @@ test("inspectResult cannot be enabled in any mode or by live settings changes", 
 
 test("initialization and delegate rebuilds cannot restore result inspection", async () => {
   const subject = agent();
-  subject.updateSettings({
-    agentMode: AgentMode.NATIVE,
-    nativeToolMode: "batch",
-    nativeCatalogVersion: "v2",
-    enableInspectTool: true,
-  });
+  subject.updateSettings({ agentMode: AgentMode.NATIVE, enableInspectTool: true });
   const metadata = WorkflowSystemMetadata.getInstance();
   const initialized = spyOn(metadata, "isInitialized").mockReturnValue(true);
   try {
@@ -99,12 +88,7 @@ test("the model driver receives no result-inspection schema", async () => {
       },
     },
   });
-  subject.updateSettings({
-    agentMode: AgentMode.NATIVE,
-    nativeToolMode: "batch",
-    nativeCatalogVersion: "v2",
-    enableInspectTool: true,
-  });
+  subject.updateSettings({ agentMode: AgentMode.NATIVE, enableInspectTool: true });
   await subject.sendMessage("Answer without executing a workflow.");
   expect(dispatchedTools).toBeDefined();
   expect(dispatchedTools).not.toContain("inspectResult");
@@ -114,13 +98,10 @@ test("the model driver receives no result-inspection schema", async () => {
 test("legacy prompt-builder inspection flags cannot advertise a removed tool", () => {
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     expect(buildCodeModeSystemPrompt(mode, false, true)).toBe(buildCodeModeSystemPrompt(mode, false, false));
-    for (const resultSelection of ["all", "rule", "scoped"] as const) {
-      for (const layout of [{}, { batch: true }, { batch: true, nativeCatalogVersion: "v2" as const }]) {
-        const prompt = buildNativeModeSystemPrompt(mode, true, resultSelection, layout);
-        expect(prompt).not.toContain("inspectResult");
-        expect(prompt).toBe(buildNativeModeSystemPrompt(mode, false, resultSelection, layout));
-        if (layout.batch) expect(prompt).toContain("observe");
-      }
+    for (const layout of [{}, { recall: true }, { messageLayout: "opBlock" as const }]) {
+      const prompt = buildNativeModeSystemPrompt(mode, layout);
+      expect(prompt).not.toContain("inspectResult");
+      expect(prompt).toContain("observe");
     }
   }
 });

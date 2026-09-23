@@ -72,9 +72,12 @@ export interface OperatorPredicate {
     type: string;
     properties: Record<string, unknown>;
     inputs: string[];
-    version?: "v1" | "v2";
     revision?: string;
     profileCollection?: boolean;
+    /** The assignment as the model wrote it (`x = filter(...)`). */
+    source?: string;
+    /** Top-level `def` sources the statement refers to, by name. */
+    functions?: Record<string, string>;
   };
 }
 

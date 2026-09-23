@@ -30,14 +30,14 @@ import pandas as pd
 loader = importlib.util.spec_from_file_location('native_runtime', sys.argv[1])
 r = importlib.util.module_from_spec(loader)
 loader.loader.exec_module(r)
-spec = dict(version='v2', id='consumer', revision='0123456789abcdef', type='UDF', inputs=['producer'], properties={'code': "def process(producer):\\n    raise RuntimeError('CALLBACK_MUST_NOT_RUN')"})
+spec = dict(id='consumer', revision='0123456789abcdef', type='Process', inputs=['producer'], properties={'code': "def process(producer):\\n    raise RuntimeError('CALLBACK_MUST_NOT_RUN')", 'entry': 'process'})
 diagnostics = []
 for frame in [pd.DataFrame({'geometry': [{'nested': 1}]}), pd.DataFrame({'x': [float('inf')]}), pd.DataFrame([[1]], columns=[7])]:
     try:
         r.execute_native(spec, [frame])
     except r.NativeError as error:
         diagnostics.append(error.diagnostic)
-source = dict(spec, id='source', inputs=[], properties={'code': "def load():\\n    import pandas as pd\\n    return pd.DataFrame({'geometry': [{'nested': 1}]})"})
+source = dict(spec, id='source', inputs=[], properties={'code': "def load():\\n    import pandas as pd\\n    return pd.DataFrame({'geometry': [{'nested': 1}]})", 'entry': 'load'})
 try:
     r.execute_native(source, [])
 except r.NativeError as error:

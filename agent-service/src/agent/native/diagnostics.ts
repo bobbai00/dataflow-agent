@@ -79,21 +79,71 @@ function clipped(value: string, limit: number): string {
   return value.length <= limit ? value : value.slice(0, Math.max(0, limit - marker.length)) + marker;
 }
 
-const REPAIR_HINTS: Record<string, string> = {
+/** Repair hint per code, rendered after the message in every receipt. */
+export const REPAIR_HINTS: Record<string, string> = {
+  // Program / arguments
+  INVALID_ARGUMENTS: "Fix the named argument to match the signature; nothing about the data has been checked yet.",
+  OPERATOR_UNAVAILABLE: "Use one of the catalog operators; the engine has no other implementation.",
+  OPERATOR_ID: "Table names are Python identifiers: letters, digits and underscores, not starting with a digit.",
+  INPUT_PORTS: "Pass exactly the number of input tables this operator takes, as positional arguments.",
+  DTYPE: "Use one of str, int64, float64, bool, datetime.",
+  PROJECT_OPTIONS: "Use keep OR drop (not both) and/or rename; each names existing columns.",
+  CAST_OPTIONS: 'format and timezone apply to datetime only; errors is "raise" or "null".',
+  FILL_ARGUMENT: "Pass values as column=value keywords for the columns to fill.",
+  FILTER_ARGUMENT: 'nulls is "drop", "keep" or "error"; it decides what a None predicate result means.',
+  AGGREGATE_ARGUMENT: "Every output is name=reducer(col); only count() may omit the column.",
+  JOIN_ARGUMENT: "how is inner/left/right/full/cross; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
+  JOIN_KEYS: "Name the keys explicitly with on=; a cross join takes none. Keys are never inferred.",
+  UNION_ARGUMENT: 'schema is "strict" (identical columns) or "align" (absent columns become null).',
+  DISTINCT_ARGUMENT: 'keep is "first" or "last"; columns lists the key columns, or omit it for whole-row distinct.',
+  SORT_ARGUMENT: 'by lists column names or (column, "asc"|"desc") pairs; nulls is "first" or "last".',
+  LIMIT_ARGUMENT: "n is a positive integer and offset a non-negative one; sort first for a top-k.",
+  WINDOW_ARGUMENT: "Outputs are name=lag/lead(col, offset) or name=row_number/rank/dense_rank(); order_by is required.",
+  SPLIT_ARGUMENT: "Give at least two output names and a nonempty literal separator.",
+  EXPLODE_ARGUMENT: 'empty is "drop" or "null_row".',
+  UNPIVOT_ARGUMENT: "List the columns to unpivot; name and value are the two new columns.",
+  PIVOT_ARGUMENT: "index, columns and values must be distinct existing columns; aggregate first if pairs repeat.",
+  SCAN_OPTIONS: "Check the scan options against the signature; names needs header=False.",
+  SCAN_FORMAT: "Set format= explicitly when the extension does not identify the file type.",
+  // Custom code
   PYTHON_SYNTAX: "Repair the submitted Python source at the reported line.",
   CALLBACK_SIGNATURE: "Use the entry/signature required by this operator; do not change generated code.",
   CALLBACK_RUNTIME: "Repair the submitted function and relevant input handling before retrying.",
   CALLBACK_RETURN_TYPE: "Return the declared scalar type or None, not a table or truthy substitute.",
-  UNDECLARED_COLUMN: "Declare every callback input column and use its exact name.",
-  CAST_INVALID_VALUE: "Normalize the input or explicitly choose errors:null if losing those values is intended.",
+  FILTER_NULL: 'Return True/False for every row, or set nulls="drop"/"keep" to decide what None means.',
+  PYTHON_IMPORT: "Check package availability or import names; changing a predicate will not install a package.",
+  PROCESS_RETURN_TYPE: "Return one pandas DataFrame from the process function.",
+  OUTPUT_SCHEMA: "Return unique string column names.",
+  OUTPUT_VALUE_TYPE:
+    "Return scalar cells of one type per column: finite numbers, strings, booleans, UTC datetimes or None.",
+  ROW_CONTRACT: "This operator must keep every input row; use filter or process to change the row count.",
+  // Data (execute / contract)
   MISSING_COLUMN: "Observe the current input schema and update the referenced column.",
   COLUMN_COLLISION: "Choose unique output names; do not silently overwrite another column.",
+  CAST_INVALID_VALUE: 'Normalize the input or explicitly choose errors="null" if losing those values is intended.',
+  FILL_TYPE: "Fill with a value of the column's type.",
+  AGGREGATE_TYPE: "Cast the column to a numeric type first; sum/mean/stddev/median need numbers.",
+  AGGREGATE_RANGE: "The reduced value does not fit the output type; use float64 or a smaller population.",
+  JOIN_TYPE: "Cast both key columns to the same type before joining.",
   JOIN_CARDINALITY: "Inspect key uniqueness and the intended join; do not silently deduplicate.",
+  UNION_SCHEMA: 'Project or rename the inputs to identical columns, or use schema="align".',
+  UNION_TYPE: "Cast the named column to one type in every input before union.",
+  SPLIT_TYPE: "split works on a string column; cast first if intended.",
+  EXPLODE_JSON: "The column must hold JSON-array strings; repair or filter the malformed rows.",
+  EXPLODE_TYPE: "explode needs a flat JSON array of one scalar type per row; normalize nested data first.",
+  UNPIVOT_TYPE: "Cast the selected columns to one type before unpivot.",
+  PIVOT_NULL_KEY: "Filter or fill the null pivot keys first; decide what they mean.",
   PIVOT_DUPLICATE: "Aggregate first only if combining duplicate pairs is intended.",
-  PYTHON_IMPORT: "Check package availability or import names; changing a predicate will not install a package.",
+  SCAN_NOT_FOUND: "Check the path or glob against the listed data files.",
+  SCAN_HEADER: "Preview the raw lines, then set skip_lines/header/names to match the file layout.",
+  SCAN_NAMES: "Provide exactly one name per column.",
+  SCAN_PARSE:
+    "Preview the raw lines and set delim/skip_lines/encoding to match; malformed rows are not skipped silently.",
+  // Producer boundary
   INPUT_VALUE_TYPE: "Repair the producing operator's values; the consumer function has not run.",
   INPUT_SCHEMA: "Repair the producing operator's column names; the consumer function has not run.",
   INPUT_TABLE_TYPE: "The producing operator must return a pandas DataFrame.",
+  UPSTREAM_FAILED: "Repair the root failure named in the message; this consumer did not run.",
 };
 
 /** Verify structured source attribution against the event's operator definition.
