@@ -42,10 +42,15 @@ import {
 } from "./catalog";
 import { nativeRevision, runNativePython } from "./codegen";
 
+/** One statement (or def) that did not parse or is not `name = operator(...)`.
+ * Reported at its line; the rest of the program is unaffected. */
 export interface ProgramSyntaxError {
   line: number;
   column?: number | null;
   message: string;
+  /** The assigned name when the broken statement has one (`x = ...`), else null. */
+  id?: string | null;
+  source?: string;
 }
 
 export interface ProgramStatement {
@@ -60,9 +65,13 @@ export interface ProgramStatement {
   attempted: NativeOpView;
 }
 
-export type ProgramResult =
-  | { ok: true; statements: ProgramStatement[]; functions: Record<string, ParsedFunction> }
-  | { ok: false; error: ProgramSyntaxError };
+export interface ProgramResult {
+  ok: true;
+  statements: ProgramStatement[];
+  functions: Record<string, ParsedFunction>;
+  /** Statements that did not parse, in line order; the others were compiled. */
+  errors: ProgramSyntaxError[];
+}
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map<string, ReturnType<typeof ajv.compile>>();
@@ -75,13 +84,14 @@ function validatorFor(name: string) {
   return validate;
 }
 
-/** Parse only: the Python subset's syntax tree, or a positioned syntax error. */
-export async function parseNativeProgram(
-  program: string
-): Promise<
-  | { ok: true; statements: ParsedStatement[]; functions: Record<string, ParsedFunction> }
-  | { ok: false; error: ProgramSyntaxError }
-> {
+/** Parse only: the Python subset's statements and functions, plus the
+ * statements that did not parse (each positioned, each independent). */
+export async function parseNativeProgram(program: string): Promise<{
+  ok: true;
+  statements: ParsedStatement[];
+  functions: Record<string, ParsedFunction>;
+  errors: ProgramSyntaxError[];
+}> {
   return (await runNativePython({ program })) as any;
 }
 
@@ -169,10 +179,10 @@ export async function compileProgram(
   options: { profileCollection?: boolean } = {}
 ): Promise<ProgramResult> {
   const parsed = await parseNativeProgram(program);
-  if (!parsed.ok) return parsed;
   return {
     ok: true,
     statements: parsed.statements.map(statement => normalizeStatement(statement, parsed.functions, options)),
     functions: parsed.functions,
+    errors: parsed.errors ?? [],
   };
 }

@@ -240,7 +240,7 @@ describe("error taxonomy rendering", () => {
     for (const match of runtime.matchAll(/_error\(\s*spec,\s*"([A-Z_]+)"/g)) codes.add(match[1]);
     for (const match of runtime.matchAll(/"(INPUT_[A-Z_]+)"/g)) codes.add(match[1]);
     codes.add("SCAN_OPTIONS"); // raised through the local `reject` helper
-    for (const code of ["INVALID_ARGUMENTS", "UPSTREAM_FAILED"]) codes.add(code);
+    for (const code of ["INVALID_ARGUMENTS", "UPSTREAM_FAILED", "PROGRAM_SYNTAX"]) codes.add(code);
     const missing = [...codes].filter(code => !REPAIR_HINTS[code]);
     expect(missing).toEqual([]);
     expect(codes.size).toBeGreaterThan(40);

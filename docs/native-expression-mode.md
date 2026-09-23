@@ -65,8 +65,9 @@ average_greece_rank = aggregate(greece_numeric_rank, average_rank=mean("numeric_
 5. A column whose name is not an identifier is addressed by string:
    `row["Acres Burned"]`, `**{"Acres Burned": float64}`.
 
-A syntax error anywhere fails the whole call ("Program syntax error at line
-N … Nothing was changed"). An argument error fails only its statement.
+A statement that does not parse fails alone (`PROGRAM_SYNTAX` at its line,
+its dependents blocked, the other statements landed). An argument error
+fails only its statement.
 
 ## The tool
 
@@ -156,7 +157,7 @@ The layers, in the order a statement passes through them:
 
 | Layer | Stage | Catches | Codes |
 |---|---|---|---|
-| Program parse | syntax | the whole call is refused, nothing lands | `Program syntax error at line N, column M` |
+| Program parse | validate | the statement that does not parse fails at its line; dependents blocked; the rest lands | `PROGRAM_SYNTAX` |
 | Argument normalizer (TypeScript) | validate | unknown keyword, enum, type, table count, undefined function, non-window function; carries the signature | `INVALID_ARGUMENTS` |
 | Runtime validate (Python, no data) | validate / compile | argument rules, Python syntax, entry signature, duplicate outputs | `*_ARGUMENT`, `*_OPTIONS`, `DTYPE`, `INPUT_PORTS`, `OPERATOR_ID`, `COLUMN_COLLISION`, `PYTHON_SYNTAX`, `CALLBACK_SIGNATURE` |
 | Runtime execute (Python, with data) | execute / contract | missing columns, value and type failures, custom-code failures, output contract | `MISSING_COLUMN`, `SCAN_*`, `CAST_INVALID_VALUE`, `FILL_TYPE`, `FILTER_NULL`, `CALLBACK_*`, `PYTHON_IMPORT`, `AGGREGATE_TYPE/RANGE`, `JOIN_TYPE/CARDINALITY`, `UNION_SCHEMA/TYPE`, `SPLIT_TYPE`, `EXPLODE_JSON/TYPE`, `UNPIVOT_TYPE`, `PIVOT_NULL_KEY/DUPLICATE`, `PROCESS_RETURN_TYPE`, `OUTPUT_SCHEMA`, `OUTPUT_VALUE_TYPE`, `ROW_CONTRACT` |

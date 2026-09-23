@@ -162,13 +162,32 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         const compiled = await compileProgram(args.program, {
           profileCollection: context?.settings?.nativeProfileCollection === true,
         });
-        if (!compiled.ok) {
-          return createErrorResult(
-            `Program syntax error at line ${compiled.error.line}${compiled.error.column ? `, column ${compiled.error.column}` : ""}: ${compiled.error.message}. Nothing was changed. Write one \`name = operator(...)\` per line plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`
-          );
-        }
         const statements: ProgramStatement[] = compiled.statements;
         const outcomes: Array<NativeBatchOutcome | undefined> = statements.map(() => undefined);
+        // A statement that did not parse fails alone, at its line; the rest of
+        // the program lands. Its dependents are blocked below like any other
+        // failed input.
+        const syntaxIds = new Set(compiled.errors.map(e => e.id).filter((id): id is string => !!id));
+        const syntaxOutcomes: NativeBatchOutcome[] = compiled.errors.map(error => {
+          const where = `line ${error.line}${error.column ? `, column ${error.column}` : ""}`;
+          const diagnostic: NativeDiagnostic = {
+            version: 1,
+            operatorId: error.id ?? where,
+            operatorRevision: "unversioned",
+            code: "PROGRAM_SYNTAX",
+            stage: "validate",
+            message: `${where}: ${error.message.replace(/\.?$/, ".")} This statement was skipped; the other statements landed. Write one \`name = operator(...)\` per statement plus \`def\` functions; the operators are ${NATIVE_OPERATOR_NAMES.join(", ")}.`,
+            field: "program",
+            retryable: false,
+          };
+          return {
+            id: error.id ?? where,
+            op: "program",
+            status: "error",
+            message: formatNativeDiagnostic(diagnostic),
+            diagnostic,
+          };
+        });
         const fail = (
           index: number,
           message: string,
@@ -238,7 +257,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         for (const [index, statement] of statements.entries()) {
           if (outcomes[index]) continue;
           for (const id of inputs.get(statement.id) ?? []) {
-            if (!inputs.has(id) && !byId.has(id))
+            if (syntaxIds.has(id) && !inputs.has(id))
+              fail(index, `Input \`${id}\` did not parse in this program; dependent statement skipped.`, "blocked");
+            else if (!inputs.has(id) && !byId.has(id))
               fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
           }
         }
@@ -340,9 +361,15 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
           return false;
         });
+        const ordered = [
+          ...statements.map((statement, index) => ({ line: statement.line, outcome: outcomes[index]! })),
+          ...compiled.errors.map((error, index) => ({ line: error.line, outcome: syntaxOutcomes[index] })),
+        ]
+          .sort((a, b) => a.line - b.line)
+          .map(entry => entry.outcome);
         return {
           kind: "native-batch",
-          operators: outcomes as NativeBatchOutcome[],
+          operators: ordered,
           observe,
           observationErrors,
         } satisfies NativeBatchResult;

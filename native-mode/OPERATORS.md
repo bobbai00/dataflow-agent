@@ -56,7 +56,7 @@ T2 = project(T, keep=None, drop=None, rename=None)
     Keeps (in the given order) or drops the listed columns, then renames with a {old: new} mapping. At least one of the three. Rows are unchanged; a missing column or a name collision fails.
 
 T2 = cast(T, column=dtype, ..., errors="raise")
-    Changes column types: `cast(t, amount=float64, year=int64)`; a column whose name is not an identifier goes through `**{"Acres Burned": float64}`. dtypes are str, int64, float64, bool, datetime; `datetime(format="%Y-%m-%d", tz="UTC")` takes an explicit format and timezone (naive values need tz). A value that does not convert fails the operator, or becomes missing with errors="null". Normalize text (thousands separators, percent signs) with map first.
+    Changes column types: `cast(t, amount=float64, year=int64)`; a column whose name is not an identifier goes through `**{"Unit Price": float64}`. dtypes are str, int64, float64, bool, datetime; `datetime(format="%Y-%m-%d", tz="UTC")` takes an explicit format and timezone (naive values need tz). A value that does not convert fails the operator, or becomes missing with errors="null". Normalize text (thousands separators, percent signs) with map first.
 
 T2 = fill_null(T, column=value, ...)
     Replaces missing cells of each named column with the given literal (compatible with the column's type). Rows are unchanged; no imputation or forward fill.
@@ -134,4 +134,4 @@ Engine operator: one `DataProcessing` (or `DataLoading` for a source) whose code
 
 ## Errors
 
-Every failure is one receipt line per operator: `[CODE; stage; revision] message`, then `Hint:`, `Field:` (the offending argument) and, for custom code, the failing line. Program syntax refuses the whole call; `INVALID_ARGUMENTS` fails one statement; runtime codes (`MISSING_COLUMN`, `CAST_INVALID_VALUE`, `JOIN_CARDINALITY`, `UNION_TYPE`, ...) name the column, value or option; a consumer of a failed operator is told its upstream failed, a bystander that the run stopped elsewhere. The full taxonomy is in `docs/native-expression-mode.md` and `agent-service/benchmark/tests/test_native_error_taxonomy.py`.
+Every failure is one receipt line per operator: `[CODE; stage; revision] message`, then `Hint:`, `Field:` (the offending argument) and, for custom code, the failing line. `PROGRAM_SYNTAX` fails the statement that does not parse; `INVALID_ARGUMENTS` fails one statement; runtime codes (`MISSING_COLUMN`, `CAST_INVALID_VALUE`, `JOIN_CARDINALITY`, `UNION_TYPE`, ...) name the column, value or option; a consumer of a failed operator is told its upstream failed, a bystander that the run stopped elsewhere. The full taxonomy is in `docs/native-expression-mode.md` and `agent-service/benchmark/tests/test_native_error_taxonomy.py`.

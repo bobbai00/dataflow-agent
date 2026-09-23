@@ -97,7 +97,7 @@ Native mode exposes three tools. The definitions below are exactly what is sent 
 
 ## How a call is processed
 
-1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A syntax error refuses the whole call: nothing changes, the line and column are reported.
+1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.
 2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.
 3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.
 4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.

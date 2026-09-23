@@ -126,14 +126,29 @@ describe("native dataflow tool", () => {
     expect(state.getAllOperators()).toHaveLength(0);
   });
 
-  test("a syntax error rejects the whole program with its line and changes nothing", async () => {
-    const { execute, state } = setup();
-    const result = await execute(`${scan}\nselected = filter(source, lambda row: row["x"] >\n`);
-    expect(typeof result).toBe("string");
-    expect(result).toContain("[ERROR]");
-    expect(result).toMatch(/syntax error at line \d+/);
-    expect(result).toContain("Nothing was changed");
-    expect(state.getAllOperators()).toHaveLength(0);
+  test("a statement that does not parse fails alone; the rest lands and its dependents are blocked", async () => {
+    const { batch, state } = setup();
+    const result = await batch(
+      [
+        'broken = filter(source, lambda row: row["x"] >',
+        scan,
+        "kept = limit(source, 1)",
+        "after = limit(broken, 1)",
+      ].join("\n")
+    );
+    const byId = Object.fromEntries(result.operators.map(o => [o.id, o]));
+    expect(result.operators.map(o => o.id)).toEqual(["broken", "source", "kept", "after"]);
+    expect(byId.broken.status).toBe("error");
+    expect(byId.broken.message).toContain("[PROGRAM_SYNTAX; validate;");
+    expect(byId.broken.message).toContain("line 1");
+    expect(byId.broken.message).toContain("other statements landed");
+    expect(byId.source.status).toBe("added");
+    expect(byId.kept.status).toBe("added");
+    expect(byId.after.status).toBe("blocked");
+    expect(byId.after.message).toContain("did not parse");
+    expect(state.getOperator("broken")).toBeUndefined();
+    expect(state.getOperator("after")).toBeUndefined();
+    expect(state.getOperator("kept")).toBeDefined();
   });
 
   test("unknown operators list the catalog and explain the common slip of writing the name as the operator", async () => {

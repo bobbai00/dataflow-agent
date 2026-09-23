@@ -103,7 +103,7 @@ export function renderTools(): string {
       )
       .join("\n") +
     "\n## How a call is processed\n\n" +
-    "1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A syntax error refuses the whole call: nothing changes, the line and column are reported.\n" +
+    "1. `program` is parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.\n" +
     "2. Each `name = operator(...)` statement is normalized against the catalog (`catalog.ts`): positional arguments become the operator's input tables, keywords its parameters; unknown keywords, bad enums, wrong types, undefined functions and nested operator calls are `INVALID_ARGUMENTS` for that statement only.\n" +
     "3. The Python runtime validates every statement without data (argument rules, function syntax and signatures), then the scheduler lands statements in dependency order as `DataLoading` / `DataProcessing` engine operators. A rejected statement blocks its dependents (`UPSTREAM_FAILED`); independent statements still land.\n" +
     "4. The workflow executes once. Tables named in `observe` are rendered (shape, schema, sample rows, evidence when enabled); other successes show a receipt; failures are always shown with `[CODE; stage; revision] message`, `Hint:`, `Field:` and the failing source line.\n"
@@ -181,7 +181,7 @@ Engine operator: one \`DataProcessing\` (or \`DataLoading\` for a source) whose 
 
 ## Errors
 
-Every failure is one receipt line per operator: \`[CODE; stage; revision] message\`, then \`Hint:\`, \`Field:\` (the offending argument) and, for custom code, the failing line. Program syntax refuses the whole call; \`INVALID_ARGUMENTS\` fails one statement; runtime codes (\`MISSING_COLUMN\`, \`CAST_INVALID_VALUE\`, \`JOIN_CARDINALITY\`, \`UNION_TYPE\`, ...) name the column, value or option; a consumer of a failed operator is told its upstream failed, a bystander that the run stopped elsewhere. The full taxonomy is in \`docs/native-expression-mode.md\` and \`agent-service/benchmark/tests/test_native_error_taxonomy.py\`.
+Every failure is one receipt line per operator: \`[CODE; stage; revision] message\`, then \`Hint:\`, \`Field:\` (the offending argument) and, for custom code, the failing line. \`PROGRAM_SYNTAX\` fails the statement that does not parse; \`INVALID_ARGUMENTS\` fails one statement; runtime codes (\`MISSING_COLUMN\`, \`CAST_INVALID_VALUE\`, \`JOIN_CARDINALITY\`, \`UNION_TYPE\`, ...) name the column, value or option; a consumer of a failed operator is told its upstream failed, a bystander that the run stopped elsewhere. The full taxonomy is in \`docs/native-expression-mode.md\` and \`agent-service/benchmark/tests/test_native_error_taxonomy.py\`.
 `
   );
 }
