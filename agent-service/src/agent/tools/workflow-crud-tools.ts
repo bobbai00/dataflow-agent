@@ -43,8 +43,8 @@ export interface ToolContext {
     nativeProfileCollection?: boolean;
     /** The dataflow tool's `restore` step is offered (task history must be on). */
     nativeTaskRestore?: boolean;
-    /** The dataflow tool requires a `why` for each call (multi-task sessions). */
-    nativeTaskSteps?: boolean;
+    /** Native `dataflow` tool: require the `reasoning` argument. */
+    dataflowReasoning?: boolean;
   };
 }
 

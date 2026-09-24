@@ -144,13 +144,14 @@ def _validate_function(spec, source, field, entry, parameters=None):
         node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry
     ]
     valid = len(entries) == 1 and isinstance(entries[0], ast.FunctionDef)
-    # Validate the arity even when the entry point is missing.
-    expected = len(parameters) if parameters is not None else 1
     if valid:
         node = entries[0]
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
         valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
+        # Inputs bind positionally (`function(*frames)` below), so only the arity
+        # has to match the ordered inputs; the parameter names are the author's.
+        expected = len(parameters) if parameters is not None else 1
         valid = valid and len(positional) == expected
     if not valid:
         if parameters is not None:

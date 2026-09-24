@@ -168,12 +168,12 @@ test("compact count groups do not conflate partial and full column coverage", ()
   expect(result.text).toContain('"partial" | 1 | 1 | 1');
 });
 
-test("combined omits counts only when the matching flow comparison was displayed", () => {
+test("combined keeps the data count beside the flow comparison: a flow line never suppresses a data line", () => {
   const f = fixture();
   const both = observe(f);
   expect(both.text).toContain('predicate column "x": input (full=5 rows)');
-  expect(both.selected).not.toContain("data.column.x.counts");
-  expect(both.omitted).toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
+  expect(both.selected).toContain("data.column.x.counts");
+  expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
   expect(data.selected).toContain("data.column.x.counts");
   expect(data.text).toContain("null=1/3, nonnull=2; distinct(nonnull)=2");
@@ -229,7 +229,7 @@ test("raw preview protects ordered header rows from metadata profiles and long c
       expect(result.text.indexOf("Sample stored row 2:")).toBeLessThan(result.text.indexOf("Sample stored row 6:"));
       expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
       expect(result.text).toContain("...[truncated]...");
-      expect(result.text.length).toBeLessThanOrEqual(2000);
+      expect(result.text.length).toBeLessThanOrEqual(data && flow ? 4000 : 2000);
     }
 });
 
@@ -452,17 +452,57 @@ test("complete small tables outrank redundant data profiles but retain useful in
   expect(selection.omitted.some(x => x.reason === "redundant_complete_table")).toBe(true);
 });
 
-test("all exposure arms share typed data formatting and obey the entire result budget", () => {
+test("all exposure arms share typed data formatting and obey their result budgets", () => {
   const f = fixture();
   for (const data of [false, true])
     for (const flow of [false, true])
       for (const maxChars of [1, 12, 60, 160, 400, 2000]) {
         const selection = observe(f, { data, flow, maxChars });
-        expect(selection.text.length).toBeLessThanOrEqual(maxChars);
+        // The table and data lines fit `maxChars`; flow lines have their own budget of at most the same size.
+        expect(selection.text.length).toBeLessThanOrEqual(data && flow ? 2 * maxChars : maxChars);
         if (!data) expect(selection.selected.some(x => x.startsWith("data."))).toBe(false);
         if (!flow) expect(selection.selected.some(x => x.startsWith("flow."))).toBe(false);
         expect(observe(f, { data, flow, maxChars })).toEqual(selection);
       }
+});
+
+test("evidence is additive: every arm shows the same table, and each family appends its own lines", () => {
+  for (const f of [fixture(), fixture("Aggregate"), calculationFixture()])
+    for (const maxChars of [300, 450, 600, 900, 2000]) {
+      const arms = {
+        neither: observe(f, { data: false, flow: false, maxChars }),
+        dataOnly: observe(f, { data: true, flow: false, maxChars }),
+        flowOnly: observe(f, { data: false, flow: true, maxChars }),
+        both: observe(f, { data: true, flow: true, maxChars }),
+      };
+      const part = (o: ReturnType<typeof observe>, kind: "table" | "data" | "flow" | "notice") =>
+        o.chunks.filter(c =>
+          kind === "notice"
+            ? c.id === "view.omissions"
+            : kind === "table"
+              ? c.id.startsWith("table.") || c.id.startsWith("sample.")
+              : c.id.startsWith(`${kind}.`)
+        );
+      const texts = (o: ReturnType<typeof observe>, kind: "table" | "data" | "flow" | "notice") =>
+        part(o, kind).map(c => c.text);
+      // The table (shape, schema, sample rows) is identical in every arm: evidence never displaces a row.
+      for (const o of Object.values(arms)) expect(texts(o, "table")).toEqual(texts(arms.neither, "table"));
+      // Each family's lines ignore the other family's switch.
+      expect(texts(arms.both, "data")).toEqual(texts(arms.dataOnly, "data"));
+      expect(texts(arms.both, "flow")).toEqual(texts(arms.flowOnly, "flow"));
+      expect(texts(arms.flowOnly, "data")).toEqual([]);
+      expect(texts(arms.dataOnly, "flow")).toEqual([]);
+      for (const [name, o] of Object.entries(arms)) {
+        // Text = table, data lines, flow lines, notice; every part within its own budget.
+        const ordered = ["table", "data", "flow", "notice"].flatMap(k => texts(o, k as any));
+        expect(o.text, name).toBe(ordered.join("\n"));
+        expect(o.chunks.length, name).toBe(ordered.length);
+        for (const k of ["data", "flow"] as const) expect(texts(o, k).join("\n").length).toBeLessThanOrEqual(maxChars);
+        expect([...texts(o, "table"), ...texts(o, "notice")].join("\n").length).toBeLessThanOrEqual(maxChars);
+        // A frozen observation is never shortened without an explicit limit.
+        expect(restrictNativeObservation(o, {})).toBe(o.text);
+      }
+    }
 });
 
 test("unknown or truncated data is never labelled a complete table", () => {
@@ -565,16 +605,20 @@ test("downstream dependencies cross renames and derives without parsing callback
   expect(observe(f, { flow: false, maxChars: 550 }).selected).not.toContain("data.column.z_amount.counts");
 });
 
-test("sample reserve and broad count coverage share one bounded view", () => {
+test("data counts append to the full no-evidence view instead of replacing sample rows", () => {
   const f = fixture("Scan", {});
   f.info.totalRowCount = 100;
   f.info.result = Array.from({ length: 20 }, (_, i) => ({ x: i, y: i, z: i }));
   f.info.resultSchema = ["x", "y", "z"].map(name => ({ name, type: "int64", encoding: "number" }));
   f.info.tableProfile!.columns = { x: column(100), y: column(100), z: column(100) };
-  const selection = observe(f, { flow: false, maxChars: 850 });
-  for (const name of ["x", "y", "z"]) expect(selection.selected).toContain(`data.column.${name}.counts`);
-  expect(selection.text.length).toBeLessThanOrEqual(850);
-  expect(selection.selected.filter(id => id.startsWith("sample.")).length).toBeGreaterThanOrEqual(2);
+  const withData = observe(f, { flow: false, maxChars: 850 });
+  const without = observe(f, { data: false, flow: false, maxChars: 850 });
+  for (const name of ["x", "y", "z"]) expect(withData.selected).toContain(`data.column.${name}.counts`);
+  const rows = (o: ReturnType<typeof observe>) => o.selected.filter(id => id.startsWith("sample."));
+  expect(rows(withData)).toEqual(rows(without));
+  expect(rows(withData).length).toBeGreaterThan(8);
+  expect(withData.text.startsWith(without.text.replace(/\nView incomplete[^\n]*$/, ""))).toBe(true);
+  expect(withData.text.length).toBeLessThanOrEqual(2 * 850);
 });
 
 test("lineage walk bounds wide fan-out, not only visited queue entries", () => {

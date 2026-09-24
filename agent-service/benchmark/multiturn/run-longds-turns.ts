@@ -45,8 +45,8 @@ const settings = {
   nativeTaskHistory: true,
   // The restore step and the state gestures, for every arm that reads entries.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  // Every dataflow call states its step; entries group changes by step.
-  nativeTaskSteps: arm !== "react-full",
+  // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
+  dataflowReasoning: arm !== "react-full",
   // LongDS's own per-turn cap, as upstream's DSGym runner uses.
   maxSteps: 40,
   maxOperatorResultCharLimit: 2000,

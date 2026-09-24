@@ -3139,6 +3139,9 @@ function renderNativeToolCall(
   if (tc.toolName === TOOL_NAME_DATAFLOW && edits !== undefined) {
     // The statements exactly as written; the receipt below says what landed.
     const lines = ["- dataflow"];
+    // The model's stated intent and expectation, as written (dataflowReasoning).
+    if (typeof inp.reasoning === "string" && inp.reasoning.trim())
+      lines.push(`  reasoning: ${inp.reasoning.trim().replace(/\s*\n\s*/g, " ")}`);
     if (Array.isArray(inp.delete) && inp.delete.length) lines.push(`  delete: ${JSON.stringify(inp.delete)}`);
     const text = edits.trim();
     if (text) {

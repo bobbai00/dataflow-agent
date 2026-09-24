@@ -67,19 +67,14 @@ test("the state gestures are taught whenever outputs are retained, the entry lay
   expect(catalogOnly).not.toContain("at(name, task=N)");
 });
 
-test("nativeTaskSteps makes `step` a required first field of the dataflow tool and explains it in the prompt", async () => {
-  const { nativeBatchSchema } = await import("../tools/native-batch-tools");
-  const plain = nativeBatchSchema() as any;
-  expect(Object.keys(plain.properties)).toEqual(["edits", "delete", "restore", "observe"]);
-  expect(plain.required).toEqual(["edits"]);
-  const withStep = nativeBatchSchema({ step: true }) as any;
-  expect(Object.keys(withStep.properties)).toEqual(["step", "edits", "delete", "restore", "observe"]);
-  expect(withStep.required).toEqual(["step", "edits"]);
-  const prompt = (nativeTaskSteps: boolean) => {
+test("with entries and stable's dataflowReasoning, the prompt says each call's reasoning names its step", () => {
+  const prompt = (dataflowReasoning: boolean) => {
     const a = agent();
-    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true, nativeTaskSteps });
+    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true, dataflowReasoning });
     return a.getSettings().systemPrompt ?? "";
   };
-  expect(prompt(true)).toContain("carries `step`");
-  expect(prompt(false)).not.toContain("carries `step`");
+  expect(prompt(true)).toContain("each with its `reasoning` and the changes it produced");
+  expect(prompt(true)).toContain("`dataflow(reasoning, edits, delete, observe)`");
+  expect(prompt(false)).not.toContain("each with its `reasoning`");
 });
+

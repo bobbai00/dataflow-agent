@@ -29,7 +29,7 @@ import type { ReActStep } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
-import { nativeBatchResults } from "../tools/native-batch-tools";
+import { TOOL_NAME_DATAFLOW, asNativeBatchResult, nativeBatchResults } from "../tools/native-batch-tools";
 import { getVisibleResultHeaders } from "../tools/tools-utility";
 import type { TaskHistory } from "./task-history";
 
@@ -218,13 +218,20 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
   let call = 0;
   let position = 0;
   for (const step of steps) {
-    for (const batch of nativeBatchResults(step)) {
+    // The `reasoning` of each dataflow call (stable's dataflowReasoning) names its step.
+    const reasons = (step.toolCalls ?? [])
+      .filter(tc => tc.toolName === TOOL_NAME_DATAFLOW && asNativeBatchResult(step.toolResults?.find(tr => tr.toolCallId === tc.toolCallId)?.output))
+      .map(tc => {
+        const reasoning = (tc.input as { reasoning?: unknown } | undefined)?.reasoning;
+        return typeof reasoning === "string" && reasoning.trim() ? reasoning.trim() : undefined;
+      });
+    for (const [index, batch] of nativeBatchResults(step).entries()) {
       observed.push(...batch.observe);
       for (const outcome of batch.operators) {
         const previous = landed.get(outcome.id);
         // Each change belongs to the step that last landed it: the step that
         // produced its final definition. Earlier attempts leave no trace.
-        const at = { call, position: position++, step: batch.step };
+        const at = { call, position: position++, step: reasons[index] };
         if (outcome.status === "added" || outcome.status === "modified") {
           const restored = outcome.op === "restore";
           landed.set(outcome.id, {

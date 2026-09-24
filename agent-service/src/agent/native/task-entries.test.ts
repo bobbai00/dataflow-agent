@@ -260,9 +260,9 @@ test("changes are grouped under the step that last landed them, numbered in orde
   state.addOperator(operator("films", 'films = filter(titles, lambda row: row["type"] == "Movie", doc="Keeps films")'));
   state.addOperator(operator("durations", "durations = aggregate(films, missing=count())"));
   state.addOperator(operator("cleaned", 'cleaned = filter(raw, lambda row: True, doc="all rows")'));
-  const stepped = (step: string, operators: Array<Record<string, unknown>>) => {
+  const stepped = (reasoning: string, operators: Array<Record<string, unknown>>) => {
     const r = receipt(operators);
-    (r.toolResults![0] as any).output.step = step;
+    (r.toolCalls![0] as any).input.reasoning = reasoning; // stable's dataflowReasoning argument
     return r;
   };
   const steps: ReActStep[] = [

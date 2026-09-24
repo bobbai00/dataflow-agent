@@ -55,7 +55,7 @@ export function validateEvidenceSettings(settings: object): void {
             : `${key} was removed; use dataEvidence and flowEvidence booleans`
       );
   }
-  for (const key of ["dataEvidence", "flowEvidence", "nativeProfileCollection"] as const) {
+  for (const key of ["dataEvidence", "flowEvidence", "nativeProfileCollection", "dataflowReasoning"] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);
@@ -70,7 +70,6 @@ export function validateNativeSettings(
     nativeTaskContext?: unknown;
     nativeTaskCache?: unknown;
     nativeTaskRestore?: unknown;
-    nativeTaskSteps?: unknown;
   } = {}
 ): void {
   validateEvidenceSettings(settings);
@@ -92,7 +91,7 @@ export function validateNativeSettings(
   }
   // Cache boundaries and restore modify task history and do nothing without it,
   // so their defaults are harmless in either mode.
-  for (const name of ["nativeTaskCache", "nativeTaskRestore", "nativeTaskSteps"] as const) {
+  for (const name of ["nativeTaskCache", "nativeTaskRestore"] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);

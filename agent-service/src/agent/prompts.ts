@@ -215,28 +215,64 @@ export interface NativePromptLayoutOptions {
   taskHistory?: boolean;
   /** The `restore` step and the four state gestures are explained. */
   taskRestore?: boolean;
-  /** Each dataflow call states `why`, and entries show it. */
-  taskSteps?: boolean;
+  /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
+  reasoning?: boolean;
+  /** Which evidence kinds observed results carry; the prompt documents exactly those. */
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
 }
 
 /** Stated once, in the stable head of the prompt, so the explanation costs one
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_ENTRIES_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow, net over the whole task and grouped by the step that produced each one (added, modified, restored or deleted operators, each as the statement you wrote with its doc and function code, its row count and full column list, `missing:` counts and the `values:` of columns with few distinct values over the whole table, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first 3 rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. The entries are a catalog of everything built so far, not all of its data: every table in `# Tables now` can be observed. When an entry already shows the number you need, read it there. When you need rows it does not show (the rest of a large table, a table read without its rows, one marked `recomputed`), observe that table, for example `dataflow(step=\"Recall the task 5 ranking beyond its first rows\", edits=\"\", observe=[\"fractional_scan_report\"])`, which shows its current rows without executing anything.";
+  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow, net over the whole task and grouped by the call that produced each one (added, modified, restored or deleted operators, each as the statement you wrote with its doc and function code, its row count and full column list, `missing:` counts and the `values:` of columns with few distinct values over the whole table, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first 3 rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. The entries are a catalog of everything built so far, not all of its data: every table in `# Tables now` can be observed. When an entry already shows the number you need, read it there. When you need rows it does not show (the rest of a large table, a table read without its rows, one marked `recomputed`), observe that table, for example `dataflow(edits=\"\", observe=[\"fractional_scan_report\"])` for the rest of the task 5 ranking beyond its first rows; it shows the current rows without executing anything.";
 /** How a task is worked, stated once. The steps are DSGym's, which answers
  * the same benchmark with two model calls per turn; the last sentence is the
  * dataflow's own repair: one reassignment recomputes everything downstream. */
 const TASK_METHOD =
   "\n\nWork each task as a careful analyst. First understand the request: what one row means, which rows are in scope, and the units and rounding the answer needs. Plan the steps before writing statements, and change the plan when a table contradicts it. Later tasks mostly build on tables whose columns you have already seen, so feel free to add several operators in one call whenever you are comfortable with how they fit together; this usually makes the work go faster. Observe only the tables whose results you need, usually the ones the answer is read from. Answer only when the observed tables support every number, and try another approach when they do not. Keep each analytical choice a later task may revise in its own operator (a population filter, a threshold, a weighting, one component of a score) and build composites such as a score or a ranking from those operators rather than inside one function: then a revision is one reassignment, and an earlier version stays addressable by name and task. When a request corrects or refines what an earlier task defined, reassign that id so everything built on it recomputes, rather than building a copy beside it.";
-/** Visible reasoning as part of the action: the step description rides on the
- * call, so later calls of the task see it and the entry groups changes by it. */
+/** With entries, the `reasoning` of each call is what names its step: completed
+ * tasks group their changes under the calls that produced them. */
 const TASK_STEPS =
-  " Each dataflow call is one step of the task and carries `step`: one or two sentences on what the call does and why. Completed tasks list their steps in order as `Step 1:`, `Step 2:` with the changes each produced, so write it for a reader coming back in a later task; when a call corrects an earlier definition, say what was wrong.";
+  " Completed tasks list the calls that changed the dataflow in order as `Step 1:`, `Step 2:`, each with its `reasoning` and the changes it produced, so write `reasoning` for a reader coming back in a later task too; when a call corrects an earlier definition, say what was wrong.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
 /** The four ways analytical state evolves, each as one dataflow gesture. */
 const TASK_STATE_GESTURES =
   ' Every table\'s output at the end of each task is saved, so state evolves in four ways. To make a revision the new default, reassign the same id: everything downstream recomputes. For a one-off alternative, build a new id from the current tables and leave the default alone. To work under an earlier version, use the tool\'s `restore=[{"operator": name, "task": N, "as": new_id}]`: it rebuilds that table as defined at the end of task N under the new id, shares upstream tables that are unchanged since then, copies the ones that changed as `<name>_t<N>`, and its observation says whether the result matches the saved table. To make an earlier version current again, restore with `as` equal to the same id. Read the version\'s definition in its entry before restoring.';
+
+/** What evidence lines are and how to use them, for the kinds that are enabled.
+ * Nothing is added when both are off: the prompt never describes lines the
+ * agent will not see. */
+export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEvidence?: boolean }): string {
+  const data = options.dataEvidence === true;
+  const flow = options.flowEvidence === true;
+  if (!data && !flow) return "";
+  const parts = [
+    "Evidence lines follow the rows. They are meta-level information: measurements the engine took about the table and about the operator that produced it, not rows of the data and not an answer. Each kind has a character budget of its own and never replaces rows. Use them to decide your next step: whether the table is the one you meant to build, whether a parse, filter, join or grouping did what you intended, and what to check or fix before building on it.",
+  ];
+  if (data)
+    parts.push(
+      "`Data measurement` lines describe the observed table itself: per column the null, non-null and distinct counts, the value range and the most frequent values; per table, duplicate rows and all-null rows or columns. `full=N rows` covers the whole output; `partial prefix=n/N rows` covers only the processed prefix. A value list marked non-exhaustive is not the complete set, and unknown is not zero. They are left out when the complete table is shown, because the rows already say it. Typical uses: a key with fewer distinct values than rows is not unique, so check it before a lookup join; nulls in a column you will aggregate change the denominator; a range or value list that does not fit what the column should hold (years outside the task's span, numbers stored as text, spelling variants of one category) means the scan or an earlier step needs fixing."
+    );
+  if (flow)
+    parts.push(
+      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls."
+    );
+  if (data && flow)
+    parts.push(
+      "With both kinds, flow lines say how many rows each step kept, matched or grouped, and data lines say what the rows now contain. Read them together: a table can have the right row count with wrong values, or the right values in the wrong number of rows."
+    );
+  parts.push(
+    "No evidence line proves that your population, key or formula is the one the task intends" +
+      (flow ? "; a process reports only its row counts and its `doc`." : ".")
+  );
+  return "\n\n" + parts.join("\n\n");
+}
+
+/** The paragraph that introduces the `reasoning` argument when it is enabled. */
+const REASONING_PARAGRAPH =
+  "\n\nWrite `reasoning` first: one or two sentences on why this call and what you expect the observed tables to show, such as a row count, the columns, or a value you can check. It stays in your history with the call. When the observation arrives, compare it with your expectation. A mismatch (a column name that looks like a value, a missing year, an unexpected row count) means an earlier step is wrong: fix that step instead of adapting later steps to it.";
 
 /** The native-mode system prompt for a context mode and message layout. */
 export function buildNativeModeSystemPrompt(
@@ -275,8 +311,15 @@ export function buildNativeModeSystemPrompt(
     (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
     (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
     (options.taskCatalog || options.taskHistory ? TASK_METHOD : "") +
-    ((options.taskCatalog || options.taskHistory) && options.taskSteps ? TASK_STEPS : "");
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
+    (options.taskCatalog && options.reasoning ? TASK_STEPS : "");
+  return NATIVE_MODE_TEMPLATE.replace(
+    "{{DATAFLOW_SIGNATURE}}",
+    options.reasoning ? "`dataflow(reasoning, edits, delete, observe)`" : "`dataflow(edits, delete, observe)`"
+  )
+    .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
+    .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
+    .replace("{{EVIDENCE}}", nativeEvidenceText(options))
+    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
