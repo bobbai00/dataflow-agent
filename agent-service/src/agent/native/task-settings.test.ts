@@ -57,6 +57,7 @@ test("the state gestures are taught whenever outputs are retained, the entry lay
   // The working method is taught in every task mode, after the layout and the gestures.
   for (const text of [fullHistory, catalog, prompt(true, true, false)]) {
     expect(text).toContain("Work each task as a careful analyst");
+    expect(text).toContain("add several operators in one call whenever you are comfortable");
     expect(text.indexOf("Work each task")).toBeGreaterThan(text.indexOf("numbered"));
   }
   // Entries without the restore step: the ablation arm reads history but is not taught to rebuild it.
