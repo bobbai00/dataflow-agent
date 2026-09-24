@@ -215,6 +215,8 @@ export interface NativePromptLayoutOptions {
   taskHistory?: boolean;
   /** The `restore` step and the four state gestures are explained. */
   taskRestore?: boolean;
+  /** Each dataflow call states `why`, and entries show it. */
+  taskWhy?: boolean;
 }
 
 /** Stated once, in the stable head of the prompt, so the explanation costs one
@@ -227,6 +229,10 @@ const TASK_ENTRIES_LAYOUT =
  * dataflow's own repair: one reassignment recomputes everything downstream. */
 const TASK_METHOD =
   "\n\nWork each task as a careful analyst. First understand the request: what one row means, which rows are in scope, and the units and rounding the answer needs. Plan the steps before writing statements, and change the plan when a table contradicts it. Later tasks mostly build on tables whose columns you have already seen, so feel free to add several operators in one call whenever you are comfortable with how they fit together; this usually makes the work go faster. Observe only the tables whose results you need, usually the ones the answer is read from. Answer only when the observed tables support every number, and try another approach when they do not. When a request corrects or refines what an earlier task defined, reassign that id so everything built on it recomputes, rather than building a copy beside it.";
+/** Visible reasoning as part of the action: the reason rides on the call, so
+ * later calls of the task see it and the entry keeps it under the changes. */
+const TASK_WHY =
+  " Each dataflow call carries `why`: one or two sentences on what the call does and why. It stays with the changes that call makes, and completed tasks show it as a `why:` line above those changes, so write it for a reader coming back in a later task; when a call corrects an earlier definition, say what was wrong.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
 /** The four ways analytical state evolves, each as one dataflow gesture. */
 const TASK_STATE_GESTURES =
@@ -268,7 +274,8 @@ export function buildNativeModeSystemPrompt(
   const taskLayout =
     (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
     (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
-    (options.taskCatalog || options.taskHistory ? TASK_METHOD : "");
+    (options.taskCatalog || options.taskHistory ? TASK_METHOD : "") +
+    ((options.taskCatalog || options.taskHistory) && options.taskWhy ? TASK_WHY : "");
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)

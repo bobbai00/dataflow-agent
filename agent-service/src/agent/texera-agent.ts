@@ -586,6 +586,7 @@ export class TexeraAgent {
         taskCatalog: this.settings.nativeTaskContext === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
+        taskWhy: this.settings.nativeTaskWhy === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -660,6 +661,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeTaskRestore: this.settings.nativeTaskRestore !== false,
+        nativeTaskWhy: this.settings.nativeTaskWhy === true,
       },
     };
 
@@ -1388,6 +1390,7 @@ export class TexeraAgent {
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
     nativeTaskRestore?: boolean;
+    nativeTaskWhy?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     resultSelection?: ResultSelection;
@@ -1447,6 +1450,7 @@ export class TexeraAgent {
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
       nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
       nativeTaskRestore: updates.nativeTaskRestore ?? this.settings.nativeTaskRestore,
+      nativeTaskWhy: updates.nativeTaskWhy ?? this.settings.nativeTaskWhy,
     });
     // Retained outputs are numbered by task, so turning history on or off after
     // the session has started would leave tasks with and without saved versions.
@@ -1481,6 +1485,10 @@ export class TexeraAgent {
     if (updates.nativeTaskCache !== undefined) this.settings.nativeTaskCache = updates.nativeTaskCache;
     if (updates.nativeTaskRestore !== undefined && updates.nativeTaskRestore !== this.settings.nativeTaskRestore) {
       this.settings.nativeTaskRestore = updates.nativeTaskRestore;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeTaskWhy !== undefined && updates.nativeTaskWhy !== this.settings.nativeTaskWhy) {
+      this.settings.nativeTaskWhy = updates.nativeTaskWhy;
       promptNeedsRebuild = true;
     }
     this.settings.nativeProfileCollection = collection;

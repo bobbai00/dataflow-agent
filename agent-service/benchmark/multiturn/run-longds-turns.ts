@@ -44,6 +44,8 @@ const settings = {
   nativeTaskContext: arm !== "react-full",
   nativeTaskHistory: true,
   nativeTaskRestore: arm === "react-restore",
+  // Every dataflow call states why; entries keep it with the changes it made.
+  nativeTaskWhy: arm !== "react-full",
   // LongDS's own per-turn cap, as upstream's DSGym runner uses.
   maxSteps: 40,
   maxOperatorResultCharLimit: 2000,

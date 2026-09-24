@@ -50,6 +50,8 @@ export interface TaskChange {
   flag?: string;
   /** For a modification: the task whose definition this one replaced. */
   replaces?: number;
+  /** The stated reasons of the calls that landed this change, in order. */
+  why?: string[];
 }
 
 /** The rows of a table the task observed, as the model saw them. */
@@ -77,6 +79,7 @@ export interface TaskEntry {
 
 const STATEMENT_LIMIT = 400;
 const FUNCTION_LINES = 8;
+const WHY_LIMIT = 400;
 /** A table with at most this many rows is kept whole; a larger one keeps its first rows. */
 export const COMPLETE_ROWS = 20;
 export const SAMPLE_ROWS = 3;
@@ -172,7 +175,10 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
   const request = steps.find(step => step.role === "user")?.content ?? "";
   const answer = steps.filter(step => step.role === "agent" && step.isEnd).at(-1)?.content ?? "";
   const provenance = history?.provenance();
-  const landed = new Map<string, { status: ChangeStatus; attempted?: string; message?: string }>();
+  const landed = new Map<string, { status: ChangeStatus; attempted?: string; message?: string; why?: string[] }>();
+  // A change keeps the reason of every call that landed it, once each.
+  const withWhy = (reasons: string[] | undefined, why: string | undefined) =>
+    why && !reasons?.includes(why) ? [...(reasons ?? []), why] : reasons;
   const observed: string[] = [];
   for (const step of steps) {
     for (const batch of nativeBatchResults(step)) {
@@ -183,8 +189,10 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
           const restored = outcome.op === "restore";
           landed.set(outcome.id, {
             status: restored ? "restored" : previous?.status === "added" ? "added" : outcome.status,
+            why: withWhy(previous?.status === "failed" ? undefined : previous?.why, batch.why),
           });
-        } else if (outcome.status === "deleted") landed.set(outcome.id, { status: "deleted" });
+        } else if (outcome.status === "deleted")
+          landed.set(outcome.id, { status: "deleted", why: withWhy(undefined, batch.why) });
         else if (outcome.status === "error" && !previous)
           landed.set(outcome.id, {
             status: "failed",
@@ -209,10 +217,11 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
       continue;
     }
     if (fold.status === "deleted") {
-      changes.push({ status: "deleted", id, statement: `${id} deleted` });
+      changes.push({ status: "deleted", id, statement: `${id} deleted`, ...(fold.why ? { why: fold.why } : {}) });
       continue;
     }
     const change: TaskChange = { status: fold.status, id, statement: statementOf(op, id) };
+    if (fold.why?.length) change.why = fold.why;
     const doc = op?.nativeOp?.properties?.doc;
     if (typeof doc === "string" && doc) change.doc = doc;
     else if (op?.nativeOp?.functions && Object.keys(op.nativeOp.functions).length)
@@ -287,7 +296,16 @@ function renderTable(table: TaskTable): string {
 
 /** One entry as one message. The text is final once written. */
 export function renderTaskEntry(entry: TaskEntry): string {
-  const changes = entry.changes.length ? entry.changes.map(renderChange).join("\n") : "  (no change to the dataflow)";
+  // A call's reason is printed once, above the changes it explains.
+  const lines: string[] = [];
+  let reason = "";
+  for (const change of entry.changes) {
+    const why = (change.why ?? []).join(" / ");
+    if (why && why !== reason) lines.push(`  why: ${clip(why, WHY_LIMIT)}`);
+    if (why) reason = why;
+    lines.push(renderChange(change));
+  }
+  const changes = lines.length ? lines.join("\n") : "  (no change to the dataflow)";
   const tables = entry.tables.length ? `\nTables read:\n${entry.tables.map(renderTable).join("\n")}` : "";
   const from = entry.from.length ? entry.from.join(", ") : "unverified";
   return `## Task ${entry.task}\n${entry.request}\nChanges:\n${changes}${tables}\nAnswer: ${entry.answer || "(none)"}\n  from: ${from}`;

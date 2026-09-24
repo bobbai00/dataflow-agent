@@ -254,3 +254,36 @@ test("a long request and answer are kept whole: the first request carries rules 
   expect(entry.answer).toBe(answer.trim());
   expect(renderTaskEntry(entry)).toContain("Round decimal-valued results to three decimal places.");
 });
+
+test("each change keeps the reason of the call that landed it, printed once above the changes it explains", () => {
+  const state = new WorkflowState();
+  state.addOperator(operator("films", 'films = filter(titles, lambda row: row["type"] == "Movie", doc="Keeps films")'));
+  state.addOperator(operator("durations", "durations = aggregate(films, missing=count())"));
+  state.addOperator(operator("cleaned", 'cleaned = filter(raw, lambda row: True, doc="all rows")'));
+  const withWhy = (why: string, operators: Array<Record<string, unknown>>) => {
+    const step = receipt(operators);
+    (step.toolResults![0] as any).output.why = why;
+    return step;
+  };
+  const steps: ReActStep[] = [
+    { id: "u", role: "user", messageId: "m", content: "Count missing film durations", isBegin: true } as any,
+    withWhy("Films only: task 1 counted TV shows too.", [
+      { id: "films", op: "filter", status: "added", message: "" },
+      { id: "durations", op: "aggregate", status: "added", message: "" },
+    ]),
+    withWhy("Keep every row; the earlier filter dropped undated titles.", [
+      { id: "cleaned", op: "filter", status: "modified", message: "" },
+    ]),
+    { id: "a", role: "agent", messageId: "m", content: "Final Answer: 0", isEnd: true } as any,
+  ];
+  const entry = buildTaskEntry({ task: 5, steps, results: new Map(), state });
+  expect(entry.changes.map(c => c.why)).toEqual([
+    ["Films only: task 1 counted TV shows too."],
+    ["Films only: task 1 counted TV shows too."],
+    ["Keep every row; the earlier filter dropped undated titles."],
+  ]);
+  const text = renderTaskEntry(entry);
+  expect(text.match(/why: Films only/g)).toHaveLength(1);
+  expect(text).toContain("Changes:\n  why: Films only: task 1 counted TV shows too.\n  added    films = filter(");
+  expect(text).toContain("  why: Keep every row; the earlier filter dropped undated titles.\n  modified cleaned = filter(");
+});

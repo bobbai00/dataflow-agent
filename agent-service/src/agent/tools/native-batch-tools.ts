@@ -66,6 +66,8 @@ export interface NativeBatchResult {
   observationErrors: string[];
   /** Restores whose target landed: what they created and what they reused. */
   restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
+  /** The call's stated reason, when the tool asks for one (multi-task sessions). */
+  why?: string;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -95,9 +97,24 @@ export interface DataflowInput {
   /** Saved versions to rebuild, applied with the edits. */
   restore?: RestoreRequest[];
   observe?: string[];
+  /** One or two sentences: what this call does and why. Asked for in multi-task sessions. */
+  why?: string;
 }
 
-export function nativeBatchSchema(): Record<string, unknown> {
+export const WHY_FIELD_DESCRIPTION =
+  "One or two sentences: what this call does and why, for example which part of the request it serves, what you expect to see, or which earlier definition it corrects and what was wrong with it. Kept with the changes this call makes, so later tasks can read it.";
+
+export function nativeBatchSchema(options: { why?: boolean } = {}): Record<string, unknown> {
+  const schema = baseBatchSchema();
+  if (!options.why) return schema;
+  return {
+    ...schema,
+    properties: { why: { type: "string", description: WHY_FIELD_DESCRIPTION }, ...(schema.properties as object) },
+    required: ["why", ...(schema.required as string[])],
+  };
+}
+
+function baseBatchSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -158,7 +175,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
   return {
     [TOOL_NAME_DATAFLOW]: tool({
       description: DATAFLOW_TOOL_DESCRIPTION,
-      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema() as any),
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ why: context?.settings?.nativeTaskWhy === true }) as any),
       execute: async args => {
         const repairEpoch = repair.epoch;
         if (
@@ -519,6 +536,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           observe,
           observationErrors,
           ...(restored.length ? { restored } : {}),
+          ...(typeof args.why === "string" && args.why.trim() ? { why: args.why.trim() } : {}),
         } satisfies NativeBatchResult;
       },
     }),
