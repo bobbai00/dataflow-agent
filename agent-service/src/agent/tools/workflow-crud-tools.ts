@@ -38,6 +38,8 @@ export interface ToolContext {
     toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
+    /** Native `dataflow` tool: require the `reasoning` argument. */
+    dataflowReasoning?: boolean;
   };
 }
 

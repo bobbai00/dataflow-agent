@@ -42,6 +42,29 @@ Native mode exposes one tool, `dataflow`, whose three arguments create or modify
 }
 ```
 
+## With `dataflowReasoning: true`
+
+The setting (default off) adds one required argument, written first, and one sentence to the description. The rest of the definition is unchanged.
+
+**Description sent to the model**
+
+> Start with `reasoning`: why this call and what the observed tables should show. Build, modify, delete and observe the dataflow in one call. The call runs four steps in this order: (1) the operators listed in `delete` are removed (refused while a surviving operator still reads one); (2) the `edits` statements are applied, one `id = operator(input_id, ..., parameter=value)` per line plus the `def` functions they use (operators: scan, project, cast, filter, map, aggregate, join, union, distinct, sort, limit, window, unpivot, pivot, process), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.
+
+**Added property and required list**
+
+```json
+{
+  "reasoning": {
+    "type": "string",
+    "description": "Written first: one or two sentences on why this call and what you expect the observed tables to show (row count, columns, a value you can check). It is replayed with the call, so compare the next observation against it."
+  },
+  "required": [
+    "reasoning",
+    "edits"
+  ]
+}
+```
+
 ## How a call is processed
 
 1. `delete` removes the listed operators first (refused while another surviving operator reads one; a consumer deleted or re-pointed in the same call counts as handled). Only then is `edits` parsed with Python's `ast` (`agent-service/src/agent/native/python/program_parser.py`). A statement that does not parse is reported at its line as `PROGRAM_SYNTAX` and skipped; its dependents are blocked and the other statements land.

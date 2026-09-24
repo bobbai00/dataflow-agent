@@ -567,6 +567,9 @@ export class TexeraAgent {
         session: this.settings.sessionTurns === true,
         recall: this.settings.enableRecallTool === true,
         messageLayout: this.settings.messageLayout,
+        reasoning: this.settings.dataflowReasoning === true,
+        dataEvidence: this.settings.dataEvidence === true,
+        flowEvidence: this.settings.flowEvidence === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -639,6 +642,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
+        dataflowReasoning: this.settings.dataflowReasoning === true,
       },
     };
 
@@ -656,8 +660,7 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      // NATIVE: the `dataflow` program tool plus a consumer-aware delete that
-      // replaces the generic one.
+      // NATIVE: the one `dataflow` tool (edits, deletes, observations).
       Object.assign(tools, createNativeTools(this.workflowState, context));
     }
 
@@ -730,6 +733,7 @@ export class TexeraAgent {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
+        dataflowReasoning: this.settings.dataflowReasoning === true,
       },
     };
 
@@ -1365,6 +1369,7 @@ export class TexeraAgent {
     nativeProfileCollection?: boolean;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
+    dataflowReasoning?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1427,8 +1432,20 @@ export class TexeraAgent {
     }
     let promptNeedsRebuild = false;
     this.settings.nativeProfileCollection = collection;
-    if (updates.dataEvidence !== undefined) this.settings.dataEvidence = updates.dataEvidence;
-    if (updates.flowEvidence !== undefined) this.settings.flowEvidence = updates.flowEvidence;
+    // The native prompt documents exactly the evidence kinds that are on.
+    if (updates.dataEvidence !== undefined && updates.dataEvidence !== this.settings.dataEvidence) {
+      this.settings.dataEvidence = updates.dataEvidence;
+      promptNeedsRebuild = true;
+    }
+    if (updates.flowEvidence !== undefined && updates.flowEvidence !== this.settings.flowEvidence) {
+      this.settings.flowEvidence = updates.flowEvidence;
+      promptNeedsRebuild = true;
+    }
+    if (updates.dataflowReasoning !== undefined && updates.dataflowReasoning !== this.settings.dataflowReasoning) {
+      // Changes the tool schema (rebuilt below) and the prompt's tool section.
+      this.settings.dataflowReasoning = updates.dataflowReasoning;
+      promptNeedsRebuild = true;
+    }
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;

@@ -166,8 +166,11 @@ off. See [README.md §2](README.md) for the full table.
 
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
 `allowedOperatorTypes`, and the old level/statistics overlays) produce an
-error, not a compatibility mapping. Schema, samples and selected evidence share
-one result budget; a complete small table suppresses redundant data facts.
+error, not a compatibility mapping. Schema and samples fill one result budget;
+each enabled evidence kind appends within its own budget, so evidence never
+displaces rows; a complete small table suppresses redundant data facts.
+`dataflowReasoning` (default off) adds a required `reasoning` argument to the
+`dataflow` tool.
 `inspectResult` is never exposed. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) and
 [docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark

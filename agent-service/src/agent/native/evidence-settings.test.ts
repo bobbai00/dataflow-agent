@@ -78,6 +78,7 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   for (const key of removed) expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, key)).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).dataEvidence).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).flowEvidence).toBe(false);
+  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(false);
 });
 
 for (const key of removed) {
@@ -124,7 +125,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     }
 }
 
-for (const key of ["dataEvidence", "flowEvidence"]) {
+for (const key of ["dataEvidence", "flowEvidence", "dataflowReasoning"]) {
   test(`${key} is a boolean, never a truthy level or string`, () => {
     for (const value of [1, "true", null]) {
       expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(/boolean/);
