@@ -67,19 +67,19 @@ test("the state gestures are taught whenever outputs are retained, the entry lay
   expect(catalogOnly).not.toContain("at(name, task=N)");
 });
 
-test("nativeTaskWhy makes `why` a required first field of the dataflow tool and explains it in the prompt", async () => {
+test("nativeTaskSteps makes `step` a required first field of the dataflow tool and explains it in the prompt", async () => {
   const { nativeBatchSchema } = await import("../tools/native-batch-tools");
   const plain = nativeBatchSchema() as any;
   expect(Object.keys(plain.properties)).toEqual(["edits", "delete", "restore", "observe"]);
   expect(plain.required).toEqual(["edits"]);
-  const withWhy = nativeBatchSchema({ why: true }) as any;
-  expect(Object.keys(withWhy.properties)).toEqual(["why", "edits", "delete", "restore", "observe"]);
-  expect(withWhy.required).toEqual(["why", "edits"]);
-  const prompt = (nativeTaskWhy: boolean) => {
+  const withStep = nativeBatchSchema({ step: true }) as any;
+  expect(Object.keys(withStep.properties)).toEqual(["step", "edits", "delete", "restore", "observe"]);
+  expect(withStep.required).toEqual(["step", "edits"]);
+  const prompt = (nativeTaskSteps: boolean) => {
     const a = agent();
-    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true, nativeTaskWhy });
+    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true, nativeTaskSteps });
     return a.getSettings().systemPrompt ?? "";
   };
-  expect(prompt(true)).toContain("Each dataflow call carries `why`");
-  expect(prompt(false)).not.toContain("carries `why`");
+  expect(prompt(true)).toContain("carries `step`");
+  expect(prompt(false)).not.toContain("carries `step`");
 });

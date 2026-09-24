@@ -115,7 +115,7 @@ test("an entry folds the task's receipts into one change per operator, with doc,
     rows: 800,
     replaces: 3,
   });
-  expect(entry.changes[0].functions).toBeUndefined(); // the doc stands in for the body
+  expect(entry.changes[0].functions).toEqual(["def ratio_value(row):\n    return 1"]); // code stays with the doc
   expect(entry.changes[1]).toMatchObject({ flag: "EMPTY", rows: 0 });
   expect(entry.changes[4].flag).toBe("failed: [INVALID_ARGUMENTS] doc missing");
   expect(entry.from).toEqual(["before_stats"]); // 38.7028 is a cell of before_stats, not of the empty table
@@ -255,35 +255,81 @@ test("a long request and answer are kept whole: the first request carries rules 
   expect(renderTaskEntry(entry)).toContain("Round decimal-valued results to three decimal places.");
 });
 
-test("each change keeps the reason of the call that landed it, printed once above the changes it explains", () => {
+test("changes are grouped under the step that last landed them, numbered in order, with the task's net delta", () => {
   const state = new WorkflowState();
   state.addOperator(operator("films", 'films = filter(titles, lambda row: row["type"] == "Movie", doc="Keeps films")'));
   state.addOperator(operator("durations", "durations = aggregate(films, missing=count())"));
   state.addOperator(operator("cleaned", 'cleaned = filter(raw, lambda row: True, doc="all rows")'));
-  const withWhy = (why: string, operators: Array<Record<string, unknown>>) => {
-    const step = receipt(operators);
-    (step.toolResults![0] as any).output.why = why;
-    return step;
+  const stepped = (step: string, operators: Array<Record<string, unknown>>) => {
+    const r = receipt(operators);
+    (r.toolResults![0] as any).output.step = step;
+    return r;
   };
   const steps: ReActStep[] = [
     { id: "u", role: "user", messageId: "m", content: "Count missing film durations", isBegin: true } as any,
-    withWhy("Films only: task 1 counted TV shows too.", [
+    // Step A adds films and a probe, and fails on durations (its input was wrong).
+    stepped("First attempt at the film durations.", [
       { id: "films", op: "filter", status: "added", message: "" },
-      { id: "durations", op: "aggregate", status: "added", message: "" },
+      { id: "probe", op: "limit", status: "added", message: "" },
+      { id: "durations", op: "aggregate", status: "error", message: "[EDIT_REJECTED] no such table", attempted: { source: "durations = aggregate(film)" } },
     ]),
-    withWhy("Keep every row; the earlier filter dropped undated titles.", [
+    stepped("Keep every row; the earlier filter dropped undated titles.", [
       { id: "cleaned", op: "filter", status: "modified", message: "" },
+    ]),
+    // Step C lands durations and revises films, and removes the probe added in step A.
+    stepped("Films only: task 1 counted TV shows too.", [
+      { id: "films", op: "filter", status: "modified", message: "" },
+      { id: "durations", op: "aggregate", status: "added", message: "" },
+      { id: "probe", op: "delete", status: "deleted", message: "" },
     ]),
     { id: "a", role: "agent", messageId: "m", content: "Final Answer: 0", isEnd: true } as any,
   ];
   const entry = buildTaskEntry({ task: 5, steps, results: new Map(), state });
-  expect(entry.changes.map(c => c.why)).toEqual([
-    ["Films only: task 1 counted TV shows too."],
-    ["Films only: task 1 counted TV shows too."],
-    ["Keep every row; the earlier filter dropped undated titles."],
+  // films was added in this task, so it stays `added`, placed under the step that
+  // produced its final definition; the probe added and deleted leaves no trace.
+  expect(entry.changes.map(c => [c.status, c.id, c.call])).toEqual([
+    ["modified", "cleaned", 1],
+    ["added", "films", 2],
+    ["added", "durations", 2],
   ]);
   const text = renderTaskEntry(entry);
-  expect(text.match(/why: Films only/g)).toHaveLength(1);
-  expect(text).toContain("Changes:\n  why: Films only: task 1 counted TV shows too.\n  added    films = filter(");
-  expect(text).toContain("  why: Keep every row; the earlier filter dropped undated titles.\n  modified cleaned = filter(");
+  expect(text).toContain(
+    "Changes:\n  Step 1: Keep every row; the earlier filter dropped undated titles.\n    modified cleaned = filter("
+  );
+  expect(text).toContain("  Step 2: Films only: task 1 counted TV shows too.\n    added    films = filter(");
+  expect(text).not.toContain("First attempt");
+  expect(text).not.toContain("probe");
 });
+
+test("an entry lists every column, whole-table missing counts and the values of low-cardinality columns", () => {
+  const state = new WorkflowState();
+  state.addOperator(operator("titles", 'titles = scan("netflix.csv")'));
+  const columns = ["show_id", "type", "title", "director", "cast", "country", "date_added", "release_year", "rating", "duration"];
+  const profile = {
+    status: "available",
+    coverage: { scope: "full", complete: true },
+    columns: {
+      type: { type: "str", nullCount: 0, frequencies: { values: [{ value: { type: "str", value: "Movie" }, count: 6131 }, { value: { type: "str", value: "TV Show" }, count: 2676 }], otherCount: 0, truncated: false } },
+      country: { nullCount: 831, frequencies: null },
+      token_order: { type: "int64", nullCount: 0, frequencies: { values: [{ value: { type: "int64", value: "1" }, count: 5 }, { value: { type: "int64", value: "2" }, count: 3 }], otherCount: 0, truncated: false } },
+      duration: { nullCount: 3, frequencies: { values: [], otherCount: 8804, truncated: true } },
+    },
+  };
+  const results = new Map<string, any>([
+    ["titles", { state: "Completed", totalRowCount: 8807, resultSchema: columns.map(name => ({ name })), tableProfile: profile }],
+  ]);
+  const steps: ReActStep[] = [
+    { id: "u", role: "user", messageId: "m", content: "Load titles", isBegin: true } as any,
+    receipt([{ id: "titles", op: "scan", status: "added", message: "" }]),
+    { id: "a", role: "agent", messageId: "m", content: "Final Answer: 8807", isEnd: true } as any,
+  ];
+  const text = renderTaskEntry(buildTaskEntry({ task: 1, steps, results, state }));
+  expect(text).toContain(`cols=${columns.join(",")}`);
+  expect(text).toContain("missing: country=831, duration=3");
+  expect(text).toContain("values: type = Movie 6131 | TV Show 2676");
+  expect(text).not.toContain("token_order ="); // numeric columns list no values
+  // A partial profile states nothing.
+  (profile.coverage as any).complete = false;
+  expect(renderTaskEntry(buildTaskEntry({ task: 1, steps, results, state }))).not.toContain("missing:");
+});
+

@@ -42,16 +42,22 @@ export interface TaskChange {
   statement: string;
   /** The author's one-sentence doc of a custom operator. */
   doc?: string;
-  /** Function bodies, only when the statement has functions and no doc. */
+  /** The bodies of the functions the statement uses. */
   functions?: string[];
   rows?: number;
   columns?: string[];
+  /** Columns with missing values and how many, over the whole table. */
+  missing?: Array<[string, number]>;
+  /** Every value of a column with few distinct values, with its count, over the whole table. */
+  values?: Array<[string, Array<[string, number]>]>;
   /** `EMPTY`, `failed: <reason>`, a restore's verification, … */
   flag?: string;
   /** For a modification: the task whose definition this one replaced. */
   replaces?: number;
-  /** The stated reasons of the calls that landed this change, in order. */
-  why?: string[];
+  /** The step (dataflow call) that last landed this change, counted from 0 within the task. */
+  call?: number;
+  /** That step's stated description, when the tool asks for one. */
+  step?: string;
 }
 
 /** The rows of a table the task observed, as the model saw them. */
@@ -78,8 +84,12 @@ export interface TaskEntry {
 }
 
 const STATEMENT_LIMIT = 400;
-const FUNCTION_LINES = 8;
-const WHY_LIMIT = 400;
+/** A function longer than this keeps its first lines and says how many were cut. */
+const FUNCTION_LINES = 80;
+const STEP_LIMIT = 400;
+/** A column is listed with its values when it has at most this many distinct ones. */
+const FEW_VALUES = 5;
+const VALUE_COLUMNS = 4;
 /** A table with at most this many rows is kept whole; a larger one keeps its first rows. */
 export const COMPLETE_ROWS = 20;
 export const SAMPLE_ROWS = 3;
@@ -154,6 +164,31 @@ export function entryTable(id: string, info: OperatorInfo | undefined): TaskTabl
   return { id, total, complete, text: renderRows(complete ? held : held.slice(0, SAMPLE_ROWS)) };
 }
 
+/** Missing counts and small value sets from the engine's whole-table profile.
+ * Only a complete profile is used: a partial one would state wrong counts. */
+export function profileFacts(info: OperatorInfo | undefined): Pick<TaskChange, "missing" | "values"> {
+  const profile = info?.tableProfile;
+  if (!profile || profile.status !== "available" || !profile.coverage.complete) return {};
+  const columns = Object.entries(profile.columns ?? {}).filter(([name]) => !name.startsWith("__"));
+  const missing = columns.filter(([, c]) => c.nullCount > 0).map(([name, c]) => [name, c.nullCount] as [string, number]);
+  const values = columns
+    .filter(([, c]) => {
+      // Categories, not numbers: a count per value of a numeric column is noise.
+      if (c.type !== "str" && c.type !== "bool") return false;
+      const f = c.frequencies;
+      return f && !f.truncated && f.otherCount === 0 && f.values.length >= 2 && f.values.length <= FEW_VALUES;
+    })
+    .slice(0, VALUE_COLUMNS)
+    .map(
+      ([name, c]) =>
+        [name, c.frequencies!.values.map(v => [String(v.value.value), v.count] as [string, number])] as [
+          string,
+          Array<[string, number]>,
+        ]
+    );
+  return { ...(missing.length ? { missing } : {}), ...(values.length ? { values } : {}) };
+}
+
 function statementOf(op: OperatorPredicate | undefined, fallback: string): string {
   return clip(op?.nativeOp?.source ?? fallback, STATEMENT_LIMIT);
 }
@@ -175,31 +210,40 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
   const request = steps.find(step => step.role === "user")?.content ?? "";
   const answer = steps.filter(step => step.role === "agent" && step.isEnd).at(-1)?.content ?? "";
   const provenance = history?.provenance();
-  const landed = new Map<string, { status: ChangeStatus; attempted?: string; message?: string; why?: string[] }>();
-  // A change keeps the reason of every call that landed it, once each.
-  const withWhy = (reasons: string[] | undefined, why: string | undefined) =>
-    why && !reasons?.includes(why) ? [...(reasons ?? []), why] : reasons;
+  const landed = new Map<
+    string,
+    { status: ChangeStatus; attempted?: string; message?: string; call: number; position: number; step?: string }
+  >();
   const observed: string[] = [];
+  let call = 0;
+  let position = 0;
   for (const step of steps) {
     for (const batch of nativeBatchResults(step)) {
       observed.push(...batch.observe);
       for (const outcome of batch.operators) {
         const previous = landed.get(outcome.id);
+        // Each change belongs to the step that last landed it: the step that
+        // produced its final definition. Earlier attempts leave no trace.
+        const at = { call, position: position++, step: batch.step };
         if (outcome.status === "added" || outcome.status === "modified") {
           const restored = outcome.op === "restore";
           landed.set(outcome.id, {
             status: restored ? "restored" : previous?.status === "added" ? "added" : outcome.status,
-            why: withWhy(previous?.status === "failed" ? undefined : previous?.why, batch.why),
+            ...at,
           });
-        } else if (outcome.status === "deleted")
-          landed.set(outcome.id, { status: "deleted", why: withWhy(undefined, batch.why) });
-        else if (outcome.status === "error" && !previous)
+        } else if (outcome.status === "deleted") {
+          // Added and removed within the task: no net change.
+          if (previous?.status === "added") landed.delete(outcome.id);
+          else landed.set(outcome.id, { status: "deleted", ...at });
+        } else if (outcome.status === "error" && !previous)
           landed.set(outcome.id, {
             status: "failed",
             attempted: outcome.attempted?.source,
             message: outcome.message.split("\n")[0],
+            ...at,
           });
       }
+      call++;
     }
   }
   const changes: TaskChange[] = [];
@@ -213,23 +257,30 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
         id,
         statement: clip(fold.attempted ?? id, STATEMENT_LIMIT),
         flag: `failed: ${clip(fold.message ?? "rejected", 160)}`,
+        call: fold.call,
       });
       continue;
     }
+    const placed = { call: fold.call, ...(fold.step ? { step: fold.step } : {}) };
     if (fold.status === "deleted") {
-      changes.push({ status: "deleted", id, statement: `${id} deleted`, ...(fold.why ? { why: fold.why } : {}) });
+      changes.push({ status: "deleted", id, statement: `${id} deleted`, ...placed });
       continue;
     }
-    const change: TaskChange = { status: fold.status, id, statement: statementOf(op, id) };
-    if (fold.why?.length) change.why = fold.why;
+    const change: TaskChange = { status: fold.status, id, statement: statementOf(op, id), ...placed };
     const doc = op?.nativeOp?.properties?.doc;
     if (typeof doc === "string" && doc) change.doc = doc;
-    else if (op?.nativeOp?.functions && Object.keys(op.nativeOp.functions).length)
-      change.functions = Object.values(op.nativeOp.functions).map(body =>
-        body.split("\n").slice(0, FUNCTION_LINES).join("\n")
-      );
+    // Bodies stay with the doc: a later task that revises or reproduces an
+    // earlier formula needs the code, not only its one-sentence summary.
+    if (op?.nativeOp?.functions && Object.keys(op.nativeOp.functions).length)
+      change.functions = Object.values(op.nativeOp.functions).map(body => {
+        const lines = body.split("\n");
+        return lines.length <= FUNCTION_LINES
+          ? body
+          : [...lines.slice(0, FUNCTION_LINES), `# … ${lines.length - FUNCTION_LINES} more lines`].join("\n");
+      });
     if (info?.totalRowCount !== undefined) change.rows = info.totalRowCount;
     if (info?.resultSchema?.length) change.columns = info.resultSchema.map(field => field.name);
+    Object.assign(change, profileFacts(info));
     if (info?.error) change.flag = "failed: current result unavailable";
     else if (info?.totalRowCount === 0) change.flag = "EMPTY";
     if (info?.note) change.flag = change.flag ? `${change.flag}; ${info.note}` : info.note;
@@ -240,6 +291,8 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
     }
     changes.push(change);
   }
+  const order = new Map([...landed].map(([id, fold]) => [id, fold.position]));
+  changes.sort((a, b) => (a.call ?? 0) - (b.call ?? 0) || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
   const from = answerSources(answer, observed, results);
   // The rows the task read, answer-bearing tables first. Rows an earlier entry
   // already shows, unchanged, are named rather than repeated; a table that does
@@ -276,11 +329,13 @@ function renderChange(change: TaskChange): string {
   const head = `  ${change.status.padEnd(8)} ${change.statement}`;
   const facts: string[] = [];
   if (change.rows !== undefined) facts.push(`rows=${change.rows}`);
-  if (change.columns?.length)
-    facts.push(`cols=${change.columns.slice(0, 8).join(",")}${change.columns.length > 8 ? ",…" : ""}`);
+  if (change.columns?.length) facts.push(`cols=${change.columns.join(",")}`);
   if (change.replaces !== undefined) facts.push(`replaces task ${change.replaces}`);
   if (change.flag) facts.push(change.flag.startsWith("EMPTY") ? `⚠ ${change.flag}` : change.flag);
   lines.push(facts.length ? `${head}\n           → ${facts.join("; ")}` : head);
+  if (change.missing?.length) lines.push(`           missing: ${change.missing.map(([c, n]) => `${c}=${n}`).join(", ")}`);
+  for (const [column, counts] of change.values ?? [])
+    lines.push(`           values: ${column} = ${counts.map(([v, n]) => `${clip(v, 40)} ${n}`).join(" | ")}`);
   if (change.doc) lines.push(`           doc: ${change.doc}`);
   for (const body of change.functions ?? []) lines.push(`           ${body.replace(/\n/g, "\n           ")}`);
   return lines.join("\n");
@@ -296,14 +351,19 @@ function renderTable(table: TaskTable): string {
 
 /** One entry as one message. The text is final once written. */
 export function renderTaskEntry(entry: TaskEntry): string {
-  // A call's reason is printed once, above the changes it explains.
+  // Changes grouped by the step that produced them, steps in the order they
+  // ran and numbered from 1. Without stated steps the changes stay flat.
+  const stated = entry.changes.some(change => change.step);
   const lines: string[] = [];
-  let reason = "";
+  let current: number | undefined;
+  let number = 0;
   for (const change of entry.changes) {
-    const why = (change.why ?? []).join(" / ");
-    if (why && why !== reason) lines.push(`  why: ${clip(why, WHY_LIMIT)}`);
-    if (why) reason = why;
-    lines.push(renderChange(change));
+    if (stated && change.call !== current) {
+      current = change.call;
+      number++;
+      lines.push(`  Step ${number}: ${change.step ? clip(change.step, STEP_LIMIT) : "(not described)"}`);
+    }
+    lines.push(stated ? renderChange(change).replace(/^/gm, "  ") : renderChange(change));
   }
   const changes = lines.length ? lines.join("\n") : "  (no change to the dataflow)";
   const tables = entry.tables.length ? `\nTables read:\n${entry.tables.map(renderTable).join("\n")}` : "";

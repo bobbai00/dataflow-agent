@@ -180,7 +180,7 @@ export interface AgentSettings {
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
   /** Each dataflow call states `why`; entries keep it under the changes the call made. */
-  nativeTaskWhy?: boolean;
+  nativeTaskSteps?: boolean;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -528,7 +528,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeTaskContext: false,
   nativeTaskCache: true,
   nativeTaskRestore: true,
-  nativeTaskWhy: false,
+  nativeTaskSteps: false,
   dataEvidence: false,
   flowEvidence: false,
   resultSelection: "all",
@@ -653,7 +653,7 @@ export interface AgentSettingsApi {
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
   /** Each dataflow call states `why`; entries keep it under the changes the call made. */
-  nativeTaskWhy?: boolean;
+  nativeTaskSteps?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;
@@ -762,7 +762,7 @@ export interface UpdateAgentSettingsRequest {
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
   /** Each dataflow call states `why`; entries keep it under the changes the call made. */
-  nativeTaskWhy?: boolean;
+  nativeTaskSteps?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   parallelToolCalls?: boolean;

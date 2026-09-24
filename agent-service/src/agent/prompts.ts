@@ -216,23 +216,23 @@ export interface NativePromptLayoutOptions {
   /** The `restore` step and the four state gestures are explained. */
   taskRestore?: boolean;
   /** Each dataflow call states `why`, and entries show it. */
-  taskWhy?: boolean;
+  taskSteps?: boolean;
 }
 
 /** Stated once, in the stable head of the prompt, so the explanation costs one
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_ENTRIES_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow (added, modified, restored or deleted operators, each as the statement you wrote, with its doc, its row count and columns, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. A number an earlier task reported is in that task's entry: read it there instead of observing the table again, unless the table was recomputed since.";
+  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow, net over the whole task and grouped by the step that produced each one (added, modified, restored or deleted operators, each as the statement you wrote with its doc and function code, its row count and full column list, `missing:` counts and the `values:` of columns with few distinct values over the whole table, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first 3 rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. The entries are a catalog of everything built so far, not all of its data: every table in `# Tables now` can be observed. When an entry already shows the number you need, read it there. When you need rows it does not show (the rest of a large table, a table read without its rows, one marked `recomputed`), observe that table, for example `dataflow(step=\"Recall the task 5 ranking beyond its first rows\", edits=\"\", observe=[\"fractional_scan_report\"])`, which shows its current rows without executing anything.";
 /** How a task is worked, stated once. The steps are DSGym's, which answers
  * the same benchmark with two model calls per turn; the last sentence is the
  * dataflow's own repair: one reassignment recomputes everything downstream. */
 const TASK_METHOD =
-  "\n\nWork each task as a careful analyst. First understand the request: what one row means, which rows are in scope, and the units and rounding the answer needs. Plan the steps before writing statements, and change the plan when a table contradicts it. Later tasks mostly build on tables whose columns you have already seen, so feel free to add several operators in one call whenever you are comfortable with how they fit together; this usually makes the work go faster. Observe only the tables whose results you need, usually the ones the answer is read from. Answer only when the observed tables support every number, and try another approach when they do not. When a request corrects or refines what an earlier task defined, reassign that id so everything built on it recomputes, rather than building a copy beside it.";
-/** Visible reasoning as part of the action: the reason rides on the call, so
- * later calls of the task see it and the entry keeps it under the changes. */
-const TASK_WHY =
-  " Each dataflow call carries `why`: one or two sentences on what the call does and why. It stays with the changes that call makes, and completed tasks show it as a `why:` line above those changes, so write it for a reader coming back in a later task; when a call corrects an earlier definition, say what was wrong.";
+  "\n\nWork each task as a careful analyst. First understand the request: what one row means, which rows are in scope, and the units and rounding the answer needs. Plan the steps before writing statements, and change the plan when a table contradicts it. Later tasks mostly build on tables whose columns you have already seen, so feel free to add several operators in one call whenever you are comfortable with how they fit together; this usually makes the work go faster. Observe only the tables whose results you need, usually the ones the answer is read from. Answer only when the observed tables support every number, and try another approach when they do not. Keep each analytical choice a later task may revise in its own operator (a population filter, a threshold, a weighting, one component of a score) and build composites such as a score or a ranking from those operators rather than inside one function: then a revision is one reassignment, and an earlier version stays addressable by name and task. When a request corrects or refines what an earlier task defined, reassign that id so everything built on it recomputes, rather than building a copy beside it.";
+/** Visible reasoning as part of the action: the step description rides on the
+ * call, so later calls of the task see it and the entry groups changes by it. */
+const TASK_STEPS =
+  " Each dataflow call is one step of the task and carries `step`: one or two sentences on what the call does and why. Completed tasks list their steps in order as `Step 1:`, `Step 2:` with the changes each produced, so write it for a reader coming back in a later task; when a call corrects an earlier definition, say what was wrong.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
 /** The four ways analytical state evolves, each as one dataflow gesture. */
 const TASK_STATE_GESTURES =
@@ -275,7 +275,7 @@ export function buildNativeModeSystemPrompt(
     (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
     (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
     (options.taskCatalog || options.taskHistory ? TASK_METHOD : "") +
-    ((options.taskCatalog || options.taskHistory) && options.taskWhy ? TASK_WHY : "");
+    ((options.taskCatalog || options.taskHistory) && options.taskSteps ? TASK_STEPS : "");
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)

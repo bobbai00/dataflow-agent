@@ -66,8 +66,8 @@ export interface NativeBatchResult {
   observationErrors: string[];
   /** Restores whose target landed: what they created and what they reused. */
   restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
-  /** The call's stated reason, when the tool asks for one (multi-task sessions). */
-  why?: string;
+  /** The call's stated step: what it does and why (multi-task sessions). */
+  step?: string;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -97,20 +97,20 @@ export interface DataflowInput {
   /** Saved versions to rebuild, applied with the edits. */
   restore?: RestoreRequest[];
   observe?: string[];
-  /** One or two sentences: what this call does and why. Asked for in multi-task sessions. */
-  why?: string;
+  /** One or two sentences: what this step does and why. Asked for in multi-task sessions. */
+  step?: string;
 }
 
-export const WHY_FIELD_DESCRIPTION =
-  "One or two sentences: what this call does and why, for example which part of the request it serves, what you expect to see, or which earlier definition it corrects and what was wrong with it. Kept with the changes this call makes, so later tasks can read it.";
+export const STEP_FIELD_DESCRIPTION =
+  "This step of the task in one or two sentences: what the call does and why, for example which part of the request it serves, what you expect to see, or which earlier definition it corrects and what was wrong with it. Completed tasks list their steps in order, each with the changes it made.";
 
-export function nativeBatchSchema(options: { why?: boolean } = {}): Record<string, unknown> {
+export function nativeBatchSchema(options: { step?: boolean } = {}): Record<string, unknown> {
   const schema = baseBatchSchema();
-  if (!options.why) return schema;
+  if (!options.step) return schema;
   return {
     ...schema,
-    properties: { why: { type: "string", description: WHY_FIELD_DESCRIPTION }, ...(schema.properties as object) },
-    required: ["why", ...(schema.required as string[])],
+    properties: { step: { type: "string", description: STEP_FIELD_DESCRIPTION }, ...(schema.properties as object) },
+    required: ["step", ...(schema.required as string[])],
   };
 }
 
@@ -175,7 +175,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
   return {
     [TOOL_NAME_DATAFLOW]: tool({
       description: DATAFLOW_TOOL_DESCRIPTION,
-      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ why: context?.settings?.nativeTaskWhy === true }) as any),
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ step: context?.settings?.nativeTaskSteps === true }) as any),
       execute: async args => {
         const repairEpoch = repair.epoch;
         if (
@@ -536,7 +536,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           observe,
           observationErrors,
           ...(restored.length ? { restored } : {}),
-          ...(typeof args.why === "string" && args.why.trim() ? { why: args.why.trim() } : {}),
+          ...(typeof args.step === "string" && args.step.trim() ? { step: args.step.trim() } : {}),
         } satisfies NativeBatchResult;
       },
     }),

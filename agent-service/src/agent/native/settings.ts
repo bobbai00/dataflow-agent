@@ -70,7 +70,7 @@ export function validateNativeSettings(
     nativeTaskContext?: unknown;
     nativeTaskCache?: unknown;
     nativeTaskRestore?: unknown;
-    nativeTaskWhy?: unknown;
+    nativeTaskSteps?: unknown;
   } = {}
 ): void {
   validateEvidenceSettings(settings);
@@ -92,7 +92,7 @@ export function validateNativeSettings(
   }
   // Cache boundaries and restore modify task history and do nothing without it,
   // so their defaults are harmless in either mode.
-  for (const name of ["nativeTaskCache", "nativeTaskRestore", "nativeTaskWhy"] as const) {
+  for (const name of ["nativeTaskCache", "nativeTaskRestore", "nativeTaskSteps"] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);
