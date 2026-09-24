@@ -522,14 +522,23 @@ arbitrary input profiles, function source, or a full provenance proof. Every
 summary competes inside the observed output's own budget and appears only when
 flow evidence is enabled.
 
-## 6. How the shared budget and combined selection work
+## 6. How the budgets and combined selection work
 
 Let `B = maxOperatorResultCharLimit`, normally 2,000. The renderer uses
-JavaScript string length (UTF-16 code units), including internal line breaks:
+JavaScript string length (UTF-16 code units), including internal line breaks.
+Since 2026-09-23 the two evidence families are orthogonal: the table and the
+data measurements share `B`, and flow evidence has a budget of its own, equal
+to the room the table left, so turning one family on never changes the lines
+of the other and the combined view is the data view followed by the flow lines:
 
 ```text
-length(shape + schema + visible rows + selected evidence + any notice) <= B
+length(shape + schema + visible rows + selected data evidence + any notice) <= B
+length(selected flow evidence) <= B - length(shape + schema + visible rows)
 ```
+
+A combined observation can therefore reach almost `2B`; a Data-only or
+Flow-only observation stays within `B`. Historical compaction keeps a recorded
+combined observation whole unless an explicit limit is given.
 
 It is a **per-successful-result body** limit. Tool receipts, operator headers,
 properties/code, DAG links, errors, the system prompt, and previous events are
@@ -566,7 +575,9 @@ the backend, so the selector may receive an already-truncated sample.
 7. **Clip long sampled string cells.** Keep 160 characters for ordinary samples
    or 120 for previews, followed by `...[truncated]...`. Rows not placed in the
    reserve become candidates for remaining space.
-8. **Gate evidence by the two booleans.** Disabled families are not printed.
+8. **Gate evidence by the two booleans.** Disabled families are not printed
+   and the families never compete: data facts (and rows that overflowed the
+   reserve) fill what is left of `B`; flow facts fill their own budget.
    Raw-preview transport columns do not produce per-column distribution facts;
    the preview is for discovering the real parse/header. Structural anomaly
    candidates are still subject to the usual rules.

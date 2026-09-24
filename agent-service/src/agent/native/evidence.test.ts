@@ -168,12 +168,12 @@ test("compact count groups do not conflate partial and full column coverage", ()
   expect(result.text).toContain('"partial" | 1 | 1 | 1');
 });
 
-test("combined omits counts only when the matching flow comparison was displayed", () => {
+test("combined keeps the data count beside the flow comparison: a flow line never suppresses a data line", () => {
   const f = fixture();
   const both = observe(f);
   expect(both.text).toContain('predicate column "x": input (full=5 rows)');
-  expect(both.selected).not.toContain("data.column.x.counts");
-  expect(both.omitted).toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
+  expect(both.selected).toContain("data.column.x.counts");
+  expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
   expect(data.selected).toContain("data.column.x.counts");
   expect(data.text).toContain("null=1/3, nonnull=2; distinct(nonnull)=2");
@@ -229,7 +229,7 @@ test("raw preview protects ordered header rows from metadata profiles and long c
       expect(result.text.indexOf("Sample stored row 2:")).toBeLessThan(result.text.indexOf("Sample stored row 6:"));
       expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
       expect(result.text).toContain("...[truncated]...");
-      expect(result.text.length).toBeLessThanOrEqual(2000);
+      expect(result.text.length).toBeLessThanOrEqual(data && flow ? 4000 : 2000);
     }
 });
 
@@ -452,17 +452,50 @@ test("complete small tables outrank redundant data profiles but retain useful in
   expect(selection.omitted.some(x => x.reason === "redundant_complete_table")).toBe(true);
 });
 
-test("all exposure arms share typed data formatting and obey the entire result budget", () => {
+test("all exposure arms share typed data formatting and obey their result budgets", () => {
   const f = fixture();
   for (const data of [false, true])
     for (const flow of [false, true])
       for (const maxChars of [1, 12, 60, 160, 400, 2000]) {
         const selection = observe(f, { data, flow, maxChars });
-        expect(selection.text.length).toBeLessThanOrEqual(maxChars);
+        // The table and data lines fit `maxChars`; flow lines have their own budget of at most the same size.
+        expect(selection.text.length).toBeLessThanOrEqual(data && flow ? 2 * maxChars : maxChars);
         if (!data) expect(selection.selected.some(x => x.startsWith("data."))).toBe(false);
         if (!flow) expect(selection.selected.some(x => x.startsWith("flow."))).toBe(false);
         expect(observe(f, { data, flow, maxChars })).toEqual(selection);
       }
+});
+
+test("data and flow evidence are orthogonal: each family's lines ignore the other's switch, combined is their union", () => {
+  for (const f of [fixture(), fixture("Aggregate"), calculationFixture()])
+    for (const maxChars of [300, 450, 600, 900, 2000]) {
+      const dataOnly = observe(f, { data: true, flow: false, maxChars });
+      const flowOnly = observe(f, { data: false, flow: true, maxChars });
+      const neither = observe(f, { data: false, flow: false, maxChars });
+      const both = observe(f, { data: true, flow: true, maxChars });
+      const ids = (o: ReturnType<typeof observe>, family: "data" | "flow") =>
+        o.selected.filter(id => id !== "view.omissions" && id.startsWith("flow.") === (family === "flow"));
+      // Data lines (table, samples, data facts) are identical with flow on or off.
+      expect(ids(both, "data")).toEqual(ids(dataOnly, "data"));
+      expect(ids(flowOnly, "data")).toEqual(ids(neither, "data"));
+      // Flow lines are identical with data on or off.
+      expect(ids(both, "flow")).toEqual(ids(flowOnly, "flow"));
+      expect(ids(dataOnly, "flow")).toEqual([]);
+      // The combined text is the data view plus the flow lines, in that order.
+      const flowText = both.chunks.filter(c => c.id.startsWith("flow.")).map(c => c.text);
+      const dataText = both.chunks.filter(c => !c.id.startsWith("flow.")).map(c => c.text);
+      expect(both.text).toBe(
+        [
+          ...dataText.filter(t => !t.startsWith("View incomplete")),
+          ...flowText,
+          ...dataText.filter(t => t.startsWith("View incomplete")),
+        ].join("\n")
+      );
+      expect(dataOnly.text.length).toBeLessThanOrEqual(maxChars);
+      expect(flowOnly.text.length).toBeLessThanOrEqual(maxChars);
+      // A frozen combined observation is never shortened without an explicit limit.
+      expect(restrictNativeObservation(both, {})).toBe(both.text);
+    }
 });
 
 test("unknown or truncated data is never labelled a complete table", () => {

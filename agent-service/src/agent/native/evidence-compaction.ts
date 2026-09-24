@@ -44,16 +44,20 @@ export function compactNativeObservation(
   const byId = new Map(facts.map(f => [f.id, f]));
   const countKey = (c: NativeColumnCount) =>
     JSON.stringify([c.resultVersion, c.column, c.scope, c.rows, c.nulls, c.nonnull, c.distinct]);
+  // A count is redundant only when a displayed fact of the SAME family already
+  // shows it: the data and flow families are orthogonal, so a flow line never
+  // removes a data line (or the reverse), whatever the other switch is.
   const covered = new Set(
     observation.chunks.flatMap(c => {
       const fact = byId.get(c.id);
-      return fact?.coveredCount ? [countKey(fact.coveredCount)] : [];
+      return fact?.coveredCount ? [`${fact.family}:${countKey(fact.coveredCount)}`] : [];
     })
   );
   const omitted = [...observation.omitted];
   const chunks = observation.chunks.filter(c => {
-    const metric = byId.get(c.id)?.columnCount;
-    if (!metric || !covered.has(countKey(metric))) return true;
+    const fact = byId.get(c.id);
+    const metric = fact?.columnCount;
+    if (!metric || !covered.has(`${fact!.family}:${countKey(metric)}`)) return true;
     omitted.push({ id: c.id, reason: "redundant_displayed_fact" });
     return false;
   });

@@ -93,12 +93,19 @@ test("compaction is non-mutating, bounded and does not expand a single-column se
   expect(result.text.length).toBeLessThanOrEqual(original.text.length);
 });
 
-test("a displayed exact flow comparison suppresses only its duplicate count", () => {
+test("a displayed exact comparison suppresses its duplicate count only within the same family", () => {
+  // Flow and data are orthogonal: a flow comparison leaves the data count in place.
   const original = frame([flow, data]);
   const result = compactNativeObservation(original, [flow, data]);
-  expect(result.text).toBe(flow.text);
-  expect(result.selected).toEqual([flow.id]);
+  expect(result.text).toBe(original.text);
+  expect(result.selected).toEqual([flow.id, data.id]);
   expect(original.selected).toEqual([flow.id, data.id]);
+  // The same comparison shown as a data fact does suppress the duplicate count.
+  const sameFamily: NativeEvidenceFact = { ...flow, id: "data.column.x.compare", family: "data" };
+  const compacted = compactNativeObservation(frame([sameFamily, data]), [sameFamily, data]);
+  expect(compacted.text).toBe(sameFamily.text);
+  expect(compacted.selected).toEqual([sameFamily.id]);
+  expect(compacted.omitted).toContainEqual({ id: data.id, reason: "redundant_displayed_fact" });
 });
 
 test("shared references require an actually displayed same-version same-text producer", () => {
