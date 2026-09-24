@@ -168,6 +168,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `agentMode` | `native` (default) \| `code` | native: the model writes the dataflow as a `name = operator(...)` program (`dataflow` tool); code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
 | `dataEvidence` | bool (default `false`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
+| `dataflowReasoning` | bool (default `false`) | native `dataflow` tool gains a required `reasoning` argument (why this call, what the observed tables should show), replayed with the call |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |

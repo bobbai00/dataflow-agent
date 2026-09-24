@@ -701,11 +701,12 @@ function cellText(value: unknown, type: string): string {
   return json(value) ?? "[unavailable]";
 }
 
-/** The table (shape, schema, samples) and the data measurements share one
- * budget of `maxChars`. Flow evidence has its own budget of the same size as
- * the room the table left, so the two families are orthogonal: the data lines
- * are the same whether flow is on or off, and the flow lines are the same
- * whether data is on or off; the combined view is their concatenation.
+/** Evidence is additive. The table (shape, schema, sample rows) is the same in
+ * every arm and fits `maxChars`. Data measurements and flow evidence each get a
+ * budget of their own, equal to the room the table's first allocation (shape,
+ * schema, reserved rows) left, so neither family displaces a row or the other
+ * family: the Data-only view is the no-evidence view plus the data lines, the
+ * Flow-only view is it plus the flow lines, and the combined view is both.
  * Errors use the separate diagnostic path. */
 export function selectNativeObservation(context: NativeEvidenceContext & NativeObservationOptions): NativeObservation {
   const { op, info, data, flow } = context;
@@ -727,24 +728,25 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     chunks: [],
     omitted: [],
   };
+  // Three parts, each with its own budget; chunks are pushed in text order
+  // (table, data lines, flow lines, notice).
   const lines: string[] = [];
+  const dataLines: string[] = [];
   const flowLines: string[] = [];
   const used = (list: string[]) => list.join("\n").length + (list.length ? 1 : 0);
-  const append = (text: string, id: string): boolean => {
-    if (used(lines) + text.length > maxChars) return false;
-    lines.push(text);
-    result.selected.push(id);
-    result.chunks.push({ id, text });
-    return true;
-  };
-  let flowBudget = 0;
-  const appendFlow = (text: string, id: string): boolean => {
-    if (used(flowLines) + text.length > flowBudget) return false;
-    flowLines.push(text);
-    result.selected.push(id);
-    result.chunks.push({ id, text });
-    return true;
-  };
+  const pushTo =
+    (list: string[], budget: () => number) =>
+    (text: string, id: string): boolean => {
+      if (used(list) + text.length > budget()) return false;
+      list.push(text);
+      result.selected.push(id);
+      result.chunks.push({ id, text });
+      return true;
+    };
+  let evidenceBudget = 0;
+  const append = pushTo(lines, () => maxChars);
+  const appendData = pushTo(dataLines, () => evidenceBudget);
+  const appendFlow = pushTo(flowLines, () => evidenceBudget);
   const rows = info.result ?? [];
   const rawPreview = op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0;
   const schema =
@@ -777,9 +779,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const completeVisible = complete && append(table, "table.complete");
   const evidence = collectNativeEvidence(context);
   result.omitted.push(...evidence.omissions.map(id => ({ id, reason: "unavailable" as const })));
-  // Rows that overflow the sample reserve compete with the data facts; flow
-  // facts never do.
-  const candidates: NativeEvidenceFact[] = [];
+  // Rows that overflow the sample reserve fill the rest of the table's budget,
+  // exactly as without evidence; evidence facts never compete with them.
+  const rowCandidates: NativeEvidenceFact[] = [];
+  const dataCandidates: NativeEvidenceFact[] = [];
   const flowCandidates: NativeEvidenceFact[] = [];
   if (!completeVisible) {
     const relevant = relevance(context);
@@ -828,35 +831,34 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
         };
         if (sampleChars + fact.text.length + 1 <= sampleBudget && append(fact.text, fact.id)) {
           sampleChars += fact.text.length + 1;
-        } else candidates.push(fact);
+        } else rowCandidates.push(fact);
       }
     }
     result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });
   }
-  // Flow evidence gets the room the table left (minus the incompleteness
-  // notice), independent of the data lines, so a Flow-only view stays within
-  // `maxChars` and a combined view is the data view plus the same flow lines.
+  // Each evidence family gets the room the table's first allocation left
+  // (minus the incompleteness notice); the same size for data and flow.
   const NOTICE = "View incomplete; unshown rows/columns or evidence omitted.";
-  flowBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : NOTICE.length + 1));
+  evidenceBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : NOTICE.length + 1));
   for (const fact of evidence.facts) {
     if (!(fact.family === "data" ? data : flow)) result.omitted.push({ id: fact.id, reason: "disabled" });
     else if (completeVisible && fact.family === "data")
       result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
-    else if (fact.family === "flow") flowCandidates.push(fact);
-    else candidates.push(fact);
+    else (fact.family === "flow" ? flowCandidates : dataCandidates).push(fact);
   }
   const byPriority = (a: NativeEvidenceFact, b: NativeEvidenceFact) => b.priority - a.priority || lexical(a.id, b.id);
   // Full output/input bindings remain in the immutable audit metadata.
-  for (const fact of candidates.sort(byPriority)) {
-    if (!append(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
-  }
-  for (const fact of flowCandidates.sort(byPriority)) {
-    if (!appendFlow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
-  }
+  for (const [facts, add] of [
+    [rowCandidates, append],
+    [dataCandidates, appendData],
+    [flowCandidates, appendFlow],
+  ] as const)
+    for (const fact of facts.sort(byPriority))
+      if (!add(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
   const notice = !completeVisible && append(NOTICE, "view.omissions");
-  // Text order = chunk order: table and data lines, then flow lines, then the notice.
-  const body = notice ? lines.slice(0, -1) : lines;
-  result.text = [...body, ...flowLines, ...(notice ? lines.slice(-1) : [])].join("\n");
+  // Text order = chunk order: the table, the data lines, the flow lines, then the notice.
+  const tableLines = notice ? lines.slice(0, -1) : lines;
+  result.text = [...tableLines, ...dataLines, ...flowLines, ...(notice ? lines.slice(-1) : [])].join("\n");
   return compactNativeObservation(result, evidence.facts);
 }
 

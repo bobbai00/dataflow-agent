@@ -551,6 +551,68 @@ describe("native prompt", () => {
     }
   });
 
+  test("dataflowReasoning changes only the tool signature and adds one paragraph", async () => {
+    const plain = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const withReasoning = buildNativeModeSystemPrompt(ContextMode.DELTA, { reasoning: true });
+    expect(plain).not.toContain("`reasoning`");
+    expect(plain).toContain("`dataflow(edits, delete, observe)` is the only tool.");
+    expect(withReasoning).toContain("`dataflow(reasoning, edits, delete, observe)` is the only tool.");
+    expect(withReasoning).toContain("Write `reasoning` first");
+    expect(withReasoning).not.toContain("{{");
+    const added = withReasoning.split("\n").filter(line => !plain.split("\n").includes(line));
+    expect(added).toHaveLength(2);
+  });
+
+  test("the prompt documents exactly the enabled evidence kinds, as meta-level information for the next step", async () => {
+    const variant = (dataEvidence: boolean, flowEvidence: boolean) =>
+      buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence, flowEvidence });
+    const none = variant(false, false);
+    expect(none).toContain("## Results and errors");
+    expect(none).toContain("`Columns:` line");
+    for (const absent of ["Data measurement", "Flow measurement", "meta-level", "Evidence lines"])
+      expect(none).not.toContain(absent);
+    const data = variant(true, false);
+    const flow = variant(false, true);
+    const both = variant(true, true);
+    for (const prompt of [data, flow, both]) {
+      expect(prompt).toContain("## Results, evidence and errors");
+      expect(prompt).toContain("meta-level information");
+      expect(prompt).toContain("Use them to decide your next step");
+      expect(prompt).not.toContain("{{");
+    }
+    expect(data).toContain("`Data measurement` lines");
+    expect(data).not.toContain("`Flow measurement` lines");
+    expect(flow).toContain("`Flow measurement` lines");
+    expect(flow).not.toContain("`Data measurement` lines");
+    expect(both).toContain("`Data measurement` lines");
+    expect(both).toContain("`Flow measurement` lines");
+    expect(both).toContain("Read them together");
+    expect(data).not.toContain("Read them together");
+    // Only the results section differs between the variants.
+    const outside = (prompt: string) => prompt.replace(/## Results[\s\S]*?\n\nErrors name/, "");
+    expect(outside(both)).toBe(outside(none));
+  });
+
+  test("the principles section carries the script agent's guidance, adapted to operators", () => {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const section = prompt.slice(prompt.indexOf("## Principles"), prompt.indexOf("## Semantics to keep in mind"));
+    for (const principle of [
+      "One operator, one operation",
+      "Messy files",
+      "Suspicious column names mean a bad parse",
+      "look like data values",
+      "Normalize before grouping or joining",
+      "Dedupe before counting concatenated data",
+      "Duplicate column names after re-headering",
+      "Numeric edge cases",
+      "Units and format",
+      "Late rounding",
+      "Plausibility checks",
+      "Load everything relevant, then subset",
+    ])
+      expect(section, principle).toContain(principle);
+  });
+
   test("the prompt carries no benchmark-specific files, columns or domains", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA).toLowerCase();
     for (const token of [

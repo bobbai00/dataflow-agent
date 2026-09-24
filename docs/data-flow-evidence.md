@@ -526,19 +526,26 @@ flow evidence is enabled.
 
 Let `B = maxOperatorResultCharLimit`, normally 2,000. The renderer uses
 JavaScript string length (UTF-16 code units), including internal line breaks.
-Since 2026-09-23 the two evidence families are orthogonal: the table and the
-data measurements share `B`, and flow evidence has a budget of its own, equal
-to the room the table left, so turning one family on never changes the lines
-of the other and the combined view is the data view followed by the flow lines:
+Since 2026-09-23 evidence is additive. The table (shape, schema, sample rows,
+notice) is identical in every arm and fits `B`. Data measurements and flow
+evidence each get a budget of their own, equal to the room the table's first
+allocation (shape, schema, reserved rows) left. So turning a family on never
+removes a row or a line of the other family: the Data-only view is the
+no-evidence view plus the data lines, the Flow-only view is it plus the flow
+lines, and the combined view is both, in that order:
 
 ```text
-length(shape + schema + visible rows + selected data evidence + any notice) <= B
-length(selected flow evidence) <= B - length(shape + schema + visible rows)
+E = B - length(shape + schema + reserved rows + notice)
+length(shape + schema + all visible rows + notice) <= B
+length(selected data evidence) <= E
+length(selected flow evidence) <= E
 ```
 
-A combined observation can therefore reach almost `2B`; a Data-only or
-Flow-only observation stays within `B`. Historical compaction keeps a recorded
-combined observation whole unless an explicit limit is given.
+An observation can therefore exceed `B` by up to `E` per enabled family.
+Historical compaction keeps a recorded observation whole unless an explicit
+limit is given. Before 2026-09-23 the data facts outranked the rows that
+overflowed the reserve, so enabling data evidence showed about 29% fewer rows
+(Luna traces: 9.0 against 12.7 rows per incomplete table).
 
 It is a **per-successful-result body** limit. Tool receipts, operator headers,
 properties/code, DAG links, errors, the system prompt, and previous events are
@@ -566,25 +573,25 @@ the backend, so the selector may receive an already-truncated sample.
    fields in their original schema order. Partial schemas say `(shown=k/C)`.
 5. **Reserve room for records in the same budget.** Ordinary results reserve
    up to `floor(0.25 * B)` for rows. Raw Scan previews reserve up to
-   `floor(0.75 * B)`. These are early-allocation allowances, not extra budgets
-   or guarantees that this amount is available after shape/schema.
+   `floor(0.75 * B)`. The room left after this first allocation is `E`, the
+   size of each evidence family's own budget.
 6. **Order the stored records.** Ordinary views alternate first, last, second,
    second-last, etc. from the stored result array. Preview views retain prefix
    order so headers below preambles can survive. These positions are not
    random samples and not necessarily the first/last rows of the full source.
 7. **Clip long sampled string cells.** Keep 160 characters for ordinary samples
    or 120 for previews, followed by `...[truncated]...`. Rows not placed in the
-   reserve become candidates for remaining space.
+   reserve then fill the rest of `B`, exactly as without evidence.
 8. **Gate evidence by the two booleans.** Disabled families are not printed
-   and the families never compete: data facts (and rows that overflowed the
-   reserve) fill what is left of `B`; flow facts fill their own budget.
+   and nothing competes across parts: rows fill the table's budget, data facts
+   fill their own budget `E`, flow facts fill theirs.
    Raw-preview transport columns do not produce per-column distribution facts;
    the preview is for discovering the real parse/header. Structural anomaly
    candidates are still subject to the usual rules.
-9. **Sort remaining candidates and greedily append whole facts.** Descending
-   priority, then lexical fact ID for deterministic ties. Skip a fact that does
-   not fit and continue trying later, possibly shorter facts. There is no
-   fixed 50/50 data/flow allocation and no knapsack or LLM selection here.
+9. **Sort each part's candidates and greedily append whole facts.**
+   Descending priority, then lexical fact ID for deterministic ties. Skip a
+   fact that does not fit and continue trying later, possibly shorter facts.
+   There is no knapsack or LLM selection here.
 10. **Try an incomplete-view notice.** Append it only if space remains. Full
     omission reasons are retained internally even if a printed notice cannot
     fit.

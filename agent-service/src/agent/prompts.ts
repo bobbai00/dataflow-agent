@@ -209,7 +209,45 @@ export interface NativePromptLayoutOptions {
   session?: boolean;
   recall?: boolean;
   messageLayout?: AgentSettings["messageLayout"];
+  /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
+  reasoning?: boolean;
+  /** Which evidence kinds observed results carry; the prompt documents exactly those. */
+  dataEvidence?: boolean;
+  flowEvidence?: boolean;
 }
+
+/** What evidence lines are and how to use them, for the kinds that are enabled.
+ * Nothing is added when both are off: the prompt never describes lines the
+ * agent will not see. */
+export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEvidence?: boolean }): string {
+  const data = options.dataEvidence === true;
+  const flow = options.flowEvidence === true;
+  if (!data && !flow) return "";
+  const parts = [
+    "Evidence lines follow the rows. They are meta-level information: measurements the engine took about the table and about the operator that produced it, not rows of the data and not an answer. Each kind has a character budget of its own and never replaces rows. Use them to decide your next step: whether the table is the one you meant to build, whether a parse, filter, join or grouping did what you intended, and what to check or fix before building on it.",
+  ];
+  if (data)
+    parts.push(
+      "`Data measurement` lines describe the observed table itself: per column the null, non-null and distinct counts, the value range and the most frequent values; per table, duplicate rows and all-null rows or columns. `full=N rows` covers the whole output; `partial prefix=n/N rows` covers only the processed prefix. A value list marked non-exhaustive is not the complete set, and unknown is not zero. They are left out when the complete table is shown, because the rows already say it. Typical uses: a key with fewer distinct values than rows is not unique, so check it before a lookup join; nulls in a column you will aggregate change the denominator; a range or value list that does not fit what the column should hold (years outside the task's span, numbers stored as text, spelling variants of one category) means the scan or an earlier step needs fixing."
+    );
+  if (flow)
+    parts.push(
+      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls."
+    );
+  if (data && flow)
+    parts.push(
+      "With both kinds, flow lines say how many rows each step kept, matched or grouped, and data lines say what the rows now contain. Read them together: a table can have the right row count with wrong values, or the right values in the wrong number of rows."
+    );
+  parts.push(
+    "No evidence line proves that your population, key or formula is the one the task intends" +
+      (flow ? "; a process reports only its row counts and its `doc`." : ".")
+  );
+  return "\n\n" + parts.join("\n\n");
+}
+
+/** The paragraph that introduces the `reasoning` argument when it is enabled. */
+const REASONING_PARAGRAPH =
+  "\n\nWrite `reasoning` first: one or two sentences on why this call and what you expect the observed tables to show, such as a row count, the columns, or a value you can check. It stays in your history with the call. When the observation arrives, compare it with your expectation. A mismatch (a column name that looks like a value, a missing year, an unexpected row count) means an earlier step is wrong: fix that step instead of adapting later steps to it.";
 
 /** The native-mode system prompt for a context mode and message layout. */
 export function buildNativeModeSystemPrompt(
@@ -244,7 +282,14 @@ export function buildNativeModeSystemPrompt(
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
-  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
+  return NATIVE_MODE_TEMPLATE.replace(
+    "{{DATAFLOW_SIGNATURE}}",
+    options.reasoning ? "`dataflow(reasoning, edits, delete, observe)`" : "`dataflow(edits, delete, observe)`"
+  )
+    .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
+    .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
+    .replace("{{EVIDENCE}}", nativeEvidenceText(options))
+    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);

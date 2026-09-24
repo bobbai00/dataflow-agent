@@ -466,35 +466,42 @@ test("all exposure arms share typed data formatting and obey their result budget
       }
 });
 
-test("data and flow evidence are orthogonal: each family's lines ignore the other's switch, combined is their union", () => {
+test("evidence is additive: every arm shows the same table, and each family appends its own lines", () => {
   for (const f of [fixture(), fixture("Aggregate"), calculationFixture()])
     for (const maxChars of [300, 450, 600, 900, 2000]) {
-      const dataOnly = observe(f, { data: true, flow: false, maxChars });
-      const flowOnly = observe(f, { data: false, flow: true, maxChars });
-      const neither = observe(f, { data: false, flow: false, maxChars });
-      const both = observe(f, { data: true, flow: true, maxChars });
-      const ids = (o: ReturnType<typeof observe>, family: "data" | "flow") =>
-        o.selected.filter(id => id !== "view.omissions" && id.startsWith("flow.") === (family === "flow"));
-      // Data lines (table, samples, data facts) are identical with flow on or off.
-      expect(ids(both, "data")).toEqual(ids(dataOnly, "data"));
-      expect(ids(flowOnly, "data")).toEqual(ids(neither, "data"));
-      // Flow lines are identical with data on or off.
-      expect(ids(both, "flow")).toEqual(ids(flowOnly, "flow"));
-      expect(ids(dataOnly, "flow")).toEqual([]);
-      // The combined text is the data view plus the flow lines, in that order.
-      const flowText = both.chunks.filter(c => c.id.startsWith("flow.")).map(c => c.text);
-      const dataText = both.chunks.filter(c => !c.id.startsWith("flow.")).map(c => c.text);
-      expect(both.text).toBe(
-        [
-          ...dataText.filter(t => !t.startsWith("View incomplete")),
-          ...flowText,
-          ...dataText.filter(t => t.startsWith("View incomplete")),
-        ].join("\n")
-      );
-      expect(dataOnly.text.length).toBeLessThanOrEqual(maxChars);
-      expect(flowOnly.text.length).toBeLessThanOrEqual(maxChars);
-      // A frozen combined observation is never shortened without an explicit limit.
-      expect(restrictNativeObservation(both, {})).toBe(both.text);
+      const arms = {
+        neither: observe(f, { data: false, flow: false, maxChars }),
+        dataOnly: observe(f, { data: true, flow: false, maxChars }),
+        flowOnly: observe(f, { data: false, flow: true, maxChars }),
+        both: observe(f, { data: true, flow: true, maxChars }),
+      };
+      const part = (o: ReturnType<typeof observe>, kind: "table" | "data" | "flow" | "notice") =>
+        o.chunks.filter(c =>
+          kind === "notice"
+            ? c.id === "view.omissions"
+            : kind === "table"
+              ? c.id.startsWith("table.") || c.id.startsWith("sample.")
+              : c.id.startsWith(`${kind}.`)
+        );
+      const texts = (o: ReturnType<typeof observe>, kind: "table" | "data" | "flow" | "notice") =>
+        part(o, kind).map(c => c.text);
+      // The table (shape, schema, sample rows) is identical in every arm: evidence never displaces a row.
+      for (const o of Object.values(arms)) expect(texts(o, "table")).toEqual(texts(arms.neither, "table"));
+      // Each family's lines ignore the other family's switch.
+      expect(texts(arms.both, "data")).toEqual(texts(arms.dataOnly, "data"));
+      expect(texts(arms.both, "flow")).toEqual(texts(arms.flowOnly, "flow"));
+      expect(texts(arms.flowOnly, "data")).toEqual([]);
+      expect(texts(arms.dataOnly, "flow")).toEqual([]);
+      for (const [name, o] of Object.entries(arms)) {
+        // Text = table, data lines, flow lines, notice; every part within its own budget.
+        const ordered = ["table", "data", "flow", "notice"].flatMap(k => texts(o, k as any));
+        expect(o.text, name).toBe(ordered.join("\n"));
+        expect(o.chunks.length, name).toBe(ordered.length);
+        for (const k of ["data", "flow"] as const) expect(texts(o, k).join("\n").length).toBeLessThanOrEqual(maxChars);
+        expect([...texts(o, "table"), ...texts(o, "notice")].join("\n").length).toBeLessThanOrEqual(maxChars);
+        // A frozen observation is never shortened without an explicit limit.
+        expect(restrictNativeObservation(o, {})).toBe(o.text);
+      }
     }
 });
 
@@ -598,16 +605,20 @@ test("downstream dependencies cross renames and derives without parsing callback
   expect(observe(f, { flow: false, maxChars: 550 }).selected).not.toContain("data.column.z_amount.counts");
 });
 
-test("sample reserve and broad count coverage share one bounded view", () => {
+test("data counts append to the full no-evidence view instead of replacing sample rows", () => {
   const f = fixture("Scan", {});
   f.info.totalRowCount = 100;
   f.info.result = Array.from({ length: 20 }, (_, i) => ({ x: i, y: i, z: i }));
   f.info.resultSchema = ["x", "y", "z"].map(name => ({ name, type: "int64", encoding: "number" }));
   f.info.tableProfile!.columns = { x: column(100), y: column(100), z: column(100) };
-  const selection = observe(f, { flow: false, maxChars: 850 });
-  for (const name of ["x", "y", "z"]) expect(selection.selected).toContain(`data.column.${name}.counts`);
-  expect(selection.text.length).toBeLessThanOrEqual(850);
-  expect(selection.selected.filter(id => id.startsWith("sample.")).length).toBeGreaterThanOrEqual(2);
+  const withData = observe(f, { flow: false, maxChars: 850 });
+  const without = observe(f, { data: false, flow: false, maxChars: 850 });
+  for (const name of ["x", "y", "z"]) expect(withData.selected).toContain(`data.column.${name}.counts`);
+  const rows = (o: ReturnType<typeof observe>) => o.selected.filter(id => id.startsWith("sample."));
+  expect(rows(withData)).toEqual(rows(without));
+  expect(rows(withData).length).toBeGreaterThan(8);
+  expect(withData.text.startsWith(without.text.replace(/\nView incomplete[^\n]*$/, ""))).toBe(true);
+  expect(withData.text.length).toBeLessThanOrEqual(2 * 850);
 });
 
 test("lineage walk bounds wide fan-out, not only visited queue entries", () => {

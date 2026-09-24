@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { asSchema } from "ai";
 import { type NativeBatchResult } from "./native-batch-tools";
 import { TexeraAgent, computeOperatorAccess } from "../texera-agent";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
@@ -43,6 +44,24 @@ const filter = 'selected = filter(source, lambda row: row["x"] is not None and r
 const aggregate = "total = aggregate(selected, n=count())";
 
 describe("native dataflow tool", () => {
+  test("dataflowReasoning adds a required reasoning argument, written first; off by default", async () => {
+    const schemaOf = (tool: any) => asSchema(tool.inputSchema).jsonSchema as any;
+    const off = nativeTestTools().tools.dataflow;
+    expect(Object.keys(schemaOf(off).properties)).toEqual(["edits", "delete", "observe"]);
+    expect(schemaOf(off).required).toEqual(["edits"]);
+    expect(String(off.description)).not.toContain("reasoning");
+    const { tools } = nativeTestTools(undefined, { settings: { dataflowReasoning: true } });
+    expect(Object.keys(schemaOf(tools.dataflow).properties)).toEqual(["reasoning", "edits", "delete", "observe"]);
+    expect(schemaOf(tools.dataflow).required).toEqual(["reasoning", "edits"]);
+    expect(String(tools.dataflow.description).startsWith("Start with `reasoning`")).toBe(true);
+    const landed = await tools.dataflow.execute({
+      reasoning: "Load the file; expect three rows with x and label.",
+      edits: 'source = scan("data/test.csv")',
+    });
+    expect((landed as NativeBatchResult).operators.map(o => o.status)).toEqual(["added"]);
+    expect(String(await tools.dataflow.execute({ reasoning: 5, edits: "" } as any))).toContain("reasoning: string");
+  });
+
   test("one program orders forward references without implicitly observing any output", async () => {
     const { batch, state } = setup();
     const result = await batch([aggregate, filter, scan].join("\n"));
@@ -224,6 +243,24 @@ describe("dataflow observation history", () => {
     };
     return { batch, state, steps, storage, record, dataflow };
   }
+
+  test("a replayed call shows its reasoning before the edits", async () => {
+    const { state, steps, storage, record, batch } = history();
+    const input = {
+      reasoning: "Parse the header on line 2; expect 24 rows.",
+      edits: 'source = scan("data/test.csv")',
+      observe: [],
+    };
+    record("s1", "dataflow", input, await batch(input.edits, []));
+    const text = assembleContext(steps, state, storage, ContextMode.DELTA, {
+      agentMode: AgentMode.NATIVE,
+      resultSelection: "all",
+      messageLayout: "block",
+    })
+      .map(m => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+      .join("\n");
+    expect(text).toContain("- dataflow\n  reasoning: Parse the header on line 2; expect 24 rows.\n  edits:");
+  });
 
   test("historical native DELTA inspection evidence keeps its saved event after later actions", async () => {
     const { state, steps, storage, record, dataflow } = history();

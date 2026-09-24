@@ -149,8 +149,9 @@ An agent created with no `settings` uses
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `false` | opt-in `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | `false` | opt-in `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, operator contracts) in observed results |
+| `dataflowReasoning` | `false` | the `dataflow` tool takes a required `reasoning` argument, written first: why this call and what the observed tables should show; it is replayed with the call |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
-| `maxOperatorResultCharLimit` | `2000` | schema, sample rows and enabled evidence share this per-result budget; a complete small table takes priority |
+| `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxOperatorResultCellCharLimit` | `2000` | long cells are clipped and marked |
 | `maxSteps` | `100` | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |

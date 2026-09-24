@@ -84,6 +84,8 @@ export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResult
 }
 
 export interface DataflowInput {
+  /** With `dataflowReasoning` on: why this call and what the observed tables should show. */
+  reasoning?: string;
   /** Statements that create or modify operators, plus the `def`s they use. */
   edits: string;
   /** Ids of operators to remove, applied before the edits. */
@@ -91,11 +93,19 @@ export interface DataflowInput {
   observe?: string[];
 }
 
-export function nativeBatchSchema(): Record<string, unknown> {
+/** Written first when enabled, so the edits follow the stated intent. */
+const REASONING_PROPERTY = {
+  type: "string",
+  description:
+    "Written first: one or two sentences on why this call and what you expect the observed tables to show (row count, columns, a value you can check). It is replayed with the call, so compare the next observation against it.",
+};
+
+export function nativeBatchSchema(options: { reasoning?: boolean } = {}): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
     properties: {
+      ...(options.reasoning ? { reasoning: REASONING_PROPERTY } : {}),
       edits: {
         type: "string",
         description:
@@ -114,7 +124,7 @@ export function nativeBatchSchema(): Record<string, unknown> {
           "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear.",
       },
     },
-    required: ["edits"],
+    required: options.reasoning ? ["reasoning", "edits"] : ["edits"],
   };
 }
 
@@ -123,6 +133,13 @@ export const DATAFLOW_TOOL_DESCRIPTION =
   NATIVE_OPERATOR_NAMES.join(", ") +
   "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing.";
 
+/** The tool description for the agent's settings: with `reasoning`, one sentence says it comes first. */
+export function dataflowToolDescription(options: { reasoning?: boolean } = {}): string {
+  return options.reasoning
+    ? "Start with `reasoning`: why this call and what the observed tables should show. " + DATAFLOW_TOOL_DESCRIPTION
+    : DATAFLOW_TOOL_DESCRIPTION;
+}
+
 /**
  * The one tool of native mode: `dataflow` (edits, deletes, observations). The
  * existing upsert (`native-upsert.ts`) owns compilation and wiring; the normal
@@ -130,10 +147,11 @@ export const DATAFLOW_TOOL_DESCRIPTION =
  */
 export function createNativeTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
   const repair = context?.nativeValidationRepair ?? new NativeValidationRepair();
+  const reasoning = context?.settings?.dataflowReasoning === true;
   return {
     [TOOL_NAME_DATAFLOW]: tool({
-      description: DATAFLOW_TOOL_DESCRIPTION,
-      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema() as any),
+      description: dataflowToolDescription({ reasoning }),
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ reasoning }) as any),
       execute: async args => {
         const repairEpoch = repair.epoch;
         if (
@@ -149,9 +167,14 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         }
         const isIds = (value: unknown) =>
           value === undefined || (Array.isArray(value) && value.every(id => typeof id === "string"));
-        if (typeof args?.edits !== "string" || !isIds(args.observe) || !isIds(args.delete)) {
+        if (
+          typeof args?.edits !== "string" ||
+          !isIds(args.observe) ||
+          !isIds(args.delete) ||
+          (args.reasoning !== undefined && typeof args.reasoning !== "string")
+        ) {
           return createErrorResult(
-            "dataflow requires edits: string, and optionally delete: string[] and observe: string[]"
+            "dataflow requires edits: string, and optionally delete: string[], observe: string[] and reasoning: string"
           );
         }
         const compiled = await compileProgram(args.edits, {

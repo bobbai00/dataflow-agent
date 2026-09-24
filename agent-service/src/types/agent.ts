@@ -269,6 +269,10 @@ export interface AgentSettings {
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
+  /** Native mode: the `dataflow` tool takes a required `reasoning` argument, written
+   *  first — why this call and what the observed tables should show — which is
+   *  replayed with the call so later steps see it. Off by default. */
+  dataflowReasoning: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -515,6 +519,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileCollection: true,
   dataEvidence: false,
   flowEvidence: false,
+  dataflowReasoning: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -630,6 +635,7 @@ export interface AgentSettingsApi {
   nativeProfileCollection?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  dataflowReasoning?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -729,6 +735,7 @@ export interface UpdateAgentSettingsRequest {
   nativeProfileCollection?: boolean;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  dataflowReasoning?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
