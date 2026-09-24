@@ -250,7 +250,7 @@ records = process(fn=load_fixed_width, doc="Concatenates every fixed-width file 
 
 ## Evidence and errors
 
-An observed result shows its shape, typed schema and sampled rows, and, when enabled, evidence lines that share the same character budget. A complete small table takes priority over statistics. Long cells are clipped and marked. Values are JSON-escaped: `null` is missing, `"NULL"` is text.
+An observed result shows its shape, typed schema and sampled rows, and, when enabled, evidence lines: data measurements share the table's character budget, and flow lines have a budget of their own, so neither kind displaces the other. A complete small table takes priority over statistics. Long cells are clipped and marked. Values are JSON-escaped: `null` is missing, `"NULL"` is text.
 
 `Data measurement` lines describe the observed table: null, non-null and distinct counts, value lists and ranges. `full=N rows` covers the whole output; `partial prefix=n/N rows` covers only the processed prefix. Top values marked non-exhaustive are not the complete set. Unknown is not zero.
 
