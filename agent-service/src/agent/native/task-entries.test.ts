@@ -32,6 +32,8 @@ function operator(id: string, source: string, extra: Record<string, unknown> = {
   } as any;
 }
 
+const rows = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ k: from + i, v: `v${from + i}` }));
+
 function receipt(operators: Array<Record<string, unknown>>, observe: string[] = []) {
   return {
     id: `s${Math.random()}`,
@@ -98,6 +100,7 @@ test("an entry folds the task's receipts into one change per operator, with doc,
   ]);
   const history = {
     provenance: () => new Map([["parsed", { created: 3, edited: [5], lastSaved: 5, gaps: [] }]]),
+    entries: () => [],
   } as any;
   const entry = buildTaskEntry({ task: 5, steps, results, state, history });
   expect(entry.changes.map(c => [c.status, c.id])).toEqual([
@@ -124,7 +127,63 @@ test("an entry folds the task's receipts into one change per operator, with doc,
   expect(text).toContain("→ rows=0; cols=ratio; ⚠ EMPTY");
   expect(text).toContain("deleted  probe deleted");
   expect(text).toContain("failed   broken = filter(parsed)");
+  // The rows the task read follow the changes: the answer-bearing table, whole.
+  expect(entry.tables).toEqual([
+    { id: "before_stats", total: 1, complete: true, text: "\tmean_total\n0\t38.70281" },
+  ]);
+  expect(text).toContain("Tables read:\n  before_stats (1 row, complete):\n  \tmean_total\n  0\t38.70281\nAnswer:");
   expect(text).toContain('Answer: Final Answer: {"remaining": 0, "mean_before": 38.7028}\n  from: before_stats');
+});
+
+test("a large table keeps its first rows, unchanged rows point at the entry that shows them, and the budget bounds an entry", () => {
+  const state = new WorkflowState();
+  for (const id of ["big", "same", "wide"]) state.addOperator(operator(id, `${id} = scan("x.csv")`));
+  const cells = rows(60).map(row => ({ ...row, v: "x".repeat(70) }));
+  const results = new Map<string, any>([
+    ["big", { state: "Completed", totalRowCount: 5063, result: rows(10) }],
+    ["same", { state: "Completed", totalRowCount: 2, result: rows(2) }],
+    ["wide", { state: "Completed", totalRowCount: 60, result: cells.slice(0, 3) }],
+  ]);
+  const shown = { id: "same", total: 2, complete: true, text: "\tk\tv\n0\t0\tv0\n1\t1\tv1" };
+  const history = {
+    provenance: () => new Map(),
+    entries: () => [{ task: 2, request: "", changes: [], tables: [shown], answer: "", from: [] }],
+  } as any;
+  const steps: ReActStep[] = [
+    { id: "u", role: "user", messageId: "m", content: "q", isBegin: true } as any,
+    receipt([], ["big", "same", "wide"]),
+    { id: "a", role: "agent", messageId: "m", content: "Final Answer: 5063", isEnd: true } as any,
+  ];
+  const entry = buildTaskEntry({ task: 4, steps, results, state, history });
+  expect(entry.tables.map(t => [t.id, t.complete, t.sameAs, t.text.split("\n").length])).toEqual([
+    ["big", false, undefined, 4], // header + first 3 rows of 5063
+    ["same", true, 2, 1], // identical rows already shown in task 2: no text
+    ["wide", false, undefined, 4],
+  ]);
+  expect(entry.tables[2]!.text).toContain("xxxxxxxxx…"); // cells are clipped
+  const text = renderTaskEntry(entry);
+  expect(text).toContain("  big (first 3 of 5063 rows):\n  \tk\tv\n  0\t0\tv0\n  1\t1\tv1\n  2\t2\tv2");
+  expect(text).toContain("  same: same rows as shown in task 2");
+  // Past the budget, a table is listed by size alone.
+  const many = new Map<string, any>();
+  const crowded = new WorkflowState();
+  const ids = Array.from({ length: 8 }, (_, i) => `t${i}`);
+  for (const id of ids) {
+    crowded.addOperator(operator(id, `${id} = scan("x.csv")`));
+    many.set(id, { state: "Completed", totalRowCount: 20, result: rows(20).map(r => ({ ...r, v: "y".repeat(40) })) });
+  }
+  const bounded = buildTaskEntry({
+    task: 1,
+    steps: [steps[0]!, receipt([], ids), steps[2]!],
+    results: many,
+    state: crowded,
+    history: { provenance: () => new Map(), entries: () => [] } as any,
+  });
+  const rendered = bounded.tables.map(t => renderTaskEntry({ ...bounded, tables: [t] }).length);
+  expect(bounded.tables.filter(t => t.text).length).toBeLessThan(ids.length);
+  expect(bounded.tables.filter(t => t.text).reduce((n, t) => n + t.text.length, 0)).toBeLessThanOrEqual(4000);
+  expect(renderTaskEntry(bounded)).toContain(`${bounded.tables.find(t => !t.text)!.id}: 20 rows, not shown here`);
+  expect(rendered.length).toBe(ids.length);
 });
 
 test("answer values are matched against the tables the task observed", () => {
@@ -154,5 +213,30 @@ test("the live index names every current table with its history and flags empty 
   const text = renderLiveIndex(state, results, history);
   expect(text).toBe(
     "# Tables now\nuof (t1) · cleaned (t2, edited t5)\n⚠ cleaned has 0 rows; everything built on it is empty"
+  );
+});
+
+test("the live index marks a table whose upstream changed after its own last change", () => {
+  const state = new WorkflowState();
+  state.addOperator(operator("uof", 'uof = scan("x.csv")'));
+  state.addOperator(operator("cleaned", 'cleaned = filter(uof, lambda row: True, doc="all")', { inputs: ["uof"] }));
+  state.addOperator(operator("stats", 'stats = aggregate(cleaned, n=count())', { inputs: ["cleaned"] }));
+  const results = new Map<string, any>([
+    ["uof", { state: "Completed", totalRowCount: 100 }],
+    ["cleaned", { state: "Completed", totalRowCount: 90 }],
+    ["stats", { state: "Completed", totalRowCount: 1 }],
+  ]);
+  const history = {
+    provenance: () =>
+      new Map([
+        ["uof", { created: 1, edited: [4], lastSaved: 6, gaps: [] }],
+        ["cleaned", { created: 2, edited: [], lastSaved: 6, gaps: [] }],
+        ["stats", { created: 3, edited: [6], lastSaved: 6, gaps: [] }],
+      ]),
+  } as any;
+  // cleaned's rows shown at task 2 are outdated by uof's edit at task 4; stats
+  // was itself redefined at task 6, after that edit, so its rows are current.
+  expect(renderLiveIndex(state, results, history)).toBe(
+    "# Tables now\nuof (t1, edited t4) · cleaned (t2, recomputed t4) · stats (t3, edited t6)"
   );
 });

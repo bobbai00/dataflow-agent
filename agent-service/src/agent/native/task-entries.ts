@@ -17,17 +17,20 @@
 
 /**
  * A completed task's entry: the request, the changes the task made to the
- * dataflow, and the answer. Built once when the task is sealed and never
- * rewritten, so the entries of a session form a prefix that a provider's
- * prompt cache can reuse, and each entry keeps the definitions that later
- * tasks may need to read (a convention hidden in a `def` two hops upstream
- * decided a whole 16-turn cascade in the university task).
+ * dataflow, the rows of the tables it read, and the answer. Built once when
+ * the task is sealed and never rewritten, so the entries of a session form a
+ * prefix that a provider's prompt cache can reuse, and each entry keeps what
+ * later tasks come back for: the definitions (a convention hidden in a `def`
+ * two hops upstream decided a whole 16-turn cascade in the university task)
+ * and the numbers (half of all turns in trial 5 opened with an observe-only
+ * call that re-read tables an earlier task had already shown).
  */
 import type { ReActStep } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { WorkflowState } from "../workflow-state";
 import { nativeBatchResults } from "../tools/native-batch-tools";
+import { getVisibleResultHeaders } from "../tools/tools-utility";
 import type { TaskHistory } from "./task-history";
 
 export type ChangeStatus = "added" | "modified" | "restored" | "deleted" | "failed";
@@ -49,10 +52,24 @@ export interface TaskChange {
   replaces?: number;
 }
 
+/** The rows of a table the task observed, as the model saw them. */
+export interface TaskTable {
+  id: string;
+  total: number;
+  /** Every row is shown: the table is small and the engine held all of it. */
+  complete: boolean;
+  /** The rows as a TSV block (header, then `index<TAB>cells`). */
+  text: string;
+  /** The earlier task whose entry shows these same rows; the block is then not repeated. */
+  sameAs?: number;
+}
+
 export interface TaskEntry {
   task: number;
   request: string;
   changes: TaskChange[];
+  /** Tables the task observed, answer-bearing ones first. */
+  tables: TaskTable[];
   answer: string;
   /** Tables observed in the task whose sample rows contain the answer's numbers. */
   from: string[];
@@ -62,6 +79,12 @@ const REQUEST_LIMIT = 1500;
 const ANSWER_LIMIT = 1500;
 const STATEMENT_LIMIT = 400;
 const FUNCTION_LINES = 8;
+/** A table with at most this many rows is kept whole; a larger one keeps its first rows. */
+export const COMPLETE_ROWS = 20;
+export const SAMPLE_ROWS = 3;
+/** Characters of table rows an entry may hold; tables past the budget are listed without rows. */
+export const TABLE_CHARS = 4000;
+const CELL_CHARS = 60;
 
 export function clip(text: string, limit: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -96,6 +119,38 @@ export function answerSources(
     if ([...numbers].some(n => cells.has(n))) sources.push(id);
   }
   return sources;
+}
+
+function renderCell(value: unknown): string {
+  if (value === null || value === undefined || value === "NULL") return "NaN";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  const flat = text.replace(/\t/g, "\\t").replace(/\n/g, "\\n");
+  return flat.length <= CELL_CHARS ? flat : flat.slice(0, CELL_CHARS - 1) + "…";
+}
+
+/** The rows in the layout every observation uses: a header line, then one line
+ * per row starting with its index. */
+export function renderRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "";
+  const headers = getVisibleResultHeaders(rows[0]);
+  const lines = [`\t${headers.join("\t")}`];
+  rows.forEach((row, i) => {
+    const index = typeof row.__row_index__ === "number" ? row.__row_index__ : i;
+    lines.push(`${index}\t${headers.map(h => renderCell(row[h])).join("\t")}`);
+  });
+  return lines.join("\n");
+}
+
+/** The rows an entry keeps for a table: the whole table when it is small and
+ * the engine held every row, otherwise its first rows. Nothing for a failed
+ * table or one whose rows were never fetched. */
+export function entryTable(id: string, info: OperatorInfo | undefined): TaskTable | undefined {
+  const held = info?.result as Array<Record<string, unknown>> | undefined;
+  if (!info || info.error || !held?.length) return undefined;
+  const total = info.totalRowCount ?? held.length;
+  const complete = total <= COMPLETE_ROWS && held.length >= total;
+  return { id, total, complete, text: renderRows(complete ? held : held.slice(0, SAMPLE_ROWS)) };
 }
 
 function statementOf(op: OperatorPredicate | undefined, fallback: string): string {
@@ -178,13 +233,32 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
     }
     changes.push(change);
   }
-  return {
-    task,
-    request: clip(request, REQUEST_LIMIT),
-    changes,
-    answer: clip(answer, ANSWER_LIMIT),
-    from: answerSources(answer, observed, results),
-  };
+  const from = answerSources(answer, observed, results);
+  // The rows the task read, answer-bearing tables first. Rows an earlier entry
+  // already shows, unchanged, are named rather than repeated; a table that does
+  // not fit the entry's budget is listed by size alone.
+  const shown = new Map<string, { task: number; text: string }>();
+  for (const entry of history?.entries() ?? [])
+    for (const table of entry.tables) if (!table.sameAs) shown.set(table.id, { task: entry.task, text: table.text });
+  const tables: TaskTable[] = [];
+  let budget = TABLE_CHARS;
+  for (const id of new Set([...from, ...observed])) {
+    if (!state.getOperator(id)) continue;
+    const table = entryTable(id, results.get(id));
+    if (!table) continue;
+    const earlier = shown.get(id);
+    if (earlier && earlier.text === table.text) {
+      tables.push({ ...table, text: "", sameAs: earlier.task });
+      continue;
+    }
+    if (table.text.length > budget) {
+      tables.push({ ...table, text: "" });
+      continue;
+    }
+    budget -= table.text.length;
+    tables.push(table);
+  }
+  return { task, request: clip(request, REQUEST_LIMIT), changes, tables, answer: clip(answer, ANSWER_LIMIT), from };
 }
 
 function renderChange(change: TaskChange): string {
@@ -202,16 +276,37 @@ function renderChange(change: TaskChange): string {
   return lines.join("\n");
 }
 
+function renderTable(table: TaskTable): string {
+  const rows = `${table.total} row${table.total === 1 ? "" : "s"}`;
+  if (table.sameAs) return `  ${table.id}: same rows as shown in task ${table.sameAs}`;
+  if (!table.text) return `  ${table.id}: ${rows}, not shown here`;
+  const size = table.complete ? `${rows}, complete` : `first ${SAMPLE_ROWS} of ${rows}`;
+  return `  ${table.id} (${size}):\n${table.text.replace(/^/gm, "  ")}`;
+}
+
 /** One entry as one message. The text is final once written. */
 export function renderTaskEntry(entry: TaskEntry): string {
   const changes = entry.changes.length ? entry.changes.map(renderChange).join("\n") : "  (no change to the dataflow)";
+  const tables = entry.tables.length ? `\nTables read:\n${entry.tables.map(renderTable).join("\n")}` : "";
   const from = entry.from.length ? entry.from.join(", ") : "unverified";
-  return `## Task ${entry.task}\n${entry.request}\nChanges:\n${changes}\nAnswer: ${entry.answer || "(none)"}\n  from: ${from}`;
+  return `## Task ${entry.task}\n${entry.request}\nChanges:\n${changes}${tables}\nAnswer: ${entry.answer || "(none)"}\n  from: ${from}`;
+}
+
+/** Ancestors of an operator in the current graph, by the input ids its statement names. */
+function ancestors(state: WorkflowState, id: string, seen = new Set<string>()): Set<string> {
+  for (const input of state.getOperator(id)?.nativeOp?.inputs ?? []) {
+    if (seen.has(input) || !state.getOperator(input)) continue;
+    seen.add(input);
+    ancestors(state, input, seen);
+  }
+  return seen;
 }
 
 /** What the current task starts from: every current table with the task that
- * created it and the tasks that changed it, and every table that is empty or
- * failed right now. Rendered fresh each task, after the cached entries. */
+ * created it, the tasks that changed it, and the latest task that changed
+ * something upstream of it since (its rows in an earlier entry are then
+ * outdated), and every table that is empty or failed right now. Rendered fresh
+ * each task, after the cached entries. */
 export function renderLiveIndex(
   state: WorkflowState,
   results: ReadonlyMap<string, OperatorInfo>,
@@ -220,12 +315,19 @@ export function renderLiveIndex(
   const provenance = history?.provenance();
   const operators = state.getAllOperators().filter(op => !op.taskSource);
   if (!operators.length) return "# Tables now\n(none yet)";
+  const lastChange = (id: string) => {
+    const events = provenance?.get(id);
+    return events ? Math.max(events.created, ...events.edited) : 0;
+  };
   const items = operators.map(op => {
     const events = provenance?.get(op.operatorID);
-    const when = events
-      ? `t${events.created}${events.edited.length ? `, edited t${events.edited.join(",t")}` : ""}`
-      : "this task";
-    return `${op.operatorID} (${when})`;
+    if (!events) return `${op.operatorID} (this task)`;
+    const own = lastChange(op.operatorID);
+    const upstream = Math.max(0, ...[...ancestors(state, op.operatorID)].map(lastChange));
+    const parts = [`t${events.created}`];
+    if (events.edited.length) parts.push(`edited t${events.edited.join(",t")}`);
+    if (upstream > own) parts.push(`recomputed t${upstream}`);
+    return `${op.operatorID} (${parts.join(", ")})`;
   });
   const alerts = operators.flatMap(op => {
     const info = results.get(op.operatorID);

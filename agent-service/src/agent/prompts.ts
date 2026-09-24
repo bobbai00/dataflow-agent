@@ -221,7 +221,12 @@ export interface NativePromptLayoutOptions {
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_ENTRIES_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow (added, modified, restored or deleted operators, each as the statement you wrote, with its doc, its row count and columns, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it and the tasks that changed it, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it.";
+  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow (added, modified, restored or deleted operators, each as the statement you wrote, with its doc, its row count and columns, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. A number an earlier task reported is in that task's entry: read it there instead of observing the table again, unless the table was recomputed since.";
+/** How a task is worked, stated once. The steps are DSGym's, which answers
+ * the same benchmark with two model calls per turn; the last sentence is the
+ * dataflow's own repair: one reassignment recomputes everything downstream. */
+const TASK_METHOD =
+  "\n\nWork each task as a careful analyst. First understand the request: what one row means, which rows are in scope, and the units and rounding the answer needs. Plan the steps before writing statements, and change the plan when a table contradicts it. Build the tables and observe the ones the answer is read from. Answer only when the observed tables support every number, and try another approach when they do not. When a request corrects or refines what an earlier task defined, reassign that id so everything built on it recomputes, rather than building a copy beside it.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
 /** The four ways analytical state evolves, each as one dataflow gesture. */
 const TASK_STATE_GESTURES =
@@ -262,7 +267,8 @@ export function buildNativeModeSystemPrompt(
     : "";
   const taskLayout =
     (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
-    (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "");
+    (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
+    (options.taskCatalog || options.taskHistory ? TASK_METHOD : "");
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
     .replace("{{OBSERVATION_SCOPE}}", scope)

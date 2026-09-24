@@ -53,6 +53,12 @@ test("the state gestures are taught whenever outputs are retained, the entry lay
   expect(catalog).toContain("restore=[");
   expect(catalog).toContain("Each completed task appears once, as an entry");
   expect(catalog).toContain("# Tables now");
+  expect(catalog).toContain("Tables read");
+  // The working method is taught in every task mode, after the layout and the gestures.
+  for (const text of [fullHistory, catalog, prompt(true, true, false)]) {
+    expect(text).toContain("Work each task as a careful analyst");
+    expect(text.indexOf("Work each task")).toBeGreaterThan(text.indexOf("numbered"));
+  }
   // Entries without the restore step: the ablation arm reads history but is not taught to rebuild it.
   expect(prompt(true, true, false)).not.toContain("restore=[");
   const catalogOnly = prompt(false, true);
