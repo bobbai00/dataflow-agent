@@ -75,8 +75,6 @@ export interface TaskEntry {
   from: string[];
 }
 
-const REQUEST_LIMIT = 1500;
-const ANSWER_LIMIT = 1500;
 const STATEMENT_LIMIT = 400;
 const FUNCTION_LINES = 8;
 /** A table with at most this many rows is kept whole; a larger one keeps its first rows. */
@@ -258,7 +256,10 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
     budget -= table.text.length;
     tables.push(table);
   }
-  return { task, request: clip(request, REQUEST_LIMIT), changes, tables, answer: clip(answer, ANSWER_LIMIT), from };
+  // The request and the answer stay whole: a session's first request carries
+  // the rules every later task inherits (cleaning, rounding, conventions), past
+  // any fixed cut; clipping it at 1500 characters lost github's rounding rule.
+  return { task, request: request.trim(), changes, tables, answer: answer.trim(), from };
 }
 
 function renderChange(change: TaskChange): string {

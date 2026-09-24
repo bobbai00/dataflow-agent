@@ -240,3 +240,17 @@ test("the live index marks a table whose upstream changed after its own last cha
     "# Tables now\nuof (t1, edited t4) · cleaned (t2, recomputed t4) · stats (t3, edited t6)"
   );
 });
+
+test("a long request and answer are kept whole: the first request carries rules every later task inherits", () => {
+  const state = new WorkflowState();
+  const request = "Context. ".repeat(400) + "Round decimal-valued results to three decimal places.";
+  const answer = "Final Answer: " + "{\"x\": 1.234} ".repeat(200);
+  const steps: ReActStep[] = [
+    { id: "u", role: "user", messageId: "m", content: request, isBegin: true } as any,
+    { id: "a", role: "agent", messageId: "m", content: answer, isEnd: true } as any,
+  ];
+  const entry = buildTaskEntry({ task: 1, steps, results: new Map(), state });
+  expect(entry.request).toBe(request.trim());
+  expect(entry.answer).toBe(answer.trim());
+  expect(renderTaskEntry(entry)).toContain("Round decimal-valued results to three decimal places.");
+});
