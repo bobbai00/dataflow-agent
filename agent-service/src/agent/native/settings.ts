@@ -70,6 +70,9 @@ export function validateNativeSettings(
     nativeTaskContext?: unknown;
     nativeTaskCache?: unknown;
     nativeTaskRestore?: unknown;
+    nativeAnalysisState?: unknown;
+    nativeTaskEfficiency?: unknown;
+    nativeTaskMemoryChars?: unknown;
   } = {}
 ): void {
   validateEvidenceSettings(settings);
@@ -79,16 +82,36 @@ export function validateNativeSettings(
       `Unknown agentMode ${JSON.stringify(settings.agentMode)}; use "native" or "code"`
     );
   }
-  // Multi-task is a mode of native mode: task history and the task context
-  // projection change what completed tasks leave behind and how they are shown,
-  // never the tool, the catalog or the runtime.
-  for (const name of ["nativeTaskHistory", "nativeTaskContext"] as const) {
+  // History and task context change how completed work is retained and shown.
+  // Analysis state also enables shared definitions and dependency forks. These
+  // settings apply only to the native expression program.
+  for (const name of [
+    "nativeTaskHistory",
+    "nativeTaskContext",
+    "nativeAnalysisState",
+    "nativeTaskEfficiency",
+  ] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${name} must be a boolean`);
     if (value === true && settings.agentMode === "code")
       throw new NativeCatalogSettingsError(`${name} requires agentMode "native"`);
   }
+  if (
+    settings.nativeTaskEfficiency === true &&
+    (!settings.nativeTaskHistory || !settings.nativeTaskContext || !settings.nativeAnalysisState)
+  )
+    throw new NativeCatalogSettingsError(
+      "nativeTaskEfficiency requires nativeTaskHistory, nativeTaskContext and nativeAnalysisState"
+    );
+  if (
+    settings.nativeTaskMemoryChars !== undefined &&
+    (typeof settings.nativeTaskMemoryChars !== "number" ||
+      !Number.isSafeInteger(settings.nativeTaskMemoryChars) ||
+      settings.nativeTaskMemoryChars < 4000 ||
+      settings.nativeTaskMemoryChars > 200000)
+  )
+    throw new NativeCatalogSettingsError("nativeTaskMemoryChars must be an integer from 4000 to 200000");
   // Cache boundaries and restore modify task history and do nothing without it,
   // so their defaults are harmless in either mode.
   for (const name of ["nativeTaskCache", "nativeTaskRestore"] as const) {

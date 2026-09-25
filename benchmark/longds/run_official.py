@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """Run one prepared LongDS task end to end, under the official protocol, with
 either the script agent or the dataflow agent, and write upstream's artifact so
 `judge_longds.py` scores it unchanged.
@@ -14,6 +31,7 @@ describing how that arm's own state persists, and the runtime each drives.
         --judge-model deepseek/deepseek-v4-pro
 """
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -33,8 +51,8 @@ from official_protocol import build_prompts, extract_answer, selftest, write_rec
 
 WORKTREE = Path(__file__).resolve().parents[2]
 SCRIPT_ARMS = {"code"}
-DSGYM_ARMS = {"dsgym"}
-DATAFLOW_ARMS = {"react-full", "react-catalog", "react-entries", "react-restore"}
+DSGYM_ARMS = {"dsgym", "dsgym-functions"}
+DATAFLOW_ARMS = {"react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient"}
 HERE = Path(__file__).resolve().parent
 DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py
 
@@ -113,7 +131,7 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     return answers
 
 
-def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit):
+def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False):
     """The paper's own agent: DSGym's MultiTurnReActDSAgent, SYSTEM_PROMPT and
     <python>/<answer> protocol, unchanged (dsgym_agent.py), over a local
     persistent Jupyter kernel that speaks its executor manager's HTTP contract
@@ -128,9 +146,12 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit):
         port = probe.getsockname()[1]
     executor_url = f"http://127.0.0.1:{port}"
     api_base = os.environ.get("LITELLM_BASE_URL", "http://localhost:4000").rstrip("/") + "/v1"
+    manifest = json.loads((prepared / "manifest.json").read_text())
+    data_root = (WORKTREE / manifest["data_dir"]).resolve()
     with (out_dir / "executor.log").open("w") as executor_log, (out_dir / "runner.log").open("w") as log:
         executor = subprocess.Popen(
-            [str(KB_ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"), "--port", str(port)],
+            [str(KB_ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"), "--port", str(port),
+             "--data-root", str(data_root), "--workspace", str(out_dir / "kernel-workspaces")],
             cwd=WORKTREE, stdout=executor_log, stderr=subprocess.STDOUT,
         )
         try:
@@ -150,7 +171,9 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit):
             ]
             if turn_limit:
                 command += ["--turn-limit", str(turn_limit)]
-            subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=False)
+            if functions:
+                command += ["--functions"]
+            subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=True)
         finally:
             executor.terminate()
             try:
@@ -180,6 +203,22 @@ def run_dataflow_arm(prompts, out_dir, arm, model, turn_timeout):
         subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=False)
     recorded = json.loads((turns_dir / "answers.json").read_text()) if (turns_dir / "answers.json").exists() else []
     return [dict(item, answer=extract_answer(item.get("answer") or "")) for item in recorded]
+
+
+def runtime_provenance():
+    """Include untracked runtime source, without copying local configuration or credentials."""
+    digest = hashlib.sha256()
+    paths = sorted((WORKTREE / "agent-service/src").rglob("*"))
+    paths += sorted(HERE.glob("*.py"))
+    paths += [WORKTREE / "agent-service/benchmark/multiturn/run-longds-turns.ts"]
+    paths += [WORKTREE / "agent-service/benchmark/multiturn/checked-turn.ts"]
+    for path in paths:
+        if path.is_file() and path.suffix in {".ts", ".py", ".md"}:
+            digest.update(str(path.relative_to(WORKTREE)).encode() + b"\0" + path.read_bytes() + b"\0")
+    return {
+        "head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=WORKTREE, text=True).strip(),
+        "source_sha256": digest.hexdigest(),
+    }
 
 
 def main() -> int:
@@ -221,6 +260,13 @@ def main() -> int:
                 "arm_kind": kind,
                 "model": args.model,
                 "turns": len(prompts),
+                "runtime": runtime_provenance(),
+                "manifest_sha256": hashlib.sha256((prepared / "manifest.json").read_bytes()).hexdigest(),
+                "functions_guidance": args.arm == "dsgym-functions",
+                "execution_isolation": (
+                    "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network"
+                    if args.arm in DSGYM_ARMS else os.environ.get("LONGDS_NATIVE_ISOLATION", "not recorded")
+                ),
                 "protocol": (
                     "longds-official: upstream DSGym MultiTurnReActDSAgent, SYSTEM_PROMPT, <python>/<answer>; "
                     "sandbox = local persistent kernel (dsgym_executor.py)"
@@ -234,7 +280,8 @@ def main() -> int:
     )
     started = time.time()
     if args.arm in DSGYM_ARMS:
-        answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit)
+        answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit,
+                                functions=args.arm == "dsgym-functions")
     elif kind == "script":
         answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
     else:

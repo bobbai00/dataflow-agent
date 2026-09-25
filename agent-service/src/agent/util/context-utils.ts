@@ -890,6 +890,12 @@ export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotSt
     }
     remaining.push(step);
   }
+  // Task catalogs remove earlier events, but their materialized state is still
+  // the baseline. Resolve the immutable ancestor, never the changing HEAD.
+  const first = remaining[0];
+  if (!initSnapshot && first?.role === "user" && first.isBegin && first.parentId) {
+    initSnapshot = storage.getAssociatedSnapshot(first.parentId);
+  }
   const path: PathNode[] = remaining.map((step, i) => ({
     step,
     snapshot: storage.hasSnapshotFor(step.id) ? storage.getAssociatedSnapshot(step.id) : undefined,
@@ -1995,6 +2001,8 @@ function serializeTaskBody(
               );
           }
           for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
+          for (const inspection of receipt?.inspection ?? [])
+            noChangeOutcome.push(`Read-only inspection:\n${inspection}`);
           return;
         }
         const batch = Array.isArray(inp?.operators) ? (inp!.operators as Array<Record<string, unknown>>) : undefined;
@@ -3143,6 +3151,9 @@ function renderNativeToolCall(
     if (typeof inp.reasoning === "string" && inp.reasoning.trim())
       lines.push(`  reasoning: ${inp.reasoning.trim().replace(/\s*\n\s*/g, " ")}`);
     if (Array.isArray(inp.delete) && inp.delete.length) lines.push(`  delete: ${JSON.stringify(inp.delete)}`);
+    for (const field of ["restore", "fork", "inspect", "recall"])
+      if (Array.isArray(inp[field]) && (inp[field] as unknown[]).length)
+        lines.push(`  ${field}: ${JSON.stringify(inp[field])}`);
     const text = edits.trim();
     if (text) {
       lines.push("  edits:");

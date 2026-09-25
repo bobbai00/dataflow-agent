@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """Run one prepared LongDS task with the paper's own agent.
 
 This is upstream's `MultiTurnReActDSAgent` (DataMind/longds/runners/DSGym),
@@ -44,11 +61,20 @@ RATES = {"input": 0.2, "cached": 0.02, "write": 0.25, "output": 1.2}
 
 CALLS: list[dict] = []
 TURN_STARTS: list[int] = []  # index into CALLS where each turn began
+CALLS_FILE: Path | None = None
 
 
 class TurnMarkingEnv(AllocatedCodeEnv):
     """Upstream calls reset_turns() at the start of every turn; that marks
     where one turn's model calls end and the next one's begin."""
+
+    def init(self, prompt, **extras):
+        result = super().init(prompt, **extras)
+        # Upstream logs allocation errors but still reports initialized=True.
+        # A benchmark without an executable kernel is a setup failure.
+        if self.tool_group.allocated_container is None:
+            raise RuntimeError("LongDS kernel allocation failed; refusing model calls without an executor")
+        return result
 
     def reset_turns(self):
         TURN_STARTS.append(len(CALLS))
@@ -77,15 +103,34 @@ def install_usage_capture(provider: str) -> None:
                 "reasoning_tokens": getattr(completion_details, "reasoning_tokens", 0) or 0,
             }
         )
+        if CALLS_FILE is not None:
+            with CALLS_FILE.open("a") as stream:
+                stream.write(json.dumps({"turn_index": max(0, len(TURN_STARTS) - 1), **CALLS[-1]}) + "\n")
         return response
 
     litellm.completion = completion
 
 
-def build_turns(manifest: dict, gold: dict, turn_limit: int | None) -> list[dict]:
+FUNCTIONS_GUIDANCE = """
+Keep reusable Python analysis functions in the persistent kernel. Give them
+explicit inputs for data, cohort membership and parameters. Keep interpretable
+score components as columns. Check assumptions such as keys, units and required
+columns with assertions when useful. When a definition changes, correct the
+earliest shared function and recompute its consumers. Keep original inputs and
+important historical results separately. For a temporary scenario, call the
+same functions with explicit parameter overrides into new variables, preserving
+the default. Distinguish historical membership, historical values and historical
+formulas when combining versions. Inspect stored definitions and computed
+components to explain a result rather than reconstructing a formula from memory.
+"""
+
+
+def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False) -> list[dict]:
     """Upstream's `load_dataset` shape: the system prompt names the data
     directory; every turn is `context\\nQuestion: question`."""
     system_prompt = SYSTEM_PROMPT.format(PATH=str((WORKTREE / manifest["data_dir"]).resolve()))
+    if functions:
+        system_prompt += "\n" + FUNCTIONS_GUIDANCE
     gold_by_id = {t["turn_id"]: t for t in gold["turns"]}
     turns = []
     for item in manifest["turns"][:turn_limit]:
@@ -142,15 +187,18 @@ def main() -> int:
     ap.add_argument("--api-key-env", default="LITELLM_MASTER_KEY")
     ap.add_argument("--turn-limit", type=int)
     ap.add_argument("--max-steps", type=int, default=40)
+    ap.add_argument("--functions", action="store_true", help="separately labeled reusable-function control")
     args = ap.parse_args()
 
     api_key = os.environ[args.api_key_env]
+    args.out.mkdir(parents=True, exist_ok=True)
+    global CALLS_FILE
+    CALLS_FILE = args.out / "calls.jsonl"
     install_usage_capture("openai")
     agent_module.AllocatedCodeEnv = TurnMarkingEnv
-    args.out.mkdir(parents=True, exist_ok=True)
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())
-    turns = build_turns(manifest, gold, args.turn_limit)
+    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions)
     (args.out / "turns.json").write_text(json.dumps(turns, indent=2, ensure_ascii=False))
 
     agent = MultiTurnReActDSAgent(
@@ -168,6 +216,8 @@ def main() -> int:
     result = agent.solve_task(turns, bak_path=str(bak), reset_env_times=0)
     (args.out / "traj.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
     (args.out / "calls.json").write_text(json.dumps({"calls": CALLS, "turn_starts": TURN_STARTS}, indent=1))
+    if result.get("error") and not result.get("solutions"):
+        raise RuntimeError(result["error"])
 
     answers = []
     for index, solution in enumerate(result.get("solutions", [])):

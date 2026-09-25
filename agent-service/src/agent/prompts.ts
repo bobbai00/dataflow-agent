@@ -215,6 +215,8 @@ export interface NativePromptLayoutOptions {
   taskHistory?: boolean;
   /** The `restore` step and the four state gestures are explained. */
   taskRestore?: boolean;
+  analysisState?: boolean;
+  taskEfficiency?: boolean;
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
@@ -226,7 +228,7 @@ export interface NativePromptLayoutOptions {
  * cached prefix for the whole session. The agent cannot use a reference form
  * nobody told it about: without this it used task history 14 times in 114 turns. */
 const TASK_ENTRIES_LAYOUT =
-  "\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow, net over the whole task and grouped by the call that produced each one (added, modified, restored or deleted operators, each as the statement you wrote with its doc and function code, its row count and full column list, `missing:` counts and the `values:` of columns with few distinct values over the whole table, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first 3 rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table's current definition is in the latest entry that lists it. The entries are a catalog of everything built so far, not all of its data: every table in `# Tables now` can be observed. When an entry already shows the number you need, read it there. When you need rows it does not show (the rest of a large table, a table read without its rows, one marked `recomputed`), observe that table, for example `dataflow(edits=\"\", observe=[\"fractional_scan_report\"])` for the rest of the task 5 ranking beyond its first rows; it shows the current rows without executing anything.";
+  '\n\nThis is one session of numbered tasks. Each completed task appears once, as an entry: the request; the changes it made to the dataflow, net over the whole task and grouped by the call that produced each one (added, modified, restored or deleted operators, each as the statement you wrote with its doc and function code, its row count and full column list, `missing:` counts and the `values:` of columns with few distinct values over the whole table, `⚠ EMPTY` when a table came out with no rows, and the task whose definition it replaced); the rows of the tables it read (`Tables read`: a table of at most 20 rows in full, a larger one by its first 3 rows, and `same rows as shown in task N` when nothing changed); and the answer with the tables it was read from. Entries never change. `# Tables now` then lists every current table with the task that created it, the tasks that changed it, and `recomputed tN` when something upstream changed after the rows an entry shows, and flags tables that are empty or failed right now. A table\'s current definition is in the latest entry that lists it. The entries are a catalog of everything built so far, not all of its data: every table in `# Tables now` can be observed. When an entry already shows the number you need, read it there. When you need rows it does not show (the rest of a large table, a table read without its rows, one marked `recomputed`), observe that table, for example `dataflow(edits="", observe=["fractional_scan_report"])` for the rest of the task 5 ranking beyond its first rows; it shows the current rows without executing anything.';
 /** How a task is worked, stated once. The steps are DSGym's, which answers
  * the same benchmark with two model calls per turn; the last sentence is the
  * dataflow's own repair: one reassignment recomputes everything downstream. */
@@ -237,6 +239,20 @@ const TASK_METHOD =
 const TASK_STEPS =
   " Completed tasks list the calls that changed the dataflow in order as `Step 1:`, `Step 2:`, each with its `reasoning` and the changes it produced, so write `reasoning` for a reader coming back in a later task too; when a call corrects an earlier definition, say what was wrong.";
 const TASK_SESSION_LAYOUT = "\n\nThis is one session of tasks, numbered from 1 in the order they were asked.";
+const ANALYSIS_STATE_METHOD = `
+
+Maintain an executable analysis across tasks. The bounded memory shows selected exact requests, table cards and exact function definitions at the start of the task. Reuse visible shared functions by name. Retrieve missing requirements with dataflow(recall=[N]). Read exact current code and bindings with inspect=["table_or_function"], and values with observe=["table"]. Inspection and recall do not execute. Do not guess an omitted formula or historical answer.
+
+Make stable identities, cleaned data, reusable score components, and parameter tables explicit. A coherent process may use ordinary pandas internally; do not create dozens of tiny operators just to spell out Python. Pass every data dependency as a table input. Keep units, denominator population, null policy and adjustable coefficients in named definitions or parameter tables. Score functions should return their component contributions alongside their total, so an explanation reads the same calculation rather than rebuilding it. Validate keys, units, input-file coverage and component sums where the public request supplies a check; use assertions in a validation process before its consumers. An empty result is not automatically an error.
+
+Choose a useful table grain before materializing large or wide sources. A zero-input process may read immutable source files with pandas and return a coherent cleaned or aggregated analysis table; its doc should identify the files and the returned row meaning. Keep that loader reusable and retain keys and components needed downstream. This avoids transferring large raw tables merely to reduce them immediately. Inspect file previews and schemas first; pass existing analysis tables as explicit inputs instead of reloading them inside downstream functions.
+
+Shared defs persist with the current tables that use them. Redefine a shared helper once to correct all current consumers; downstream tables recompute. Correct the earliest shared definition when later evidence contradicts an assumption. Apply persistent cleaning, imputation and definition changes to the canonical columns used downstream. Keep raw values and temporary candidates under distinct names. Historical outputs stay immutable. Definitions belonging to a fork are independent of later shared-def edits. A def with no table consumer is not retained.
+
+For a persistent update, reassign the same parameter or component table. For a temporary scenario, create a new parameter table and fork the output with explicit boundary replacements in the SAME call, then observe it. Example: edits="trial_policy = parameters(weight=0.25)"; fork=[{"operator":"leaders","as":"trial_leaders","bindings":{"policy":"trial_policy"}}]; observe=["trial_leaders"]. This copies only the affected paths and preserves the current default. Current forks share unchanged live input tables. Adding task=N reuses the definition from completed task N and pins other inputs to saved values. For an old-membership/current-values question, first project the old cohort to keys only, join those keys to current measurements, and bind that resulting table; never accidentally consume old measurement columns. Use at(table, task=N) when the requested object is an old value rather than a computation to rerun.
+
+Batch the required edits and observations. Inspect only definitions you need to change or bind. A read-only request can use an already correct result without any edit. Code or model uncertainty is not repaired by guessing a reference value: verify against the public request and source data.
+`;
 /** The four ways analytical state evolves, each as one dataflow gesture. */
 const TASK_STATE_GESTURES =
   ' Every table\'s output at the end of each task is saved, so state evolves in four ways. To make a revision the new default, reassign the same id: everything downstream recomputes. For a one-off alternative, build a new id from the current tables and leave the default alone. To work under an earlier version, use the tool\'s `restore=[{"operator": name, "task": N, "as": new_id}]`: it rebuilds that table as defined at the end of task N under the new id, shares upstream tables that are unchanged since then, copies the ones that changed as `<name>_t<N>`, and its observation says whether the result matches the saved table. To make an earlier version current again, restore with `as` equal to the same id. Read the version\'s definition in its entry before restoring.';
@@ -307,11 +323,18 @@ export function buildNativeModeSystemPrompt(
   const recall = options.recall
     ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
     : "";
-  const taskLayout =
-    (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
-    (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
-    (options.taskCatalog || options.taskHistory ? TASK_METHOD : "") +
-    (options.taskCatalog && options.reasoning ? TASK_STEPS : "");
+  const taskLayout = options.analysisState
+    ? options.taskEfficiency
+      ? TASK_ENTRIES_LAYOUT +
+        ANALYSIS_STATE_METHOD.replace(
+          "The bounded memory shows selected exact requests, table cards and exact function definitions at the start of the task.",
+          "Immutable completed task entries retain requests, code, observations and answers; the frozen current index identifies later replacements and upstream changes. Read these entries before requesting more history. Identical code, schemas and displayed rows within an entry are referenced once; this does not assert equality of the full underlying tables."
+        )
+      : ANALYSIS_STATE_METHOD
+    : (options.taskCatalog ? TASK_ENTRIES_LAYOUT : options.taskHistory ? TASK_SESSION_LAYOUT : "") +
+      (options.taskHistory && options.taskRestore ? TASK_STATE_GESTURES : "") +
+      (options.taskCatalog || options.taskHistory ? TASK_METHOD : "") +
+      (options.taskCatalog && options.reasoning ? TASK_STEPS : "");
   return NATIVE_MODE_TEMPLATE.replace(
     "{{DATAFLOW_SIGNATURE}}",
     options.reasoning ? "`dataflow(reasoning, edits, delete, observe)`" : "`dataflow(edits, delete, observe)`"
@@ -319,11 +342,49 @@ export function buildNativeModeSystemPrompt(
     .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
     .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
     .replace("{{EVIDENCE}}", nativeEvidenceText(options))
-    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
-    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress + taskLayout)
+    .replace(
+      "{{FUNCTION_LIFETIME}}",
+      options.analysisState
+        ? "Operator ids and shared functions persist across calls. Reuse a stored def by name; redefining it updates all current consumers automatically. Forked definitions are independent."
+        : "Operator ids persist across calls; functions do not. A `def` exists only in the call whose `edits` contain it, and each operator keeps its own copy of the function it was given. Never refer to a function from an earlier call by name: to use it again, including when you revise the operator that uses it, write its `def` again in the same call."
+    )
+    .replace(
+      "{{FUNCTION_REFERENCE}}",
+      options.analysisState
+        ? "Reuse stored functions by name. Redefine a shared helper when correcting the common calculation; use a new function name for an independent definition."
+        : "Only functions defined in the same `edits` can be referenced, so a later call that needs the function again repeats its `def`."
+    )
+    .replace(
+      "{{PROCESS_SCOPE}}",
+      options.analysisState
+        ? "**process** is a reusable analysis component. It may group coherent pandas transformations. Its function takes one DataFrame per declared input and returns one DataFrame with scalar cells; with no inputs it takes no parameters and loads source files itself. Use explicit inputs for existing data and policy tables, and separate definitions for choices that can change independently."
+        : "**process** is for what no other operator expresses: custom parsers, binary or fixed-width formats, statistics and fitting, report layouts walked line by line. `f` takes one pandas DataFrame per input, in order, and returns one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no inputs it takes no parameters and loads data itself. Do not use process for filtering, deriving columns, grouping or joining."
+    )
+    .replace(
+      "{{COMPONENT_SCOPE}}",
+      options.analysisState
+        ? "**Reusable components.** Expose stable analytical boundaries and mutable parameters. Reuse shared functions; preserve intermediate tables that later analysis needs."
+        : "**One operator, one operation.** Load, filter, derive, join and aggregate in separate operators, so every intermediate table can be observed and fixed on its own. Do not fold several steps into one map or process."
+    )
+    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText({ analysisState: options.analysisState }))
+    .replace(
+      "{{CONTEXT_LAYOUT}}",
+      contextLayout + snapshotProgress + taskLayout + (options.taskEfficiency ? TASK_EFFICIENCY_METHOD : "")
+    )
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
 }
+
+const TASK_EFFICIENCY_METHOD = `
+
+Work from the current request and the smallest sufficient existing dependency chain. Keep fitted predictions, populations and component contributions as tables so reporting and explanations reuse their exact computation. Distinguish a complete population from a top-k or sampled display before choosing a denominator. Old entries record historical facts; the current index and observations identify replacements. Old failures outside the requested dependency chain do not require a repair.
+
+Before a call, check the tool contract: process(A, B, fn=f, doc="...") uses positional table inputs and a function with exactly one parameter per input; a zero-input loader has zero parameters. Shared functions persist in this mode. Changing a doc or a binding does not change a function body. When revising a formula, actually redefine the function (or choose the requested historical definition) and check the resulting component values.
+
+Inspect or recall only a missing definition or requirement; do not search batches of past tasks already visible in the entries. Inspect accepts at most six names and recall at most three task numbers. An identical response already visible in this task is referenced instead of repeated. Prefer the supplied file inventory and source documentation when locating a new source. Batch known edits and observe the final table plus only intermediate checks needed to validate it. Project needed answer columns before observing a wide result; a small complete answer table avoids repeated missing-row reads.
+
+On an error, use its stage and failing line to identify the cause. After two unsuccessful repairs of the same calculation, first check its input columns, population counts, null policy and upstream definition. Diagnose an unexpected empty population before adding null fallbacks. Preserve working upstream tables and change the smallest faulty component instead of regenerating data loading, fitting and reporting together. For an unchanged infrastructure failure, check available diagnostics before another identical retry; rewriting a formula does not repair worker health. Keep useful analytical verification. Before answering, check that the observed fields answer the CURRENT request, with its population, units and rounding, rather than a previous task.
+`;
 
 // ---------------------------------------------------------------------------
 // Local-react (in-house local LLM) system prompts — one per tool-call dialect.

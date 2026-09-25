@@ -32,6 +32,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
 import { NATIVE_BY_TYPE, NATIVE_ID_RE, type NativeOpView } from "./catalog";
 import type { NativeDiagnostic } from "./diagnostics";
 
@@ -42,7 +43,10 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-const runtimeSource = readFileSync(runtimePath, "utf8");
+// Every physical operator must be portable to an engine without agent-service
+// files. Compress the embedded runtime once, retaining the exact Python bytes
+// while avoiding tens of megabytes of repeated source in long workflows.
+const runtimePayload = deflateSync(readFileSync(runtimePath), { level: 9 }).toString("base64");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 /** The interpreter used for parsing and validation (the engine's UDF Python). */
@@ -142,9 +146,11 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
     `def ${source ? "load()" : `process(${distinct.join(", ")})`}:`,
     `    return ${prefix}_scope["execute_native"](${prefix}_spec, [${inputs.join(", ")}])`,
     `import json as ${prefix}_json`,
+    `import base64 as ${prefix}_b64`,
+    `import zlib as ${prefix}_zlib`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_runtime__"}`,
-    `exec(${JSON.stringify(runtimeSource)}, ${prefix}_scope)`,
+    `exec(${prefix}_zlib.decompress(${prefix}_b64.b64decode(${JSON.stringify(runtimePayload)})), ${prefix}_scope)`,
   ].join("\n");
   return { operatorType: source ? "DataLoading" : "DataProcessing", code };
 }

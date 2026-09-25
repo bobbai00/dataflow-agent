@@ -85,7 +85,7 @@ export class VercelToolUseDriver implements LLMDriver {
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },
       },
-      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
+      onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, content, usage, response }) => {
         // Preserve provider cache-write accounting from the raw response;
         // the SDK's typed usage can omit these fields. This does not alter
         // requests, cache policy, model selection or stopping behavior.
@@ -105,15 +105,26 @@ export class VercelToolUseDriver implements LLMDriver {
             toolCallId: tc.toolCallId,
             input: tc.input,
           })),
-          toolResults: toolResults?.map(tr => {
-            const outputStr = typeof tr.output === "string" ? tr.output : "";
-            const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
-            return {
-              toolCallId: tr.toolCallId,
-              output: tr.output,
-              isError,
-            };
-          }),
+          toolResults: [
+            ...toolResults.map(tr => {
+              const outputStr = typeof tr.output === "string" ? tr.output : "";
+              const isError = !!(tr.output as any)?.error || outputStr.startsWith("[ERROR]");
+              return {
+                toolCallId: tr.toolCallId,
+                output: tr.output,
+                isError,
+              };
+            }),
+            // The SDK excludes thrown exceptions from toolResults. Preserve
+            // them from content so rebuilt context cannot report a false "ok".
+            ...content
+              .filter(part => part.type === "tool-error")
+              .map(part => ({
+                toolCallId: part.toolCallId,
+                output: `[ERROR] ${part.error instanceof Error ? part.error.message : String(part.error)}`,
+                isError: true,
+              })),
+          ],
           usage: usage
             ? {
                 inputTokens: usage.inputTokens,

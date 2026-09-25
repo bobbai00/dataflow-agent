@@ -1,0 +1,120 @@
+{
+  "validated_utc": "2026-09-24T19:22:22.138612+00:00",
+  "runtime": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "93b940b273f822d6467bff55bcf68e4a0bc429af4ce10548853994d0a471a785"
+  },
+  "bun": {
+    "passed": 1145,
+    "failed": 0,
+    "files": 97,
+    "snapshots": 8,
+    "assertions": 6663,
+    "command": "cd agent-service && bun test",
+    "log": {
+      "path": "/tmp/texera-analysis-state/final-bun-test-dispatch.log",
+      "sha256": "3cc4c7110b5266c81e793dec89a7247845733950de7000c832e4efd42dcd7214"
+    }
+  },
+  "typescript": {
+    "passed": true,
+    "command": "cd agent-service && bun run typecheck",
+    "log": {
+      "path": "/tmp/texera-analysis-state/final-typecheck-dispatch.log",
+      "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    }
+  },
+  "python": {
+    "passed": 19,
+    "failed": 0,
+    "suites": [
+      "benchmark/longds/test_execution_isolation.py",
+      "benchmark/longds/test_session_budget.py",
+      "agent-service/benchmark/multiturn/test_analysis_report.py"
+    ],
+    "log": {
+      "path": "/tmp/texera-analysis-state/final-pytest.log",
+      "sha256": "a5d78b67fdeddcbf5a3d0d78dfba972615b3c9b6813ab92b1aaeeb6d3ba1a636"
+    }
+  },
+  "real_engine": {
+    "model_calls": 0,
+    "state": {
+      "passed": true,
+      "requests": 7,
+      "service": "http://localhost:3051",
+      "checks": [
+        "parameter scalar types",
+        "zero-input reusable loader",
+        "two shared consumers recompute",
+        "temporary branch preserves default",
+        "inspection and recall reach model context without execution",
+        "historical formula with current parameter",
+        "shared corrections preserve branch functions and historical values",
+        "assertions block dependents",
+        "backend persistence preserves the latest parameters and branch definitions"
+      ]
+    },
+    "fork": {
+      "passed": true,
+      "requests": 2,
+      "checks": [
+        "keyword function name preserved",
+        "positional function name preserved",
+        "dtype names preserved",
+        "original values unchanged"
+      ],
+      "service": "http://localhost:3051"
+    },
+    "compact_workflow_saves": [
+      {
+        "arm": "react-analysis",
+        "source": "benchmark/longds/system_scratch/LongDS_IsolationInterrupted_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t41/workflow.json",
+        "source_sha256": "98da9acb5933f10655741b2e62ad11fb72d01ada5dd07cb3725d33c0cb1cd175",
+        "original_content_chars": 20198704,
+        "compact_content_chars": 6762148,
+        "operators": 206,
+        "recompiled": 206,
+        "round_trip": true,
+        "executed": false
+      },
+      {
+        "arm": "react-entries",
+        "source": "benchmark/longds/system_scratch/LongDS_IsolationInterrupted_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t33/workflow.json",
+        "source_sha256": "82b35401befa77848b373ae4dc23a6e713cf632ae0b5742c8aa91d30246cebab",
+        "original_content_chars": 39702561,
+        "compact_content_chars": 12698997,
+        "operators": 414,
+        "recompiled": 414,
+        "round_trip": true,
+        "executed": false
+      }
+    ],
+    "summary": {
+      "path": "/tmp/texera-analysis-state/final-engine-checks.json",
+      "sha256": "c2274d93d2156c85e952bf99f583aa2c89363681f88087cfcf38d5ccaa314fa9"
+    },
+    "fixture_note": "The separate fork-smoke fixture initially returned a row proxy from map; corrected it to return a dict as required. No runtime change was needed; corrected two-call smoke passed."
+  },
+  "benchmark_accuracy_scope": "Accuracy scores were produced by frozen R3, not by these subsequent fixes. First pass complete; recovery sessions resumed in a separate verified frozen checkout after confirmed earlyoom resource failures. Current counts are in docs/analysis-state-campaign-status.json.",
+  "services": "Final checks stopped only their own agent-service :3051 and computing-unit-master :38085; no rollouts or judges remain active.",
+  "previous_validated_runtime": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "b779e6421447305718135f8165c930f84aa9db2e01acb1b199c42c4a26f6819f"
+  },
+  "dispatch_regression": {
+    "before_fix": {
+      "passed": 3,
+      "failed": 2
+    },
+    "after_fix": {
+      "passed": 5,
+      "failed": 0
+    },
+    "log": {
+      "path": "/tmp/texera-analysis-state/dispatch-driver-regression.log",
+      "sha256": "3e9fb114c4005889cc17c532d68b600ccb79e777d686e49faeb156078e794a35"
+    },
+    "note": "Full Bun suite passed; a subsequent test-only return-type annotation was checked by the targeted suite and TypeScript. Existing Python and real-engine checks remain valid for their unchanged components; they were not rerun against a live paid evaluation."
+  }
+}

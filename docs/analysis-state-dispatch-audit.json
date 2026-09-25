@@ -1,0 +1,332 @@
+{
+  "updated_utc": "2026-09-24T19:24:34.299740+00:00",
+  "cause": "The controller reapplied isolation-env.json on restart, assigning the engine-only UDF_PYTHON_PATH wrapper to the agent parser. Normal parsing failed before any operator mutation.",
+  "reproduction": [
+    {
+      "case": "bad_restart",
+      "python": "/home/bob/Desktop/dataflow-agent/.claude/worktrees/task-history-dataflow/benchmark/longds/native_isolated_python.py",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "83 |       child.exited,\n84 |       new Response(child.stdout).text(),\n85 |       new Response(child.stderr).text(),\n86 |     ]);\n87 |     if (timedOut) throw new Error(\"Python validation timed out; no operator was changed.\");\n88 |     if (code !== 0) throw new Error(`Python validation unavailable: ${stderr.slice(0, 500)}`);\n                                   ^\nerror: Python validation unavailable: Traceback (most recent call last):\n  File \"/home/bob/Desktop/dataflow-agent/.claude/worktrees/task-history-dataflow/benchmark/longds/native_isolated_python.py\", line 66, in <module>\n    main()\n  File \"/home/bob/Desktop/dataflow-agent/.claude/worktrees/task-history-dataflow/benchmark/longds/native_isolated_python.py\", line 43, in main\n    raise RuntimeError(\"This benchmark wrapper accepts only a Texera Python worker\")\nRuntimeError: This benchmark wrapper accepts only a Texera Python worker\n\n      at runNativePython (/tmp/texera-analysis-state/frozen-r3/agent-service/src/agent/native/codegen.ts:88:31)\n      at async parseNativeProgram (/tmp/texera-analysis-state/frozen-r3/agent-service/src/agent/native/program.ts:96:17)\n\nBun v1.3.5 (Linux x64)\n"
+    },
+    {
+      "case": "corrected_restart",
+      "python": "/tmp/texera-analysis-state/frozen-r3/.venv/bin/python",
+      "exit_code": 0,
+      "stdout": "parser-ready\n",
+      "stderr": ""
+    }
+  ],
+  "archives": [
+    {
+      "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t3/geoscience__water-potability__task3",
+      "archive": "benchmark/longds/system_scratch/LongDS_IsolationDispatch_20260924_react-analysis_luna_t3/geoscience__water-potability__task3",
+      "trace_sha256": "bef5f0b34f33e04bb3af4dd7bc46d2361be323dd6fb12de2c93ef5b0972978af",
+      "calls_captured": 279,
+      "recorded_usage": {
+        "input_tokens": 3511248,
+        "output_tokens": 101933,
+        "cached_tokens": 3432768,
+        "cache_write_tokens": 77580,
+        "reasoning_tokens": 43110,
+        "llm_calls": 300,
+        "cost_usd": 0.21054995999999998,
+        "elapsed_seconds": 1385.5580000000002,
+        "tool_calls": 279.0,
+        "historical_inputs": 0.0,
+        "inspection_calls": 70.0,
+        "recall_calls": 82.0,
+        "fork_requests": 0.0
+      },
+      "usage_source": "interrupted-react-steps.json",
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      }
+    },
+    {
+      "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t3/geoscience__water-potability__task3",
+      "archive": "benchmark/longds/system_scratch/LongDS_IsolationDispatch_20260924_react-entries_luna_t3/geoscience__water-potability__task3",
+      "trace_sha256": "53b09016eeb1b9ffda3b236ac3a4278a3fe06d3f1cd4033c2d08f96eb3362227",
+      "calls_captured": 235,
+      "recorded_usage": {
+        "input_tokens": 3410232,
+        "output_tokens": 131594,
+        "cached_tokens": 3302330,
+        "cache_write_tokens": 107098,
+        "reasoning_tokens": 45361,
+        "llm_calls": 268,
+        "cost_usd": 0.2508947,
+        "elapsed_seconds": 1385.6560000000002,
+        "tool_calls": 235.0,
+        "historical_inputs": 0.0,
+        "inspection_calls": 0.0,
+        "recall_calls": 0.0,
+        "fork_requests": 0.0
+      },
+      "usage_source": "interrupted-react-steps.json",
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      }
+    },
+    {
+      "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t3/social_good__data_science_for_good_city_of_los_angeles__task1",
+      "archive": "benchmark/longds/system_scratch/LongDS_IsolationDispatch_20260924_react-entries_luna_t3/social_good__data_science_for_good_city_of_los_angeles__task1",
+      "trace_sha256": "95d74ce7900ea1917a6a6f52752b2cd90858e9dc4729ce3146438c68faee4d0c",
+      "calls_captured": 207,
+      "recorded_usage": {
+        "input_tokens": 3596962,
+        "output_tokens": 107688,
+        "cached_tokens": 3489123,
+        "cache_write_tokens": 107110,
+        "reasoning_tokens": 27760,
+        "llm_calls": 243,
+        "cost_usd": 0.22593136,
+        "elapsed_seconds": 1201.607,
+        "tool_calls": 207.0,
+        "historical_inputs": 0.0,
+        "inspection_calls": 0.0,
+        "recall_calls": 0.0,
+        "fork_requests": 0.0
+      },
+      "usage_source": "interrupted-react-steps.json",
+      "judge_usage": {
+        "calls": 36,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.25401425000000005,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.25401425000000005
+      }
+    }
+  ],
+  "valid_completed_native_first_tool_bearing_turn_audit": [
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 5,
+      "tool_results": 5,
+      "operators": 16
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "community__kaggle-survey-2022__task2",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 7
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "education__bi__task2",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 3
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "geoscience__water-potability__task3",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 5
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 6,
+      "tool_results": 6,
+      "operators": 9
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t1",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 23
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t2",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 5,
+      "tool_results": 5,
+      "operators": 22
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t2",
+      "task": "geoscience__water-potability__task3",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 8
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t2",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "first_tool_bearing_turn": "t02",
+      "tool_calls": 11,
+      "tool_results": 11,
+      "operators": 9
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t2",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 24
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t3",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 28
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t3",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 5,
+      "tool_results": 5,
+      "operators": 11
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-analysis_luna_t3",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 19
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 25
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "community__kaggle-survey-2022__task2",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 7
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "education__bi__task2",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 2,
+      "tool_results": 2,
+      "operators": 4
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "geoscience__water-potability__task3",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 2,
+      "tool_results": 2,
+      "operators": 5
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 6,
+      "tool_results": 6,
+      "operators": 11
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 24
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t2",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 26
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t2",
+      "task": "geoscience__water-potability__task3",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 3,
+      "tool_results": 3,
+      "operators": 7
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t2",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 11,
+      "tool_results": 11,
+      "operators": 14
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t2",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 8,
+      "tool_results": 8,
+      "operators": 34
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t3",
+      "task": "business__goodbooks_10k__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 24
+    },
+    {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t3",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "first_tool_bearing_turn": "t01",
+      "tool_calls": 4,
+      "tool_results": 4,
+      "operators": 27
+    }
+  ],
+  "audit_scope": "First turn that submitted tools, not necessarily turn 1. Candidate Los Angeles trial 2 submitted no tool calls in turn 1; its first tool-bearing turn has real results.",
+  "fixes": [
+    "Controller overrides UDF_PYTHON_PATH with the real interpreter before starting or restarting the agent.",
+    "Every idle-agent restart runs the real-engine isolation preflight before more rollouts.",
+    "Current worktree driver preserves SDK tool-error content; this code fix is separate from frozen R3."
+  ],
+  "primary_results_unchanged": true,
+  "cost_caveat": "Cancelled in-flight calls without returned usage may add uncaptured spending."
+}

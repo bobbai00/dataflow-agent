@@ -1,0 +1,1101 @@
+{
+  "selected_before_implementation": true,
+  "date": "2026-09-24",
+  "base_commit": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+  "paper": "https://arxiv.org/html/2605.30434",
+  "criteria": [
+    "One representative per domain; complete trajectories, not easy prefixes.",
+    "Cover construction, persistent update, counterfactual, rollback and multiple-parent composition.",
+    "Use source size/availability and public task semantics, never candidate outcomes.",
+    "University task2 and Netflix task3 are development diagnostics, excluded from generalization aggregate.",
+    "NFL is previously inspected and is a transfer diagnostic, not an unseen holdout. Other selected task prompts inspected for selection only."
+  ],
+  "initial_cost_target": {
+    "baseline": "persistent DSGym Python",
+    "max_ratio": 1.25,
+    "requires_accuracy_improvement": true,
+    "note": "Provisional pending user preference; costs include failures and cache reads/writes."
+  },
+  "selected_tasks": [
+    "business/goodbooks_10k/task1",
+    "community/kaggle-survey-2022/task2",
+    "education/bi/task2",
+    "geoscience/water-potability/task3",
+    "social_good/data_science_for_good_city_of_los_angeles/task1",
+    "sports/nfl_big_data_bowl_2023/task1"
+  ],
+  "development_tasks": [
+    "education/world_university_rankings/task2",
+    "business/netflix_movies_and_tv_shows/task3"
+  ],
+  "inventory": [
+    {
+      "task": "business/goodbooks_10k/task1",
+      "domain": "business",
+      "turns": 35,
+      "state_labels": {
+        "Initial": 19,
+        "Update": 10,
+        "Rollback": 10,
+        "Counterfactual": 14
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 32,
+      "public_prompt_sha256": "4498ae17670f9be76fc1f27cd56b8b5606b7cbae02c542f6ca6d603515aad814",
+      "metadata_sha256": "1bbdc8a6ad2e24f04ac66bc8f1fffe2cc488264c61abd6ae81005963bd40ad7b",
+      "selected": true,
+      "rationale": "Multi-source identity, evolving recommendation scores, historical membership and current measurements."
+    },
+    {
+      "task": "business/goodreads_books/task1",
+      "domain": "business",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 6,
+        "Counterfactual": 10,
+        "Update": 9,
+        "Rollback": 11
+      },
+      "max_dependency_span": 28,
+      "multi_parent_turns": 28,
+      "public_prompt_sha256": "901871005a0502259ad16610bf071122a84493cf12330556945b22ba55a33a52",
+      "metadata_sha256": "21d5d36bb0f14da3cc044ee454f7ee93db70893f07d391e9b4d24fc51475be48",
+      "selected": false
+    },
+    {
+      "task": "business/my_uber_drivers/task1",
+      "domain": "business",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 21,
+        "Update": 11,
+        "Counterfactual": 12,
+        "Rollback": 12
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "f8219c91bc87766190b76474ffe2a69e7803b230b0f60a20326ea43d90969fc4",
+      "metadata_sha256": "6b324dbb34760ea35be89a7821b365d979e282fca01bb6b8480c59262619f494",
+      "selected": false
+    },
+    {
+      "task": "business/my_uber_drivers/task2",
+      "domain": "business",
+      "turns": 35,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 13,
+        "Counterfactual": 6,
+        "Rollback": 14
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 31,
+      "public_prompt_sha256": "ecc286396fff0877b257ab1e8311d42083148ec89d022d733b1757e55455ac74",
+      "metadata_sha256": "1ffea763069af086d1674e7a27f959765b21452402941a892dc8bec892c21bcd",
+      "selected": false
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task1",
+      "domain": "business",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 15,
+        "Update": 15,
+        "Rollback": 8,
+        "Counterfactual": 11
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 31,
+      "public_prompt_sha256": "73b23f65465a517647d32fed1dcbeb54432353c6cf710b9cc47ebbd67b78ffec",
+      "metadata_sha256": "effa2e7d4bfd5ec4e6a511ceb599cdd606d7a0294e4e28a748055b6fcb8c710f",
+      "selected": false
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task2",
+      "domain": "business",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 18,
+        "Counterfactual": 10,
+        "Update": 15,
+        "Rollback": 14
+      },
+      "max_dependency_span": 30,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "b84bc260d61aa78c39092340488d50ed1b7aeb58648abe22655fe39546740656",
+      "metadata_sha256": "77c494d7d4fb391abb53555a0a816d6d2c544698beefd9be4adc64660a6eb22d",
+      "selected": false
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task3",
+      "domain": "business",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 18,
+        "Update": 14,
+        "Rollback": 12,
+        "Counterfactual": 13
+      },
+      "max_dependency_span": 30,
+      "multi_parent_turns": 32,
+      "public_prompt_sha256": "b7a0c6a6a11dd33463552be9482eb149f7cda16c8941bd17e9434633d9dcc042",
+      "metadata_sha256": "546351330c3f6c1cf893fcd899b533e869aade5db36297e80a8136ff71fe6971",
+      "selected": false
+    },
+    {
+      "task": "business/netflix_movies_and_tv_shows/task4",
+      "domain": "business",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 14,
+        "Counterfactual": 10,
+        "Update": 10,
+        "Rollback": 6
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "bc236f38da4fe10bc1fd54a649d3305dcbf3fdf6b7765ff225fadc682bf18f42",
+      "metadata_sha256": "4f49fcb79dc79ff5da0c55b4e097c68e0a9e02bb19e15de09aae1ff8f6912689",
+      "selected": false
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task1",
+      "domain": "business",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 13,
+        "Counterfactual": 4,
+        "Update": 12,
+        "Rollback": 11
+      },
+      "max_dependency_span": 25,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "fc7df07e42dc7718dd53dff0c2f569297820c4d5bf484de37799f43926765661",
+      "metadata_sha256": "b646ac22fcccb49019d9a0c4a89066016cc485ceaf4857987f05a2f4682f0e17",
+      "selected": false
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task2",
+      "domain": "business",
+      "turns": 33,
+      "state_labels": {
+        "Initial": 13,
+        "Counterfactual": 5,
+        "Update": 11,
+        "Rollback": 8
+      },
+      "max_dependency_span": 30,
+      "multi_parent_turns": 31,
+      "public_prompt_sha256": "c95e74e850665323ac73c64c627ea102b575c036e21efd2e6c985ab5b83e8bb1",
+      "metadata_sha256": "1cb2d28fec20fd02687e3ded3ca366c3ee5828144f2154666e94e8dc1e491451",
+      "selected": false
+    },
+    {
+      "task": "business/nyc_restaurants_data_food_ordering_and_delivery/task3",
+      "domain": "business",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 5,
+        "Update": 15,
+        "Counterfactual": 12,
+        "Rollback": 8
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 28,
+      "public_prompt_sha256": "a984cc142af701e16ec6c37f5b8879106e5a997cc53af6f000bda7274e902843",
+      "metadata_sha256": "c5709158e603fa1f15c63b5e4fc6e089d9e09c9afcb418a6a66fbe9b091b463d",
+      "selected": false
+    },
+    {
+      "task": "business/transaction_data_for_fraud_analysis/task1",
+      "domain": "business",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 10,
+        "Rollback": 7,
+        "Counterfactual": 10
+      },
+      "max_dependency_span": 34,
+      "multi_parent_turns": 33,
+      "public_prompt_sha256": "bf7f60c9db96f7e65ceb1a64037b14e5ba0112856393819e50a9a726927f8f84",
+      "metadata_sha256": "e8a5c3a302dbdfa62e78aede2de1ebd8c80090130f56c38df5789b72f28ab964",
+      "selected": false
+    },
+    {
+      "task": "community/github_programming_languages_data/task1",
+      "domain": "community",
+      "turns": 15,
+      "state_labels": {
+        "Initial": 12
+      },
+      "max_dependency_span": 13,
+      "multi_parent_turns": 5,
+      "public_prompt_sha256": "599a3491a2a6abc8df1e789de203d6e8e0fd55f2f16f0c9a3411087291a17e65",
+      "metadata_sha256": "c2b432ea76ab988463267e53c84839df3fc76ca4e567bbae812871d121dc08b0",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2018/task1",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 28,
+        "Counterfactual": 1,
+        "Update": 2
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 17,
+      "public_prompt_sha256": "ae6587136fffdf71933bfb3b0aaa3d0ba1da61426e5d5fa7e17116899ccbe497",
+      "metadata_sha256": "894f54c9516f3a66cab45b6aad67e5f9e4eb08fb497a1b3667f755d10102598b",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2018/task2",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 29,
+        "Update": 2,
+        "Rollback": 2
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 22,
+      "public_prompt_sha256": "7983c10fe707b28e78a60f3de3f935d43d22159629dc0b00ebc02e49effe24c5",
+      "metadata_sha256": "ee65b5e15b68c90a52aa97609e74d00054288e66c5cdbc9c2c33d1eded9b67b7",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2018/task3",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 30,
+        "Update": 7,
+        "Rollback": 8
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 20,
+      "public_prompt_sha256": "d2885cedde7eacd4b0c2bd932bc9e22d5a3a0f46363c2007c1b639ad72182620",
+      "metadata_sha256": "b4c296108cad5b057f98de064e7e4b80c390e1d26338e495e62acb64e8faa06b",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2019/task1",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 23,
+        "Update": 5,
+        "Rollback": 5
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 22,
+      "public_prompt_sha256": "d4509a92bd495afcb516b834c8f4905605f64627ecd4b459a42065e5097d7e2e",
+      "metadata_sha256": "71e6ed2818fb56a326a90e6f852770f6e45aa5e5addc76854148d9bfbca8d78a",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2019/task2",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 25,
+        "Update": 1
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 26,
+      "public_prompt_sha256": "d460014bb5e8626c1e8afbf1d7359d5e2cbf490f5353a72883157540b0a52b03",
+      "metadata_sha256": "37a7acf380add8d7c558089bf9b770d6050b5fac242b600b4870d67f6c447c6b",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2019/task3",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 24,
+        "Update": 2,
+        "Rollback": 3
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 22,
+      "public_prompt_sha256": "68398aa4c8e108904aa03ef4a5c188e86c86ab2c651de873d7dd013a9f2c7042",
+      "metadata_sha256": "9847761a46212d212cd9c195a40d2f245ae1042c3357ec44908efd080d11ee79",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2020/task1",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 28,
+        "Update": 1
+      },
+      "max_dependency_span": 25,
+      "multi_parent_turns": 12,
+      "public_prompt_sha256": "a928787474072c88a6cf8e4866e3bcba0667b558a8326ef422608f086f3e79bb",
+      "metadata_sha256": "3945a8e9a52168e3b925c2cd5c51e7bc871bd6eb4d8b13b6fddab1ee3e75b4d0",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2020/task2",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 30,
+        "Counterfactual": 1
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 21,
+      "public_prompt_sha256": "9f447b8d2204581e8faae608d2806ab06d5fb0bef173e771f2865ca5f718248f",
+      "metadata_sha256": "ddfe8c41424a619a3043adcd150e261ae9cbc3ad769fffa0f06a6482690c2927",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2020/task3",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 27,
+        "Update": 2
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 10,
+      "public_prompt_sha256": "16a6e4c032c6d5ed17debad15739dd45dbff53214ded464fb79e616e5505cf28",
+      "metadata_sha256": "213775313d74551ab3955d02db74d5e967e6da5abe1a4e81c18c3c1dfc5754cf",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2021/task1",
+      "domain": "community",
+      "turns": 25,
+      "state_labels": {
+        "Initial": 20,
+        "Update": 6,
+        "Rollback": 2,
+        "Counterfactual": 1
+      },
+      "max_dependency_span": 22,
+      "multi_parent_turns": 18,
+      "public_prompt_sha256": "86f3a5799cf76c15b6ce4c51f101cd14621237bf2bbce4da713fea81f607bbdb",
+      "metadata_sha256": "fb168d951675856247883d7ee0b4b1f7c0a3fc7cdd41420b88a49c06321f5ade",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2021/task2",
+      "domain": "community",
+      "turns": 35,
+      "state_labels": {
+        "Initial": 26,
+        "Update": 5,
+        "Counterfactual": 13
+      },
+      "max_dependency_span": 34,
+      "multi_parent_turns": 15,
+      "public_prompt_sha256": "0f90e9d7186a732dbffdbc537dc5e662403d50af877db6256c6b625341352820",
+      "metadata_sha256": "65a6ad819d795fd8a8f1e6b664018e7f6fc5e73685b8a3ae15fdd0f890c78faa",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2021/task3",
+      "domain": "community",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 31,
+        "Update": 9,
+        "Counterfactual": 12,
+        "Rollback": 1
+      },
+      "max_dependency_span": 31,
+      "multi_parent_turns": 26,
+      "public_prompt_sha256": "09971514f1933a93b6c0c90825372c082cf9a2ae6824638f60772d91c7277746",
+      "metadata_sha256": "d606325e1d0466dd1df976f8e8152e85255053d947dbac2ea3d74af8e78f0f4e",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2022/task1",
+      "domain": "community",
+      "turns": 27,
+      "state_labels": {
+        "Initial": 27,
+        "Update": 4
+      },
+      "max_dependency_span": 25,
+      "multi_parent_turns": 12,
+      "public_prompt_sha256": "7c35f97c9aafa177e038672e298e9beb0e7944951812c9f9797fbe4047e6dea9",
+      "metadata_sha256": "9cea69cc8943f7cb443c82ba56e90e9e49dfe3ee29b993d9d4e418342f51d1d3",
+      "selected": false
+    },
+    {
+      "task": "community/kaggle-survey-2022/task2",
+      "domain": "community",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 19,
+        "Counterfactual": 7,
+        "Update": 8,
+        "Rollback": 3
+      },
+      "max_dependency_span": 25,
+      "multi_parent_turns": 19,
+      "public_prompt_sha256": "e9334c2d0da894428d71b52cb56f02a5c6854aaed7c1a6ee0ba1418558cc2e02",
+      "metadata_sha256": "f84240fcb1b34287f99da3e48db2c67fa79cd6fbff487b2bc456b16cbb83d665",
+      "selected": true,
+      "rationale": "Changing adoption definitions and denominators, mixed earlier and current components."
+    },
+    {
+      "task": "community/kaggle-survey-2022/task3",
+      "domain": "community",
+      "turns": 37,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 4,
+        "Rollback": 7,
+        "Counterfactual": 7
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 24,
+      "public_prompt_sha256": "edec6827f3c3e2f7bfe99680ba5d7a6dea52c234deea292efc2b972b02fecbb7",
+      "metadata_sha256": "712d283a5127de8dfc2af2296b57b0ad57ad692a2662e3d33821e5f11fe1ccb8",
+      "selected": false
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task1",
+      "domain": "education",
+      "turns": 25,
+      "state_labels": {
+        "Initial": 18,
+        "Update": 2,
+        "Counterfactual": 7
+      },
+      "max_dependency_span": 17,
+      "multi_parent_turns": 15,
+      "public_prompt_sha256": "ee002b23b6a4468f743a51155e765dc478d0e6a3f120530185b433483b2e223d",
+      "metadata_sha256": "bb7f56d72bf45ad1f6df3d70de69a574c17bae4b3dea8e07c86c0231b38f7081",
+      "selected": false
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task2",
+      "domain": "education",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 30,
+        "Update": 7,
+        "Rollback": 1
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 22,
+      "public_prompt_sha256": "818f3238ab8bc5d2e9df6d67a77e957035aed3665c84497248c5b11f89c9b164",
+      "metadata_sha256": "3b59278a9448421da9c74081f605d4eb934dcbda39ef9b6cf73a38777e36a2aa",
+      "selected": false
+    },
+    {
+      "task": "education/LearnPlatform_COVID-19_Impact_on_Digital_Learning/task3",
+      "domain": "education",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 22,
+        "Update": 11,
+        "Counterfactual": 6,
+        "Rollback": 4
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 17,
+      "public_prompt_sha256": "3d25f7649818501d49a50c3dc159b6e9438359a8faf09d2178aa0774c607e200",
+      "metadata_sha256": "80c5967be38770ab721551d087b9493a615d8cfa4a58912e349c49943e5f3707",
+      "selected": false
+    },
+    {
+      "task": "education/bi/task1",
+      "domain": "education",
+      "turns": 27,
+      "state_labels": {
+        "Initial": 21,
+        "Update": 8,
+        "Counterfactual": 3
+      },
+      "max_dependency_span": 24,
+      "multi_parent_turns": 16,
+      "public_prompt_sha256": "abcac43e8d11c0c01e710754fe1788fd329cb986362e8bd27da2ad7a06cb2860",
+      "metadata_sha256": "2d42e250a7fbb7a60d001e5fa9b2e4da52f4f9b6ab51ab0ae10a997cdac2af93",
+      "selected": false
+    },
+    {
+      "task": "education/bi/task2",
+      "domain": "education",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 8,
+        "Update": 3,
+        "Counterfactual": 3,
+        "Rollback": 1
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 20,
+      "public_prompt_sha256": "d47df27e53e691644aeedfa8974e184c8a449678235b6ae8e07b346289e40be3",
+      "metadata_sha256": "16f6bd9138d34ba439e774e4b7a1c25b41261ceb580b1a48ff041f0afa1bb4ea",
+      "selected": true,
+      "rationale": "Shared score weights, grouping revisions, persistent sample restriction and final rollback."
+    },
+    {
+      "task": "education/world_university_rankings/task1",
+      "domain": "education",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 30,
+        "Update": 5,
+        "Counterfactual": 6,
+        "Rollback": 1
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 25,
+      "public_prompt_sha256": "e8891e3b4b35886f21203265e54b35f50e667595266ae71287134c7ebb317215",
+      "metadata_sha256": "7d1017ffbe1de6541ebb64e9992589a19d0f07ac12b95c0df9cfca35a17f5a45",
+      "selected": false
+    },
+    {
+      "task": "education/world_university_rankings/task2",
+      "domain": "education",
+      "turns": 21,
+      "state_labels": {
+        "Initial": 11,
+        "Update": 4,
+        "Counterfactual": 9,
+        "Rollback": 2
+      },
+      "max_dependency_span": 18,
+      "multi_parent_turns": 11,
+      "public_prompt_sha256": "70e81624a2d2c66d024632a82dcdd694785a37513b60f83f13ead4650e272687",
+      "metadata_sha256": "d3b224a3e22e8cc0ca426b68712b348ef58796835a685aef9b2874230e9cc7c6",
+      "selected": false
+    },
+    {
+      "task": "education/world_university_rankings/task3",
+      "domain": "education",
+      "turns": 23,
+      "state_labels": {
+        "Initial": 18,
+        "Rollback": 1,
+        "Counterfactual": 5,
+        "Update": 4
+      },
+      "max_dependency_span": 20,
+      "multi_parent_turns": 15,
+      "public_prompt_sha256": "42e25d80554a92d060cd3682dc324ad0949c91ed15c4b1088f22b6cb0e529547",
+      "metadata_sha256": "71f7814f7650c2138da72b933a8aaf7959278f40b8f05f5c1568c53f7f008d03",
+      "selected": false
+    },
+    {
+      "task": "geoscience/acea_water_prediction/task1",
+      "domain": "geoscience",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 14,
+        "Counterfactual": 9,
+        "Update": 3,
+        "Rollback": 4
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 27,
+      "public_prompt_sha256": "866f3be46af77c6db7d6efca436aab17f218849a446b14a2db99d16b61d30cb1",
+      "metadata_sha256": "26301b9f2d5f417a96a1fd054f31a672da0bba1338bd0abe8c150d589e4fdeab",
+      "selected": false
+    },
+    {
+      "task": "geoscience/acea_water_prediction/task2",
+      "domain": "geoscience",
+      "turns": 38,
+      "state_labels": {
+        "Initial": 5,
+        "Counterfactual": 10,
+        "Update": 6,
+        "Rollback": 4
+      },
+      "max_dependency_span": 37,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "22884be1f22ac323b0370f0fad64c24ea1d8d437cdc2045b72ee8f3a9a15388e",
+      "metadata_sha256": "ea78474fb5d7c27aac92871fbfd92dd5bd4301cd469426b9afb5fecb3c9b1e7a",
+      "selected": false
+    },
+    {
+      "task": "geoscience/acea_water_prediction/task3",
+      "domain": "geoscience",
+      "turns": 37,
+      "state_labels": {
+        "Initial": 21,
+        "Update": 5,
+        "Counterfactual": 4,
+        "Rollback": 5
+      },
+      "max_dependency_span": 28,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "6737820b49db59717a5c60abd6a806faf7dbeb5660c3b02b39b3f6855561c97b",
+      "metadata_sha256": "51c88f413b2ca4d6167c95c5390b522f28ccd8610fb368706cbdcdd765c843f4",
+      "selected": false
+    },
+    {
+      "task": "geoscience/cdp-unlocking-climate-solutions/task1",
+      "domain": "geoscience",
+      "turns": 39,
+      "state_labels": {
+        "Initial": 19,
+        "Update": 15,
+        "Counterfactual": 14,
+        "Rollback": 8
+      },
+      "max_dependency_span": 36,
+      "multi_parent_turns": 36,
+      "public_prompt_sha256": "d2d24b3602c0601180185caa51531c281e8865a74bb71b84af6cf92bca169403",
+      "metadata_sha256": "1a817a21e290f99ded9c22e153a97c38ee219b48dff05abdd3e69fc13027b4fc",
+      "selected": false
+    },
+    {
+      "task": "geoscience/cdp-unlocking-climate-solutions/task2",
+      "domain": "geoscience",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 17,
+        "Counterfactual": 7,
+        "Update": 9,
+        "Rollback": 6
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "67186fda3aaf82b57d5f611be0748b4738ea17c37dd79f53877c0224775e4868",
+      "metadata_sha256": "c2463d2507e15b63621465e12da00cd507968ebdf8cd58f2548663603d4e8549",
+      "selected": false
+    },
+    {
+      "task": "geoscience/cdp-unlocking-climate-solutions/task3",
+      "domain": "geoscience",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 22,
+        "Counterfactual": 6,
+        "Update": 9,
+        "Rollback": 6
+      },
+      "max_dependency_span": 26,
+      "multi_parent_turns": 28,
+      "public_prompt_sha256": "c8301e69feb0fb68ec6b46ce032db0bb4069aa50bae49734a2369e5d23dec90e",
+      "metadata_sha256": "e0ae34a2d658be82ebffefc63430605dc49855f3870785a8d2c4f7b04f696da2",
+      "selected": false
+    },
+    {
+      "task": "geoscience/cdp-unlocking-climate-solutions/task4",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 15,
+        "Rollback": 10,
+        "Update": 10,
+        "Counterfactual": 5
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "f98d770a02be5f8d5f5df03c2a4c4e8bc9a660385a3970ba0157e0ac885f7c87",
+      "metadata_sha256": "4cd285012d796a039694cffd49659913a08a76832864bdf9ed21c304d3e3ba0c",
+      "selected": false
+    },
+    {
+      "task": "geoscience/ds4g-environmental-insights-explorer/task1",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 15,
+        "Counterfactual": 13,
+        "Update": 8,
+        "Rollback": 9
+      },
+      "max_dependency_span": 34,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "cc547fc379d5623aa17c5be93ef236edd2d3054a8858bc4e0bb6bbfdd7777290",
+      "metadata_sha256": "b782b5ea7ae4e7b9ccf48feb843c8a0e744a4ad7b427ca80e6ce9fe9a55a3043",
+      "selected": false
+    },
+    {
+      "task": "geoscience/ds4g-environmental-insights-explorer/task2",
+      "domain": "geoscience",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 14,
+        "Update": 10,
+        "Counterfactual": 11,
+        "Rollback": 7
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "e73027f1aeb305bab27978f651f45f3a6d3e489829b4f7bad083a44db8327276",
+      "metadata_sha256": "e89e3f04dceb0c1d441c7f7a332112864e634f6f22126a2e28fb416b7e5d46f6",
+      "selected": false
+    },
+    {
+      "task": "geoscience/global-data-on-sustainable-energy/task1",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 12,
+        "Rollback": 6,
+        "Counterfactual": 5
+      },
+      "max_dependency_span": 34,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "7bdd583a1bfeae7730fb94964ea8dcf272c599f10f6aae6c2d987da76444d7cd",
+      "metadata_sha256": "16a209635f153cdd7911c16850290cd0d7b4c79a6b977e6ecf45b9b8a5622ee4",
+      "selected": false
+    },
+    {
+      "task": "geoscience/global-data-on-sustainable-energy/task2",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 12,
+        "Counterfactual": 7,
+        "Update": 12,
+        "Rollback": 11
+      },
+      "max_dependency_span": 35,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "b1cb406ba6ce450e5829b23bffe2708fa42aa3b8ebd7012f67d55f2827472f27",
+      "metadata_sha256": "57a69eba4a27bf13aafcda41e68b1697aadc6a306fd56a2fb7326b06cba2a523",
+      "selected": false
+    },
+    {
+      "task": "geoscience/global-data-on-sustainable-energy/task3",
+      "domain": "geoscience",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 18,
+        "Update": 10,
+        "Counterfactual": 5,
+        "Rollback": 9
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 32,
+      "public_prompt_sha256": "2eaedabc96149c8acb99643e5849dee03b1ed673d91a8cad6c227e3fa348f467",
+      "metadata_sha256": "d8a2846a4328fcf9fc367c44efe46728a1c6bda64d343a9044868ea4736f0dc4",
+      "selected": false
+    },
+    {
+      "task": "geoscience/marmara-region-earthquakes-apr-2324-2025/task1",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 9,
+        "Rollback": 12,
+        "Counterfactual": 5
+      },
+      "max_dependency_span": 35,
+      "multi_parent_turns": 33,
+      "public_prompt_sha256": "7fa7bd9a7cddb0095c69653bd31df9dd04b5462860e9cdc6e04837657bd96318",
+      "metadata_sha256": "5ec5c9bcae8d4af138333ef820d33abbc9eaeccd43120f70fade39bbf138f450",
+      "selected": false
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task1",
+      "domain": "geoscience",
+      "turns": 40,
+      "state_labels": {
+        "Initial": 23,
+        "Counterfactual": 5,
+        "Update": 9,
+        "Rollback": 4
+      },
+      "max_dependency_span": 38,
+      "multi_parent_turns": 35,
+      "public_prompt_sha256": "1a1324f15d0559fc92cdc07c7d3e71f00eaccf124098954dc8a93202c81544b4",
+      "metadata_sha256": "aea7f41bfa29ead8af4d6fbc0e5bc5e9f0bbc52072c96672a8e16dbf1fb462d4",
+      "selected": false
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task2",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 14,
+        "Update": 10,
+        "Counterfactual": 11,
+        "Rollback": 7
+      },
+      "max_dependency_span": 35,
+      "multi_parent_turns": 31,
+      "public_prompt_sha256": "f3c8e32205624a1cbe05570755896fe4ee87f79f2c8e60e64058cc676b011831",
+      "metadata_sha256": "9c84b1b75f24704d1b03c255d50c8b5033004e021575ff1407e0cd1a0a9aacf9",
+      "selected": false
+    },
+    {
+      "task": "geoscience/phase-ii-widsdatathon2022/task3",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 20,
+        "Update": 13,
+        "Counterfactual": 7,
+        "Rollback": 7
+      },
+      "max_dependency_span": 30,
+      "multi_parent_turns": 33,
+      "public_prompt_sha256": "73ef62abf64f8a92fd0f5fab6cf7ece9e342f3ce319568e2fedfa67232a3ff1c",
+      "metadata_sha256": "495666ec1d3583ceffd007659cd4bfd49f43ce349cfa8f401f8e8b333987e8ed",
+      "selected": false
+    },
+    {
+      "task": "geoscience/water-potability/task1",
+      "domain": "geoscience",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 23,
+        "Update": 13,
+        "Counterfactual": 6,
+        "Rollback": 5
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 30,
+      "public_prompt_sha256": "c70f339e13c7e8a56ec572d5b04a0c9492c3cdd911f3347146f305a7dc762aa9",
+      "metadata_sha256": "5d09ec44ddef7352d8e6d9b4d37c9516496363f9091df56b38eb0da7afe8c08c",
+      "selected": false
+    },
+    {
+      "task": "geoscience/water-potability/task2",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 20,
+        "Update": 9,
+        "Counterfactual": 5,
+        "Rollback": 8
+      },
+      "max_dependency_span": 31,
+      "multi_parent_turns": 31,
+      "public_prompt_sha256": "030ffda3569589c675b8dde29d3bd7590c97c4acd1b374a9e198f24a46ad1a01",
+      "metadata_sha256": "9801fbcf2549302df03776e4b61af9475628d93820746fed48e8ba3074f7c069",
+      "selected": false
+    },
+    {
+      "task": "geoscience/water-potability/task3",
+      "domain": "geoscience",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 10,
+        "Update": 11,
+        "Counterfactual": 7,
+        "Rollback": 8
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "c260fb38e8db1de2db17af306412f59be87ad93d6c3a8af913162106dd67a0c2",
+      "metadata_sha256": "ba16203de2396a0fe8e116f3bfd1edcbf30a26480b0e83878a0fec7b5e5e41a3",
+      "selected": true,
+      "rationale": "Imputation, feature lineage, trained-model selection and counterfactual populations."
+    },
+    {
+      "task": "social_good/careerVillage_org/task1",
+      "domain": "social_good",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 28,
+        "Update": 2
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 16,
+      "public_prompt_sha256": "771fc702a04b5879567b739a42fbbb65142df3160a080e820f2ab4eba6d80948",
+      "metadata_sha256": "d8277c2845e18b8853c2c68ddea072198f7478d841d5544f44db894bdec41c77",
+      "selected": false
+    },
+    {
+      "task": "social_good/careerVillage_org/task2",
+      "domain": "social_good",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 25,
+        "Update": 4
+      },
+      "max_dependency_span": 29,
+      "multi_parent_turns": 14,
+      "public_prompt_sha256": "10d06a1d5fff9472a7046d9fec8bb90aad0e0ae52e7a8d96bd11bfe1037ff467",
+      "metadata_sha256": "8e4cf773dcc5fd2d61ddea68c510c633dd282f4fdf03c26f5b1d7eb45c7ce840",
+      "selected": false
+    },
+    {
+      "task": "social_good/center_for_policing_equity/task1",
+      "domain": "social_good",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 16,
+        "Update": 11,
+        "Counterfactual": 12,
+        "Rollback": 11
+      },
+      "max_dependency_span": 35,
+      "multi_parent_turns": 32,
+      "public_prompt_sha256": "6a404f68bd8235df758baeca1ad8afbfb4c6628bbc7aa43d0ac39a142141ecba",
+      "metadata_sha256": "affd2c0e0257664a25541e00e68673fe4d497cd0b137079ab36865b53608a9c8",
+      "selected": false
+    },
+    {
+      "task": "social_good/center_for_policing_equity/task2",
+      "domain": "social_good",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 14,
+        "Update": 18,
+        "Counterfactual": 16,
+        "Rollback": 9
+      },
+      "max_dependency_span": 35,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "afb220f5fe5402f8298d1add6cb4b860e4670fa374b419b04e07b1bfe5a2dc6d",
+      "metadata_sha256": "bf2ae141ba6323ec43a62c60ad9242850c61e65cc978bdbd4e22cea4ad218de6",
+      "selected": false
+    },
+    {
+      "task": "social_good/data_science_for_good_city_of_los_angeles/task1",
+      "domain": "social_good",
+      "turns": 36,
+      "state_labels": {
+        "Initial": 29,
+        "Update": 14,
+        "Rollback": 10,
+        "Counterfactual": 14
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 34,
+      "public_prompt_sha256": "321245ee02a1000aadb80d82af6832cffb306ba188f27396a7893278ceee2b88",
+      "metadata_sha256": "fda16cc866c07d4452275125d79379421355ed2d5224f892114c2ddc2fdec3b8",
+      "selected": true,
+      "rationale": "Text parsing, deduplication, role hierarchy and successive score-component changes."
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task1",
+      "domain": "social_good",
+      "turns": 37,
+      "state_labels": {
+        "Initial": 11,
+        "Update": 11,
+        "Counterfactual": 13,
+        "Rollback": 12
+      },
+      "max_dependency_span": 31,
+      "multi_parent_turns": 32,
+      "public_prompt_sha256": "14cad7bdccf6754981bf1be0243b4e1fbdd9002ebc8089ceb1e223d1627ff2dd",
+      "metadata_sha256": "2dfc8af2739994a7af70a390fc70206743ad7f23c0e4588d0f0c0ca18c329c4c",
+      "selected": false
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task2",
+      "domain": "social_good",
+      "turns": 37,
+      "state_labels": {
+        "Initial": 23,
+        "Update": 14,
+        "Counterfactual": 6,
+        "Rollback": 10
+      },
+      "max_dependency_span": 32,
+      "multi_parent_turns": 35,
+      "public_prompt_sha256": "69d65d4dec2e7e579ca894c125a429fd215e3585fa6ece5bfc68a9dcb9483acc",
+      "metadata_sha256": "c3e16fe9daac180bc3f1f049749e90a4edcc58c37e32810c16baf7d2c17ec997",
+      "selected": false
+    },
+    {
+      "task": "social_good/data_science_for_good_kiva_crowdfunding/task3",
+      "domain": "social_good",
+      "turns": 34,
+      "state_labels": {
+        "Initial": 27,
+        "Update": 15,
+        "Rollback": 10,
+        "Counterfactual": 13
+      },
+      "max_dependency_span": 33,
+      "multi_parent_turns": 30,
+      "public_prompt_sha256": "40ff525cb55b50c3908fb18ffb73fb4eb79b4616be5939f5927f3c9490f77af5",
+      "metadata_sha256": "9ea8b436c8b0fc5196313a68c64fcb600b6c1553f31b4adc7b07734e77f01ae8",
+      "selected": false
+    },
+    {
+      "task": "social_good/passnyc/task1",
+      "domain": "social_good",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 21,
+        "Update": 10,
+        "Counterfactual": 5,
+        "Rollback": 3
+      },
+      "max_dependency_span": 24,
+      "multi_parent_turns": 20,
+      "public_prompt_sha256": "3676175661ee092337e3aa6a001c80f6f1881fb7c64baf90631d0dfbc19dd0cf",
+      "metadata_sha256": "98247c18cf809959fda495ac5c5ce3c620c8c81b0e6e83e7083c5fb87600c115",
+      "selected": false
+    },
+    {
+      "task": "social_good/passnyc/task2",
+      "domain": "social_good",
+      "turns": 30,
+      "state_labels": {
+        "Initial": 21,
+        "Update": 16,
+        "Counterfactual": 3,
+        "Rollback": 1
+      },
+      "max_dependency_span": 27,
+      "multi_parent_turns": 18,
+      "public_prompt_sha256": "364c574319e3c83475cf5dd9611d97669886e32077c2717e13a2ed6e05f6eb25",
+      "metadata_sha256": "48fda6624f9eb55e4de3da98d6154a0670b142028fe11bde0e69d17317004d7e",
+      "selected": false
+    },
+    {
+      "task": "sports/big_data_derby_2022/task1",
+      "domain": "sports",
+      "turns": 35,
+      "state_labels": {
+        "Initial": 11,
+        "Update": 10,
+        "Rollback": 10,
+        "Counterfactual": 7
+      },
+      "max_dependency_span": 31,
+      "multi_parent_turns": 30,
+      "public_prompt_sha256": "8434dd70fe5fa54fad6def8f47442a29c67d502da6471dcb1c7d97d2c426ca5c",
+      "metadata_sha256": "35b3bffc9b2dcc4bb987cb3707ad83d4152f43edac0c8ad511301821108a75e2",
+      "selected": false
+    },
+    {
+      "task": "sports/march_madness_analytics/task1",
+      "domain": "sports",
+      "turns": 32,
+      "state_labels": {
+        "Initial": 17,
+        "Update": 8,
+        "Rollback": 7,
+        "Counterfactual": 6
+      },
+      "max_dependency_span": 24,
+      "multi_parent_turns": 29,
+      "public_prompt_sha256": "77641407961dfed41c053f6033d5d35949e5f98de6677d4a9995f3c19c536dc9",
+      "metadata_sha256": "31856ed98a81c1e813be90f8e72131379a28857b1b1de096a44970e6e82639ad",
+      "selected": false
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "domain": "sports",
+      "turns": 42,
+      "state_labels": {
+        "Initial": 14,
+        "Counterfactual": 12,
+        "Rollback": 13,
+        "Update": 11
+      },
+      "max_dependency_span": 40,
+      "multi_parent_turns": 39,
+      "public_prompt_sha256": "245359321f96ac1a8fcfc6976221c747df27f5fcaedaeafde6ad7c9289eb0319",
+      "metadata_sha256": "75fd94d5617035c3ab4f496289c05310c85e1baadc223a81ca68badb8f664212",
+      "selected": true,
+      "rationale": "Player/team aggregation, formula and membership versions, temporary scenarios; previously inspected diagnostic."
+    }
+  ]
+}

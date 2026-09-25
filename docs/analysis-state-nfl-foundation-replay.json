@@ -1,0 +1,570 @@
+{
+  "scope": "Post-hoc deterministic replay of turn 2 from both first-pass NFL workflows. No model calls, no original artifact changes, no reclassification of judge labels. Only the described source measure or percentile direction changes; no later turns are replayed.",
+  "isolation": "Empty-root filesystem, read-only raw task data, private scratch, network disabled.",
+  "runs": [
+    {
+      "arm": "react-analysis",
+      "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t02/workflow.json",
+      "sha256": "acdbaf3b22641b36bfdf0ef417c6197a5391e69ac2be0755f995063b3a8e1fda",
+      "targets": [
+        "weak_support_top5",
+        "top_pressure_gap5"
+      ],
+      "replay": [
+        {
+          "corrected": false,
+          "interventions": [],
+          "tables": {
+            "weak_support_top5": [
+              {
+                "player": "brandon shell",
+                "team": "SEA",
+                "tackle_side": "RT",
+                "play_count": 53,
+                "side_play_median": 63.0,
+                "mean_speed_percentile": 0.953488372093023,
+                "peak_speed_percentile": 0.941860465116279,
+                "accel_rank": 3,
+                "accel90_rank": 2,
+                "support_adjustment": 0.076,
+                "speed_signal": 1.023674418604651
+              },
+              {
+                "player": "christian darrisaw",
+                "team": "MIN",
+                "tackle_side": "LT",
+                "play_count": 45,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 1.0,
+                "peak_speed_percentile": 1.0,
+                "accel_rank": null,
+                "accel90_rank": null,
+                "support_adjustment": 0.0,
+                "speed_signal": 1.0
+              },
+              {
+                "player": "trent williams",
+                "team": "SF",
+                "tackle_side": "LT",
+                "play_count": 103,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.918604651162791,
+                "peak_speed_percentile": 0.918604651162791,
+                "accel_rank": 6,
+                "accel90_rank": 5,
+                "support_adjustment": 0.076,
+                "speed_signal": 0.994604651162791
+              },
+              {
+                "player": "rashod hill",
+                "team": "MIN",
+                "tackle_side": "LT",
+                "play_count": 96,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.883720930232558,
+                "peak_speed_percentile": 0.872093023255814,
+                "accel_rank": 9,
+                "accel90_rank": 7,
+                "support_adjustment": 0.072,
+                "speed_signal": 0.949906976744186
+              },
+              {
+                "player": "ronnie stanley",
+                "team": "BAL",
+                "tackle_side": "LT",
+                "play_count": 25,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.976744186046512,
+                "peak_speed_percentile": 0.906976744186046,
+                "accel_rank": null,
+                "accel90_rank": null,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.941860465116279
+              }
+            ],
+            "top_pressure_gap5": [
+              {
+                "player": "ronnie stanley",
+                "team": "BAL",
+                "tackle_side": "LT",
+                "play_count": 25,
+                "pressure_rate": 0.36,
+                "ledger_event_count": 13.0,
+                "ledger_pressure_rate": 0.52,
+                "pressure_rate_gap": 0.16
+              },
+              {
+                "player": "spencer brown",
+                "team": "BUF",
+                "tackle_side": "RT",
+                "play_count": 35,
+                "pressure_rate": 0.085714285714286,
+                "ledger_event_count": 7.999999999999998,
+                "ledger_pressure_rate": 0.228571428571428,
+                "pressure_rate_gap": 0.142857142857143
+              },
+              {
+                "player": "jesse davis",
+                "team": "MIA",
+                "tackle_side": "RT",
+                "play_count": 64,
+                "pressure_rate": 0.109375,
+                "ledger_event_count": 16.0,
+                "ledger_pressure_rate": 0.25,
+                "pressure_rate_gap": 0.140625
+              },
+              {
+                "player": "justin herron",
+                "team": "NE",
+                "tackle_side": "LT",
+                "play_count": 29,
+                "pressure_rate": 0.068965517241379,
+                "ledger_event_count": 5.999999999999998,
+                "ledger_pressure_rate": 0.206896551724138,
+                "pressure_rate_gap": 0.137931034482759
+              },
+              {
+                "player": "dan moore",
+                "team": "PIT",
+                "tackle_side": "LT",
+                "play_count": 177,
+                "pressure_rate": 0.129943502824859,
+                "ledger_event_count": 45.999999999999964,
+                "ledger_pressure_rate": 0.259887005649717,
+                "pressure_rate_gap": 0.129943502824859
+              }
+            ]
+          }
+        },
+        {
+          "corrected": true,
+          "interventions": [
+            {
+              "operator": "accel90_sorted",
+              "ordering_column_before": "mean_kick",
+              "ordering_column_after": "90p_kick"
+            },
+            {
+              "operator": "accel90_ranked",
+              "ordering_column_before": "mean_kick",
+              "ordering_column_after": "90p_kick"
+            }
+          ],
+          "tables": {
+            "weak_support_top5": [
+              {
+                "player": "brandon shell",
+                "team": "SEA",
+                "tackle_side": "RT",
+                "play_count": 53,
+                "side_play_median": 63.0,
+                "mean_speed_percentile": 0.953488372093023,
+                "peak_speed_percentile": 0.941860465116279,
+                "accel_rank": 3,
+                "accel90_rank": 4,
+                "support_adjustment": 0.076,
+                "speed_signal": 1.023674418604651
+              },
+              {
+                "player": "christian darrisaw",
+                "team": "MIN",
+                "tackle_side": "LT",
+                "play_count": 45,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 1.0,
+                "peak_speed_percentile": 1.0,
+                "accel_rank": null,
+                "accel90_rank": null,
+                "support_adjustment": 0.0,
+                "speed_signal": 1.0
+              },
+              {
+                "player": "trent williams",
+                "team": "SF",
+                "tackle_side": "LT",
+                "play_count": 103,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.918604651162791,
+                "peak_speed_percentile": 0.918604651162791,
+                "accel_rank": 6,
+                "accel90_rank": 6,
+                "support_adjustment": 0.08,
+                "speed_signal": 0.998604651162791
+              },
+              {
+                "player": "rashod hill",
+                "team": "MIN",
+                "tackle_side": "LT",
+                "play_count": 96,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.883720930232558,
+                "peak_speed_percentile": 0.872093023255814,
+                "accel_rank": 9,
+                "accel90_rank": 9,
+                "support_adjustment": 0.08,
+                "speed_signal": 0.957906976744186
+              },
+              {
+                "player": "ronnie stanley",
+                "team": "BAL",
+                "tackle_side": "LT",
+                "play_count": 25,
+                "side_play_median": 114.0,
+                "mean_speed_percentile": 0.976744186046512,
+                "peak_speed_percentile": 0.906976744186046,
+                "accel_rank": null,
+                "accel90_rank": null,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.941860465116279
+              }
+            ],
+            "top_pressure_gap5": [
+              {
+                "player": "ronnie stanley",
+                "team": "BAL",
+                "tackle_side": "LT",
+                "play_count": 25,
+                "pressure_rate": 0.36,
+                "ledger_event_count": 13.0,
+                "ledger_pressure_rate": 0.52,
+                "pressure_rate_gap": 0.16
+              },
+              {
+                "player": "spencer brown",
+                "team": "BUF",
+                "tackle_side": "RT",
+                "play_count": 35,
+                "pressure_rate": 0.085714285714286,
+                "ledger_event_count": 7.999999999999998,
+                "ledger_pressure_rate": 0.228571428571428,
+                "pressure_rate_gap": 0.142857142857143
+              },
+              {
+                "player": "jesse davis",
+                "team": "MIA",
+                "tackle_side": "RT",
+                "play_count": 64,
+                "pressure_rate": 0.109375,
+                "ledger_event_count": 16.0,
+                "ledger_pressure_rate": 0.25,
+                "pressure_rate_gap": 0.140625
+              },
+              {
+                "player": "justin herron",
+                "team": "NE",
+                "tackle_side": "LT",
+                "play_count": 29,
+                "pressure_rate": 0.068965517241379,
+                "ledger_event_count": 5.999999999999998,
+                "ledger_pressure_rate": 0.206896551724138,
+                "pressure_rate_gap": 0.137931034482759
+              },
+              {
+                "player": "dan moore",
+                "team": "PIT",
+                "tackle_side": "LT",
+                "play_count": 177,
+                "pressure_rate": 0.129943502824859,
+                "ledger_event_count": 45.999999999999964,
+                "ledger_pressure_rate": 0.259887005649717,
+                "pressure_rate_gap": 0.129943502824859
+              }
+            ]
+          }
+        }
+      ],
+      "pressure_accounting_unchanged": true,
+      "corrected_top_five_matches_reference_at_four_decimals": true
+    },
+    {
+      "arm": "react-entries",
+      "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t02/workflow.json",
+      "sha256": "f5b55a998645cd6f69ce21e1cd9add8cc0ba30343f69a6ee4708c4a9553a3264",
+      "targets": [
+        "weak_support_report",
+        "early_pressure_report"
+      ],
+      "replay": [
+        {
+          "corrected": false,
+          "interventions": [],
+          "tables": {
+            "weak_support_report": [
+              {
+                "player_clean": "nate solder",
+                "team_clean": "NYG",
+                "tackle_side": "LT",
+                "nPlays": 25,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 1.0,
+                "peak_speed_percentile": 1.0,
+                "support_adjustment": 0.0,
+                "speed_signal": 1.0,
+                "speed_signal_percentile": 0.011627906976744
+              },
+              {
+                "player_clean": "braden smith",
+                "team_clean": "IND",
+                "tackle_side": "RT",
+                "nPlays": 34,
+                "side_median_nPlays": 63.0,
+                "mean_speed_percentile": 0.976744186046512,
+                "peak_speed_percentile": 0.988372093023256,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.982558139534884,
+                "speed_signal_percentile": 0.023255813953488
+              },
+              {
+                "player_clean": "matt pryor",
+                "team_clean": "IND",
+                "tackle_side": "RT",
+                "nPlays": 40,
+                "side_median_nPlays": 63.0,
+                "mean_speed_percentile": 0.883720930232558,
+                "peak_speed_percentile": 0.941860465116279,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.912790697674419,
+                "speed_signal_percentile": 0.069767441860465
+              },
+              {
+                "player_clean": "lane johnson",
+                "team_clean": "PHI",
+                "tackle_side": "RT",
+                "nPlays": 62,
+                "side_median_nPlays": 63.0,
+                "mean_speed_percentile": 0.86046511627907,
+                "peak_speed_percentile": 0.924418604651163,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.892441860465116,
+                "speed_signal_percentile": 0.081395348837209
+              },
+              {
+                "player_clean": "taylor lewan",
+                "team_clean": "TEN",
+                "tackle_side": "LT",
+                "nPlays": 113,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 0.988372093023256,
+                "peak_speed_percentile": 0.790697674418605,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.88953488372093,
+                "speed_signal_percentile": 0.093023255813953
+              }
+            ],
+            "early_pressure_report": [
+              {
+                "player_clean": "ronnie stanley",
+                "team_clean": "BAL",
+                "tackle_side": "LT",
+                "nPlays": 25,
+                "event_count_total": 13.0,
+                "ledger_pressure_rate": 0.52,
+                "total_pressure_rate": 0.36,
+                "pressure_rate_gap": 0.16,
+                "gap_percentile": 0.011627906976744
+              },
+              {
+                "player_clean": "spencer brown",
+                "team_clean": "BUF",
+                "tackle_side": "RT",
+                "nPlays": 35,
+                "event_count_total": 7.999999999999998,
+                "ledger_pressure_rate": 0.228571428571428,
+                "total_pressure_rate": 0.085714285714286,
+                "pressure_rate_gap": 0.142857142857143,
+                "gap_percentile": 0.023255813953488
+              },
+              {
+                "player_clean": "jesse davis",
+                "team_clean": "MIA",
+                "tackle_side": "RT",
+                "nPlays": 64,
+                "event_count_total": 16.0,
+                "ledger_pressure_rate": 0.25,
+                "total_pressure_rate": 0.109375,
+                "pressure_rate_gap": 0.140625,
+                "gap_percentile": 0.034883720930233
+              },
+              {
+                "player_clean": "justin herron",
+                "team_clean": "NE",
+                "tackle_side": "LT",
+                "nPlays": 29,
+                "event_count_total": 5.999999999999998,
+                "ledger_pressure_rate": 0.206896551724138,
+                "total_pressure_rate": 0.068965517241379,
+                "pressure_rate_gap": 0.137931034482759,
+                "gap_percentile": 0.046511627906977
+              },
+              {
+                "player_clean": "dan moore",
+                "team_clean": "PIT",
+                "tackle_side": "LT",
+                "nPlays": 177,
+                "event_count_total": 45.999999999999964,
+                "ledger_pressure_rate": 0.259887005649717,
+                "total_pressure_rate": 0.129943502824859,
+                "pressure_rate_gap": 0.129943502824859,
+                "gap_percentile": 0.058139534883721
+              }
+            ]
+          }
+        },
+        {
+          "corrected": true,
+          "interventions": [
+            {
+              "operator": "scored_players",
+              "changed_speed_percentile_directions": 2
+            }
+          ],
+          "tables": {
+            "weak_support_report": [
+              {
+                "player_clean": "brandon shell",
+                "team_clean": "SEA",
+                "tackle_side": "RT",
+                "nPlays": 53,
+                "side_median_nPlays": 63.0,
+                "mean_speed_percentile": 0.953488372093023,
+                "peak_speed_percentile": 0.941860465116279,
+                "support_adjustment": 0.076,
+                "speed_signal": 1.023674418604651,
+                "speed_signal_percentile": 0.02906976744186
+              },
+              {
+                "player_clean": "christian darrisaw",
+                "team_clean": "MIN",
+                "tackle_side": "LT",
+                "nPlays": 45,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 1.0,
+                "peak_speed_percentile": 1.0,
+                "support_adjustment": 0.0,
+                "speed_signal": 1.0,
+                "speed_signal_percentile": 0.046511627906977
+              },
+              {
+                "player_clean": "trent williams",
+                "team_clean": "SF",
+                "tackle_side": "LT",
+                "nPlays": 103,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 0.918604651162791,
+                "peak_speed_percentile": 0.918604651162791,
+                "support_adjustment": 0.08,
+                "speed_signal": 0.998604651162791,
+                "speed_signal_percentile": 0.058139534883721
+              },
+              {
+                "player_clean": "rashod hill",
+                "team_clean": "MIN",
+                "tackle_side": "LT",
+                "nPlays": 96,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 0.883720930232558,
+                "peak_speed_percentile": 0.872093023255814,
+                "support_adjustment": 0.08,
+                "speed_signal": 0.957906976744186,
+                "speed_signal_percentile": 0.093023255813953
+              },
+              {
+                "player_clean": "ronnie stanley",
+                "team_clean": "BAL",
+                "tackle_side": "LT",
+                "nPlays": 25,
+                "side_median_nPlays": 114.0,
+                "mean_speed_percentile": 0.976744186046512,
+                "peak_speed_percentile": 0.906976744186046,
+                "support_adjustment": 0.0,
+                "speed_signal": 0.941860465116279,
+                "speed_signal_percentile": 0.11046511627907
+              }
+            ],
+            "early_pressure_report": [
+              {
+                "player_clean": "ronnie stanley",
+                "team_clean": "BAL",
+                "tackle_side": "LT",
+                "nPlays": 25,
+                "event_count_total": 13.0,
+                "ledger_pressure_rate": 0.52,
+                "total_pressure_rate": 0.36,
+                "pressure_rate_gap": 0.16,
+                "gap_percentile": 0.011627906976744
+              },
+              {
+                "player_clean": "spencer brown",
+                "team_clean": "BUF",
+                "tackle_side": "RT",
+                "nPlays": 35,
+                "event_count_total": 7.999999999999998,
+                "ledger_pressure_rate": 0.228571428571428,
+                "total_pressure_rate": 0.085714285714286,
+                "pressure_rate_gap": 0.142857142857143,
+                "gap_percentile": 0.023255813953488
+              },
+              {
+                "player_clean": "jesse davis",
+                "team_clean": "MIA",
+                "tackle_side": "RT",
+                "nPlays": 64,
+                "event_count_total": 16.0,
+                "ledger_pressure_rate": 0.25,
+                "total_pressure_rate": 0.109375,
+                "pressure_rate_gap": 0.140625,
+                "gap_percentile": 0.034883720930233
+              },
+              {
+                "player_clean": "justin herron",
+                "team_clean": "NE",
+                "tackle_side": "LT",
+                "nPlays": 29,
+                "event_count_total": 5.999999999999998,
+                "ledger_pressure_rate": 0.206896551724138,
+                "total_pressure_rate": 0.068965517241379,
+                "pressure_rate_gap": 0.137931034482759,
+                "gap_percentile": 0.046511627906977
+              },
+              {
+                "player_clean": "dan moore",
+                "team_clean": "PIT",
+                "tackle_side": "LT",
+                "nPlays": 177,
+                "event_count_total": 45.999999999999964,
+                "ledger_pressure_rate": 0.259887005649717,
+                "total_pressure_rate": 0.129943502824859,
+                "pressure_rate_gap": 0.129943502824859,
+                "gap_percentile": 0.058139534883721
+              }
+            ]
+          }
+        }
+      ],
+      "pressure_accounting_unchanged": true,
+      "corrected_top_five_matches_reference_at_four_decimals": true
+    }
+  ],
+  "reference_top_five": [
+    [
+      "brandon shell",
+      1.0237
+    ],
+    [
+      "christian darrisaw",
+      1.0
+    ],
+    [
+      "trent williams",
+      0.9986
+    ],
+    [
+      "rashod hill",
+      0.9579
+    ],
+    [
+      "ronnie stanley",
+      0.9419
+    ]
+  ]
+}

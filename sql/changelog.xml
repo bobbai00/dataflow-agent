@@ -68,6 +68,11 @@
         <sqlFile path="sql/updates/31.sql"/>
     </changeSet>
 
+    <!-- Large generated workflows must remain persistable and searchable. -->
+    <changeSet id="32" author="dataflow-agent">
+        <sqlFile path="sql/updates/32.sql"/>
+    </changeSet>
+
     <!-- example changeSet
     <changeSet id="1" author="author">
         <sqlFile path="sql/updates/1.sql"/>

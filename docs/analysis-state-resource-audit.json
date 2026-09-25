@@ -1,0 +1,821 @@
+{
+  "updated_utc": "2026-09-24T20:56:59.903434+00:00",
+  "status": "dedicated_resume_running",
+  "conclusion": "All three coordinated SIGTERM incidents were triggered by the host earlyoom memory watchdog. This is a deployment resource failure; no evidence supports another tenant intentionally stopping the stack. The earlier isolated Python attempt is retained among the 31 excluded attempts, without a separately matched signal event.",
+  "evidence_source": "sudo journalctl -u earlyoom --utc; selected low-memory and SIGTERM messages, without environment or credentials",
+  "earlyoom_args": "-m 8,4 -s 15,8 -r 3600 -p --avoid ^(sshd|systemd|dockerd|containerd|Xorg|gnome-shell|nxserver.bin|tailscaled)$ --prefer ^python",
+  "earlyoom_changed": false,
+  "controller_match": {
+    "pid": 1669323,
+    "signal": "SIGTERM",
+    "utc": "2026-09-24T16:43:27.799631+00:00",
+    "memory_rss_mib": 19,
+    "consequence": "Parent wrapper observed signal exit and stopped its own engine and agent; neither session deadline nor unit lifetime had expired."
+  },
+  "journal_events": [
+    {
+      "timestamp_us": "1790258284711187",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:04.711187+00:00"
+    },
+    {
+      "timestamp_us": "1790258284731287",
+      "message": "sending SIGTERM to process 1066831 \"python\": badness 971, VmRSS 500 MiB",
+      "utc": "2026-09-24T13:58:04.731287+00:00"
+    },
+    {
+      "timestamp_us": "1790258284931583",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:04.931583+00:00"
+    },
+    {
+      "timestamp_us": "1790258284945883",
+      "message": "sending SIGTERM to process 1066622 \"python\": badness 968, VmRSS 214 MiB",
+      "utc": "2026-09-24T13:58:04.945883+00:00"
+    },
+    {
+      "timestamp_us": "1790258285146117",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:05.146117+00:00"
+    },
+    {
+      "timestamp_us": "1790258285159634",
+      "message": "sending SIGTERM to process 1086398 \"python\": badness 968, VmRSS 211 MiB",
+      "utc": "2026-09-24T13:58:05.159634+00:00"
+    },
+    {
+      "timestamp_us": "1790258285359912",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:05.359912+00:00"
+    },
+    {
+      "timestamp_us": "1790258285374844",
+      "message": "sending SIGTERM to process 1033382 \"python\": badness 968, VmRSS 170 MiB",
+      "utc": "2026-09-24T13:58:05.374844+00:00"
+    },
+    {
+      "timestamp_us": "1790258285575166",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:05.575166+00:00"
+    },
+    {
+      "timestamp_us": "1790258285594475",
+      "message": "sending SIGTERM to process 1042129 \"python\": badness 968, VmRSS 157 MiB",
+      "utc": "2026-09-24T13:58:05.594475+00:00"
+    },
+    {
+      "timestamp_us": "1790258289740579",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:09.740579+00:00"
+    },
+    {
+      "timestamp_us": "1790258289757047",
+      "message": "sending SIGTERM to process 1094887 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:09.757047+00:00"
+    },
+    {
+      "timestamp_us": "1790258289957269",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:09.957269+00:00"
+    },
+    {
+      "timestamp_us": "1790258289969659",
+      "message": "sending SIGTERM to process 1094857 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:09.969659+00:00"
+    },
+    {
+      "timestamp_us": "1790258290169902",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:10.169902+00:00"
+    },
+    {
+      "timestamp_us": "1790258290188709",
+      "message": "sending SIGTERM to process 1094862 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:10.188709+00:00"
+    },
+    {
+      "timestamp_us": "1790258290388976",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:10.388976+00:00"
+    },
+    {
+      "timestamp_us": "1790258290406296",
+      "message": "sending SIGTERM to process 890187 \"python\": badness 968, VmRSS 19 MiB",
+      "utc": "2026-09-24T13:58:10.406296+00:00"
+    },
+    {
+      "timestamp_us": "1790258290606536",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:10.606536+00:00"
+    },
+    {
+      "timestamp_us": "1790258290623826",
+      "message": "sending SIGTERM to process 810771 \"python\": badness 967, VmRSS 30 MiB",
+      "utc": "2026-09-24T13:58:10.623826+00:00"
+    },
+    {
+      "timestamp_us": "1790258291242395",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:11.242395+00:00"
+    },
+    {
+      "timestamp_us": "1790258291259694",
+      "message": "sending SIGTERM to process 1095271 \"python\": badness 968, VmRSS 171 MiB",
+      "utc": "2026-09-24T13:58:11.259694+00:00"
+    },
+    {
+      "timestamp_us": "1790258291766122",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:11.766122+00:00"
+    },
+    {
+      "timestamp_us": "1790258291784370",
+      "message": "sending SIGTERM to process 1095301 \"python\": badness 968, VmRSS 199 MiB",
+      "utc": "2026-09-24T13:58:11.784370+00:00"
+    },
+    {
+      "timestamp_us": "1790258304776508",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:24.776508+00:00"
+    },
+    {
+      "timestamp_us": "1790258304798686",
+      "message": "sending SIGTERM to process 1095378 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:24.798686+00:00"
+    },
+    {
+      "timestamp_us": "1790258304998918",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:24.998918+00:00"
+    },
+    {
+      "timestamp_us": "1790258305013667",
+      "message": "sending SIGTERM to process 1095348 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:25.013667+00:00"
+    },
+    {
+      "timestamp_us": "1790258313987156",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:33.987156+00:00"
+    },
+    {
+      "timestamp_us": "1790258314004605",
+      "message": "sending SIGTERM to process 1095971 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:34.004605+00:00"
+    },
+    {
+      "timestamp_us": "1790258317097849",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:37.097849+00:00"
+    },
+    {
+      "timestamp_us": "1790258317115376",
+      "message": "sending SIGTERM to process 1095973 \"python\": badness 968, VmRSS 214 MiB",
+      "utc": "2026-09-24T13:58:37.115376+00:00"
+    },
+    {
+      "timestamp_us": "1790258317315616",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:37.315616+00:00"
+    },
+    {
+      "timestamp_us": "1790258317332302",
+      "message": "sending SIGTERM to process 1096762 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:37.332302+00:00"
+    },
+    {
+      "timestamp_us": "1790258317532550",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:37.532550+00:00"
+    },
+    {
+      "timestamp_us": "1790258317548693",
+      "message": "sending SIGTERM to process 1095338 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:37.548693+00:00"
+    },
+    {
+      "timestamp_us": "1790258317748978",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:37.748978+00:00"
+    },
+    {
+      "timestamp_us": "1790258317763510",
+      "message": "sending SIGTERM to process 1096915 \"python\": badness 966, VmRSS 28 MiB",
+      "utc": "2026-09-24T13:58:37.763510+00:00"
+    },
+    {
+      "timestamp_us": "1790258317963769",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:37.963769+00:00"
+    },
+    {
+      "timestamp_us": "1790258317980907",
+      "message": "sending SIGTERM to process 1096925 \"python\": badness 966, VmRSS 52 MiB",
+      "utc": "2026-09-24T13:58:37.980907+00:00"
+    },
+    {
+      "timestamp_us": "1790258323619152",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:43.619152+00:00"
+    },
+    {
+      "timestamp_us": "1790258323635461",
+      "message": "sending SIGTERM to process 1096929 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:43.635461+00:00"
+    },
+    {
+      "timestamp_us": "1790258323835660",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:43.835660+00:00"
+    },
+    {
+      "timestamp_us": "1790258323851336",
+      "message": "sending SIGTERM to process 1096931 \"python\": badness 968, VmRSS 213 MiB",
+      "utc": "2026-09-24T13:58:43.851336+00:00"
+    },
+    {
+      "timestamp_us": "1790258335103176",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:55.103176+00:00"
+    },
+    {
+      "timestamp_us": "1790258335119770",
+      "message": "sending SIGTERM to process 1098118 \"python\": badness 966, VmRSS 21 MiB",
+      "utc": "2026-09-24T13:58:55.119770+00:00"
+    },
+    {
+      "timestamp_us": "1790258335319978",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:55.319978+00:00"
+    },
+    {
+      "timestamp_us": "1790258335334076",
+      "message": "sending SIGTERM to process 810983 \"python\": badness 966, VmRSS 15 MiB",
+      "utc": "2026-09-24T13:58:55.334076+00:00"
+    },
+    {
+      "timestamp_us": "1790258335534848",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:55.534848+00:00"
+    },
+    {
+      "timestamp_us": "1790258335552038",
+      "message": "sending SIGTERM to process 757674 \"python\": badness 966, VmRSS 10 MiB",
+      "utc": "2026-09-24T13:58:55.552038+00:00"
+    },
+    {
+      "timestamp_us": "1790258335752357",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:55.752357+00:00"
+    },
+    {
+      "timestamp_us": "1790258335767310",
+      "message": "sending SIGTERM to process 913842 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T13:58:55.767310+00:00"
+    },
+    {
+      "timestamp_us": "1790258335967552",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:55.967552+00:00"
+    },
+    {
+      "timestamp_us": "1790258335982562",
+      "message": "sending SIGTERM to process 963679 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T13:58:55.982562+00:00"
+    },
+    {
+      "timestamp_us": "1790258336182827",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:56.182827+00:00"
+    },
+    {
+      "timestamp_us": "1790258336200345",
+      "message": "sending SIGTERM to process 736703 \"python\": badness 966, VmRSS 3 MiB",
+      "utc": "2026-09-24T13:58:56.200345+00:00"
+    },
+    {
+      "timestamp_us": "1790258336400625",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T13:58:56.400625+00:00"
+    },
+    {
+      "timestamp_us": "1790258336415505",
+      "message": "sending SIGTERM to process 1812851 \"bun\": badness 806, VmRSS 9321 MiB",
+      "utc": "2026-09-24T13:58:56.415505+00:00"
+    },
+    {
+      "timestamp_us": "1790265580418648",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T15:59:40.418648+00:00"
+    },
+    {
+      "timestamp_us": "1790265580437617",
+      "message": "sending SIGTERM to process 1639329 \"python\": badness 990, VmRSS 2298 MiB",
+      "utc": "2026-09-24T15:59:40.437617+00:00"
+    },
+    {
+      "timestamp_us": "1790265580738092",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T15:59:40.738092+00:00"
+    },
+    {
+      "timestamp_us": "1790265580754527",
+      "message": "sending SIGTERM to process 1635962 \"python\": badness 971, VmRSS 466 MiB",
+      "utc": "2026-09-24T15:59:40.754527+00:00"
+    },
+    {
+      "timestamp_us": "1790265581367217",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T15:59:41.367217+00:00"
+    },
+    {
+      "timestamp_us": "1790265581380840",
+      "message": "sending SIGTERM to process 1129748 \"python\": badness 968, VmRSS 15 MiB",
+      "utc": "2026-09-24T15:59:41.380840+00:00"
+    },
+    {
+      "timestamp_us": "1790265581581131",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T15:59:41.581131+00:00"
+    },
+    {
+      "timestamp_us": "1790265581596350",
+      "message": "sending SIGTERM to process 1129747 \"python\": badness 967, VmRSS 52 MiB",
+      "utc": "2026-09-24T15:59:41.596350+00:00"
+    },
+    {
+      "timestamp_us": "1790265600703973",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:00.703973+00:00"
+    },
+    {
+      "timestamp_us": "1790265600721079",
+      "message": "sending SIGTERM to process 1640980 \"python\": badness 970, VmRSS 325 MiB",
+      "utc": "2026-09-24T16:00:00.721079+00:00"
+    },
+    {
+      "timestamp_us": "1790265600921356",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:00.921356+00:00"
+    },
+    {
+      "timestamp_us": "1790265600937537",
+      "message": "sending SIGTERM to process 1129746 \"python\": badness 966, VmRSS 19 MiB",
+      "utc": "2026-09-24T16:00:00.937537+00:00"
+    },
+    {
+      "timestamp_us": "1790265601137782",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:01.137782+00:00"
+    },
+    {
+      "timestamp_us": "1790265601155853",
+      "message": "sending SIGTERM to process 1536726 \"python\": badness 966, VmRSS 14 MiB",
+      "utc": "2026-09-24T16:00:01.155853+00:00"
+    },
+    {
+      "timestamp_us": "1790265604583536",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:04.583536+00:00"
+    },
+    {
+      "timestamp_us": "1790265604598550",
+      "message": "sending SIGTERM to process 1641468 \"python\": badness 968, VmRSS 136 MiB",
+      "utc": "2026-09-24T16:00:04.598550+00:00"
+    },
+    {
+      "timestamp_us": "1790265604798788",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:04.798788+00:00"
+    },
+    {
+      "timestamp_us": "1790265604817714",
+      "message": "sending SIGTERM to process 1112280 \"python\": badness 966, VmRSS 9 MiB",
+      "utc": "2026-09-24T16:00:04.817714+00:00"
+    },
+    {
+      "timestamp_us": "1790265605017944",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:05.017944+00:00"
+    },
+    {
+      "timestamp_us": "1790265605035217",
+      "message": "sending SIGTERM to process 1120768 \"python\": badness 966, VmRSS 9 MiB",
+      "utc": "2026-09-24T16:00:05.035217+00:00"
+    },
+    {
+      "timestamp_us": "1790265606684631",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:06.684631+00:00"
+    },
+    {
+      "timestamp_us": "1790265606702706",
+      "message": "sending SIGTERM to process 1476272 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T16:00:06.702706+00:00"
+    },
+    {
+      "timestamp_us": "1790265606902947",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:06.902947+00:00"
+    },
+    {
+      "timestamp_us": "1790265606919892",
+      "message": "sending SIGTERM to process 1423962 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T16:00:06.919892+00:00"
+    },
+    {
+      "timestamp_us": "1790265607120097",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:07.120097+00:00"
+    },
+    {
+      "timestamp_us": "1790265607138056",
+      "message": "sending SIGTERM to process 1411351 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T16:00:07.138056+00:00"
+    },
+    {
+      "timestamp_us": "1790265611456415",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:11.456415+00:00"
+    },
+    {
+      "timestamp_us": "1790265611470157",
+      "message": "sending SIGTERM to process 1411350 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T16:00:11.470157+00:00"
+    },
+    {
+      "timestamp_us": "1790265611670389",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:11.670389+00:00"
+    },
+    {
+      "timestamp_us": "1790265611687489",
+      "message": "sending SIGTERM to process 1475283 \"python\": badness 966, VmRSS 8 MiB",
+      "utc": "2026-09-24T16:00:11.687489+00:00"
+    },
+    {
+      "timestamp_us": "1790265615398647",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:00:15.398647+00:00"
+    },
+    {
+      "timestamp_us": "1790265615413136",
+      "message": "sending SIGTERM to process 1122075 \"bun\": badness 814, VmRSS 11509 MiB",
+      "utc": "2026-09-24T16:00:15.413136+00:00"
+    },
+    {
+      "timestamp_us": "1790268176317197",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:42:56.317197+00:00"
+    },
+    {
+      "timestamp_us": "1790268176332392",
+      "message": "sending SIGTERM to process 1817945 \"python\": badness 980, VmRSS 1381 MiB",
+      "utc": "2026-09-24T16:42:56.332392+00:00"
+    },
+    {
+      "timestamp_us": "1790268176532669",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:42:56.532669+00:00"
+    },
+    {
+      "timestamp_us": "1790268176548918",
+      "message": "sending SIGTERM to process 1823777 \"python\": badness 975, VmRSS 830 MiB",
+      "utc": "2026-09-24T16:42:56.548918+00:00"
+    },
+    {
+      "timestamp_us": "1790268191628687",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:43:11.628687+00:00"
+    },
+    {
+      "timestamp_us": "1790268191643215",
+      "message": "sending SIGTERM to process 1832511 \"python\": badness 968, VmRSS 239 MiB",
+      "utc": "2026-09-24T16:43:11.643215+00:00"
+    },
+    {
+      "timestamp_us": "1790268207560405",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:43:27.560405+00:00"
+    },
+    {
+      "timestamp_us": "1790268207582112",
+      "message": "sending SIGTERM to process 1669325 \"python\": badness 967, VmRSS 24 MiB",
+      "utc": "2026-09-24T16:43:27.582112+00:00"
+    },
+    {
+      "timestamp_us": "1790268207782390",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:43:27.782390+00:00"
+    },
+    {
+      "timestamp_us": "1790268207799631",
+      "message": "sending SIGTERM to process 1669323 \"python\": badness 966, VmRSS 19 MiB",
+      "utc": "2026-09-24T16:43:27.799631+00:00"
+    },
+    {
+      "timestamp_us": "1790268207999888",
+      "message": "low memory! at or below SIGTERM limits: mem 8 %, swap 15 %",
+      "utc": "2026-09-24T16:43:27.999888+00:00"
+    },
+    {
+      "timestamp_us": "1790268208018243",
+      "message": "sending SIGTERM to process 1787497 \"python\": badness 966, VmRSS 17 MiB",
+      "utc": "2026-09-24T16:43:28.018243+00:00"
+    }
+  ],
+  "preserved_interrupted_attempts": 31,
+  "exclusion_caveat": "Under the recorded exclusion policy, interrupted attempts are ineligible for completed-session accuracy, but their traces and captured spending remain. This makes accuracy conditional on surviving deployment resource limits; do not hide the reliability failures.",
+  "retired_services": {
+    "authorization": "User confirmed sole tenancy and authorized service management to protect this stack.",
+    "actions": [
+      "Archived all idle agent state from ports 3061, 3071 and 3072.",
+      "Stopped agent services on 3071 and 3072 through bin/local-dev.sh.",
+      "Stopped the unused texera-evcomp stack through its supported launcher; Docker volumes retained.",
+      "Kept the main backend services required by this campaign."
+    ],
+    "archives": [
+      {
+        "port": 3061,
+        "agents": [],
+        "files": [
+          {
+            "name": "agents.json",
+            "bytes": 18,
+            "sha256": "2f94133f769bf055a5be96e21512e0c1896de347417b1794b99ecbd5cba274a5"
+          }
+        ]
+      },
+      {
+        "port": 3071,
+        "agents": [
+          {
+            "id": "agent-ahykk9-899",
+            "state": "AVAILABLE",
+            "workflow_id": 2341
+          },
+          {
+            "id": "agent-ahykk9-900",
+            "state": "AVAILABLE",
+            "workflow_id": 2342
+          }
+        ],
+        "files": [
+          {
+            "name": "agent-ahykk9-899-operator-results.json",
+            "bytes": 14,
+            "sha256": "03b7df9e792f71647a3f207087e8734dd21031c57048e10f9ced4b5ac04e32f4"
+          },
+          {
+            "name": "agent-ahykk9-899-react-steps.json",
+            "bytes": 32,
+            "sha256": "622cfe3ae280e42027629f49131b2b384aff7da717ca31ab8e8e6357b14d9509"
+          },
+          {
+            "name": "agent-ahykk9-899-settings.json",
+            "bytes": 886,
+            "sha256": "a4d130292ecd54bf510757c039a11340bc770c45ebdc449596429d92df6f7354"
+          },
+          {
+            "name": "agent-ahykk9-899-workflow.json",
+            "bytes": 171,
+            "sha256": "f6e308e7f84d7d16179ba020080842d7088d2ad9e16869ae44f2ae2fd0f562c2"
+          },
+          {
+            "name": "agent-ahykk9-900-operator-results.json",
+            "bytes": 14,
+            "sha256": "03b7df9e792f71647a3f207087e8734dd21031c57048e10f9ced4b5ac04e32f4"
+          },
+          {
+            "name": "agent-ahykk9-900-react-steps.json",
+            "bytes": 32,
+            "sha256": "622cfe3ae280e42027629f49131b2b384aff7da717ca31ab8e8e6357b14d9509"
+          },
+          {
+            "name": "agent-ahykk9-900-settings.json",
+            "bytes": 885,
+            "sha256": "3eac8da7a14bcb2ae6f23586052207d563204a425b15d7178d7d240b210c518e"
+          },
+          {
+            "name": "agent-ahykk9-900-workflow.json",
+            "bytes": 171,
+            "sha256": "72ecbcf9c305092773cd7e8cd547e4210f46dd762d8087ebc5efa1a3d753fe0f"
+          },
+          {
+            "name": "agents.json",
+            "bytes": 3513,
+            "sha256": "939efbf00078089ff8a088c07f359639fd2e3f1170477c0529e66c976db658b6"
+          }
+        ]
+      },
+      {
+        "port": 3072,
+        "agents": [
+          {
+            "id": "agent-to7dc7-1",
+            "state": "AVAILABLE",
+            "workflow_id": 2343
+          },
+          {
+            "id": "agent-to7dc7-2",
+            "state": "AVAILABLE",
+            "workflow_id": 2344
+          }
+        ],
+        "files": [
+          {
+            "name": "agent-to7dc7-1-operator-results.json",
+            "bytes": 14,
+            "sha256": "03b7df9e792f71647a3f207087e8734dd21031c57048e10f9ced4b5ac04e32f4"
+          },
+          {
+            "name": "agent-to7dc7-1-react-steps.json",
+            "bytes": 32,
+            "sha256": "622cfe3ae280e42027629f49131b2b384aff7da717ca31ab8e8e6357b14d9509"
+          },
+          {
+            "name": "agent-to7dc7-1-settings.json",
+            "bytes": 912,
+            "sha256": "2eb9676017e25edf7fb915f3425079f79b5eed3a7236c88fb42dd6386f76d480"
+          },
+          {
+            "name": "agent-to7dc7-1-workflow.json",
+            "bytes": 169,
+            "sha256": "718fca2d58854b411ef073ec37018aeae6f44a742019becd24ad605126640724"
+          },
+          {
+            "name": "agent-to7dc7-2-operator-results.json",
+            "bytes": 14,
+            "sha256": "03b7df9e792f71647a3f207087e8734dd21031c57048e10f9ced4b5ac04e32f4"
+          },
+          {
+            "name": "agent-to7dc7-2-react-steps.json",
+            "bytes": 32,
+            "sha256": "622cfe3ae280e42027629f49131b2b384aff7da717ca31ab8e8e6357b14d9509"
+          },
+          {
+            "name": "agent-to7dc7-2-settings.json",
+            "bytes": 911,
+            "sha256": "62223c0619d78ca1570abeb6d0932bc6cbd60c72c91b20c9dab803dcc7aab249"
+          },
+          {
+            "name": "agent-to7dc7-2-workflow.json",
+            "bytes": 169,
+            "sha256": "06efa4913298d721aad0d3b0c89eef8b5ab48cec9339423b1f752ffcc00456d0"
+          },
+          {
+            "name": "agents.json",
+            "bytes": 3581,
+            "sha256": "b1294094b99215d96963e6293312f1185d219aca177ba33a5f09e19602d51ab5"
+          }
+        ]
+      }
+    ]
+  },
+  "dedicated_resume": {
+    "started_utc": "2026-09-24T17:48:49Z",
+    "service": "texera-analysis-dedicated.service",
+    "frozen_checkout": "/tmp/texera-analysis-state/frozen-r3",
+    "runtime": {
+      "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+      "source_sha256": "c712bbff13b4dbfa0192ff4cbfe6c4febfa1f8edd868d22875622e7e7862064b"
+    },
+    "remaining_sessions_at_resume": 14,
+    "wave_size": 3,
+    "memory_limit_bytes": 21474836480,
+    "admission_min_available_ram_gib": 10,
+    "admission_min_free_swap_gib": 8,
+    "lifetime_seconds": 21600,
+    "session_budget_seconds": 3600,
+    "turn_step_limit": 40,
+    "memory_sampling_seconds": 15,
+    "between_waves": "Wait for all session summaries and all agents AVAILABLE, restart the idle agent with its normal Python interpreter, then pass the two-call engine isolation preflight before admission.",
+    "scope": "Experiment engine, agent, controllers and their children. Required shared backend services run separately. A cgroup cap is a limit, not a physical RAM reservation.",
+    "protocol_change": "Earlier resume allowed six native and three Python sessions concurrently. All Python repeats are now complete; remaining native sessions run in three-session waves. Do not treat latency or cost as measured under identical contention.",
+    "unit_snapshot": {
+      "RuntimeMaxUSec": "6h",
+      "MainPID": "2002253",
+      "ControlGroup": "/system.slice/texera-analysis-dedicated.service",
+      "MemoryCurrent": "4378738688",
+      "MemoryLimit": "21474836480",
+      "ActiveState": "active"
+    },
+    "preflights": [
+      {
+        "name": "isolation",
+        "summary": {
+          "passed": true,
+          "workflowId": 275
+        },
+        "summary_sha256": "e74e46be13f77514fdd7967e2035bcd5e62b00befd83467c7f0ae1ded2146295"
+      },
+      {
+        "name": "state",
+        "summary": {
+          "passed": true,
+          "requests": 7,
+          "service": "http://localhost:3051",
+          "checks": [
+            "parameter scalar types",
+            "zero-input reusable loader",
+            "two shared consumers recompute",
+            "temporary branch preserves default",
+            "inspection and recall reach model context without execution",
+            "historical formula with current parameter",
+            "shared corrections preserve branch functions and historical values",
+            "assertions block dependents",
+            "backend persistence preserves the latest parameters and branch definitions"
+          ]
+        },
+        "summary_sha256": "abbd1c93918087a0af10f0887644da1c8d0703376295fcc3fb4807a2d6f18c35"
+      }
+    ],
+    "controller_artifacts": [
+      {
+        "path": "/tmp/texera-analysis-state/dedicated-stack.sh",
+        "sha256": "c71a25dbad16682edfb812dd6252bc53f3178154cb2e281d5e1f3562dd2b9268"
+      },
+      {
+        "path": "/tmp/texera-analysis-state/dedicated-stack.py",
+        "sha256": "ced41498c59bed0b9110ab6c6f0c73186637f6b64355c888fd5b65027d6d2534"
+      },
+      {
+        "path": "/tmp/texera-analysis-state/dedicated-campaign.py",
+        "sha256": "57dadb34aa0e8a20a9bd87f83cbee4f2a159cdf4427d991e7b49172fc199bff9"
+      },
+      {
+        "path": "/tmp/texera-analysis-state/watch-dedicated-judge.py",
+        "sha256": "32527835ba86e15fbdba1ca1e42a59ca335ac729c4fa9525a3c2ed1aef40b76d"
+      }
+    ],
+    "supervisor_archive": {
+      "path": "benchmark/longds/official-matrix/isolated-20260924-dedicated/resource-supervisor.tar.gz",
+      "sha256": "0e1285b2376e660519db9c408e01b35c70ea8f0204bffa9932d063d52027b872",
+      "contains": "Four controller scripts only; no environment files or credentials."
+    },
+    "verified_supervisor_archive": {
+      "path": "benchmark/longds/official-matrix/isolated-20260924-dedicated-verified/resource-supervisor.tar.gz",
+      "sha256": "a889f5bc25d7dcf42584ea40a2cf7fe9877f760caa1d1018f600c970008d83f6"
+    },
+    "verified_preflights": [
+      {
+        "name": "isolation",
+        "summary": {
+          "passed": true,
+          "workflowId": 283
+        }
+      },
+      {
+        "name": "state",
+        "summary": {
+          "passed": true,
+          "requests": 7,
+          "service": "http://localhost:3051",
+          "checks": [
+            "parameter scalar types",
+            "zero-input reusable loader",
+            "two shared consumers recompute",
+            "temporary branch preserves default",
+            "inspection and recall reach model context without execution",
+            "historical formula with current parameter",
+            "shared corrections preserve branch functions and historical values",
+            "assertions block dependents",
+            "backend persistence preserves the latest parameters and branch definitions"
+          ]
+        }
+      }
+    ]
+  },
+  "resource_observations": {
+    "first": {
+      "utc": "2026-09-24T17:46:37Z",
+      "MemAvailable_mib": 22979,
+      "SwapFree_mib": 19261,
+      "memory.usage_in_bytes": 8515584,
+      "memory.max_usage_in_bytes": 8622080,
+      "memory.limit_in_bytes": 21474836480
+    },
+    "latest": {
+      "utc": "2026-09-24T20:56:54Z",
+      "MemAvailable_mib": 20445,
+      "SwapFree_mib": 19417,
+      "memory.usage_in_bytes": 4596899840,
+      "memory.max_usage_in_bytes": 9424576512,
+      "memory.limit_in_bytes": 21474836480
+    },
+    "samples": 734,
+    "min_mem_available_mib": 11400,
+    "min_swap_free_mib": 19261,
+    "peak_cgroup_bytes": 13366083584,
+    "raw_log": "/tmp/texera-analysis-state/dedicated-memory.jsonl",
+    "memory.failcnt": "0",
+    "memory.oom_control": "oom_kill_disable 0\nunder_oom 0\noom_kill 0"
+  },
+  "restart_dispatch_failure": {
+    "audit": "docs/analysis-state-dispatch-audit.json",
+    "excluded_sessions": 3,
+    "cause": "The controller reapplied isolation-env.json on restart, assigning the engine-only UDF_PYTHON_PATH wrapper to the agent parser. Normal parsing failed before any operator mutation.",
+    "resumed_utc": "2026-09-24T19:18:50Z",
+    "remaining_sessions_at_verified_resume": 11
+  }
+}

@@ -42,7 +42,7 @@ id = operator(input_id, ..., parameter=value, ...)
 - Keyword arguments are the parameters. Column names are strings; types are `str`, `int64`, `float64`, `bool`, `datetime`; reducers and window functions are calls: `mean("amount")`, `count()`, `lag("amount", 1)`.
 - One operator per statement, never nested. `top = limit(sort(orders, by=["amount"]), 1)` is refused; write `ordered = sort(orders, by=["amount"])` and then `top = limit(ordered, 1)`.
 - Statements may be in any order and may refer to ids from earlier calls; the scheduler orders them. A statement that does not parse fails alone at its line, its dependents are blocked, and the other statements land.
-- Operator ids persist across calls; functions do not. A `def` exists only in the call whose `edits` contain it, and each operator keeps its own copy of the function it was given. Never refer to a function from an earlier call by name: to use it again, including when you revise the operator that uses it, write its `def` again in the same call.
+- {{FUNCTION_LIFETIME}}
 
 ```python
 orders = scan("data/orders.csv")
@@ -70,11 +70,11 @@ Three operators take Python, and each takes a `doc`. The function's return type 
 
 `doc` is required on all three. It is one sentence stating the logical semantics of the function: what the operator does to its data, not how the code does it. Nothing else about custom code can be measured, so the doc is shown next to the operator's results and stands in for a description of the step. A filter's doc says which rows survive: `doc="Keeps orders placed in 2024 with a non-missing amount"`. A map's doc says what the returned row holds: `doc="Adds unit_price = amount / quantity, None when quantity is missing or zero"` or `doc="Keeps only product and the numeric rating parsed from the rating text"`. A process's doc says what the output table is: `doc="One row per region with the slope of yearly totals"`.
 
-`row` is a read-only mapping of the input columns; a missing value is `None`. Handle it explicitly and never treat it as zero unless the task says so. A lambda is enough for a one-line body; otherwise write a top-level `def` and pass its name. Put imports inside the function. Only functions defined in the same `edits` can be referenced, so a later call that needs the function again repeats its `def`.
+`row` is a read-only mapping of the input columns; a missing value is `None`. Handle it explicitly and never treat it as zero unless the task says so. A lambda is enough for a one-line body; otherwise write a top-level `def` and pass its name. Put imports inside the function. {{FUNCTION_REFERENCE}}
 
 **map** returns the whole new row. Every row must return the same keys, which become the output columns; values are scalars or `None`, and each column's type is inferred from its values (ints and floats mix to float64, otherwise one type per column). Omitting `**row` keeps only the keys you return, which is how you drop or rename columns. Because each function sees the original row, a column that depends on another new column needs a second map.
 
-**process** is for what no other operator expresses: custom parsers, binary or fixed-width formats, statistics and fitting, report layouts walked line by line. `f` takes one pandas DataFrame per input, in order, and returns one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no inputs it takes no parameters and loads data itself. Do not use process for filtering, deriving columns, grouping or joining.
+{{PROCESS_SCOPE}}
 
 ```python
 def unit_price(row):
@@ -110,7 +110,7 @@ Before answering a count or an average, check what one row means after each grou
 
 Real data files are messy and tasks hide traps. Follow these principles:
 
-- **One operator, one operation.** Load, filter, derive, join and aggregate in separate operators, so every intermediate table can be observed and fixed on its own. Do not fold several steps into one map or process.
+- {{COMPONENT_SCOPE}}
 - **Build incrementally.** Build on the operators you already have instead of reloading or recomputing them; any statement can read an earlier table by its id.
 - **Observe to verify.** Observe a table whose contents you have not seen before building on it, and observe the final table before answering.
 - **Explore before transforming.** Look at a file's raw lines before parsing it, and at a table's columns and sample rows before transforming it.

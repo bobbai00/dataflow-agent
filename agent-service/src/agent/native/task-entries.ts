@@ -68,6 +68,8 @@ export interface TaskTable {
   complete: boolean;
   /** The rows as a TSV block (header, then `index<TAB>cells`). */
   text: string;
+  /** Literal NULL/NaN strings look like missing scalars in the TSV display. */
+  literalNullLikeValues?: boolean;
   /** The earlier task whose entry shows these same rows; the block is then not repeated. */
   sameAs?: number;
 }
@@ -161,7 +163,9 @@ export function entryTable(id: string, info: OperatorInfo | undefined): TaskTabl
   if (!info || info.error || !held?.length) return undefined;
   const total = info.totalRowCount ?? held.length;
   const complete = total <= COMPLETE_ROWS && held.length >= total;
-  return { id, total, complete, text: renderRows(complete ? held : held.slice(0, SAMPLE_ROWS)) };
+  const rows = complete ? held : held.slice(0, SAMPLE_ROWS);
+  const literalNullLikeValues = rows.some(row => Object.values(row).some(value => value === "NULL" || value === "NaN"));
+  return { id, total, complete, text: renderRows(rows), ...(literalNullLikeValues ? { literalNullLikeValues } : {}) };
 }
 
 /** Missing counts and small value sets from the engine's whole-table profile.
@@ -170,7 +174,9 @@ export function profileFacts(info: OperatorInfo | undefined): Pick<TaskChange, "
   const profile = info?.tableProfile;
   if (!profile || profile.status !== "available" || !profile.coverage.complete) return {};
   const columns = Object.entries(profile.columns ?? {}).filter(([name]) => !name.startsWith("__"));
-  const missing = columns.filter(([, c]) => c.nullCount > 0).map(([name, c]) => [name, c.nullCount] as [string, number]);
+  const missing = columns
+    .filter(([, c]) => c.nullCount > 0)
+    .map(([name, c]) => [name, c.nullCount] as [string, number]);
   const values = columns
     .filter(([, c]) => {
       // Categories, not numbers: a count per value of a numeric column is noise.
@@ -220,7 +226,11 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
   for (const step of steps) {
     // The `reasoning` of each dataflow call (stable's dataflowReasoning) names its step.
     const reasons = (step.toolCalls ?? [])
-      .filter(tc => tc.toolName === TOOL_NAME_DATAFLOW && asNativeBatchResult(step.toolResults?.find(tr => tr.toolCallId === tc.toolCallId)?.output))
+      .filter(
+        tc =>
+          tc.toolName === TOOL_NAME_DATAFLOW &&
+          asNativeBatchResult(step.toolResults?.find(tr => tr.toolCallId === tc.toolCallId)?.output)
+      )
       .map(tc => {
         const reasoning = (tc.input as { reasoning?: unknown } | undefined)?.reasoning;
         return typeof reasoning === "string" && reasoning.trim() ? reasoning.trim() : undefined;
@@ -340,7 +350,8 @@ function renderChange(change: TaskChange): string {
   if (change.replaces !== undefined) facts.push(`replaces task ${change.replaces}`);
   if (change.flag) facts.push(change.flag.startsWith("EMPTY") ? `⚠ ${change.flag}` : change.flag);
   lines.push(facts.length ? `${head}\n           → ${facts.join("; ")}` : head);
-  if (change.missing?.length) lines.push(`           missing: ${change.missing.map(([c, n]) => `${c}=${n}`).join(", ")}`);
+  if (change.missing?.length)
+    lines.push(`           missing: ${change.missing.map(([c, n]) => `${c}=${n}`).join(", ")}`);
   for (const [column, counts] of change.values ?? [])
     lines.push(`           values: ${column} = ${counts.map(([v, n]) => `${clip(v, 40)} ${n}`).join(" | ")}`);
   if (change.doc) lines.push(`           doc: ${change.doc}`);
@@ -357,7 +368,8 @@ function renderTable(table: TaskTable): string {
 }
 
 /** One entry as one message. The text is final once written. */
-export function renderTaskEntry(entry: TaskEntry): string {
+export function renderTaskEntry(entry: TaskEntry, compact = false): string {
+  if (compact) return renderCompactTaskEntry(entry);
   // Changes grouped by the step that produced them, steps in the order they
   // ran and numbered from 1. Without stated steps the changes stay flat.
   const stated = entry.changes.some(change => change.step);
@@ -376,6 +388,80 @@ export function renderTaskEntry(entry: TaskEntry): string {
   const tables = entry.tables.length ? `\nTables read:\n${entry.tables.map(renderTable).join("\n")}` : "";
   const from = entry.from.length ? entry.from.join(", ") : "unverified";
   return `## Task ${entry.task}\n${entry.request}\nChanges:\n${changes}${tables}\nAnswer: ${entry.answer || "(none)"}\n  from: ${from}`;
+}
+
+/** Exact content with shared presentation, not a generated summary. Nothing
+ * depends on a future task, so sealed entries stay a reusable cache prefix. */
+function renderCompactTaskEntry(entry: TaskEntry): string {
+  const lines = [`## Task ${entry.task}`, entry.request, "Changes:"];
+  const schemas = new Map<string, string>();
+  const functions = new Map<string, string>();
+  let call: number | undefined;
+  for (const change of entry.changes) {
+    if (change.step && (call !== change.call || call === undefined))
+      lines.push(`Step ${(change.call ?? 0) + 1}: ${change.step}`);
+    call = change.call;
+    const facts: string[] = [];
+    if (change.rows !== undefined) facts.push(`rows=${change.rows}`);
+    if (change.columns?.length) {
+      const schema = JSON.stringify(change.columns);
+      const prior = schemas.get(schema);
+      facts.push(prior ? `cols=as ${prior}` : `cols=${change.columns.join(",")}`);
+      if (!prior) schemas.set(schema, change.id);
+    }
+    if (change.replaces !== undefined) facts.push(`replaces task ${change.replaces}`);
+    if (change.flag) facts.push(change.flag);
+    lines.push(`${change.status} ${change.statement}${facts.length ? `; ${facts.join("; ")}` : ""}`);
+    if (
+      change.doc &&
+      !change.statement.includes(`doc=${JSON.stringify(change.doc)}`) &&
+      !change.statement.includes(`doc='${change.doc}'`)
+    )
+      lines.push(`doc: ${change.doc}`);
+    for (const body of change.functions ?? []) {
+      const prior = functions.get(body);
+      lines.push(prior ? `function code as in ${prior}` : body);
+      if (!prior) functions.set(body, change.id);
+    }
+    // The archive's row renderer shows a literal "NULL" as NaN, and a string
+    // "NaN" looks like a missing scalar. Exact category facts disambiguate them.
+    const ambiguousCategory = change.values?.some(([, counts]) =>
+      counts.some(([value]) => value === "NULL" || value === "NaN")
+    );
+    const visible =
+      !ambiguousCategory &&
+      entry.tables.find(
+        t =>
+          t.id === change.id && t.complete && t.text && !t.literalNullLikeValues && !/[.…]{3}|…|truncated/.test(t.text)
+      );
+    if (!visible) {
+      if (change.missing?.length) lines.push(`missing: ${change.missing.map(([c, n]) => `${c}=${n}`).join(", ")}`);
+      for (const [column, counts] of change.values ?? [])
+        lines.push(`values: ${column} = ${counts.map(([v, n]) => `${clip(v, 40)} ${n}`).join(" | ")}`);
+    }
+  }
+  if (!entry.changes.length) lines.push("(no change to the dataflow)");
+  if (entry.tables.length) lines.push("Tables read:");
+  const shown: TaskTable[] = [];
+  for (const table of entry.tables) {
+    const [header, ...rows] = table.text.split("\n");
+    const same =
+      table.text &&
+      shown.find(previous => {
+        const [oldHeader, ...oldRows] = previous.text.split("\n");
+        return header === oldHeader && rows.length <= oldRows.length && rows.every((r, i) => r === oldRows[i]);
+      });
+    if (same)
+      lines.push(
+        `${table.id}: ${table.total} rows${table.complete ? ", complete" : ", sample only"}; same displayed rows as ${same.id}${same.text.split("\n").length > rows.length + 1 ? ` (first ${rows.length})` : ""}`
+      );
+    else {
+      lines.push(renderTable(table).replace(/^  /gm, ""));
+      if (table.text) shown.push(table);
+    }
+  }
+  lines.push(`Answer: ${entry.answer || "(none)"}`, `from: ${entry.from.join(", ") || "unverified"}`);
+  return lines.join("\n");
 }
 
 /** Ancestors of an operator in the current graph, by the input ids its statement names. */

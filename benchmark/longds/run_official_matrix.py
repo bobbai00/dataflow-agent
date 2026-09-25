@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """Run the official-protocol comparison matrix: tasks x arms x models x trials.
 
 Three prepared tasks chosen for their state-evolution mix, so a result can be
@@ -37,6 +54,8 @@ MODEL_TAIL = {"gpt-5.6-luna": "luna", "gpt-5.6-terra": "terra"}
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tasks", default="github,university,policing")
+    ap.add_argument("--selection", type=Path, help="frozen manifest with selected_tasks (overrides --tasks)")
+    ap.add_argument("--sut-prefix", default="LongDS_Official")
     ap.add_argument("--arms", default="code,react-catalog")
     ap.add_argument("--models", default="gpt-5.6-luna,gpt-5.6-terra")
     ap.add_argument("--trial", type=int, default=1)
@@ -46,7 +65,8 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=HERE / "official-matrix")
     args = ap.parse_args()
 
-    tasks = [TASKS[t] for t in args.tasks.split(",")]
+    tasks = ([t.replace("/", "__") for t in json.loads(args.selection.read_text())["selected_tasks"]]
+             if args.selection else [TASKS.get(t, t) for t in args.tasks.split(",")])
     arms = args.arms.split(",")
     models = args.models.split(",")
     args.out.mkdir(parents=True, exist_ok=True)
@@ -55,7 +75,7 @@ def main() -> int:
     lock = threading.Lock()
 
     def cell(task, arm, model):
-        sut = f"LongDS_Official_{arm}_{MODEL_TAIL.get(model, model)}_t{args.trial}"
+        sut = f"{args.sut_prefix}_{arm}_{MODEL_TAIL.get(model, model)}_t{args.trial}"
         command = [
             "/home/bob/Desktop/dataflow-agent/.venv/bin/python",
             str(HERE / "run_official.py"),
@@ -63,7 +83,7 @@ def main() -> int:
         ]
         if args.turn_limit:
             command += ["--turn-limit", str(args.turn_limit)]
-        held = gate if arm not in ("code", "dsgym") else threading.Semaphore(1)
+        held = gate if arm not in ("code", "dsgym", "dsgym-functions") else threading.Semaphore(1)
         with held:
             started = time.time()
             log = args.out / f"{sut}__{task}.log"

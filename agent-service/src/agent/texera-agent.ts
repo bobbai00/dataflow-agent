@@ -584,6 +584,8 @@ export class TexeraAgent {
         recall: this.settings.enableRecallTool === true,
         messageLayout: this.settings.messageLayout,
         taskCatalog: this.settings.nativeTaskContext === true,
+        analysisState: this.settings.nativeAnalysisState === true,
+        taskEfficiency: this.settings.nativeTaskEfficiency === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
         reasoning: this.settings.dataflowReasoning === true,
@@ -620,7 +622,14 @@ export class TexeraAgent {
       userToken: this.delegateConfig.userToken,
       workflowId: this.delegateConfig.workflowId,
       computingUnitId: this.delegateConfig.computingUnitId,
-      maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
+      // Retain enough rows for a bounded complete small answer. The observation
+      // renderer still uses the normal budget for incomplete/large tables.
+      maxOperatorResultCharLimit: this.settings.nativeTaskEfficiency
+        ? Math.max(
+            this.settings.maxOperatorResultCharLimit,
+            Math.min(5000, this.settings.maxOperatorResultCharLimit * 2)
+          )
+        : this.settings.maxOperatorResultCharLimit,
       maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
       executionTimeoutMs: this.settings.executionTimeoutMs,
       // Structured (versioned, profiled) results are what native operators
@@ -654,6 +663,14 @@ export class TexeraAgent {
     }
 
     const context: ToolContext = {
+      activeTaskId: () => this.getVisibleReActSteps().findLast(s => s.role === "user" && s.isBegin)?.id,
+      visibleInspections: () => {
+        const steps = this.getVisibleReActSteps();
+        const current = steps.findLast(s => s.role === "user" && s.isBegin)?.messageId;
+        return steps
+          .filter(s => s.messageId === current)
+          .flatMap(s => (s.toolResults ?? []).flatMap(r => asNativeBatchResult(r.output)?.inspection ?? []));
+      },
       metadataStore: this.metadataStore,
       nativeValidationRepair: this.nativeValidationRepair,
       taskHistory: this.settings.nativeTaskHistory ? this.taskHistory : undefined,
@@ -663,6 +680,11 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeTaskRestore: this.settings.nativeTaskRestore !== false,
+        nativeAnalysisState: this.settings.nativeAnalysisState === true,
+        nativeTaskEfficiency: this.settings.nativeTaskEfficiency === true,
+        contextWindowTokens: this.settings.contextWindowTokens,
+        staticCompaction: this.settings.staticCompaction,
+        enableCompactTool: this.settings.enableCompactTool,
         dataflowReasoning: this.settings.dataflowReasoning === true,
       },
     };
@@ -749,6 +771,14 @@ export class TexeraAgent {
     }
 
     const context: ToolContext = {
+      activeTaskId: () => this.getVisibleReActSteps().findLast(s => s.role === "user" && s.isBegin)?.id,
+      visibleInspections: () => {
+        const steps = this.getVisibleReActSteps();
+        const current = steps.findLast(s => s.role === "user" && s.isBegin)?.messageId;
+        return steps
+          .filter(s => s.messageId === current)
+          .flatMap(s => (s.toolResults ?? []).flatMap(r => asNativeBatchResult(r.output)?.inspection ?? []));
+      },
       metadataStore: this.metadataStore,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
@@ -1392,6 +1422,9 @@ export class TexeraAgent {
     nativeTaskContext?: boolean;
     nativeTaskCache?: boolean;
     nativeTaskRestore?: boolean;
+    nativeAnalysisState?: boolean;
+    nativeTaskEfficiency?: boolean;
+    nativeTaskMemoryChars?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     dataflowReasoning?: boolean;
@@ -1452,7 +1485,18 @@ export class TexeraAgent {
       nativeTaskContext: updates.nativeTaskContext ?? this.settings.nativeTaskContext,
       nativeTaskCache: updates.nativeTaskCache ?? this.settings.nativeTaskCache,
       nativeTaskRestore: updates.nativeTaskRestore ?? this.settings.nativeTaskRestore,
+      nativeAnalysisState: updates.nativeAnalysisState ?? this.settings.nativeAnalysisState,
+      nativeTaskMemoryChars: updates.nativeTaskMemoryChars ?? this.settings.nativeTaskMemoryChars,
+      nativeTaskEfficiency: updates.nativeTaskEfficiency ?? this.settings.nativeTaskEfficiency,
     });
+    if (
+      updates.nativeTaskEfficiency !== undefined &&
+      updates.nativeTaskEfficiency !== this.settings.nativeTaskEfficiency &&
+      [...this.stepsById.values()].some(step => step.role === "user" && step.isBegin)
+    )
+      throw new NativeCatalogSettingsError(
+        "Changing task efficiency requires a fresh session to preserve history caching"
+      );
     // Retained outputs are numbered by task, so turning history on or off after
     // the session has started would leave tasks with and without saved versions.
     if (
@@ -1470,6 +1514,12 @@ export class TexeraAgent {
       throw new NativeCatalogSettingsError("Cannot switch task context during an active turn");
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
     if (
+      updates.nativeAnalysisState !== undefined &&
+      updates.nativeAnalysisState !== this.settings.nativeAnalysisState &&
+      this.state !== AgentStateEnum.AVAILABLE
+    )
+      throw new NativeCatalogSettingsError("Cannot switch analysis state during an active turn");
+    if (
       collection !== (this.settings.nativeProfileCollection ?? false) &&
       (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
     ) {
@@ -1478,12 +1528,28 @@ export class TexeraAgent {
       );
     }
     let promptNeedsRebuild = false;
+    if (
+      updates.nativeTaskEfficiency !== undefined &&
+      updates.nativeTaskEfficiency !== this.settings.nativeTaskEfficiency
+    ) {
+      this.settings.nativeTaskEfficiency = updates.nativeTaskEfficiency;
+      promptNeedsRebuild = true;
+    }
     if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {
       this.settings.nativeTaskHistory = updates.nativeTaskHistory;
       promptNeedsRebuild = true;
     }
     if (updates.nativeTaskContext !== undefined) this.settings.nativeTaskContext = updates.nativeTaskContext;
     if (updates.nativeTaskCache !== undefined) this.settings.nativeTaskCache = updates.nativeTaskCache;
+    if (
+      updates.nativeAnalysisState !== undefined &&
+      updates.nativeAnalysisState !== this.settings.nativeAnalysisState
+    ) {
+      this.settings.nativeAnalysisState = updates.nativeAnalysisState;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeTaskMemoryChars !== undefined)
+      this.settings.nativeTaskMemoryChars = updates.nativeTaskMemoryChars;
     if (updates.nativeTaskRestore !== undefined && updates.nativeTaskRestore !== this.settings.nativeTaskRestore) {
       this.settings.nativeTaskRestore = updates.nativeTaskRestore;
       promptNeedsRebuild = true;
@@ -1890,21 +1956,18 @@ export class TexeraAgent {
     messageSource?: "chat" | "feedback",
     options?: { sources?: readonly string[] }
   ): Promise<AgentMessageResult> {
-    await this.sealTaskHistory(this.headTaskNumber());
+    if (this.state !== AgentStateEnum.AVAILABLE) throw new Error("Agent is busy with another turn");
+    // Reserve the session before retaining history or fetching the workflow.
+    // A disconnected client does not mean its prior turn has finished.
+    this.state = AgentStateEnum.GENERATING;
+    this.abortController = new AbortController();
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
-
-    await this.refreshWorkflowFromBackend();
-
-    this.nativeValidationRepair.clear();
-
-    this.abortController = new AbortController();
-
-    this.state = AgentStateEnum.GENERATING;
-
-    this.currentMessageId = messageId;
-
     try {
+      await this.sealTaskHistory(this.headTaskNumber());
+      await this.refreshWorkflowFromBackend();
+      this.nativeValidationRepair.clear();
+      this.currentMessageId = messageId;
       const estimatedInputTokens = Math.ceil(userMessage.length / 4);
       const userStepId = this.generateStepId();
       const userStep: ReActStep = {
@@ -2157,14 +2220,15 @@ export class TexeraAgent {
         error: error.message || String(error),
       };
     } finally {
-      await this.sealTaskHistory(this.turnNumberOf(messageId));
-      // The turn is over however it ended (answered, aborted, error): seal its
-      // versions. A later turn referencing `X (turn N)` must get one fixed
-      // definition, so the boundary — not the outcome — is what freezes it.
-      this.closeVersionTurn();
-      this.abortController = null;
-      this.currentMessageId = undefined;
-      this.state = AgentStateEnum.AVAILABLE;
+      try {
+        await this.sealTaskHistory(this.turnNumberOf(messageId));
+      } finally {
+        // A failed archive must still release the session for recovery.
+        this.closeVersionTurn();
+        this.abortController = null;
+        this.currentMessageId = undefined;
+        this.state = AgentStateEnum.AVAILABLE;
+      }
     }
   }
 
@@ -2614,6 +2678,10 @@ export class TexeraAgent {
       data: this.settings.dataEvidence,
       flow: this.settings.flowEvidence,
       maxChars: overrides?.maxChars ?? this.settings.maxOperatorResultCharLimit,
+      completeSmallTableChars:
+        this.settings.nativeTaskEfficiency && overrides?.maxChars === undefined
+          ? Math.min(5000, this.settings.maxOperatorResultCharLimit * 2)
+          : undefined,
       maxRows: this.settings.maxResultRows,
     };
     await this.executePostStepChanges(toolCalls, toolResults);
@@ -2934,6 +3002,7 @@ export class TexeraAgent {
     stopped: boolean;
     error?: string;
   }> {
+    if (this.state !== AgentStateEnum.AVAILABLE) throw new Error("Agent is busy with another turn");
     this.abortController = new AbortController();
     this.state = AgentStateEnum.GENERATING;
 

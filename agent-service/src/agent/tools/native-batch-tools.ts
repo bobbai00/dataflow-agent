@@ -43,6 +43,13 @@ import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
 import { applyNativeOperator, deleteNativeOperator } from "./native-upsert";
+import {
+  compileAnalysisProgram,
+  inspectAnalysis,
+  planAnalysisForks,
+  type AnalysisFork,
+} from "../native/analysis-state";
+import { renderTaskEntry } from "../native/task-entries";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -66,6 +73,8 @@ export interface NativeBatchResult {
   observationErrors: string[];
   /** Restores whose target landed: what they created and what they reused. */
   restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
+  /** Exact read-only definitions / completed entries requested by this call. */
+  inspection?: string[];
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -83,8 +92,18 @@ export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResu
 }
 
 export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResults">): Set<string> | undefined {
-  const results = nativeBatchResults(step);
-  return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
+  const calls = (step.toolCalls ?? []).filter(call => call.toolName === TOOL_NAME_DATAFLOW);
+  if (!calls.length) return undefined;
+  return new Set(
+    calls.flatMap(call => {
+      const result = asNativeBatchResult(step.toolResults?.find(r => r.toolCallId === call.toolCallId)?.output);
+      if (result) return result.observe;
+      // A rejected request or SDK exception must not fall back to showing all
+      // successful tables. Explicit scope survives every failure path.
+      const requested = call.input?.observe;
+      return Array.isArray(requested) ? requested.filter((id): id is string => typeof id === "string") : [];
+    })
+  );
 }
 
 export interface DataflowInput {
@@ -96,6 +115,9 @@ export interface DataflowInput {
   delete?: string[];
   /** Saved versions to rebuild, applied with the edits. */
   restore?: RestoreRequest[];
+  fork?: AnalysisFork[];
+  inspect?: string[];
+  recall?: number[];
   observe?: string[];
 }
 
@@ -106,7 +128,9 @@ const REASONING_PROPERTY = {
     "Written first: one or two sentences on why this call and what you expect the observed tables to show (row count, columns, a value you can check). It is replayed with the call, so compare the next observation against it.",
 };
 
-export function nativeBatchSchema(options: { reasoning?: boolean } = {}): Record<string, unknown> {
+export function nativeBatchSchema(
+  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean } = {}
+): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -123,33 +147,80 @@ export function nativeBatchSchema(options: { reasoning?: boolean } = {}): Record
         description:
           "Step 1, applied before the edits: ids of operators to remove. Refused for an operator that another surviving operator still reads (deleting or re-pointing that consumer in the same call counts).",
       },
-      restore: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            operator: { type: "string", description: "The table to rebuild, by the id it had." },
-            task: { type: "integer", description: "The completed task at whose end that version was saved." },
-            as: {
-              type: "string",
+      ...(options.restore !== false
+        ? {
+            restore: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  operator: { type: "string", description: "The table to rebuild, by the id it had." },
+                  task: { type: "integer", description: "The completed task at whose end that version was saved." },
+                  as: {
+                    type: "string",
+                    description:
+                      "The id the rebuilt table gets. The same id as `operator` makes that version current again (its consumers recompute).",
+                  },
+                },
+                required: ["operator", "task", "as"],
+              },
               description:
-                "The id the rebuilt table gets. The same id as `operator` makes that version current again (its consumers recompute).",
+                "Step 2 as well, with the edits: rebuild tables as they were defined at the end of a completed task. Each restore recreates that definition under `as`, shares upstream tables whose definition is unchanged since that task, copies the changed ones as `<name>_t<task>`, and its observation says whether the result matches the saved table. Requires task history.",
             },
-          },
-          required: ["operator", "task", "as"],
-        },
-        description:
-          "Step 2 as well, with the edits: rebuild tables as they were defined at the end of a completed task. Each restore recreates that definition under `as`, shares upstream tables whose definition is unchanged since that task, copies the changed ones as `<name>_t<task>`, and its observation says whether the result matches the saved table. Requires task history.",
-      },
+          }
+        : {}),
       observe: {
         type: "array",
         items: { type: "string" },
         description:
           "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear.",
       },
+      ...(options.analysisState
+        ? {
+            fork: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  operator: { type: "string", description: "Existing output whose computation to reuse." },
+                  as: { type: "string", description: "New output name; existing defaults are never overwritten." },
+                  bindings: {
+                    type: "object",
+                    additionalProperties: { type: "string" },
+                    description:
+                      "Replace named upstream tables with current tables (including tables defined in edits). Only paths affected by these replacements are copied. Example: {policy: trial_policy}. Unknown or unused names are errors.",
+                  },
+                  task: {
+                    type: "integer",
+                    description:
+                      "Optional completed task: reuse that definition with replaced inputs; other boundaries read immutable saved values.",
+                  },
+                },
+                required: ["operator", "as", "bindings"],
+              },
+              description:
+                "Reuse an existing analysis without copying its code. Create parameter tables in edits, then fork with explicit replacements and observe the new output in this same call. Current forks share unchanged live boundaries; historical forks pin unchanged boundary values. Copied functions are isolated from later shared-function edits.",
+            },
+            inspect: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 6,
+              description:
+                "Read exact current table definitions or shared functions by name, including input bindings and branch provenance, without execution.",
+            },
+            recall: {
+              type: "array",
+              items: { type: "integer" },
+              maxItems: 3,
+              description:
+                "Read archived requests, answers and change summaries for these completed task numbers, without execution. Code summaries may be shortened; inspect retrieves exact current definitions.",
+            },
+          }
+        : {}),
     },
-    required: options.reasoning ? ["reasoning", "edits"] : ["edits"],
+    required: [...(options.reasoning ? ["reasoning"] : []), ...(options.analysisState ? [] : ["edits"])],
   };
 }
 
@@ -159,10 +230,22 @@ export const DATAFLOW_TOOL_DESCRIPTION =
   "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing. With task history, `restore` rebuilds a table as it was defined at the end of an earlier task (see the field).";
 
 /** The tool description for the agent's settings: with `reasoning`, one sentence says it comes first. */
-export function dataflowToolDescription(options: { reasoning?: boolean } = {}): string {
-  return options.reasoning
-    ? "Start with `reasoning`: why this call and what the observed tables should show. " + DATAFLOW_TOOL_DESCRIPTION
-    : DATAFLOW_TOOL_DESCRIPTION;
+export function dataflowToolDescription(
+  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean } = {}
+): string {
+  const description =
+    options.restore === false
+      ? DATAFLOW_TOOL_DESCRIPTION.replace(/ With task history, `restore`[\s\S]*$/, "")
+      : DATAFLOW_TOOL_DESCRIPTION;
+  const base = options.reasoning
+    ? "Start with `reasoning`: why this call and what the observed tables should show. " + description
+    : description;
+  return (
+    base +
+    (options.analysisState
+      ? " In analysis mode, omitted edits means no edits. Shared functions persist with their table consumers. Reuse a def by name in later calls. Redefining a shared function automatically revises all current consumers and recomputes descendants; no need to resend their code. Use parameters(...) tables for changing assumptions. fork reuses a computation with explicit replaced inputs; inspect reads exact table or shared-function definitions by name, and recall retrieves task history, without execution."
+      : "")
+  );
 }
 
 /**
@@ -173,11 +256,16 @@ export function dataflowToolDescription(options: { reasoning?: boolean } = {}): 
 export function createNativeTools(state: WorkflowState, context?: ToolContext): Record<string, any> {
   const repair = context?.nativeValidationRepair ?? new NativeValidationRepair();
   const reasoning = context?.settings?.dataflowReasoning === true;
+  const analysisState = context?.settings?.nativeAnalysisState === true;
+  const restore = analysisState ? context?.settings?.nativeTaskRestore !== false : undefined;
+  let inspectionTask: string | undefined;
+  const shownInspections = new Set<string>();
   return {
     [TOOL_NAME_DATAFLOW]: tool({
-      description: dataflowToolDescription({ reasoning }),
-      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ reasoning }) as any),
+      description: dataflowToolDescription({ reasoning, analysisState, restore }),
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ reasoning, analysisState, restore }) as any),
       execute: async args => {
+        if (analysisState && args && args.edits === undefined) args = { ...args, edits: "" };
         const repairEpoch = repair.epoch;
         if (
           state
@@ -207,6 +295,21 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           typeof args?.edits !== "string" ||
           !isIds(args.observe) ||
           !isIds(args.delete) ||
+          !isIds(args.inspect) ||
+          (args.recall !== undefined &&
+            (!Array.isArray(args.recall) || args.recall.some(n => !Number.isSafeInteger(n) || n < 1))) ||
+          (args.fork !== undefined &&
+            (!Array.isArray(args.fork) ||
+              args.fork.some(
+                f =>
+                  !f ||
+                  typeof f.operator !== "string" ||
+                  typeof f.as !== "string" ||
+                  !f.bindings ||
+                  typeof f.bindings !== "object" ||
+                  Array.isArray(f.bindings) ||
+                  Object.values(f.bindings).some(v => typeof v !== "string")
+              ))) ||
           !isRestore(args.restore) ||
           (args.reasoning !== undefined && typeof args.reasoning !== "string")
         ) {
@@ -214,6 +317,10 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             "dataflow requires edits: string, and optionally delete: string[], restore: [{operator, task, as}], observe: string[] and reasoning: string"
           );
         }
+        if (!analysisState && (args.fork?.length || args.inspect?.length || args.recall?.length))
+          return createErrorResult("fork, inspect and recall require nativeAnalysisState.");
+        if ((args.inspect?.length ?? 0) > 6 || (args.recall?.length ?? 0) > 3)
+          return createErrorResult("Inspect at most six definitions or recall three tasks per call.");
         // Restores are planned before compiling: each becomes the sealed
         // statements under new ids, compiled and executed exactly like edits.
         // A refused restore is an outcome; the rest of the call proceeds.
@@ -245,10 +352,19 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         const program = restorePlans.length
           ? [args.edits, ...restorePlans.map(plan => plan.program)].join("\n")
           : args.edits;
-        const compiled = await compileProgram(program, {
-          profileCollection: context?.settings?.nativeProfileCollection === true,
-        });
+        const compileOptions = { profileCollection: context?.settings?.nativeProfileCollection === true };
+        const compiled = analysisState
+          ? await compileAnalysisProgram(program, state, args.delete, compileOptions)
+          : await compileProgram(program, compileOptions);
         const statements: ProgramStatement[] = compiled.statements;
+        const forked = await planAnalysisForks(
+          args.fork ?? [],
+          state,
+          statements,
+          context?.taskHistory,
+          compileOptions
+        );
+        statements.push(...forked.statements);
         // Deletes apply first. A delete is refused while a consumer survives the
         // call: one that is neither deleted here nor redefined in `edits` with
         // inputs that no longer include the deleted id.
@@ -532,12 +648,54 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         ]
           .sort((a, b) => a.line - b.line)
           .map(entry => entry.outcome);
+        const inspection = analysisState ? inspectAnalysis(state, args.inspect ?? []) : [];
+        for (const task of args.recall ?? []) {
+          const entry = context?.taskHistory?.entries().find(entry => entry.task === task);
+          inspection.push(
+            entry
+              ? renderTaskEntry(entry, context?.settings?.nativeTaskEfficiency)
+              : `No completed entry for task ${task}.`
+          );
+        }
+        const task = context?.activeTaskId?.();
+        if (
+          context?.settings?.nativeTaskEfficiency &&
+          task &&
+          !context.settings.contextWindowTokens &&
+          !context.settings.staticCompaction &&
+          !context.settings.enableCompactTool
+        ) {
+          if (inspectionTask !== task) {
+            inspectionTask = task;
+            shownInspections.clear();
+          }
+          if (context.visibleInspections) {
+            shownInspections.clear();
+            for (const text of context.visibleInspections()) shownInspections.add(text);
+          }
+          for (let i = 0; i < inspection.length; i++) {
+            const text = inspection[i];
+            if (shownInspections.has(text)) inspection[i] = `Already shown in this task: ${text.split("\n")[0]}`;
+            else shownInspections.add(text);
+          }
+        }
         return {
           kind: "native-batch",
-          operators: [...deleteOutcomes, ...restoreOutcomes, ...ordered],
+          operators: [
+            ...deleteOutcomes,
+            ...restoreOutcomes,
+            ...forked.errors.map(error => ({
+              id: error.id,
+              op: "fork",
+              status: "error" as const,
+              message: error.message,
+            })),
+            ...ordered,
+          ],
           observe,
           observationErrors,
           ...(restored.length ? { restored } : {}),
+          ...(inspection.length ? { inspection } : {}),
         } satisfies NativeBatchResult;
       },
     }),

@@ -106,6 +106,43 @@ test("the shared maxSteps cap applies even when the model asks for another tool"
   expect(steps[0]!.toolResults?.[0]?.output).toEqual({ value: 42 });
 });
 
+test("tool exceptions reach the recorded observation instead of becoming an empty success", async () => {
+  const { driver, input, steps } = fixture(1);
+  input.tools.read.execute = async () => {
+    throw new Error("Python validation unavailable: worker wrapper cannot parse programs");
+  };
+  await driver.runTurn(input);
+  expect(steps[0]!.toolResults).toEqual([
+    {
+      toolCallId: "call-1",
+      output: "[ERROR] Python validation unavailable: worker wrapper cannot parse programs",
+      isError: true,
+    },
+  ]);
+});
+
+test("a failed tool keeps its call identity beside successful results in the same step", async () => {
+  const { model, driver, input, steps } = fixture(1);
+  model.doGenerate = async () => ({
+    ...response(1),
+    content: [
+      { type: "tool-call", toolCallId: "call-1", toolName: "read", input: "{}" },
+      { type: "tool-call", toolCallId: "call-2", toolName: "fail", input: "{}" },
+    ],
+  });
+  input.tools.fail = tool({
+    inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false }),
+    execute: async (): Promise<string> => {
+      throw "unavailable source";
+    },
+  });
+  await driver.runTurn(input);
+  expect(steps[0]!.toolResults).toEqual([
+    { toolCallId: "call-1", output: { value: 42 }, isError: false },
+    { toolCallId: "call-2", output: "[ERROR] unavailable source", isError: true },
+  ]);
+});
+
 test("the shared SDK loop passes cancellation to the provider without recording a completed step", async () => {
   const { model, driver, input, steps } = fixture();
   const controller = new AbortController();

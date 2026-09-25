@@ -33,6 +33,9 @@ import type { NativeValidationRepair } from "../native/validation-repair";
 import type { TaskHistory } from "../native/task-history";
 
 export interface ToolContext {
+  /** Current branch/task identity; repeated reads can reference earlier visible responses. */
+  activeTaskId?: () => string | undefined;
+  visibleInspections?: () => string[];
   taskHistory?: TaskHistory;
   metadataStore?: WorkflowSystemMetadata;
   nativeValidationRepair?: NativeValidationRepair;
@@ -43,6 +46,11 @@ export interface ToolContext {
     nativeProfileCollection?: boolean;
     /** The dataflow tool's `restore` step is offered (task history must be on). */
     nativeTaskRestore?: boolean;
+    nativeAnalysisState?: boolean;
+    nativeTaskEfficiency?: boolean;
+    contextWindowTokens?: number;
+    staticCompaction?: boolean;
+    enableCompactTool?: boolean;
     /** Native `dataflow` tool: require the `reasoning` argument. */
     dataflowReasoning?: boolean;
   };

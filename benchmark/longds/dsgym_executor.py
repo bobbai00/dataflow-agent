@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements. See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership. The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License. You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied. See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 """A local stand-in for DSGym's executor manager.
 
 Speaks the manager's HTTP contract that `AllocatedCodeEnv` drives —
@@ -16,14 +33,17 @@ stack live there):
     benchmark/Kramabench/.venv/bin/python dsgym_executor.py --port 5055
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import sys
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from jupyter_client import KernelManager
+from execution_isolation import isolated_command
 
 HERE = Path(__file__).resolve().parent
 WORKTREE = HERE.parents[1]
@@ -33,45 +53,108 @@ from kernel_executor import KernelExecutor  # noqa: E402  (DSGym's own)
 
 
 class LocalKernelExecutor(KernelExecutor):
-    """DSGym's executor with the kernel pinned to this interpreter and started
-    from the repository root, so the data paths the prompt names resolve."""
+    """Persistent kernel with only its source data and private scratch mounted."""
+
+    def __init__(self, *, timeout, data_root, workspace):
+        super().__init__(timeout=timeout)
+        self.data_root = Path(data_root).resolve()
+        self.workspace = Path(workspace).resolve()
+        self.ipc_directory = None
+        self.restart_requested = threading.Event()
 
     def start(self):
         with self._lock:
-            self.km = KernelManager(
-                kernel_cmd=[sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"]
+            # Unix socket names have a 107-byte limit on Linux. Benchmark output
+            # paths include the SUT and task names and routinely exceed it.
+            self.ipc_directory = tempfile.TemporaryDirectory(prefix="longds-ipc-", dir="/tmp")
+            ipc = Path(self.ipc_directory.name)
+            self.km = KernelManager(transport="ipc", ip=str(ipc / "kernel"),
+                                    connection_file=str(ipc / "connection.json"))
+            # kernel_cmd is ignored by recent jupyter_client releases. Set the
+            # actual kernelspec, including the pinned interpreter and sandbox.
+            self.km.kernel_spec.argv = isolated_command(
+                [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+                python=sys.executable, data_roots=[self.data_root], workspace=self.workspace,
+                read_write=[(ipc, ipc)],
             )
-            self.km.start_kernel(cwd=str(WORKTREE))
-            self.kc = self.km.blocking_client()
-            self.kc.wait_for_ready(timeout=60)
+            try:
+                self.km.start_kernel(cwd=str(self.workspace))
+                self.kc = self.km.blocking_client()
+                self.kc.wait_for_ready(timeout=60)
+            except Exception:
+                self._stop_locked()
+                raise
+
+    def _stop_locked(self):
+        try:
+            if self.kc:
+                self.kc.stop_channels()
+            if self.km and self.km.has_kernel:
+                self.km.shutdown_kernel(now=True)
+        finally:
+            self.kc = self.km = None
+            if self.ipc_directory:
+                self.ipc_directory.cleanup()
+                self.ipc_directory = None
+
+    def stop(self):
+        with self._lock:
+            self._stop_locked()
+
+    def restart(self):
+        # Upstream requests this from a timeout thread. Perform the actual
+        # restart on the persistent owner thread before the next execution.
+        if self.restart_requested.is_set():
+            return {"status": "already_restarting"}
+        self.restart_requested.set()
+        return {"status": "restarting"}
+
+    def execute(self, code):
+        if self.restart_requested.is_set():
+            self.stop()
+            self.start()
+            self.restart_requested.clear()
+        return super().execute(code)
 
 
 class Manager:
-    def __init__(self, timeout: int):
+    def __init__(self, timeout: int, data_root: Path, workspace: Path):
         self.timeout = timeout
+        self.data_root = data_root
+        self.workspace = workspace
         self.executors: dict[int, LocalKernelExecutor] = {}
         self.next_id = 0
         self.lock = threading.Lock()
+        # bubblewrap's parent-death signal follows the spawning Linux thread.
+        # HTTP request threads exit after each response, so kernels and their
+        # ZeroMQ sockets must live on a persistent owner thread.
+        self.kernel_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="longds-kernel")
 
     def allocate(self) -> int:
         with self.lock:
             container_id = self.next_id
             self.next_id += 1
-        executor = LocalKernelExecutor(timeout=self.timeout)
-        executor.start()
+        workspace = Path(tempfile.mkdtemp(prefix=f"kernel-{container_id}-", dir=self.workspace))
+        executor = LocalKernelExecutor(timeout=self.timeout, data_root=self.data_root, workspace=workspace)
+        self.kernel_thread.submit(executor.start).result()
         with self.lock:
             self.executors[container_id] = executor
         return container_id
 
     def execute(self, container_id: int, code: str):
         executor = self.executors[container_id]
-        return executor.execute(code)
+        return self.kernel_thread.submit(executor.execute, code).result()
 
     def deallocate(self, container_id: int) -> None:
         with self.lock:
             executor = self.executors.pop(container_id, None)
         if executor:
-            executor.stop()
+            self.kernel_thread.submit(executor.stop).result()
+
+    def close(self):
+        for container_id in list(self.executors):
+            self.deallocate(container_id)
+        self.kernel_thread.shutdown(wait=True)
 
 
 def make_handler(manager: Manager):
@@ -118,15 +201,22 @@ def make_handler(manager: Manager):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=5055)
+    ap.add_argument("--data-root", type=Path, required=True, help="Only raw task data is mounted, read-only")
+    ap.add_argument("--workspace", type=Path, required=True, help="Private per-run scratch parent")
     ap.add_argument("--timeout", type=int, default=int(os.getenv("EXECUTION_TIMEOUT", "600")),
                     help="seconds one execution may run before the kernel is interrupted and restarted")
     args = ap.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(Manager(args.timeout)))
+    args.workspace.mkdir(parents=True, exist_ok=True)
+    manager = Manager(args.timeout, args.data_root.resolve(), args.workspace.resolve())
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(manager))
     print(json.dumps({"executor": f"http://127.0.0.1:{args.port}", "timeout": args.timeout}), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        manager.close()
+        server.server_close()
     return 0
 
 

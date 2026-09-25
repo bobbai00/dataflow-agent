@@ -613,6 +613,9 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     nativeTaskContext: agentSettings.nativeTaskContext,
     nativeTaskCache: agentSettings.nativeTaskCache,
     nativeTaskRestore: agentSettings.nativeTaskRestore,
+    nativeAnalysisState: agentSettings.nativeAnalysisState,
+    nativeTaskEfficiency: agentSettings.nativeTaskEfficiency,
+    nativeTaskMemoryChars: agentSettings.nativeTaskMemoryChars,
     dataEvidence: agentSettings.dataEvidence,
     flowEvidence: agentSettings.flowEvidence,
     dataflowReasoning: agentSettings.dataflowReasoning,
@@ -860,6 +863,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeTaskContext: settings.nativeTaskContext,
             nativeTaskCache: settings.nativeTaskCache,
             nativeTaskRestore: settings.nativeTaskRestore,
+            nativeAnalysisState: settings.nativeAnalysisState,
+            nativeTaskEfficiency: settings.nativeTaskEfficiency,
+            nativeTaskMemoryChars: settings.nativeTaskMemoryChars,
             dataEvidence: settings.dataEvidence,
             flowEvidence: settings.flowEvidence,
             dataflowReasoning: settings.dataflowReasoning,
@@ -950,6 +956,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
             nativeTaskContext: t.Optional(t.Boolean()),
             nativeTaskCache: t.Optional(t.Boolean()),
             nativeTaskRestore: t.Optional(t.Boolean()),
+            nativeAnalysisState: t.Optional(t.Boolean()),
+            nativeTaskEfficiency: t.Optional(t.Boolean()),
+            nativeTaskMemoryChars: t.Optional(t.Number({ minimum: 4000, maximum: 200000 })),
             dataEvidence: t.Optional(t.Boolean()),
             flowEvidence: t.Optional(t.Boolean()),
             dataflowReasoning: t.Optional(t.Boolean()),
@@ -1330,6 +1339,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeTaskContext: settings.nativeTaskContext,
         nativeTaskCache: settings.nativeTaskCache,
         nativeTaskRestore: settings.nativeTaskRestore,
+        nativeAnalysisState: settings.nativeAnalysisState,
+        nativeTaskEfficiency: settings.nativeTaskEfficiency,
+        nativeTaskMemoryChars: settings.nativeTaskMemoryChars,
         dataEvidence: settings.dataEvidence,
         flowEvidence: settings.flowEvidence,
         dataflowReasoning: settings.dataflowReasoning,
@@ -1391,6 +1403,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         nativeTaskContext: t.Optional(t.Boolean()),
         nativeTaskCache: t.Optional(t.Boolean()),
         nativeTaskRestore: t.Optional(t.Boolean()),
+        nativeAnalysisState: t.Optional(t.Boolean()),
+        nativeTaskEfficiency: t.Optional(t.Boolean()),
+        nativeTaskMemoryChars: t.Optional(t.Number({ minimum: 4000, maximum: 200000 })),
         dataEvidence: t.Optional(t.Boolean()),
         flowEvidence: t.Optional(t.Boolean()),
         dataflowReasoning: t.Optional(t.Boolean()),
@@ -1566,6 +1581,13 @@ export function buildApp() {
         if (msg.type === "stop") {
           agent.stop();
           broadcastToAgent(agentId, { type: "state", state: "STOPPING" });
+          return;
+        }
+
+        // Reject before replacing the active turn's callbacks. The agent also
+        // reserves its state synchronously before any asynchronous preparation.
+        if ((msg.type === "message" || msg.type === "debug") && agent.getState() !== "AVAILABLE") {
+          ws.send(JSON.stringify({ type: "error", error: "Agent is busy with another turn" }));
           return;
         }
 

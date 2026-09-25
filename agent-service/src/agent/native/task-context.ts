@@ -20,6 +20,7 @@ import type { OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory } from "./task-history";
 import { writtenInputs } from "./task-reference";
 import { renderLiveIndex, renderTaskEntry } from "./task-entries";
+import { analysisMemory } from "./analysis-memory";
 
 /** The heading of the catalog message. The catalog is the state a task starts
  * from, rendered once per task; what the task changes appears in its own
@@ -111,13 +112,57 @@ export function taskCatalogParts(
  * request/answer pairs and the frozen catalog. */
 export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistory): ContextAssembler {
   let frozen: { messageId: string; message: ModelMessage } | undefined;
+  let analysisFrozen: { messageId: string; memory: ModelMessage[] } | undefined;
   return input => {
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
     if (!current) return assemble(input);
     const entries = input.settings.nativeTaskHistory && history ? history.entries() : undefined;
     let memory: ModelMessage[];
-    if (entries) {
+    if (entries && input.settings.nativeAnalysisState && !input.settings.nativeTaskEfficiency) {
+      if (analysisFrozen?.messageId !== current.messageId) {
+        const head = input.visibleSteps.at(-1)?.id;
+        const provenance = history?.provenance();
+        const cards = input.workflowState
+          .getAllOperators()
+          .filter(op => !op.taskSource)
+          .map(op => {
+            const info = input.snapshotStorage.getOperatorResult(head, op.operatorID);
+            const event = provenance?.get(op.operatorID);
+            const view = op.nativeOp;
+            const functions = Object.keys(view?.functions ?? {});
+            const cols = info?.resultSchema?.map(c => c.name) ?? [];
+            return (
+              `${operatorSignature(op)}; ${info?.error ? "FAILED" : (info?.state ?? "not executed")}` +
+              `; rows=${info?.totalRowCount ?? "?"}; cols=${cols.slice(0, 16).join(",")}${cols.length > 16 ? ` (+${cols.length - 16})` : ""}` +
+              (functions.length ? `; functions=${functions.join(",")}` : "") +
+              (view?.analysisBranch ? `; branch=${view.analysisBranch.root}` : "") +
+              (event ? `; created@${event.created} changed@${event.edited.join(",") || event.created}` : "")
+            );
+          });
+        const definitions = new Map<string, { text: string; priority: number }>();
+        const latestTask = entries.at(-1)?.task ?? 0;
+        for (const op of input.workflowState.getAllOperators()) {
+          if (op.taskSource) continue;
+          const event = provenance?.get(op.operatorID);
+          const changed = Math.max(event?.created ?? 0, ...(event?.edited ?? []));
+          const branch = op.nativeOp?.analysisBranch?.root;
+          for (const [name, source] of Object.entries(op.nativeOp?.functions ?? {})) {
+            const scope = branch ? `Independent branch ${branch}` : "Shared";
+            const key = `${scope}\0${name}\0${source}`;
+            const priority = Math.max(definitions.get(key)?.priority ?? 0, changed >= latestTask - 2 ? 15 : 0);
+            definitions.set(key, { text: `${scope} function ${name}:\n${source}`, priority });
+          }
+        }
+        analysisFrozen = {
+          messageId: current.messageId,
+          memory: analysisMemory(entries, cards, current.content, input.settings.nativeTaskMemoryChars ?? 24000, [
+            ...definitions.values(),
+          ]),
+        };
+      }
+      memory = analysisFrozen.memory;
+    } else if (entries) {
       const head = input.visibleSteps.at(-1)?.id;
       if (frozen?.messageId !== current.messageId) {
         const results = new Map(
@@ -135,7 +180,7 @@ export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistor
         ...entries.map(
           (entry): ModelMessage => ({
             role: "user",
-            content: renderTaskEntry(entry),
+            content: renderTaskEntry(entry, input.settings.nativeTaskEfficiency),
             providerOptions: { texera: { taskHistory: true } },
           })
         ),

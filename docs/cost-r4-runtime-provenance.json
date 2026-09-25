@@ -1,0 +1,81 @@
+{
+  "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+  "source_sha256": "10058d921f8411a24ffdaf70ffee8f0cf2e1fd4ca24f5d87c80a17a70f4cb741",
+  "archive": "/tmp/texera-cost-r4/runtime-source.tar.gz",
+  "archive_sha256": "ac69e36f251773bbd350014452eccc86598cacd5c519c91cadeb96aee2a59d2b",
+  "files": 255,
+  "supervisor_adjustment": "External budget wrapper recognizes react-efficient as analysis state and freezes the selected runner until interrupted usage/results are written, before terminating it. This avoids a scorer/file-write race. One-hour cap, solver source/settings, and judge remain unchanged.",
+  "supervisor_sha256": "bd725d868e78359e7bce47b9455c1413e8a3ddd368a591eb2c1370273c0f68f2",
+  "durable_artifacts": "benchmark/longds/system_scratch/_provenance/LongDS_CostR4_20260924",
+  "durable_artifact_sha256": {
+    "budget-identity-red.log": "6d07d2c27b73a8691b6971f65734485f85affbeaf66eacddb1b6b23a7e29e4b2",
+    "budget-publish-red.log": "b878aa274908b1f95df2e6991d92b0357edaec3c0e5cb0b358f63135840546dc",
+    "budget-slack-red.log": "aa93c1a3ea01ecb899677c2bfe128d885822ccf4bb87a7b597451f7a7e602e49",
+    "budget-supervisor.py": "bd725d868e78359e7bce47b9455c1413e8a3ddd368a591eb2c1370273c0f68f2",
+    "bun-post-guards.log": "fbc34c57f36500ea7cc8719ecbb5237aaf7e798c6910c1e2bf1ddff8856190fa",
+    "campaign.json": "e2d12a0014b9e1c169feecfb3285a02b95c62ef27105bb86fb6d9a0f8a3a9351",
+    "campaign.py": "1df66bb5563c5d00166d320f25b5e9793b6dee713de1d722a68853b32ceb5f68",
+    "engine-smoke.log": "219628e7c930c3f39e8aca86dc569ff3d47e0b5285c618308c1bdad88208b23f",
+    "final-guards.patch": "621ead5c60d10a7b83ceb1763ace8e21cdde5b0abe4f820171763a334c94b079",
+    "final-source.tar.gz": "6adca05e776a4d4bc91c4b4e5df26a9c3fc8c8d0d3d57e5c6c95f1fa73789097",
+    "isolation-smoke.log": "a26957725ed68b38ab80ec4c52378d2cc88dfa6f774030e8c8d3587c9f1039d2",
+    "missing-literal-red.log": "887b95629673faeced9ee9e45249b782291ecc9ef3379dd558a9e661ab4f6e28",
+    "post-guard-red.log": "4a609a7a6920157361efbdc3f42c30730ab02af43b023f50545c5618c5c29d33",
+    "pre-fix-manifest.json": "9a2b415a989b141e5f3b9099e81dc399dbbdad56fe560aa136259c7e2b6f0555",
+    "pre-fix-worktree.tar.gz": "dc1aaab727e894470a51a423b02d1b5fe8cd52052197f32794b1ac77ef70c924",
+    "python-post-guards.log": "7a3d62ed66bb234376cbd504f72bea72c0446ac31189299242610aac10547ef1",
+    "regression-red.log": "5fd4a9529d779da6dfa493af238c512b80aee9d5065005eb3e2219f8ee31c930",
+    "runtime-freeze.json": "6326c3871320822bd7964976710c9579a0f71760875c6f5b49fbef11068e75ee",
+    "runtime-source.tar.gz": "ac69e36f251773bbd350014452eccc86598cacd5c519c91cadeb96aee2a59d2b",
+    "typecheck-post-guards.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+  },
+  "final_source": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "9d84973d25d1a4b5016a85d4cb136d3155b1ddde12e0583538a157a9d6829c13",
+    "archive": "benchmark/longds/system_scratch/_provenance/LongDS_CostR4_20260924/final-source.tar.gz",
+    "archive_sha256": "6adca05e776a4d4bc91c4b4e5df26a9c3fc8c8d0d3d57e5c6c95f1fa73789097",
+    "files": 255,
+    "distinction": "Benchmarks used the original frozen source hash. Final compatibility guards were applied only after all nine cells finished; saved configurations/rows do not trigger their changed rendering paths."
+  },
+  "verification": {
+    "frozen_source_unchanged_through_campaign": true,
+    "bun": {
+      "passed": 1156,
+      "failed": 0,
+      "snapshots": 8
+    },
+    "typescript": "passed",
+    "python": {
+      "passed": 22,
+      "failed": 0
+    },
+    "new_ts_guard_regressions": 4,
+    "new_budget_regressions": 3,
+    "real_service_smokes": [
+      "isolated data/workspace access",
+      "API applies efficiency settings",
+      "complete 15-row answer table",
+      "second-task baseline snapshot",
+      "failed-call observation scope"
+    ],
+    "guard_audit": {
+      "sessions": 9,
+      "output_files": 284,
+      "conditions_absent": true
+    },
+    "cache_checks": {
+      "within_turn_prefix_pairs": 432,
+      "within_turn_exact_prefix_pairs": 432,
+      "history_reappearances": 10047,
+      "identical_history_reappearances": 10047
+    },
+    "unrelated_preexisting_files_byte_identical": 89,
+    "intentional_edits_to_preexisting_files": 13,
+    "dedicated_service": "stopped; runtime override removed",
+    "shared_endpoints_responding": [
+      38080,
+      39096,
+      34000
+    ]
+  }
+}

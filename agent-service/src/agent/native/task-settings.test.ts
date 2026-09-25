@@ -25,6 +25,29 @@ function agent() {
     contextAssembler: () => [],
   });
 }
+test("analysis settings take effect and invalid memory budgets leave all settings unchanged", () => {
+  const a = agent();
+  a.updateSettings({ nativeAnalysisState: true, nativeTaskMemoryChars: 8000 });
+  expect(a.getSettings().nativeAnalysisState).toBe(true);
+  expect(a.getSettings().nativeTaskMemoryChars).toBe(8000);
+  expect(a.getSettings().systemPrompt).toContain("shared");
+  expect(() => a.updateSettings({ nativeAnalysisState: false, nativeTaskMemoryChars: 1 })).toThrow("integer");
+  expect(a.getSettings().nativeAnalysisState).toBe(true);
+  expect(a.getSettings().nativeTaskMemoryChars).toBe(8000);
+});
+
+test("analysis mode cannot change its function semantics during an active turn", async () => {
+  const a = agent();
+  (a as any).driver = {
+    runTurn: async () => {
+      expect(() => a.updateSettings({ nativeAnalysisState: true, maxSteps: 3 })).toThrow("active turn");
+      expect(a.getSettings().nativeAnalysisState).toBe(false);
+      expect(a.getSettings().maxSteps).not.toBe(3);
+      return { text: "done", messages: [], usage: {} };
+    },
+  };
+  expect((await a.sendMessage("Run")).response).toBe("done");
+});
 test("task features validate atomically and history cannot be enabled halfway through a session", async () => {
   const a = agent();
   // Native is the default mode, so history may be chosen before the session starts.
@@ -70,11 +93,15 @@ test("the state gestures are taught whenever outputs are retained, the entry lay
 test("with entries and stable's dataflowReasoning, the prompt says each call's reasoning names its step", () => {
   const prompt = (dataflowReasoning: boolean) => {
     const a = agent();
-    a.updateSettings({ agentMode: AgentMode.NATIVE, nativeTaskHistory: true, nativeTaskContext: true, dataflowReasoning });
+    a.updateSettings({
+      agentMode: AgentMode.NATIVE,
+      nativeTaskHistory: true,
+      nativeTaskContext: true,
+      dataflowReasoning,
+    });
     return a.getSettings().systemPrompt ?? "";
   };
   expect(prompt(true)).toContain("each with its `reasoning` and the changes it produced");
   expect(prompt(true)).toContain("`dataflow(reasoning, edits, delete, observe)`");
   expect(prompt(false)).not.toContain("each with its `reasoning`");
 });
-

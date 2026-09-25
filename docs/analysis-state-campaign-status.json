@@ -1,0 +1,60 @@
+{
+  "updated_utc": "2026-09-24T21:05:37.368035+00:00",
+  "status": "stopped_at_user_request; first_pass_and_recovery_1_complete; recovery_2_incomplete",
+  "primary_sessions": 24,
+  "primary_planned_turns": 836,
+  "planned_sessions_including_recovery": 72,
+  "complete_scored_sessions": 69,
+  "planned_turns_including_recovery": 2508,
+  "scored_turns": 2418,
+  "missing_sessions": [
+    {
+      "trial": 3,
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2"
+    },
+    {
+      "trial": 3,
+      "arm": "react-entries",
+      "task": "education__bi__task2"
+    },
+    {
+      "trial": 3,
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2"
+    }
+  ],
+  "external_termination_events": 3,
+  "externally_interrupted_archived_sessions": 31,
+  "last_event": "User requested no further evaluation. Preserved active Survey trial-3 traces and stopped the dedicated service and all evaluation/judge controllers. One partial session is excluded from accuracy; two sessions remain unstarted.",
+  "completed_nfl_control_trial3": "All 42 responses, trace files and per-turn statistics were recorded by 16:43:27.972 UTC, before wrapper shutdown. Kept and judged 16/42; no truncated session was promoted.",
+  "resume_requirement": "No resumption scheduled; user explicitly stopped this campaign.",
+  "frozen_runtime_provenance": "docs/analysis-state-runtime-provenance.json",
+  "event_log_sha256": "d7b2331d378fdbd6d828d22bb48202403bbc405cfbb0f5ab9589802ea9402080",
+  "last_archive_manifest": "/tmp/texera-analysis-state/coordinated-termination3-archives.json",
+  "user_confirmed_acceptance_criterion": {
+    "recorded_utc": "2026-09-24T17:34:24.446200+00:00",
+    "baseline": "persistent DSGym Python",
+    "requires_accuracy_improvement": true,
+    "max_model_cost_ratio": 1.25,
+    "cost_scope": "Cache-aware model cost across the same complete task set, including failures. This is a performance ceiling, not a total research-spending budget.",
+    "confirmed_after_evaluation": true,
+    "matches_original_provisional_target": true,
+    "first_pass_baseline_usd": 0.7690095499999999,
+    "first_pass_ceiling_usd": 0.9612619374999999,
+    "first_pass_candidate_usd": 1.83719209,
+    "first_pass_candidate_cost_ratio": 2.3890367681389657,
+    "candidate_qualifies": false
+  },
+  "resource_audit": "docs/analysis-state-resource-audit.json",
+  "resource_failure_attribution": "external_termination_events counts external signals to the controller, not another tenant; the sender was the host userspace memory watchdog.",
+  "active_service": null,
+  "dispatch_setup_exclusions": 3,
+  "dispatch_setup_audit": "docs/analysis-state-dispatch-audit.json",
+  "stopped_service": "texera-analysis-dedicated.service",
+  "service_state": "inactive",
+  "user_stopped_partial_sessions": 1,
+  "unstarted_sessions": 2,
+  "completed_turns_in_partial_session": 3,
+  "user_stop_record": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t3/community__kaggle-survey-2022__task2/user-stop.json"
+}

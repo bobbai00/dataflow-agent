@@ -1,0 +1,2198 @@
+{
+  "prefix": "LongDS_Analysis_20260924",
+  "selected_tasks": [
+    "business__goodbooks_10k__task1",
+    "community__kaggle-survey-2022__task2",
+    "education__bi__task2",
+    "geoscience__water-potability__task3",
+    "social_good__data_science_for_good_city_of_los_angeles__task1",
+    "sports__nfl_big_data_bowl_2023__task1"
+  ],
+  "runs": [
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 35,
+      "completed": 35,
+      "judged": 35,
+      "correct": 0,
+      "accuracy": 0.0,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183400+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 4418900.0,
+        "output_tokens": 13351.0,
+        "cached_tokens": 4228198.0,
+        "cache_write_tokens": 190561.0,
+        "reasoning_tokens": 4631.0,
+        "llm_calls": 47.0,
+        "cost_usd": 0.14825360999999998,
+        "elapsed_seconds": 190.274
+      },
+      "by_pattern": {
+        "Initial": [
+          0,
+          19
+        ],
+        "Update": [
+          0,
+          10
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 70,
+        "reported_usd": 0.11467973213999998,
+        "estimated_usd": 0.24809049999999996,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.3627702321399999
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 16,
+      "accuracy": 0.5333333333333333,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183494+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2465149.0,
+        "output_tokens": 43869.0,
+        "cached_tokens": 2388221.0,
+        "cache_write_tokens": 76745.0,
+        "reasoning_tokens": 14218.0,
+        "llm_calls": 61.0,
+        "cost_usd": 0.11963006999999998,
+        "elapsed_seconds": 433.2309999999999
+      },
+      "by_pattern": {
+        "Initial": [
+          10,
+          19
+        ],
+        "Counterfactual": [
+          3,
+          7
+        ],
+        "Update": [
+          6,
+          8
+        ],
+        "Rollback": [
+          0,
+          3
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 53,
+        "reported_usd": 0.1346169208,
+        "estimated_usd": 0.22681575,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 9,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.3614326708
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "education__bi__task2",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 20,
+      "accuracy": 0.6666666666666666,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183463+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 430389.0,
+        "output_tokens": 18074.0,
+        "cached_tokens": 412465.0,
+        "cache_write_tokens": 16872.0,
+        "reasoning_tokens": 6024.0,
+        "llm_calls": 51.0,
+        "cost_usd": 0.0343665,
+        "elapsed_seconds": 238.17199999999994
+      },
+      "by_pattern": {
+        "Initial": [
+          4,
+          8
+        ],
+        "Unlabeled": [
+          11,
+          16
+        ],
+        "Update": [
+          2,
+          3
+        ],
+        "Counterfactual": [
+          3,
+          3
+        ],
+        "Rollback": [
+          1,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 60,
+        "reported_usd": 0.09289867178,
+        "estimated_usd": 0.174601,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.26749967178
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/education__bi__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "geoscience__water-potability__task3",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 7,
+      "accuracy": 0.19444444444444445,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183431+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 940284.0,
+        "output_tokens": 39956.0,
+        "cached_tokens": 909497.0,
+        "cache_write_tokens": 29634.0,
+        "reasoning_tokens": 16475.0,
+        "llm_calls": 53.0,
+        "cost_usd": 0.07377623999999998,
+        "elapsed_seconds": 381.1439999999998
+      },
+      "by_pattern": {
+        "Initial": [
+          3,
+          10
+        ],
+        "Update": [
+          2,
+          11
+        ],
+        "Counterfactual": [
+          0,
+          7
+        ],
+        "Rollback": [
+          2,
+          8
+        ],
+        "Unlabeled": [
+          1,
+          6
+        ]
+      },
+      "judge_usage": {
+        "calls": 40,
+        "reported_usd": 0.0195513333,
+        "estimated_usd": 0.20748350000000004,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 32,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.22703483330000004
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/geoscience__water-potability__task3"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 13,
+      "accuracy": 0.3611111111111111,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183366+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 1537416.0,
+        "output_tokens": 20638.0,
+        "cached_tokens": 1488305.0,
+        "cache_write_tokens": 48907.0,
+        "reasoning_tokens": 5177.0,
+        "llm_calls": 68.0,
+        "cost_usd": 0.06679925000000002,
+        "elapsed_seconds": 869.708
+      },
+      "by_pattern": {
+        "Initial": [
+          11,
+          29
+        ],
+        "Update": [
+          4,
+          14
+        ],
+        "Rollback": [
+          5,
+          10
+        ],
+        "Counterfactual": [
+          7,
+          14
+        ]
+      },
+      "judge_usage": {
+        "calls": 43,
+        "reported_usd": 0.02034055772,
+        "estimated_usd": 0.26949125,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 29,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.28983180772
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t1",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "dsgym-functions",
+      "trial": 1,
+      "expected": 42,
+      "completed": 42,
+      "judged": 42,
+      "correct": 7,
+      "accuracy": 0.16666666666666666,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183525+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 3023632.0,
+        "output_tokens": 53557.0,
+        "cached_tokens": 2957255.0,
+        "cache_write_tokens": 66137.0,
+        "reasoning_tokens": 11566.0,
+        "llm_calls": 80.0,
+        "cost_usd": 0.13999574999999997,
+        "elapsed_seconds": 670.6740000000003
+      },
+      "by_pattern": {
+        "Initial": [
+          2,
+          14
+        ],
+        "Counterfactual": [
+          2,
+          12
+        ],
+        "Rollback": [
+          2,
+          13
+        ],
+        "Update": [
+          2,
+          11
+        ]
+      },
+      "judge_usage": {
+        "calls": 47,
+        "reported_usd": 0.04954120146,
+        "estimated_usd": 0.3425117499999999,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 38,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.3920529514599999
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t1/sports__nfl_big_data_bowl_2023__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 35,
+      "completed": 35,
+      "judged": 35,
+      "correct": 0,
+      "accuracy": 0.0,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183035+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 3866546.0,
+        "output_tokens": 88243.0,
+        "cached_tokens": 3772436.0,
+        "cache_write_tokens": 93858.0,
+        "reasoning_tokens": 17408.0,
+        "llm_calls": 84.0,
+        "cost_usd": 0.20485522,
+        "elapsed_seconds": 859.4810000000001
+      },
+      "by_pattern": {
+        "Initial": [
+          0,
+          19
+        ],
+        "Update": [
+          0,
+          10
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 35,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.35231699999999994,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.35231699999999994
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 14,
+      "accuracy": 0.4666666666666667,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183164+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2142511.0,
+        "output_tokens": 39027.0,
+        "cached_tokens": 2088594.0,
+        "cache_write_tokens": 53728.0,
+        "reasoning_tokens": 12871.0,
+        "llm_calls": 63.0,
+        "cost_usd": 0.10207407999999998,
+        "elapsed_seconds": 398.41499999999996
+      },
+      "by_pattern": {
+        "Initial": [
+          9,
+          19
+        ],
+        "Counterfactual": [
+          2,
+          7
+        ],
+        "Update": [
+          4,
+          8
+        ],
+        "Rollback": [
+          0,
+          3
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 30,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.21737799999999993,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.21737799999999993
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "education__bi__task2",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 29,
+      "accuracy": 0.9666666666666667,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183103+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 846815.0,
+        "output_tokens": 30989.0,
+        "cached_tokens": 820746.0,
+        "cache_write_tokens": 24984.0,
+        "reasoning_tokens": 10930.0,
+        "llm_calls": 62.0,
+        "cost_usd": 0.06006471999999999,
+        "elapsed_seconds": 388.14200000000005
+      },
+      "by_pattern": {
+        "Initial": [
+          8,
+          8
+        ],
+        "Unlabeled": [
+          15,
+          16
+        ],
+        "Update": [
+          3,
+          3
+        ],
+        "Counterfactual": [
+          3,
+          3
+        ],
+        "Rollback": [
+          1,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 30,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.173397,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.173397
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/education__bi__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "geoscience__water-potability__task3",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 6,
+      "accuracy": 0.16666666666666666,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183068+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 907645.0,
+        "output_tokens": 25789.0,
+        "cached_tokens": 879781.0,
+        "cache_write_tokens": 26705.0,
+        "reasoning_tokens": 6955.0,
+        "llm_calls": 55.0,
+        "cost_usd": 0.05545047,
+        "elapsed_seconds": 252.60699999999994
+      },
+      "by_pattern": {
+        "Initial": [
+          4,
+          10
+        ],
+        "Update": [
+          2,
+          11
+        ],
+        "Counterfactual": [
+          0,
+          7
+        ],
+        "Rollback": [
+          1,
+          8
+        ],
+        "Unlabeled": [
+          0,
+          6
+        ]
+      },
+      "judge_usage": {
+        "calls": 36,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.20892024999999997,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.20892024999999997
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/geoscience__water-potability__task3"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 0,
+      "accuracy": 0.0,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183000+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 231830.0,
+        "output_tokens": 9824.0,
+        "cached_tokens": 220679.0,
+        "cache_write_tokens": 11040.0,
+        "reasoning_tokens": 5928.0,
+        "llm_calls": 37.0,
+        "cost_usd": 0.01898458,
+        "elapsed_seconds": 744.5659999999999
+      },
+      "by_pattern": {
+        "Initial": [
+          0,
+          29
+        ],
+        "Update": [
+          0,
+          14
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ]
+      },
+      "judge_usage": {
+        "calls": 36,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.25002074999999996,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.25002074999999996
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/social_good__data_science_for_good_city_of_los_angeles__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t2",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "dsgym-functions",
+      "trial": 2,
+      "expected": 42,
+      "completed": 42,
+      "judged": 42,
+      "correct": 18,
+      "accuracy": 0.42857142857142855,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183196+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 4330503.0,
+        "output_tokens": 77659.0,
+        "cached_tokens": 4238724.0,
+        "cache_write_tokens": 91506.0,
+        "reasoning_tokens": 15166.0,
+        "llm_calls": 91.0,
+        "cost_usd": 0.20089637999999999,
+        "elapsed_seconds": 841.9370000000004
+      },
+      "by_pattern": {
+        "Initial": [
+          5,
+          14
+        ],
+        "Counterfactual": [
+          4,
+          12
+        ],
+        "Rollback": [
+          7,
+          13
+        ],
+        "Update": [
+          6,
+          11
+        ]
+      },
+      "judge_usage": {
+        "calls": 42,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.36958600000000014,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.36958600000000014
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "081aa6d877f4ffb7568dcf6aae599ef1018932f91296f3923e79f30c7d58d39d"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t2/sports__nfl_big_data_bowl_2023__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t3",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "dsgym-functions",
+      "trial": 3,
+      "expected": 35,
+      "completed": 35,
+      "judged": 35,
+      "correct": 0,
+      "accuracy": 0.0,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182642+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2636178.0,
+        "output_tokens": 69199.0,
+        "cached_tokens": 2558068.0,
+        "cache_write_tokens": 77891.0,
+        "reasoning_tokens": 9410.0,
+        "llm_calls": 73.0,
+        "cost_usd": 0.15371671,
+        "elapsed_seconds": 653.126
+      },
+      "by_pattern": {
+        "Initial": [
+          0,
+          19
+        ],
+        "Update": [
+          0,
+          10
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 35,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.360717,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.360717
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t3/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t3",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym-functions",
+      "trial": 3,
+      "expected": 30,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182741+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t3/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t3",
+      "task": "education__bi__task2",
+      "arm": "dsgym-functions",
+      "trial": 3,
+      "expected": 30,
+      "completed": 30,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182708+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 543794.0,
+        "output_tokens": 19550.0,
+        "cached_tokens": 523327.0,
+        "cache_write_tokens": 19400.0,
+        "reasoning_tokens": 5852.0,
+        "llm_calls": 56.0,
+        "cost_usd": 0.03898994000000001,
+        "elapsed_seconds": 251.92400000000004
+      },
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t3/education__bi__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t3",
+      "task": "geoscience__water-potability__task3",
+      "arm": "dsgym-functions",
+      "trial": 3,
+      "expected": 36,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182674+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t3/geoscience__water-potability__task3"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym-functions_luna_t3",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "arm": "dsgym-functions",
+      "trial": 3,
+      "expected": 36,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182608+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym-functions_luna_t3/social_good__data_science_for_good_city_of_los_angeles__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 35,
+      "completed": 35,
+      "judged": 35,
+      "correct": 0,
+      "accuracy": 0.0,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182827+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 4866621.0,
+        "output_tokens": 102149.0,
+        "cached_tokens": 4762975.0,
+        "cache_write_tokens": 103364.0,
+        "reasoning_tokens": 25559.0,
+        "llm_calls": 94.0,
+        "cost_usd": 0.24373569999999997,
+        "elapsed_seconds": 919.1389999999999
+      },
+      "by_pattern": {
+        "Initial": [
+          0,
+          19
+        ],
+        "Update": [
+          0,
+          10
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 65,
+        "reported_usd": 0.17260967720000003,
+        "estimated_usd": 0.36657425000000005,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 8,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.5391839272000001
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 19,
+      "accuracy": 0.6333333333333333,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182925+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2434661.0,
+        "output_tokens": 50052.0,
+        "cached_tokens": 2371399.0,
+        "cache_write_tokens": 62124.0,
+        "reasoning_tokens": 7924.0,
+        "llm_calls": 78.0,
+        "cost_usd": 0.12324898,
+        "elapsed_seconds": 455.0379999999999
+      },
+      "by_pattern": {
+        "Initial": [
+          12,
+          19
+        ],
+        "Counterfactual": [
+          3,
+          7
+        ],
+        "Update": [
+          7,
+          8
+        ],
+        "Rollback": [
+          0,
+          3
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 51,
+        "reported_usd": 0.11192102446,
+        "estimated_usd": 0.23241469999999997,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 10,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.34433572446
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "education__bi__task2",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 24,
+      "accuracy": 0.8,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182893+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 524049.0,
+        "output_tokens": 19309.0,
+        "cached_tokens": 503701.0,
+        "cache_write_tokens": 18464.0,
+        "reasoning_tokens": 6862.0,
+        "llm_calls": 56.0,
+        "cost_usd": 0.03823762,
+        "elapsed_seconds": 202.946
+      },
+      "by_pattern": {
+        "Initial": [
+          4,
+          8
+        ],
+        "Unlabeled": [
+          14,
+          16
+        ],
+        "Update": [
+          3,
+          3
+        ],
+        "Counterfactual": [
+          3,
+          3
+        ],
+        "Rollback": [
+          1,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 34,
+        "reported_usd": 0.0112146551,
+        "estimated_usd": 0.16858274999999998,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 26,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.17979740509999997
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/education__bi__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "geoscience__water-potability__task3",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 11.0,
+      "accuracy": 0.3055555555555556,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182860+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2767868.0,
+        "output_tokens": 79449.0,
+        "cached_tokens": 2688502.0,
+        "cache_write_tokens": 78283.0,
+        "reasoning_tokens": 13486.0,
+        "llm_calls": 75.0,
+        "cost_usd": 0.16889618999999997,
+        "elapsed_seconds": 664.744
+      },
+      "by_pattern": {
+        "Initial": [
+          3.0,
+          10
+        ],
+        "Update": [
+          5,
+          11
+        ],
+        "Counterfactual": [
+          2,
+          7
+        ],
+        "Rollback": [
+          2,
+          8
+        ],
+        "Unlabeled": [
+          0,
+          6
+        ]
+      },
+      "judge_usage": {
+        "calls": 47,
+        "reported_usd": 0.07270979324,
+        "estimated_usd": 0.21511175000000005,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 23,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.28782154324000003
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/geoscience__water-potability__task3"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 9,
+      "accuracy": 0.25,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182789+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 6646069.0,
+        "output_tokens": 59035.0,
+        "cached_tokens": 6526720.0,
+        "cache_write_tokens": 119100.0,
+        "reasoning_tokens": 7673.0,
+        "llm_calls": 83.0,
+        "cost_usd": 0.23120120000000002,
+        "elapsed_seconds": 606.349
+      },
+      "by_pattern": {
+        "Initial": [
+          7,
+          29
+        ],
+        "Update": [
+          4,
+          14
+        ],
+        "Rollback": [
+          1,
+          10
+        ],
+        "Counterfactual": [
+          2,
+          14
+        ]
+      },
+      "judge_usage": {
+        "calls": 41,
+        "reported_usd": 0.032448405,
+        "estimated_usd": 0.32946725,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 32,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.361915655
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t1",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "dsgym",
+      "trial": 1,
+      "expected": 42,
+      "completed": 42,
+      "judged": 42,
+      "correct": 4,
+      "accuracy": 0.09523809523809523,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182956+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2619594.0,
+        "output_tokens": 58995.0,
+        "cached_tokens": 2551830.0,
+        "cache_write_tokens": 67539.0,
+        "reasoning_tokens": 16582.0,
+        "llm_calls": 75.0,
+        "cost_usd": 0.13876035,
+        "elapsed_seconds": 534.577
+      },
+      "by_pattern": {
+        "Initial": [
+          1,
+          14
+        ],
+        "Counterfactual": [
+          1,
+          12
+        ],
+        "Rollback": [
+          1,
+          13
+        ],
+        "Update": [
+          1,
+          11
+        ]
+      },
+      "judge_usage": {
+        "calls": 57,
+        "reported_usd": 0.0896052147,
+        "estimated_usd": 0.376236,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 27,
+        "models": [
+          "deepseek/deepseek-v4-pro",
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.deepseek-v4-pro.json",
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.4658412147
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "e016fa310b15f18ddbe94899782bc40812bc1eb7438f6c4e00b184797e587eb0"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 35,
+      "completed": 35,
+      "judged": 35,
+      "correct": 2,
+      "accuracy": 0.05714285714285714,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182420+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 5138310.0,
+        "output_tokens": 99911.0,
+        "cached_tokens": 5025582.0,
+        "cache_write_tokens": 112440.0,
+        "reasoning_tokens": 13757.0,
+        "llm_calls": 96.0,
+        "cost_usd": 0.24857243999999998,
+        "elapsed_seconds": 853.414
+      },
+      "by_pattern": {
+        "Initial": [
+          1,
+          19
+        ],
+        "Update": [
+          1,
+          10
+        ],
+        "Rollback": [
+          0,
+          10
+        ],
+        "Counterfactual": [
+          0,
+          14
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 35,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.43830325,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.43830325
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "d7caa6ae098ccf5ae05f3c0fc28a89726a3a994350f8145b9d91cc6e7d7b1f36"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 18,
+      "accuracy": 0.6,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182526+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 2158124.0,
+        "output_tokens": 35787.0,
+        "cached_tokens": 2103316.0,
+        "cache_write_tokens": 53685.0,
+        "reasoning_tokens": 5155.0,
+        "llm_calls": 73.0,
+        "cost_usd": 0.09865657,
+        "elapsed_seconds": 338.41999999999996
+      },
+      "by_pattern": {
+        "Initial": [
+          12,
+          19
+        ],
+        "Counterfactual": [
+          3,
+          7
+        ],
+        "Update": [
+          6,
+          8
+        ],
+        "Rollback": [
+          0,
+          3
+        ],
+        "Unlabeled": [
+          0,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 30,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.22932945,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.22932945
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "ff7eb6e66a96e52d7b1886b3ae4e23aee3d31a4a97c78e906b6a564a2aefab1e"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "education__bi__task2",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 30,
+      "completed": 30,
+      "judged": 30,
+      "correct": 25,
+      "accuracy": 0.8333333333333334,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182491+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 640014.0,
+        "output_tokens": 23586.0,
+        "cached_tokens": 616442.0,
+        "cache_write_tokens": 21674.0,
+        "reasoning_tokens": 7327.0,
+        "llm_calls": 60.0,
+        "cost_usd": 0.04643013999999999,
+        "elapsed_seconds": 234.89600000000002
+      },
+      "by_pattern": {
+        "Initial": [
+          4,
+          8
+        ],
+        "Unlabeled": [
+          15,
+          16
+        ],
+        "Update": [
+          3,
+          3
+        ],
+        "Counterfactual": [
+          3,
+          3
+        ],
+        "Rollback": [
+          1,
+          1
+        ]
+      },
+      "judge_usage": {
+        "calls": 30,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.16912700000000003,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.16912700000000003
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/education__bi__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "geoscience__water-potability__task3",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 10,
+      "accuracy": 0.2777777777777778,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182457+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 984732.0,
+        "output_tokens": 41779.0,
+        "cached_tokens": 948340.0,
+        "cache_write_tokens": 34397.0,
+        "reasoning_tokens": 14778.0,
+        "llm_calls": 51.0,
+        "cost_usd": 0.07809985000000001,
+        "elapsed_seconds": 418.57099999999997
+      },
+      "by_pattern": {
+        "Initial": [
+          2,
+          10
+        ],
+        "Update": [
+          4,
+          11
+        ],
+        "Counterfactual": [
+          2,
+          7
+        ],
+        "Rollback": [
+          2,
+          8
+        ],
+        "Unlabeled": [
+          0,
+          6
+        ]
+      },
+      "judge_usage": {
+        "calls": 36,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.202146,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.202146
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/geoscience__water-potability__task3"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 36,
+      "completed": 36,
+      "judged": 36,
+      "correct": 25,
+      "accuracy": 0.6944444444444444,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182371+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 3809137.0,
+        "output_tokens": 16697.0,
+        "cached_tokens": 3696395.0,
+        "cache_write_tokens": 112547.0,
+        "reasoning_tokens": 3383.0,
+        "llm_calls": 65.0,
+        "cost_usd": 0.12214005,
+        "elapsed_seconds": 817.5220000000002
+      },
+      "by_pattern": {
+        "Initial": [
+          21,
+          29
+        ],
+        "Update": [
+          11,
+          14
+        ],
+        "Rollback": [
+          6,
+          10
+        ],
+        "Counterfactual": [
+          10,
+          14
+        ]
+      },
+      "judge_usage": {
+        "calls": 36,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.2874812499999999,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.2874812499999999
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/social_good__data_science_for_good_city_of_los_angeles__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_dsgym_luna_t2",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "arm": "dsgym",
+      "trial": 2,
+      "expected": 42,
+      "completed": 42,
+      "judged": 42,
+      "correct": 3,
+      "accuracy": 0.07142857142857142,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.182559+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {
+        "input_tokens": 6997506.0,
+        "output_tokens": 116473.0,
+        "cached_tokens": 6868460.0,
+        "cache_write_tokens": 128737.0,
+        "reasoning_tokens": 18531.0,
+        "llm_calls": 103.0,
+        "cost_usd": 0.30938285,
+        "elapsed_seconds": 893.085
+      },
+      "by_pattern": {
+        "Initial": [
+          2,
+          14
+        ],
+        "Counterfactual": [
+          1,
+          12
+        ],
+        "Rollback": [
+          0,
+          13
+        ],
+        "Update": [
+          0,
+          11
+        ]
+      },
+      "judge_usage": {
+        "calls": 42,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.41596275,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [
+          "gpt-5.2"
+        ],
+        "files": [
+          "results_eval.json"
+        ],
+        "accounted_usd": 0.41596275
+      },
+      "scoring_model": "gpt-5.2",
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_dsgym_luna_t2/sports__nfl_big_data_bowl_2023__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_react-analysis_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "react-analysis",
+      "trial": 1,
+      "expected": 35,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183566+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_react-analysis_luna_t1/business__goodbooks_10k__task1"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_react-analysis_luna_t1",
+      "task": "community__kaggle-survey-2022__task2",
+      "arm": "react-analysis",
+      "trial": 1,
+      "expected": 30,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183599+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2"
+    },
+    {
+      "sut": "LongDS_Analysis_20260924_react-entries_luna_t1",
+      "task": "business__goodbooks_10k__task1",
+      "arm": "react-entries",
+      "trial": 1,
+      "expected": 35,
+      "completed": 0,
+      "judged": 0,
+      "correct": 0,
+      "accuracy": null,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "validity": {
+        "eligible_for_primary_comparison": false,
+        "reason": "Unisolated filesystem: confirmed gold.json access in guided Python t1 LA from turn 23, and results_eval.json access in plain Python t2 LA from turn 11. All unisolated campaign runs excluded from primary comparison; costs and raw judgments retained.",
+        "recorded_at_utc": "2026-09-24T12:28:36.183238+00:00"
+      },
+      "execution_isolation": "not recorded",
+      "usage": {},
+      "by_pattern": {},
+      "judge_usage": {
+        "calls": 0,
+        "reported_usd": 0.0,
+        "estimated_usd": 0.0,
+        "unpriced_responses": 0,
+        "failed_requests_without_usage": 0,
+        "models": [],
+        "files": [],
+        "accounted_usd": 0.0
+      },
+      "scoring_model": null,
+      "runtime": {
+        "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+        "source_sha256": "7975bed7dbb7bcb3e008638de7b8d3f60ff3798d60313962d98270b58c7a49cf"
+      },
+      "path": "/home/bob/Desktop/dataflow-agent/benchmark/longds/system_scratch/LongDS_Analysis_20260924_react-entries_luna_t1/business__goodbooks_10k__task1"
+    }
+  ],
+  "aggregates": [
+    {
+      "trial": 1,
+      "arm": "dsgym",
+      "tasks": 6,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "turns": 209,
+      "judged": 209,
+      "correct": 67.0,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": 0.34735449735449736,
+      "model_cost_usd": 0.9440800399999999,
+      "llm_calls": 461.0,
+      "cached_tokens": 19405127.0,
+      "cache_write_tokens": 448874.0,
+      "output_tokens": 368989.0,
+      "input_tokens": 19858862.0,
+      "session_seconds": 3382.7929999999997,
+      "judge_accounted_usd": 2.1788954697
+    },
+    {
+      "trial": 1,
+      "arm": "dsgym-functions",
+      "tasks": 6,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "turns": 209,
+      "judged": 209,
+      "correct": 63,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": 0.32037037037037036,
+      "model_cost_usd": 0.5828214199999999,
+      "llm_calls": 360.0,
+      "cached_tokens": 12383941.0,
+      "cache_write_tokens": 428856.0,
+      "output_tokens": 189445.0,
+      "input_tokens": 12815770.0,
+      "session_seconds": 2783.203,
+      "judge_accounted_usd": 1.9006221671999999
+    },
+    {
+      "trial": 1,
+      "arm": "react-analysis",
+      "tasks": 2,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "turns": 65,
+      "judged": 0,
+      "correct": 0,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": null,
+      "model_cost_usd": 0,
+      "llm_calls": 0,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "input_tokens": 0,
+      "session_seconds": 0,
+      "judge_accounted_usd": 0.0
+    },
+    {
+      "trial": 1,
+      "arm": "react-entries",
+      "tasks": 1,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "turns": 35,
+      "judged": 0,
+      "correct": 0,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": null,
+      "model_cost_usd": 0,
+      "llm_calls": 0,
+      "cached_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 0,
+      "input_tokens": 0,
+      "session_seconds": 0,
+      "judge_accounted_usd": 0.0
+    },
+    {
+      "trial": 2,
+      "arm": "dsgym",
+      "tasks": 6,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "turns": 209,
+      "judged": 209,
+      "correct": 83,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": 0.42235449735449737,
+      "model_cost_usd": 0.9032819,
+      "llm_calls": 448.0,
+      "cached_tokens": 19258535.0,
+      "cache_write_tokens": 463480.0,
+      "output_tokens": 334233.0,
+      "input_tokens": 19727823.0,
+      "session_seconds": 3555.908,
+      "judge_accounted_usd": 1.7423497
+    },
+    {
+      "trial": 2,
+      "arm": "dsgym-functions",
+      "tasks": 6,
+      "complete": true,
+      "eligible_for_primary_comparison": false,
+      "turns": 209,
+      "judged": 209,
+      "correct": 67,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": 0.3380952380952381,
+      "model_cost_usd": 0.64232545,
+      "llm_calls": 392.0,
+      "cached_tokens": 12020960.0,
+      "cache_write_tokens": 301821.0,
+      "output_tokens": 271531.0,
+      "input_tokens": 12325850.0,
+      "session_seconds": 3485.1480000000006,
+      "judge_accounted_usd": 1.571619
+    },
+    {
+      "trial": 3,
+      "arm": "dsgym-functions",
+      "tasks": 5,
+      "complete": false,
+      "eligible_for_primary_comparison": false,
+      "turns": 167,
+      "judged": 35,
+      "correct": 0,
+      "macro_accuracy": null,
+      "excluded_diagnostic_macro_accuracy": null,
+      "model_cost_usd": 0.19270665,
+      "llm_calls": 129.0,
+      "cached_tokens": 3081395.0,
+      "cache_write_tokens": 97291.0,
+      "output_tokens": 88749.0,
+      "input_tokens": 3179972.0,
+      "session_seconds": 905.05,
+      "judge_accounted_usd": 0.360717
+    }
+  ],
+  "all_recorded_model_spend_usd": 3.26521546,
+  "reported_judge_spend_usd": 0.9221371869,
+  "estimated_judge_spend_usd": 6.832066150000001,
+  "unpriced_judge_responses": 0,
+  "failed_judge_requests_without_usage": 234,
+  "scoring_models": [
+    "gpt-5.2"
+  ]
+}

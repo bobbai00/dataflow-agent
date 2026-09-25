@@ -49,6 +49,8 @@ export interface NativeObservationOptions {
   data: boolean;
   flow: boolean;
   maxChars: number;
+  /** Optional bounded slack for an entirely held small answer table only. */
+  completeSmallTableChars?: number;
   maxRows?: number;
   detail?: "shape" | "sample";
   columns?: readonly string[];
@@ -710,7 +712,7 @@ function cellText(value: unknown, type: string): string {
  * Errors use the separate diagnostic path. */
 export function selectNativeObservation(context: NativeEvidenceContext & NativeObservationOptions): NativeObservation {
   const { op, info, data, flow } = context;
-  const maxChars = Number.isFinite(context.maxChars) ? Math.max(0, Math.floor(context.maxChars)) : 2000;
+  let maxChars = Number.isFinite(context.maxChars) ? Math.max(0, Math.floor(context.maxChars)) : 2000;
   const result: NativeObservation = {
     version: 1,
     resultVersion: info.resultVersion?.id ?? null,
@@ -719,6 +721,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       data,
       flow,
       maxChars,
+      completeSmallTableChars: context.completeSmallTableChars,
       maxRows: context.maxRows,
       detail: context.detail,
       columns: context.columns ? [...context.columns] : undefined,
@@ -776,6 +779,11 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       )
     );
   const table = [schemaLine(schema), "Complete table (all rows):", ...rows.map(row => rowLine(row, schema))].join("\n");
+  const needed = used(lines) + table.length;
+  if (complete && rows.length <= 20 && needed > maxChars && needed <= (context.completeSmallTableChars ?? 0)) {
+    maxChars = needed;
+    result.options.maxChars = maxChars;
+  }
   const completeVisible = complete && append(table, "table.complete");
   const evidence = collectNativeEvidence(context);
   result.omitted.push(...evidence.omissions.map(id => ({ id, reason: "unavailable" as const })));

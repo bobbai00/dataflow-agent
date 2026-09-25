@@ -71,6 +71,8 @@ export interface NativeOpView {
   source?: string;
   /** Top-level `def` sources the statement refers to, by name. */
   functions?: Record<string, string>;
+  /** A fork owns its callable definitions; later default-function edits cannot change them. */
+  analysisBranch?: { root: string; origin: string; task?: number };
   /** Multi-task: inputs as written, in port order. A string is a current table;
    * `{operator, atTask}` is that table's output retained at the end of task N,
    * served by a runtime-owned source whose id stands in `inputs`. */
@@ -87,13 +89,15 @@ export type ParsedValue =
   | { kind: "dict"; entries: Array<[string, ParsedValue]> }
   | { kind: "name"; name: string }
   | { kind: "call"; name: string; args: ParsedValue[]; kwargs: Record<string, ParsedValue>; source: string }
-  | { kind: "lambda"; params: string[]; body: string; source: string };
+  | { kind: "lambda"; params: string[]; body: string; source: string; references?: string[] };
 
 export interface ParsedFunction {
   name: string;
   params: string[];
   source: string;
   line: number;
+  /** Python global reads; missing only for legacy callers or invalid signatures. */
+  references?: string[];
 }
 
 export interface ParsedStatement {
@@ -106,7 +110,7 @@ export interface ParsedStatement {
   kwargs: Record<string, ParsedValue>;
   /** Identifier arguments with their (line, column) spans in `source`, for
    * rewriting ids in place; not part of what identifies a submission. */
-  names?: Array<{ name: string; span: [number, number, number, number] }>;
+  names?: Array<{ name: string; span: [number, number, number, number]; argumentIndex?: number }>;
 }
 
 /** A function slot: Python source defining exactly one entry function. */
@@ -266,7 +270,7 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
     // Parenthesize so a lambda body that spans lines stays one return expression.
     // Program functions the body calls travel with it, as they do for a `def`.
     const body = value.body.includes("\n") ? `(\n${value.body}\n    )` : value.body;
-    const helpers = referencedFunctions(value.body, context.functions);
+    const helpers = referencedFunctions(value.body, context.functions, value.references);
     for (const helper of helpers)
       context.used({ source: helper.source, entry: helper.name, params: helper.params, ref: helper.name });
     return {
@@ -303,24 +307,32 @@ function functionSlot(value: ParsedValue, field: string, context: NormalizeConte
 }
 
 /** The program functions a piece of source names, transitively, dependencies first. */
-export function referencedFunctions(source: string, functions: Record<string, ParsedFunction>): ParsedFunction[] {
+export function referencedFunctions(
+  source: string,
+  functions: Record<string, ParsedFunction>,
+  references?: string[]
+): ParsedFunction[] {
   const ordered: ParsedFunction[] = [];
   const seen = new Set<string>();
-  const visit = (text: string, self?: string) => {
+  const visit = (text: string, self?: string, names?: string[]) => {
     for (const [name, other] of Object.entries(functions)) {
-      if (name === self || seen.has(name) || !new RegExp(`\\b${name}\\b`).test(text)) continue;
+      if (name === self || seen.has(name) || !(names ? names.includes(name) : new RegExp(`\\b${name}\\b`).test(text)))
+        continue;
       seen.add(name);
-      visit(other.source, name);
+      visit(other.source, name, other.references);
       ordered.push(other);
     }
   };
-  visit(source);
+  visit(source, undefined, references);
   return ordered;
 }
 
 /** `fn` plus the program functions its source names, dependencies first. */
 export function functionClosure(fn: ParsedFunction, functions: Record<string, ParsedFunction>): ParsedFunction[] {
-  return [...referencedFunctions(fn.source, { ...functions, [fn.name]: fn }).filter(f => f.name !== fn.name), fn];
+  return [
+    ...referencedFunctions(fn.source, { ...functions, [fn.name]: fn }, fn.references).filter(f => f.name !== fn.name),
+    fn,
+  ];
 }
 
 /** Reject unknown keywords with the list of accepted ones. */
@@ -883,6 +895,37 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       return { code: slot.source, entry: slot.entry, doc: docText("process", kwargs.doc, "what the function does") };
     },
   },
+  {
+    name: "parameters",
+    type: "Parameters",
+    inputs: 0,
+    rowEffect: "create",
+    signature: 'parameters(weight=0.5, threshold=10, unit="fraction", ...)',
+    doc: 'One row of named scalar parameters (numbers, strings, booleans or null). Pass this table to process alongside the data; read values with params.iloc[0]["weight"]. Reassign the same table to update dependent analyses. Use another parameter table for a temporary scenario. Store adjustable assumptions here instead of copying constants into several functions.',
+    schema: object(
+      {
+        values: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: { type: ["string", "number", "boolean", "null"] },
+        },
+      },
+      ["values"]
+    ),
+    normalize(rest, kwargs) {
+      noPositional("parameters", rest, "named scalar keyword arguments");
+      if (!Object.keys(kwargs).length) fail("parameters needs at least one named scalar value.");
+      return {
+        values: Object.fromEntries(
+          Object.entries(kwargs).map(([name, value]) => {
+            if (value.kind !== "const" || (typeof value.value === "number" && !Number.isFinite(value.value)))
+              return fail(`Parameter ${name} must be a finite scalar literal.`, name);
+            return [name, value.value];
+          })
+        ),
+      };
+    },
+  },
 ];
 
 export const NATIVE_BY_NAME: ReadonlyMap<string, NativeOperatorDef> = new Map(NATIVE_OPERATORS.map(d => [d.name, d]));
@@ -898,8 +941,14 @@ export function nativeOperatorName(type: string): string {
 }
 
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
-export function nativeCatalogText(): string {
-  return NATIVE_OPERATORS.map(d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${d.doc}`).join("\n\n");
+export function nativeCatalogText(options: { analysisState?: boolean } = {}): string {
+  return NATIVE_OPERATORS.map(d => {
+    const doc =
+      options.analysisState && d.name === "process"
+        ? "A reusable Python analysis component. One pandas DataFrame per declared input, one returned DataFrame with unique string columns and scalar cells. Imports belong inside functions. Shared functions persist. Standard pandas transformations may be grouped into a coherent component, with inputs for data, membership and parameter tables. Keep revisable assumptions and useful intermediate outputs separate; return score components alongside totals."
+        : d.doc;
+    return `${d.inputs === 0 ? "T" : "T2"} = ${d.signature}\n    ${doc}`;
+  }).join("\n\n");
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.
@@ -932,14 +981,17 @@ export function historyReferenceOf(value: ParsedValue | undefined): { operator: 
 export function splitInputs(
   def: NativeOperatorDef,
   args: ParsedValue[],
-  functions: Record<string, ParsedFunction>
+  functions: Record<string, ParsedFunction>,
+  tableNames?: ReadonlySet<string>
 ): { inputs: string[]; rest: ParsedValue[]; references: TaskInput[] } {
   // A table is a name, or `at(name, task=N)` for that table as saved at a task.
   // Inputs carry the id that serves it; references keep what was written.
   const reference = (value: ParsedValue | undefined): TaskInput | undefined => {
     const saved = historyReferenceOf(value);
     if (saved) return saved;
-    return value && value.kind === "name" && !(value.name in functions) ? value.name : undefined;
+    return value && value.kind === "name" && (tableNames?.has(value.name) || !(value.name in functions))
+      ? value.name
+      : undefined;
   };
   const idOf = (ref: TaskInput) => (typeof ref === "string" ? ref : taskInputId(ref));
   // An operator call where a table belongs gets the one-operator-per-statement rule spelled out.

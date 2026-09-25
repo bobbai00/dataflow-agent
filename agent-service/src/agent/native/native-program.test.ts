@@ -376,6 +376,33 @@ i = process(source, fn=lambda a, b: a)
 });
 
 describe("generated Python", () => {
+  test("400 small operators fit the workflow API string limit and remain independently executable", () => {
+    const operators = Array.from({ length: 400 }, (_, i) => ({
+      operatorID: `policy_${i}`,
+      operatorProperties: {
+        code: compileNativeOp(
+          { type: "Parameters", inputs: [], properties: { values: { coefficient: i, label: "café", active: true } } },
+          `policy_${i}`
+        ).code,
+      },
+    }));
+    // The deployed workflow API puts the entire graph in one JSON string;
+    // Jackson's default read constraint is 20,000,000 characters.
+    expect(JSON.stringify({ operators }).length).toBeLessThan(20_000_000);
+    const result = spawnSync(
+      python,
+      [
+        "-I",
+        "-c",
+        "import sys; scope={}; exec(sys.stdin.read(),scope); print(scope['load']().to_json(orient='records'))",
+      ],
+      { input: operators[399].operatorProperties.code, encoding: "utf8", timeout: 30_000 }
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([{ coefficient: 399, label: "café", active: true }]);
+  });
+
   test("the compiler keeps the identifier and port guards", () => {
     for (const inputs of [[], ["source", "extra"], ["not-an-id"], ["x): pass #"]]) {
       expect(() => compileNativeOp({ type: "Project", inputs, properties: { keep: ["x"] } }, "answer")).toThrow();

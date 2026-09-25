@@ -179,6 +179,12 @@ export interface AgentSettings {
   nativeTaskCache?: boolean;
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
+  /** Shared analysis definitions, input-bound forks and bounded task memory. */
+  nativeAnalysisState?: boolean;
+  /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
+  nativeTaskEfficiency?: boolean;
+  /** Character budget for completed-task memory in analysis-state mode. */
+  nativeTaskMemoryChars?: number;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -530,6 +536,9 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeTaskContext: false,
   nativeTaskCache: true,
   nativeTaskRestore: true,
+  nativeAnalysisState: false,
+  nativeTaskEfficiency: false,
+  nativeTaskMemoryChars: 24000,
   dataEvidence: false,
   flowEvidence: false,
   dataflowReasoning: false,
@@ -654,6 +663,12 @@ export interface AgentSettingsApi {
   nativeTaskCache?: boolean;
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
+  /** Shared analysis definitions, input-bound forks and bounded task memory. */
+  nativeAnalysisState?: boolean;
+  /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
+  nativeTaskEfficiency?: boolean;
+  /** Character budget for completed-task memory in analysis-state mode. */
+  nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
@@ -762,6 +777,12 @@ export interface UpdateAgentSettingsRequest {
   nativeTaskCache?: boolean;
   /** The dataflow tool's `restore` step and the state-pattern guidance in the prompt. */
   nativeTaskRestore?: boolean;
+  /** Shared analysis definitions, input-bound forks and bounded task memory. */
+  nativeAnalysisState?: boolean;
+  /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
+  nativeTaskEfficiency?: boolean;
+  /** Character budget for completed-task memory in analysis-state mode. */
+  nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;

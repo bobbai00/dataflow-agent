@@ -585,8 +585,12 @@ BEGIN
   LOOP
     -- Create PGroonga index with proper TokenFilterStem usage
     EXECUTE format(
-      'CREATE INDEX idx_%s_pgroonga ON %I USING pgroonga (%s) WITH (tokenizer = ''TokenMecab''%s);',
-      r.tablename, r.tablename, r.index_column, stem_filter
+      'CREATE INDEX idx_%s_pgroonga ON %I USING pgroonga (%s) WITH (tokenizer = %L%s);',
+      r.tablename, r.tablename, r.index_column,
+      CASE WHEN r.tablename = 'workflow'
+        THEN 'TokenMecab("chunked_tokenize", true)'
+        ELSE 'TokenMecab' END,
+      stem_filter
     );
   END LOOP;
 END $$;

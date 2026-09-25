@@ -1,0 +1,28 @@
+{
+  "method": "Recompile only generated native Python in archived long workflows, preserving their logical definitions; save as separate temporary unexecuted workflows; retrieve exact content; delete temporary workflows. Original artifacts are unchanged. This is a storage check, not accuracy evidence.",
+  "outcomes": [
+    {
+      "arm": "react-analysis",
+      "source": "benchmark/longds/system_scratch/LongDS_IsolationInterrupted_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t41/workflow.json",
+      "source_sha256": "98da9acb5933f10655741b2e62ad11fb72d01ada5dd07cb3725d33c0cb1cd175",
+      "original_content_chars": 20198704,
+      "compact_content_chars": 6762148,
+      "operators": 206,
+      "recompiled": 206,
+      "round_trip": true,
+      "executed": false
+    },
+    {
+      "arm": "react-entries",
+      "source": "benchmark/longds/system_scratch/LongDS_IsolationInterrupted_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t33/workflow.json",
+      "source_sha256": "82b35401befa77848b373ae4dc23a6e713cf632ae0b5742c8aa91d30246cebab",
+      "original_content_chars": 39702561,
+      "compact_content_chars": 12698997,
+      "operators": 414,
+      "recompiled": 414,
+      "round_trip": true,
+      "executed": false
+    }
+  ],
+  "rechecked_final_worktree_utc": "2026-09-24T16:54:59Z"
+}

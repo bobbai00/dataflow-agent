@@ -169,6 +169,7 @@ def _validate_function(spec, source, field, entry, parameters=None):
 
 
 ROW_EFFECTS = {
+    "Parameters": "create",
     "Scan": "create",
     "Project": "none",
     "Cast": "none",
@@ -199,7 +200,7 @@ def validate_native(spec):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
     if len(set(inputs)) != len(inputs) and kind != "Join":
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
-    expected = 0 if kind == "Scan" else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
+    expected = 0 if kind in ("Scan", "Parameters") else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
         raise _error(spec, "INPUT_PORTS", f"{kind} requires {expected} input ports.", stage="validate")
     if kind == "Union" and len(inputs) < 2:
@@ -318,6 +319,15 @@ def validate_native(spec):
             )
     elif kind == "Join":
         _join_keys(spec)
+    elif kind == "Parameters":
+        values = props.get("values")
+        if not isinstance(values, dict) or not values or any(
+            not isinstance(name, str) or not name or
+            (value is not None and type(value) not in (str, int, float, bool)) or
+            (type(value) is float and not math.isfinite(value))
+            for name, value in (values or {}).items()
+        ):
+            raise _error(spec, "PARAMETER_VALUE", "Parameters require named finite scalar values.", stage="validate")
     elif kind == "Scan":
         _validate_scan_options(spec, None if props.get("format", "auto") == "auto" else props["format"])
     elif kind == "Window":
@@ -1805,7 +1815,9 @@ def execute_native(spec, inputs):
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}
-    if kind == "Scan":
+    if kind == "Parameters":
+        output = pd.DataFrame([props["values"]])
+    elif kind == "Scan":
         output = _scan(spec, operations)
     elif kind == "Map":
         output = _map(spec, source, operations)

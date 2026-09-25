@@ -130,7 +130,7 @@ metals.sbt
 values-*.yaml    # Any environment-specific value overrides
 
 # Ignore nested node modules
-**/node_modules/
+**/node_modules
 **/package-lock.json
 .env
 
@@ -169,9 +169,10 @@ agent-service/benchmark/context-ml/cross_model_report.json
 agent-service/benchmark/context-ml/training_data_*.csv
 
 # Benchmark artifacts (benchmark/bench.sh) — data and run outputs, never sources
-/benchmark/longds/DataMind/
-/benchmark/longds/prepared/
-/benchmark/longds/system_scratch/
+/benchmark/longds/DataMind
+/benchmark/longds/prepared
+/benchmark/longds/system_scratch
+/benchmark/longds/official-matrix/
 /amber/data
 
 # local run artifacts

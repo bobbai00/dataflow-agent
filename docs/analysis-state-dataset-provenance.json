@@ -1,0 +1,185 @@
+{
+  "checked_at_utc": "2026-09-24T12:18:37.165546+00:00",
+  "upstream_current_revision": "bf41bb28474fa9540d98922a6f5e6310ed014e51",
+  "local_task_root": "benchmark/longds/DataMind/longds/dataset/task/longds",
+  "tasks": [
+    {
+      "task": "business/goodbooks_10k/task1",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "91de12739d9a41b700a3b7b4d2061dea7020127b7af2fa9e797068da7ca26144",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/business/goodbooks_10k/task1/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 35,
+          "remote_turns": 35
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/business/goodbooks_10k/task1/task.json",
+          "same_public_prompts": false,
+          "same_full_json": false,
+          "changed_prompt_turns": [
+            24
+          ],
+          "local_turns": 35,
+          "remote_turns": 35
+        }
+      }
+    },
+    {
+      "task": "community/kaggle-survey-2022/task2",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "714b65d74aa2026b8a2ec86477de3cf7d766905124c82cb3d6875c2c9010dc0c",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/community/kaggle-survey-2022/task2/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 30,
+          "remote_turns": 30
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/community/kaggle-survey-2022/task2/task.json",
+          "same_public_prompts": false,
+          "same_full_json": false,
+          "changed_prompt_turns": [
+            2,
+            4
+          ],
+          "local_turns": 30,
+          "remote_turns": 30
+        }
+      }
+    },
+    {
+      "task": "education/bi/task2",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "b37ec80e763aeadf10f88f37634f42695ebb3d2d5c5a55920cbecf80db29354f",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/education/bi/task2/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 30,
+          "remote_turns": 30
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/education/bi/task2/task.json",
+          "same_public_prompts": true,
+          "same_full_json": false,
+          "changed_prompt_turns": [],
+          "local_turns": 30,
+          "remote_turns": 30
+        }
+      }
+    },
+    {
+      "task": "geoscience/water-potability/task3",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "b74d95861245371f56c4b996a3b565dfc65f41ce4adec3cb1bcb3fca26789f46",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/geoscience/water-potability/task3/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 36,
+          "remote_turns": 36
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/geoscience/water-potability/task3/task.json",
+          "same_public_prompts": false,
+          "same_full_json": false,
+          "changed_prompt_turns": [
+            12,
+            14,
+            17,
+            21,
+            24,
+            27,
+            31,
+            34,
+            35
+          ],
+          "local_turns": 36,
+          "remote_turns": 36
+        }
+      }
+    },
+    {
+      "task": "social_good/data_science_for_good_city_of_los_angeles/task1",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "de7d2ac897b7d5a53946baa33ed860760279ab1da2e96374dbfe3094ef6d5102",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/social_good/data_science_for_good_city_of_los_angeles/task1/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 36,
+          "remote_turns": 36
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/social_good/data_science_for_good_city_of_los_angeles/task1/task.json",
+          "same_public_prompts": false,
+          "same_full_json": false,
+          "changed_prompt_turns": [
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            9,
+            10,
+            11,
+            17,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32
+          ],
+          "local_turns": 36,
+          "remote_turns": 36
+        }
+      }
+    },
+    {
+      "task": "sports/nfl_big_data_bowl_2023/task1",
+      "download_revision": "da28ee1fbe515cb298580fa06c02ac2d5b8dc274",
+      "source_json_sha256": "f7798735b830847a4d27ab72209ddf961edc9bde82530fd76cc4316e69b100a9",
+      "current": {
+        "v1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1/sports/nfl_big_data_bowl_2023/task1/task.json",
+          "same_public_prompts": true,
+          "same_full_json": true,
+          "changed_prompt_turns": [],
+          "local_turns": 42,
+          "remote_turns": 42
+        },
+        "v1.1": {
+          "url": "https://huggingface.co/datasets/zjunlp/LongDS/resolve/bf41bb28474fa9540d98922a6f5e6310ed014e51/task/longds_v1.1/sports/nfl_big_data_bowl_2023/task1/task.json",
+          "same_public_prompts": false,
+          "same_full_json": false,
+          "changed_prompt_turns": [
+            1,
+            25,
+            42
+          ],
+          "local_turns": 42,
+          "remote_turns": 42
+        }
+      }
+    }
+  ]
+}

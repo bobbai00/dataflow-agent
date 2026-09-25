@@ -1,0 +1,25 @@
+{
+  "workflow": 249,
+  "executed": false,
+  "outcomes": [
+    {
+      "serialized_content_chars": 19000056,
+      "round_trip": true,
+      "error": null
+    },
+    {
+      "serialized_content_chars": 21000056,
+      "round_trip": false,
+      "error": "Error: Failed to persist workflow: 400 Bad Request - {\"code\":400,\"message\":\"Unable to process JSON\"}"
+    }
+  ],
+  "method": "Persist a newly created, unexecuted synthetic workflow at two sizes, retrieve exact content after success, and delete the temporary workflow in finally.",
+  "interpretation": "The HTTP boundary matches the deployed Jackson library's 20,000,000-character string limit. The workflow API submits all workflow JSON as one content string. A standalone probe with that exact deployed jackson-core jar reproduces the constraint exception.",
+  "local_jackson_probe": {
+    "jar": "com.fasterxml.jackson.core.jackson-core-2.18.8.jar",
+    "default_max_string_length": 20000000,
+    "19000000": "accepted",
+    "21000000": "StreamConstraintsException: String value length exceeds maximum allowed 20000000",
+    "server_configuration": "TexeraWebApplication registers DefaultScalaModule; no StreamReadConstraints override found in amber/common sources."
+  }
+}

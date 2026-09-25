@@ -45,6 +45,7 @@ import keyword
 import re
 import json
 import sys
+import symtable
 
 
 class ProgramError(Exception):
@@ -58,6 +59,23 @@ class ProgramError(Exception):
 def _segment(program, node):
     text = ast.get_source_segment(program, node)
     return text if text is not None else ""
+
+
+def _references(source, expression=False):
+    """Global reads, including nested functions but excluding columns, methods,
+    parameters and local imports. Analyze Python scope without executing it."""
+    try:
+        scope = symtable.symtable(f"({source})" if expression else source, "<native>", "eval" if expression else "exec")
+    except SyntaxError:
+        # Leave invalid signatures to the existing per-operator validator.
+        return {}
+    names = set()
+    def visit(table):
+        names.update(s.get_name() for s in table.get_symbols() if s.is_global() and s.is_referenced())
+        for child in table.get_children():
+            visit(child)
+    visit(scope)
+    return {"references": sorted(names)}
 
 
 def _encode(program, node):
@@ -108,6 +126,7 @@ def _encode(program, node):
             "params": [arg.arg for arg in params.args],
             "body": _segment(program, node.body),
             "source": _segment(program, node),
+            **_references(_segment(program, node), expression=True),
         }
     raise ProgramError(node.lineno, f"Unsupported expression {_segment(program, node)!r}.", node.col_offset)
 
@@ -117,11 +136,12 @@ def _name_spans(call, statement):
     and dicts too) with their (line, column) spans relative to the statement."""
     spans = []
 
-    def walk(node):
+    def walk(node, argument_index=None):
         if isinstance(node, ast.Name):
             spans.append(
                 {
                     "name": node.id,
+                    **({"argumentIndex": argument_index} if argument_index is not None else {}),
                     "span": [
                         node.lineno - statement.lineno + 1,
                         node.col_offset - (statement.col_offset if node.lineno == statement.lineno else 0),
@@ -132,13 +152,13 @@ def _name_spans(call, statement):
             )
         elif isinstance(node, (ast.List, ast.Tuple)):
             for item in node.elts:
-                walk(item)
+                walk(item, argument_index)
         elif isinstance(node, ast.Dict):
             for value in node.values:
-                walk(value)
+                walk(value, argument_index)
 
-    for item in call.args:
-        walk(item)
+    for index, item in enumerate(call.args):
+        walk(item, index)
     for keyword in call.keywords:
         walk(keyword.value)
     return spans
@@ -272,6 +292,7 @@ def _collect(text, tree, offset, statements, functions, errors):
                     "params": [arg.arg for arg in node.args.posonlyargs + node.args.args],
                     "source": _segment(text, node),
                     "line": node.lineno + offset,
+                    **_references(_segment(text, node)),
                 }
                 continue
             if isinstance(node, ast.AsyncFunctionDef):

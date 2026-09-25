@@ -22,12 +22,13 @@ import { mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { nativeTestSession } from "../e2e/native-test-session";
 import { runAgentTurn } from "../../src/api";
+import { checkedTurn } from "./checked-turn";
 
 /** A saved-table read in a submitted program: `at(name, task=N)` or `at(name, N)`. */
 const HISTORY_REFERENCE = /\bat\(\s*[A-Za-z_]\w*\s*,\s*(?:task\s*=\s*)?\d+\s*\)/g;
 
 const [promptsPath, outPath, arm = "react-catalog", model = "gpt-5.6-luna"] = process.argv.slice(2);
-const ARMS = ["react-full", "react-catalog", "react-entries", "react-restore"];
+const ARMS = ["react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient"];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
 const out = resolve(outPath);
@@ -39,12 +40,15 @@ const settings = {
   nativeProfileCollection: true,
   dataEvidence: true,
   flowEvidence: true,
-  // react-catalog: entries without the restore step (the memory and cache change alone);
-  // react-entries is its alias; react-restore adds the restore step and the state gestures.
+  // Catalog uses completed entries; entries/restore also expose restoration.
+  // Analysis uses bounded task memory and dependency forks instead.
   nativeTaskContext: arm !== "react-full",
   nativeTaskHistory: true,
-  // The restore step and the state gestures, for every arm that reads entries.
+  // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
+  nativeAnalysisState: arm === "react-analysis" || arm === "react-efficient",
+  nativeTaskEfficiency: arm === "react-efficient",
+  nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
   // LongDS's own per-turn cap, as upstream's DSGym runner uses.
@@ -64,12 +68,19 @@ const settings = {
   userTaskPlacement: "top" as const,
 };
 const session = await nativeTestSession(settings, model);
+const actualSettings = await session.settings();
+for (const key of ["nativeTaskEfficiency", "nativeAnalysisState", "nativeTaskContext"] as const) {
+  if (actualSettings[key] !== settings[key]) {
+    await session.close();
+    throw new Error(`Agent did not apply ${key}: expected ${settings[key]}, got ${actualSettings[key]}`);
+  }
+}
 const write = (path: string, value: unknown) => Bun.write(`${out}/${path}`, JSON.stringify(value, null, 2));
 await write("config.json", {
   arm,
   model,
   protocol: "longds-official",
-  settings: await session.settings(),
+  settings: actualSettings,
   service: session.baseUrl,
   engine: process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
   cost_rates_usd_per_million: { input: 0.2, cached_input: 0.02, cache_write: 0.25, output: 1.2 },
@@ -84,18 +95,21 @@ try {
     mkdirSync(`${out}/${directory}`);
     await write(`${directory}/prompt.json`, turn);
     const start = Date.now();
-    let answer = "";
-    let error: string | undefined;
-    try {
-      const result = await runAgentTurn(session.agentId, turn.prompt, {
-        baseUrl: session.baseUrl,
-        timeoutMs: 1_200_000,
-      });
-      answer = result.finalAnswer ?? "";
-    } catch (failure) {
-      error = String(failure);
-      await session.request(`/${session.agentId}/stop`, "POST");
-    }
+    const { answer, error, canContinue } = await checkedTurn(
+      () => runAgentTurn(session.agentId, turn.prompt, { baseUrl: session.baseUrl, timeoutMs: 1_200_000 }),
+      async () => {
+        const stopped = await session.request(`/${session.agentId}/stop`, "POST");
+        if (!stopped.ok) throw new Error(`Stop failed: HTTP ${stopped.status}`);
+        const deadline = Date.now() + 300_000;
+        while (Date.now() < deadline) {
+          const response = await session.request(`/${session.agentId}`);
+          if (!response.ok) throw new Error(`Read state failed: HTTP ${response.status}`);
+          if (((await response.json()) as { state: string }).state === "AVAILABLE") return;
+          await Bun.sleep(250);
+        }
+        throw new Error("Session still active five minutes after stop");
+      }
+    );
     await write(`${directory}/answer.json`, { answer, error });
     const all = (await session.trace()).steps;
     const steps = all.slice(prior);
@@ -128,11 +142,19 @@ try {
             (String((c.input as any)?.edits ?? (c.input as any)?.program ?? "").match(HISTORY_REFERENCE) ?? []).length,
           0
         ),
+      inspection_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => ((c.input as any)?.inspect?.length ?? 0) > 0)
+        .length,
+      recall_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => ((c.input as any)?.recall?.length ?? 0) > 0)
+        .length,
+      fork_requests: steps
+        .flatMap(s => s.toolCalls ?? [])
+        .reduce((n, c) => n + ((c.input as any)?.fork?.length ?? 0), 0),
     };
     await write(`${directory}/stats.json`, stats);
     answers.push({ turn_id: turn.turn_id, answer, error, steps: steps.length, stats });
     await write("answers.json", answers);
     console.log(JSON.stringify({ arm, model, turn: turn.turn_id, ...stats }));
+    if (!canContinue) break;
   }
 } finally {
   await write("answers.json", answers);

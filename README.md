@@ -151,6 +151,8 @@ An agent created with no `settings` uses
 | `flowEvidence` | `false` | opt-in `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, operator contracts) in observed results |
 | `dataflowReasoning` | `false` | the `dataflow` tool takes a required `reasoning` argument, written first: why this call and what the observed tables should show; it is replayed with the call |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
+| `nativeAnalysisState` | `false` | experimental shared functions, dependency-aware scenario forks, and exact definition inspection in native mode |
+| `nativeTaskMemoryChars` | `24000` | completed-task memory budget when analysis state and task context are enabled; current-turn context and explicit recall have separate costs |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxOperatorResultCellCharLimit` | `2000` | long cells are clipped and marked |
 | `maxSteps` | `100` | per-turn step budget |
@@ -159,7 +161,12 @@ An agent created with no `settings` uses
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 | layout | flat | `sessionTurns` / `versionedMode` / `turnHistory: "index"` all off |
 
-Every knob can also be changed live with `PATCH /api/agents/:id/settings`.
+Settings are available through `PATCH /api/agents/:id/settings`; collection
+cannot change on an existing workflow, and analysis state cannot change during
+an active task. The [analysis-state experiment](docs/analysis-state-implementation.md)
+documents the complete multi-turn configuration, historical values, scenario
+semantics, and six-domain accuracy/cost results. It remains opt-in because the
+first comparison did not meet its accuracy/cost target.
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
 `allowedOperatorTypes`, `agentMode: "general"`, and the old level/statistics
 overlays) are rejected with an error, not translated. `inspectResult` is not a

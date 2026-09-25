@@ -1,0 +1,42 @@
+{
+  "scope": "Read-only counterfactual changing only whitespace handling in the submitted class-code regex. No change to the running policy or benchmark scores. Does not replay downstream rankings.",
+  "patterns": {
+    "submitted": "Class Code: ([^\\s]+)",
+    "whitespace_only_correction": "Class Code:\\s+([^\\s]+)"
+  },
+  "files": 683,
+  "missing_class_codes": {
+    "submitted": 649,
+    "whitespace_only_correction": 2
+  },
+  "changed_extractions": 653,
+  "examples": [
+    {
+      "file": "311 DIRECTOR  9206 041814.txt",
+      "submitted": null,
+      "whitespace_only_correction": "9206"
+    },
+    {
+      "file": "ACCOUNTANT 1513 062218.txt",
+      "submitted": null,
+      "whitespace_only_correction": "1513"
+    },
+    {
+      "file": "ACCOUNTING CLERK 1223 071318.txt",
+      "submitted": null,
+      "whitespace_only_correction": "1223"
+    },
+    {
+      "file": "ACCOUNTING RECORDS SUPERVISOR 1119 072718.txt",
+      "submitted": null,
+      "whitespace_only_correction": "1119"
+    },
+    {
+      "file": "ADMINISTRATIVE ANALYST 1590 060118.txt",
+      "submitted": null,
+      "whitespace_only_correction": "1590"
+    }
+  ],
+  "source_digest_sha256": "1c7167ede9acf132d12376e97a158686686a0add97e9a935f823bdc7fabdca54",
+  "trace_sha256": "acdb9d4d1c4a8296a912b181b54ee3ed8ba999a94c61ecaeec223db14efd2867"
+}

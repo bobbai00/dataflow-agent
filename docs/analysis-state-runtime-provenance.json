@@ -1,0 +1,153 @@
+{
+  "captured_utc": "2026-09-24T14:39:14Z",
+  "scope": "Frozen native R3 policy and final isolated harness, before post-evaluation correctness fixes and header normalization. Earlier setup revisions are retained in protocol hashes and separately excluded when invalid.",
+  "runtime": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "c712bbff13b4dbfa0192ff4cbfe6c4febfa1f8edd868d22875622e7e7862064b"
+  },
+  "archive": "benchmark/longds/official-matrix/isolated-20260924-resumed/r3-runtime.tar.gz",
+  "archive_sha256": "4e6c0f694a5500772bd2cfefd559ebad5b8a201d42bcc2b9bfed48961a804024",
+  "files": 254,
+  "critical_files": {
+    "benchmark/longds/dsgym_executor.py": "e722dd95783fa0fe421c8406c5ab618d8730dc9e6c7e1d73b7dab3a866376b8c",
+    "benchmark/longds/dsgym_agent.py": "1939f00f468725aa89487adb8602d622027e5cc5c41e4fbc97339e182a78799d",
+    "benchmark/longds/run_official.py": "dfadd88b75fbde91bd8905ce61c863c269e11dc06132153114fd2eb6f4a4fc33",
+    "benchmark/longds/execution_isolation.py": "3454e2d3294a090c3386362662fb8f676727d8b362381c1926486d70d8a8395a",
+    "benchmark/longds/native_isolated_python.py": "e7894a8c2aec30c21aa0f45db3edcc3f7bc706bb14a0760417a47c239289a5be",
+    "agent-service/src/agent/native/analysis-state.ts": "495ed3850a2aba5c8ed5d7c90816c4b2822457cc5d3fe44503d46bdd29a224d6",
+    "agent-service/src/agent/native/analysis-memory.ts": "7148911ffbc6ada5f7046c7ac6a08ab7fbb7ebb9904799aa0821d88133e30670"
+  },
+  "post_evaluation_changes": [
+    {
+      "change": "Fork replacement applies only to positional table inputs; function names and dtype names are preserved. Unsupported async corrections block consumers and descendants.",
+      "evidence": "Four added analysis-state regression tests; real-engine fork smoke.",
+      "accuracy_re_evaluated": false
+    },
+    {
+      "change": "Compress the embedded generated Python runtime once and decompress exact bytes in independently executable physical operators.",
+      "evidence": "400-operator size/execution regression; real-engine state smoke; exact backend round trips of two large archived graphs.",
+      "accuracy_re_evaluated": false
+    },
+    {
+      "change": "Normalize ASF source/generated-reference headers and correct two existing configuration comments.",
+      "accuracy_re_evaluated": false
+    },
+    {
+      "change": "Preserve SDK tool-error outcomes in the driver callback so thrown tool exceptions reach the assembled observation instead of an empty ok.",
+      "evidence": "Two failing regression tests before the fix; 1,145 passing Bun tests and TypeScript after the fix. A reproduced restart-interpreter failure is documented separately.",
+      "accuracy_re_evaluated": false
+    }
+  ],
+  "updated_utc": "2026-09-24T19:22:22.138612+00:00",
+  "final_runtime": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "93b940b273f822d6467bff55bcf68e4a0bc429af4ce10548853994d0a471a785"
+  },
+  "changed_runtime_files_since_frozen": [
+    {
+      "path": "agent-service/benchmark/multiturn/run-longds-turns.ts",
+      "frozen_sha256": "d4085c25092db974e959079dbcf3e8c56a5d62cd6df68e5f7249ca9aa393481b",
+      "final_sha256": "d9b30c52fa115e3e101c633a48c4bb82e4a83fc723617114e64f2b125e97989d"
+    },
+    {
+      "path": "agent-service/src/agent/llm-drivers/vercel-tool-use-driver.test.ts",
+      "frozen_sha256": "61481dabaefedc741cf22fa55cd1c80821dc77f8818bf435b6087a8a2afac40d",
+      "final_sha256": "5ea00952cc819b7aaacf0e6fa264b6739e274ad8d17ca6618e9177e5bddb0000"
+    },
+    {
+      "path": "agent-service/src/agent/llm-drivers/vercel-tool-use-driver.ts",
+      "frozen_sha256": "55b428fc51195b8a40c4546a0273df6d83ac0012b656b66e5ccfe86d928c57a1",
+      "final_sha256": "921b2851a6406d4850ab9ec96a9e8711603aa5debe5db45605b86aa23aaf3481"
+    },
+    {
+      "path": "agent-service/src/agent/native/analysis-state.test.ts",
+      "frozen_sha256": "fafc2356f5ed73254115fa74c47a365c1afc43780e9a2cf597c92acf8270ab24",
+      "final_sha256": "7cf895638edae3aecdd96f41bb993a9857ab9f2421316c981cdfdec2eb5d9def"
+    },
+    {
+      "path": "agent-service/src/agent/native/analysis-state.ts",
+      "frozen_sha256": "495ed3850a2aba5c8ed5d7c90816c4b2822457cc5d3fe44503d46bdd29a224d6",
+      "final_sha256": "181664492f8e53300f20ad70ab7b6aefb5d8309769f65c11a1ec43c978cf1bdc"
+    },
+    {
+      "path": "agent-service/src/agent/native/catalog.ts",
+      "frozen_sha256": "86204f5e0a821dd01457c0d516cc9193eba7330362f00221c71f86a91d021668",
+      "final_sha256": "95d599ad58bf3e21371c77c8403fb4b66f030c0b6905dea40a0268c56497c7f4"
+    },
+    {
+      "path": "agent-service/src/agent/native/codegen.ts",
+      "frozen_sha256": "9910d2b01d224de156378d035364cb4a20a8a434d132f018be108388a34441bc",
+      "final_sha256": "0a07fe55999825f9d975a6d7fa53f5ad4937047f4e3b9d10a7fa425d8d45d394"
+    },
+    {
+      "path": "agent-service/src/agent/native/native-program.test.ts",
+      "frozen_sha256": "bcf71bb55e38f85826c7b5a75c21b605446d50c028b7d6eb46e80aaadd9c85bf",
+      "final_sha256": "c8309c2d34691c0445fa8d1a7927d42928b6be5c7425c77a818027222859fd82"
+    },
+    {
+      "path": "agent-service/src/agent/native/python/program_parser.py",
+      "frozen_sha256": "2b3ad169e396bc80cd88b0cbf3410ca756f50debc7ec41646dfd91f9a2e4da67",
+      "final_sha256": "248e66cfdbdd51d026351e0257fc6aa5089cc7f368a8a065940d13c0f6dc2267"
+    },
+    {
+      "path": "agent-service/src/agent/native/settings.ts",
+      "frozen_sha256": "86ec24fd53089f37efd8fc3d7a4d9991a5383f64f190ec863626b91047010b5d",
+      "final_sha256": "937926eb3a9f5a4c1f95ee506a9a0940d7cd769095440461c2d698f01545c6a4"
+    },
+    {
+      "path": "benchmark/longds/dsgym_agent.py",
+      "frozen_sha256": "1939f00f468725aa89487adb8602d622027e5cc5c41e4fbc97339e182a78799d",
+      "final_sha256": "fd2dc9d35bc9926f8f64bab8871c16b9e999984786519214353ffdb0d50d31c9"
+    },
+    {
+      "path": "benchmark/longds/dsgym_executor.py",
+      "frozen_sha256": "e722dd95783fa0fe421c8406c5ab618d8730dc9e6c7e1d73b7dab3a866376b8c",
+      "final_sha256": "1f3c852d617ffb45d1a2507afd7f171e96acbcddcbe5e9cd8c8ede558a5d45b3"
+    },
+    {
+      "path": "benchmark/longds/execution_isolation.py",
+      "frozen_sha256": "3454e2d3294a090c3386362662fb8f676727d8b362381c1926486d70d8a8395a",
+      "final_sha256": "b1acf5f4ea826df824321f9ef89ce25867263095bb1b7a83aebc260ab51fe18b"
+    },
+    {
+      "path": "benchmark/longds/judge_longds.py",
+      "frozen_sha256": "8e3f1835f1c021646f0261fdf9b5d0b33d62b7de9432c3e316271201d1c7bb38",
+      "final_sha256": "9980628103e1eb52dc201a2c05e10659ec4012fda32e67bfabbf9fdfcd97590e"
+    },
+    {
+      "path": "benchmark/longds/native_isolated_python.py",
+      "frozen_sha256": "e7894a8c2aec30c21aa0f45db3edcc3f7bc706bb14a0760417a47c239289a5be",
+      "final_sha256": "e2017df24c676c8e5966baa0bbd77f92f322b3e25576d39ea8286156ae0dd0e0"
+    },
+    {
+      "path": "benchmark/longds/run_official.py",
+      "frozen_sha256": "dfadd88b75fbde91bd8905ce61c863c269e11dc06132153114fd2eb6f4a4fc33",
+      "final_sha256": "998bf873f4bf5dc27ca4d69c0561afff91eda3214bb5469a4add2c68a45f560d"
+    },
+    {
+      "path": "benchmark/longds/run_official_matrix.py",
+      "frozen_sha256": "f43bd846595f3c8c395396f097afdf2736d780653b4d9c17037a4bf20da6fa67",
+      "final_sha256": "4b574a2a15ec7ecf510b86fc6e266ca00f5b095c6d1fb32bf6e3b563d7227a1e"
+    },
+    {
+      "path": "benchmark/longds/session_budget.py",
+      "frozen_sha256": "5555bc65aecf5169a6ba65f4fbdd8a06ba7226d6ac73e969908dbd4483870123",
+      "final_sha256": "17d4543b31761cd1237ee7f74b40d97f85941a9a905e875c00c1a24f2267c827"
+    },
+    {
+      "path": "benchmark/longds/test_execution_isolation.py",
+      "frozen_sha256": "e13145273bb2dd5fb67981344bf49218a721d4edc2ac9b1151a074b4d53ac7be",
+      "final_sha256": "5dc882bc82a6db66ba42a4f5f4bd99ac83644649869625640b11dae719cfadf1"
+    },
+    {
+      "path": "benchmark/longds/test_session_budget.py",
+      "frozen_sha256": "ceb4bd7a314bd188755b10b41a4df4ee84a787d85eec50e4547c791c464da627",
+      "final_sha256": "ecc4626b5ea727746e2e05615384bebc53faffc9217c21b7f3e26fbed4f5d6cf"
+    }
+  ],
+  "evaluation_status": "All 24 first-pass sessions are complete. The remaining recovery campaign resumed from verified frozen R3 after confirmed earlyoom resource failures; current counts are in docs/analysis-state-campaign-status.json. Current worktree fixes are not credited to frozen R3 scores.",
+  "previous_final_runtime": {
+    "head": "3a8a9b995cceb2134dbe6c263a3f9754a534fe7d",
+    "source_sha256": "b779e6421447305718135f8165c930f84aa9db2e01acb1b199c42c4a26f6819f"
+  }
+}

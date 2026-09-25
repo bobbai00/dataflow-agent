@@ -80,6 +80,7 @@ export interface OperatorPredicate {
     source?: string;
     /** Top-level `def` sources the statement refers to, by name. */
     functions?: Record<string, string>;
+    analysisBranch?: { root: string; origin: string; task?: number };
     /** Multi-task: the inputs as written, where an `at(table, task=N)` reference
      * stands in port order for the runtime-owned source that serves it. */
     taskInputs?: import("../agent/native/task-history").TaskInput[];

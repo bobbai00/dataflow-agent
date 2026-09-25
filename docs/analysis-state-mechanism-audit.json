@@ -1,0 +1,511 @@
+{
+  "campaign": "LongDS_Isolated_20260924",
+  "trial": 1,
+  "authority": "Manual trace audit; existing gpt-5.2 scores are not changed.",
+  "selection": "Both-pass cost cases require at least $0.002 and 20% difference. Accuracy flips include substantive and protocol failures, with caveats in text.",
+  "cases": [
+    {
+      "task_id": "community__kaggle-survey-2022__task2",
+      "turn": 15,
+      "category": "A_only",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 1,
+        "B": 0
+      },
+      "cost_usd": {
+        "A": 0.019458390000000002,
+        "B": 0.00582775
+      },
+      "primary_reason": "verification",
+      "first_divergence": {
+        "system": "B",
+        "trace_step_index": 2,
+        "operator_id": "lc_user_types",
+        "summary": "The control treats usage scenarios as organizational plans; the candidate eventually reads the planning categories in introduction.md."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2/turns/t15/react_steps.json",
+          "sha256": "b9d37d1b8c7e68cc63ca429174767baa120f89a27efd6357f04c7169d2f02e53"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t15/react_steps.json",
+          "sha256": "b7f9e988b23ee0a45c0b99106a55955025d91fd7e981996b81667544d2cdd420"
+        }
+      ],
+      "counterfactual": "Read the planning source named in the inventory and verify the categories form the requested distribution.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "community__kaggle-survey-2022__task2",
+      "turn": 18,
+      "category": "B_only",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 0,
+        "B": 1
+      },
+      "cost_usd": {
+        "A": 0.00729231,
+        "B": 0.005159780000000001
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": {
+        "system": "A",
+        "trace_step_index": 2,
+        "operator_id": "front_comparison",
+        "summary": "Candidate rebuilds an anchor from raw data and reverses its subtraction after persisting only the top-five scores at turn 13. Control consumes the complete earlier score table."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2/turns/t18/react_steps.json",
+          "sha256": "e3234990e99feeedff0783b6b0f19c922551e170f39d0215c96552ebc685e4fc"
+        },
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2/turns/t13/react_steps.json",
+          "sha256": "bc18077d45c1ae926e059730a8a45706aa397d520dcbc2a2629d9aeeddc1c4f3",
+          "summary": "Earlier correct formula and retained result granularity."
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t18/react_steps.json",
+          "sha256": "b2826e56e0dc6c4b172bdbbddd302fbda7873aae2b81b82744531b4579969c25"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t13/react_steps.json",
+          "sha256": "f305134e27993aa79aea2630fedd8fc1b6952126be3094583d729c309dffb8dd",
+          "summary": "Earlier correct formula and retained result granularity."
+        }
+      ],
+      "counterfactual": "Persist the full role score table and its reusable anchor components; limit only the displayed answer.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "community__kaggle-survey-2022__task2",
+      "turn": 9,
+      "category": "both_pass_B_cheaper",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 1,
+        "B": 1
+      },
+      "cost_usd": {
+        "A": 0.013794569999999999,
+        "B": 0.0038439
+      },
+      "primary_reason": "tool_error_recovery",
+      "first_divergence": {
+        "system": "A",
+        "trace_step_index": 1,
+        "operator_id": null,
+        "summary": "Candidate rejects an oversized recall, guesses Q20, then searches field ranges before finding Q24; control uses the established Q24 field."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2/turns/t09/react_steps.json",
+          "sha256": "87620fcff7c7022fa129f5975fc0cbffd28ad1f06ad6914c88c160f4e4abd3bc"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t09/react_steps.json",
+          "sha256": "721f5ce3b67f0c20b1240c20dca7b866ee849db3026e20b6bde256d57b5ebaec"
+        }
+      ],
+      "counterfactual": "Reuse an explicit field-identity component and avoid rediscovering its schema.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "community__kaggle-survey-2022__task2",
+      "turn": 16,
+      "category": "both_pass_A_cheaper",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 1,
+        "B": 1
+      },
+      "cost_usd": {
+        "A": 0.005270319999999999,
+        "B": 0.008622349999999999
+      },
+      "primary_reason": "tool_error_recovery",
+      "first_divergence": {
+        "system": "B",
+        "trace_step_index": 1,
+        "operator_id": "asked_base_industry",
+        "summary": "Control gives a zero-input loader a parameter, fixes arity, then fetches a row omitted from the observed sample."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/community__kaggle-survey-2022__task2/turns/t16/react_steps.json",
+          "sha256": "4b6ec2175ef00a04951aba110a7d880997282045cb0f2a16cf3080038160d28d"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t16/react_steps.json",
+          "sha256": "48c2a75706ad6d4a813597a1df80c734128bd275554cb5c60b21cc8f6875644f"
+        }
+      ],
+      "counterfactual": "Use correct loader arity and a complete compact result projection.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "geoscience__water-potability__task3",
+      "turn": 16,
+      "category": "A_only",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 1,
+        "B": 0
+      },
+      "cost_usd": {
+        "A": 0.00572231,
+        "B": 0.00336389
+      },
+      "primary_reason": "wrong_transform",
+      "first_divergence": {
+        "system": "B",
+        "trace_step_index": 1,
+        "operator_id": null,
+        "summary": "Control reverses the target/missingness conditioning and uses a larger decile population. Candidate inspects definitions and uses narrowed membership."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/geoscience__water-potability__task3/turns/t16/react_steps.json",
+          "sha256": "91ae76423ffbfc9cb0540e3db0b778f618b89ae5844f669c76337e782c76405f"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t16/react_steps.json",
+          "sha256": "a3b8b942c2bee57d2c0b90a51f8cb8b4b5528898686bf0d2154f84145758e342"
+        }
+      ],
+      "counterfactual": "Use the requested target-rate gap conditional on blankness and the established narrowed keys. Two differences coexist; retrieval causality is not isolated.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "education__bi__task2",
+      "turn": 25,
+      "category": "B_only",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 0,
+        "B": 1
+      },
+      "cost_usd": {
+        "A": 0.0040263899999999995,
+        "B": 0.0029104100000000004
+      },
+      "primary_reason": "other",
+      "first_divergence": {
+        "system": "A",
+        "trace_step_index": null,
+        "operator_id": null,
+        "summary": "Candidate ends a computed reply with the literal Final Answer placeholder. The answer extractor returns that placeholder."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/education__bi__task2/turns/t25/react_steps.json",
+          "sha256": "9b8a01f1911906367d9d493c19053c7ada6c1c5a11530387ce0588b021d67e4c"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t25/react_steps.json",
+          "sha256": "bbcdf7b0c3a8291f4a15c201c565c8265b4685da09dbb64ce175e8c5cbf0940e"
+        }
+      ],
+      "counterfactual": "Serialize the computed answer into the required marker; numerical correctness of the unextracted reply still needs separate validation.",
+      "confidence": "high"
+    },
+    {
+      "task_id": "geoscience__water-potability__task3",
+      "turn": 20,
+      "category": "both_pass_B_cheaper",
+      "pair": [
+        "react-analysis",
+        "react-entries"
+      ],
+      "scores": {
+        "A": 1,
+        "B": 1
+      },
+      "cost_usd": {
+        "A": 0.01685845,
+        "B": 0.00648041
+      },
+      "primary_reason": "fewer_steps",
+      "first_divergence": {
+        "system": "A",
+        "trace_step_index": 1,
+        "operator_id": null,
+        "summary": "Candidate spends eight calls, including extensive recall, versus two. Both get the requested Boolean comparison right but their extra rates differ from the reference."
+      },
+      "evidence": [
+        {
+          "system": "A",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/geoscience__water-potability__task3/turns/t20/react_steps.json",
+          "sha256": "92c6d71558f8602b3318003a69a707cf5c9776bb20df87dcaaf04a3cde48dd00"
+        },
+        {
+          "system": "B",
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t20/react_steps.json",
+          "sha256": "45a492659094cd0a703cddafde7fb0a59f2795a4cbac208490925a5f5e39f8d6"
+        }
+      ],
+      "counterfactual": "Reuse the exact model, cohort and score components. Do not treat these passing Boolean judgments as verified numerical equivalence.",
+      "confidence": "high"
+    }
+  ],
+  "mechanism_demonstrations": [
+    {
+      "task_id": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 30,
+      "mechanism": "Three staged forks copy current player and team calculations with explicit severity and upstream replacements.",
+      "judge_scores": {
+        "react-analysis": 0,
+        "react-entries": 0
+      },
+      "model_cost_usd": {
+        "react-analysis": 0.02916741,
+        "react-entries": 0.02141079
+      },
+      "llm_calls": {
+        "react-analysis": 7,
+        "react-entries": 5
+      },
+      "turn_submitted_program_characters": {
+        "react-analysis": 4516,
+        "react-entries": 8203
+      },
+      "fork_call": {
+        "edit_characters": 680,
+        "fork_argument_characters": 524,
+        "tool_errors": false
+      },
+      "checks": [
+        {
+          "original": "current_player_scores",
+          "fork": "heavy_hit_player_scores",
+          "original_definition_unchanged": true,
+          "fork_inputs": [
+            "winsorized_speed_picture",
+            "protection_picture",
+            "combined_player_view",
+            "heavy_severity_weighted_events",
+            "play1_tracking",
+            "play2_tracking",
+            "play3_tracking",
+            "high_leverage_pool"
+          ],
+          "copied_function_characters": 4213
+        },
+        {
+          "original": "weakest_link_team_summary",
+          "fork": "heavy_hit_weakest_link_team_summary",
+          "original_definition_unchanged": true,
+          "fork_inputs": [
+            "heavy_hit_player_scores"
+          ],
+          "copied_function_characters": 2462
+        },
+        {
+          "original": "side_balance_team_summary",
+          "fork": "heavy_hit_side_balance_team_summary",
+          "original_definition_unchanged": true,
+          "fork_inputs": [
+            "heavy_hit_player_scores",
+            "heavy_hit_weakest_link_team_summary",
+            "team_view_summary"
+          ],
+          "copied_function_characters": 3673
+        }
+      ],
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t29/workflow.json",
+          "sha256": "a3d346fa9037b4c925fe32fe7fa85ec056bb74bee10e92772b936dbc6ca98bed"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t30/workflow.json",
+          "sha256": "2b743c45a8baf9699bdea2550a90271a0d5cb240ac0dbbefc58d5b6bc7048ab3"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t30/react_steps.json",
+          "sha256": "6a7b4bc99a06b73cf6b0d253b21fb15efa01576dd89264f1c5453ce24740ef41"
+        }
+      ],
+      "limitation": "Compiler reuse and unchanged original definitions are established. Neither answer is correct; fewer generated characters do not establish lower model cost or correct scenario semantics."
+    }
+  ],
+  "first_pass_by_state_pattern": {
+    "basis": "Mean of six within-task pattern accuracies; overlapping labels, not chronological phases or independent samples.",
+    "source": "docs/analysis-state-isolated-results.json",
+    "arms": {
+      "dsgym": {
+        "Initial": {
+          "task_macro": 0.25526315789473686,
+          "correct": 20,
+          "judged": 99
+        },
+        "Update": {
+          "task_macro": 0.4185606060606061,
+          "correct": 17,
+          "judged": 57
+        },
+        "Counterfactual": {
+          "task_macro": 0.2857142857142857,
+          "correct": 8,
+          "judged": 57
+        },
+        "Rollback": {
+          "task_macro": 0.2419871794871795,
+          "correct": 5,
+          "judged": 45
+        }
+      },
+      "dsgym-functions": {
+        "Initial": {
+          "task_macro": 0.2592731829573935,
+          "correct": 21,
+          "judged": 99
+        },
+        "Update": {
+          "task_macro": 0.36742424242424243,
+          "correct": 14,
+          "judged": 57
+        },
+        "Counterfactual": {
+          "task_macro": 0.3253968253968254,
+          "correct": 11,
+          "judged": 57
+        },
+        "Rollback": {
+          "task_macro": 0.1875,
+          "correct": 2,
+          "judged": 45
+        }
+      },
+      "react-entries": {
+        "Initial": {
+          "task_macro": 0.39308076225045374,
+          "correct": 34.0,
+          "judged": 99
+        },
+        "Update": {
+          "task_macro": 0.4383116883116883,
+          "correct": 19.0,
+          "judged": 57
+        },
+        "Counterfactual": {
+          "task_macro": 0.43253968253968256,
+          "correct": 17.0,
+          "judged": 57
+        },
+        "Rollback": {
+          "task_macro": 0.425,
+          "correct": 9.0,
+          "judged": 45
+        }
+      },
+      "react-analysis": {
+        "Initial": {
+          "task_macro": 0.39933886440238525,
+          "correct": 30.0,
+          "judged": 99
+        },
+        "Update": {
+          "task_macro": 0.3528138528138528,
+          "correct": 14.0,
+          "judged": 57
+        },
+        "Counterfactual": {
+          "task_macro": 0.2718253968253968,
+          "correct": 11.0,
+          "judged": 57
+        },
+        "Rollback": {
+          "task_macro": 0.3526709401709402,
+          "correct": 10.0,
+          "judged": 45
+        }
+      }
+    }
+  },
+  "nfl_recovery_followup": {
+    "scope": "Separate frozen-R3 recovery observations. They do not replace the first pass or identify a causal effect.",
+    "records": [
+      {
+        "trial": 1,
+        "correct": 9,
+        "planned": 42,
+        "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1",
+        "llm_calls": 228,
+        "fork_requests": 3,
+        "historical_inputs": 0,
+        "inspection_calls": 60,
+        "recall_calls": 40,
+        "cost_usd": 0.5523405400000001
+      },
+      {
+        "trial": 2,
+        "correct": 15,
+        "planned": 42,
+        "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t2/sports__nfl_big_data_bowl_2023__task1",
+        "llm_calls": 200,
+        "fork_requests": 0,
+        "historical_inputs": 0,
+        "inspection_calls": 60,
+        "recall_calls": 38,
+        "cost_usd": 0.5151389100000001
+      },
+      {
+        "trial": 3,
+        "correct": 17,
+        "planned": 42,
+        "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t3/sports__nfl_big_data_bowl_2023__task1",
+        "llm_calls": 234,
+        "fork_requests": 0,
+        "historical_inputs": 0,
+        "inspection_calls": 70,
+        "recall_calls": 44,
+        "cost_usd": 0.53434956
+      }
+    ],
+    "interpretation": "Both recoveries used no fork requests or explicit at(table, task) references. Their higher scores cannot be attributed to actual use of those capabilities. Inspection and recall remain frequent.",
+    "matched_entries_trial3": {
+      "correct": 16,
+      "planned": 42,
+      "cost_usd": 0.5354652499999999,
+      "llm_calls": 137,
+      "source": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t3/sports__nfl_big_data_bowl_2023__task1"
+    },
+    "historical_inputs_definition": "Explicit at(table, task) references in submitted edits/programs. This does not count ordinary reuse of retained current tables as a historical-version read."
+  }
+}

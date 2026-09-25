@@ -201,6 +201,15 @@ cannot change on an existing workflow), `dataEvidence: false`,
 `flowEvidence: false`, `contextMode: delta`. Native mode forces provider
 parallel tool calls off; the program is the batch.
 
+The opt-in `nativeAnalysisState` experiment retains shared Python functions with
+their workflow consumers, revises those consumers when a function changes, and
+adds exact inspection and dependency-slice forks. Together with
+`nativeTaskHistory` and `nativeTaskContext`, it supports saved values and bounded
+completed-task memory (`nativeTaskMemoryChars`, default 24,000 characters).
+See the [configuration, semantics and evaluation](analysis-state-implementation.md).
+The experiment remains off by default; the first six-domain comparison did not
+improve accuracy and cost over the existing native task entries.
+
 ## Verification
 
 From `agent-service/`:

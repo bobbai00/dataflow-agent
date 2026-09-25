@@ -1,0 +1,42 @@
+{
+  "passed": true,
+  "modelCalls": 0,
+  "checks": [
+    {
+      "distance": 2,
+      "query": "Read the original task-one score and rerun its original formula with the current coefficient; preserve the current score.",
+      "originalValue": 20,
+      "originalFormulaCurrentParameter": 30,
+      "currentValue": 60,
+      "seconds": 5.657235907000002
+    },
+    {
+      "distance": 8,
+      "query": "Read the original task-one score and rerun its original formula with the current coefficient; preserve the current score.",
+      "originalValue": 20,
+      "originalFormulaCurrentParameter": 30,
+      "currentValue": 60,
+      "seconds": 3.416470196999995
+    },
+    {
+      "distance": 32,
+      "query": "Read the original task-one score and rerun its original formula with the current coefficient; preserve the current score.",
+      "originalValue": 20,
+      "originalFormulaCurrentParameter": 30,
+      "currentValue": 60,
+      "seconds": 3.270077688999998
+    },
+    {
+      "distance": 128,
+      "query": "Read the original task-one score and rerun its original formula with the current coefficient; preserve the current score.",
+      "originalValue": 20,
+      "originalFormulaCurrentParameter": 30,
+      "currentValue": 60,
+      "seconds": 3.6101244780000052
+    }
+  ],
+  "method": "Real debug compiler/engine execution, no model calls; unchanged query and data, increasing unrelated task history. Latencies are illustrative under concurrent load and include warm caches.",
+  "artifact_directory": "/tmp/texera-analysis-state/distance-smoke",
+  "source": "agent-service/benchmark/multiturn/analysis-distance-smoke.ts",
+  "source_sha256": "4232ffa9d00ef63b37b78b720310c6dc6dc815b57f3425b691ad96dec9ca43b5"
+}

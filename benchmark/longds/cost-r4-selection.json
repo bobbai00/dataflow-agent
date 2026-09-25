@@ -1,0 +1,21 @@
+{
+  "revision": "cost-r4",
+  "selected_tasks": [
+    "community/kaggle-survey-2022/task2",
+    "education/bi/task2",
+    "geoscience/water-potability/task3"
+  ],
+  "selection_reason": "Full sessions preserve long-horizon dependencies. Survey covers denominator/scope changes and observed syntax/sampling overhead; BI covers weights, bins and rollback; Water covers fitted models, feature/population changes and repair loops. Selection is fixed before new model runs. These are development tasks previously audited, not an unseen holdout or the complete benchmark.",
+  "arm": "react-efficient",
+  "model": "gpt-5.6-luna",
+  "judge_model": "gpt-5.2",
+  "judge_protocol": "Unchanged upstream prompt and frozen LongDS v1 references; score 1 is a pass. Judge new outputs only; retain previous results.",
+  "trials": 3,
+  "trial_policy": "Report first pass separately; two additional full-session repetitions quantify variability and recovery without replacing first-pass scores.",
+  "max_steps_per_question": 40,
+  "session_budget_seconds": 3600,
+  "concurrent_sessions": 2,
+  "model_cost_target": "At most 1.25 times matched persistent DSGym cost while retaining the accuracy gain; also compare to the strongest saved react-entries arm.",
+  "historical_control_prefix": "LongDS_Isolated_20260924",
+  "comparability_limit": "Historical controls ran frozen R3; this revision includes previously unmeasured correctness fixes already present locally plus the new efficiency changes. No isolated causal attribution to one new change. Shared backend/model gateway remains the same; resource scheduling is bounded separately."
+}

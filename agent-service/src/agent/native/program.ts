@@ -35,6 +35,7 @@ import {
   NATIVE_OPERATOR_NAMES,
   NativeArgumentError,
   splitInputs,
+  functionClosure,
   type FunctionSlot,
   type NativeOpView,
   type ParsedFunction,
@@ -113,7 +114,7 @@ function attemptedView(statement: ParsedStatement, type: string, inputs: string[
 export function normalizeStatement(
   statement: ParsedStatement,
   functions: Record<string, ParsedFunction>,
-  options: { profileCollection?: boolean } = {}
+  options: { profileCollection?: boolean; sharedFunctions?: boolean; tableNames?: ReadonlySet<string> } = {}
 ): ProgramStatement {
   const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
   const def = NATIVE_BY_NAME.get(statement.op);
@@ -134,14 +135,18 @@ export function normalizeStatement(
   }
   let inputs: string[] = [];
   try {
-    const split = splitInputs(def, statement.args, functions);
+    const split = splitInputs(def, statement.args, functions, options.tableNames);
     inputs = split.inputs;
     const used = new Map<string, string>();
     const context = {
       functions,
       inputs,
       used: (slot: FunctionSlot) => {
-        if (slot.ref) used.set(slot.ref, slot.source);
+        if (slot.ref) {
+          if (options.sharedFunctions && functions[slot.ref]) {
+            for (const fn of functionClosure(functions[slot.ref], functions)) used.set(fn.name, fn.source);
+          } else used.set(slot.ref, slot.source);
+        }
       },
     };
     const properties = def.normalize(split.rest, statement.kwargs, context);

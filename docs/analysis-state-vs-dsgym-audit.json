@@ -1,0 +1,1677 @@
+{
+  "created_utc": "2026-09-24T21:18:08.304488+00:00",
+  "campaign": "LongDS_Isolated_20260924",
+  "scope": "Read-only paired trace audit. Primary scores are first pass; available repeats are reported separately. No rollouts, rejudging, score changes or runtime changes.",
+  "pass_threshold": 1,
+  "judge": "Existing GPT-5.2 judgments, unchanged.",
+  "case_selection": "Enumerate all paired first-pass flips across the six selected tasks, then inspect representative state-composition, precision, refusal, reverse-flip and both-pass cost cases. Both-pass cost cases require at least $0.002 and 20% difference.",
+  "causal_limit": "Persistent Python already has state. System prompt, tool interface, result rendering and memory projection differ; no DAG-only ablation. No-code refusal wins are separately flagged. A judge pass is not proof of every auxiliary number.",
+  "comparisons": [
+    {
+      "arm": "react-entries",
+      "baseline": "dsgym",
+      "trial": 1,
+      "paired_counts": {
+        "dataflow_only": 29,
+        "python_only": 10,
+        "both_pass": 47,
+        "both_fail": 123
+      },
+      "dataflow_only_python_no_code_turns": 18,
+      "dataflow_only_python_no_code_refusals": 14,
+      "domains": [
+        {
+          "task": "business__goodbooks_10k__task1",
+          "turns": 35,
+          "python_correct": 0,
+          "dataflow_correct": 0.0,
+          "dataflow_only_turns": [],
+          "python_only_turns": []
+        },
+        {
+          "task": "community__kaggle-survey-2022__task2",
+          "turns": 30,
+          "python_correct": 18,
+          "dataflow_correct": 27,
+          "dataflow_only_turns": [
+            1,
+            3,
+            13,
+            14,
+            17,
+            18,
+            22,
+            23,
+            24,
+            29,
+            30
+          ],
+          "python_only_turns": [
+            12,
+            15
+          ]
+        },
+        {
+          "task": "education__bi__task2",
+          "turns": 30,
+          "python_correct": 23,
+          "dataflow_correct": 28,
+          "dataflow_only_turns": [
+            1,
+            3,
+            4,
+            5,
+            6,
+            15
+          ],
+          "python_only_turns": [
+            7
+          ]
+        },
+        {
+          "task": "geoscience__water-potability__task3",
+          "turns": 36,
+          "python_correct": 15,
+          "dataflow_correct": 9,
+          "dataflow_only_turns": [],
+          "python_only_turns": [
+            8,
+            11,
+            16,
+            18,
+            25,
+            33
+          ]
+        },
+        {
+          "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+          "turns": 36,
+          "python_correct": 0,
+          "dataflow_correct": 10,
+          "dataflow_only_turns": [
+            2,
+            3,
+            4,
+            5,
+            7,
+            8,
+            9,
+            17,
+            18,
+            20
+          ],
+          "python_only_turns": []
+        },
+        {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "turns": 42,
+          "python_correct": 1,
+          "dataflow_correct": 2,
+          "dataflow_only_turns": [
+            9,
+            27
+          ],
+          "python_only_turns": [
+            20
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "react-analysis",
+      "baseline": "dsgym",
+      "trial": 1,
+      "paired_counts": {
+        "dataflow_only": 27,
+        "python_only": 11,
+        "both_pass": 46,
+        "both_fail": 125
+      },
+      "dataflow_only_python_no_code_turns": 12,
+      "dataflow_only_python_no_code_refusals": 11,
+      "domains": [
+        {
+          "task": "business__goodbooks_10k__task1",
+          "turns": 35,
+          "python_correct": 0,
+          "dataflow_correct": 0.0,
+          "dataflow_only_turns": [],
+          "python_only_turns": []
+        },
+        {
+          "task": "community__kaggle-survey-2022__task2",
+          "turns": 30,
+          "python_correct": 18,
+          "dataflow_correct": 19.0,
+          "dataflow_only_turns": [
+            1,
+            3,
+            13,
+            14,
+            23
+          ],
+          "python_only_turns": [
+            2,
+            11,
+            21,
+            28
+          ]
+        },
+        {
+          "task": "education__bi__task2",
+          "turns": 30,
+          "python_correct": 23,
+          "dataflow_correct": 28,
+          "dataflow_only_turns": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            15
+          ],
+          "python_only_turns": [
+            7,
+            25
+          ]
+        },
+        {
+          "task": "geoscience__water-potability__task3",
+          "turns": 36,
+          "python_correct": 15,
+          "dataflow_correct": 13,
+          "dataflow_only_turns": [
+            2,
+            15,
+            24
+          ],
+          "python_only_turns": [
+            8,
+            11,
+            18,
+            25,
+            33
+          ]
+        },
+        {
+          "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+          "turns": 36,
+          "python_correct": 0,
+          "dataflow_correct": 4,
+          "dataflow_only_turns": [
+            2,
+            7,
+            8,
+            20
+          ],
+          "python_only_turns": []
+        },
+        {
+          "task": "sports__nfl_big_data_bowl_2023__task1",
+          "turns": 42,
+          "python_correct": 1,
+          "dataflow_correct": 9,
+          "dataflow_only_turns": [
+            1,
+            4,
+            12,
+            16,
+            17,
+            21,
+            22,
+            26
+          ],
+          "python_only_turns": []
+        }
+      ]
+    }
+  ],
+  "dataflow_only_turns": [
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 1,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "Raw row count: 23,999  \nValid respondent count: 23,998",
+      "dataflow_answer": "{\"raw_row_count\":23998,\"valid_respondent_count\":23997}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 3,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Absolute difference: **19.3636 percentage points**  \nRatio of shown-base rate to total-base rate: **5.1564**",
+      "dataflow_answer": "{\"absolute_difference_percentage_points\":19.3634,\"shown_base_to_total_base_ratio\":5.1562}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 13,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "| Rank | Role | Composition lift | Coding anchor (pp) | ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.3463 | 30.3279 | 20.0820 | 6.3873 |\n| 2 | Statistician | 0.6570 | 14.3000 | 36.4000 | 5.7270 |\n| 3 | Data Administrator | 0.8799 | 21.9048 | 21.9048 | 5.2609 |\n| 4 | Data Architect | 2.3773 | 17.3684 | 5.8852 | 4.7027 |\n| 5 | Other | 0.3404 | 17.9204 | 20.5942 | 4.1918 |",
+      "dataflow_answer": "{\"roles\":[{\"role\":\"Data Architect\",\"role_intensity_score\":3.4375},{\"role\":\"Data Scientist\",\"role_intensity_score\":2.6833},{\"role\":\"Machine Learning/ MLops Engineer\",\"role_intensity_score\":2.5884},{\"role\":\"Data Engineer\",\"role_intensity_score\":2.5767},{\"role\":\"Developer Advocate\",\"role_intensity_score\":2.4065}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 14,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "### AutoML-only rollback: top 5\n\n| Rank | Role | Composition lift | Coding anchor (pp) | Unchanged ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.6185 | 21.9945 | 20.0820 | 5.8261 |\n| 2 | Statistician | 0.5265 | 14.3000 | 36.4000 | 5.5965 |\n| 3 | Data Administrator | 0.7052 | 21.9048 | 21.9048 | 5.0861 |\n| 4 | Data Architect | 2.1651 | 15.3684 | 5.8852 | 4.2904 |\n| 5 | Engineer (non-software) | 0.4246 | 12.6613 | 25.2419 | 4.2150 |\n\n### Strict cross-tool view: top 5\n\n| Rank | Role | Composition lift | Coding anchor (pp) | ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.3463 | 30.3279 | 20.0820 | 6.3873 |\n| 2 | Statistician | 0.6570 | 14.3000 | 36.4000 | 5.7270 |\n| 3 | Data Administrator | 0.8799 | 21.9048 | 21.9048 | 5.2609 |\n| 4 | Data Architect | 2.3773 | 17.3684 | 5.8852 | 4.7027 |\n| 5 | Other | 0.3404 | 17.9204 | 20.5942 | 4.1918 |\n\nRoles appearing in both top-five lists: **Developer Advocate, Statistician, Data Administrator, and Data Architect**.",
+      "dataflow_answer": "{\"automl_only_top_5\":[{\"role\":\"Data Architect\",\"role_intensity_score\":3.2225},{\"role\":\"Developer Advocate\",\"role_intensity_score\":2.6759},{\"role\":\"Machine Learning/ MLops Engineer\",\"role_intensity_score\":2.6135},{\"role\":\"Data Scientist\",\"role_intensity_score\":2.5502},{\"role\":\"Data Engineer\",\"role_intensity_score\":2.4130}],\"strict_cross_tool_top_5\":[{\"role\":\"Data Architect\",\"role_intensity_score\":3.4375},{\"role\":\"Data Scientist\",\"role_intensity_score\":2.6833},{\"role\":\"Machine Learning/ MLops Engineer\",\"role_intensity_score\":2.5884},{\"role\":\"Data Engineer\",\"role_intensity_score\":2.5767},{\"role\":\"Developer Advocate\",\"role_intensity_score\":2.4065}],\"roles_in_both_top_5\":[\"Data Architect\",\"Data Engineer\",\"Data Scientist\",\"Developer Advocate\",\"Machine Learning/ MLops Engineer\"]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 17,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": false,
+      "python_answer": "**Top 5 industries**\n\n| Rank | Industry | Adoption percentage |\n|---:|---|---:|\n| 1 | Computers/Technology | 23.9316% |\n| 2 | Insurance/Risk Assessment | 22.4638% |\n| 3 | Online Service/Internet-based Services | 22.3485% |\n| 4 | Marketing/CRM | 21.8045% |\n| 5 | Retail/Sales | 20.1970% |\n\n**Five lowest-adoption industries**\n\n| Rank | Industry | Adoption percentage |\n|---:|---|---:|\n| 1 | Manufacturing/Fabrication | 13.4100% |\n| 2 | Academics/Education | 15.0704% |\n| 3 | Other | 15.1899% |\n| 4 | Government/Public Service | 15.2542% |\n| 5 | Medical/Pharmaceutical | 15.4676% |\n\nGap between the highest- and lowest-adoption industries: **10.5216 percentage points**.",
+      "dataflow_answer": "{\"top_5_industries\":[{\"industry\":\"Computers/Technology\",\"adoption_percentage\":23.9316},{\"industry\":\"Insurance/Risk Assessment\",\"adoption_percentage\":22.4638},{\"industry\":\"Online Service/Internet-based Services\",\"adoption_percentage\":22.3485},{\"industry\":\"Marketing/CRM\",\"adoption_percentage\":21.8045},{\"industry\":\"Retail/Sales\",\"adoption_percentage\":20.1970}],\"five_lowest_adoption_industries\":[{\"industry\":\"Manufacturing/Fabrication\",\"adoption_percentage\":13.4100},{\"industry\":\"Academics/Education\",\"adoption_percentage\":15.0704},{\"industry\":\"Other\",\"adoption_percentage\":15.1899},{\"industry\":\"Government/Public Service\",\"adoption_percentage\":15.2542},{\"industry\":\"Medical/Pharmaceutical\",\"adoption_percentage\":15.4676}],\"gap_percentage_points\":10.5217}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 18,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Top-5 industry adoption mean: **22.1491%**  \nFull industry-table mean: **18.6061%**  \nNormalized industry concentration: **1.1904**\n\nTop-5 role-intensity mean: **5.2539**  \nFull role-table mean: **3.6603**  \nNormalized role concentration: **1.4354**\n\nMore concentrated front: **roles**",
+      "dataflow_answer": "{\"top5_industry_average_adoption_percentage\":22.1491,\"top5_role_average_intensity_score\":2.7385,\"full_table_industry_mean_adoption_percentage\":18.6061,\"full_table_role_mean_intensity_score\":2.1077,\"normalized_industry_concentration\":1.1904,\"normalized_role_concentration\":1.2993,\"more_concentrated_front\":\"roles\"}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 22,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Top role by composition lift: **Developer Advocate**  \nTop-role composition lift: **1.3463**  \nExpanded small-organization composite: **0.9308**  \nAlignment score: **1.2532**",
+      "dataflow_answer": "{\"top_role\":\"Data Architect\",\"top_role_composition_lift\":2.3773,\"expanded_small_organization_composite\":0.9308,\"alignment_score\":2.2129}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 23,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Industry front: **22.9146%**  \nRole front: **5.7917**  \nExpanded small-organization composite: **0.9308**  \nTwo-front resilience score: **1.2354**",
+      "dataflow_answer": "{\"industry_front_top3_mean_adoption_percentage\":22.9146,\"role_front_top3_mean_intensity_score\":2.9031,\"expanded_small_organization_composite\":0.9308,\"resilience_score\":0.6192}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 24,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Narrow-boundary resilience score: **1.1061**  \nExpanded-boundary resilience score: **1.2354**  \nPercentage change: **-10.4626%**\n\nThe narrow boundary reduces the resilience score by **10.4626%** relative to the expanded-boundary score.",
+      "dataflow_answer": "{\"narrow_boundary_resilience_score\":0.5544,\"expanded_boundary_resilience_score\":0.6192,\"percentage_change_narrow_vs_expanded\":-10.4626}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 29,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": false,
+      "python_answer": "### Broader-view role-intensity top 5\n\n| Rank | Role | Broader composition lift | Coding anchor (pp) | ML anchor (pp) | Rebuilt intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.1241 | 30.3279 | 20.0820 | 6.1651 |\n| 2 | Statistician | 0.5094 | 14.3000 | 36.4000 | 5.5794 |\n| 3 | Data Administrator | 0.7696 | 21.9048 | 21.9048 | 5.1506 |\n| 4 | Other | 0.3638 | 17.9204 | 20.5942 | 4.2153 |\n| 5 | Data Architect | 1.7529 | 17.3684 | 5.8852 | 4.0783 |\n\n### Comparison with the strict cross-tool top 5\n\n| Role | Strict rank | Broader-view rank | Rank change |\n|---|---:|---:|---:|\n| Developer Advocate | 1 | 1 | 0 |\n| Statistician | 2 | 2 | 0 |\n| Data Administrator | 3 | 3 | 0 |\n| Data Architect | 4 | 5 | +1 |\n| Other | 5 | 4 | -1 |\n\nNo roles moved by more than **2 positions**. The two top-five lists contain the same five roles; only **Other** and **Data Architect** exchange positions.",
+      "dataflow_answer": "{\"broader_view_top_5\":[{\"role\":\"Data Architect\",\"role_intensity_score\":2.8131},{\"role\":\"Machine Learning/ MLops Engineer\",\"role_intensity_score\":2.7328},{\"role\":\"Data Scientist\",\"role_intensity_score\":2.6598},{\"role\":\"Data Engineer\",\"role_intensity_score\":2.4934},{\"role\":\"Manager (Program, Project, Operations, Executive-level, etc)\",\"role_intensity_score\":2.1905}],\"strict_cross_tool_top_5\":[{\"role\":\"Data Architect\",\"role_intensity_score\":3.4375},{\"role\":\"Data Scientist\",\"role_intensity_score\":2.6833},{\"role\":\"Machine Learning/ MLops Engineer\",\"role_intensity_score\":2.5884},{\"role\":\"Data Engineer\",\"role_intensity_score\":2.5767},{\"role\":\"Developer Advocate\",\"role_intensity_score\":2.4065}],\"roles_moved_more_than_2_positions\":[]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 30,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": false,
+      "python_answer": "Industry component: **23.9316% = 0.23931624**  \nExpanded small-organization composite: **0.9308**\n\n### Top 5 roles — narrower strict cross-tool view\n\n| Rank | Role | Role-intensity score | Final composite score |\n|---:|---|---:|---:|\n| 1 | Developer Advocate | 6.3873 | 1.4229 |\n| 2 | Statistician | 5.7270 | 1.2758 |\n| 3 | Data Administrator | 5.2609 | 1.1719 |\n| 4 | Data Architect | 4.7027 | 1.0476 |\n| 5 | Other | 4.1918 | 0.9338 |\n\n### Top 5 roles — broader-adopter view\n\n| Rank | Role | Role-intensity score | Final composite score |\n|---:|---|---:|---:|\n| 1 | Developer Advocate | 6.1651 | 1.3734 |\n| 2 | Statistician | 5.5794 | 1.2429 |\n| 3 | Data Administrator | 5.1506 | 1.1474 |\n| 4 | Other | 4.2153 | 0.9390 |\n| 5 | Data Architect | 4.0783 | 0.9085 |\n\nRoles appearing in both top-five lists: **Developer Advocate, Statistician, Data Administrator, Data Architect, and Other**.",
+      "dataflow_answer": "{\"narrower_view_top_5\":[{\"role\":\"Data Architect\",\"final_score\":0.7658},{\"role\":\"Data Scientist\",\"final_score\":0.5978},{\"role\":\"Machine Learning/ MLops Engineer\",\"final_score\":0.5766},{\"role\":\"Data Engineer\",\"final_score\":0.5740},{\"role\":\"Developer Advocate\",\"final_score\":0.5361}],\"broader_view_top_5\":[{\"role\":\"Data Architect\",\"final_score\":0.6267},{\"role\":\"Machine Learning/ MLops Engineer\",\"final_score\":0.6088},{\"role\":\"Data Scientist\",\"final_score\":0.5925},{\"role\":\"Data Engineer\",\"final_score\":0.5554},{\"role\":\"Manager (Program, Project, Operations, Executive-level, etc)\",\"final_score\":0.4880}],\"roles_in_both_top_5\":[\"Data Architect\",\"Data Engineer\",\"Data Scientist\",\"Machine Learning/ MLops Engineer\"]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 1,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested raw-data results because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"shape\":[77,11],\"missing_values\":{\"fNAME\":0,\"lNAME\":0,\"Age\":0,\"gender\":0,\"country\":0,\"residence\":0,\"entryEXAM\":0,\"prevEducation\":0,\"studyHOURS\":0,\"Python\":2,\"DB\":0},\"unique_values\":{\"gender\":[\"F\",\"Female\",\"M\",\"Male\",\"female\",\"male\"],\"country\":[\"Denmark\",\"France\",\"Germany\",\"Italy\",\"Kenya\",\"Netherlands\",\"Nigeria\",\"Norge\",\"Norway\",\"Rsa\",\"Somali\",\"South Africa\",\"Spain\",\"UK\",\"Uganda\",\"norway\"],\"residence\":[\"BI Residence\",\"BI-Residence\",\"BIResidence\",\"BI_Residence\",\"Private\",\"Sognsvann\"],\"prevEducation\":[\"Bachelors\",\"Barrrchelors\",\"DIPLOMA\",\"Diploma\",\"Diplomaaa\",\"Doctorate\",\"High School\",\"HighSchool\",\"Masters\",\"diploma\"]}}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 3,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested imputation results because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"mean_used\":75.8533,\"rows_imputed\":2,\"final_row_count\":77}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 4,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested mean, median, population standard deviation, minimum, maximum, 25th percentile, and 75th percentile for Age, studyHOURS, Python, and DB because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"Age\":{\"mean\":35.2078,\"median\":33,\"population_stddev\":10.2746,\"min\":21,\"max\":71,\"q25\":27,\"q75\":42},\"studyHOURS\":{\"mean\":149.7143,\"median\":156,\"population_stddev\":12.6603,\"min\":114,\"max\":160,\"q25\":144,\"q75\":158},\"Python\":{\"mean\":75.8533,\"median\":81,\"population_stddev\":15.1071,\"min\":15,\"max\":91,\"q25\":72,\"q75\":85},\"DB\":{\"mean\":69.4675,\"median\":71,\"population_stddev\":16.9227,\"min\":30,\"max\":100,\"q25\":56,\"q75\":83}}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 5,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested correlation matrix and correlation pairs because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"correlation_matrix\":{\"Age\":{\"Age\":1.0000,\"studyHOURS\":0.2147,\"Python\":-0.0143,\"DB\":0.0995},\"studyHOURS\":{\"Age\":0.2147,\"studyHOURS\":1.0000,\"Python\":0.7837,\"DB\":0.4660},\"Python\":{\"Age\":-0.0143,\"studyHOURS\":0.7837,\"Python\":1.0000,\"DB\":0.4427},\"DB\":{\"Age\":0.0995,\"studyHOURS\":0.4660,\"Python\":0.4427,\"DB\":1.0000}},\"strongest_off_diagonal_pair\":{\"pair\":\"studyHOURS-Python\",\"correlation\":0.7837,\"absolute_correlation\":0.7837},\"weakest_off_diagonal_pair\":{\"pair\":\"Age-Python\",\"correlation\":-0.0143,\"absolute_correlation\":0.0143}}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 6,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested Pearson correlation coefficient because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"pearson_correlation_studyHOURS_Python\":0.7837}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "education__bi__task2",
+      "turn": 15,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the education-level composite means and ranking from the available execution results.",
+      "dataflow_answer": "{\"mean_composite_by_prevEducation\":{\"Masters\":79.1250,\"Bachelor\":75.4400,\"Doctorate\":72.7000,\"Diploma\":69.5417,\"High School\":65.5186},\"highest_mean_composite_level\":\"Masters\"}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 2,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the five postings because the intake roster and standing analysis-state data were not provided in the accessible context.",
+      "dataflow_answer": "{\"salary_threshold_75th\":96423,\"selected_postings\":[{\"title\":\"DATABASE ARCHITECT\",\"salary_floor\":97781,\"difference_vs_threshold\":1358,\"ratio_vs_threshold\":1.014,\"applicant_friction\":5.089,\"dominant_burden\":\"reading burden\",\"salary_cleaning_exception\":false},{\"title\":\"SENIOR CITY PLANNER\",\"salary_floor\":98261,\"difference_vs_threshold\":1838,\"ratio_vs_threshold\":1.019,\"applicant_friction\":3.993,\"dominant_burden\":\"reading burden\",\"salary_cleaning_exception\":false},{\"title\":\"RETIREMENT PLAN MANAGER\",\"salary_floor\":157393,\"difference_vs_threshold\":60970,\"ratio_vs_threshold\":1.632,\"applicant_friction\":3.610,\"dominant_burden\":\"folded requirement burden\",\"salary_cleaning_exception\":false},{\"title\":\"CHIEF PORT PILOT\",\"salary_floor\":245758,\"difference_vs_threshold\":149335,\"ratio_vs_threshold\":2.549,\"applicant_friction\":3.274,\"dominant_burden\":\"folded requirement burden\",\"salary_cleaning_exception\":false},{\"title\":\"INSTRUMENT MECHANIC\",\"salary_floor\":103382,\"difference_vs_threshold\":6959,\"ratio_vs_threshold\":1.072,\"applicant_friction\":3.272,\"dominant_burden\":\"folded requirement burden\",\"salary_cleaning_exception\":false}],\"any_salary_cleaning_exception\":false}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 3,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested roles because the intake roster and previously identified high-compensation burden group are not available in the accessible data context.",
+      "dataflow_answer": "{\"repeated_posting_artifacts\":[],\"class_level_salary_threshold_75th\":96386.5,\"strongest_high_compensation_burden_cases\":[{\"title\":\"DATABASE ARCHITECT\",\"applicant_friction\":5.068,\"dominant_burden\":\"reading burden\",\"salary_floor\":97781},{\"title\":\"SENIOR CITY PLANNER\",\"applicant_friction\":3.974,\"dominant_burden\":\"reading burden\",\"salary_floor\":98261},{\"title\":\"RETIREMENT PLAN MANAGER\",\"applicant_friction\":3.591,\"dominant_burden\":\"folded requirement burden\",\"salary_floor\":157393},{\"title\":\"CHIEF PORT PILOT\",\"applicant_friction\":3.259,\"dominant_burden\":\"folded requirement burden\",\"salary_floor\":245758},{\"title\":\"INSTRUMENT MECHANIC\",\"applicant_friction\":3.256,\"dominant_burden\":\"folded requirement burden\",\"salary_floor\":103382}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 4,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested rankings because the collapsed class roster, adjusted friction components, and retained bulletin text are not available in the accessible data context.",
+      "dataflow_answer": "{\"highest_adjusted_burden_roles\":[{\"title\":\"DATABASE ARCHITECT\",\"adjusted_friction\":5.357,\"dominant_burden\":\"adjusted reading burden\"},{\"title\":\"SENIOR CITY PLANNER\",\"adjusted_friction\":4.071,\"dominant_burden\":\"adjusted reading burden\"},{\"title\":\"UTILITY SERVICES MANAGER\",\"adjusted_friction\":3.477,\"dominant_burden\":\"folded requirement burden\"},{\"title\":\"RETIREMENT PLAN MANAGER\",\"adjusted_friction\":3.320,\"dominant_burden\":\"folded requirement burden\"},{\"title\":\"INSTRUMENT MECHANIC\",\"adjusted_friction\":3.178,\"dominant_burden\":\"folded requirement burden\"}],\"largest_reading_burden_reductions\":[{\"title\":\"CHIEF PORT PILOT\",\"reading_burden_reduction\":2.467},{\"title\":\"RETIREMENT PLAN MANAGER\",\"reading_burden_reduction\":2.467},{\"title\":\"DIRECTOR OF FIELD OPERATIONS\",\"reading_burden_reduction\":2.467},{\"title\":\"SENIOR CITY PLANNER\",\"reading_burden_reduction\":2.453},{\"title\":\"INDUSTRIAL GRAPHICS SUPERVISOR\",\"reading_burden_reduction\":2.440}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 5,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the temporary entrants or their reading-driven lift because the collapsed roster and the process-adjusted class-level scoring data are not available in the accessible context.",
+      "dataflow_answer": "{\"temporary_entrants\":[{\"title\":\"CHIEF AIRPORTS ENGINEER\",\"temporary_reading_driven_lift\":0.358}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 7,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the roles moving into or out of the midpoint-based high-compensation group because the collapsed roster and its floor/midpoint salary and process-adjusted friction fields are not available in the accessible context.",
+      "dataflow_answer": "{\"floor_salary_threshold\":96386.5,\"midpoint_salary_threshold\":110331.875,\"moved_into_midpoint_screen\":[{\"title\":\"EMS NURSE PRACTITIONER SUPERVISOR\",\"salary_low\":93083,\"salary_high\":136074,\"salary_midpoint\":114578.5,\"process_adjusted_friction\":5.099},{\"title\":\"SENIOR INDUSTRIAL HYGIENIST\",\"salary_low\":95714,\"salary_high\":139917,\"salary_midpoint\":117815.5,\"process_adjusted_friction\":2.880},{\"title\":\"CHIEF OF OPERATIONS\",\"salary_low\":90473,\"salary_high\":132274,\"salary_midpoint\":111373.5,\"process_adjusted_friction\":2.659}],\"moved_out_of_midpoint_screen\":[{\"title\":\"INSTRUMENT MECHANIC\",\"salary_low\":103382,\"salary_high\":105282,\"salary_midpoint\":104332,\"process_adjusted_friction\":3.178},{\"title\":\"AIR CONDITIONING MECHANIC SUPERVISOR\",\"salary_low\":103841,\"salary_high\":108482,\"salary_midpoint\":106161.5,\"process_adjusted_friction\":2.990},{\"title\":\"INDUSTRIAL GRAPHICS SUPERVISOR\",\"salary_low\":102458,\"salary_high\":108179,\"salary_midpoint\":105318.5,\"process_adjusted_friction\":2.760}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 8,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the most sensitive roles because the collapsed roster and the later-cleaned floor- and midpoint-based screen results are not available in the accessible data context.",
+      "dataflow_answer": "{\"most_sensitive_roles\":[{\"title\":\"EMS NURSE PRACTITIONER SUPERVISOR\",\"floor_position\":99,\"midpoint_position\":2,\"position_gap\":97,\"salary_low\":93083,\"salary_high\":136074,\"salary_midpoint\":114578.5},{\"title\":\"INSTRUMENT MECHANIC\",\"floor_position\":5,\"midpoint_position\":99,\"position_gap\":94,\"salary_low\":103382,\"salary_high\":105282,\"salary_midpoint\":104332},{\"title\":\"AIR CONDITIONING MECHANIC SUPERVISOR\",\"floor_position\":7,\"midpoint_position\":99,\"position_gap\":92,\"salary_low\":103841,\"salary_high\":108482,\"salary_midpoint\":106161.5},{\"title\":\"SENIOR INDUSTRIAL HYGIENIST\",\"floor_position\":99,\"midpoint_position\":8,\"position_gap\":91,\"salary_low\":95714,\"salary_high\":139917,\"salary_midpoint\":117815.5},{\"title\":\"INDUSTRIAL GRAPHICS SUPERVISOR\",\"floor_position\":9,\"midpoint_position\":99,\"position_gap\":90,\"salary_low\":102458,\"salary_high\":108179,\"salary_midpoint\":105318.5}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 9,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the length-driven roles because the collapsed roster and its process-adjusted word-count and wording fields are not available in the accessible context.",
+      "dataflow_answer": "{\"length_driven_roles\":[{\"title\":\"ELECTRIC DISTRIBUTION MECHANIC\",\"raw_wording_count\":10,\"substantive_words\":2238,\"wording_rate_per_1000\":4.468},{\"title\":\"DATABASE ARCHITECT\",\"raw_wording_count\":10,\"substantive_words\":2146,\"wording_rate_per_1000\":4.660},{\"title\":\"CITY PLANNER\",\"raw_wording_count\":10,\"substantive_words\":1987,\"wording_rate_per_1000\":5.033},{\"title\":\"ELECTRICAL TESTER\",\"raw_wording_count\":10,\"substantive_words\":1768,\"wording_rate_per_1000\":5.656},{\"title\":\"AUDITOR\",\"raw_wording_count\":10,\"substantive_words\":1710,\"wording_rate_per_1000\":5.848}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 17,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The five plausible outside-access roles with the largest wording-risk declines are:\n\n1. **Workers' Compensation Analyst** — decline **10.851 per 1,000 substantive words**; friction **1.885**.\n2. **Airport Labor Relations Advocate** — decline **8.028 per 1,000**; friction **2.122**.\n3. **Zoo Curator** — decline **7.928 per 1,000**; friction **1.454**.\n4. **Chief Internal Auditor** — decline **7.874 per 1,000**; friction **1.399**.\n5. **Airport Chief Information Security Officer** — decline **7.859 per 1,000**; friction **1.533**.\n\nAll five remain plausible review candidates because their applicant-friction scores are at or above the outside-access 60th-percentile cutoff of **1.280**.",
+      "dataflow_answer": "{\"roles\":[{\"title\":\"ASSISTANT SIGNAL SYSTEMS ELECTRICIAN\",\"wording_risk_decline\":6.402,\"raw_wording_rate_per_1000\":7.682,\"adjusted_wording_rate_per_1000\":1.280,\"friction\":1.516},{\"title\":\"ZOO CURATOR\",\"wording_risk_decline\":5.663,\"raw_wording_rate_per_1000\":9.060,\"adjusted_wording_rate_per_1000\":3.398,\"friction\":1.445},{\"title\":\"BLACKSMITH\",\"wording_risk_decline\":5.663,\"raw_wording_rate_per_1000\":7.928,\"adjusted_wording_rate_per_1000\":2.265,\"friction\":1.413},{\"title\":\"SENIOR FIRE PROTECTION ENGINEER\",\"wording_risk_decline\":5.081,\"raw_wording_rate_per_1000\":6.098,\"adjusted_wording_rate_per_1000\":1.016,\"friction\":1.542},{\"title\":\"AIRPORT CHIEF INFORMATION SECURITY OFFICER\",\"wording_risk_decline\":4.912,\"raw_wording_rate_per_1000\":8.841,\"adjusted_wording_rate_per_1000\":3.929,\"friction\":1.522}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 18,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The five outside-access roles with the largest friction-score drops are:\n\n1. **Workers' Compensation Analyst:** friction **1.266 → −0.924**, a drop of **2.191**.\n2. **Veterinary Technician:** friction **−1.858 → −3.675**, a drop of **1.817**.\n3. **Heating and Refrigeration Inspector:** friction **−0.334 → −2.008**, a drop of **1.675**.\n4. **Senior Window Cleaner:** friction **−0.535 → −2.158**, a drop of **1.622**.\n5. **Data Processing Technician:** friction **−0.842 → −2.267**, a drop of **1.424**.",
+      "dataflow_answer": "{\"roles\":[{\"title\":\"VETERINARY TECHNICIAN\",\"raw_wording_rate_per_1000\":9.709,\"adjusted_wording_rate_per_1000\":1.618,\"friction_before\":-1.884,\"friction_after\":-3.580,\"friction_drop\":1.696},{\"title\":\"WASTEWATER TREATMENT MECHANIC\",\"raw_wording_rate_per_1000\":8.314,\"adjusted_wording_rate_per_1000\":1.188,\"friction_before\":0.168,\"friction_after\":-1.310,\"friction_drop\":1.477},{\"title\":\"SAFETY ENGINEER PRESSURE VESSELS\",\"raw_wording_rate_per_1000\":8.242,\"adjusted_wording_rate_per_1000\":1.374,\"friction_before\":-1.529,\"friction_after\":-2.880,\"friction_drop\":1.351},{\"title\":\"PARKING MANAGER\",\"raw_wording_rate_per_1000\":7.884,\"adjusted_wording_rate_per_1000\":1.314,\"friction_before\":-0.852,\"friction_after\":-2.119,\"friction_drop\":1.267},{\"title\":\"SENIOR PARKING ATTENDANT\",\"raw_wording_rate_per_1000\":7.823,\"adjusted_wording_rate_per_1000\":1.304,\"friction_before\":-1.334,\"friction_after\":-2.587,\"friction_drop\":1.253}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 20,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The five roles with the largest compensation-adjusted risk-score increases when the DWP premium is removed are:\n\n1. **Assistant Retirement Plan Manager** — score change **+0.170**; score **0.688 → 0.859**\n2. **Architect** — **+0.141**; score **−0.931 → −0.790**\n3. **Investment Officer** — **+0.136**; score **0.875 → 1.011**\n4. **Senior Real Estate Officer** — **+0.129**; score **6.617 → 6.746**\n5. **Senior Workers' Compensation Analyst** — **+0.128**; score **0.017 → 0.146**",
+      "dataflow_answer": "{\"roles\":[{\"title\":\"ASSISTANT RETIREMENT PLAN MANAGER\",\"salary_midpoint\":135385.5,\"dwp_premium\":34922,\"score_with_premium\":0.333,\"score_without_premium\":0.504,\"score_change\":0.171},{\"title\":\"ARCHITECT\",\"salary_midpoint\":110350,\"dwp_premium\":29222,\"score_with_premium\":-1.252,\"score_without_premium\":-1.110,\"score_change\":0.142},{\"title\":\"INVESTMENT OFFICER\",\"salary_midpoint\":114912.5,\"dwp_premium\":28250.5,\"score_with_premium\":0.986,\"score_without_premium\":1.123,\"score_change\":0.136},{\"title\":\"SENIOR WORKERS' COMPENSATION ANALYST\",\"salary_midpoint\":82569.5,\"dwp_premium\":26569.5,\"score_with_premium\":0.082,\"score_without_premium\":0.210,\"score_change\":0.129},{\"title\":\"ELECTRICAL REPAIRER\",\"salary_midpoint\":84949.5,\"dwp_premium\":26444.5,\"score_with_premium\":2.734,\"score_without_premium\":2.862,\"score_change\":0.128}]}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 9,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "I’m unable to reliably report the five candidates or the top-five overlap from the information currently available: the prior execution output did not include the reliable players’ published rank pairs or the no-penalty recalculation. The needed calculation is:\n\n- no-penalty score = refined protection score + published rank-disagreement penalty;\n- rank reliable candidates by that score gain;\n- compare the resulting top five with the prior refined top five.\n\nThe earlier reported refined top five was Andrew Whitworth, Jake Matthews, Terence Steele, Rashawn Slater, and Tristan Wirfs, but the no-penalty leader-set stability cannot be determined without rerunning that calculation.",
+      "dataflow_answer": "{\"largest_score_gains\":[{\"player\":\"patrick mekari\",\"team\":\"BAL\",\"tackle_side\":\"RT\",\"score_gain\":0.0240},{\"player\":\"terence steele\",\"team\":\"DAL\",\"tackle_side\":\"RT\",\"score_gain\":0.0200},{\"player\":\"rashawn slater\",\"team\":\"LAC\",\"tackle_side\":\"LT\",\"score_gain\":0.0120},{\"player\":\"jake matthews\",\"team\":\"ATL\",\"tackle_side\":\"LT\",\"score_gain\":0.0040},{\"player\":\"donovan smith\",\"team\":\"TB\",\"tackle_side\":\"LT\",\"score_gain\":0.0040}],\"refined_speed_top5_protection_set_stable\":true}"
+    },
+    {
+      "arm": "react-entries",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 27,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": false,
+      "python_answer": "Relaxing the published-list match to cleaned player name alone produced no changes in this player table.\n\n- **Current elite set:** unchanged.\n- **Positive rank-disagreement group:** unchanged.\n- **Players changing published status:** none.\n\nThe original player-team-side published evidence was therefore restored without any material change to the evaluation.",
+      "dataflow_answer": "{\"current_elite_set_stable\":true,\"positive_rank_disagreement_group_stable\":true,\"published_status_changes\":[{\"player\":\"geron christian\",\"team\":\"HOU\",\"tackle_side\":\"LT\",\"original_status\":\"none\",\"relaxed_status\":\"both\",\"relaxed_top10_rank\":10,\"relaxed_p90_rank\":7},{\"player\":\"george fant\",\"team\":\"NYJ\",\"tackle_side\":\"LT\",\"original_status\":\"none\",\"relaxed_status\":\"one\",\"relaxed_top10_rank\":8,\"relaxed_p90_rank\":null}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 1,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "Raw row count: 23,999  \nValid respondent count: 23,998",
+      "dataflow_answer": "{\"raw_row_count\":23998,\"valid_respondent_count\":23997}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 3,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Absolute difference: **19.3636 percentage points**  \nRatio of shown-base rate to total-base rate: **5.1564**",
+      "dataflow_answer": "{\"difference_percentage_points\":19.3634,\"shown_to_total_rate_ratio\":5.1562}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 13,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "| Rank | Role | Composition lift | Coding anchor (pp) | ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.3463 | 30.3279 | 20.0820 | 6.3873 |\n| 2 | Statistician | 0.6570 | 14.3000 | 36.4000 | 5.7270 |\n| 3 | Data Administrator | 0.8799 | 21.9048 | 21.9048 | 5.2609 |\n| 4 | Data Architect | 2.3773 | 17.3684 | 5.8852 | 4.7027 |\n| 5 | Other | 0.3404 | 17.9204 | 20.5942 | 4.1918 |",
+      "dataflow_answer": "{\"top_5_roles\":[{\"role\":\"Data Architect\",\"intensity_score\":3.4375},{\"role\":\"Data Scientist\",\"intensity_score\":2.6833},{\"role\":\"Machine Learning/ MLops Engineer\",\"intensity_score\":2.5884},{\"role\":\"Data Engineer\",\"intensity_score\":2.5767},{\"role\":\"Developer Advocate\",\"intensity_score\":2.4065}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 14,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "### AutoML-only rollback: top 5\n\n| Rank | Role | Composition lift | Coding anchor (pp) | Unchanged ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.6185 | 21.9945 | 20.0820 | 5.8261 |\n| 2 | Statistician | 0.5265 | 14.3000 | 36.4000 | 5.5965 |\n| 3 | Data Administrator | 0.7052 | 21.9048 | 21.9048 | 5.0861 |\n| 4 | Data Architect | 2.1651 | 15.3684 | 5.8852 | 4.2904 |\n| 5 | Engineer (non-software) | 0.4246 | 12.6613 | 25.2419 | 4.2150 |\n\n### Strict cross-tool view: top 5\n\n| Rank | Role | Composition lift | Coding anchor (pp) | ML anchor (pp) | Intensity score |\n|---:|---|---:|---:|---:|---:|\n| 1 | Developer Advocate | 1.3463 | 30.3279 | 20.0820 | 6.3873 |\n| 2 | Statistician | 0.6570 | 14.3000 | 36.4000 | 5.7270 |\n| 3 | Data Administrator | 0.8799 | 21.9048 | 21.9048 | 5.2609 |\n| 4 | Data Architect | 2.3773 | 17.3684 | 5.8852 | 4.7027 |\n| 5 | Other | 0.3404 | 17.9204 | 20.5942 | 4.1918 |\n\nRoles appearing in both top-five lists: **Developer Advocate, Statistician, Data Administrator, and Data Architect**.",
+      "dataflow_answer": "{\"automl_only_top5\":[{\"role\":\"Data Architect\",\"intensity_score\":3.2225},{\"role\":\"Developer Advocate\",\"intensity_score\":2.6759},{\"role\":\"Machine Learning/ MLops Engineer\",\"intensity_score\":2.6135},{\"role\":\"Data Scientist\",\"intensity_score\":2.5502},{\"role\":\"Data Engineer\",\"intensity_score\":2.4130}],\"strict_cross_tool_top5\":[{\"role\":\"Data Architect\",\"intensity_score\":3.4375},{\"role\":\"Data Scientist\",\"intensity_score\":2.6833},{\"role\":\"Machine Learning/ MLops Engineer\",\"intensity_score\":2.5884},{\"role\":\"Data Engineer\",\"intensity_score\":2.5767},{\"role\":\"Developer Advocate\",\"intensity_score\":2.4065}],\"roles_in_both_top5\":[\"Data Architect\",\"Developer Advocate\",\"Machine Learning/ MLops Engineer\",\"Data Scientist\",\"Data Engineer\"],\"overlap_count\":5}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 23,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Industry front: **22.9146%**  \nRole front: **5.7917**  \nExpanded small-organization composite: **0.9308**  \nTwo-front resilience score: **1.2354**",
+      "dataflow_answer": "{\"industry_front_top3_mean_asked_base_pct\":22.9146,\"role_front_top3_mean_intensity_score\":2.9031,\"expanded_small_organization_composite\":0.9308,\"resilience_score\":0.6192}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 1,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested raw-data results because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"shape\":[77,11],\"missing_values\":{\"fNAME\":0,\"lNAME\":0,\"Age\":0,\"gender\":0,\"country\":0,\"residence\":0,\"entryEXAM\":0,\"prevEducation\":0,\"studyHOURS\":0,\"Python\":2,\"DB\":0},\"unique_values\":{\"gender\":[\"F\",\"Female\",\"M\",\"Male\",\"female\",\"male\"],\"country\":[\"Denmark\",\"France\",\"Germany\",\"Italy\",\"Kenya\",\"Netherlands\",\"Nigeria\",\"Norge\",\"Norway\",\"Rsa\",\"Somali\",\"South Africa\",\"Spain\",\"UK\",\"Uganda\",\"norway\"],\"residence\":[\"BI Residence\",\"BI-Residence\",\"BIResidence\",\"BI_Residence\",\"Private\",\"Sognsvann\"],\"prevEducation\":[\"Bachelors\",\"Barrrchelors\",\"DIPLOMA\",\"Diploma\",\"Diplomaaa\",\"Doctorate\",\"High School\",\"HighSchool\",\"Masters\",\"diploma\"]}}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 2,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the standardized category values, counts, and distinct-value totals because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"gender\":{\"values\":{\"Female\":43,\"Male\":34},\"total_distinct\":2},\"country\":{\"values\":{\"Denmark\":2,\"France\":2,\"Germany\":3,\"Italy\":2,\"Kenya\":3,\"Netherlands\":2,\"Nigeria\":2,\"Norway\":49,\"Somalia\":2,\"South Africa\":2,\"Spain\":2,\"UK\":2,\"Uganda\":4},\"total_distinct\":13},\"residence\":{\"values\":{\"BI Residence\":32,\"Private\":33,\"Sognsvann\":12},\"total_distinct\":3},\"prevEducation\":{\"values\":{\"Bachelor\":25,\"Diploma\":12,\"Doctorate\":5,\"High School\":19,\"Masters\":16},\"total_distinct\":5}}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 3,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested imputation results because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"mean_used_for_imputation\":75.8533,\"rows_imputed\":2,\"final_row_count\":77}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 4,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested mean, median, population standard deviation, minimum, maximum, 25th percentile, and 75th percentile for Age, studyHOURS, Python, and DB because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"Age\":{\"mean\":35.2078,\"median\":33,\"population_std\":10.2746,\"min\":21,\"max\":71,\"q25\":27,\"q75\":42},\"studyHOURS\":{\"mean\":149.7143,\"median\":156,\"population_std\":12.6603,\"min\":114,\"max\":160,\"q25\":144,\"q75\":158},\"Python\":{\"mean\":75.8533,\"median\":81,\"population_std\":15.1071,\"min\":15,\"max\":91,\"q25\":72,\"q75\":85},\"DB\":{\"mean\":69.4675,\"median\":71,\"population_std\":16.9227,\"min\":30,\"max\":100,\"q25\":56,\"q75\":83}}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 5,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested correlation matrix and correlation pairs because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"correlation_matrix\":{\"Age\":{\"Age\":1.0000,\"studyHOURS\":0.2147,\"Python\":-0.0143,\"DB\":0.0995},\"studyHOURS\":{\"Age\":0.2147,\"studyHOURS\":1.0000,\"Python\":0.7837,\"DB\":0.4660},\"Python\":{\"Age\":-0.0143,\"studyHOURS\":0.7837,\"Python\":1.0000,\"DB\":0.4427},\"DB\":{\"Age\":0.0995,\"studyHOURS\":0.4660,\"Python\":0.4427,\"DB\":1.0000}},\"strongest_off_diagonal_pair\":{\"pair\":\"studyHOURS-Python\",\"correlation\":0.7837,\"absolute_correlation\":0.7837},\"weakest_off_diagonal_pair\":{\"pair\":\"Age-Python\",\"correlation\":-0.0143,\"absolute_correlation\":0.0143}}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 6,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the requested Pearson correlation coefficient because the dataset is not accessible for execution in this environment.",
+      "dataflow_answer": "{\"studyHOURS_Python_pearson_correlation\": 0.7837}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "education__bi__task2",
+      "turn": 15,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the education-level composite means and ranking from the available execution results.",
+      "dataflow_answer": "{\"ranking\":[{\"prevEducation\":\"Masters\",\"mean_composite\":79.1250},{\"prevEducation\":\"Bachelor\",\"mean_composite\":75.4400},{\"prevEducation\":\"Doctorate\",\"mean_composite\":72.7000},{\"prevEducation\":\"Diploma\",\"mean_composite\":69.5417},{\"prevEducation\":\"High School\",\"mean_composite\":65.5186}],\"highest_mean_composite_education\":\"Masters\",\"highest_mean_composite\":79.1250}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "geoscience__water-potability__task3",
+      "turn": 2,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The farthest feature-class fill is **potable sulfate**, with a fill offset of **1.5497** from the screened-table sulfate median.\n\nThe cleaned chemistry field with the largest class mean gap is **sulfate**: potable mean **332.2258** minus non-potable mean **334.0653** equals **−1.8395** (absolute gap **1.8395**).",
+      "dataflow_answer": "{\"farthest_fill_feature\":\"Sulfate\",\"farthest_fill_potability_class\":1,\"largest_gap_feature\":\"Sulfate\"}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "geoscience__water-potability__task3",
+      "turn": 15,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The **100-tree random forest** is selected under macro-F1 (**0.6133**, versus **0.5020** for the tree).\n\nIts false-safe rates are:\n\n- **Full test fold:** 14.5455% (80/550)\n- **High-pressure subgroup:** 10.6838% (25/234)\n\nTherefore, the high-pressure subgroup’s false-safe rate is **not higher**; it is **3.8617 percentage points lower** than the full-fold rate.",
+      "dataflow_answer": "{\"selected_model\":\"100_tree_random_forest\",\"high_pressure_false_safe_rate_higher\":false}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "geoscience__water-potability__task3",
+      "turn": 24,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "The **severity-high** and **augmented-risk-high** groups tie for the largest error-rate lift:\n\n- Group error rate: **40.9091%** (36/88)\n- Full holdout error rate: **35.2477%**\n- Lift: **+5.6613 percentage points**\n\nThe pressure-disagreement group has a **−3.7622-point** lift.",
+      "dataflow_answer": "{\"group\":\"augmented_risk_high\",\"error_rate_lift_percentage_points\":7.0462}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 2,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the five postings because the intake roster and standing analysis-state data were not provided in the accessible context.",
+      "dataflow_answer": "The five retained postings meeting the upper-quarter salary-floor threshold of **$96,423** and having the highest applicant-friction scores are:\n\n1. **Database Architect** — salary floor **$97,781** (**+$1,358**); friction **5.123**; mainly driven by **reading burden**.\n2. **Senior City Planner** — salary floor **$98,261** (**+$1,838**); friction **4.028**; mainly driven by **reading burden**.\n3. **Retirement Plan Manager** — salary floor **$157,393** (**+$60,970**); friction **3.643**; mainly driven by **requirement burden**.\n4. **Chief Port Pilot** — salary floor **$245,758** (**+$149,335**); friction **3.262**; mainly driven by **requirement burden**.\n5. **Instrument Mechanic** — salary floor **$103,382** (**+$6,959**); friction **3.258**; mainly driven by **requirement burden**.\n\n**None** of the selected roles relied on an intake salary-cleaning exception."
+    },
+    {
+      "arm": "react-analysis",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 7,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the roles moving into or out of the midpoint-based high-compensation group because the collapsed roster and its floor/midpoint salary and process-adjusted friction fields are not available in the accessible context.",
+      "dataflow_answer": "{\"moved_into_midpoint_group\":[{\"role\":\"EMS NURSE PRACTITIONER SUPERVISOR\",\"salary_floor\":93083,\"salary_high\":136074,\"salary_midpoint\":114578.5},{\"role\":\"SENIOR INDUSTRIAL HYGIENIST\",\"salary_floor\":95714,\"salary_high\":139917,\"salary_midpoint\":117815.5},{\"role\":\"CHIEF OF OPERATIONS\",\"salary_floor\":90473,\"salary_high\":132274,\"salary_midpoint\":111373.5}],\"moved_out_of_midpoint_group\":[{\"role\":\"INSTRUMENT MECHANIC\",\"salary_floor\":103382,\"salary_high\":105282,\"salary_midpoint\":104332},{\"role\":\"AIR CONDITIONING MECHANIC SUPERVISOR\",\"salary_floor\":103841,\"salary_high\":108482,\"salary_midpoint\":106161.5},{\"role\":\"INDUSTRIAL GRAPHICS SUPERVISOR\",\"salary_floor\":102458,\"salary_high\":108179,\"salary_midpoint\":105318.5}],\"pay_fields_showing_movement\":{\"floor_pay_threshold\":96386.5,\"midpoint_pay_threshold\":110331.875,\"source_fields\":[\"salary_floor\",\"salary_high\",\"salary_midpoint\"]}}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 8,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to determine the most sensitive roles because the collapsed roster and the later-cleaned floor- and midpoint-based screen results are not available in the accessible data context.",
+      "dataflow_answer": "{\"most_sensitive_roles\":[{\"rank\":1,\"role\":\"EMS NURSE PRACTITIONER SUPERVISOR\",\"movement\":\"moved_into_midpoint\",\"position_gap\":97,\"floor_position\":99,\"midpoint_position\":2},{\"rank\":2,\"role\":\"INSTRUMENT MECHANIC\",\"movement\":\"moved_out_of_midpoint\",\"position_gap\":94,\"floor_position\":5,\"midpoint_position\":99},{\"rank\":3,\"role\":\"AIR CONDITIONING MECHANIC SUPERVISOR\",\"movement\":\"moved_out_of_midpoint\",\"position_gap\":92,\"floor_position\":7,\"midpoint_position\":99},{\"rank\":4,\"role\":\"SENIOR INDUSTRIAL HYGIENIST\",\"movement\":\"moved_into_midpoint\",\"position_gap\":91,\"floor_position\":99,\"midpoint_position\":8},{\"rank\":5,\"role\":\"INDUSTRIAL GRAPHICS SUPERVISOR\",\"movement\":\"moved_out_of_midpoint\",\"position_gap\":90,\"floor_position\":9,\"midpoint_position\":99}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 20,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The five roles with the largest compensation-adjusted risk-score increases when the DWP premium is removed are:\n\n1. **Assistant Retirement Plan Manager** — score change **+0.170**; score **0.688 → 0.859**\n2. **Architect** — **+0.141**; score **−0.931 → −0.790**\n3. **Investment Officer** — **+0.136**; score **0.875 → 1.011**\n4. **Senior Real Estate Officer** — **+0.129**; score **6.617 → 6.746**\n5. **Senior Workers' Compensation Analyst** — **+0.128**; score **0.017 → 0.146**",
+      "dataflow_answer": "{\"roles\":[{\"rank\":1,\"title\":\"ASSISTANT RETIREMENT PLAN MANAGER\",\"before\":-0.442,\"after\":-0.271,\"change\":0.171},{\"rank\":2,\"title\":\"ARCHITECT\",\"before\":-0.836,\"after\":-0.694,\"change\":0.142},{\"rank\":3,\"title\":\"INVESTMENT OFFICER\",\"before\":1.009,\"after\":1.146,\"change\":0.136},{\"rank\":4,\"title\":\"SENIOR WORKERS' COMPENSATION ANALYST\",\"before\":0.414,\"after\":0.543,\"change\":0.129},{\"rank\":5,\"title\":\"ELECTRICAL REPAIRER\",\"before\":2.677,\"after\":2.805,\"change\":0.128}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 1,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": true,
+      "python_answer": "Unable to compute the requested summaries because the dataset files could not be accessed in the provided execution environment.",
+      "dataflow_answer": "{\"player_join_identity_unique\":true,\"acceleration_list_matched\":8,\"acceleration_list_total\":10,\"acceleration_list_match_rate\":0.8000,\"acceleration_90_percentile_list_matched\":9,\"acceleration_90_percentile_list_total\":10,\"acceleration_90_percentile_list_match_rate\":0.9000,\"pressure_event_ledger_rows\":344}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 4,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "Players changing practical group under the total-pressure check:\n\n- Lucas Niang (KC, RT): catch-all → fast-and-clean\n- Rashawn Slater (LAC, LT): catch-all → fast-but-pressured\n- Isaiah Wynn (NE, LT): catch-all → fast-but-pressured\n- Jason Peters (CHI, LT): catch-all → quiet-stable\n- Bobby Massie (DEN, RT): catch-all → quiet-stable\n- Cameron Erving (CAR, LT): fast-and-clean → quiet-stable\n- Nate Solder (NYG, RT): fast-and-clean → quiet-stable\n- Dion Dawkins (BUF, LT): fast-but-pressured → catch-all\n- Garett Bolles (DEN, LT): fast-but-pressured → catch-all\n- Charles Leno (WAS, LT): fast-but-pressured → catch-all\n- Jonah Williams (CIN, LT): quiet-stable → catch-all\n- Terence Steele (DAL, RT): quiet-stable → catch-all\n- Rob Havenstein (LA, RT): quiet-stable → catch-all\n- Riley Reiff (CIN, RT): quiet-stable → fast-but-pressured\n\nThe original event-ledger top five were Andrew Whitworth, Jake Matthews, Trent Williams, Brandon Shell, and Rashawn Slater. Under total pressure, the top five were Andrew Whitworth, Jake Matthews, Trent Williams, Rashawn Slater, and Samuel Cosmi.\n\n**New entrant to the top-five protection leader set:**\n\n- Samuel Cosmi (WAS, RT), with total-pressure protection score **1.3552**\n\nBrandon Shell is the original top-five player displaced by Samuel Cosmi.",
+      "dataflow_answer": "{\"group_changes\":[{\"player\":\"terence steele\",\"from\":\"catch-all\",\"to\":\"quiet-stable\"},{\"player\":\"dion dawkins\",\"from\":\"quiet-stable\",\"to\":\"catch-all\"},{\"player\":\"charlie heck\",\"from\":\"catch-all\",\"to\":\"quiet-stable\"},{\"player\":\"jason peters\",\"from\":\"quiet-stable\",\"to\":\"catch-all\"},{\"player\":\"lucas niang\",\"from\":\"quiet-stable\",\"to\":\"catch-all\"}],\"new_top5_protection_leaders\":[\"christian darrisaw\",\"samuel cosmi\"]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 12,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "The 5 reliable candidates with the largest raw score gains when beaten blocks are omitted are:\n\n1. Patrick Mekari (BAL, RT): **+0.0714**\n2. D.J. Humphries (ARI, LT): **+0.0682**\n3. Rashawn Slater (LAC, LT): **+0.0682**\n4. Storm Norton (LAC, RT): **+0.0476**\n5. Bobby Massie (DEN, RT): **+0.0238**\n\nThe severity-weighted top-five leader set is completely stable:\n\n- Andrew Whitworth (LA, LT)\n- Jake Matthews (ATL, LT)\n- Terence Steele (DAL, RT)\n- Rashawn Slater (LAC, LT)\n- Tristan Wirfs (TB, RT)\n\nAll **5 of 5** leaders remain, giving a leader-set overlap of **1.0000**, or **100%**.",
+      "dataflow_answer": "{\"largest_raw_score_gains\":[{\"rank\":1,\"player\":\"rob havenstein\",\"team\":\"LA\",\"tackle_side\":\"RT\",\"raw_score_gain\":0.1977},{\"rank\":2,\"player\":\"riley reiff\",\"team\":\"CIN\",\"tackle_side\":\"RT\",\"raw_score_gain\":0.1279},{\"rank\":3,\"player\":\"jesse davis\",\"team\":\"MIA\",\"tackle_side\":\"RT\",\"raw_score_gain\":0.1047},{\"rank\":4,\"player\":\"patrick mekari\",\"team\":\"BAL\",\"tackle_side\":\"RT\",\"raw_score_gain\":0.0930},{\"rank\":5,\"player\":\"jonah williams\",\"team\":\"CIN\",\"tackle_side\":\"LT\",\"raw_score_gain\":0.0814}],\"severity_weighted_top5_leader_set_overlap_count\":4,\"severity_weighted_top5_leader_set_overlap_share\":0.8000}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 16,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "All comparable teams had a signed effect of **0.0000**, because no reliable candidate belonged to the early pressure-discrepancy group.\n\n**Five teams most affected by absolute signed effect:**\n\n1. ARI: **0.0000**\n2. ATL: **0.0000**\n3. BAL: **0.0000**\n4. BUF: **0.0000**\n5. CAR: **0.0000**\n\n**Five teams with the most negative signed effect:**\n\n1. ARI: **0.0000**\n2. ATL: **0.0000**\n3. BAL: **0.0000**\n4. BUF: **0.0000**\n5. CAR: **0.0000**\n\nThere was no negative team effect; the mismatch group had no impact on the restored team view.",
+      "dataflow_answer": "{\"largest_absolute_signed_effect\":[{\"rank\":1,\"team\":\"PIT\",\"signed_effect\":-0.4411,\"absolute_signed_effect\":0.4411},{\"rank\":2,\"team\":\"LA\",\"signed_effect\":-0.3107,\"absolute_signed_effect\":0.3107},{\"rank\":3,\"team\":\"LV\",\"signed_effect\":-0.2403,\"absolute_signed_effect\":0.2403},{\"rank\":4,\"team\":\"NYG\",\"signed_effect\":-0.2402,\"absolute_signed_effect\":0.2402},{\"rank\":5,\"team\":\"CAR\",\"signed_effect\":-0.2372,\"absolute_signed_effect\":0.2372}],\"most_negative_signed_effect\":[{\"rank\":1,\"team\":\"PIT\",\"signed_effect\":-0.4411},{\"rank\":2,\"team\":\"LA\",\"signed_effect\":-0.3107},{\"rank\":3,\"team\":\"LV\",\"signed_effect\":-0.2403},{\"rank\":4,\"team\":\"NYG\",\"signed_effect\":-0.2402},{\"rank\":5,\"team\":\"CAR\",\"signed_effect\":-0.2372}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 17,
+      "python_code_submissions": 3,
+      "python_no_code_refusal": false,
+      "python_answer": "**4 matched tackles with the strongest season protection relative to first-five-frame play evidence:**\n\n1. Braden Smith (IND, RT), Colts-Titans edge: **+0.5000**\n2. Kaleb McGary (ATL, RT), Falcons-Bucs fast-sample: **+0.0833**\n3. Jake Matthews (ATL, LT), Falcons-Bucs penalty: **+0.0833**\n4. Jake Matthews (ATL, LT), Falcons-Bucs fast-sample: **−0.0833**\n\n**4 matched tackles showing the strongest reverse pattern, where play burst exceeded season protection:**\n\n1. Eric Fisher (IND, LT), Colts-Titans edge: **−0.3333**\n2. Kaleb McGary (ATL, RT), Falcons-Bucs penalty: **−0.2500**\n3. Jake Matthews (ATL, LT), Falcons-Bucs fast-sample: **−0.0833**\n4. Jake Matthews (ATL, LT), Falcons-Bucs penalty: **+0.0833**\n\nThe season protection scores and play-burst percentiles were:\n\n- Braden Smith: season **0.6667**, play **0.1667**\n- Eric Fisher: season **0.1667**, play **0.5000**\n- Jake Matthews, fast-sample: season **0.9167**, play **1.0000**\n- Jake Matthews, penalty: season **0.9167**, play **0.8333**\n- Kaleb McGary, fast-sample: season **0.4167**, play **0.3333**\n- Kaleb McGary, penalty: season **0.4167**, play **0.6667**",
+      "dataflow_answer": "{\"season_stronger\":[{\"rank\":1,\"player\":\"kaleb mcgary\",\"team\":\"ATL\",\"tackle_side\":\"RT\",\"label\":\"Falcons-Bucs fast-sample\",\"max_acceleration\":1.67,\"play_burst_percentile\":0.3333,\"season_protection_percentile\":0.5833,\"gap\":0.2500},{\"rank\":2,\"player\":\"braden smith\",\"team\":\"IND\",\"tackle_side\":\"RT\",\"label\":\"Colts-Titans edge\",\"max_acceleration\":1.24,\"play_burst_percentile\":0.1667,\"season_protection_percentile\":0.3333,\"gap\":0.1667},{\"rank\":3,\"player\":\"jake matthews\",\"team\":\"ATL\",\"tackle_side\":\"LT\",\"label\":\"Falcons-Bucs penalty\",\"max_acceleration\":3.14,\"play_burst_percentile\":0.8333,\"season_protection_percentile\":0.9167,\"gap\":0.0833},{\"rank\":4,\"player\":\"kaleb mcgary\",\"team\":\"ATL\",\"tackle_side\":\"RT\",\"label\":\"Falcons-Bucs penalty\",\"max_acceleration\":2.93,\"play_burst_percentile\":0.6667,\"season_protection_percentile\":0.5833,\"gap\":-0.0833}],\"play_stronger\":[{\"rank\":1,\"player\":\"eric fisher\",\"team\":\"IND\",\"tackle_side\":\"LT\",\"label\":\"Colts-Titans edge\",\"max_acceleration\":1.93,\"play_burst_percentile\":0.5000,\"season_protection_percentile\":0.1667,\"gap\":-0.3333},{\"rank\":2,\"player\":\"jake matthews\",\"team\":\"ATL\",\"tackle_side\":\"LT\",\"label\":\"Falcons-Bucs fast-sample\",\"max_acceleration\":7.51,\"play_burst_percentile\":1.0000,\"season_protection_percentile\":0.9167,\"gap\":-0.0833},{\"rank\":3,\"player\":\"kaleb mcgary\",\"team\":\"ATL\",\"tackle_side\":\"RT\",\"label\":\"Falcons-Bucs penalty\",\"max_acceleration\":2.93,\"play_burst_percentile\":0.6667,\"season_protection_percentile\":0.5833,\"gap\":-0.0833},{\"rank\":4,\"player\":\"jake matthews\",\"team\":\"ATL\",\"tackle_side\":\"LT\",\"label\":\"Falcons-Bucs penalty\",\"max_acceleration\":3.14,\"play_burst_percentile\":0.8333,\"season_protection_percentile\":0.9167,\"gap\":0.0833}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 21,
+      "python_code_submissions": 1,
+      "python_no_code_refusal": false,
+      "python_answer": "**Top 5 reliable candidates gaining the most:**\n\n1. Lucas Niang (KC, RT): **+0.1905**\n2. Dion Dawkins (BUF, LT): **+0.1136**\n3. Charles Leno (WAS, LT): **+0.0909**\n4. Ryan Ramczyk (NO, RT): **+0.0714**\n5. David Quessenberry (TEN, RT): **+0.0476**\n\n**Top 5 reliable candidates losing the most:**\n\n1. Taylor Moton (CAR, RT): **−0.0952**\n2. Rashawn Slater (LAC, LT): **−0.0909**\n3. Isaiah Wynn (NE, LT): **−0.0909**\n4. Morgan Moses (NYJ, RT): **−0.0714**\n5. Andrew Whitworth (LA, LT): **−0.0455**",
+      "dataflow_answer": "{\"gained_most\":[{\"rank\":1,\"player\":\"lucas niang\",\"team\":\"KC\",\"tackle_side\":\"RT\",\"raw_score_change\":0.1395},{\"rank\":2,\"player\":\"charles leno\",\"team\":\"WAS\",\"tackle_side\":\"LT\",\"raw_score_change\":0.1047},{\"rank\":3,\"player\":\"duane brown\",\"team\":\"SEA\",\"tackle_side\":\"LT\",\"raw_score_change\":0.0698},{\"rank\":4,\"player\":\"dion dawkins\",\"team\":\"BUF\",\"tackle_side\":\"LT\",\"raw_score_change\":0.0698},{\"rank\":5,\"player\":\"ryan ramczyk\",\"team\":\"NO\",\"tackle_side\":\"RT\",\"raw_score_change\":0.0581}],\"lost_most\":[{\"rank\":1,\"player\":\"riley reiff\",\"team\":\"CIN\",\"tackle_side\":\"RT\",\"raw_score_change\":-0.1395},{\"rank\":2,\"player\":\"rob havenstein\",\"team\":\"LA\",\"tackle_side\":\"RT\",\"raw_score_change\":-0.1163},{\"rank\":3,\"player\":\"patrick mekari\",\"team\":\"BAL\",\"tackle_side\":\"RT\",\"raw_score_change\":-0.0872},{\"rank\":4,\"player\":\"rashawn slater\",\"team\":\"LAC\",\"tackle_side\":\"LT\",\"raw_score_change\":-0.0814},{\"rank\":5,\"player\":\"nate solder\",\"team\":\"NYG\",\"tackle_side\":\"RT\",\"raw_score_change\":-0.0814}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 22,
+      "python_code_submissions": 0,
+      "python_no_code_refusal": false,
+      "python_answer": "**5 reliable candidates helped most:**\n\n1. Lucas Niang (KC, RT): **+0.1905**\n2. Dion Dawkins (BUF, LT): **+0.1136**\n3. Charles Leno (WAS, LT): **+0.0909**\n4. Ryan Ramczyk (NO, RT): **+0.0714**\n5. David Quessenberry (TEN, RT): **+0.0476**\n\n**5 reliable candidates hurt most:**\n\n1. Taylor Moton (CAR, RT): **−0.0952**\n2. Rashawn Slater (LAC, LT): **−0.0909**\n3. Isaiah Wynn (NE, LT): **−0.0909**\n4. Morgan Moses (NYJ, RT): **−0.0714**\n5. Andrew Whitworth (LA, LT): **−0.0455**",
+      "dataflow_answer": "{\"helped_most\":[{\"player\":\"lucas niang\",\"team\":\"KC\",\"tackle_side\":\"RT\",\"score_effect\":0.1395},{\"player\":\"charles leno\",\"team\":\"WAS\",\"tackle_side\":\"LT\",\"score_effect\":0.1047},{\"player\":\"duane brown\",\"team\":\"SEA\",\"tackle_side\":\"LT\",\"score_effect\":0.0698},{\"player\":\"dion dawkins\",\"team\":\"BUF\",\"tackle_side\":\"LT\",\"score_effect\":0.0698},{\"player\":\"ryan ramczyk\",\"team\":\"NO\",\"tackle_side\":\"RT\",\"score_effect\":0.0581}],\"hurt_most\":[{\"player\":\"riley reiff\",\"team\":\"CIN\",\"tackle_side\":\"RT\",\"score_effect\":-0.1395},{\"player\":\"rob havenstein\",\"team\":\"LA\",\"tackle_side\":\"RT\",\"score_effect\":-0.1163},{\"player\":\"patrick mekari\",\"team\":\"BAL\",\"tackle_side\":\"RT\",\"score_effect\":-0.0872},{\"player\":\"rashawn slater\",\"team\":\"LAC\",\"tackle_side\":\"LT\",\"score_effect\":-0.0814},{\"player\":\"nate solder\",\"team\":\"NYG\",\"tackle_side\":\"RT\",\"score_effect\":-0.0814}]}"
+    },
+    {
+      "arm": "react-analysis",
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 26,
+      "python_code_submissions": 2,
+      "python_no_code_refusal": false,
+      "python_answer": "The requested top five cannot be determined reliably from the displayed results because the current scores for all excluded players are missing. The calculation must first restore the winsorized speed signal to the wider table and assign unlisted players their defined zero published-speed contribution, then recompute:\n\n\\[\n\\text{current score}\n=\n\\text{winsorized speed}\n+\n\\text{mismatch-pressure percentile}\n+\n0.10(\\text{exposure percentile})\n+\n\\text{play adjustment}.\n\\]\n\nThe prior output’s ordering is therefore invalid and should not be used to identify the five excluded players.",
+      "dataflow_answer": "{\"excluded_players\":[{\"rank\":1,\"player\":\"riley reiff\",\"team\":\"CIN\",\"tackle_side\":\"RT\",\"current_score\":1.1063},{\"rank\":2,\"player\":\"billy turner\",\"team\":\"GB\",\"tackle_side\":\"RT\",\"current_score\":0.9320},{\"rank\":3,\"player\":\"jesse davis\",\"team\":\"MIA\",\"tackle_side\":\"RT\",\"current_score\":0.8365},{\"rank\":4,\"player\":\"rob havenstein\",\"team\":\"LA\",\"tackle_side\":\"RT\",\"current_score\":0.8246},{\"rank\":5,\"player\":\"jonah williams\",\"team\":\"CIN\",\"tackle_side\":\"LT\",\"current_score\":0.7397}]}"
+    }
+  ],
+  "cases": [
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 13,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Reuse of complete intermediate components",
+      "first_divergence": "The graph consumes strict_role_composition_lift, strict_coding_experience_comparison and strict_ml_experience_comparison from earlier executions. The coding and ML maxima remain global (4.2502446184 and 6.3519243314). DSGym reloads the CSV and recomputes both maxima within each role, changing the defined statistic.",
+      "observation": "Dataflow returns Data Architect 3.4375 first; DSGym returns Developer Advocate 6.3873 first. The three input execution IDs are 5603, 5610 and 5612; the consumer executes as 5621.",
+      "counterfactual_not_run": "In DSGym, consume the already established global comparison results rather than recomputing role-conditional anchors.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.00367655,
+        "dsgym": 0.00604049
+      },
+      "calls": {
+        "react-entries": 2,
+        "dsgym": 3
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t13/react_steps.json",
+          "sha256": "f305134e27993aa79aea2630fedd8fc1b6952126be3094583d729c309dffb8dd"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t13/workflow.json",
+          "sha256": "7debef0ba419d6cdc1c2a0c4a739cdf5bdfa7b906fdd80dced6e0973b40f27a7"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t13/operator_results.json",
+          "sha256": "aa54e41b173012216a2f81a26edae52edcb544e991911369a02c3cd70138a450"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_13_result.json",
+          "sha256": "9dc7b626f8c15011e465467f9a44d993132b07cc070e00ae8775d03cd741353e"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          1,
+          0,
+          null
+        ]
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 14,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Explicit composition of earlier and current states",
+      "first_divergence": "The process inputs are earlier role_composition and coding_experience_comparison plus current strict_ml_experience_comparison. The strict top-five table stays separate for comparison. DSGym carries forward the erroneous role-specific anchors from turn 13.",
+      "observation": "The AutoML-only Data Architect score is 3.2225 and all five expected roles overlap. The existing graph supplies separate named tables; no restore, historical-value read or fork API is used.",
+      "counterfactual_not_run": "Represent the historical adopter components and current ML component separately and bind them explicitly in Python too.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.00505642,
+        "dsgym": 0.00478521
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t14/react_steps.json",
+          "sha256": "4fd176efa8b7a37609886bb521f49535db7287461af387e5b3b1d3e9edd0c18a"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t14/workflow.json",
+          "sha256": "957d66c9127d2e644dfc1993bc9037e195efa60a5874984833a86aae7c207443"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t14/operator_results.json",
+          "sha256": "9d4b86025ae29ffc939f154bc653c9d91dd79f64dd2228b2ae50467d35fdc997"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_14_result.json",
+          "sha256": "4ebb1be6ed617d76d7618a4a6980eab6cfc28f41635627862663daaa8a186e71"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          1,
+          0,
+          null
+        ]
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 17,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Computation from retained full-precision values",
+      "first_divergence": "Dataflow computes max-minus-min from the stored asked-base industry tables. DSGym submits no Python and reports the difference of the displayed four-decimal rates.",
+      "observation": "The executed result is 23.931623931623932 - 13.409961685823754 = 10.521662245800178, reported as 10.5217. DSGym reports 10.5216.",
+      "counterfactual_not_run": "Execute the arithmetic against the full-precision stored series in DSGym; do not derive the answer from displayed rounded values.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.00380003,
+        "dsgym": 0.0015464200000000002
+      },
+      "calls": {
+        "react-entries": 2,
+        "dsgym": 1
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t17/react_steps.json",
+          "sha256": "2acd9e775a6e359c519649acae22a4ad40405bd475d527679bd7c96d8c8e6259"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t17/workflow.json",
+          "sha256": "3bfbd10f71830baa73c27fdd5f8d3ee2f247df918c9eae646ce13dc57e6cec24"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t17/operator_results.json",
+          "sha256": "c2d7138697a2f52fcb0802fdc2eaa544d878704b9205bc78757d3e0a93bcf818"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_17_result.json",
+          "sha256": "6330fa299790bb988e4816199b2b24d3cb14ac24ef97c71d4b5babd0d468a2d3"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          1,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          0,
+          1,
+          null
+        ]
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 18,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Visible result inspection and local input repair",
+      "first_divergence": "The first Dataflow call passes top5_asked_base_industries as the full-population denominator input, forcing industry concentration to one. The agent identifies this, replaces that input with asked_base_industry and reruns. The complete 14-role table from turn 13 is preserved. DSGym uses its erroneous role-intensity components.",
+      "observation": "Dataflow reports role top-five mean 2.7385, full role mean 2.1077 and normalized role concentration 1.2993; DSGym gives 5.2539, 3.6603 and 1.4354.",
+      "counterfactual_not_run": "Use full component tables for normalization and retain presentation limits as separate transformations.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.005159780000000001,
+        "dsgym": 0.004364979999999999
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t18/react_steps.json",
+          "sha256": "b2826e56e0dc6c4b172bdbbddd302fbda7873aae2b81b82744531b4579969c25"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t18/workflow.json",
+          "sha256": "0646c85fe82eef2b1f9ae8440b0de52df4d31572ad079a0ba91eba4cc25a83de"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t18/operator_results.json",
+          "sha256": "5d42a37e14581114da739e86acf4dbac8a9107f4917524f4a68a9dedb937ee75"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_18_result.json",
+          "sha256": "c3dc36c57c3dddf5cdaf0bd64d1e44662ec018bb781e20fb8af1147d61772cbc"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          0,
+          0,
+          null
+        ]
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 22,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Distinct named tables for distinct metrics",
+      "first_divergence": "Dataflow explicitly sorts strict_role_composition_lift. DSGym hardcodes Developer Advocate as the highest-lift role, confusing its earlier intensity leader with the requested composition-lift leader.",
+      "observation": "Data Architect has lift 2.3773 and alignment 2.2129. DSGym selects Developer Advocate with lift 1.3463 and alignment 1.2532.",
+      "counterfactual_not_run": "Select the maximum from the actual composition table rather than recalling the name from a different ranking.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.0049721800000000005,
+        "dsgym": 0.0027841299999999997
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t22/react_steps.json",
+          "sha256": "6d94c3e3f7d1b7853881dca9ee510671b4f6f310c4abbdd117872451a66f4ad5"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t22/workflow.json",
+          "sha256": "d3cae183840bb6d4a3609e9b5e78f6d462d1c37ed7dcc979e6378033f9aed55a"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t22/operator_results.json",
+          "sha256": "b7b060c547e253cd126300e89b739092d8a3742c1716c58c4af73613ad833134"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_22_result.json",
+          "sha256": "b0d9a9ba9419587bbb7f6b1fadc44ec11dfb4739f47c8a9caab5c36a40030a47"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          1,
+          1
+        ],
+        "dsgym-functions": [
+          1,
+          1,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          0,
+          1,
+          null
+        ]
+      }
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 26,
+      "pair": [
+        "react-analysis",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-analysis": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Inspectable components and separately retained cohort membership",
+      "first_divergence": "The candidate inspects existing table definitions, recalls tasks 25 and 23, and binds reliable_pool and high_leverage_pool independently from the retained winsorized speed, pressure and tracking tables. DSGym finds NaN current scores in its wider combined table, tries a repair, still gets NaNs and stops.",
+      "observation": "The candidate returns Riley Reiff, Billy Turner, Jesse Davis, Rob Havenstein and Jonah Williams with reference-matching scores 1.1063, 0.9320, 0.8365, 0.8246, 0.7397. It does recompute composite formulas; this is not evidence that all scoring was automatically reused or that the fork API solved it.",
+      "counterfactual_not_run": "Keep complete current component values and explicit old/new membership tables available to the Python comparison.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-analysis": 0.00977802,
+        "dsgym": 0.007014149999999999
+      },
+      "calls": {
+        "react-analysis": 4,
+        "dsgym": 3
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t26/react_steps.json",
+          "sha256": "68159dbb9774d6506b8d968bb5624a6f30ac5215a966b691d6a8b0aba4637d75"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t26/workflow.json",
+          "sha256": "9be120bf3b2ee0004696f8794512b4646706adbd6245b984b3b22641a80fdff6"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t26/operator_results.json",
+          "sha256": "a9905ff371dab8411e8fed12bd8a8c5506bea0fb09aae48c680925e57a19ffe5"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-analysis_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+          "sha256": "cd709b19e4f2e1163e9e440485ee92b316159591763de05d3d143659e54d32f9"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_26_result.json",
+          "sha256": "be114cda2946f8dbd2b659ca958bc0dae8e47f072a4dc18ded7c04945695ad73"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+          "sha256": "f5140e4af4a36a0ccf8bcee0bcc627aeef05632e03aaf93aee0b1940c8524df1"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          1,
+          0
+        ],
+        "react-entries": [
+          0,
+          1,
+          0
+        ],
+        "react-analysis": [
+          1,
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "task": "sports__nfl_big_data_bowl_2023__task1",
+      "turn": 27,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Execution and observation of a temporary comparison",
+      "first_divergence": "Dataflow builds a separate name-only support comparison from existing tables, repairs an undefined summary key and observes changed-support rows. DSGym describes a plan but submits no Python and asserts that no statuses change.",
+      "observation": "Dataflow identifies Geron Christian and George Fant. DSGym says none. This supports execution/verification behavior, not a uniquely necessary DAG operation.",
+      "counterfactual_not_run": "Execute the proposed name-only join and inspect changed-support rows before answering.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.01432886,
+        "dsgym": 0.0025903899999999997
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 1
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t27/react_steps.json",
+          "sha256": "fdd725f8be4bb6f38946a12ef6dafaba37b6e34cd52c69919005e4e54b40c778"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t27/workflow.json",
+          "sha256": "1cb48da09d85c391075348eb7ecc350fff74ef2c2ae736d75db5ac412c99e82a"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/turns/t27/operator_results.json",
+          "sha256": "d2cfebca496d668d4f0bbff772ae7af950d504e2aa36e1c7a9129f4f9cf4431b"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+          "sha256": "f26a7a58a4ef87dbd983195000caa21318f006d406f8fce5decd5c28f7698b10"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1/agent/bak/turn_27_result.json",
+          "sha256": "8bdbc198e2df9cd8454d1dad6a81ffdcf64010b0ef9adc0708b2673a8c3c4028"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/sports__nfl_big_data_bowl_2023__task1/results_eval.json",
+          "sha256": "f5140e4af4a36a0ccf8bcee0bcc627aeef05632e03aaf93aee0b1940c8524df1"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          1,
+          1,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          1
+        ],
+        "react-analysis": [
+          0,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "task": "education__bi__task2",
+      "turn": 1,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Tool-use behavior confound",
+      "first_divergence": "DSGym emits an inability-to-access-data answer without any Python submission. It later accesses the same dataset successfully in turn 7. Dataflow starts with actual data inspection.",
+      "observation": "The first-pass BI wins at turns 1, 3, 4, 5, 6 and 15 all face no-code refusals. They are scored system wins but not long-horizon DAG evidence.",
+      "counterfactual_not_run": "Require or strongly encourage an actual discovery/execution attempt before claiming that data cannot be accessed.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.004580559999999999,
+        "dsgym": 0.0007916
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 1
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t01/react_steps.json",
+          "sha256": "20bdd5b3afc53918cea0baba6ba06fd4f9f89c237d6b32e08685ba6607d9376b"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t01/workflow.json",
+          "sha256": "890b6e9157b12ea08d7bad76afdd3077743692e3ada05d798b14f8b15e061467"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t01/operator_results.json",
+          "sha256": "13d731b76107b8d5fb953bf700b2b348c4e8f99bc473238836676c2e44bf79d5"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/results_eval.json",
+          "sha256": "e25c4a53beda444d6cc35bf91fc780d5491fdb56ae1974ad7b37902b087a7122"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/education__bi__task2/agent/bak/turn_1_result.json",
+          "sha256": "3d2fb924dabe27dc1aa63b810788e4fb629b97364e52d9bd6f45be46ecb2d756"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/education__bi__task2/results_eval.json",
+          "sha256": "7c6b173701f6a35b90d8553c23f14ff594e9fc57e6a3aeabcfa20a926add7108"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "task": "geoscience__water-potability__task3",
+      "turn": 8,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "python_only",
+      "scores": {
+        "react-entries": 0,
+        "dsgym": 1
+      },
+      "mechanism": "Explicit inputs still permit the wrong population",
+      "first_divergence": "Dataflow retains both broad and narrowed data, but computes the severity cutoff and overlap on the broad merged table before applying the narrowed membership only to subgroup loss. DSGym uses the narrowed population for the severity top decile.",
+      "observation": "Dataflow overlap is 39.6825%; DSGym and reference are 41.1371%. The graph cannot choose the correct population on behalf of the agent.",
+      "counterfactual_not_run": "Bind the active population explicitly before percentile estimation and verify the top-decile population size.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.004401479999999999,
+        "dsgym": 0.00338664
+      },
+      "calls": {
+        "react-entries": 2,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t08/react_steps.json",
+          "sha256": "2257a0d22bf5041e991510113e7b8244df4a7bee2507ced831b55f6007aa8ba0"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t08/workflow.json",
+          "sha256": "f7764eb6cf7e661936ee7c64eabf2d923241d8889cc9945ebd868c4df2b00b25"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t08/operator_results.json",
+          "sha256": "d5fed4a601607fa7ce78bf1f85cf0b8bcb94fb8fb021262ecabc350bb4a2ff7b"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/results_eval.json",
+          "sha256": "3668157701c7ac3f23fd30f9a659b6efd15c45b0675afda8d528f618951cf8a4"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/geoscience__water-potability__task3/agent/bak/turn_8_result.json",
+          "sha256": "e810dc46abdfe3ba01b9d0b2a07074301592bd2e95be709c1b024fff175503d4"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/geoscience__water-potability__task3/results_eval.json",
+          "sha256": "865f0dc1f8db0e6790f5db964c84128f32409f963666128c8e15b852de0f1d4f"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          1,
+          1,
+          1
+        ],
+        "dsgym-functions": [
+          1,
+          0,
+          0
+        ],
+        "react-entries": [
+          0,
+          1,
+          1
+        ],
+        "react-analysis": [
+          0,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "task": "community__kaggle-survey-2022__task2",
+      "turn": 16,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "both_pass_python_cheaper",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 1
+      },
+      "mechanism": "Avoidable syntax repair and sampled-result recovery",
+      "first_divergence": "Dataflow first supplies an input argument to a zero-input loader, repairs that arity error, then adds a filter to fetch the industry row omitted from the sampled display. DSGym computes the complete table in one Python action.",
+      "observation": "Both pass. Dataflow uses four model calls and $0.00862235; DSGym uses two and $0.00366807.",
+      "counterfactual_not_run": "Prevent the loader arity error and expose the complete compact requested table in the first observation.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.008622349999999999,
+        "dsgym": 0.00366807
+      },
+      "calls": {
+        "react-entries": 4,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t16/react_steps.json",
+          "sha256": "48c2a75706ad6d4a813597a1df80c734128bd275554cb5c60b21cc8f6875644f"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t16/workflow.json",
+          "sha256": "bbfe448d44295e123da11ba6e9d9a1cdcf3843c0a907ffea74d7113e2f26d9b7"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t16/operator_results.json",
+          "sha256": "a00c6e09f4e7f57b1b37ee536e50dd023128699f9e8d39440b128f5ca6ddb9ec"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "2d5779ff48534e50ad87834363a9801a41954187ad3a9cd30199a0fc0609ae48"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/agent/bak/turn_16_result.json",
+          "sha256": "658f568cab535b429416589a318080dc07a6d4068e14b2ce041f99a6881067b9"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/community__kaggle-survey-2022__task2/results_eval.json",
+          "sha256": "aa931bad1ff3f3b8669df3721775dec38a17d493c78c7779327586b15c75effd"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          1,
+          1,
+          1
+        ],
+        "dsgym-functions": [
+          1,
+          1,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          null
+        ],
+        "react-analysis": [
+          1,
+          1,
+          null
+        ]
+      }
+    },
+    {
+      "task": "geoscience__water-potability__task3",
+      "turn": 10,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "both_pass_dataflow_cheaper",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 1
+      },
+      "mechanism": "Reuse avoiding reconstruction errors",
+      "first_divergence": "Dataflow consumes existing severity, panel and narrowed_panel tables. DSGym rebuilds the preprocessing from raw data, gets a missing pH_band error, and rebuilds again.",
+      "observation": "Both return the requested potable-share change -1.0235 percentage points and sulfate as the leading predictor. Dataflow uses two model calls and $0.00378577; DSGym uses three and $0.00668219.",
+      "counterfactual_not_run": "Reuse established component tables in Python to avoid redundant feature reconstruction.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.0037857700000000004,
+        "dsgym": 0.006682189999999999
+      },
+      "calls": {
+        "react-entries": 2,
+        "dsgym": 3
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t10/react_steps.json",
+          "sha256": "3e4b8860f160833e57492cbe13d22b090fea36967009946623ed19c0f4072a8c"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t10/workflow.json",
+          "sha256": "1da0585b0a8ac16d49fad674ea087a90ce4372bce9b883aa12e3860e25cd29f3"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t10/operator_results.json",
+          "sha256": "a4bc3bf9f4435f5ea5fe4c274e8032e8fe23cf11af34fe57efe6abc82be1199b"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/results_eval.json",
+          "sha256": "3668157701c7ac3f23fd30f9a659b6efd15c45b0675afda8d528f618951cf8a4"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/geoscience__water-potability__task3/agent/bak/turn_10_result.json",
+          "sha256": "54fdbc593851017345daf08b640ae389cdea716ad347060d65e9ece77b1d81b9"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/geoscience__water-potability__task3/results_eval.json",
+          "sha256": "865f0dc1f8db0e6790f5db964c84128f32409f963666128c8e15b852de0f1d4f"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          1,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          1,
+          0,
+          1
+        ],
+        "react-entries": [
+          1,
+          1,
+          1
+        ],
+        "react-analysis": [
+          1,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "task": "social_good__data_science_for_good_city_of_los_angeles__task1",
+      "turn": 18,
+      "pair": [
+        "react-entries",
+        "dsgym"
+      ],
+      "category": "dataflow_only",
+      "scores": {
+        "react-entries": 1,
+        "dsgym": 0
+      },
+      "mechanism": "Judge-passing output does not validate all reported values",
+      "first_divergence": "Dataflow returns the reference role order and score drops, but several absolute before/after scores differ. DSGym also differs in role ordering and drops. Existing judge labels are retained.",
+      "observation": "For Veterinary Technician, Dataflow reports -1.884 and -3.580 instead of reference -1.915 and -3.611; both differences are approximately 1.696. Do not use this pass to claim the full analytical state was correct.",
+      "counterfactual_not_run": "Validate the shared base-score components separately from a difference in which they cancel.",
+      "confidence": "High for recorded actions and arithmetic; causal attribution to the graph alone is not isolated.",
+      "cost_usd": {
+        "react-entries": 0.00669542,
+        "dsgym": 0.0036248999999999995
+      },
+      "calls": {
+        "react-entries": 3,
+        "dsgym": 2
+      },
+      "evidence": [
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/turns/t18/react_steps.json",
+          "sha256": "bece29c28750083133687e42e20b868e86180f6d8263425a64bd232a5e0f844a"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/turns/t18/workflow.json",
+          "sha256": "1452add439384048d8db06c280705dbc021cee6df036e6f94be2de1de3439c9a"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/turns/t18/operator_results.json",
+          "sha256": "6b8350bc5822e36e160b2f0d7a735e0681ddde90db534eda0946d37ff24688a3"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/results_eval.json",
+          "sha256": "d02ae48202418a3a506517eada1ba07279ad52bdfdca7dc6c4ab0d2c97686d8b"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/agent/bak/turn_18_result.json",
+          "sha256": "90d4feb8acfddf13583e3e44ca8ee2c9465eddef124cdd12707fbbe5cd50df43"
+        },
+        {
+          "artifact": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_dsgym_luna_t1/social_good__data_science_for_good_city_of_los_angeles__task1/results_eval.json",
+          "sha256": "6895826c1055026911ddd609e681829c1e3661aae01614a6d7431dba3af55d1f"
+        }
+      ],
+      "repeat_scores": {
+        "dsgym": [
+          0,
+          0,
+          0
+        ],
+        "dsgym-functions": [
+          0,
+          0,
+          0
+        ],
+        "react-entries": [
+          1,
+          1,
+          1
+        ],
+        "react-analysis": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "first_pass_cost_decomposition": [
+    {
+      "arm": "dsgym",
+      "model_cost_usd": 0.7690095499999999,
+      "calls": 424,
+      "mean_input_tokens_per_call": 35177.49056603773,
+      "macro_accuracy": 0.3011904761904762,
+      "cached_read_usd": 0.2902465,
+      "cache_write_usd": 0.09953425,
+      "uncached_input_usd": 0.0009588000000000001,
+      "output_usd": 0.37827
+    },
+    {
+      "arm": "dsgym-functions",
+      "model_cost_usd": 0.85047971,
+      "calls": 418,
+      "mean_input_tokens_per_call": 41634.90909090909,
+      "macro_accuracy": 0.2906084656084656,
+      "cached_read_usd": 0.33939396,
+      "cache_write_usd": 0.10763675,
+      "uncached_input_usd": 0.0006294000000000001,
+      "output_usd": 0.4028196
+    },
+    {
+      "arm": "react-analysis",
+      "model_cost_usd": 1.83719209,
+      "calls": 875.0,
+      "mean_input_tokens_per_call": 25257.853714285713,
+      "macro_accuracy": 0.37552910052910055,
+      "cached_read_usd": 0.37418144,
+      "cache_write_usd": 0.84723125,
+      "uncached_input_usd": 0.000525,
+      "output_usd": 0.6152544
+    },
+    {
+      "arm": "react-entries",
+      "model_cost_usd": 1.36131953,
+      "calls": 534.0,
+      "mean_input_tokens_per_call": 52365.54868913857,
+      "macro_accuracy": 0.40145502645502645,
+      "cached_read_usd": 0.52861008,
+      "cache_write_usd": 0.38277425,
+      "uncached_input_usd": 0.00032040000000000004,
+      "output_usd": 0.4496148
+    }
+  ],
+  "feature_attribution_limit": "No first-pass at(table, task=...) calls in either dataflow arm. Existing restoration calls occur at NFL turns 5 and 10, both score 0. The new three-fork call occurs at NFL turn 30, score 0. These explicit version/fork operations do not explain first-pass passing turns.",
+  "source_report": {
+    "artifact": "docs/analysis-state-isolated-results.json",
+    "sha256": "cdac72d4fc374cab952f3970b9ce4d25ebec0b870a24eb840412c52869522444"
+  }
+}

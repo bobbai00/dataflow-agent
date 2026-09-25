@@ -1,0 +1,205 @@
+[
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 9,
+    "category": "both_pass_cheaper",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 1,
+      "cost": 0.00989225,
+      "calls": 4,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t09/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.00459406,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/geoscience__water-potability__task3/turns/t09/react_steps.json"
+    },
+    "mechanism": "The old run needed two repairs: restore blank flags, then resend a function lost at the call boundary. The new run reused five persistent functions for panel, flags, narrowing, severity and model fitting, and added only the changed fill and comparison. One action batch plus the answer replaced three batches plus the answer.",
+    "interpretation_limit": "Direct evidence for reusable definitions and dependency composition; combined-revision evaluation does not isolate the prompt from other changes."
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 10,
+    "category": "both_pass_more_expensive",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 1,
+      "cost": 0.0037857700000000004,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t10/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.00815867,
+      "calls": 4,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/geoscience__water-potability__task3/turns/t10/react_steps.json"
+    },
+    "mechanism": "The new run initially bound a raw-value calculation to a transformed table, then repaired missing columns twice. Both runs ultimately passed.",
+    "interpretation_limit": "Population/column preflight remains useful; the guidance does not eliminate semantic binding mistakes."
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 8,
+    "category": "new_only",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 0,
+      "cost": 0.004401479999999999,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t08/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.00459296,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/geoscience__water-potability__task3/turns/t08/react_steps.json"
+    },
+    "mechanism": "The old code computed the severity threshold on all screened rows. The new code narrowed first and then computed both top deciles, matching the required active population.",
+    "interpretation_limit": "Consistent with explicit population guidance; not proof that a particular prompt sentence caused the correction."
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 16,
+    "category": "new_only",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 0,
+      "cost": 0.00336389,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t16/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.00328817,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/geoscience__water-potability__task3/turns/t16/react_steps.json"
+    },
+    "mechanism": "The new risk-penalty calculation retained the narrowed population established earlier; the old calculation used the wider screened population.",
+    "interpretation_limit": "A downstream benefit of the earlier state choice, not an independent success."
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 28,
+    "category": "both_fail_cheaper",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 0,
+      "cost": 0.02441659,
+      "calls": 8,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/geoscience__water-potability__task3/turns/t28/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 0,
+      "cost": 0.01201214,
+      "calls": 4,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/geoscience__water-potability__task3/turns/t28/react_steps.json"
+    },
+    "mechanism": "Old: five nullable-value repair attempts, then an answer to the preceding question. New: fewer attempts and an answer to the current question, but it changed the requested tail definition after finding an empty group.",
+    "interpretation_limit": "Cost falls substantially while correctness remains unresolved. Do not count this as an accuracy win."
+  },
+  {
+    "task": "education__bi__task2",
+    "turn": 22,
+    "category": "both_pass_cheaper",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 1,
+      "cost": 0.00308508,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t22/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.0022696500000000002,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/education__bi__task2/turns/t22/react_steps.json"
+    },
+    "mechanism": "Both used one computation action and the answer. The new run has lower input/cache-write cost with no reduction in calls.",
+    "interpretation_limit": "A context-cost example; still not a same-action ablation because the authored code differs."
+  },
+  {
+    "task": "education__bi__task2",
+    "turn": 25,
+    "category": "old_only",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 1,
+      "cost": 0.0029104100000000004,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/education__bi__task2/turns/t25/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 0,
+      "cost": 0.0023906500000000002,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/education__bi__task2/turns/t25/react_steps.json"
+    },
+    "mechanism": "Both reported the same ordering and leader behavior. The new answer used 18-25 for the <=25 category and the judge rejected that label as a different interval.",
+    "interpretation_limit": "Preserve the recorded verdict. Do not rejudge or silently normalize the score."
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 9,
+    "category": "repetition_semantic_reuse_failure",
+    "trial": 2,
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t2",
+      "score": 0,
+      "cost": 0.0034421099999999995,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t2/geoscience__water-potability__task3/turns/t09/react_steps.json"
+    },
+    "mechanism": "The agent reuses a severity-versus-pressure overlap report for the mean-fill branch, then interprets its 41.1371% overlap as mean-fill severity versus active severity. The requested comparison is 100%. Functions persist correctly, but the chosen result compares the wrong two populations.",
+    "interpretation_limit": "First-pass reuse success did not repeat. Persistent functions and fewer calls cannot establish correctness without checking the semantic identities of both compared populations."
+  },
+  {
+    "task": "community__kaggle-survey-2022__task2",
+    "turn": 15,
+    "category": "new_only_more_expensive",
+    "trial": 1,
+    "mechanism": "Both first inspect CSV usage scenarios. The old run treats those as adoption plans and sums incompatible categories to 113%. The new run recognizes the source mismatch, reads introduction.md as lines, materializes the four planning shares from that source, and reports the correct 51% positive share.",
+    "interpretation_limit": "This correct answer takes one extra generation. Useful source verification must not be removed merely to minimize calls.",
+    "old": {
+      "sut": "LongDS_Isolated_20260924_react-entries_luna_t1",
+      "score": 0,
+      "cost": 0.00582775,
+      "calls": 4,
+      "trace": "benchmark/longds/system_scratch/LongDS_Isolated_20260924_react-entries_luna_t1/community__kaggle-survey-2022__task2/turns/t15/react_steps.json"
+    },
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t1",
+      "score": 1,
+      "cost": 0.00651944,
+      "calls": 5,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t1/community__kaggle-survey-2022__task2/turns/t15/react_steps.json"
+    }
+  },
+  {
+    "task": "geoscience__water-potability__task3",
+    "turn": 8,
+    "trial": 3,
+    "category": "unmaterialized_population_and_downstream_drift",
+    "new": {
+      "sut": "LongDS_CostR4_20260924_react-efficient_luna_t3",
+      "score": 0,
+      "cost": 0.003960600000000001,
+      "calls": 2,
+      "trace": "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t3/geoscience__water-potability__task3/turns/t08/react_steps.json"
+    },
+    "related_traces": [
+      "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t3/geoscience__water-potability__task3/turns/t07/react_steps.json",
+      "benchmark/longds/system_scratch/LongDS_CostR4_20260924_react-efficient_luna_t3/geoscience__water-potability__task3/turns/t16/react_steps.json"
+    ],
+    "mechanism": "Question 7 filters to the narrowed population inside narrowed_review but returns only a one-row report. It never stores the narrowed rows as a dataflow table. Question 8 recomputes severity on the full model_panel and only narrows the disagreement groups after calculating both thresholds. Question 16 again computes risk on all screened rows and reports 315 top-decile rows instead of 299.",
+    "interpretation_limit": "The phase change is visible in retained code and history, so this is not demonstrated information loss from compression. The agent failed to materialize and carry the active population; prompt guidance alone did not enforce that boundary."
+  }
+]
