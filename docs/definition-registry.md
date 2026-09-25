@@ -106,4 +106,54 @@ isolated DSGym and entries sessions and the saved cost-r4 efficient sessions on
 the same tasks. Reproduce the tables with
 `python logs/registry/report.py` in the worktree (no model calls).
 
-Results are appended below when each trial completes.
+### Results (2026-09-25)
+
+Three complete trials of `react-registry` (full function code in entries) with
+the trial-1 code (fe3bdc6d6), plus one trial of the signature-only ablation
+(`registry-sig`, the first prefix) and one trial of the compact-index and
+bind-fallback revision (aa256a789, `registry-compact`, appended when done).
+
+| Arm | Correct / 96 per trial | Task macro (mean) | Model cost per trial | Mean cost |
+| --- | ---: | ---: | ---: | ---: |
+| DSGym (isolated) | 56, 46, 46 | 0.528 | $0.343, $0.277, $0.256 | $0.292 |
+| react-efficient (cost-r4) | 61, 65, 66 | 0.691 | $0.411, $0.419, $0.423 | $0.418 |
+| react-entries (isolated, t3 incomplete) | 64, 67 | 0.709 | $0.495, $0.532 | $0.514 |
+| **react-registry** | **67, 64, 69** | **0.717** | $0.474, $0.426, $0.488 | $0.463 |
+| registry-sig (ablation) | 48 | 0.513 | $0.481 | $0.481 |
+
+Per task, correct answers by trial:
+
+| Task | DSGym | react-efficient | react-registry |
+| --- | --- | --- | --- |
+| Survey (30) | 18 / 20 / 11 | 20 / 27 / 28 | 26 / 26 / 25 |
+| BI (30) | 23 / 16 / 27 | 28 / 28 / 29 | 28 / 27 / 30 |
+| Water (36) | 15 / 10 / 8 | 13 / 10 / 9 | 13 / 11 / 14 |
+
+What the trials say:
+
+- **Accuracy.** The registry arm is the most accurate arm in every trial
+  (+2.7 correct per trial over the efficient arm, +17.4 over DSGym), with the
+  first perfect BI session and the best three Water sessions of any dataflow
+  arm. By state pattern over the three trials: Rollback 0.50 (efficient 0.44,
+  DSGym 0.17), Counterfactual 0.58 (0.45, 0.52), Update 0.63 (0.63, 0.67),
+  Initial 0.78 (0.77, 0.54). Conditional on correct dependency turns 0.87
+  (0.89, 0.73); after a wrong one 0.31 (0.25, 0.37). The gain sits where the
+  design aimed, the version-addressed patterns; roots and cascades are unchanged.
+- **Cost.** $0.463 per trial: 11% above the efficient arm and 1.58x DSGym, so
+  the 1.25x-DSGym target is not met. The premium is structural: the task-start
+  index grew from 0.6–1.8k to 3–8k characters (a doc for every current table)
+  and is rewritten each task, and Survey used about ten more calls per session.
+  Per-turn cost still rises from early to late thirds ($0.0044 to $0.0056,
+  efficient $0.0042 to $0.0051); late-third accuracy is 0.61 versus 0.56.
+- **The verbs.** `bind` was used 2–4 times per BI session (every call bound
+  an earlier version correctly after the restore fix; the two-definition
+  rollback of turn 30 became one call), `compare` 1–4 times on BI and Survey,
+  none on Water. Two failure modes were found in traces: hiding function bodies
+  (the signature ablation) cost 21 inspect calls on Water and led the model to
+  re-derive an established population rule on Survey (48/96); and the model
+  builds successor tables without `supersede`, then asks `bind` for them, which
+  the trial-1 code refused (Survey turn 14 in two trials, six calls instead of
+  two). The compact-index revision binds such a table as a plain replacement.
+- **Judge.** GPT-5.2 with the upstream prompt on all arms; the same
+  format-sensitive verdicts recur (BI turn 7's unordered ranking, turn 25's
+  interval label).
