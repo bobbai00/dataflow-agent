@@ -249,6 +249,39 @@ test("the dataflow tool accepts supersede, bind and explain only with the regist
   expect(Object.keys((nativeBatchSchema({ analysisState: true }) as any).properties)).not.toContain("bind");
 });
 
+test("a bind's internal restore is planned even when the model-facing restore field is off", async () => {
+  const registry = new DefinitionRegistry();
+  // A history in which `source` was revised in place at task 2 and its task-1 version was retained.
+  const taskHistory = {
+    provenance: () => new Map([["source", { created: 1, edited: [2], lastSaved: 2, gaps: [] }], ["report", { created: 2, edited: [], lastSaved: 2, gaps: [] }]]),
+    available: (id: string) => (id === "source" ? [1, 2] : [2]),
+    definition: (id: string, task: number) =>
+      id === "source" && task === 1
+        ? ({ operator: { operatorID: "source", nativeOp: { type: "Scan", inputs: [], source: 'source = scan("data/one.csv")', revision: "r1", properties: {} } }, info: {}, artifact: { path: "", sha256: "", rowCount: 0 } } as any)
+        : undefined,
+    entries: () => [],
+  } as any;
+  const { state, tools } = nativeTestTools(undefined, {
+    settings: { nativeAnalysisState: true, nativeTaskEfficiency: true, nativeDefinitionRegistry: true, nativeTaskRestore: false },
+    definitionRegistry: registry,
+    taskHistory,
+    activeTaskNumber: () => 3,
+  } as any);
+  await tools.dataflow.execute({ edits: 'source = scan("data/two.csv")\nreport = limit(source, 1)' });
+  const result = await tools.dataflow.execute({
+    edits: "",
+    bind: [{ target: "report", as: "report_v1", versions: { source: "v1" } }],
+  });
+  const messages = result.operators.map((o: any) => `${o.id}:${o.op}:${o.status}:${o.message}`).join("\n");
+  expect(messages).not.toContain("keeps no task history");
+  expect(result.notes).toEqual(["report_v1: source v2 → v1 (source__v1)"]);
+  expect(state.getOperator("source__v1")?.nativeOp?.source).toContain("data/one.csv");
+  expect(state.getOperator("report_v1")?.nativeOp?.inputs).toEqual(["source__v1"]);
+  // The model's own restore request still follows the toggle.
+  const own = await tools.dataflow.execute({ edits: "", restore: [{ operator: "source", task: 1, as: "again" }] });
+  expect(own.operators[0].message).toContain("keeps no task history to restore from");
+});
+
 test("registry receipts hint at unretained fits and literal assumptions once per call", async () => {
   const registry = new DefinitionRegistry();
   const { tools } = nativeTestTools(undefined, {

@@ -36,7 +36,9 @@ writeFileSync(`${out}/fixture.py`, loader);
 const session = await nativeTestSession({
   nativeTaskHistory: true,
   nativeTaskContext: true,
-  nativeTaskRestore: true,
+  // As the react-registry arm runs it: the model-facing restore field is off;
+  // the restores a bind plans must work regardless.
+  nativeTaskRestore: false,
   nativeAnalysisState: true,
   nativeTaskEfficiency: true,
   nativeDefinitionRegistry: true,

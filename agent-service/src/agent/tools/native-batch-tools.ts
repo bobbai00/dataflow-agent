@@ -416,16 +416,31 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         // A refused restore is an outcome; the rest of the call proceeds.
         const restoreOutcomes: NativeBatchOutcome[] = [];
         let restorePlans: RestorePlan[] = [];
-        const restoreRequests = [...(args.restore ?? []), ...bound.restores];
-        if (restoreRequests.length && (!context?.taskHistory || context.settings?.nativeTaskRestore === false)) {
-          for (const request of restoreRequests)
+        // The model's own restores follow the `restore` toggle; the restores a
+        // bind plans are internal to the registry and need only task history.
+        const modelRestores = args.restore ?? [];
+        if (modelRestores.length && (!context?.taskHistory || context.settings?.nativeTaskRestore === false)) {
+          for (const request of modelRestores)
             restoreOutcomes.push({
               id: request.as,
               op: "restore",
               status: "error",
               message: `Cannot ${describeRestoreRequest(request)}: this session keeps no task history to restore from.`,
             });
-        } else if (restoreRequests.length && context?.taskHistory) {
+        }
+        const restoreRequests = [
+          ...(context?.taskHistory && context.settings?.nativeTaskRestore !== false ? modelRestores : []),
+          ...(context?.taskHistory ? bound.restores : []),
+        ];
+        if (!context?.taskHistory)
+          for (const request of bound.restores)
+            restoreOutcomes.push({
+              id: request.as,
+              op: "bind",
+              status: "error",
+              message: `Cannot ${describeRestoreRequest(request)}: this session keeps no task history.`,
+            });
+        if (restoreRequests.length && context?.taskHistory) {
           const planned = await planRestores(restoreRequests, context.taskHistory, state);
           restorePlans = planned.plans;
           for (const refusal of planned.refusals)
