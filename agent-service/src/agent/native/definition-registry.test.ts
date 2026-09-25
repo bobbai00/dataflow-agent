@@ -145,9 +145,30 @@ test("the task-start index names versions, current tables with their docs, and p
   expect(text).toContain("# Definitions at the start of this task");
   expect(text).toContain("age_grouped_data: v1 t11 [values: at(age_grouped_data, task=22)] | v2 t23 ACTIVE \"Adds the active four-band age grouping\"; rows=77");
   expect(text).toContain("composite_scored_data: v1 t12 \"Adds the equal-weight composite\" | v2 weighted_composite_data t18 ACTIVE \"Adds the active weighted composite\"");
-  expect(text).toContain("baseline_cleaned_data (t3, read by 3)");
+  expect(text).toContain("baseline_cleaned_data (t3, read by 3) \"Imputes missing Python scores with the mean\"");
   expect(text).toMatch(/Not read by any table.*raw_preview/);
   expect(text).not.toContain("def ");
+  // A table with a single reader is named without its doc; its entry has it.
+  const chain = graph([
+    { id: "base", doc: "The base" },
+    { id: "step", inputs: ["base"], doc: "A single-reader step" },
+    { id: "report", inputs: ["step"], doc: "The report" },
+  ]);
+  const compact = registry.render(chain, new Map(), history({ base: { created: 1 }, step: { created: 1 }, report: { created: 2 } }));
+  expect(compact).toContain("Other current tables (their entries hold the definitions): base (t1) · step (t1)");
+  expect(compact).not.toContain("A single-reader step");
+});
+
+test("bind accepts an existing undeclared table as a replacement and says how to declare it", () => {
+  const registry = new DefinitionRegistry();
+  const plan = registry.plan(
+    [{ target: "age_band_means", as: "alt_means", versions: { weighted_composite_data: "composite_scored_data" } }],
+    BI(),
+    BI_HISTORY()
+  );
+  expect(plan.errors).toEqual([]);
+  expect(plan.forks).toEqual([{ operator: "age_band_means", as: "alt_means", bindings: { weighted_composite_data: "composite_scored_data" } }]);
+  expect(plan.notes[0]).toContain('not a declared version; supersede={"composite_scored_data": "weighted_composite_data"}');
 });
 
 test("bind resolves versions to a fork, rebuilding an earlier in-place version from its saved definition", () => {

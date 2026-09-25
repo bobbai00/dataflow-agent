@@ -203,7 +203,8 @@ export class DefinitionRegistry {
       return rows === undefined ? "" : rows === 0 ? "; ⚠ 0 rows" : `; rows=${rows}`;
     };
     const versioned: string[] = [];
-    const single: string[] = [];
+    const hubs: string[] = [];
+    const others: string[] = [];
     const probes: string[] = [];
     for (const definition of definitions.values()) {
       if (definition.versions.length > 1) {
@@ -219,21 +220,29 @@ export class DefinitionRegistry {
       const [v] = definition.versions;
       const id = v.table;
       const op = state.getOperator(id);
-      const used = (consumers.get(id) ?? 0) > 0 || answered.has(id) || op?.nativeOp?.type === "Parameters";
+      const reads = consumers.get(id) ?? 0;
+      const used = reads > 0 || answered.has(id) || op?.nativeOp?.type === "Parameters";
       if (!used) {
         probes.push(id);
         continue;
       }
-      const doc = v.doc ? ` "${clip(v.doc, 110)}"` : "";
-      const reads = consumers.get(id) ? `, read by ${consumers.get(id)}` : "";
-      single.push(`${id} (t${v.task}${reads})${doc}${shape(id)}`);
+      // Docs are what a request phrase is matched against, so they are kept
+      // for the tables the analysis stands on: read by several tables, read
+      // for an answer, or a parameter table. A table with one reader is named
+      // with its task; its entry still holds its statement and doc.
+      const hub = reads >= 2 || answered.has(id) || op?.nativeOp?.type === "Parameters";
+      if (hub) {
+        const doc = v.doc ? ` "${clip(v.doc, 110)}"` : "";
+        hubs.push(`${id} (t${v.task}${reads ? `, read by ${reads}` : ""})${doc}${shape(id)}`);
+      } else others.push(`${id} (t${v.task})${shape(id)}`);
     }
     const lines = [
       "# Definitions at the start of this task",
       "A definition is a table with versions; ACTIVE is what current tables read. Every version is a table you can bind to or read; a superseded in-place version keeps its saved values.",
     ];
     if (versioned.length) lines.push("Versioned:", ...versioned);
-    if (single.length) lines.push("Current tables:", single.join("\n"));
+    if (hubs.length) lines.push("Tables the analysis stands on:", hubs.join("\n"));
+    if (others.length) lines.push(`Other current tables (their entries hold the definitions): ${others.join(" · ")}`);
     if (probes.length) lines.push(`Not read by any table (probes and reports; observe by name): ${probes.join(", ")}`);
     const alerts = operators.flatMap(op => {
       const info = results.get(op.operatorID);
@@ -306,10 +315,22 @@ export class DefinitionRegistry {
           if (!consumed)
             throw new Error(`\`${request.target}\` does not read any version of \`${definition.name}\`; it reads ${[...ancestors].join(", ") || "nothing"}.`);
           const chosen = resolveVersion(definition, choice);
-          if (!chosen)
+          if (!chosen) {
+            // Not a declared version: an existing table can still stand in for
+            // the consumed one (the model built a successor without declaring
+            // it). Bind it as a plain replacement and say how to declare it.
+            const table = String(choice).trim();
+            if (state.getOperator(table) && !table.startsWith(TASK_SOURCE_PREFIX) && table !== consumed.table) {
+              bindings[consumed.table] = table;
+              plan.notes.push(
+                `${request.as}: ${definition.name} v${consumed.k} → table ${table} (not a declared version; supersede={"${table}": "${consumed.table}"} would make it v${definition.versions.length + 1})`
+              );
+              continue;
+            }
             throw new Error(
               `\`${definition.name}\` has no version ${JSON.stringify(choice)}; versions: ${definition.versions.map(v => `v${v.k} (${v.sameId ? "t" + v.task : v.table})`).join(", ")}.`
             );
+          }
           if (chosen.k === consumed.k) {
             plan.notes.push(`${request.as}: \`${request.target}\` already reads ${definition.name} v${chosen.k}`);
             continue;
