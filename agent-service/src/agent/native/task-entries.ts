@@ -367,9 +367,19 @@ function renderTable(table: TaskTable): string {
   return `  ${table.id} (${size}):\n${table.text.replace(/^/gm, "  ")}`;
 }
 
+/** With the definition registry, a function is shown by its signature line:
+ * the body persists with the operator (shared functions), so calling it by
+ * name needs no code, and `inspect` returns the exact body for a revision. */
+function signatureOf(body: string): string {
+  const lines = body.split("\n");
+  const head = lines.find(line => /^\s*(async\s+)?def\s+/.test(line)) ?? lines[0];
+  const count = lines.filter(line => line.trim() && !line.trim().startsWith("# …")).length;
+  return `${head.trim()} … (${count} lines; inspect for the body)`;
+}
+
 /** One entry as one message. The text is final once written. */
-export function renderTaskEntry(entry: TaskEntry, compact = false): string {
-  if (compact) return renderCompactTaskEntry(entry);
+export function renderTaskEntry(entry: TaskEntry, compact = false, options: { signatures?: boolean } = {}): string {
+  if (compact) return renderCompactTaskEntry(entry, options.signatures === true);
   // Changes grouped by the step that produced them, steps in the order they
   // ran and numbered from 1. Without stated steps the changes stay flat.
   const stated = entry.changes.some(change => change.step);
@@ -392,7 +402,7 @@ export function renderTaskEntry(entry: TaskEntry, compact = false): string {
 
 /** Exact content with shared presentation, not a generated summary. Nothing
  * depends on a future task, so sealed entries stay a reusable cache prefix. */
-function renderCompactTaskEntry(entry: TaskEntry): string {
+function renderCompactTaskEntry(entry: TaskEntry, signatures = false): string {
   const lines = [`## Task ${entry.task}`, entry.request, "Changes:"];
   const schemas = new Map<string, string>();
   const functions = new Map<string, string>();
@@ -419,6 +429,10 @@ function renderCompactTaskEntry(entry: TaskEntry): string {
     )
       lines.push(`doc: ${change.doc}`);
     for (const body of change.functions ?? []) {
+      if (signatures) {
+        lines.push(signatureOf(body));
+        continue;
+      }
       const prior = functions.get(body);
       lines.push(prior ? `function code as in ${prior}` : body);
       if (!prior) functions.set(body, change.id);

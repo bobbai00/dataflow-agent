@@ -926,6 +926,21 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       };
     },
   },
+  {
+    name: "compare",
+    type: "Compare",
+    inputs: 2,
+    rowEffect: "unknown",
+    signature: 'compare(A, B, keys=["col", ...])',
+    doc: 'Row-level difference of two tables with the same meaning, such as two versions of a ranking, a cohort or a score table. Rows are matched on `keys` (default: the shared text and boolean columns; with no such column, by row position). The output has one row per matched or unmatched key with `in_a`, `in_b`, and for every other shared column `<col>_a`, `<col>_b` and, when numeric, `<col>_delta` = B minus A. Aggregate it for counts (rows in both, only in A, only in B, changed) or filter it for the rows that moved. Use it instead of writing a comparison function, so the two sides stay the exact tables they are.',
+    schema: object({ keys: NONEMPTY_NAMES }),
+    normalize(rest, kwargs) {
+      keywords("compare", kwargs, ["keys"]);
+      if (rest.length > 1) fail("compare takes the two tables, then keys=[...].");
+      const keys = rest[0] ?? kwargs.keys;
+      return keys ? { keys: strList(keys, "keys", 1) } : {};
+    },
+  },
 ];
 
 export const NATIVE_BY_NAME: ReadonlyMap<string, NativeOperatorDef> = new Map(NATIVE_OPERATORS.map(d => [d.name, d]));

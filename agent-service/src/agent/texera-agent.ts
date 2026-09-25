@@ -101,6 +101,7 @@ import { NativeCatalogSettingsError, validateNativeSettings } from "./native/set
 import { planSeedSources } from "./native/seed-sources";
 import { TaskHistory } from "./native/task-history";
 import { withTaskCatalog } from "./native/task-context";
+import { DefinitionRegistry } from "./native/definition-registry";
 import { buildTaskEntry } from "./native/task-entries";
 import { verifyRestore } from "./native/task-restore";
 import { retainTaskResult } from "../api/task-results-api";
@@ -327,6 +328,8 @@ export class TexeraAgent {
 
   private currentMessageId: string | undefined = undefined;
   private readonly nativeValidationRepair = new NativeValidationRepair();
+  /** Session state of the definition registry: the explicit supersede declarations. */
+  private readonly definitionRegistry = new DefinitionRegistry();
   private readonly taskHistory = new TaskHistory(async (operator, info) => {
     if (!this.delegateConfig || !info.materialization?.executionId)
       throw new Error("Retention requires an engine materialization");
@@ -377,7 +380,7 @@ export class TexeraAgent {
     this.modelType = config.modelType;
     this.createdAt = new Date();
     this.driver = config.driver;
-    this.contextAssembler = withTaskCatalog(config.contextAssembler, this.taskHistory);
+    this.contextAssembler = withTaskCatalog(config.contextAssembler, this.taskHistory, this.definitionRegistry);
     this.systemPromptBuilder = config.systemPromptBuilder;
     this.systemPrompt = config.systemPrompt || "";
     this.log = createLogger("TexeraAgent", { agentId: this.agentId });
@@ -586,6 +589,7 @@ export class TexeraAgent {
         taskCatalog: this.settings.nativeTaskContext === true,
         analysisState: this.settings.nativeAnalysisState === true,
         taskEfficiency: this.settings.nativeTaskEfficiency === true,
+        definitionRegistry: this.settings.nativeDefinitionRegistry === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
         reasoning: this.settings.dataflowReasoning === true,
@@ -671,9 +675,11 @@ export class TexeraAgent {
           .filter(s => s.messageId === current)
           .flatMap(s => (s.toolResults ?? []).flatMap(r => asNativeBatchResult(r.output)?.inspection ?? []));
       },
+      activeTaskNumber: () => (this.currentMessageId ? this.turnNumberOf(this.currentMessageId) : undefined),
       metadataStore: this.metadataStore,
       nativeValidationRepair: this.nativeValidationRepair,
       taskHistory: this.settings.nativeTaskHistory ? this.taskHistory : undefined,
+      definitionRegistry: this.settings.nativeDefinitionRegistry ? this.definitionRegistry : undefined,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
@@ -682,6 +688,7 @@ export class TexeraAgent {
         nativeTaskRestore: this.settings.nativeTaskRestore !== false,
         nativeAnalysisState: this.settings.nativeAnalysisState === true,
         nativeTaskEfficiency: this.settings.nativeTaskEfficiency === true,
+        nativeDefinitionRegistry: this.settings.nativeDefinitionRegistry === true,
         contextWindowTokens: this.settings.contextWindowTokens,
         staticCompaction: this.settings.staticCompaction,
         enableCompactTool: this.settings.enableCompactTool,
@@ -1424,6 +1431,7 @@ export class TexeraAgent {
     nativeTaskRestore?: boolean;
     nativeAnalysisState?: boolean;
     nativeTaskEfficiency?: boolean;
+    nativeDefinitionRegistry?: boolean;
     nativeTaskMemoryChars?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
@@ -1488,6 +1496,7 @@ export class TexeraAgent {
       nativeAnalysisState: updates.nativeAnalysisState ?? this.settings.nativeAnalysisState,
       nativeTaskMemoryChars: updates.nativeTaskMemoryChars ?? this.settings.nativeTaskMemoryChars,
       nativeTaskEfficiency: updates.nativeTaskEfficiency ?? this.settings.nativeTaskEfficiency,
+      nativeDefinitionRegistry: updates.nativeDefinitionRegistry ?? this.settings.nativeDefinitionRegistry,
     });
     if (
       updates.nativeTaskEfficiency !== undefined &&
@@ -1496,6 +1505,14 @@ export class TexeraAgent {
     )
       throw new NativeCatalogSettingsError(
         "Changing task efficiency requires a fresh session to preserve history caching"
+      );
+    if (
+      updates.nativeDefinitionRegistry !== undefined &&
+      updates.nativeDefinitionRegistry !== this.settings.nativeDefinitionRegistry &&
+      [...this.stepsById.values()].some(step => step.role === "user" && step.isBegin)
+    )
+      throw new NativeCatalogSettingsError(
+        "Changing the definition registry requires a fresh session to preserve history caching"
       );
     // Retained outputs are numbered by task, so turning history on or off after
     // the session has started would leave tasks with and without saved versions.
@@ -1533,6 +1550,13 @@ export class TexeraAgent {
       updates.nativeTaskEfficiency !== this.settings.nativeTaskEfficiency
     ) {
       this.settings.nativeTaskEfficiency = updates.nativeTaskEfficiency;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.nativeDefinitionRegistry !== undefined &&
+      updates.nativeDefinitionRegistry !== this.settings.nativeDefinitionRegistry
+    ) {
+      this.settings.nativeDefinitionRegistry = updates.nativeDefinitionRegistry;
       promptNeedsRebuild = true;
     }
     if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {

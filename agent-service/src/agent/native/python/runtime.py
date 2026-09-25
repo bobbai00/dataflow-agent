@@ -185,6 +185,7 @@ ROW_EFFECTS = {
     "Unpivot": "add",
     "Pivot": "collapse",
     "Process": "unknown",
+    "Compare": "unknown",
 }
 DTYPES = {"str": "string", "int64": "Int64", "float64": "Float64", "bool": "boolean", "datetime": "datetime64[ns, UTC]"}
 
@@ -200,7 +201,7 @@ def validate_native(spec):
             raise _error(spec, "OPERATOR_ID", f"Not a Python identifier: {name!r}", stage="validate")
     if len(set(inputs)) != len(inputs) and kind != "Join":
         raise _error(spec, "INPUT_PORTS", "Only Join may reference the same input twice.", stage="validate")
-    expected = 0 if kind in ("Scan", "Parameters") else 2 if kind == "Join" else None if kind in ("Union", "Process") else 1
+    expected = 0 if kind in ("Scan", "Parameters") else 2 if kind in ("Join", "Compare") else None if kind in ("Union", "Process") else 1
     if expected is not None and len(inputs) != expected:
         raise _error(spec, "INPUT_PORTS", f"{kind} requires {expected} input ports.", stage="validate")
     if kind == "Union" and len(inputs) < 2:
@@ -319,6 +320,9 @@ def validate_native(spec):
             )
     elif kind == "Join":
         _join_keys(spec)
+    elif kind == "Compare":
+        if "keys" in props:
+            names_list(props["keys"], "COMPARE_KEYS", "keys")
     elif kind == "Parameters":
         values = props.get("values")
         if not isinstance(values, dict) or not values or any(
@@ -757,6 +761,67 @@ def _join_keys(spec):
     if len(set(left)) != len(left) or len(set(right)) != len(right):
         raise _error(spec, "JOIN_KEYS", "Join keys on each port must be distinct.", stage="validate", field="on")
     return left, right
+
+
+def _compare(spec, a, b, operations):
+    """Row-level difference of two tables that mean the same thing (two versions
+    of a ranking, a cohort, a score table). Deterministic and typed: the model
+    never writes comparison code, so the two sides stay the exact tables."""
+    props = spec["properties"]
+    shared = [column for column in a.columns if column in b.columns]
+    keys = props.get("keys")
+    if keys:
+        _columns(spec, a, keys, "keys")
+        _columns(spec, b, keys, "keys")
+    else:
+        keys = [column for column in shared if _logical_dtype(a[column]) in ("str", "bool")]
+    left, right = a.copy(), b.copy()
+    if not keys:
+        left["row"] = range(len(left))
+        right["row"] = range(len(right))
+        keys = ["row"]
+    for side, name in ((left, "A"), (right, "B")):
+        if side.duplicated(subset=keys).any():
+            raise _error(
+                spec,
+                "COMPARE_KEYS",
+                f"Keys {keys} are not unique in {name}; aggregate or distinct first, or choose keys that identify a row.",
+                stage="contract",
+                field="keys",
+            )
+    values = [column for column in shared if column not in keys]
+    la = left[keys + values].rename(columns={column: f"{column}_a" for column in values})
+    lb = right[keys + values].rename(columns={column: f"{column}_b" for column in values})
+    merged = la.merge(lb, on=keys, how="outer", indicator="__side", sort=False)
+    merged["in_a"] = merged["__side"].isin(["both", "left_only"])
+    merged["in_b"] = merged["__side"].isin(["both", "right_only"])
+    merged = merged.drop(columns="__side")
+    changed = {}
+    ordered = list(keys) + ["in_a", "in_b"]
+    for column in values:
+        ordered += [f"{column}_a", f"{column}_b"]
+        both = merged["in_a"] & merged["in_b"]
+        if _logical_dtype(a[column]) in ("int64", "float64") and _logical_dtype(b[column]) in ("int64", "float64"):
+            delta = pd.to_numeric(merged[f"{column}_b"], errors="coerce") - pd.to_numeric(
+                merged[f"{column}_a"], errors="coerce"
+            )
+            merged[f"{column}_delta"] = delta.where(both)
+            ordered.append(f"{column}_delta")
+            changed[column] = int((delta.where(both).abs() > 1e-9).sum())
+        else:
+            same = merged[f"{column}_a"].astype("string") == merged[f"{column}_b"].astype("string")
+            changed[column] = int((both & ~same.fillna(False)).sum())
+    output = merged[ordered].reset_index(drop=True)
+    operations["compare"] = {
+        "keys": keys,
+        "rowsA": len(a),
+        "rowsB": len(b),
+        "inBoth": int((output["in_a"] & output["in_b"]).sum()),
+        "onlyA": int((output["in_a"] & ~output["in_b"]).sum()),
+        "onlyB": int((~output["in_a"] & output["in_b"]).sum()),
+        "changed": changed,
+    }
+    return output
 
 
 def _join(spec, left, right, operations):
@@ -1831,6 +1896,8 @@ def execute_native(spec, inputs):
         output = _aggregate(spec, source, operations)
     elif kind == "Join":
         output = _join(spec, inputs[0], inputs[1], operations)
+    elif kind == "Compare":
+        output = _compare(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
         output = _union(spec, inputs, operations)
     elif kind == "Window":

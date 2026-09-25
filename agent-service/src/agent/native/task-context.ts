@@ -21,6 +21,7 @@ import type { TaskHistory } from "./task-history";
 import { writtenInputs } from "./task-reference";
 import { renderLiveIndex, renderTaskEntry } from "./task-entries";
 import { analysisMemory } from "./analysis-memory";
+import type { DefinitionRegistry } from "./definition-registry";
 
 /** The heading of the catalog message. The catalog is the state a task starts
  * from, rendered once per task; what the task changes appears in its own
@@ -110,7 +111,11 @@ export function taskCatalogParts(
  * task, and what the task changes reaches the model through its own
  * observations. Without history, completed tasks collapse to their
  * request/answer pairs and the frozen catalog. */
-export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistory): ContextAssembler {
+export function withTaskCatalog(
+  assemble: ContextAssembler,
+  history?: TaskHistory,
+  registry?: DefinitionRegistry
+): ContextAssembler {
   let frozen: { messageId: string; message: ModelMessage } | undefined;
   let analysisFrozen: { messageId: string; memory: ModelMessage[] } | undefined;
   return input => {
@@ -171,16 +176,25 @@ export function withTaskCatalog(assemble: ContextAssembler, history?: TaskHistor
             .map(op => [op.operatorID, input.snapshotStorage.getOperatorResult(head, op.operatorID)] as const)
             .filter((pair): pair is readonly [string, NonNullable<(typeof pair)[1]>] => pair[1] !== undefined)
         );
+        // With the definition registry, the task starts from the graph read as
+        // versioned definitions, not from a list of operators.
+        const useRegistry = input.settings.nativeDefinitionRegistry === true && !!registry;
         frozen = {
           messageId: current.messageId,
-          message: { role: "user", content: renderLiveIndex(input.workflowState, results, history) },
+          message: {
+            role: "user",
+            content: useRegistry
+              ? registry!.render(input.workflowState, results, history)
+              : renderLiveIndex(input.workflowState, results, history),
+          },
         };
       }
+      const signatures = input.settings.nativeDefinitionRegistry === true && !!registry;
       memory = [
         ...entries.map(
           (entry): ModelMessage => ({
             role: "user",
-            content: renderTaskEntry(entry, input.settings.nativeTaskEfficiency),
+            content: renderTaskEntry(entry, input.settings.nativeTaskEfficiency, { signatures }),
             providerOptions: { texera: { taskHistory: true } },
           })
         ),

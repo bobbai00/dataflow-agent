@@ -182,9 +182,15 @@ def stop_native(directory, protocol, budget, base):
         created = datetime.fromisoformat(agent["createdAt"].replace("Z", "+00:00")).timestamp()
         if not budget["started"] - 5 <= created <= budget["started"] + 180:
             continue
-        if agent["settings"].get("nativeAnalysisState", False) != (protocol["arm"] in {"react-analysis", "react-efficient"}):
+        if agent["settings"].get("nativeAnalysisState", False) != (
+            protocol["arm"] in {"react-analysis", "react-efficient", "react-registry"}
+        ):
             continue
-        if agent["settings"].get("nativeTaskEfficiency", False) != (protocol["arm"] == "react-efficient"):
+        if agent["settings"].get("nativeTaskEfficiency", False) != (
+            protocol["arm"] in {"react-efficient", "react-registry"}
+        ):
+            continue
+        if agent["settings"].get("nativeDefinitionRegistry", False) != (protocol["arm"] == "react-registry"):
             continue
         steps = api(base, f'/{agent["id"]}/react-steps')["steps"]
         first = next((s.get("content") for s in steps if s.get("role") == "user"), None)

@@ -183,6 +183,8 @@ export interface AgentSettings {
   nativeAnalysisState?: boolean;
   /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
   nativeTaskEfficiency?: boolean;
+  /** The graph as versioned definitions (`supersede`, `bind`, `explain`, `compare`); fixed for a session. */
+  nativeDefinitionRegistry?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   /** Which operator results the snapshot ships (see ResultSelection). */
@@ -538,6 +540,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeTaskRestore: true,
   nativeAnalysisState: false,
   nativeTaskEfficiency: false,
+  nativeDefinitionRegistry: false,
   nativeTaskMemoryChars: 24000,
   dataEvidence: false,
   flowEvidence: false,
@@ -667,6 +670,8 @@ export interface AgentSettingsApi {
   nativeAnalysisState?: boolean;
   /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
   nativeTaskEfficiency?: boolean;
+  /** The graph as versioned definitions (`supersede`, `bind`, `explain`, `compare`); fixed for a session. */
+  nativeDefinitionRegistry?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;
@@ -781,6 +786,8 @@ export interface UpdateAgentSettingsRequest {
   nativeAnalysisState?: boolean;
   /** Compact immutable task entries and guide reuse/repair; fixed for a session. */
   nativeTaskEfficiency?: boolean;
+  /** The graph as versioned definitions (`supersede`, `bind`, `explain`, `compare`); fixed for a session. */
+  nativeDefinitionRegistry?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;

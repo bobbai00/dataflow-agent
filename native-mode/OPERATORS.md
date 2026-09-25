@@ -38,7 +38,7 @@ id = operator(input_id, ..., parameter=value, ...)
 - **Functions** are lambdas or `def`s written in the same `edits` and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
 - A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
-## The catalog (16 operators)
+## The catalog (17 operators)
 
 | Operator | Engine type | Inputs | Row effect | Signature |
 |---|---|---|---|---|
@@ -58,6 +58,7 @@ id = operator(input_id, ..., parameter=value, ...)
 | `pivot` | Pivot | 1 | collapse | `pivot(T, index, columns, values)` |
 | `process` | Process | 1 or more (0 for a `process` loader) | unknown | `process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")` |
 | `parameters` | Parameters | 0 | create | `parameters(weight=0.5, threshold=10, unit="fraction", ...)` |
+| `compare` | Compare | 2 | unknown | `compare(A, B, keys=["col", ...])` |
 
 Row effect is the contract the runtime enforces and flow evidence reports: `none` keeps every row in place, `drop` only removes rows, `unknown` promises nothing.
 
@@ -113,6 +114,9 @@ T2 = process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loa
 
 T = parameters(weight=0.5, threshold=10, unit="fraction", ...)
     One row of named scalar parameters (numbers, strings, booleans or null). Pass this table to process alongside the data; read values with params.iloc[0]["weight"]. Reassign the same table to update dependent analyses. Use another parameter table for a temporary scenario. Store adjustable assumptions here instead of copying constants into several functions.
+
+T2 = compare(A, B, keys=["col", ...])
+    Row-level difference of two tables with the same meaning, such as two versions of a ranking, a cohort or a score table. Rows are matched on `keys` (default: the shared text and boolean columns; with no such column, by row position). The output has one row per matched or unmatched key with `in_a`, `in_b`, and for every other shared column `<col>_a`, `<col>_b` and, when numeric, `<col>_delta` = B minus A. Aggregate it for counts (rows in both, only in A, only in B, changed) or filter it for the rows that moved. Use it instead of writing a comparison function, so the two sides stay the exact tables they are.
 ```
 
 ## The three custom operators

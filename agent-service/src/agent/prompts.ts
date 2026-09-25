@@ -217,6 +217,8 @@ export interface NativePromptLayoutOptions {
   taskRestore?: boolean;
   analysisState?: boolean;
   taskEfficiency?: boolean;
+  /** The graph is presented as versioned definitions; `supersede`, `bind`, `explain` and `compare` are explained. */
+  definitionRegistry?: boolean;
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
@@ -369,11 +371,33 @@ export function buildNativeModeSystemPrompt(
     .replace("{{OPERATOR_CATALOG}}", nativeCatalogText({ analysisState: options.analysisState }))
     .replace(
       "{{CONTEXT_LAYOUT}}",
-      contextLayout + snapshotProgress + taskLayout + (options.taskEfficiency ? TASK_EFFICIENCY_METHOD : "")
+      contextLayout +
+        snapshotProgress +
+        taskLayout +
+        (options.taskEfficiency ? TASK_EFFICIENCY_METHOD : "") +
+        (options.definitionRegistry ? DEFINITION_REGISTRY_METHOD : "")
     )
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
 }
+
+/** The state of a session read as versioned definitions. The vocabulary is the
+ * user's: "the equal-weight form introduced earlier, not the currently active
+ * weighted form", "roll back only the adopter side", "keep the boundary now in
+ * effect". Every version is a table, so a request that names versions is a
+ * binding, not a rebuild; a comparison is a compare operator, not a function. */
+const DEFINITION_REGISTRY_METHOD = `
+
+The task starts from \`# Definitions\`: the current graph read as analytical definitions with versions. A definition is a table the analysis depends on (a cleaned sample, a cohort, a grouping rule, a score, a parameter table, a fitted result). It gains a version when you reassign its id (the earlier version keeps its saved values, readable with at(name, task=N)) or when you declare a new table as its successor with \`supersede={"new_table": "old_table"}\` in the call that creates the new table. The ACTIVE version is what current tables read. Entries show each function by its \`def\` signature only: call a function by name to reuse it, and \`inspect=["name"]\` returns its exact body when you need to change it.
+
+Read the request in this vocabulary. "The earlier form", "the initial definition", "the version introduced in task N", "the narrow boundary" name an earlier version; "the currently active", "now in effect", "keep unchanged" name the active one. Then act on versions, not on code:
+- Update (the request revises a definition for good): reassign the same id, or build the new table and supersede the old one, so everything downstream recomputes or follows the successor.
+- Counterfactual or Rollback (the request wants an existing result under another version of one or more definitions, without changing the default): \`bind=[{"target": "resilience_score", "as": "narrow_resilience", "versions": {"size_composites": "v1"}}]\`. A version is \`v2\`, \`t11\` (the version active at task 11), \`active\`, or a table id. The runtime rebuilds only the paths from those versions to the target under the new name, keeps the default untouched, and reports what it bound. Observe the new table in the same call. Composition is one bind with several definitions.
+- Comparison ("compare with the earlier ranking", "which rows moved", "does the winner change"): \`d = compare(new_table, old_table, keys=["prof"])\` gives one row per key with \`in_a\`, \`in_b\`, \`<col>_a\`, \`<col>_b\`, \`<col>_delta\`; aggregate or filter it. Never copy numbers from an earlier observation into code and never re-derive an earlier version in a new function when the version exists as a table.
+- Provenance ("which definition produced this", a result that looks inconsistent): \`explain=["table"]\` prints the lineage with the version of every definition it read and flags ancestors that read a superseded version.
+
+Keep definitions as tables: put a population into its own table (keys and the columns later tasks need) before reporting on it; put adjustable numbers into a parameters(...) table passed as an input instead of literals inside functions; when a process fits a model, return its row-level predictions or error flags as a table, and put the one-row summary in a separate table, so a later task can reuse the exact fit. When a later request contradicts an earlier definition (a unit, a ratio direction, a population), correct that definition where it was established; the graph recomputes its consumers.
+`;
 
 const TASK_EFFICIENCY_METHOD = `
 

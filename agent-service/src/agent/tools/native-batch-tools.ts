@@ -50,6 +50,7 @@ import {
   type AnalysisFork,
 } from "../native/analysis-state";
 import { renderTaskEntry } from "../native/task-entries";
+import type { BindRequest } from "../native/definition-registry";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -75,6 +76,8 @@ export interface NativeBatchResult {
   restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
   /** Exact read-only definitions / completed entries requested by this call. */
   inspection?: string[];
+  /** Registry facts of this call: what a bind resolved to, what was superseded. */
+  notes?: string[];
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -118,6 +121,12 @@ export interface DataflowInput {
   fork?: AnalysisFork[];
   inspect?: string[];
   recall?: number[];
+  /** Definition registry: evaluate a target under chosen versions of definitions. */
+  bind?: BindRequest[];
+  /** Definition registry: `{new_table: old_table}` declares the successor version. */
+  supersede?: Record<string, string>;
+  /** Definition registry: lineage of a table with the version of each definition it read. */
+  explain?: string[];
   observe?: string[];
 }
 
@@ -129,7 +138,7 @@ const REASONING_PROPERTY = {
 };
 
 export function nativeBatchSchema(
-  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean } = {}
+  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean; definitionRegistry?: boolean } = {}
 ): Record<string, unknown> {
   return {
     type: "object",
@@ -219,6 +228,43 @@ export function nativeBatchSchema(
             },
           }
         : {}),
+      ...(options.definitionRegistry
+        ? {
+            bind: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  target: { type: "string", description: "An existing table whose computation to evaluate again." },
+                  as: { type: "string", description: "New table name for the result; the target itself is untouched." },
+                  versions: {
+                    type: "object",
+                    additionalProperties: { type: "string" },
+                    description:
+                      'definition → version, e.g. {"age_grouped_data": "v1", "size_composites": "narrow_size_composites"}. A version is v<k>, t<N> (the version active at task N), active, or a table id. Definitions are named in # Definitions by their first table.',
+                  },
+                },
+                required: ["target", "as", "versions"],
+              },
+              description:
+                "Step 2 as well: evaluate `target` under other versions of the definitions it reads, as a new table `as`. The runtime rebuilds only the affected paths (an earlier in-place version is rebuilt from its saved definition as <name>__v<k>) and reports the versions it bound. Use it for rollback, counterfactual and composed-version requests instead of rewriting the computation; observe `as` in the same call.",
+            },
+            supersede: {
+              type: "object",
+              additionalProperties: { type: "string" },
+              description:
+                'Step 5: {"new_table": "old_table"} declares that the new table (defined in this call or earlier) is the next version of old_table\'s definition and the active one from now on; old_table stays readable as an earlier version. Use it when an update is built as a new table rather than by reassigning the id.',
+            },
+            explain: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 4,
+              description:
+                "Read-only: the lineage of each named table with the version of every definition it read, flagging ancestors that read a superseded version.",
+            },
+          }
+        : {}),
     },
     required: [...(options.reasoning ? ["reasoning"] : []), ...(options.analysisState ? [] : ["edits"])],
   };
@@ -231,7 +277,7 @@ export const DATAFLOW_TOOL_DESCRIPTION =
 
 /** The tool description for the agent's settings: with `reasoning`, one sentence says it comes first. */
 export function dataflowToolDescription(
-  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean } = {}
+  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean; definitionRegistry?: boolean } = {}
 ): string {
   const description =
     options.restore === false
@@ -244,6 +290,9 @@ export function dataflowToolDescription(
     base +
     (options.analysisState
       ? " In analysis mode, omitted edits means no edits. Shared functions persist with their table consumers. Reuse a def by name in later calls. Redefining a shared function automatically revises all current consumers and recomputes descendants; no need to resend their code. Use parameters(...) tables for changing assumptions. fork reuses a computation with explicit replaced inputs; inspect reads exact table or shared-function definitions by name, and recall retrieves task history, without execution."
+      : "") +
+    (options.definitionRegistry
+      ? " The task starts from `# Definitions`, the graph read as versioned definitions. `bind` evaluates an existing table under chosen versions of the definitions it reads (rollback, counterfactual, composition) as a new table; `supersede` declares a new table the active version of an old one; `explain` prints a table's lineage with the version of each definition it read; the `compare` operator diffs two versions row by row."
       : "")
   );
 }
@@ -258,12 +307,19 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
   const reasoning = context?.settings?.dataflowReasoning === true;
   const analysisState = context?.settings?.nativeAnalysisState === true;
   const restore = analysisState ? context?.settings?.nativeTaskRestore !== false : undefined;
+  const registry =
+    context?.settings?.nativeDefinitionRegistry === true && context.definitionRegistry
+      ? context.definitionRegistry
+      : undefined;
+  const definitionRegistry = !!registry;
   let inspectionTask: string | undefined;
   const shownInspections = new Set<string>();
   return {
     [TOOL_NAME_DATAFLOW]: tool({
-      description: dataflowToolDescription({ reasoning, analysisState, restore }),
-      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema({ reasoning, analysisState, restore }) as any),
+      description: dataflowToolDescription({ reasoning, analysisState, restore, definitionRegistry }),
+      inputSchema: jsonSchema<DataflowInput>(
+        nativeBatchSchema({ reasoning, analysisState, restore, definitionRegistry }) as any
+      ),
       execute: async args => {
         if (analysisState && args && args.edits === undefined) args = { ...args, edits: "" };
         const repairEpoch = repair.epoch;
@@ -321,12 +377,46 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           return createErrorResult("fork, inspect and recall require nativeAnalysisState.");
         if ((args.inspect?.length ?? 0) > 6 || (args.recall?.length ?? 0) > 3)
           return createErrorResult("Inspect at most six definitions or recall three tasks per call.");
+        const isBind = (value: unknown) =>
+          value === undefined ||
+          (Array.isArray(value) &&
+            value.every(
+              item =>
+                item &&
+                typeof item === "object" &&
+                typeof (item as BindRequest).target === "string" &&
+                typeof (item as BindRequest).as === "string" &&
+                (item as BindRequest).versions &&
+                typeof (item as BindRequest).versions === "object" &&
+                !Array.isArray((item as BindRequest).versions) &&
+                Object.values((item as BindRequest).versions).every(v => typeof v === "string")
+            ));
+        const isSupersede = (value: unknown) =>
+          value === undefined ||
+          (!!value &&
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            Object.values(value as object).every(v => typeof v === "string"));
+        if (!isBind(args.bind) || !isSupersede(args.supersede) || !isIds(args.explain))
+          return createErrorResult(
+            'bind takes [{target, as, versions: {definition: version}}], supersede takes {"new_table": "old_table"}, and explain takes table names.'
+          );
+        if (!registry && (args.bind?.length || args.explain?.length || (args.supersede && Object.keys(args.supersede).length)))
+          return createErrorResult("bind, supersede and explain require nativeDefinitionRegistry.");
+        if ((args.explain?.length ?? 0) > 4) return createErrorResult("Explain at most four tables per call.");
+        // A bind is realized by the existing planners: an earlier in-place
+        // version becomes a restore of that definition, the target becomes a
+        // fork bound to the chosen version tables.
+        const bound = registry
+          ? registry.plan(args.bind ?? [], state, context?.taskHistory)
+          : { restores: [], forks: [], errors: [], notes: [] };
+        const notes: string[] = [...bound.notes];
         // Restores are planned before compiling: each becomes the sealed
         // statements under new ids, compiled and executed exactly like edits.
         // A refused restore is an outcome; the rest of the call proceeds.
         const restoreOutcomes: NativeBatchOutcome[] = [];
         let restorePlans: RestorePlan[] = [];
-        const restoreRequests = args.restore ?? [];
+        const restoreRequests = [...(args.restore ?? []), ...bound.restores];
         if (restoreRequests.length && (!context?.taskHistory || context.settings?.nativeTaskRestore === false)) {
           for (const request of restoreRequests)
             restoreOutcomes.push({
@@ -358,7 +448,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           : await compileProgram(program, compileOptions);
         const statements: ProgramStatement[] = compiled.statements;
         const forked = await planAnalysisForks(
-          args.fork ?? [],
+          [...(args.fork ?? []), ...bound.forks],
           state,
           statements,
           context?.taskHistory,
@@ -635,6 +725,49 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             return !!outcome && outcome.status !== "error" && outcome.status !== "blocked";
           })
           .map(plan => ({ ...plan.request, created: plan.created, shared: plan.shared }));
+        // Registry: successors declared in this call, once their table exists.
+        const supersedeOutcomes: NativeBatchOutcome[] = [];
+        if (registry)
+          for (const [table, of] of Object.entries(args.supersede ?? {})) {
+            const index = byId.get(table);
+            const landed = index === undefined ? !!state.getOperator(table) : outcomes[index]?.status === "added" || outcomes[index]?.status === "modified";
+            try {
+              if (!landed) throw new Error(`\`${table}\` did not land in this call and does not exist.`);
+              if (!state.getOperator(of)) throw new Error(`\`${of}\` is not a current table.`);
+              registry.supersede(table, of, context?.activeTaskNumber?.() ?? 0);
+              notes.push(`supersede: \`${table}\` is now the active version of \`${registry.definitionOf(of)}\`; \`${of}\` stays readable as an earlier version`);
+            } catch (error) {
+              supersedeOutcomes.push({
+                id: table,
+                op: "supersede",
+                status: "error",
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        // Registry: contract hints on new custom code, once per kind per call.
+        if (registry) {
+          let fitted = false;
+          let literals = false;
+          for (const [index, statement] of statements.entries()) {
+            const outcome = outcomes[index];
+            if (!outcome || (outcome.status !== "added" && outcome.status !== "modified")) continue;
+            if (statement.op !== "process" && statement.op !== "map") continue;
+            const code = String(statement.view?.properties?.code ?? "");
+            if (!fitted && /\b(sklearn|statsmodels|xgboost|lightgbm|scipy\.optimize)\b/.test(code)) {
+              fitted = true;
+              outcome.message +=
+                " Hint: this fits a model; keep its row-level predictions or error flags as a table (one row per key) so later tasks reuse the exact fit instead of refitting.";
+            }
+            const inputs = statement.view?.inputs ?? [];
+            const hasParameters = inputs.some(id => state.getOperator(id)?.nativeOp?.type === "Parameters");
+            const numbers = code.match(/(?<![\w.])(?:\d+\.\d+|[1-9]\d{1,3})(?![\w.])/g) ?? [];
+            if (!literals && !hasParameters && new Set(numbers).size >= 4) {
+              literals = true;
+              outcome.message += ` Hint: ${new Set(numbers).size} numeric assumptions are inside this code; adjustable ones belong in a parameters(...) table passed as an input, so a later task can version them.`;
+            }
+          }
+        }
         const requested = args.observe ?? [];
         const observationErrors: string[] = [];
         const observe = [...new Set(requested)].filter(id => {
@@ -649,6 +782,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           .sort((a, b) => a.line - b.line)
           .map(entry => entry.outcome);
         const inspection = analysisState ? inspectAnalysis(state, args.inspect ?? []) : [];
+        if (registry) for (const id of args.explain ?? []) inspection.push(registry.explain(state, id, context?.taskHistory));
         for (const task of args.recall ?? []) {
           const entry = context?.taskHistory?.entries().find(entry => entry.task === task);
           inspection.push(
@@ -684,6 +818,12 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           operators: [
             ...deleteOutcomes,
             ...restoreOutcomes,
+            ...bound.errors.map(error => ({
+              id: error.id,
+              op: "bind",
+              status: "error" as const,
+              message: error.message,
+            })),
             ...forked.errors.map(error => ({
               id: error.id,
               op: "fork",
@@ -691,11 +831,13 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
               message: error.message,
             })),
             ...ordered,
+            ...supersedeOutcomes,
           ],
           observe,
           observationErrors,
           ...(restored.length ? { restored } : {}),
           ...(inspection.length ? { inspection } : {}),
+          ...(notes.length ? { notes } : {}),
         } satisfies NativeBatchResult;
       },
     }),

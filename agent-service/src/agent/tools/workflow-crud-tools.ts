@@ -35,8 +35,12 @@ import type { TaskHistory } from "../native/task-history";
 export interface ToolContext {
   /** Current branch/task identity; repeated reads can reference earlier visible responses. */
   activeTaskId?: () => string | undefined;
+  /** The number of the task being worked, for declarations made during it. */
+  activeTaskNumber?: () => number | undefined;
   visibleInspections?: () => string[];
   taskHistory?: TaskHistory;
+  /** Versioned definitions over the graph (`supersede`, `bind`, `explain`). */
+  definitionRegistry?: import("../native/definition-registry").DefinitionRegistry;
   metadataStore?: WorkflowSystemMetadata;
   nativeValidationRepair?: NativeValidationRepair;
   settings?: {
@@ -48,6 +52,7 @@ export interface ToolContext {
     nativeTaskRestore?: boolean;
     nativeAnalysisState?: boolean;
     nativeTaskEfficiency?: boolean;
+    nativeDefinitionRegistry?: boolean;
     contextWindowTokens?: number;
     staticCompaction?: boolean;
     enableCompactTool?: boolean;

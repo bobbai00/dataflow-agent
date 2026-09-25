@@ -662,6 +662,17 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       `Process input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
       75
     );
+  } else if (view.type === "Compare") {
+    const c = record(operations.compare);
+    if (count(c.rowsA) && count(c.rowsB) && count(c.inBoth) && count(c.onlyA) && count(c.onlyB))
+      add(
+        "flow.compare",
+        "flow",
+        "measurement",
+        `Compare on keys=${json(c.keys)}: rows A=${c.rowsA}, B=${c.rowsB}; in both=${c.inBoth}, only A=${c.onlyA}, only B=${c.onlyB}; changed values per column=${json(c.changed ?? {})}.`,
+        94
+      );
+    else omissions.push("compare_counters_unavailable");
   }
   if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")

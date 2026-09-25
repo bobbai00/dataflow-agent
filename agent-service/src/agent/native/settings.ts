@@ -72,6 +72,7 @@ export function validateNativeSettings(
     nativeTaskRestore?: unknown;
     nativeAnalysisState?: unknown;
     nativeTaskEfficiency?: unknown;
+    nativeDefinitionRegistry?: unknown;
     nativeTaskMemoryChars?: unknown;
   } = {}
 ): void {
@@ -90,6 +91,7 @@ export function validateNativeSettings(
     "nativeTaskContext",
     "nativeAnalysisState",
     "nativeTaskEfficiency",
+    "nativeDefinitionRegistry",
   ] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
@@ -104,6 +106,10 @@ export function validateNativeSettings(
     throw new NativeCatalogSettingsError(
       "nativeTaskEfficiency requires nativeTaskHistory, nativeTaskContext and nativeAnalysisState"
     );
+  // The registry reads versions from task history and the shared-function
+  // graph, and renders the compact entries; it is a layer over efficiency.
+  if (settings.nativeDefinitionRegistry === true && !settings.nativeTaskEfficiency)
+    throw new NativeCatalogSettingsError("nativeDefinitionRegistry requires nativeTaskEfficiency");
   if (
     settings.nativeTaskMemoryChars !== undefined &&
     (typeof settings.nativeTaskMemoryChars !== "number" ||

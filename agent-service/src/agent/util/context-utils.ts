@@ -2001,6 +2001,7 @@ function serializeTaskBody(
               );
           }
           for (const error of receipt?.observationErrors ?? []) noChangeOutcome.push(`- observe: ${error}`);
+          for (const note of receipt?.notes ?? []) noChangeOutcome.push(`- ${note}`);
           for (const inspection of receipt?.inspection ?? [])
             noChangeOutcome.push(`Read-only inspection:\n${inspection}`);
           return;
@@ -3151,9 +3152,11 @@ function renderNativeToolCall(
     if (typeof inp.reasoning === "string" && inp.reasoning.trim())
       lines.push(`  reasoning: ${inp.reasoning.trim().replace(/\s*\n\s*/g, " ")}`);
     if (Array.isArray(inp.delete) && inp.delete.length) lines.push(`  delete: ${JSON.stringify(inp.delete)}`);
-    for (const field of ["restore", "fork", "inspect", "recall"])
+    for (const field of ["restore", "fork", "bind", "inspect", "recall", "explain"])
       if (Array.isArray(inp[field]) && (inp[field] as unknown[]).length)
         lines.push(`  ${field}: ${JSON.stringify(inp[field])}`);
+    if (inp.supersede && typeof inp.supersede === "object" && Object.keys(inp.supersede as object).length)
+      lines.push(`  supersede: ${JSON.stringify(inp.supersede)}`);
     const text = edits.trim();
     if (text) {
       lines.push("  edits:");

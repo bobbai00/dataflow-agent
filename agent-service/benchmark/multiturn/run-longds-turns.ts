@@ -28,7 +28,15 @@ import { checkedTurn } from "./checked-turn";
 const HISTORY_REFERENCE = /\bat\(\s*[A-Za-z_]\w*\s*,\s*(?:task\s*=\s*)?\d+\s*\)/g;
 
 const [promptsPath, outPath, arm = "react-catalog", model = "gpt-5.6-luna"] = process.argv.slice(2);
-const ARMS = ["react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient"];
+const ARMS = [
+  "react-full",
+  "react-catalog",
+  "react-entries",
+  "react-restore",
+  "react-analysis",
+  "react-efficient",
+  "react-registry",
+];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
 const out = resolve(outPath);
@@ -46,8 +54,11 @@ const settings = {
   nativeTaskHistory: true,
   // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  nativeAnalysisState: arm === "react-analysis" || arm === "react-efficient",
-  nativeTaskEfficiency: arm === "react-efficient",
+  nativeAnalysisState: arm === "react-analysis" || arm === "react-efficient" || arm === "react-registry",
+  nativeTaskEfficiency: arm === "react-efficient" || arm === "react-registry",
+  // The registry arm: the efficient arm plus versioned definitions in the
+  // task-start index, signature-only entries, supersede/bind/explain, compare.
+  nativeDefinitionRegistry: arm === "react-registry",
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
@@ -69,7 +80,7 @@ const settings = {
 };
 const session = await nativeTestSession(settings, model);
 const actualSettings = await session.settings();
-for (const key of ["nativeTaskEfficiency", "nativeAnalysisState", "nativeTaskContext"] as const) {
+for (const key of ["nativeTaskEfficiency", "nativeAnalysisState", "nativeTaskContext", "nativeDefinitionRegistry"] as const) {
   if (actualSettings[key] !== settings[key]) {
     await session.close();
     throw new Error(`Agent did not apply ${key}: expected ${settings[key]}, got ${actualSettings[key]}`);
@@ -149,6 +160,17 @@ try {
       fork_requests: steps
         .flatMap(s => s.toolCalls ?? [])
         .reduce((n, c) => n + ((c.input as any)?.fork?.length ?? 0), 0),
+      bind_requests: steps
+        .flatMap(s => s.toolCalls ?? [])
+        .reduce((n, c) => n + ((c.input as any)?.bind?.length ?? 0), 0),
+      supersede_declarations: steps
+        .flatMap(s => s.toolCalls ?? [])
+        .reduce((n, c) => n + Object.keys((c.input as any)?.supersede ?? {}).length, 0),
+      explain_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => ((c.input as any)?.explain?.length ?? 0) > 0)
+        .length,
+      compare_statements: steps
+        .flatMap(s => s.toolCalls ?? [])
+        .reduce((n, c) => n + (String((c.input as any)?.edits ?? "").match(/=\s*compare\(/g) ?? []).length, 0),
     };
     await write(`${directory}/stats.json`, stats);
     answers.push({ turn_id: turn.turn_id, answer, error, steps: steps.length, stats });

@@ -82,6 +82,8 @@ function clipped(value: string, limit: number): string {
 /** Repair hint per code, rendered after the message in every receipt. */
 export const REPAIR_HINTS: Record<string, string> = {
   PARAMETER_VALUE: "Use parameters(name=value, ...) with at least one named finite number, string, boolean or None.",
+  COMPARE_KEYS:
+    "Pass keys=[...] naming columns that identify one row in both tables; when the keys repeat, aggregate or distinct first.",
   // Program / arguments
   PROGRAM_SYNTAX: "Fix this statement at the reported line and resubmit it alone; the other statements already landed.",
   INVALID_ARGUMENTS: "Fix the named argument to match the signature; nothing about the data has been checked yet.",
