@@ -358,7 +358,10 @@ test("the registry prompt and settings: text is present, it requires efficiency,
   expect(prompt).toContain("compare(new_table, old_table");
   expect(prompt).toContain("supersede=");
   expect(prompt).toContain("compare(A, B, keys=");
+  expect(prompt).toContain("Entries show each function's code once");
+  expect(buildNativeModeSystemPrompt(undefined, { taskCatalog: true, taskHistory: true, analysisState: true, taskEfficiency: true, definitionRegistry: true, definitionSignatures: true })).toContain("signature only");
   expect(() => validateNativeSettings({ nativeDefinitionRegistry: true })).toThrow(NativeCatalogSettingsError);
+  expect(() => validateNativeSettings({ nativeDefinitionSignatures: true, nativeTaskEfficiency: true, nativeTaskHistory: true, nativeTaskContext: true, nativeAnalysisState: true })).toThrow(/requires nativeDefinitionRegistry/);
   const agent = new TexeraAgent({
     agentId: "registry-setting",
     modelType: "test",

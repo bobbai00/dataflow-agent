@@ -590,6 +590,7 @@ export class TexeraAgent {
         analysisState: this.settings.nativeAnalysisState === true,
         taskEfficiency: this.settings.nativeTaskEfficiency === true,
         definitionRegistry: this.settings.nativeDefinitionRegistry === true,
+        definitionSignatures: this.settings.nativeDefinitionSignatures === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
         reasoning: this.settings.dataflowReasoning === true,
@@ -1432,6 +1433,7 @@ export class TexeraAgent {
     nativeAnalysisState?: boolean;
     nativeTaskEfficiency?: boolean;
     nativeDefinitionRegistry?: boolean;
+    nativeDefinitionSignatures?: boolean;
     nativeTaskMemoryChars?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
@@ -1497,7 +1499,16 @@ export class TexeraAgent {
       nativeTaskMemoryChars: updates.nativeTaskMemoryChars ?? this.settings.nativeTaskMemoryChars,
       nativeTaskEfficiency: updates.nativeTaskEfficiency ?? this.settings.nativeTaskEfficiency,
       nativeDefinitionRegistry: updates.nativeDefinitionRegistry ?? this.settings.nativeDefinitionRegistry,
+      nativeDefinitionSignatures: updates.nativeDefinitionSignatures ?? this.settings.nativeDefinitionSignatures,
     });
+    if (
+      updates.nativeDefinitionSignatures !== undefined &&
+      updates.nativeDefinitionSignatures !== this.settings.nativeDefinitionSignatures &&
+      [...this.stepsById.values()].some(step => step.role === "user" && step.isBegin)
+    )
+      throw new NativeCatalogSettingsError(
+        "Changing the entry format requires a fresh session to preserve history caching"
+      );
     if (
       updates.nativeTaskEfficiency !== undefined &&
       updates.nativeTaskEfficiency !== this.settings.nativeTaskEfficiency &&
@@ -1557,6 +1568,13 @@ export class TexeraAgent {
       updates.nativeDefinitionRegistry !== this.settings.nativeDefinitionRegistry
     ) {
       this.settings.nativeDefinitionRegistry = updates.nativeDefinitionRegistry;
+      promptNeedsRebuild = true;
+    }
+    if (
+      updates.nativeDefinitionSignatures !== undefined &&
+      updates.nativeDefinitionSignatures !== this.settings.nativeDefinitionSignatures
+    ) {
+      this.settings.nativeDefinitionSignatures = updates.nativeDefinitionSignatures;
       promptNeedsRebuild = true;
     }
     if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {

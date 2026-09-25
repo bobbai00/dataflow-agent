@@ -189,7 +189,10 @@ export function withTaskCatalog(
           },
         };
       }
-      const signatures = input.settings.nativeDefinitionRegistry === true && !!registry;
+      const signatures =
+        input.settings.nativeDefinitionRegistry === true &&
+        input.settings.nativeDefinitionSignatures === true &&
+        !!registry;
       memory = [
         ...entries.map(
           (entry): ModelMessage => ({

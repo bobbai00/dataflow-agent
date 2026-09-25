@@ -36,6 +36,7 @@ const ARMS = [
   "react-analysis",
   "react-efficient",
   "react-registry",
+  "react-registry-sig",
 ];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
@@ -54,11 +55,14 @@ const settings = {
   nativeTaskHistory: true,
   // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  nativeAnalysisState: arm === "react-analysis" || arm === "react-efficient" || arm === "react-registry",
-  nativeTaskEfficiency: arm === "react-efficient" || arm === "react-registry",
-  // The registry arm: the efficient arm plus versioned definitions in the
-  // task-start index, signature-only entries, supersede/bind/explain, compare.
-  nativeDefinitionRegistry: arm === "react-registry",
+  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig"].includes(arm),
+  nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig"].includes(arm),
+  // The registry arms: the efficient arm plus versioned definitions in the
+  // task-start index, supersede/bind/explain and compare. `-sig` also shows
+  // functions in entries by signature only (an ablation: it cost 21 extra
+  // inspect calls on Water in trial 1).
+  nativeDefinitionRegistry: arm === "react-registry" || arm === "react-registry-sig",
+  nativeDefinitionSignatures: arm === "react-registry-sig",
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
@@ -80,7 +84,13 @@ const settings = {
 };
 const session = await nativeTestSession(settings, model);
 const actualSettings = await session.settings();
-for (const key of ["nativeTaskEfficiency", "nativeAnalysisState", "nativeTaskContext", "nativeDefinitionRegistry"] as const) {
+for (const key of [
+  "nativeTaskEfficiency",
+  "nativeAnalysisState",
+  "nativeTaskContext",
+  "nativeDefinitionRegistry",
+  "nativeDefinitionSignatures",
+] as const) {
   if (actualSettings[key] !== settings[key]) {
     await session.close();
     throw new Error(`Agent did not apply ${key}: expected ${settings[key]}, got ${actualSettings[key]}`);

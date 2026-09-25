@@ -219,6 +219,8 @@ export interface NativePromptLayoutOptions {
   taskEfficiency?: boolean;
   /** The graph is presented as versioned definitions; `supersede`, `bind`, `explain` and `compare` are explained. */
   definitionRegistry?: boolean;
+  /** Entries show functions by signature only; bodies come through inspect. */
+  definitionSignatures?: boolean;
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
@@ -375,7 +377,14 @@ export function buildNativeModeSystemPrompt(
         snapshotProgress +
         taskLayout +
         (options.taskEfficiency ? TASK_EFFICIENCY_METHOD : "") +
-        (options.definitionRegistry ? DEFINITION_REGISTRY_METHOD : "")
+        (options.definitionRegistry
+          ? DEFINITION_REGISTRY_METHOD.replace(
+              "{{FUNCTION_ENTRIES}}",
+              options.definitionSignatures
+                ? "Entries show each function by its `def` signature only: call a function by name to reuse it, and `inspect=[\"name\"]` returns its exact body when you need to change it."
+                : "Entries show each function's code once; call a function by name to reuse it, since shared functions persist with their tables."
+            )
+          : "")
     )
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
@@ -388,7 +397,7 @@ export function buildNativeModeSystemPrompt(
  * binding, not a rebuild; a comparison is a compare operator, not a function. */
 const DEFINITION_REGISTRY_METHOD = `
 
-The task starts from \`# Definitions\`: the current graph read as analytical definitions with versions. A definition is a table the analysis depends on (a cleaned sample, a cohort, a grouping rule, a score, a parameter table, a fitted result). It gains a version when you reassign its id (the earlier version keeps its saved values, readable with at(name, task=N)) or when you declare a new table as its successor with \`supersede={"new_table": "old_table"}\` in the call that creates the new table. The ACTIVE version is what current tables read. Entries show each function by its \`def\` signature only: call a function by name to reuse it, and \`inspect=["name"]\` returns its exact body when you need to change it.
+The task starts from \`# Definitions\`: the current graph read as analytical definitions with versions. A definition is a table the analysis depends on (a cleaned sample, a cohort, a grouping rule, a score, a parameter table, a fitted result). It gains a version when you reassign its id (the earlier version keeps its saved values, readable with at(name, task=N)) or when you declare a new table as its successor with \`supersede={"new_table": "old_table"}\` in the call that creates the new table. The ACTIVE version is what current tables read. {{FUNCTION_ENTRIES}}
 
 Read the request in this vocabulary. "The earlier form", "the initial definition", "the version introduced in task N", "the narrow boundary" name an earlier version; "the currently active", "now in effect", "keep unchanged" name the active one. Then act on versions, not on code:
 - Update (the request revises a definition for good): reassign the same id, or build the new table and supersede the old one, so everything downstream recomputes or follows the successor.

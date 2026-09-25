@@ -73,6 +73,7 @@ export function validateNativeSettings(
     nativeAnalysisState?: unknown;
     nativeTaskEfficiency?: unknown;
     nativeDefinitionRegistry?: unknown;
+    nativeDefinitionSignatures?: unknown;
     nativeTaskMemoryChars?: unknown;
   } = {}
 ): void {
@@ -92,6 +93,7 @@ export function validateNativeSettings(
     "nativeAnalysisState",
     "nativeTaskEfficiency",
     "nativeDefinitionRegistry",
+    "nativeDefinitionSignatures",
   ] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
@@ -110,6 +112,8 @@ export function validateNativeSettings(
   // graph, and renders the compact entries; it is a layer over efficiency.
   if (settings.nativeDefinitionRegistry === true && !settings.nativeTaskEfficiency)
     throw new NativeCatalogSettingsError("nativeDefinitionRegistry requires nativeTaskEfficiency");
+  if (settings.nativeDefinitionSignatures === true && !settings.nativeDefinitionRegistry)
+    throw new NativeCatalogSettingsError("nativeDefinitionSignatures requires nativeDefinitionRegistry");
   if (
     settings.nativeTaskMemoryChars !== undefined &&
     (typeof settings.nativeTaskMemoryChars !== "number" ||
