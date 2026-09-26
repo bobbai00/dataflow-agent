@@ -147,6 +147,55 @@ stack with the sandboxed engine.
 
 ## Results
 
-Campaign `LongDS_Lean_20260926` (react-lean, Survey/BI/Water, three trials,
-GPT-5.2 judge, one-hour session cap): pending; `logs/registry/report.py`
-compares it with react-registry, react-efficient and DSGym.
+Campaign `LongDS_Lean_20260926` (react-lean, Survey/BI/Water, GPT-5.2 judge,
+one-hour session cap, Luna), `logs/registry/report.py` against the saved
+controls. Trial 1:
+
+| Arm | Survey | BI | Water | Correct/96 | Cost |
+| --- | --- | --- | --- | --- | --- |
+| react-lean t1 | 25/30 $0.115 (70 calls) | 30/30 $0.072 (50) | 8/36 $0.247 (80) | 63 | $0.435 |
+| react-registry t1–t3 | 26, 26, 25 at $0.157, 0.141, 0.166 (94, 88, 98) | 28, 27, 30 at $0.077, 0.080, 0.074 (67, 69, 65) | 13, 11, 14 at $0.239, 0.204, 0.248 (96, 83, 95) | 67, 64, 69 | $0.474, 0.426, 0.488 |
+| react-efficient t1–t3 | 20, 27, 28 | 28, 28, 29 | 13, 10, 9 | 61, 65, 66 | $0.411, 0.419, 0.423 |
+| DSGym t1–t3 | 18, 20, 11 | 23, 16, 27 | 15, 10, 8 | 56, 46, 46 | $0.343, 0.277, 0.256 |
+
+### Where the money went (trial 1, `call-anatomy.py`, `code-shape.py`, `context-anatomy.py`)
+
+- **Calls per turn reached DSGym parity.** BI 1.67 (DSGym 1.6–1.8), Water 2.22
+  (2.1), Survey 2.33 (2.5). The runtime composed the answer on 77% of BI
+  turns (16 of 30 in a single call), 80% of Survey turns and 36% of Water
+  turns. Only 3 of 54 `answer_from` calls were pure shaping calls.
+- **An answer call is cheap.** In the registry arm it costs $0.0009 (BI),
+  $0.0014 (Survey), $0.0016 (Water): a cached read of the prompt (22–49k
+  tokens at $0.02/M), a ~1k-token cache write, ~150–320 output tokens. A tool
+  call costs $0.0014–0.0036, of which output is about half.
+- **Survey saved 22%** ($0.115 vs $0.14–0.17): 64 tool calls in both arms,
+  the same 2.2k characters of code per turn, 24 answer calls fewer.
+- **BI and Water did not.** The model spent the saving on code: 1428 vs
+  915–1063 code characters per turn on BI and 6397 vs 4445–5852 on Water
+  (43 docstrings where the registry arm wrote none, answer-shaping maps,
+  more lambdas), so output tokens rose 8–16% on BI and 10–35% on Water while
+  cached reads fell 22% and 9%.
+- **Where a Water prompt goes.** At turn 36 the entries block is 237k
+  characters, 60% of it function bodies of earlier tasks (registry: 55%).
+  Cached reads are $0.02/M, so those bodies cost about $0.06 of the $0.25
+  session; a rolling block of recent code rewritten each task would cost more
+  in cache writes than it saves, and rewriting earlier entries breaks the
+  cache prefix (`prompt-cache-append-only`). Data-measurement lines are 0–3%
+  of the observation text the model read (complete tables omit them), so
+  turning them off buys nothing.
+- **Non-composed turns are judgment answers.** On Water 23 of 36 answers name
+  winners, booleans and labels assembled from several tables; no table can
+  express them, so the answer call is inherent there.
+- **Registered operators were adopted little**: 3 calls on Water, 0 on BI and
+  Survey (the model kept writing new process functions).
+- **Flags**: BI raised one (the null-denominator judgment on the Python mean,
+  the fact its imputation turns hinge on); Survey's 300-column raw table is
+  above the profile's 128-column limit, so its header-row trap raised none.
+
+### v2: `react-lean2` (commit 21a6ded43)
+
+Targets the output tokens: `answer_from: "t[key=column:digits, other]"`
+renames, picks and rounds without a shaping statement, and the compact code
+contract (`nativeCompactCode`: docstrings only on registered operators, no
+comments, one-sentence reasoning, reuse before variants). Campaign
+`LongDS_Lean2_20260926` on a second agent process (port 3052), three trials.
