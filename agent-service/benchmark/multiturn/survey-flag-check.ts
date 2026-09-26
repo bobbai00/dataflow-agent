@@ -45,7 +45,7 @@ const session = await nativeTestSession({
 const plain = (text: string) => text.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"');
 try {
   await session.debug("Task 1: load the survey responses.");
-  const t1 = await session.debug({
+  const t1: any = await session.debug({
     edits: 'survey = scan("data/longds/community/kaggle-survey-2022/task2/data/kaggle-survey-2022/kaggle_survey_2022_responses.csv")',
     observe: ["survey[Q2,Q3]"],
   });

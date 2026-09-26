@@ -8,7 +8,7 @@ cost or accuracy findings of the registry campaign, and one benchmark arm
 | Finding (registry campaign, 2026-09-25) | Mechanism | Setting |
 | --- | --- | --- |
 | The answer call is ~43% of a two-call turn's cost; late turns are not cheaper | `answer_from`: the runtime composes the final answer from an observed table and ends the turn | `nativeAnswerFrom` |
-| The model re-derives the same step (a cleaning rule, a ranking) as new process code, task after task | Registered operators: a `def` is called by name, persists with its consumers, is listed with its settings | `nativeRegisteredOperators` |
+| The model re-derives the same step (a cleaning rule, a ranking) as new process code, task after task | Your own operators: a `def` with a docstring is called by name with tables and settings as arguments, its docstring rendered per call as the doc; `lift` parameterizes an existing def; a near-duplicate receipt names the def a new one repeats | `nativeRegisteredOperators` |
 | 80–93% of failures cascade from data-contract traps at turns 1–4 (literal `"nan"` strings, header rows, multiplied joins) that nothing carries forward | Contract flags: judgments from the operator's contract and the whole-table profile, stored on the table, inherited through lineage; `expect` for the model's own contract | `nativeContractFlags` |
 | Entries are 95–97% of the prompt; rows of every observed table and every function body ride in them | Lean context: `observe: ["t[a,b]"]`, probe one-liners, rows only for answer sources, one function body per session | `nativeLeanContext` |
 
@@ -40,40 +40,76 @@ continue through the real `TexeraAgent` with a scripted driver) and live
 (`benchmark/multiturn/lean-smoke.ts`, task 3: the model set `answer_from` on
 its first call; one model call, composed `{"mean_composite":72.83}`).
 
-## Registered operators
+## Your own operators (the function form, v4)
 
-A `def` whose docstring states what its output table holds, whose parameters
-without a default are its input tables, and whose remaining parameters have
-literal defaults, is called by name:
+Custom code is an operator the model defines: a `def` with a docstring,
+called by name like `scan` or `join`. Its parameters are its arguments and
+its docstring is its doc, written over the parameters:
 
 ```python
-def rank_by_score(scores, top=10, key="composite"):
-    """One row per learner in the top ranks by the chosen score column, with rank."""
+def band_report(T, band_column, value, top=5):
+    """One row per {band_column} with the mean {value}, the {top} highest first."""
     ...
-top5 = rank_by_score(scored, top=5)
+top_edu = band_report(cleaned, band_column="prevEducation", value="composite")
 ```
 
-Nothing is declared. `program_parser.py` records `tables`, `keywords` (literal
-defaults; `null` for a non-literal one), `doc` and `variadic` per def, and the
-called name's span (`operator: true`) so restores and forks rewrite the call
-with its function. `normalizeStatement` compiles the call to a `Process` with
-`properties.params` (the settings the call passed), the def's closure as
-`code`, the def as `entry`, the docstring (or `doc=`) as `doc`; the runtime
-validates that the passed keywords are parameters with a default and executes
-`function(*frames, **params)`. The statement keeps the model's line as its
-source, so entries, forks and restores treat it like any other statement; the
-shared-function mechanism makes the def persist with its consumers and a
-redefinition revise all of them (`compileAnalysisProgram` re-normalizes the
-consumers through the same path). `DefinitionRegistry.recordOperator` keeps
-one version per distinct body; the task-start index lists `Your operators`
-with signature, doc, version and consumers.
+Nothing is declared. `bindRegisteredCall` (catalog.ts) binds the call to the
+def's parameters the way Python does (positional in order, then keywords,
+then defaults): an argument that names a table (or `at(name, task=N)`) is an
+input, any other argument must be a literal (a string, number, True/False,
+None, or a list or dict of those) and is a setting, and every parameter
+without a default must be bound. The docstring rendered with the bound values
+("One row per prevEducation with the mean composite, the 5 highest first")
+is the table's doc in receipts, entries and the index. The call compiles to a
+`Process` with `params` (the settings), `tables` (the parameters bound to
+inputs, in input order), the closure as `code` and the def as `entry`; the
+runtime validates the binding by name and executes `function(**frames,
+**params)`. `program_parser.py` records `params`, `defaults` (literal
+defaults; `null` for a non-literal one), `keywordOnly`, `doc` and `variadic`
+per def, and the called name's span so restores and forks rewrite the call
+with its function. The shared-function mechanism makes the def persist with
+its consumers and a redefinition revise all of them; `DefinitionRegistry`
+keeps one version per distinct body. The index lists `Your operators` in the
+catalog's own format: `T2 = signature`, the docstring template, one example
+call, the version and the tables that call it.
 
-Refusals name the cause: wrong table count, a keyword the def does not take
-(with the accepted settings), a non-literal setting or default, no docstring,
-variadic parameters. Verified in `registered-operators.test.ts` (parser,
-compile, engine execution, tool round trip with revision and versions, fork,
-restore, entries) and live (task 2 of the smoke calls the task-1 def by name
-with other settings).
+Two mechanisms put the reuse decision at the turn it matters, because the
+model writes the specific def first and its variant many turns later:
+
+- `lift` (a field of the tool): `[{"from": "age_group_report", "as":
+  "band_report", "params": {"band_column": "age_band", "value":
+  "composite"}}]` rewrites the existing def so that each literal becomes a
+  parameter with that literal as its default and the docstring says
+  `{band_column}` where it said the literal (`program_lift.py`, span-based on
+  the source, f-string parts and the docstring excluded). With `as`, the
+  result waits in the registry (`recordLift`, `libraryFunctions`) until a
+  call names it; without `as` the def is revised in place and its
+  `process(fn=)` consumers become calls of the operator, so they keep their
+  inputs and recompute unchanged. A def used as a row function or a helper
+  cannot be lifted in place.
+- The near-duplicate receipt: a new def at least 60% the same as an existing
+  one (token stream with literals abstracted) gets a `notes` line naming the
+  existing def and, when only literals differ, the exact `lift` and call to
+  use instead; names-only variants are told to call the existing def.
+
+Refusals name the cause with the signature: too many positional arguments,
+a keyword the def does not take (with its parameters), a missing argument, an
+argument that is neither a table nor a literal, a table bound twice, no
+docstring, a non-literal default, variadic or positional-only parameters.
+Verified in `registered-operators.test.ts` (parser, binding, refusals,
+engine execution with keyword binding, lift and near duplicates, tool round
+trip with versions, in-place lift, fork, restore, entries) and live (the
+smoke lifts a task-1 def in task 2, calls it with other arguments, and gets
+the near-duplicate note for a variant).
+
+Adoption is the open question, measured in the v4 trial below: with the v4
+prompt the BI session wrote 32 defs, received 14 near-duplicate receipts and
+called nothing by name; a receipt that arrives with a composed answer is never
+read, since the turn ends there. The v4b prompt therefore makes the function
+form the default for custom code (every custom step is a def with a docstring
+and its columns, thresholds and limits as parameters; `process(fn=)` is no
+longer the way to write one) and tells the model to read `Your operators`
+before writing a def.
 
 ## Contract flags
 
@@ -289,16 +325,19 @@ slimming context. What remains open: the wide-table transport cap below,
 cascade repair (a root error at turn 1–8 still poisons a session; deps-wrong
 accuracy is 0.25), and registered-operator adoption.
 
-### Wide tables: the profile never reaches the agent
+### Wide tables: the profile reaches the agent (v4)
 
-Survey's raw table has 300 columns. The profiler's `max_columns` was 128 and
-its own payload cap 64 KB; both are raised (400 columns, 512 KB: a 300-column
-survey profile is 289 KB, a prefix of a few hundred rows within the 0.2 s
-budget, with the header row and the tokens in the top values), and the flags
-read existence facts from a prefix profile. The remaining gap is the engine's
-result transport: `StructuredResultTransport.partitionStatistics` drops any
-profile payload over 64 KB per worker (`metadata_payload_budget`), and it
-parses the payload as JSON to recognize a profile, so compressing it would
-misroute it. Raising that cap is a one-line Scala change with an engine
-rebuild and a master restart, not done during the campaigns; until then the
-header and token flags cover tables up to about 120 columns.
+Survey's raw table has 296 columns. Three caps dropped its profile: the
+profiler's own (`max_columns` 128, 64 KB payload), the engine's result
+transport (`StructuredResultTransport.partitionStatistics`, 64 KB per worker
+payload: `metadata_payload_budget`) and the agent decoder's
+(`mergeTableProfiles`, 64 KB per payload and 256 KB per result). All three
+now admit 512 KB per worker (1 MB per result; a 296-column profile is about
+290 KB), and the profiler's time budget is 1 s instead of 0.2 s. Verified
+live (`benchmark/multiturn/survey-flag-check.ts`): the raw survey scan
+arrives with a partial profile of 296 columns over the first 3,378 rows (the
+cell budget), and the `"nan"`-token flags fire on it ("column Q13_1 holds
+the text "nan" in 300 rows of the first 384 rows" before the time budget was
+raised). The header-row flag does not apply to this table: its first data
+row holds the question texts, not the column names, so no column contains
+its own name.

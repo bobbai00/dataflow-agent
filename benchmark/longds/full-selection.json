@@ -1,0 +1,27 @@
+{
+  "revision": "full-68",
+  "selected_tasks": [
+    "business/goodbooks_10k/task1",
+    "business/my_uber_drivers/task1",
+    "business/netflix_movies_and_tv_shows/task2",
+    "business/netflix_movies_and_tv_shows/task3",
+    "community/github_programming_languages_data/task1",
+    "community/kaggle-survey-2022/task2",
+    "education/bi/task2",
+    "education/world_university_rankings/task2",
+    "geoscience/acea_water_prediction/task2",
+    "geoscience/phase-ii-widsdatathon2022/task1",
+    "geoscience/water-potability/task3",
+    "social_good/center_for_policing_equity/task1",
+    "social_good/data_science_for_good_city_of_los_angeles/task1",
+    "sports/nfl_big_data_bowl_2023/task1"
+  ],
+  "selection_reason": "Every prepared LongDS task (the whole benchmark), one repetition, run in waves of about six to nine tasks with at most three concurrent sessions per agent service.",
+  "arm": "react-lean2",
+  "model": "gpt-5.6-luna",
+  "judge_model": "gpt-5.2",
+  "judge_protocol": "Unchanged upstream prompt and frozen LongDS v1 references; score 1 is a pass.",
+  "trials": 1,
+  "max_steps_per_question": 40,
+  "session_budget_seconds": 3600
+}

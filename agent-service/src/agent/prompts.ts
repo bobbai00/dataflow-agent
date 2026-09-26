@@ -380,7 +380,10 @@ export function buildNativeModeSystemPrompt(
         ? "**Reusable components.** Expose stable analytical boundaries and mutable parameters. Reuse shared functions; preserve intermediate tables that later analysis needs."
         : "**One operator, one operation.** Load, filter, derive, join and aggregate in separate operators, so every intermediate table can be observed and fixed on its own. Do not fold several steps into one map or process."
     )
-    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText({ analysisState: options.analysisState }))
+    .replace(
+      "{{OPERATOR_CATALOG}}",
+      nativeCatalogText({ analysisState: options.analysisState, registeredOperators: options.registeredOperators })
+    )
     .replace(
       "{{CONTEXT_LAYOUT}}",
       contextLayout +
@@ -412,7 +415,7 @@ export function buildNativeModeSystemPrompt(
  * the turn the variant is written. */
 const REGISTERED_OPERATORS_METHOD = `
 
-Your own operators. A \`def\` with a docstring is an operator you call by name, like scan or join. Its parameters are its arguments; its docstring is its doc, written over the parameters:
+Your own operators. Custom code is an operator you define: a \`def\` with a docstring, called by name like scan or join (there is no separate process operator). Its parameters are its arguments; its docstring is its doc, written over the parameters. Write every custom step this way, with the column names, thresholds and limits it uses as parameters, so the next request that changes one of them is a call, not a new function:
 
 \`\`\`python
 def band_report(T, band_column, value, top=5):
@@ -422,9 +425,10 @@ def band_report(T, band_column, value, top=5):
     return out.assign(rank=range(1, len(out) + 1))
 
 top_edu = band_report(cleaned, band_column="prevEducation", value="composite")
+top_age = band_report(cleaned, band_column="age_group", value="composite", top=3)
 \`\`\`
 
-An argument that names a table is an input (the function receives a DataFrame); any other argument is a setting and must be a literal (a string, number, True/False, None, or a list of those); defaults fill the rest. The call renders the docstring with its arguments ("One row per prevEducation with the mean composite, the 5 highest first"), and that sentence is the table's doc in receipts, entries and the index. The def lives with the graph: later tasks call it by name without resending it; \`Your operators\` in the index lists each one like the built-ins (signature, doc, an example call); redefining the def revises every table that calls it (a new version); \`inspect\` returns its body. Write a step once with what varies as parameters (a column, a threshold, a limit) instead of copying a function to change a literal. \`lift\` turns a def you already wrote into this form: \`lift=[{"from": "age_group_report", "as": "band_report", "params": {"band_column": "age_band", "value": "composite"}}]\` replaces those literals in the body with parameters (defaults = the literals), writes {band_column} into the docstring, and lists the result under \`Your operators\`, callable in the same call's edits. When a new def is nearly the same as an existing one, the receipt names the existing def and, when only literals differ, the lift and call to use instead.
+An argument that names a table is an input (the function receives a DataFrame); any other argument is a setting and must be a literal (a string, number, True/False, None, or a list of those); defaults fill the rest. The call renders the docstring with its arguments ("One row per prevEducation with the mean composite, the 5 highest first"), and that sentence is the table's doc in receipts, entries and the index. The def lives with the graph: later tasks call it by name without resending it; \`Your operators\` in the index lists each one like the built-ins (signature, doc, an example call); redefining the def revises every table that calls it (a new version); \`inspect\` returns its body. Before writing a def, read \`Your operators\`: a request that repeats an earlier step on another column, group, table or threshold is a call of the operator you already have, with the new argument. \`lift\` turns a def you already wrote into this form: \`lift=[{"from": "age_group_report", "as": "band_report", "params": {"band_column": "age_band", "value": "composite"}}]\` replaces those literals in the body with parameters (defaults = the literals), writes {band_column} into the docstring, and lists the result under \`Your operators\`, callable in the same call's edits. When a new def is nearly the same as an existing one, the receipt names the existing def and, when only literals differ, the lift and call to use instead.
 `;
 
 /** Flags are judgments, not measurements: each one is the boundary condition
@@ -445,7 +449,7 @@ Answering from a table. When a table you observe in a call holds the answer to t
  * once so the model does not spend them on ceremony. */
 const COMPACT_CODE_METHOD = `
 
-Compact code. Output tokens are the largest cost of a turn. Write the smallest function that does the step: no docstring except on a registered operator, no comments, no type hints, no defensive checks the data does not need, one import line, and no restating of columns the table already has; \`doc\` stays one sentence. Say \`reasoning\` in one sentence. Before writing a new process, look for a function or a registered operator in \`Your operators\` or the entries that already does the step, and call it with new settings or a new input instead of writing a variant.
+Compact code. Output tokens are the largest cost of a turn. Write the smallest function that does the step: a one-sentence docstring over its parameters (it is the doc), no comments, no type hints, no defensive checks the data does not need, one import line, and no restating of columns the table already has; \`doc\` on a built-in stays one sentence. Say \`reasoning\` in one sentence. Before writing a new def, look for an operator in \`Your operators\` or a function in the entries that already does the step, and call it with new arguments instead of writing a variant.
 `;
 
 const LEAN_CONTEXT_METHOD = `

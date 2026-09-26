@@ -1155,9 +1155,17 @@ export function nativeOperatorName(type: string): string {
   return NATIVE_BY_TYPE.get(type)?.name ?? type.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
+/** With the model's own operators on, custom code is a def called by name;
+ * this entry replaces `process` in the catalog (the operator still compiles,
+ * so older programs and forks keep working). */
+export const OWN_OPERATOR_CATALOG_ENTRY =
+  'T2 = your_operator(T1, ..., setting=value, ...)   or   T = your_loader()\n' +
+  '    Custom code in Python: a `def` with a docstring, called by name. `def band_report(T, band_column, value, top=5):` with the docstring `"""One row per {band_column} with the mean {value}, the {top} highest first."""`, then `top_edu = band_report(cleaned, band_column="prevEducation", value="composite")`. The function receives one pandas DataFrame per argument that names a table and the other arguments as its settings (literals: strings, numbers, True/False, None, lists), and returns one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; a def with no table arguments loads data itself. The docstring, rendered with the call\'s arguments, is the table\'s doc; every table needs one. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining. Make the columns, thresholds and limits it uses parameters, so the next request that changes one of them is a call with a new argument, not a new def; `Your operators` in the index lists the ones you have.';
+
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
-export function nativeCatalogText(options: { analysisState?: boolean } = {}): string {
+export function nativeCatalogText(options: { analysisState?: boolean; registeredOperators?: boolean } = {}): string {
   return NATIVE_OPERATORS.map(d => {
+    if (options.registeredOperators && d.name === "process") return OWN_OPERATOR_CATALOG_ENTRY;
     const doc =
       options.analysisState && d.name === "process"
         ? "A reusable Python analysis component. One pandas DataFrame per declared input, one returned DataFrame with unique string columns and scalar cells. Imports belong inside functions. Shared functions persist. Standard pandas transformations may be grouped into a coherent component, with inputs for data, membership and parameter tables. Keep revisable assumptions and useful intermediate outputs separate; return score components alongside totals."
