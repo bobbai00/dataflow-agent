@@ -32,17 +32,54 @@ export const ANSWER_MARKER = "Final Answer:";
 
 export type ComposedAnswer = { text: string; json: string } | { reason: string };
 
-function cell(value: unknown): unknown {
+/** One entry of an `answer_from` projection: `key=column:digits`. */
+export interface AnswerShape {
+  /** The key the value gets in the answer. */
+  name: string;
+  /** The table column it comes from. */
+  column: string;
+  /** Round a number to this many decimals. */
+  digits?: number;
+}
+
+/** `table[key=column:2, other]` → the table id and its projection, or the
+ * reason the text is not a valid answer_from. */
+export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape[] } | { error: string } {
+  const match = /^\s*([A-Za-z_]\w*)\s*(?:\[(.*)\])?\s*$/s.exec(text);
+  if (!match) return { error: `answer_from must be a table id, optionally with a projection [key=column:digits, ...]; got ${JSON.stringify(text)}.` };
+  const [, id, inner] = match;
+  if (inner === undefined) return { id };
+  const shape: AnswerShape[] = [];
+  for (const raw of inner.split(",")) {
+    const item = raw.trim();
+    if (!item) continue;
+    const spec = /^(?:([^=:]+?)\s*=\s*)?([^=:]+?)\s*(?::\s*(\d{1,2}))?$/.exec(item);
+    if (!spec) return { error: `answer_from projection entry ${JSON.stringify(item)} is not key=column:digits.` };
+    const strip = (s: string) => s.trim().replace(/^["']|["']$/g, "");
+    const column = strip(spec[2]);
+    const name = spec[1] !== undefined ? strip(spec[1]) : column;
+    if (!column || !name) return { error: `answer_from projection entry ${JSON.stringify(item)} names no column.` };
+    shape.push({ name, column, ...(spec[3] !== undefined ? { digits: Number(spec[3]) } : {}) });
+  }
+  if (!shape.length) return { error: "answer_from projection is empty; drop the brackets to take every column." };
+  return { id, shape };
+}
+
+function cell(value: unknown, digits?: number): unknown {
   if (value === undefined || value === null) return null;
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return digits === undefined ? value : Number(value.toFixed(digits));
+  }
   if (typeof value === "bigint") return Number(value);
   return value;
 }
 
 /** One row → an object of its columns; several rows → an object keyed by the
  * first column when it is a unique text key, else `{<table>: [row objects]}`;
- * one column over several rows → `{<column>: [values]}`. */
-export function composeAnswer(id: string, info: OperatorInfo | undefined): ComposedAnswer {
+ * one column over several rows → `{<column>: [values]}`. A projection picks
+ * and renames the columns and rounds numbers first. */
+export function composeAnswer(id: string, info: OperatorInfo | undefined, shape?: AnswerShape[]): ComposedAnswer {
   if (!info) return { reason: `\`${id}\` has no result` };
   if (info.error) return { reason: `\`${id}\` failed` };
   const held = (info.result ?? []) as Array<Record<string, unknown>>;
@@ -52,9 +89,15 @@ export function composeAnswer(id: string, info: OperatorInfo | undefined): Compo
     return { reason: `only ${held.length} of ${total} rows of \`${id}\` are held; the answer needs the complete table` };
   if (total > ANSWER_ROW_LIMIT)
     return { reason: `\`${id}\` has ${total} rows; an answer table holds at most ${ANSWER_ROW_LIMIT} (aggregate, project or limit it)` };
-  const columns = Object.keys(held[0] ?? {}).filter(name => !name.startsWith("__"));
-  if (!columns.length) return { reason: `\`${id}\` has no columns` };
-  const rows = held.map(row => Object.fromEntries(columns.map(name => [name, cell(row[name])])));
+  const available = Object.keys(held[0] ?? {}).filter(name => !name.startsWith("__"));
+  if (!available.length) return { reason: `\`${id}\` has no columns` };
+  for (const item of shape ?? [])
+    if (!available.includes(item.column))
+      return { reason: `\`${id}\` has no column ${JSON.stringify(item.column)} (columns: ${available.join(", ")})` };
+  const projection: AnswerShape[] = shape ?? available.map(name => ({ name, column: name }));
+  const columns = projection.map(item => item.name);
+  if (new Set(columns).size !== columns.length) return { reason: "the answer_from projection repeats a key" };
+  const rows = held.map(row => Object.fromEntries(projection.map(item => [item.name, cell(row[item.column], item.digits)])));
   let value: unknown;
   if (rows.length === 1) value = rows[0];
   else if (

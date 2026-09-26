@@ -229,6 +229,8 @@ export interface NativePromptLayoutOptions {
   contractFlags?: boolean;
   /** Column projections in `observe`; lean entries. */
   leanContext?: boolean;
+  /** The compact code contract: minimal functions, one-sentence reasoning, reuse before variants. */
+  compactCode?: boolean;
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
@@ -396,7 +398,8 @@ export function buildNativeModeSystemPrompt(
         (options.registeredOperators ? REGISTERED_OPERATORS_METHOD : "") +
         (options.contractFlags ? CONTRACT_FLAGS_METHOD : "") +
         (options.answerFrom ? ANSWER_FROM_METHOD : "") +
-        (options.leanContext ? LEAN_CONTEXT_METHOD : "")
+        (options.leanContext ? LEAN_CONTEXT_METHOD : "") +
+        (options.compactCode ? COMPACT_CODE_METHOD : "")
     )
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
@@ -433,7 +436,14 @@ Contract flags. A line starting with ⚠ under an operator is a judgment the run
  * is a table the runtime writes the answer. */
 const ANSWER_FROM_METHOD = `
 
-Answering from a table. When a table you observe in a call holds exactly the answer to the current request (its columns are the requested quantities, one row, or one row per requested item, rounded as the request asks), set \`answer_from\` to that table's id in the same call. The runtime then ends the task with \`Final Answer: <single-line JSON>\` composed from the table (one row becomes an object of its columns; several rows become an object keyed by the first column when it is a unique text key, otherwise a list of row objects), and you make no further call. Build the answer table with project, map or aggregate so that its column names are the answer's keys and its values are already rounded. If the table is empty, not completely held or too large, the observation says why and you write the final answer yourself. When the answer needs words rather than a table, answer in text as usual.
+Answering from a table. When a table you observe in a call holds the answer to the current request (one row of the requested quantities, or one row per requested item), set \`answer_from\` in the same call: the table id, with a projection that names the answer's keys, picks the columns and rounds the numbers: \`answer_from="python_mean[imputation_mean=mean_python:4, imputed_rows, baseline_row_count=n]"\`. The runtime then ends the task with \`Final Answer: <single-line JSON>\` composed from the table (one row becomes an object of its keys; several rows become an object keyed by the first column when it is a unique text key, otherwise a list of row objects), and you make no further call. Set it in the call that computes the table: the projection does the renaming and rounding, so do not add a map, project or a separate call only to shape the answer. If the table is empty, not completely held, too large or lacks a named column, the observation says why and you write the final answer yourself. When the answer needs words rather than a table, answer in text as usual.
+`;
+
+/** Output tokens are the largest cost of a turn; the code contract is stated
+ * once so the model does not spend them on ceremony. */
+const COMPACT_CODE_METHOD = `
+
+Compact code. Output tokens are the largest cost of a turn. Write the smallest function that does the step: no docstring except on a registered operator, no comments, no type hints, no defensive checks the data does not need, one import line, and no restating of columns the table already has; \`doc\` stays one sentence. Say \`reasoning\` in one sentence. Before writing a new process, look for a function or a registered operator in \`Your operators\` or the entries that already does the step, and call it with new settings or a new input instead of writing a variant. Observe only what the next step or the answer needs.
 `;
 
 const LEAN_CONTEXT_METHOD = `

@@ -40,6 +40,8 @@ const ARMS = [
   // The registry plus the four cost/accuracy mechanisms of 2026-09-26:
   // answer_from, registered operators, contract flags, lean context.
   "react-lean",
+  // react-lean plus the compact code contract and answer_from projections.
+  "react-lean2",
 ];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
@@ -48,8 +50,11 @@ if (existsSync(out)) throw new Error(`Refusing to overwrite ${out}`);
 mkdirSync(out, { recursive: true });
 const prompts: Array<{ turn_id: number; prompt: string }> = await Bun.file(promptsPath).json();
 
+const LEAN = arm === "react-lean" || arm === "react-lean2";
 const settings = {
   nativeProfileCollection: true,
+  // Data lines are 0-3% of the observations the model reads (complete tables
+  // omit them), so both lean arms keep them.
   dataEvidence: true,
   flowEvidence: true,
   // Catalog uses completed entries; entries/restore also expose restoration.
@@ -58,22 +63,21 @@ const settings = {
   nativeTaskHistory: true,
   // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig", "react-lean"].includes(
-    arm
-  ),
-  nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig", "react-lean"].includes(arm),
+  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig"].includes(arm) || LEAN,
+  nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig"].includes(arm) || LEAN,
   // The registry arms: the efficient arm plus versioned definitions in the
   // task-start index, supersede/bind/explain and compare. `-sig` also shows
   // functions in entries by signature only (an ablation: it cost 21 extra
   // inspect calls on Water in trial 1).
-  nativeDefinitionRegistry: ["react-registry", "react-registry-sig", "react-lean"].includes(arm),
+  nativeDefinitionRegistry: ["react-registry", "react-registry-sig"].includes(arm) || LEAN,
   nativeDefinitionSignatures: arm === "react-registry-sig",
   // react-lean: the answer composed from a table, defs callable as operators,
   // contract flags with `expect`, column projections and lean entries.
-  nativeAnswerFrom: arm === "react-lean",
-  nativeRegisteredOperators: arm === "react-lean",
-  nativeContractFlags: arm === "react-lean",
-  nativeLeanContext: arm === "react-lean",
+  nativeAnswerFrom: LEAN,
+  nativeRegisteredOperators: LEAN,
+  nativeContractFlags: LEAN,
+  nativeLeanContext: LEAN,
+  nativeCompactCode: arm === "react-lean2",
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
@@ -105,6 +109,8 @@ for (const key of [
   "nativeRegisteredOperators",
   "nativeContractFlags",
   "nativeLeanContext",
+  "nativeCompactCode",
+  "dataEvidence",
 ] as const) {
   if (actualSettings[key] !== settings[key]) {
     await session.close();

@@ -601,6 +601,7 @@ export class TexeraAgent {
         registeredOperators: this.settings.nativeRegisteredOperators === true,
         contractFlags: this.settings.nativeContractFlags === true,
         leanContext: this.settings.nativeLeanContext === true,
+        compactCode: this.settings.nativeCompactCode === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
         reasoning: this.settings.dataflowReasoning === true,
@@ -1454,6 +1455,7 @@ export class TexeraAgent {
     nativeRegisteredOperators?: boolean;
     nativeContractFlags?: boolean;
     nativeLeanContext?: boolean;
+    nativeCompactCode?: boolean;
     nativeTaskMemoryChars?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
@@ -1524,14 +1526,16 @@ export class TexeraAgent {
       nativeRegisteredOperators: updates.nativeRegisteredOperators ?? this.settings.nativeRegisteredOperators,
       nativeContractFlags: updates.nativeContractFlags ?? this.settings.nativeContractFlags,
       nativeLeanContext: updates.nativeLeanContext ?? this.settings.nativeLeanContext,
+      nativeCompactCode: updates.nativeCompactCode ?? this.settings.nativeCompactCode,
     });
-    // The four session-shaped features change the prompt, the tool surface
-    // and what entries hold; a session keeps one shape.
+    // The session-shaped features change the prompt, the tool surface and
+    // what entries hold; a session keeps one shape.
     for (const name of [
       "nativeAnswerFrom",
       "nativeRegisteredOperators",
       "nativeContractFlags",
       "nativeLeanContext",
+      "nativeCompactCode",
     ] as const)
       if (
         updates[name] !== undefined &&
@@ -1620,6 +1624,7 @@ export class TexeraAgent {
       "nativeRegisteredOperators",
       "nativeContractFlags",
       "nativeLeanContext",
+      "nativeCompactCode",
     ] as const)
       if (updates[name] !== undefined && updates[name] !== this.settings[name]) {
         this.settings[name] = updates[name];
@@ -2906,7 +2911,7 @@ export class TexeraAgent {
       if (!batch.answerFrom) continue;
       const id = batch.answerFrom;
       const info = this.snapshotStorage.getOperatorResult(owningStepId, id);
-      const composed = composeAnswer(id, info);
+      const composed = composeAnswer(id, info, batch.answerShape);
       if ("text" in composed) {
         this.composedAnswer = composed.text;
         this.log.info({ table: id, chars: composed.json.length }, "final answer composed from table");

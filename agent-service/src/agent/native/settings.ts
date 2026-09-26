@@ -78,6 +78,7 @@ export function validateNativeSettings(
     nativeRegisteredOperators?: unknown;
     nativeContractFlags?: unknown;
     nativeLeanContext?: unknown;
+    nativeCompactCode?: unknown;
     nativeTaskMemoryChars?: unknown;
   } = {}
 ): void {
@@ -102,6 +103,7 @@ export function validateNativeSettings(
     "nativeRegisteredOperators",
     "nativeContractFlags",
     "nativeLeanContext",
+    "nativeCompactCode",
   ] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")

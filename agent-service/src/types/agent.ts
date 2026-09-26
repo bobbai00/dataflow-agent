@@ -195,6 +195,8 @@ export interface AgentSettings {
   nativeContractFlags?: boolean;
   /** Column projections in `observe` and lean entries; fixed for a session. */
   nativeLeanContext?: boolean;
+  /** The compact code contract in the prompt; fixed for a session. */
+  nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   /** Which operator results the snapshot ships (see ResultSelection). */
@@ -556,6 +558,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeRegisteredOperators: false,
   nativeContractFlags: false,
   nativeLeanContext: false,
+  nativeCompactCode: false,
   nativeTaskMemoryChars: 24000,
   dataEvidence: false,
   flowEvidence: false,
@@ -693,6 +696,7 @@ export interface AgentSettingsApi {
   nativeRegisteredOperators?: boolean;
   nativeContractFlags?: boolean;
   nativeLeanContext?: boolean;
+  nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;
@@ -815,6 +819,7 @@ export interface UpdateAgentSettingsRequest {
   nativeRegisteredOperators?: boolean;
   nativeContractFlags?: boolean;
   nativeLeanContext?: boolean;
+  nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;

@@ -53,6 +53,7 @@ import { renderTaskEntry } from "../native/task-entries";
 import type { BindRequest } from "../native/definition-registry";
 import type { Expectation } from "../native/flags";
 import { isRegisteredCall } from "../native/registered-operators";
+import { parseAnswerFrom, type AnswerShape } from "../native/answer";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -82,6 +83,8 @@ export interface NativeBatchResult {
   notes?: string[];
   /** `answer_from`: the table the runtime composes the final answer from, once it exists. */
   answerFrom?: string;
+  /** `answer_from`'s projection: the answer's keys, their columns and rounding. */
+  answerShape?: AnswerShape[];
   /** `observe: ["t[a,b]"]`: the columns each projected table shows in this event. */
   observeColumns?: Record<string, string[]>;
   /** `expect`: the declared contracts, checked after execution. */
@@ -160,7 +163,7 @@ export interface DataflowToolOptions {
 const ANSWER_FROM_PROPERTY = {
   type: "string",
   description:
-    "Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, its columns being the requested quantities (rounded as asked). The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its columns; several rows → an object keyed by the first column when it is a unique text key, otherwise a list of row objects under the table's name) and makes no further call. If the table is empty, not completely held or too large, the observation says why and you answer in text instead.",
+    'Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, optionally with a projection `table[key=column:digits, other_column]` that names the answer\'s keys, picks the columns and rounds numbers (e.g. "python_mean[imputation_mean=mean_python:4, imputed_rows]"), so no extra statement is needed to shape the answer. The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its keys; several rows → an object keyed by the first column when it is a unique text key, otherwise a list of row objects under the table\'s name) and makes no further call. If the table is empty, not completely held, too large or lacks a named column, the observation says why and you answer in text instead.',
 };
 
 const EXPECT_PROPERTY = {
@@ -483,8 +486,11 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           return createErrorResult("bind, supersede and explain require nativeDefinitionRegistry.");
         if ((args.explain?.length ?? 0) > 4) return createErrorResult("Explain at most four tables per call.");
         if (args.answer_from !== undefined && typeof args.answer_from !== "string")
-          return createErrorResult("answer_from takes the id of one table.");
+          return createErrorResult("answer_from takes the id of one table, optionally with a projection [key=column:digits, ...].");
         if (args.answer_from && !answerFrom) return createErrorResult("answer_from requires nativeAnswerFrom.");
+        const answerRequest = args.answer_from ? parseAnswerFrom(args.answer_from) : undefined;
+        if (answerRequest && "error" in answerRequest) return createErrorResult(answerRequest.error);
+        const answerTable = answerRequest && "id" in answerRequest ? answerRequest.id : undefined;
         const isExpect = (value: unknown) =>
           value === undefined ||
           (!!value &&
@@ -906,9 +912,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           return match[1];
         });
         const observationErrors: string[] = [];
-        if (args.answer_from && !state.getOperator(args.answer_from))
-          observationErrors.push(`answer_from: no table \`${args.answer_from}\`; write the final answer yourself.`);
-        else if (args.answer_from && !requested.includes(args.answer_from)) requested.push(args.answer_from);
+        if (answerTable && !state.getOperator(answerTable))
+          observationErrors.push(`answer_from: no table \`${answerTable}\`; write the final answer yourself.`);
+        else if (answerTable && !requested.includes(answerTable)) requested.push(answerTable);
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
           observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
@@ -977,7 +983,12 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           ...(restored.length ? { restored } : {}),
           ...(inspection.length ? { inspection } : {}),
           ...(notes.length ? { notes } : {}),
-          ...(args.answer_from && state.getOperator(args.answer_from) ? { answerFrom: args.answer_from } : {}),
+          ...(answerTable && state.getOperator(answerTable)
+            ? {
+                answerFrom: answerTable,
+                ...(answerRequest && "shape" in answerRequest && answerRequest.shape ? { answerShape: answerRequest.shape } : {}),
+              }
+            : {}),
           ...(Object.keys(observeColumns).length ? { observeColumns } : {}),
           ...(args.expect && Object.keys(args.expect).length ? { expect: args.expect } : {}),
         } satisfies NativeBatchResult;

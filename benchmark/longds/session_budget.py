@@ -182,7 +182,7 @@ def stop_native(directory, protocol, budget, base):
         created = datetime.fromisoformat(agent["createdAt"].replace("Z", "+00:00")).timestamp()
         if not budget["started"] - 5 <= created <= budget["started"] + 180:
             continue
-        registry_arms = {"react-registry", "react-registry-sig", "react-lean"}
+        registry_arms = {"react-registry", "react-registry-sig", "react-lean", "react-lean2"}
         if agent["settings"].get("nativeAnalysisState", False) != (
             protocol["arm"] in {"react-analysis", "react-efficient", *registry_arms}
         ):
@@ -195,7 +195,9 @@ def stop_native(directory, protocol, budget, base):
             continue
         if agent["settings"].get("nativeDefinitionSignatures", False) != (protocol["arm"] == "react-registry-sig"):
             continue
-        if agent["settings"].get("nativeLeanContext", False) != (protocol["arm"] == "react-lean"):
+        if agent["settings"].get("nativeLeanContext", False) != (protocol["arm"] in {"react-lean", "react-lean2"}):
+            continue
+        if agent["settings"].get("nativeCompactCode", False) != (protocol["arm"] == "react-lean2"):
             continue
         steps = api(base, f'/{agent["id"]}/react-steps')["steps"]
         first = next((s.get("content") for s in steps if s.get("role") == "user"), None)

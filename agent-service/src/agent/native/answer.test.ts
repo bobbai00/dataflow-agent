@@ -16,7 +16,7 @@
  */
 import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
-import { composeAnswer } from "./answer";
+import { composeAnswer, parseAnswerFrom } from "./answer";
 import { nativeTestTools } from "./test-support";
 import { WorkflowState } from "../workflow-state";
 import { selectNativeObservation } from "./evidence";
@@ -65,6 +65,39 @@ test("the answer is composed from the table by a fixed mapping", () => {
   });
 });
 
+test("an answer_from projection names the keys, picks the columns and rounds", () => {
+  expect(parseAnswerFrom("python_mean")).toEqual({ id: "python_mean" });
+  expect(parseAnswerFrom("python_mean[imputation_mean=mean_python:4, imputed_rows, baseline_row_count = n]")).toEqual({
+    id: "python_mean",
+    shape: [
+      { name: "imputation_mean", column: "mean_python", digits: 4 },
+      { name: "imputed_rows", column: "imputed_rows" },
+      { name: "baseline_row_count", column: "n" },
+    ],
+  });
+  expect(parseAnswerFrom('t["Duration (in seconds)":1]')).toEqual({ id: "t", shape: [{ name: "Duration (in seconds)", column: "Duration (in seconds)", digits: 1 }] });
+  expect("error" in parseAnswerFrom("t[")).toBe(true);
+  expect("error" in parseAnswerFrom("t[]")).toBe(true);
+  expect("error" in parseAnswerFrom("t[a=b=c]")).toBe(true);
+  const info = table([{ mean_python: 75.85333, imputed_rows: 2, n: 77, other: "x" }]);
+  const shape = [
+    { name: "imputation_mean", column: "mean_python", digits: 4 },
+    { name: "imputed_rows", column: "imputed_rows" },
+    { name: "baseline_row_count", column: "n" },
+  ];
+  expect(composeAnswer("python_mean", info, shape)).toEqual({
+    json: '{"imputation_mean":75.8533,"imputed_rows":2,"baseline_row_count":77}',
+    text: '**Final Answer: {"imputation_mean":75.8533,"imputed_rows":2,"baseline_row_count":77}**',
+  });
+  expect(composeAnswer("python_mean", info, [{ name: "x", column: "missing" }])).toEqual({
+    reason: '`python_mean` has no column "missing" (columns: mean_python, imputed_rows, n, other)',
+  });
+  expect(composeAnswer("t", table([{ region: "east", total: 10.456 }, { region: "west", total: 12.5 }]), [{ name: "r", column: "region" }, { name: "t", column: "total", digits: 1 }])).toEqual({
+    json: '{"east":10.5,"west":12.5}',
+    text: '**Final Answer: {"east":10.5,"west":12.5}**',
+  });
+});
+
 test("a table that cannot be the answer is refused with the reason", () => {
   expect(composeAnswer("t", undefined)).toEqual({ reason: "`t` has no result" });
   expect(composeAnswer("t", table([], { totalRowCount: 0 }))).toEqual({ reason: "`t` is empty (0 rows)" });
@@ -85,13 +118,15 @@ test("the tool records answer_from, observes the answer table, projects observed
   const receipt = await tools.dataflow.execute({
     edits: 'orders = scan("data/orders.csv")\nsummary = aggregate(orders, n=count())',
     observe: ["orders[region, amount]", "orders[total]"],
-    answer_from: "summary",
+    answer_from: "summary[order_count=n]",
     expect: { summary: { rows: 1 }, orders: { nonempty: true, unique: ["id"] } },
   });
   expect(receipt.operators.map((o: any) => [o.id, o.status])).toEqual([["orders", "added"], ["summary", "added"]]);
   expect(receipt.observe).toEqual(["orders", "summary"]);
   expect(receipt.observeColumns).toEqual({ orders: ["region", "amount", "total"] });
   expect(receipt.answerFrom).toBe("summary");
+  expect(receipt.answerShape).toEqual([{ name: "order_count", column: "n" }]);
+  expect(JSON.stringify(await tools.dataflow.execute({ edits: "", answer_from: "summary[" }))).toContain("must be a table id");
   expect(receipt.expect).toEqual({ summary: { rows: 1 }, orders: { nonempty: true, unique: ["id"] } });
   expect(state.getOperator("summary")).toBeDefined();
   // The answer table must exist: a wrong id is an observation error, the turn goes on.
@@ -295,12 +330,16 @@ test("settings and prompt: the four session-shaped features validate and documen
     registeredOperators: true,
     contractFlags: true,
     leanContext: true,
+    compactCode: true,
   });
   expect(prompt).toContain("Answering from a table.");
   expect(prompt).toContain("Registered operators.");
   expect(prompt).toContain("Contract flags.");
   expect(prompt).toContain("Reading economically.");
+  expect(prompt).toContain("Compact code.");
+  expect(prompt).toContain("imputation_mean=mean_python:4");
   const plain = buildNativeModeSystemPrompt(ContextMode.DELTA, { taskCatalog: true, taskHistory: true, analysisState: true, taskEfficiency: true });
-  for (const heading of ["Answering from a table.", "Registered operators.", "Contract flags.", "Reading economically."])
+  for (const heading of ["Answering from a table.", "Registered operators.", "Contract flags.", "Reading economically.", "Compact code."])
     expect(plain).not.toContain(heading);
+  expect(() => validateNativeSettings({ agentMode: "code", nativeCompactCode: true })).toThrow(NativeCatalogSettingsError);
 });
