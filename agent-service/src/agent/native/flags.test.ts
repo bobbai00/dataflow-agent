@@ -119,6 +119,25 @@ test("encoding contracts: missing-value tokens, a header repeated in the data, n
   expect(flags.find(f => f.column === "score")!.text).toContain('holds numbers as text ("12", "7.5", "1,204", …)');
 });
 
+test("a prefix profile still yields existence facts, scoped to the rows it covered; counts and resolution need the whole table", () => {
+  const partial = info(24000, {
+    year: column("str", 3000, 0, { distinctCount: 4, frequencies: { values: [str("2020", 1500), str("2021", 1000), str("2022", 499), str("Year", 1)], otherCount: 0, truncated: false } }),
+    q40: column("str", 3000, 0, { distinctCount: 3, frequencies: { values: [str("yes", 2000), str("nan", 999), str("no", 1)], otherCount: 0, truncated: false } }),
+  });
+  partial.tableProfile!.coverage = { ...partial.tableProfile!.coverage, complete: false, scope: "partial", rowsProcessed: 3000 };
+  const flags = contractFlags(op("survey", "Scan"), partial, []);
+  expect(flags.map(f => f.code).sort()).toEqual(["HEADER_IN_DATA", "LITERAL_MISSING", "NUMERIC_TEXT"]);
+  expect(flags.find(f => f.code === "HEADER_IN_DATA")!.text).toBe(
+    'column "year" contains its own name as a value in 1 row of the first 3000 rows: a header row repeated inside the data'
+  );
+  expect(flags.find(f => f.code === "LITERAL_MISSING")!.text).toContain('"nan" in 999 rows of the first 3000 rows');
+  // A descendant with only a prefix profile cannot prove the tokens are gone: the flag stays.
+  const child = info(20000, { q40: column("str", 3000, 0, { distinctCount: 2, frequencies: { values: [str("yes", 2000), str("no", 1000)], otherCount: 0, truncated: false } }) });
+  child.tableProfile!.coverage = { ...child.tableProfile!.coverage, complete: false, scope: "partial", rowsProcessed: 3000 };
+  const inherited = contractFlags(op("kept", "Filter", ["survey"]), child, [{ id: "survey", info: { ...partial, flags } }]);
+  expect(inherited.map(f => [f.code, f.origin])).toEqual([["LITERAL_MISSING", "survey"]]);
+});
+
 test("flags are inherited while the column is still read as text, and dropped once an operator resolves them", () => {
   const upstream = info(500, {
     q40: column("str", 500, 0, { distinctCount: 3, frequencies: { values: [str("yes", 300), str("nan", 143), str("no", 57)], otherCount: 0, truncated: false } }),

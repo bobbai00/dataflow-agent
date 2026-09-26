@@ -81,8 +81,16 @@ const q = (text: string) => JSON.stringify(text);
 
 /** The whole-table profile, when the engine measured every row of this result. */
 function completeProfile(info: OperatorInfo | undefined) {
+  const profile = usableProfile(info);
+  return profile && profile.coverage.complete ? profile : undefined;
+}
+
+/** A profile of this result, complete or a prefix of its rows. A fact that
+ * something *exists* (a token, a header row, numbers as text) holds on a
+ * prefix; a count or an absence needs the complete profile. */
+function usableProfile(info: OperatorInfo | undefined) {
   const profile = info?.tableProfile;
-  if (!profile || profile.status === "unavailable" || !profile.coverage.complete) return undefined;
+  if (!profile || profile.status === "unavailable" || !profile.coverage.rowsProcessed) return undefined;
   if (info?.resultVersion?.id && profile.resultVersion !== info.resultVersion.id) return undefined;
   return profile;
 }
@@ -109,19 +117,24 @@ export function contractFlags(
     own.push({ code, text, origin: id, ...(column !== undefined ? { column } : {}) });
   const rows = info.totalRowCount;
   const profile = completeProfile(info);
-  const columns = profile ? Object.entries(profile.columns).filter(([name]) => !name.startsWith("__")) : [];
+  // Existence facts are read from a prefix profile as well: a survey of 300
+  // columns and 24k rows is never profiled whole within the engine's budget,
+  // and its duplicated header sits in the first rows.
+  const measured = usableProfile(info);
+  const columns = measured ? Object.entries(measured.columns).filter(([name]) => !name.startsWith("__")) : [];
+  const scope = measured && !measured.coverage.complete ? ` of the first ${measured.coverage.rowsProcessed} rows` : "";
   const ops = record(info.tableProfile?.native?.operations);
   const inputRows = (i: number) => inputs[i]?.info?.totalRowCount;
   if (rows === 0 && view.type !== "Parameters") add("EMPTY", "0 rows: everything built on this table is empty");
 
-  // Encoding contracts, measured on every row of the output.
+  // Encoding contracts, measured on the profiled rows of the output.
   for (const [name, c] of columns) {
     if (c.type !== "str" || !c.frequencies) continue;
     const tokens = tokensOf(c);
     if (tokens.length)
       add(
         "LITERAL_MISSING",
-        `column ${q(name)} holds the text ${tokens.map(t => `${q(t.value)} in ${plural(t.count, "row")}`).join(", ")}: text, not a missing value (null cells in ${q(name)}: ${c.nullCount})`,
+        `column ${q(name)} holds the text ${tokens.map(t => `${q(t.value)} in ${plural(t.count, "row")}`).join(", ")}${scope}: text, not a missing value (null cells in ${q(name)}: ${c.nullCount})`,
         name
       );
     const header = c.frequencies.values.find(
@@ -130,7 +143,7 @@ export function contractFlags(
     if (header)
       add(
         "HEADER_IN_DATA",
-        `column ${q(name)} contains its own name as a value in ${plural(header.count, "row")}: a header row repeated inside the data`,
+        `column ${q(name)} contains its own name as a value in ${plural(header.count, "row")}${scope}: a header row repeated inside the data`,
         name
       );
     // Tokens and the repeated header are the reasons a numeric column is text;

@@ -45,12 +45,16 @@ PROFILE_PREFIX = "__texera_profile_v1__:"
 class ProfileLimits:
     max_rows: int = 100_000
     max_cells: int = 1_000_000
-    max_columns: int = 128
+    # A survey with 300 columns is profiled whole in width (the agent judges
+    # header rows and missing-value tokens per column); the payload cap grows
+    # with it so the top values survive. Mirrored by MAX_PROFILE_COLUMNS in
+    # agent-service/src/agent/native/profiles.ts.
+    max_columns: int = 400
     distinct_limit: int = 256
     row_distinct_limit: int = 4096
     top_k: int = 8
     max_value_chars: int = 192
-    max_payload_bytes: int = 65_536
+    max_payload_bytes: int = 524_288
     max_seconds: float = 0.2
 
 

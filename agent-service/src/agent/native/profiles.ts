@@ -61,8 +61,12 @@ const columnSchema = z.object({
 });
 export type ProfileScalar = z.infer<typeof scalar>;
 export type ProfileColumn = Omit<z.infer<typeof columnSchema>, "mergeValues">;
+/** Matches ProfileLimits.max_columns in the engine's table_profile.py: a
+ * survey with 300 columns is profiled too, so its header-row and token facts
+ * can be judged (2026-09-26). */
+export const MAX_PROFILE_COLUMNS = 400;
 const columnsSchema = z.unknown().transform((value, context): Record<string, z.infer<typeof columnSchema>> => {
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 128) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > MAX_PROFILE_COLUMNS) {
     context.addIssue({ code: "custom", message: "Invalid profile columns" });
     return {};
   }
@@ -94,14 +98,14 @@ const workerSchema = z.object({
   coverage: z.object({ scope: z.literal("worker"), complete: z.boolean(), rowsProcessed: count, yields: count }),
   rowCount: count,
   columnCount: count,
-  schema: z.array(schemaField).max(128),
+  schema: z.array(schemaField).max(MAX_PROFILE_COLUMNS),
   schemaComplete: z.boolean(),
   columns: columnsSchema,
   native: nativeSchema.nullable(),
   structure: z.object({
     duplicateRows: count.nullable().optional(),
     allNullRows: count.nullable().optional(),
-    allNullColumns: z.array(z.string()).max(128).optional(),
+    allNullColumns: z.array(z.string()).max(MAX_PROFILE_COLUMNS).optional(),
   }),
   algorithm: z.object({
     name: z.literal("bounded-exact-v1"),
