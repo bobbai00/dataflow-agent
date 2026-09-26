@@ -36,7 +36,7 @@ import {
   NativeArgumentError,
   splitInputs,
   functionClosure,
-  registeredOperatorProperties,
+  bindRegisteredCall,
   registeredSignature,
   show,
   type FunctionSlot,
@@ -169,11 +169,12 @@ export function normalizeStatement(
   }
 }
 
-/** `ranked = rank_by_score(scores, top=5)`: a `def` called as an operator. It
- * compiles to a process whose function takes the tables positionally and the
- * call's keyword arguments as settings; the def's docstring is its doc. The
- * statement keeps the model's line as its source, so entries, restores and
- * forks treat it like any other statement. */
+/** `top_edu = band_report(cleaned, band_column="prevEducation")`: a `def`
+ * called as an operator. The call binds the def's parameters like Python;
+ * the arguments that name tables are the inputs, the literals are the
+ * settings, and the docstring rendered with them is the doc. It compiles to a
+ * process; the statement keeps the model's line as its source, so entries,
+ * restores and forks treat it like any other statement. */
 function normalizeRegisteredCall(
   statement: ParsedStatement,
   fn: ParsedFunction,
@@ -184,20 +185,17 @@ function normalizeRegisteredCall(
   const process = NATIVE_BY_NAME.get("process")!;
   let inputs: string[] = [];
   try {
-    const split = splitInputs({ ...process, name: fn.name }, statement.args, functions, options.tableNames);
-    inputs = split.inputs;
-    if (split.rest.length)
-      throw new NativeArgumentError(
-        `${fn.name} takes its input tables by name, then its settings as keywords; got ${show(split.rest[0])}.`
-      );
     const used = usedFunctions(functions, options);
-    const properties = registeredOperatorProperties(fn, inputs, statement.kwargs, {
-      functions,
-      inputs,
-      used: used.record,
-    });
-    validated(process.name, properties);
-    return { ...base, ...compiledView("Process", properties, inputs, statement, split.references, used.map, options) };
+    const call = bindRegisteredCall(
+      fn,
+      statement.args,
+      statement.kwargs,
+      { functions, inputs: [], used: used.record },
+      options.tableNames
+    );
+    inputs = call.inputs;
+    validated(process.name, call.properties);
+    return { ...base, ...compiledView("Process", call.properties, inputs, statement, call.references, used.map, options) };
   } catch (error) {
     if (error instanceof NativeArgumentError) {
       return {

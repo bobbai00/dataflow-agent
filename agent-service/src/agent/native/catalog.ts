@@ -98,13 +98,13 @@ export interface ParsedFunction {
   line: number;
   /** Python global reads; missing only for legacy callers or invalid signatures. */
   references?: string[];
-  /** Registered-operator signature: the positional parameters without a default are the input tables. */
-  tables?: string[];
-  /** Parameters with a default, which a call may pass as settings; null marks a default that is not a literal. */
-  keywords?: Record<string, ParsedValue | null>;
-  /** The docstring, whitespace-collapsed: the doc of the operator the def becomes. */
+  /** The literal default of each parameter that has one; null marks a default that is not a literal. */
+  defaults?: Record<string, ParsedValue | null>;
+  /** Keyword-only parameters (after `*`), bindable by name like the others. */
+  keywordOnly?: string[];
+  /** The docstring, whitespace-collapsed: the doc of the operator the def is, written over its parameters. */
   doc?: string;
-  /** `*args`, `**kwargs` or a keyword-only parameter without a default: not callable as an operator. */
+  /** `*args`, `**kwargs`, positional-only, or a keyword-only parameter without a default: not callable as an operator. */
   variadic?: boolean;
 }
 
@@ -371,65 +371,151 @@ function noPositional(op: string, rest: ParsedValue[], expected: string): void {
  *  Registered operators: a `def` called by name
  * ------------------------------------------------------------------------- */
 
-/** `rank_by_score(scores, top=10)`: the tables, then the settings with their defaults. */
+/** `band_report(T, band_column, value, top=5)`: the def's parameters with their defaults. */
 export function registeredSignature(fn: ParsedFunction): string {
-  const tables = fn.tables ?? fn.params;
-  const settings = Object.entries(fn.keywords ?? {}).map(([key, value]) => `${key}=${value ? show(value) : "…"}`);
-  return `${fn.name}(${[...tables, ...settings].join(", ")})`;
+  const defaults = fn.defaults ?? {};
+  const render = (name: string) =>
+    Object.hasOwn(defaults, name) ? `${name}=${defaults[name] ? show(defaults[name]!) : "…"}` : name;
+  return `${fn.name}(${[...fn.params, ...(fn.keywordOnly ?? [])].map(render).join(", ")})`;
 }
 
-/** The properties of the process a registered call compiles to: the def's
- * closure as code, the def as entry, its docstring (or the call's `doc=`) as
- * doc, and the keyword arguments the call passed as `params`. The function's
- * own defaults apply to the settings the call leaves out. */
-export function registeredOperatorProperties(
+/** A value a call may pass as a setting, as JSON: a constant, or a list or
+ * dict of such values. Undefined for a name, a call or a lambda. */
+export function literalOf(value: ParsedValue): unknown {
+  switch (value.kind) {
+    case "const":
+      return typeof value.value === "number" && !Number.isFinite(value.value) ? undefined : value.value;
+    case "list": {
+      const items = value.items.map(literalOf);
+      return items.some(item => item === undefined) ? undefined : items;
+    }
+    case "dict": {
+      const entries = value.entries.map(([key, item]) => [key, literalOf(item)] as const);
+      return entries.some(([, item]) => item === undefined) ? undefined : Object.fromEntries(entries);
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A setting as it reads in a sentence: the string itself, a number as
+ * written, True/False/None, a list as its items. */
+export function plainText(value: unknown): string {
+  if (value === null || value === undefined) return "None";
+  if (typeof value === "boolean") return value ? "True" : "False";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(plainText).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/** The docstring rendered for a call: `{name}` becomes the argument bound to
+ * that parameter (a table by its name, a setting as plain text). A placeholder
+ * that names no parameter stays as written. */
+export function renderOperatorDoc(template: string, values: ReadonlyMap<string, string>): string {
+  return template.replace(/\{([A-Za-z_]\w*)\}/g, (whole, name: string) => values.get(name) ?? whole);
+}
+
+/** A table argument: a name that is not a function of the program, or
+ * `at(name, task=N)`. Undefined for anything else. */
+export function tableReference(
+  value: ParsedValue | undefined,
+  functions: Record<string, ParsedFunction>,
+  tableNames?: ReadonlySet<string>
+): TaskInput | undefined {
+  const saved = historyReferenceOf(value);
+  if (saved) return saved;
+  return value && value.kind === "name" && (tableNames?.has(value.name) || !(value.name in functions))
+    ? value.name
+    : undefined;
+}
+
+export interface RegisteredCall {
+  /** The process the call compiles to: code, entry, the rendered doc, `params` (the settings) and `tables` (the parameters bound to inputs, in input order). */
+  properties: Record<string, unknown>;
+  inputs: string[];
+  references: TaskInput[];
+}
+
+/** Bind a call to the def's parameters the way Python does (positional
+ * arguments in order, then keywords, then defaults). A parameter bound to a
+ * table is an input; one bound to a literal is a setting; every parameter
+ * without a default must be bound. The docstring rendered with the bound
+ * values is the doc. */
+export function bindRegisteredCall(
   fn: ParsedFunction,
-  inputs: string[],
+  args: ParsedValue[],
   kwargs: Record<string, ParsedValue>,
-  context: NormalizeContext
-): Record<string, unknown> {
-  const tables = fn.tables ?? fn.params;
-  const keywords = fn.keywords ?? {};
-  const settings = () =>
-    Object.entries(keywords)
-      .map(([key, value]) => `${key}=${value ? show(value) : "…"}`)
-      .join(", ") || "none";
+  context: NormalizeContext,
+  tableNames?: ReadonlySet<string>
+): RegisteredCall {
+  const names = [...fn.params, ...(fn.keywordOnly ?? [])];
+  const defaults = fn.defaults ?? {};
   if (fn.variadic)
     fail(
-      `${fn.name} cannot be called as an operator: its parameters must be the input tables followed by parameters with literal defaults (no *args, **kwargs, or keyword-only parameters without a default).`,
+      `${fn.name} cannot be called as an operator: its parameters must be plain named parameters (no *args, **kwargs, positional-only or keyword-only parameters without a default).`,
       "fn"
     );
-  for (const [key, value] of Object.entries(keywords))
+  for (const [key, value] of Object.entries(defaults))
     if (value === null)
-      fail(`The default of ${fn.name}'s parameter ${key} must be a literal (number, string, True/False or None).`, key);
-  if (inputs.length !== tables.length)
+      fail(
+        `The default of ${fn.name}'s parameter ${key} must be a literal (a string, number, True/False, None, or a list of those).`,
+        key
+      );
+  if (!fn.doc)
     fail(
-      `${fn.name}(${inputs.join(", ")}) passes ${inputs.length} input table(s) but ${fn.name} takes ${tables.length} (${tables.join(", ") || "none"}): one per parameter without a default, in order.`,
-      "inputs"
-    );
-  const params: Record<string, unknown> = {};
-  let doc: string | undefined;
-  for (const [key, value] of Object.entries(kwargs)) {
-    if (key === "doc") {
-      doc = docText(fn.name, value, "what the output table holds");
-      continue;
-    }
-    if (!Object.hasOwn(keywords, key))
-      fail(`${fn.name} does not take a keyword \`${key}\`; its settings (parameters with a default) are ${settings()}.`, key);
-    if (value.kind !== "const" || (typeof value.value === "number" && !Number.isFinite(value.value)))
-      fail(`${key} must be a scalar literal (number, string, True/False or None), got ${show(value)}.`, key);
-    else params[key] = value.value;
-  }
-  doc = doc ?? fn.doc?.trim();
-  if (!doc)
-    fail(
-      `${fn.name} needs a docstring stating in one sentence what its output table holds (or doc="..." in the call) to be used as an operator.`,
+      `${fn.name} needs a docstring to be an operator: one sentence over its parameters stating what its output holds, e.g. """One row per {${names[1] ?? names[0] ?? "group"}} with ...""".`,
       "doc"
     );
+  const bound = new Map<string, ParsedValue>();
+  if (args.length > fn.params.length)
+    fail(
+      `${fn.name} takes ${fn.params.length} positional parameter(s) (${fn.params.join(", ") || "none"}); got ${args.length}. Pass the rest as keywords.`,
+      "inputs"
+    );
+  args.forEach((value, index) => bound.set(fn.params[index]!, value));
+  for (const [key, value] of Object.entries(kwargs)) {
+    if (!names.includes(key))
+      fail(`${fn.name} does not take a keyword \`${key}\`; its parameters are ${names.join(", ") || "none"}.`, key);
+    if (bound.has(key)) fail(`${fn.name}'s parameter ${key} is given twice.`, key);
+    bound.set(key, value);
+  }
+  const inputs: string[] = [];
+  const references: TaskInput[] = [];
+  const tables: string[] = [];
+  const params: Record<string, unknown> = {};
+  const values = new Map<string, string>();
+  for (const name of names) {
+    const value = bound.get(name);
+    if (value === undefined) {
+      if (!Object.hasOwn(defaults, name)) fail(`${fn.name} needs an argument for ${name}.`, name);
+      values.set(name, plainText(literalOf(defaults[name]!)));
+      continue;
+    }
+    const table = tableReference(value, context.functions, tableNames);
+    if (table !== undefined) {
+      const id = typeof table === "string" ? table : taskInputId(table);
+      if (inputs.includes(id)) fail(`${fn.name} binds the table ${id} to two parameters; pass distinct tables.`, name);
+      inputs.push(id);
+      references.push(table);
+      tables.push(name);
+      values.set(name, show(value));
+      continue;
+    }
+    const literal = literalOf(value);
+    if (literal === undefined)
+      fail(
+        `${name} must name a table or be a literal (a string, number, True/False, None, or a list of those), got ${show(value)}.`,
+        name
+      );
+    params[name] = literal;
+    values.set(name, plainText(literal));
+  }
+  const doc = renderOperatorDoc(fn.doc!, values);
   const closure = functionClosure(fn, context.functions);
   const source = closure.map(f => f.source).join("\n\n");
   context.used({ source, entry: fn.name, params: fn.params, ref: fn.name });
-  return { code: source, entry: fn.name, doc, params };
+  return { properties: { code: source, entry: fn.name, doc, params, tables }, inputs, references };
 }
 
 /** The docstring of the entry function in a code slot, for indexes that list
@@ -454,6 +540,15 @@ export function signatureOfSource(source: string, entry: string): string {
 
 const S = { type: "string", minLength: 1 };
 const NAMES = { type: "array", items: S, uniqueItems: true };
+const SCALAR = { type: ["string", "number", "boolean", "null"] };
+/** A setting: a scalar, or a list or dict of scalars (one level of nesting inside). */
+const LITERAL = {
+  anyOf: [
+    SCALAR,
+    { type: "array", items: { anyOf: [SCALAR, { type: "array", items: SCALAR }, { type: "object", additionalProperties: SCALAR }] } },
+    { type: "object", additionalProperties: { anyOf: [SCALAR, { type: "array", items: SCALAR }] } },
+  ],
+};
 const NONEMPTY_NAMES = { ...NAMES, minItems: 1 };
 const DTYPE = { type: "string", enum: [...DTYPES] };
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({
@@ -980,8 +1075,9 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
         code: S,
         entry: S,
         doc: S,
-        // A registered operator's settings: the keyword arguments of the call.
-        params: { type: "object", additionalProperties: { type: ["string", "number", "boolean", "null"] } },
+        // A registered operator: its settings and the parameters bound to its input tables.
+        params: { type: "object", additionalProperties: LITERAL },
+        tables: NAMES,
       },
       ["code", "entry", "doc"]
     ),

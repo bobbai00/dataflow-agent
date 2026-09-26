@@ -53,6 +53,9 @@ import { renderTaskEntry } from "../native/task-entries";
 import type { BindRequest } from "../native/definition-registry";
 import type { Expectation } from "../native/flags";
 import { isRegisteredCall } from "../native/registered-operators";
+import { liftDefinition, nearDuplicates, nearDuplicateNote, pythonLiteral, type LiftRequest } from "../native/lift";
+import { signatureOfSource } from "../native/catalog";
+import { parseDefinitions, workflowFunctions } from "../native/analysis-state";
 import { parseAnswerFrom, type AnswerShape } from "../native/answer";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
@@ -79,8 +82,10 @@ export interface NativeBatchResult {
   restored?: Array<RestoreRequest & { created: string[]; shared: string[] }>;
   /** Exact read-only definitions / completed entries requested by this call. */
   inspection?: string[];
-  /** Registry facts of this call: what a bind resolved to, what was superseded. */
+  /** Registry facts of this call: what a bind resolved to, what was superseded, what a lift made, near-duplicate defs. */
   notes?: string[];
+  /** `lift`: the operators it made, with the call that reproduces the original. */
+  lifts?: Array<{ name: string; source: string; call: string }>;
   /** `answer_from`: the table the runtime composes the final answer from, once it exists. */
   answerFrom?: string;
   /** `answer_from`'s projection: the answer's keys, their columns and rounding. */
@@ -132,6 +137,8 @@ export interface DataflowInput {
   fork?: AnalysisFork[];
   inspect?: string[];
   recall?: number[];
+  /** Registered operators: turn an existing def's literals into parameters. */
+  lift?: LiftRequest[];
   /** Definition registry: evaluate a target under chosen versions of definitions. */
   bind?: BindRequest[];
   /** Definition registry: `{new_table: old_table}` declares the successor version. */
@@ -164,6 +171,27 @@ const ANSWER_FROM_PROPERTY = {
   type: "string",
   description:
     'Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, optionally with a projection `table[key=column:digits, other_column]` that names the answer\'s keys, picks the columns and rounds numbers (e.g. "python_mean[imputation_mean=mean_python:4, imputed_rows]"), so no extra statement is needed to shape the answer. The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its keys; several rows → an object keyed by the first column when it is a unique text key, otherwise a list of row objects under the table\'s name) and makes no further call. If the table is empty, not completely held, too large or lacks a named column, the observation says why and you answer in text instead.',
+};
+
+const LIFT_PROPERTY = {
+  type: "array",
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      from: { type: "string", description: "The def to lift, by name." },
+      as: { type: "string", description: "The operator's name. Omitted, the def is revised in place and its tables recompute unchanged." },
+      params: {
+        type: "object",
+        additionalProperties: { type: ["string", "number", "boolean", "null"] },
+        description: "New parameter name → the literal in the body it replaces; the literal becomes the default.",
+      },
+      doc: { type: "string", description: "The docstring, when the def has none: one sentence over the parameters." },
+    },
+    required: ["from", "params"],
+  },
+  description:
+    'Step 2 as well, before the edits: turn a def you already wrote into an operator with parameters, e.g. [{"from": "age_group_report", "as": "band_report", "params": {"band_column": "age_band", "value": "composite"}}]: each literal becomes a parameter with that literal as its default, the docstring says {band_column} where it said the literal, and the result is listed under `Your operators` and callable in this call\'s edits (`t = band_report(cleaned, band_column="prevEducation")`).',
 };
 
 const EXPECT_PROPERTY = {
@@ -325,6 +353,7 @@ export function nativeBatchSchema(options: DataflowToolOptions = {}): Record<str
             },
           }
         : {}),
+      ...(options.registeredOperators ? { lift: LIFT_PROPERTY } : {}),
       ...(options.answerFrom ? { answer_from: ANSWER_FROM_PROPERTY } : {}),
       ...(options.contractFlags ? { expect: EXPECT_PROPERTY } : {}),
     },
@@ -355,7 +384,7 @@ export function dataflowToolDescription(options: DataflowToolOptions = {}): stri
       ? " The task starts from `# Definitions`, the graph read as versioned definitions. `bind` evaluates an existing table under chosen versions of the definitions it reads (rollback, counterfactual, composition) as a new table; `supersede` declares a new table the active version of an old one; `explain` prints a table's lineage with the version of each definition it read; the `compare` operator diffs two versions row by row."
       : "") +
     (options.registeredOperators
-      ? " A `def` with a docstring whose parameters are its input tables followed by parameters with literal defaults is a registered operator: call it by name like any operator (`ranked = rank_by_score(scores, top=5)`); it persists with the tables that call it and is listed under `Your operators`."
+      ? " A `def` with a docstring is an operator you call by name like any other (`top_edu = band_report(cleaned, band_column=\"prevEducation\")`): the arguments that name tables are its inputs, the literals its settings, and its docstring, written over the parameters, reads with the call's arguments as the table's doc. It persists with the tables that call it and is listed under `Your operators`; `lift` makes one from a def you already wrote by turning chosen literals into parameters."
       : "") +
     (options.contractFlags
       ? " Lines marked ⚠ under an operator are contract flags: facts the runtime established from the operator's contract and the table's whole-table profile, inherited by every table built on it; `expect` declares your own contracts on tables and reports whether they hold."
@@ -488,6 +517,26 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         if (args.answer_from !== undefined && typeof args.answer_from !== "string")
           return createErrorResult("answer_from takes the id of one table, optionally with a projection [key=column:digits, ...].");
         if (args.answer_from && !answerFrom) return createErrorResult("answer_from requires nativeAnswerFrom.");
+        const isLift = (value: unknown) =>
+          value === undefined ||
+          (Array.isArray(value) &&
+            value.every(item => {
+              const lift = item as LiftRequest;
+              return (
+                !!lift &&
+                typeof lift === "object" &&
+                typeof lift.from === "string" &&
+                (lift.as === undefined || typeof lift.as === "string") &&
+                (lift.doc === undefined || typeof lift.doc === "string") &&
+                !!lift.params &&
+                typeof lift.params === "object" &&
+                !Array.isArray(lift.params) &&
+                Object.values(lift.params).every(v => v === null || ["string", "number", "boolean"].includes(typeof v))
+              );
+            }));
+        if (!isLift(args.lift))
+          return createErrorResult('lift takes [{"from": "def_name", "as": "operator_name", "params": {"parameter": literal}, "doc": "..."}].');
+        if (args.lift?.length && !registeredOperators) return createErrorResult("lift requires nativeRegisteredOperators.");
         const answerRequest = args.answer_from ? parseAnswerFrom(args.answer_from) : undefined;
         if (answerRequest && "error" in answerRequest) return createErrorResult(answerRequest.error);
         const answerTable = answerRequest && "id" in answerRequest ? answerRequest.id : undefined;
@@ -552,13 +601,96 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         }
         const restoredIds = new Map<string, RestorePlan>();
         for (const plan of restorePlans) for (const id of plan.created) restoredIds.set(id, plan);
+        // The defs of the graph before this call: what `lift` reads and what a
+        // new def is compared with for the near-duplicate receipt.
+        const knownBefore = registeredOperators ? await workflowFunctions(state) : undefined;
+        const library = registeredOperators ? (context?.definitionRegistry?.libraryFunctions() ?? {}) : {};
+        // Lifts run before the edits. A lifted def with a new name waits in
+        // the registry for its first call; one lifted in place is a
+        // redefinition appended to the program, so its tables recompute.
+        const liftOutcomes: NativeBatchOutcome[] = [];
+        const lifts: NonNullable<NativeBatchResult["lifts"]> = [];
+        const liftedInPlace: string[] = [];
+        for (const request of args.lift ?? []) {
+          const name = request.as ?? request.from;
+          const source = knownBefore?.functions[request.from]?.source ?? library[request.from];
+          if (!source) {
+            liftOutcomes.push({
+              id: name,
+              op: "lift",
+              status: "error",
+              message: `No def \`${request.from}\` in the current graph to lift; the entries and \`inspect\` show the shared functions by name.`,
+            });
+            continue;
+          }
+          const result = await liftDefinition(source, request);
+          if (!result.ok) {
+            liftOutcomes.push({ id: name, op: "lift", status: "error", message: `Cannot lift ${request.from}: ${result.message}` });
+            continue;
+          }
+          const consumer = state
+            .getAllOperators()
+            .find(op => !op.taskSource && op.nativeOp?.source && Object.hasOwn(op.nativeOp.functions ?? {}, request.from));
+          const call = `${name}(${[
+            ...(consumer?.nativeOp?.inputs ?? ["T"]),
+            ...Object.entries(request.params).map(([key, value]) => `${key}=${pythonLiteral(value)}`),
+          ].join(", ")})`;
+          const taskNumber = context?.activeTaskNumber?.() ?? 0;
+          if (request.as && request.as !== request.from) {
+            context?.definitionRegistry?.recordLift(request.as, result.source, taskNumber, request.from);
+            library[request.as] = result.source;
+            liftOutcomes.push({
+              id: name,
+              op: "lift",
+              status: "added",
+              message: `${signatureOfSource(result.source, name)} is now an operator (from ${request.from}); \`x = ${call}\` reproduces ${consumer ? `\`${consumer.operatorID}\`` : "the original"}.`,
+            });
+          } else {
+            // In place: the tables that ran the def through process(fn=) now
+            // call the operator, so they stay consumers with the same inputs.
+            // A def used as a row function or a helper cannot be lifted in
+            // place; a new name leaves those uses untouched.
+            const consumers = state
+              .getAllOperators()
+              .filter(op => !op.taskSource && Object.hasOwn(op.nativeOp?.functions ?? {}, request.from));
+            const blocked = consumers.find(
+              op => !(op.nativeOp?.type === "Process" && op.nativeOp.properties.entry === request.from)
+            );
+            if (blocked) {
+              liftOutcomes.push({
+                id: name,
+                op: "lift",
+                status: "error",
+                message: `Cannot lift ${request.from} in place: \`${blocked.operatorID}\` uses it as a row function or a helper; lift it under a new name with \`as\`.`,
+              });
+              continue;
+            }
+            if (!consumers.length) {
+              context?.definitionRegistry?.recordLift(name, result.source, taskNumber, request.from);
+              library[name] = result.source;
+            } else {
+              liftedInPlace.push(result.source);
+              for (const op of consumers)
+                if (!isRegisteredCall(op.nativeOp))
+                  liftedInPlace.push(`${op.operatorID} = ${request.from}(${op.nativeOp!.inputs.join(", ")})`);
+            }
+            liftOutcomes.push({
+              id: name,
+              op: "lift",
+              status: "modified",
+              message: `${signatureOfSource(result.source, name)} now takes ${Object.keys(request.params).join(", ")} as parameters${consumers.length ? `; ${consumers.map(op => op.operatorID).join(", ")} now call${consumers.length === 1 ? "s" : ""} it and recompute${consumers.length === 1 ? "s" : ""} unchanged` : ""}.`,
+            });
+          }
+          lifts.push({ name, source: result.source, call });
+        }
         // Appended after the edits so the model's line numbers stay its own.
-        const program = restorePlans.length
-          ? [args.edits, ...restorePlans.map(plan => plan.program)].join("\n")
-          : args.edits;
+        const program = [args.edits, ...liftedInPlace, ...restorePlans.map(plan => plan.program)]
+          .filter(part => part.length)
+          .join("\n");
         const compileOptions = {
           profileCollection: context?.settings?.nativeProfileCollection === true,
           registeredOperators,
+          ...(registeredOperators && Object.keys(library).length ? { libraryFunctions: library } : {}),
         };
         const compiled = analysisState
           ? await compileAnalysisProgram(program, state, args.delete, compileOptions)
@@ -874,6 +1006,25 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             const source = view.functions?.[name];
             if (source) context.definitionRegistry.recordOperator(name, source, context.activeTaskNumber?.() ?? 0);
           }
+        // Near duplicates: a new def mostly the same as an existing one gets
+        // the call or the lift that would have replaced it, in this receipt.
+        if (registeredOperators && knownBefore && args.edits.trim()) {
+          const own = (await parseDefinitions(args.edits)).functions;
+          const candidates = Object.fromEntries(
+            Object.entries(own)
+              .filter(([name]) => !knownBefore.functions[name] && !library[name])
+              .map(([name, fn]) => [name, fn.source])
+          );
+          const existing = {
+            ...library,
+            ...Object.fromEntries(Object.entries(knownBefore.functions).map(([name, fn]) => [name, fn.source])),
+          };
+          try {
+            for (const match of await nearDuplicates(candidates, existing)) notes.push(nearDuplicateNote(match));
+          } catch {
+            // The receipt never fails on advice.
+          }
+        }
         // Registry: contract hints on new custom code, once per kind per call.
         if (registry) {
           let fitted = false;
@@ -962,6 +1113,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           kind: "native-batch",
           operators: [
             ...deleteOutcomes,
+            ...liftOutcomes,
             ...restoreOutcomes,
             ...bound.errors.map(error => ({
               id: error.id,
@@ -983,6 +1135,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           ...(restored.length ? { restored } : {}),
           ...(inspection.length ? { inspection } : {}),
           ...(notes.length ? { notes } : {}),
+          ...(lifts.length ? { lifts } : {}),
           ...(answerTable && state.getOperator(answerTable)
             ? {
                 answerFrom: answerTable,

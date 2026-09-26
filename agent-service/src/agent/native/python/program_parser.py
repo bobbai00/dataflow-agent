@@ -172,38 +172,51 @@ def _name_spans(call, statement):
 
 
 def _signature(text, node):
-    """What makes a `def` callable as an operator: its parameters without a
-    default are the input tables, its parameters with a literal default are
-    the settings a call may pass, and its docstring is its doc. A default that
-    is not a literal is recorded as None; variadic or default-less keyword-only
-    parameters mark the function as not callable that way."""
+    """What makes a `def` callable as an operator: its parameters in order
+    (`params`, recorded by the caller), the literal default of each parameter
+    that has one (a default that is not a literal is recorded as None), and
+    its docstring, the operator's doc written over the parameters. Variadic
+    or positional-only parameters, and keyword-only parameters without a
+    default, cannot be bound by name from a call and mark the def as not
+    callable that way."""
     args = node.args
     positional = args.posonlyargs + args.args
-    required = positional[: len(positional) - len(args.defaults)]
-    keywords = {}
-    for arg, default in zip(positional[len(required):], args.defaults):
-        keywords[arg.arg] = _literal(text, default)
-    variadic = bool(args.vararg or args.kwarg)
+    defaults = {}
+    for arg, default in zip(positional[len(positional) - len(args.defaults):], args.defaults):
+        defaults[arg.arg] = _literal(text, default)
+    variadic = bool(args.vararg or args.kwarg or args.posonlyargs)
     for arg, default in zip(args.kwonlyargs, args.kw_defaults):
         if default is None:
             variadic = True
         else:
-            keywords[arg.arg] = _literal(text, default)
+            defaults[arg.arg] = _literal(text, default)
     doc = ast.get_docstring(node, clean=True)
     return {
-        "tables": [arg.arg for arg in required],
-        "keywords": keywords,
+        "defaults": defaults,
+        **({"keywordOnly": [arg.arg for arg in args.kwonlyargs]} if args.kwonlyargs else {}),
         **({"doc": " ".join(doc.split())} if doc else {}),
         **({"variadic": True} if variadic else {}),
     }
 
 
 def _literal(text, node):
+    """A value a call can pass as a setting: a constant, or a list or dict of
+    such values. Anything else (a name, a call, a lambda) is None."""
     try:
         value = _encode(text, node)
     except ProgramError:
         return None
-    return value if value["kind"] == "const" else None
+    return value if _is_literal(value) else None
+
+
+def _is_literal(value):
+    if value["kind"] == "const":
+        return True
+    if value["kind"] == "list":
+        return all(_is_literal(item) for item in value["items"])
+    if value["kind"] == "dict":
+        return all(_is_literal(item) for _, item in value["entries"])
+    return False
 
 
 def _arguments(program, call):

@@ -65,6 +65,10 @@ export type ProfileColumn = Omit<z.infer<typeof columnSchema>, "mergeValues">;
  * survey with 300 columns is profiled too, so its header-row and token facts
  * can be judged (2026-09-26). */
 export const MAX_PROFILE_COLUMNS = 400;
+/** One worker's profile payload (the engine's transport admits the same: a
+ * 300-column survey profile is about 290 KB) and the sum over workers. */
+export const MAX_PROFILE_PAYLOAD_BYTES = 524288;
+export const MAX_PROFILE_TOTAL_BYTES = 1048576;
 const columnsSchema = z.unknown().transform((value, context): Record<string, z.infer<typeof columnSchema>> => {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > MAX_PROFILE_COLUMNS) {
     context.addIssue({ code: "custom", message: "Invalid profile columns" });
@@ -235,10 +239,10 @@ export function mergeTableProfiles(
   let bytes = 0;
   const workers: WorkerProfile[] = [];
   for (const payload of payloads) {
-    if (typeof payload !== "string" || payload.length > 65536) return fail("metadata_payload_budget");
+    if (typeof payload !== "string" || payload.length > MAX_PROFILE_PAYLOAD_BYTES) return fail("metadata_payload_budget");
     const size = Buffer.byteLength(payload);
     bytes += size;
-    if (size > 65536 || bytes > 262144) return fail("metadata_payload_budget");
+    if (size > MAX_PROFILE_PAYLOAD_BYTES || bytes > MAX_PROFILE_TOTAL_BYTES) return fail("metadata_payload_budget");
     try {
       const w = workerSchema.parse(JSON.parse(payload));
       if (!validWorker(w)) return fail("profile_inconsistent");

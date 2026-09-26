@@ -126,10 +126,28 @@ def _filename(spec, field):
     return f"native-v2:{spec.get('id', 'operator')}:{spec.get('revision', 'unversioned')}:{field}"
 
 
-def _validate_function(spec, source, field, entry, parameters=None, keywords=None):
-    """`keywords` (the call's settings) marks a registered operator: the
-    tables bind to the parameters without a default and every passed keyword
-    must be a parameter with a default. Without it a callback takes exactly
+def _is_setting(value, depth=0):
+    """A registered operator's setting: a string, a finite number, True/False,
+    None, or a list or dict of those (two levels)."""
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, (int, float)):
+        return not isinstance(value, float) or math.isfinite(value)
+    if depth >= 2:
+        return False
+    if isinstance(value, list):
+        return all(_is_setting(item, depth + 1) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(key, str) and _is_setting(item, depth + 1) for key, item in value.items())
+    return False
+
+
+def _validate_function(spec, source, field, entry, parameters=None, keywords=None, tables=None):
+    """`keywords` (the call's settings) marks a registered operator. With
+    `tables` (the parameters the call bound to its input tables) every bound
+    name must be a parameter and every parameter without a default must be
+    bound; without `tables` (older definitions) the tables bind to the
+    parameters without a default. Without `keywords` a callback takes exactly
     the positional parameters, as before."""
     filename = _filename(spec, field)
     try:
@@ -158,6 +176,18 @@ def _validate_function(spec, source, field, entry, parameters=None, keywords=Non
             # Inputs bind positionally (`function(*frames)` below), so only the arity
             # has to match the ordered inputs; the parameter names are the author's.
             valid = valid and len(positional) == expected
+        elif tables is not None:
+            names = positional + [arg.arg for arg in args.kwonlyargs]
+            without_default = positional[: len(positional) - len(args.defaults)] + [
+                arg.arg for arg, default in zip(args.kwonlyargs, args.kw_defaults) if default is None
+            ]
+            bound = set(tables) | set(keywords)
+            valid = (
+                not (node.decorator_list or args.vararg or args.kwarg or args.posonlyargs)
+                and len(tables) == expected
+                and all(name in names for name in bound)
+                and all(name in bound for name in without_default)
+            )
         else:
             required = positional[: len(positional) - len(args.defaults)]
             optional = positional[len(required):] + [arg.arg for arg in args.kwonlyargs]
@@ -168,7 +198,13 @@ def _validate_function(spec, source, field, entry, parameters=None, keywords=Non
                 and all(key in optional for key in keywords)
             )
     if not valid:
-        if keywords is not None:
+        if keywords is not None and tables is not None:
+            message = (
+                f"Define exactly one synchronous def {entry} whose parameters the call binds by name: "
+                f"the input tables ({', '.join(tables) or 'none'}) and the settings ({', '.join(keywords) or 'none'}); "
+                "every parameter without a default must be bound. No decorators, positional-only or variadic parameters."
+            )
+        elif keywords is not None:
             message = (
                 f"Define exactly one synchronous def {entry} whose parameters without a default are its "
                 f"{expected} input table(s) in order ({', '.join(parameters or [])}), followed by parameters with "
@@ -311,17 +347,22 @@ def validate_native(spec):
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         params = props.get("params")
+        tables = props.get("tables")
         if params is not None and (
             not isinstance(params, dict)
-            or any(
-                not isinstance(name, str)
-                or (value is not None and type(value) not in (str, int, float, bool))
-                or (type(value) is float and not math.isfinite(value))
-                for name, value in params.items()
-            )
+            or any(not isinstance(name, str) or not _is_setting(value) for name, value in params.items())
         ):
-            raise _error(spec, "PARAMETER_VALUE", "Operator settings must be named finite scalars.", stage="validate")
-        _validate_function(spec, props["code"], "code", entry, inputs, params)
+            raise _error(
+                spec,
+                "PARAMETER_VALUE",
+                "Operator settings must be named literals: strings, finite numbers, True/False, None, or lists and dicts of those.",
+                stage="validate",
+            )
+        if tables is not None and (
+            not isinstance(tables, list) or len(tables) != len(inputs) or any(not isinstance(name, str) for name in tables)
+        ):
+            raise _error(spec, "PARAMETER_VALUE", "Bind one parameter name per input table.", stage="validate")
+        _validate_function(spec, props["code"], "code", entry, inputs, params, tables)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -1966,9 +2007,15 @@ def execute_native(spec, inputs):
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
-        # A registered operator's settings ride as keyword arguments; the
-        # function's own defaults apply to the ones the call did not pass.
-        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs], **(props.get("params") or {})))
+        params = props.get("params")
+        tables = props.get("tables")
+        if params is not None and tables is not None:
+            # A registered operator: the tables and the settings bind to the
+            # parameters by name; the function's defaults fill the rest.
+            frames = dict(zip(tables, (frame.copy(deep=True) for frame in inputs)))
+            output = _frame(spec, function(**frames, **params))
+        else:
+            output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs], **(params or {})))
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     _frame(spec, output)
@@ -1998,6 +2045,11 @@ if __name__ == "__main__":
         from program_parser import parse_program
 
         print(json.dumps(parse_program(request["program"]), ensure_ascii=True))
+    elif isinstance(request, dict) and ("lift" in request or "nearDuplicates" in request):
+        # Source-level services for the model's own operators (program_lift.py).
+        from program_lift import serve
+
+        print(json.dumps(serve(request), ensure_ascii=True))
     else:
         # Validate one spec or a list of specs: Python syntax and entry signatures
         # of every function slot, plus argument contracts. Nothing is executed.

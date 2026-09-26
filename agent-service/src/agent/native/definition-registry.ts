@@ -96,12 +96,31 @@ export class DefinitionRegistry {
   private readonly supersedes = new Map<string, Supersede>();
   /** Registered operators: one version per distinct body a name has had. */
   private readonly operators = new Map<string, Array<{ source: string; task: number }>>();
+  /** Operators made by `lift`: kept here until a table calls them, so the name resolves. */
+  private readonly lifted = new Map<string, { source: string; task: number; from: string }>();
 
   /** A def called as an operator landed with this body in this task. */
   recordOperator(name: string, source: string, task: number): void {
     const versions = this.operators.get(name) ?? [];
     if (versions.at(-1)?.source !== source) versions.push({ source, task });
     this.operators.set(name, versions);
+    const lifted = this.lifted.get(name);
+    if (lifted && lifted.source !== source) this.lifted.set(name, { ...lifted, source });
+  }
+
+  /** `lift` made `name` from the def `from` in this task. */
+  recordLift(name: string, source: string, task: number, from: string): void {
+    this.lifted.set(name, { source, task, from });
+    this.recordOperator(name, source, task);
+  }
+
+  liftedOperators(): Array<{ name: string; source: string; task: number; from: string }> {
+    return [...this.lifted].map(([name, item]) => ({ name, ...item }));
+  }
+
+  /** The lifted defs by name, for a compile to resolve calls to them. */
+  libraryFunctions(): Record<string, string> {
+    return Object.fromEntries([...this.lifted].map(([name, item]) => [name, item.source]));
   }
 
   /** How many distinct bodies the name has had (1 for a never-revised one). */
@@ -257,7 +276,7 @@ export class DefinitionRegistry {
       "A definition is a table with versions; ACTIVE is what current tables read. Every version is a table you can bind to or read; a superseded in-place version keeps its saved values.",
     ];
     if (versioned.length) lines.push("Versioned:", ...versioned);
-    lines.push(...renderRegisteredOperators(state, name => this.operatorVersion(name)));
+    lines.push(...renderRegisteredOperators(state, name => this.operatorVersion(name), this));
     if (hubs.length) lines.push("Tables the analysis stands on:", hubs.join("\n"));
     if (others.length) lines.push(`Other current tables (their entries hold the definitions): ${others.join(" · ")}`);
     if (probes.length) lines.push(`Not read by any table (probes and reports; observe by name): ${probes.join(", ")}`);

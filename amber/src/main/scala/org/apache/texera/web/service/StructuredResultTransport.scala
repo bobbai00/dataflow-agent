@@ -102,9 +102,15 @@ object StructuredResultTransport {
     }
   }
 
+  // A table profile of a 300-column survey is about 290 KB (the profiler keeps
+  // up to 400 columns within a 512 KB payload, see table_profile.py); the
+  // per-worker and per-result budgets admit it so the agent can judge header
+  // rows and missing-value tokens on wide tables.
+  val maxProfilePayloadBytes: Int = 524288
+
   def partitionStatistics(
       statistics: Map[String, String],
-      maxBytes: Int = 262144,
+      maxBytes: Int = 1048576,
       maxWorkers: Int = 64
   ): PartitionedStatistics = {
     val columns = mutable.Map[String, String]()
@@ -114,7 +120,11 @@ object StructuredResultTransport {
     statistics.toSeq.sortBy(_._1).foreach {
       case (key, payload) =>
         if (!profileKey.matches(key)) columns(key) = payload
-        else if (payload.length > 65536 || payload.getBytes(UTF_8).length > 65536) {
+        else if (
+          payload.length > maxProfilePayloadBytes || payload
+            .getBytes(UTF_8)
+            .length > maxProfilePayloadBytes
+        ) {
           omissions += "metadata_payload_budget"
         } else {
           val isEnvelope = Try {

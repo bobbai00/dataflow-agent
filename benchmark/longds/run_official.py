@@ -154,7 +154,8 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=F
     with (out_dir / "executor.log").open("w") as executor_log, (out_dir / "runner.log").open("w") as log:
         executor = subprocess.Popen(
             [str(KB_ROOT / ".venv/bin/python"), str(HERE / "dsgym_executor.py"), "--port", str(port),
-             "--data-root", str(data_root), "--workspace", str(out_dir / "kernel-workspaces")],
+             "--data-root", str(data_root), "--workspace", str(out_dir / "kernel-workspaces"),
+             "--data-relative", manifest["data_dir"]],
             cwd=WORKTREE, stdout=executor_log, stderr=subprocess.STDOUT,
         )
         try:

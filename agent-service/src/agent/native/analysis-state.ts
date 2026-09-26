@@ -33,10 +33,16 @@ export interface AnalysisFork {
   task?: number;
 }
 
-type Options = { profileCollection?: boolean; sharedFunctions?: boolean; registeredOperators?: boolean };
+type Options = {
+  profileCollection?: boolean;
+  sharedFunctions?: boolean;
+  registeredOperators?: boolean;
+  /** Defs held outside the graph (made by `lift`, not yet called), by name: a call resolves them like shared functions. */
+  libraryFunctions?: Record<string, string>;
+};
 
 const definitionCache = new Map<string, ReturnType<typeof parseNativeProgram>>();
-function parseDefinitions(source: string) {
+export function parseDefinitions(source: string) {
   let parsed = definitionCache.get(source);
   if (!parsed) {
     parsed = parseNativeProgram(source);
@@ -79,7 +85,10 @@ export async function compileAnalysisProgram(
 ): Promise<ProgramResult> {
   const parsed = await parseNativeProgram(program);
   const saved = await workflowFunctions(state);
-  const functions = { ...saved.functions, ...parsed.functions };
+  const library: Record<string, ParsedFunction> = {};
+  for (const source of Object.values(options.libraryFunctions ?? {}))
+    for (const [name, fn] of Object.entries((await parseDefinitions(source)).functions)) library[name] = fn;
+  const functions = { ...library, ...saved.functions, ...parsed.functions };
   const changed = new Set(
     Object.keys(parsed.functions).filter(
       name => saved.conflicts.has(name) || parsed.functions[name].source !== saved.functions[name]?.source

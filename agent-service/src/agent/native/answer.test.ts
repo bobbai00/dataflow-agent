@@ -334,7 +334,7 @@ test("settings and prompt: the four session-shaped features validate and documen
     compactCode: true,
   });
   expect(prompt).toContain("Answering from a table.");
-  expect(prompt).toContain("Registered operators.");
+  expect(prompt).toContain("Your own operators.");
   expect(prompt).toContain("Contract flags.");
   expect(prompt).toContain("Reading economically.");
   expect(prompt).toContain("Compact code.");

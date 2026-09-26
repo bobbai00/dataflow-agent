@@ -143,7 +143,7 @@ test("malformed, oversized and unsafe counts fail only the optional profile", ()
   bad.rowCount = Number.MAX_SAFE_INTEGER + 1;
   expect(mergeTableProfiles(payload(bad), expected).status).toBe("unavailable");
   expect(mergeTableProfiles({ one: "not JSON" }, expected).status).toBe("unavailable");
-  expect(mergeTableProfiles({ one: "x".repeat(65537) }, expected).omissions).toContain("metadata_payload_budget");
+  expect(mergeTableProfiles({ one: "x".repeat(524289) }, expected).omissions).toContain("metadata_payload_budget");
   expect(mergeTableProfiles(undefined, expected).omissions).toContain("profile_missing");
 });
 

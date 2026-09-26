@@ -55,10 +55,15 @@ from kernel_executor import KernelExecutor  # noqa: E402  (DSGym's own)
 class LocalKernelExecutor(KernelExecutor):
     """Persistent kernel with only its source data and private scratch mounted."""
 
-    def __init__(self, *, timeout, data_root, workspace):
+    def __init__(self, *, timeout, data_root, workspace, data_relative=None):
         super().__init__(timeout=timeout)
         self.data_root = Path(data_root).resolve()
         self.workspace = Path(workspace).resolve()
+        # The task prompt names files by paths relative to the repository
+        # (`data/longds/<domain>/<dataset>/<task>/data/...`); the kernel's cwd
+        # is /workspace, so the same data is also mounted there under that
+        # relative path. Our engine resolves those paths the same way.
+        self.data_relative = data_relative
         self.ipc_directory = None
         self.restart_requested = threading.Event()
 
@@ -72,10 +77,13 @@ class LocalKernelExecutor(KernelExecutor):
                                     connection_file=str(ipc / "connection.json"))
             # kernel_cmd is ignored by recent jupyter_client releases. Set the
             # actual kernelspec, including the pinned interpreter and sandbox.
+            relative = (
+                [(self.data_root, str(Path("/workspace") / self.data_relative))] if self.data_relative else []
+            )
             self.km.kernel_spec.argv = isolated_command(
                 [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
                 python=sys.executable, data_roots=[self.data_root], workspace=self.workspace,
-                read_write=[(ipc, ipc)],
+                read_only=relative, read_write=[(ipc, ipc)],
             )
             try:
                 self.km.start_kernel(cwd=str(self.workspace))
@@ -118,10 +126,11 @@ class LocalKernelExecutor(KernelExecutor):
 
 
 class Manager:
-    def __init__(self, timeout: int, data_root: Path, workspace: Path):
+    def __init__(self, timeout: int, data_root: Path, workspace: Path, data_relative: str | None = None):
         self.timeout = timeout
         self.data_root = data_root
         self.workspace = workspace
+        self.data_relative = data_relative
         self.executors: dict[int, LocalKernelExecutor] = {}
         self.next_id = 0
         self.lock = threading.Lock()
@@ -135,7 +144,9 @@ class Manager:
             container_id = self.next_id
             self.next_id += 1
         workspace = Path(tempfile.mkdtemp(prefix=f"kernel-{container_id}-", dir=self.workspace))
-        executor = LocalKernelExecutor(timeout=self.timeout, data_root=self.data_root, workspace=workspace)
+        executor = LocalKernelExecutor(
+            timeout=self.timeout, data_root=self.data_root, workspace=workspace, data_relative=self.data_relative
+        )
         self.kernel_thread.submit(executor.start).result()
         with self.lock:
             self.executors[container_id] = executor
@@ -203,11 +214,14 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=5055)
     ap.add_argument("--data-root", type=Path, required=True, help="Only raw task data is mounted, read-only")
     ap.add_argument("--workspace", type=Path, required=True, help="Private per-run scratch parent")
+    ap.add_argument("--data-relative", default=None,
+                    help="Also mount the data root at /workspace/<this relative path>, so the task prompt's "
+                         "repository-relative file paths resolve from the kernel's cwd")
     ap.add_argument("--timeout", type=int, default=int(os.getenv("EXECUTION_TIMEOUT", "600")),
                     help="seconds one execution may run before the kernel is interrupted and restarted")
     args = ap.parse_args()
     args.workspace.mkdir(parents=True, exist_ok=True)
-    manager = Manager(args.timeout, args.data_root.resolve(), args.workspace.resolve())
+    manager = Manager(args.timeout, args.data_root.resolve(), args.workspace.resolve(), args.data_relative)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(manager))
     print(json.dumps({"executor": f"http://127.0.0.1:{args.port}", "timeout": args.timeout}), flush=True)
     try:

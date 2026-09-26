@@ -44,9 +44,14 @@ const loader = [
 ].join("\n");
 const rank = [
   "def rank_by_score(scores, top=10, key=\"composite\"):",
-  '    """One row per learner in the top ranks by the chosen score column, with rank."""',
+  '    """One row per learner in the top {top} by {key}, with rank."""',
   "    ranked = scores.sort_values(key, ascending=False).head(top).reset_index(drop=True)",
   "    return ranked.assign(rank=range(1, len(ranked) + 1))",
+].join("\n");
+const bandMean = [
+  "def band_mean(learners):",
+  '    """Mean composite per band."""',
+  '    return learners.groupby("band", as_index=False)["composite"].mean()',
 ].join("\n");
 writeFileSync(`${out}/fixture.py`, `${loader}\n\n${rank}\n`);
 const session = await nativeTestSession({
@@ -85,17 +90,25 @@ try {
   // projection shows two columns of the learners; expectations are checked.
   await session.debug("Task 1: load the learners and rank the top three by composite.");
   const t1 = await run({
-    edits: [loader, rank, 'learners = process(fn=load_learners, doc="Loads the six learners with age, band, a text score and the composite")', "top3 = rank_by_score(learners, top=3)"].join("\n"),
+    edits: [
+      loader,
+      rank,
+      bandMean,
+      'learners = process(fn=load_learners, doc="Loads the six learners with age, band, a text score and the composite")',
+      "top3 = rank_by_score(learners, top=3)",
+      'bands = process(learners, fn=band_mean, doc="Mean composite per band")',
+    ].join("\n"),
     observe: ["learners[name,band]", "top3"],
     expect: { learners: { rows: 6, nonnull: ["age"], unique: ["name"] }, top3: { rows: [1, 2] } },
   });
   const receipt = t1.step.toolResults[0].output;
   assert.deepEqual(
     receipt.operators.map((o: any) => [o.id, o.op, o.status]),
-    [["learners", "process", "added"], ["top3", "rank_by_score", "added"]]
+    [["learners", "process", "added"], ["top3", "rank_by_score", "added"], ["bands", "process", "added"]]
   );
   assert.deepEqual(receipt.observeColumns, { learners: ["name", "band"] });
   const c1 = t1.serviceContext as string;
+  contains(c1, "One row per learner in the top 3 by composite, with rank.", "docstring rendered with the call's arguments");
   contains(c1, 'column "band" holds the text "nan" in 2 rows: text, not a missing value (null cells in "band": 0)', "literal missing flag");
   contains(c1, 'column "score_text" contains its own name as a value in 1 row: a header row repeated inside the data', "header flag");
   contains(c1, 'column "score_text" holds numbers as text', "numeric text flag");
@@ -109,18 +122,45 @@ try {
   // by name with other settings without resending its code; the lean entry of
   // task 1 kept a one-line probe and no rows for tables the answer did not use.
   await session.debug("Task 2: also rank the top two.");
-  const t2 = await run({ edits: "top2 = rank_by_score(learners, top=2)", observe: ["top2[name,rank]"] });
+  const t2 = await run({
+    edits: "top2 = rank_by_score(learners, top=2)",
+    lift: [{ from: "band_mean", as: "group_mean", params: { group: "band", value: "composite" } }],
+    observe: ["top2[name,rank]"],
+  });
   const c2 = t2.serviceContext as string;
-  contains(c2, "Your operators (defs called by name", "operators index");
-  contains(c2, 'rank_by_score(scores, top=10, key="composite") "One row per learner in the top ranks', "operator signature and doc");
+  contains(c2, "Your operators (call them like any operator", "operators index");
+  contains(c2, 'T2 = rank_by_score(scores, top=10, key="composite")\n    One row per learner in the top {top} by {key}, with rank. Example: `top3 = rank_by_score(learners, top=3)`.', "operator signature, doc and example");
   // The index is frozen at the start of the task: top2 does not exist yet.
-  contains(c2, "— used by top3", "operator consumers");
+  contains(c2, "Used by top3.", "operator consumers");
+  contains(c2, "group_mean(learners, group='band', value='composite') is now an operator (from band_mean)", "lift receipt");
+  const lifted = t2.step.toolResults[0].output.lifts[0].source as string;
+  assert.ok(lifted.includes('"""Mean {value} per {group}."""'), `lifted docstring: ${lifted}`);
+  assert.ok(lifted.includes("groupby(group, as_index=False)[value].mean()"), `lifted body: ${lifted}`);
   contains(c2, "learners: 6 rows, not shown here", "lean entry keeps no rows for a table the answer did not use");
   contains(c2, '⚠ learners: column "band" holds the text "nan" in 2 rows', "index flag alert");
   contains(c2, "## Task 1", "entry of task 1");
-  assert.deepEqual(t2.step.toolResults[0].output.operators.map((o: any) => [o.id, o.status]), [["top2", "added"]]);
+  assert.deepEqual(t2.step.toolResults[0].output.operators.map((o: any) => [o.id, o.status]), [["group_mean", "added"], ["top2", "added"]]);
   assert.deepEqual(t2.snapshot.results.top2.sampleRecords.map((r: any) => r.name), ["dee", "ann"]);
   contains(c2, "Complete table (all rows; 2 of 6 columns):", "projection of the registered call's output");
+
+  // Task 2, second call: the lifted operator runs with other settings, and a
+  // variant def gets the lift it should have been in the receipt.
+  const t2b = await run({
+    edits: [
+      'age_by_name = group_mean(learners, group="name", value="age")',
+      "def band_max(learners):",
+      '    """Max composite per band."""',
+      '    return learners.groupby("band", as_index=False)["composite"].max()',
+      'maxes = process(learners, fn=band_max, doc="Max composite per band")',
+    ].join("\n"),
+    observe: ["age_by_name"],
+  });
+  const c2b = t2b.serviceContext as string;
+  assert.deepEqual(t2b.step.toolResults[0].output.operators.map((o: any) => [o.id, o.status]), [["age_by_name", "added"], ["maxes", "added"]]);
+  contains(c2b, "Mean age per name", "lifted operator's docstring rendered with the call");
+  assert.equal(t2b.snapshot.results.age_by_name.sampleRecords.length, 6);
+  const notes = t2b.step.toolResults[0].output.notes ?? [];
+  assert.ok(notes.some((n: string) => n.startsWith("near-duplicate: `band_max` is") && n.includes("band_mean")), `near-duplicate note: ${JSON.stringify(notes)}`);
 
   // Task 3: one real model turn. The answer is a one-row table, so the model
   // may set answer_from; either way the turn must end with a final answer.

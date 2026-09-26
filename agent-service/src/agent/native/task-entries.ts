@@ -34,6 +34,7 @@ import { getVisibleResultHeaders } from "../tools/tools-utility";
 import type { TaskHistory } from "./task-history";
 import { ownFlags } from "./flags";
 import { renderRegisteredOperators } from "./registered-operators";
+import type { DefinitionRegistry } from "./definition-registry";
 
 export type ChangeStatus = "added" | "modified" | "restored" | "deleted" | "failed";
 
@@ -530,7 +531,8 @@ function ancestors(state: WorkflowState, id: string, seen = new Set<string>()): 
 export function renderLiveIndex(
   state: WorkflowState,
   results: ReadonlyMap<string, OperatorInfo>,
-  history?: TaskHistory
+  history?: TaskHistory,
+  registry?: Pick<DefinitionRegistry, "liftedOperators">
 ): string {
   const provenance = history?.provenance();
   const operators = state.getAllOperators().filter(op => !op.taskSource);
@@ -558,7 +560,7 @@ export function renderLiveIndex(
   return [
     "# Tables now",
     items.join(" · "),
-    ...renderRegisteredOperators(state),
+    ...renderRegisteredOperators(state, undefined, registry),
     ...alerts,
     ...flagAlerts(operators, results),
   ].join("\n");

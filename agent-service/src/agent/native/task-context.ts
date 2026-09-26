@@ -185,7 +185,7 @@ export function withTaskCatalog(
             role: "user",
             content: useRegistry
               ? registry!.render(input.workflowState, results, history)
-              : renderLiveIndex(input.workflowState, results, history),
+              : renderLiveIndex(input.workflowState, results, history, registry ?? undefined),
           },
         };
       }

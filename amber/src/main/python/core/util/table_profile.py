@@ -55,7 +55,10 @@ class ProfileLimits:
     top_k: int = 8
     max_value_chars: int = 192
     max_payload_bytes: int = 524_288
-    max_seconds: float = 0.2
+    # The time budget bounds the rows a wide table's profile covers: at about
+    # 0.6M cells/s, 0.2 s covered 384 rows of the 296-column survey; the
+    # existence facts (a "nan" token, a header row) are stated over that prefix.
+    max_seconds: float = 1.0
 
 
 def _json(value):

@@ -405,24 +405,26 @@ export function buildNativeModeSystemPrompt(
     .replace("{{RECALL_TOOL}}", recall);
 }
 
-/** A def the model calls by name. Registration is nothing the model declares:
- * the def persists with the tables that call it, exactly as shared functions
- * do, and the index lists it as an operator with its settings. */
+/** A def with a docstring is an operator: its parameters are its arguments,
+ * its docstring its doc written over them. Nothing is declared; the def
+ * persists with the tables that call it, and the index lists it beside the
+ * built-ins. `lift` and the near-duplicate receipt put the reuse decision at
+ * the turn the variant is written. */
 const REGISTERED_OPERATORS_METHOD = `
 
-Registered operators. A \`def\` whose docstring states in one sentence what its output table holds, whose first parameters are its input tables, and whose remaining parameters have literal defaults, is an operator you call by name:
+Your own operators. A \`def\` with a docstring is an operator you call by name, like scan or join. Its parameters are its arguments; its docstring is its doc, written over the parameters:
 
 \`\`\`python
-def rank_by_score(scores, top=10, key="composite"):
-    """One row per learner in the top ranks by the chosen score column, with rank."""
+def band_report(T, band_column, value, top=5):
+    """One row per {band_column} with the mean {value}, the {top} highest first."""
     import pandas as pd
-    ranked = scores.sort_values(key, ascending=False).head(top).reset_index(drop=True)
-    return ranked.assign(rank=range(1, len(ranked) + 1))
+    out = T.groupby(band_column)[value].mean().reset_index().sort_values(value, ascending=False).head(top)
+    return out.assign(rank=range(1, len(out) + 1))
 
-top5 = rank_by_score(scored, top=5)
+top_edu = band_report(cleaned, band_column="prevEducation", value="composite")
 \`\`\`
 
-It runs as a process (one DataFrame per table argument, the keyword arguments passed as given, the defaults otherwise), and its docstring is its doc. It persists with the tables that call it, so later tasks call it without resending the code; \`# Definitions\` lists it under \`Your operators\` with its settings. Redefining the def revises every table that calls it (its version number advances), and calling it with other settings makes a new table without touching the old one. Use a registered operator for a step you apply more than once (a cleaning rule, a scoring rule, a ranking, a report layout) instead of copying code between process functions, and pass what varies as settings rather than editing the body.
+An argument that names a table is an input (the function receives a DataFrame); any other argument is a setting and must be a literal (a string, number, True/False, None, or a list of those); defaults fill the rest. The call renders the docstring with its arguments ("One row per prevEducation with the mean composite, the 5 highest first"), and that sentence is the table's doc in receipts, entries and the index. The def lives with the graph: later tasks call it by name without resending it; \`Your operators\` in the index lists each one like the built-ins (signature, doc, an example call); redefining the def revises every table that calls it (a new version); \`inspect\` returns its body. Write a step once with what varies as parameters (a column, a threshold, a limit) instead of copying a function to change a literal. \`lift\` turns a def you already wrote into this form: \`lift=[{"from": "age_group_report", "as": "band_report", "params": {"band_column": "age_band", "value": "composite"}}]\` replaces those literals in the body with parameters (defaults = the literals), writes {band_column} into the docstring, and lists the result under \`Your operators\`, callable in the same call's edits. When a new def is nearly the same as an existing one, the receipt names the existing def and, when only literals differ, the lift and call to use instead.
 `;
 
 /** Flags are judgments, not measurements: each one is the boundary condition
