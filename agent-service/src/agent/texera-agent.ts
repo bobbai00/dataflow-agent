@@ -2225,7 +2225,25 @@ export class TexeraAgent {
           },
         });
 
-      let result = await runDriverOnce(currentUserMessage);
+      const transient = (error: unknown) => {
+        const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        return /timed out|timeout|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up|fetch failed|terminated|Cannot connect to API/i.test(text);
+      };
+      const runDriverWithRetry = async (seed: ModelMessage[]) => {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await runDriverOnce(seed);
+          } catch (error) {
+            if (this.abortController?.signal.aborted || attempt >= 2 || !transient(error)) throw error;
+            this.log.warn(
+              { messageId, attempt: attempt + 1, err: error instanceof Error ? error.message : String(error) },
+              "model request failed transiently; retrying the turn"
+            );
+            await new Promise(resolve => setTimeout(resolve, 3000 * (attempt + 1)));
+          }
+        }
+      };
+      let result = await runDriverWithRetry(currentUserMessage);
 
       // `answer_from`: the turn ended on a tool step because the runtime
       // composed the answer from the observed table. It becomes the final

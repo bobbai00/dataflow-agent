@@ -35,6 +35,11 @@ type TaskProviderSettings = Omit<OpenAIProviderSettings, "fetch"> & {
   fetch?: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
 };
 
+/** A request that has not answered by then is abandoned (the turn retries it):
+ * the slowest legitimate step measured on 2026-09-26 was 83 s, and nine turns
+ * that day sat 255 s on requests that never answered. */
+const REQUEST_TIMEOUT_MS = Number(process.env.LLM_REQUEST_TIMEOUT_MS ?? 180_000);
+
 export function createTaskResponsesModel(modelId: string, config: TaskProviderSettings) {
   // The SDK types fetch as Bun's global (including preconnect); it only calls it.
   const base = createOpenAI(config as OpenAIProviderSettings).responses(modelId);
@@ -73,7 +78,8 @@ export function createTaskResponsesModel(modelId: string, config: TaskProviderSe
         }
         // LiteLLM drops this newer top-level field; extra_body preserves it.
         body.extra_body = { ...body.extra_body, prompt_cache_options: { mode: "implicit", ttl: "30m" } };
-        return (config.fetch ?? globalThis.fetch)(url, { ...init, body: JSON.stringify(body) });
+        const signals = [init?.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)].filter((s): s is AbortSignal => !!s);
+        return (config.fetch ?? globalThis.fetch)(url, { ...init, body: JSON.stringify(body), signal: AbortSignal.any(signals) });
       }) as typeof fetch,
     }).responses(modelId);
   };
