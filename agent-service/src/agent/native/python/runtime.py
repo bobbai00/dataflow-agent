@@ -148,11 +148,11 @@ def _validate_function(spec, source, field, entry, parameters=None, keywords=Non
         node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry
     ]
     valid = len(entries) == 1 and isinstance(entries[0], ast.FunctionDef)
+    expected = len(parameters) if parameters is not None else 1
     if valid:
         node = entries[0]
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
-        expected = len(parameters) if parameters is not None else 1
         if keywords is None:
             valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
             # Inputs bind positionally (`function(*frames)` below), so only the arity

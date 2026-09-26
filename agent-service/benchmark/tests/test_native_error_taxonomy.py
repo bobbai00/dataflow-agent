@@ -1059,6 +1059,52 @@ CASES = [
         ["Repair the producing", "unique string"],
     ),
     ("envelope", "unknown operator type", "Nope", [F], dict(), "OPERATOR_UNAVAILABLE", "validate", None, ["'Nope'"]),
+    # parameters and registered operators ------------------------------------
+    (
+        "parameters",
+        "non-scalar value",
+        "Parameters",
+        [],
+        dict(values={"weight": [1, 2]}),
+        "PARAMETER_VALUE",
+        "validate",
+        None,
+        ["finite scalar"],
+    ),
+    (
+        "process",
+        "registered call with a non-scalar setting",
+        "Process",
+        [F],
+        dict(code="def process(t, k=1):\n    return t", entry="process", params={"k": [1]}),
+        "PARAMETER_VALUE",
+        "validate",
+        None,
+        ["settings must be named finite scalars"],
+    ),
+    (
+        "process",
+        "registered call passes a setting the def does not take",
+        "Process",
+        [F],
+        dict(code="def process(t, k=1):\n    return t", entry="process", params={"z": 1}),
+        "CALLBACK_SIGNATURE",
+        "compile",
+        "code",
+        ["parameters without a default are its 1 input table(s)", "the call passed z"],
+    ),
+    # compare ----------------------------------------------------------------
+    (
+        "compare",
+        "keys not a list of names",
+        "Compare",
+        [F, other],
+        dict(keys="g"),
+        "COMPARE_KEYS",
+        "validate",
+        "keys",
+        ["keys must be a nonempty list of column names"],
+    ),
 ]
 
 # Legitimate programs that must NOT raise: the same shapes, the right way.
