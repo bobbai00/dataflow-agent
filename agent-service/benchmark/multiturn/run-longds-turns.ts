@@ -112,7 +112,8 @@ for (const key of [
   "nativeCompactCode",
   "dataEvidence",
 ] as const) {
-  if (actualSettings[key] !== settings[key]) {
+  // A service built before a setting existed omits it: absent means off.
+  if ((actualSettings[key] ?? false) !== (settings[key] ?? false)) {
     await session.close();
     throw new Error(`Agent did not apply ${key}: expected ${settings[key]}, got ${actualSettings[key]}`);
   }
