@@ -2118,7 +2118,9 @@ export class TexeraAgent {
           // `answer_from`: once the post-step path composed the answer, the
           // turn ends without another model call.
           shouldStop: () => this.composedAnswer !== undefined,
-          prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
+          prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
+            const preparing = Date.now();
+            this.log.info({ messageId, stepNumber }, "preparing step");
             let compilationResult: WorkflowCompilationResponse | null = null;
             if (this.workflowState.getAllOperators().length > 0) {
               try {
@@ -2128,6 +2130,7 @@ export class TexeraAgent {
                 this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
               }
             }
+            const compiled = Date.now();
 
             const visibleSteps = this.getVisibleReActSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
@@ -2145,10 +2148,25 @@ export class TexeraAgent {
             this.lastRenderedContext = processed
               .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
               .join("\n\n");
+            this.log.info(
+              {
+                messageId,
+                stepNumber,
+                compileMs: compiled - preparing,
+                contextMs: Date.now() - compiled,
+                contextChars: this.lastRenderedContext.length,
+              },
+              "requesting model"
+            );
             return { messages: processed };
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
             stepIndex++;
+            const finishing = Date.now();
+            this.log.info(
+              { messageId, stepIndex, toolCalls: toolCalls?.length ?? 0, outputTokens: usage?.outputTokens, text: !!text },
+              "model step finished"
+            );
 
             const formattedToolCalls = toolCalls?.map(tc => ({
               toolName: tc.toolName,
@@ -2201,6 +2219,7 @@ export class TexeraAgent {
             this.maybeCreateSnapshotForHead(afterStepContent);
 
             await this.runPostStepExecution(toolCalls, toolResults);
+            this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
 
             isFirstStep = false;
           },

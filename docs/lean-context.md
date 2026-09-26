@@ -105,11 +105,15 @@ the near-duplicate note for a variant).
 Adoption is the open question, measured in the v4 trial below: with the v4
 prompt the BI session wrote 32 defs, received 14 near-duplicate receipts and
 called nothing by name; a receipt that arrives with a composed answer is never
-read, since the turn ends there. The v4b prompt therefore makes the function
-form the default for custom code (every custom step is a def with a docstring
-and its columns, thresholds and limits as parameters; `process(fn=)` is no
-longer the way to write one) and tells the model to read `Your operators`
-before writing a def.
+read, since the turn ends there. The v4b prompt said in the method section
+that every custom step is written this way (a def with a docstring and its
+columns, thresholds and limits as parameters) and changed nothing in 17 BI
+turns: the catalog's `process` entry kept the habit. v4c replaces that
+catalog entry with the function form when the model's own operators are on
+(`OWN_OPERATOR_CATALOG_ENTRY`; `process` still compiles for older programs,
+forks and restores), and the first v4c turns write `raw_report =
+raw_quality_report(raw_data)` where v4 wrote `process(raw_data,
+fn=raw_quality_report, doc=...)`.
 
 ## Contract flags
 
