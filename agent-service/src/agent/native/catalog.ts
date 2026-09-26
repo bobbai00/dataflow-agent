@@ -98,6 +98,14 @@ export interface ParsedFunction {
   line: number;
   /** Python global reads; missing only for legacy callers or invalid signatures. */
   references?: string[];
+  /** Registered-operator signature: the positional parameters without a default are the input tables. */
+  tables?: string[];
+  /** Parameters with a default, which a call may pass as settings; null marks a default that is not a literal. */
+  keywords?: Record<string, ParsedValue | null>;
+  /** The docstring, whitespace-collapsed: the doc of the operator the def becomes. */
+  doc?: string;
+  /** `*args`, `**kwargs` or a keyword-only parameter without a default: not callable as an operator. */
+  variadic?: boolean;
 }
 
 export interface ParsedStatement {
@@ -109,8 +117,14 @@ export interface ParsedStatement {
   args: ParsedValue[];
   kwargs: Record<string, ParsedValue>;
   /** Identifier arguments with their (line, column) spans in `source`, for
-   * rewriting ids in place; not part of what identifies a submission. */
-  names?: Array<{ name: string; span: [number, number, number, number]; argumentIndex?: number }>;
+   * rewriting ids in place; not part of what identifies a submission. The
+   * called name itself is included with `operator: true`. */
+  names?: Array<{
+    name: string;
+    span: [number, number, number, number];
+    argumentIndex?: number;
+    operator?: boolean;
+  }>;
 }
 
 /** A function slot: Python source defining exactly one entry function. */
@@ -185,7 +199,7 @@ const fail = (message: string, field?: string): never => {
   throw new NativeArgumentError(message, field);
 };
 
-const show = (value: ParsedValue): string => {
+export const show = (value: ParsedValue): string => {
   switch (value.kind) {
     case "const":
       return JSON.stringify(value.value);
@@ -351,6 +365,87 @@ function docText(op: string, value: ParsedValue | undefined, meaning: string): s
 
 function noPositional(op: string, rest: ParsedValue[], expected: string): void {
   if (rest.length) fail(`${op} takes ${expected}; the extra positional argument ${show(rest[0])} is not allowed.`);
+}
+
+/* ----------------------------------------------------------------------------
+ *  Registered operators: a `def` called by name
+ * ------------------------------------------------------------------------- */
+
+/** `rank_by_score(scores, top=10)`: the tables, then the settings with their defaults. */
+export function registeredSignature(fn: ParsedFunction): string {
+  const tables = fn.tables ?? fn.params;
+  const settings = Object.entries(fn.keywords ?? {}).map(([key, value]) => `${key}=${value ? show(value) : "…"}`);
+  return `${fn.name}(${[...tables, ...settings].join(", ")})`;
+}
+
+/** The properties of the process a registered call compiles to: the def's
+ * closure as code, the def as entry, its docstring (or the call's `doc=`) as
+ * doc, and the keyword arguments the call passed as `params`. The function's
+ * own defaults apply to the settings the call leaves out. */
+export function registeredOperatorProperties(
+  fn: ParsedFunction,
+  inputs: string[],
+  kwargs: Record<string, ParsedValue>,
+  context: NormalizeContext
+): Record<string, unknown> {
+  const tables = fn.tables ?? fn.params;
+  const keywords = fn.keywords ?? {};
+  const settings = () =>
+    Object.entries(keywords)
+      .map(([key, value]) => `${key}=${value ? show(value) : "…"}`)
+      .join(", ") || "none";
+  if (fn.variadic)
+    fail(
+      `${fn.name} cannot be called as an operator: its parameters must be the input tables followed by parameters with literal defaults (no *args, **kwargs, or keyword-only parameters without a default).`,
+      "fn"
+    );
+  for (const [key, value] of Object.entries(keywords))
+    if (value === null)
+      fail(`The default of ${fn.name}'s parameter ${key} must be a literal (number, string, True/False or None).`, key);
+  if (inputs.length !== tables.length)
+    fail(
+      `${fn.name}(${inputs.join(", ")}) passes ${inputs.length} input table(s) but ${fn.name} takes ${tables.length} (${tables.join(", ") || "none"}): one per parameter without a default, in order.`,
+      "inputs"
+    );
+  const params: Record<string, unknown> = {};
+  let doc: string | undefined;
+  for (const [key, value] of Object.entries(kwargs)) {
+    if (key === "doc") {
+      doc = docText(fn.name, value, "what the output table holds");
+      continue;
+    }
+    if (!Object.hasOwn(keywords, key))
+      fail(`${fn.name} does not take a keyword \`${key}\`; its settings (parameters with a default) are ${settings()}.`, key);
+    if (value.kind !== "const" || (typeof value.value === "number" && !Number.isFinite(value.value)))
+      fail(`${key} must be a scalar literal (number, string, True/False or None), got ${show(value)}.`, key);
+    else params[key] = value.value;
+  }
+  doc = doc ?? fn.doc?.trim();
+  if (!doc)
+    fail(
+      `${fn.name} needs a docstring stating in one sentence what its output table holds (or doc="..." in the call) to be used as an operator.`,
+      "doc"
+    );
+  const closure = functionClosure(fn, context.functions);
+  const source = closure.map(f => f.source).join("\n\n");
+  context.used({ source, entry: fn.name, params: fn.params, ref: fn.name });
+  return { code: source, entry: fn.name, doc, params };
+}
+
+/** The docstring of the entry function in a code slot, for indexes that list
+ * registered operators without re-parsing the program. */
+export function docstringOf(source: string, entry: string): string | undefined {
+  const match = new RegExp(`^\\s*def\\s+${entry}\\s*\\([^)]*\\)\\s*(?:->[^:]+)?:\\s*\\n\\s*(?:r|u)?("""|''')([\\s\\S]*?)\\1`, "m").exec(
+    source
+  );
+  const text = match?.[2].replace(/\s+/g, " ").trim();
+  return text || undefined;
+}
+
+/** The signature line of a def in a code slot: `rank_by_score(scores, top=10)`. */
+export function signatureOfSource(source: string, entry: string): string {
+  const match = new RegExp(`^\\s*def\\s+${entry}\\s*\\(([^)]*)\\)`, "m").exec(source);
+  return `${entry}(${(match?.[1] ?? "").replace(/\s+/g, " ").trim()})`;
 }
 
 /* ----------------------------------------------------------------------------
@@ -880,7 +975,16 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
     doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
-    schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
+    schema: object(
+      {
+        code: S,
+        entry: S,
+        doc: S,
+        // A registered operator's settings: the keyword arguments of the call.
+        params: { type: "object", additionalProperties: { type: ["string", "number", "boolean", "null"] } },
+      },
+      ["code", "entry", "doc"]
+    ),
     normalize(rest, kwargs, context) {
       keywords("process", kwargs, ["fn", "doc"]);
       if (rest.length > 1) fail("process takes its input tables, then fn= and doc=.");

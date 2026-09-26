@@ -36,6 +36,9 @@ import {
   NativeArgumentError,
   splitInputs,
   functionClosure,
+  registeredOperatorProperties,
+  registeredSignature,
+  show,
   type FunctionSlot,
   type NativeOpView,
   type ParsedFunction,
@@ -110,19 +113,29 @@ function attemptedView(statement: ParsedStatement, type: string, inputs: string[
   return view;
 }
 
+export interface NormalizeOptions {
+  profileCollection?: boolean;
+  sharedFunctions?: boolean;
+  tableNames?: ReadonlySet<string>;
+  /** A `def` of the program (or a shared one) may be called by name as an operator. */
+  registeredOperators?: boolean;
+}
+
 /** Normalize one parsed statement against the catalog. */
 export function normalizeStatement(
   statement: ParsedStatement,
   functions: Record<string, ParsedFunction>,
-  options: { profileCollection?: boolean; sharedFunctions?: boolean; tableNames?: ReadonlySet<string> } = {}
+  options: NormalizeOptions = {}
 ): ProgramStatement {
   const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
   const def = NATIVE_BY_NAME.get(statement.op);
   if (!def) {
+    const fn = functions[statement.op];
+    if (fn && options.registeredOperators) return normalizeRegisteredCall(statement, fn, functions, options);
     const hint =
       statement.op === statement.id
         ? " The operator name goes on the right-hand side: `name = filter(...)`."
-        : functions[statement.op]
+        : fn
           ? ` \`${statement.op}\` is a function you defined; call it through an operator, e.g. process(t, fn=${statement.op}) or filter(t, ${statement.op}).`
           : "";
     return {
@@ -137,35 +150,10 @@ export function normalizeStatement(
   try {
     const split = splitInputs(def, statement.args, functions, options.tableNames);
     inputs = split.inputs;
-    const used = new Map<string, string>();
-    const context = {
-      functions,
-      inputs,
-      used: (slot: FunctionSlot) => {
-        if (slot.ref) {
-          if (options.sharedFunctions && functions[slot.ref]) {
-            for (const fn of functionClosure(functions[slot.ref], functions)) used.set(fn.name, fn.source);
-          } else used.set(slot.ref, slot.source);
-        }
-      },
-    };
-    const properties = def.normalize(split.rest, statement.kwargs, context);
-    const validate = validatorFor(def.name);
-    if (!validate(properties)) {
-      const first = validate.errors?.[0];
-      throw new NativeArgumentError(
-        `${first?.instancePath || "arguments"} ${first?.message ?? "invalid"}${first?.params && "allowedValues" in first.params ? `: ${JSON.stringify((first.params as any).allowedValues)}` : ""}`,
-        first?.instancePath?.replace(/^\//, "") || undefined
-      );
-    }
-    const view: NativeOpView = { type: def.type, properties, inputs, source: statement.source };
-    if (used.size) view.functions = Object.fromEntries(used);
-    // Multi-task: keep what was written when an input reads a saved table, so
-    // renders and task provenance show `at(name, task=N)`, not the source id.
-    if (split.references.some(ref => typeof ref !== "string")) view.taskInputs = split.references;
-    if (options.profileCollection === true) view.profileCollection = true;
-    view.revision = nativeRevision(view);
-    return { ...base, view, attempted: view };
+    const used = usedFunctions(functions, options);
+    const properties = def.normalize(split.rest, statement.kwargs, { functions, inputs, used: used.record });
+    validated(def.name, properties);
+    return { ...base, ...compiledView(def.type, properties, inputs, statement, split.references, used.map, options) };
   } catch (error) {
     if (error instanceof NativeArgumentError) {
       return {
@@ -181,11 +169,97 @@ export function normalizeStatement(
   }
 }
 
+/** `ranked = rank_by_score(scores, top=5)`: a `def` called as an operator. It
+ * compiles to a process whose function takes the tables positionally and the
+ * call's keyword arguments as settings; the def's docstring is its doc. The
+ * statement keeps the model's line as its source, so entries, restores and
+ * forks treat it like any other statement. */
+function normalizeRegisteredCall(
+  statement: ParsedStatement,
+  fn: ParsedFunction,
+  functions: Record<string, ParsedFunction>,
+  options: NormalizeOptions
+): ProgramStatement {
+  const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
+  const process = NATIVE_BY_NAME.get("process")!;
+  let inputs: string[] = [];
+  try {
+    const split = splitInputs({ ...process, name: fn.name }, statement.args, functions, options.tableNames);
+    inputs = split.inputs;
+    if (split.rest.length)
+      throw new NativeArgumentError(
+        `${fn.name} takes its input tables by name, then its settings as keywords; got ${show(split.rest[0])}.`
+      );
+    const used = usedFunctions(functions, options);
+    const properties = registeredOperatorProperties(fn, inputs, statement.kwargs, {
+      functions,
+      inputs,
+      used: used.record,
+    });
+    validated(process.name, properties);
+    return { ...base, ...compiledView("Process", properties, inputs, statement, split.references, used.map, options) };
+  } catch (error) {
+    if (error instanceof NativeArgumentError) {
+      return {
+        ...base,
+        error: {
+          message: `Invalid ${fn.name} arguments: ${error.message} Signature: ${registeredSignature(fn)}`,
+          field: error.field,
+        },
+        attempted: attemptedView(statement, "Process", inputs),
+      };
+    }
+    throw error;
+  }
+}
+
+/** Records the top-level `def`s a statement used, for rendering: with shared
+ * functions each def of the closure by its own name, otherwise the slot's
+ * whole source under the referenced name. */
+function usedFunctions(functions: Record<string, ParsedFunction>, options: NormalizeOptions) {
+  const map = new Map<string, string>();
+  return {
+    map,
+    record: (slot: FunctionSlot) => {
+      if (!slot.ref) return;
+      if (options.sharedFunctions && functions[slot.ref]) {
+        for (const fn of functionClosure(functions[slot.ref], functions)) map.set(fn.name, fn.source);
+      } else map.set(slot.ref, slot.source);
+    },
+  };
+}
+
+function validated(name: string, properties: Record<string, unknown>): void {
+  const validate = validatorFor(name);
+  if (validate(properties)) return;
+  const first = validate.errors?.[0];
+  throw new NativeArgumentError(
+    `${first?.instancePath || "arguments"} ${first?.message ?? "invalid"}${first?.params && "allowedValues" in first.params ? `: ${JSON.stringify((first.params as any).allowedValues)}` : ""}`,
+    first?.instancePath?.replace(/^\//, "") || undefined
+  );
+}
+
+function compiledView(
+  type: string,
+  properties: Record<string, unknown>,
+  inputs: string[],
+  statement: ParsedStatement,
+  references: ReturnType<typeof splitInputs>["references"],
+  used: Map<string, string>,
+  options: NormalizeOptions
+): { view: NativeOpView; attempted: NativeOpView } {
+  const view: NativeOpView = { type, properties, inputs, source: statement.source };
+  if (used.size) view.functions = Object.fromEntries(used);
+  // Multi-task: keep what was written when an input reads a saved table, so
+  // renders and task provenance show `at(name, task=N)`, not the source id.
+  if (references.some(ref => typeof ref !== "string")) view.taskInputs = references;
+  if (options.profileCollection === true) view.profileCollection = true;
+  view.revision = nativeRevision(view);
+  return { view, attempted: view };
+}
+
 /** Parse and normalize a whole program. */
-export async function compileProgram(
-  program: string,
-  options: { profileCollection?: boolean } = {}
-): Promise<ProgramResult> {
+export async function compileProgram(program: string, options: NormalizeOptions = {}): Promise<ProgramResult> {
   const parsed = await parseNativeProgram(program);
   return {
     ok: true,

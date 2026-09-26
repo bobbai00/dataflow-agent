@@ -37,6 +37,9 @@ const ARMS = [
   "react-efficient",
   "react-registry",
   "react-registry-sig",
+  // The registry plus the four cost/accuracy mechanisms of 2026-09-26:
+  // answer_from, registered operators, contract flags, lean context.
+  "react-lean",
 ];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
@@ -55,14 +58,22 @@ const settings = {
   nativeTaskHistory: true,
   // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig"].includes(arm),
-  nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig"].includes(arm),
+  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig", "react-lean"].includes(
+    arm
+  ),
+  nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig", "react-lean"].includes(arm),
   // The registry arms: the efficient arm plus versioned definitions in the
   // task-start index, supersede/bind/explain and compare. `-sig` also shows
   // functions in entries by signature only (an ablation: it cost 21 extra
   // inspect calls on Water in trial 1).
-  nativeDefinitionRegistry: arm === "react-registry" || arm === "react-registry-sig",
+  nativeDefinitionRegistry: ["react-registry", "react-registry-sig", "react-lean"].includes(arm),
   nativeDefinitionSignatures: arm === "react-registry-sig",
+  // react-lean: the answer composed from a table, defs callable as operators,
+  // contract flags with `expect`, column projections and lean entries.
+  nativeAnswerFrom: arm === "react-lean",
+  nativeRegisteredOperators: arm === "react-lean",
+  nativeContractFlags: arm === "react-lean",
+  nativeLeanContext: arm === "react-lean",
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
@@ -90,6 +101,10 @@ for (const key of [
   "nativeTaskContext",
   "nativeDefinitionRegistry",
   "nativeDefinitionSignatures",
+  "nativeAnswerFrom",
+  "nativeRegisteredOperators",
+  "nativeContractFlags",
+  "nativeLeanContext",
 ] as const) {
   if (actualSettings[key] !== settings[key]) {
     await session.close();
@@ -181,6 +196,14 @@ try {
       compare_statements: steps
         .flatMap(s => s.toolCalls ?? [])
         .reduce((n, c) => n + (String((c.input as any)?.edits ?? "").match(/=\s*compare\(/g) ?? []).length, 0),
+      // react-lean: the answer composed by the runtime (the last agent step has
+      // no usage), answer_from requests, expect declarations, projected observes.
+      answer_composed: steps.at(-1)?.role === "agent" && !steps.at(-1)?.usage && /Final Answer:/.test(steps.at(-1)?.content ?? "") ? 1 : 0,
+      answer_from_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => typeof (c.input as any)?.answer_from === "string").length,
+      expect_calls: steps.flatMap(s => s.toolCalls ?? []).filter(c => Object.keys((c.input as any)?.expect ?? {}).length > 0).length,
+      projected_observes: steps
+        .flatMap(s => s.toolCalls ?? [])
+        .reduce((n, c) => n + ((c.input as any)?.observe ?? []).filter((o: unknown) => typeof o === "string" && /\[/.test(o)).length, 0),
     };
     await write(`${directory}/stats.json`, stats);
     answers.push({ turn_id: turn.turn_id, answer, error, steps: steps.length, stats });

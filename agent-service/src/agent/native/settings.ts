@@ -74,6 +74,10 @@ export function validateNativeSettings(
     nativeTaskEfficiency?: unknown;
     nativeDefinitionRegistry?: unknown;
     nativeDefinitionSignatures?: unknown;
+    nativeAnswerFrom?: unknown;
+    nativeRegisteredOperators?: unknown;
+    nativeContractFlags?: unknown;
+    nativeLeanContext?: unknown;
     nativeTaskMemoryChars?: unknown;
   } = {}
 ): void {
@@ -94,6 +98,10 @@ export function validateNativeSettings(
     "nativeTaskEfficiency",
     "nativeDefinitionRegistry",
     "nativeDefinitionSignatures",
+    "nativeAnswerFrom",
+    "nativeRegisteredOperators",
+    "nativeContractFlags",
+    "nativeLeanContext",
   ] as const) {
     const value = settings[name];
     if (value !== undefined && typeof value !== "boolean")
@@ -101,6 +109,12 @@ export function validateNativeSettings(
     if (value === true && settings.agentMode === "code")
       throw new NativeCatalogSettingsError(`${name} requires agentMode "native"`);
   }
+  // A registered operator is a shared function called by name; lean entries
+  // are a shape of the compact entries.
+  if (settings.nativeRegisteredOperators === true && !settings.nativeAnalysisState)
+    throw new NativeCatalogSettingsError("nativeRegisteredOperators requires nativeAnalysisState");
+  if (settings.nativeLeanContext === true && !settings.nativeTaskEfficiency)
+    throw new NativeCatalogSettingsError("nativeLeanContext requires nativeTaskEfficiency");
   if (
     settings.nativeTaskEfficiency === true &&
     (!settings.nativeTaskHistory || !settings.nativeTaskContext || !settings.nativeAnalysisState)

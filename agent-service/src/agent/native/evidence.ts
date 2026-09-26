@@ -763,10 +763,14 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const appendFlow = pushTo(flowLines, () => evidenceBudget);
   const rows = info.result ?? [];
   const rawPreview = op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0;
-  const schema =
+  const fullSchema =
     info.resultSchema ?? Object.keys(rows[0] ?? {}).map(name => ({ name, type: "unknown", encoding: "unknown" }));
+  // An explicit projection (`observe: ["t[a,b]"]`) shows those columns of the
+  // rows; names the table does not have are ignored, and no match shows all.
+  const projected = context.columns?.length ? fullSchema.filter(c => context.columns!.includes(c.name)) : [];
+  const schema = projected.length ? projected : fullSchema;
   const total = count(info.totalRowCount) ? info.totalRowCount : undefined;
-  const summary = `Output Table: ${total ?? "?"} rows, ${schema.length} cols`;
+  const summary = `Output Table: ${total ?? "?"} rows, ${fullSchema.length} cols`;
   if (!append(summary, "table.shape")) {
     result.text = maxChars >= 9 ? "[omitted]" : "…".slice(0, maxChars);
     result.omitted.push({ id: "table", reason: "budget" });
@@ -783,13 +787,16 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     total === rows.length &&
     info.truncated === false &&
     rowLimit >= rows.length &&
-    (!context.columns?.length || schema.every(c => context.columns!.includes(c.name))) &&
     rows.every(row =>
       schema.every(
         c => own(row, c.name) && !(typeof row[c.name] === "string" && row[c.name].includes("...[truncated]..."))
       )
     );
-  const table = [schemaLine(schema), "Complete table (all rows):", ...rows.map(row => rowLine(row, schema))].join("\n");
+  const table = [
+    schemaLine(schema),
+    projected.length ? `Complete table (all rows; ${projected.length} of ${fullSchema.length} columns):` : "Complete table (all rows):",
+    ...rows.map(row => rowLine(row, schema)),
+  ].join("\n");
   const needed = used(lines) + table.length;
   if (complete && rows.length <= 20 && needed > maxChars && needed <= (context.completeSmallTableChars ?? 0)) {
     maxChars = needed;

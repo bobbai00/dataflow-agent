@@ -221,6 +221,14 @@ export interface NativePromptLayoutOptions {
   definitionRegistry?: boolean;
   /** Entries show functions by signature only; bodies come through inspect. */
   definitionSignatures?: boolean;
+  /** The `answer_from` field: the runtime composes the final answer from an observed table. */
+  answerFrom?: boolean;
+  /** A `def` may be called by name as an operator. */
+  registeredOperators?: boolean;
+  /** Contract flags on tables and the `expect` field. */
+  contractFlags?: boolean;
+  /** Column projections in `observe`; lean entries. */
+  leanContext?: boolean;
   /** `dataflowReasoning`: the tool takes a required `reasoning` argument, written first. */
   reasoning?: boolean;
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
@@ -384,11 +392,54 @@ export function buildNativeModeSystemPrompt(
                 ? "Entries show each function by its `def` signature only: call a function by name to reuse it, and `inspect=[\"name\"]` returns its exact body when you need to change it."
                 : "Entries show each function's code once; call a function by name to reuse it, since shared functions persist with their tables."
             )
-          : "")
+          : "") +
+        (options.registeredOperators ? REGISTERED_OPERATORS_METHOD : "") +
+        (options.contractFlags ? CONTRACT_FLAGS_METHOD : "") +
+        (options.answerFrom ? ANSWER_FROM_METHOD : "") +
+        (options.leanContext ? LEAN_CONTEXT_METHOD : "")
     )
     .replace("{{OBSERVATION_SCOPE}}", scope)
     .replace("{{RECALL_TOOL}}", recall);
 }
+
+/** A def the model calls by name. Registration is nothing the model declares:
+ * the def persists with the tables that call it, exactly as shared functions
+ * do, and the index lists it as an operator with its settings. */
+const REGISTERED_OPERATORS_METHOD = `
+
+Registered operators. A \`def\` whose docstring states in one sentence what its output table holds, whose first parameters are its input tables, and whose remaining parameters have literal defaults, is an operator you call by name:
+
+\`\`\`python
+def rank_by_score(scores, top=10, key="composite"):
+    """One row per learner in the top ranks by the chosen score column, with rank."""
+    import pandas as pd
+    ranked = scores.sort_values(key, ascending=False).head(top).reset_index(drop=True)
+    return ranked.assign(rank=range(1, len(ranked) + 1))
+
+top5 = rank_by_score(scored, top=5)
+\`\`\`
+
+It runs as a process (one DataFrame per table argument, the keyword arguments passed as given, the defaults otherwise), and its docstring is its doc. It persists with the tables that call it, so later tasks call it without resending the code; \`# Definitions\` lists it under \`Your operators\` with its settings. Redefining the def revises every table that calls it (its version number advances), and calling it with other settings makes a new table without touching the old one. Use a registered operator for a step you apply more than once (a cleaning rule, a scoring rule, a ranking, a report layout) instead of copying code between process functions, and pass what varies as settings rather than editing the body.
+`;
+
+/** Flags are judgments, not measurements: each one is the boundary condition
+ * of a stated contract, met on this table. They travel with the table. */
+const CONTRACT_FLAGS_METHOD = `
+
+Contract flags. A line starting with ⚠ under an operator is a judgment the runtime made from the operator's contract and the whole-table profile of its output: a text column holds "nan", "NULL", "N/A" or similar tokens, which are text and not missing values; a column holds numbers as text; a column contains its own name as a value (a header row repeated inside the data); a join without validate= produced more rows than either input (keys repeat, rows were multiplied); a cast with errors="null" made values missing; a reducer skipped nulls, so its denominator is the non-null count; a filter kept nothing or everything; a map added a column that is null in every row; a union filled a column with null for an input that lacks it. A flag stays with the table and every table built from it shows it with \`(from <table>)\` until an operator resolves it (cleaning the tokens, casting the column, deduplicating the key), and the task-start index lists the flags of current tables. Treat a flag as a fact to act on before building further or answering: clean, cast, validate, or state the caveat with the number. \`expect={"table": {"rows": [700, 800], "nonempty": true, "unique": ["id"], "nonnull": ["score"], "columns": ["region"]}}\` declares your own contract on a table in the call that builds it; a met expectation is a ✓ line, a failed one a ⚠ line naming what failed, so a wrong population or a lost column is caught at the step that caused it rather than at the answer.
+`;
+
+/** The answer call is the largest single cost of a short turn; when the answer
+ * is a table the runtime writes the answer. */
+const ANSWER_FROM_METHOD = `
+
+Answering from a table. When a table you observe in a call holds exactly the answer to the current request (its columns are the requested quantities, one row, or one row per requested item, rounded as the request asks), set \`answer_from\` to that table's id in the same call. The runtime then ends the task with \`Final Answer: <single-line JSON>\` composed from the table (one row becomes an object of its columns; several rows become an object keyed by the first column when it is a unique text key, otherwise a list of row objects), and you make no further call. Build the answer table with project, map or aggregate so that its column names are the answer's keys and its values are already rounded. If the table is empty, not completely held or too large, the observation says why and you write the final answer yourself. When the answer needs words rather than a table, answer in text as usual.
+`;
+
+const LEAN_CONTEXT_METHOD = `
+
+Reading economically. \`observe=["table[col1,col2]"]\` shows only those columns of a table, all its rows when that projection is small; use it on a wide table instead of a project built only for reading. Completed entries keep the rows of the tables an answer came from; other observed tables are listed by size and can be observed by name. A function's code appears in the entry of the task that defined it; later entries refer to it by name, and \`inspect\` returns the current body.
+`;
 
 /** The state of a session read as versioned definitions. The vocabulary is the
  * user's: "the equal-weight form introduced earlier, not the currently active

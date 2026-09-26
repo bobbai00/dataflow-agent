@@ -53,6 +53,14 @@ export interface ToolContext {
     nativeAnalysisState?: boolean;
     nativeTaskEfficiency?: boolean;
     nativeDefinitionRegistry?: boolean;
+    /** The `answer_from` field: the runtime composes the final answer from an observed table. */
+    nativeAnswerFrom?: boolean;
+    /** A `def` may be called by name as an operator. */
+    nativeRegisteredOperators?: boolean;
+    /** Contract flags on tables and the `expect` field. */
+    nativeContractFlags?: boolean;
+    /** Lean context: column projections in `observe`, slimmer entries. */
+    nativeLeanContext?: boolean;
     contextWindowTokens?: number;
     staticCompaction?: boolean;
     enableCompactTool?: boolean;

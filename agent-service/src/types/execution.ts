@@ -51,6 +51,15 @@ interface PortShape {
   columns: number;
 }
 
+/** One contract flag on a table. `origin` is the table whose operator raised
+ * it; a descendant carries the same flag with the same origin. */
+export interface TableFlag {
+  code: string;
+  column?: string;
+  text: string;
+  origin: string;
+}
+
 export interface OperatorInfo {
   state: string;
   inputTuples: number;
@@ -74,6 +83,9 @@ export interface OperatorInfo {
   resultSchema?: Array<{ name: string; type: string; encoding: string }>;
   /** A runtime remark shown with the operator's observation line, e.g. a restore's verification. */
   note?: string;
+  /** Contract flags: judgments the runtime made from the operator's contract
+   * and the table's profile, inherited through lineage until resolved. */
+  flags?: TableFlag[];
   /** Execution that retrieved this response; not a claim that cached data reran. */
   executionContext?: {
     workflowId: number;

@@ -180,7 +180,12 @@ export class WorkflowSnapshotStorage {
   /** Finalize the successful observation frame after execution (including a
    * cached observe with no execution). DELTA replays this exact selection even
    * after settings, downstream relevance, or the current DAG have changed. */
-  captureNativeObservations(reactStepId: string, ids: Iterable<string>, options: NativeObservationOptions): void {
+  captureNativeObservations(
+    reactStepId: string,
+    ids: Iterable<string>,
+    options: NativeObservationOptions,
+    columnsById?: Record<string, readonly string[]>
+  ): void {
     const snapshotId = this.snapshotByReactStepId.get(reactStepId);
     if (!snapshotId) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
     const snapshot = this.snapshots.get(snapshotId)!;
@@ -194,6 +199,8 @@ export class WorkflowSnapshotStorage {
         id,
         selectNativeObservation({
           ...options,
+          // `observe: ["t[a,b]"]`: the event's own column projection.
+          ...(columnsById?.[id]?.length ? { columns: columnsById[id] } : {}),
           op,
           info,
           workflow: snapshot.workflow,

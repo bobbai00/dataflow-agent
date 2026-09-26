@@ -187,6 +187,14 @@ export interface AgentSettings {
   nativeDefinitionRegistry?: boolean;
   /** With the registry: entries show functions by signature only (bodies through inspect). */
   nativeDefinitionSignatures?: boolean;
+  /** The `answer_from` field: the runtime composes the final answer from an observed table; fixed for a session. */
+  nativeAnswerFrom?: boolean;
+  /** A `def` may be called by name as an operator; fixed for a session. */
+  nativeRegisteredOperators?: boolean;
+  /** Contract flags on tables and the `expect` field; fixed for a session. */
+  nativeContractFlags?: boolean;
+  /** Column projections in `observe` and lean entries; fixed for a session. */
+  nativeLeanContext?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   /** Which operator results the snapshot ships (see ResultSelection). */
@@ -544,6 +552,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeTaskEfficiency: false,
   nativeDefinitionRegistry: false,
   nativeDefinitionSignatures: false,
+  nativeAnswerFrom: false,
+  nativeRegisteredOperators: false,
+  nativeContractFlags: false,
+  nativeLeanContext: false,
   nativeTaskMemoryChars: 24000,
   dataEvidence: false,
   flowEvidence: false,
@@ -677,6 +689,10 @@ export interface AgentSettingsApi {
   nativeDefinitionRegistry?: boolean;
   /** With the registry: entries show functions by signature only (bodies through inspect). */
   nativeDefinitionSignatures?: boolean;
+  nativeAnswerFrom?: boolean;
+  nativeRegisteredOperators?: boolean;
+  nativeContractFlags?: boolean;
+  nativeLeanContext?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;
@@ -795,6 +811,10 @@ export interface UpdateAgentSettingsRequest {
   nativeDefinitionRegistry?: boolean;
   /** With the registry: entries show functions by signature only (bodies through inspect). */
   nativeDefinitionSignatures?: boolean;
+  nativeAnswerFrom?: boolean;
+  nativeRegisteredOperators?: boolean;
+  nativeContractFlags?: boolean;
+  nativeLeanContext?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
   dataEvidence?: boolean;

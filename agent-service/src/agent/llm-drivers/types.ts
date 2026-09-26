@@ -130,6 +130,9 @@ export interface DriverRunTurnInput {
    *  calls). Defaults to `qwen-xml` when unset. */
   toolDialect?: LocalToolDialect;
   abortSignal?: AbortSignal;
+  /** Checked after each step: true ends the turn without another model call
+   *  (the agent composed the answer from an observed table). */
+  shouldStop?: () => boolean;
   prepareStep: DriverPrepareStep;
   onStepFinish: (args: DriverStepFinish) => Promise<void>;
 }

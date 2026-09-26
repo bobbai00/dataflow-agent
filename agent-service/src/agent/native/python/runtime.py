@@ -126,7 +126,11 @@ def _filename(spec, field):
     return f"native-v2:{spec.get('id', 'operator')}:{spec.get('revision', 'unversioned')}:{field}"
 
 
-def _validate_function(spec, source, field, entry, parameters=None):
+def _validate_function(spec, source, field, entry, parameters=None, keywords=None):
+    """`keywords` (the call's settings) marks a registered operator: the
+    tables bind to the parameters without a default and every passed keyword
+    must be a parameter with a default. Without it a callback takes exactly
+    the positional parameters, as before."""
     filename = _filename(spec, field)
     try:
         tree = ast.parse(source, filename=filename)
@@ -148,13 +152,30 @@ def _validate_function(spec, source, field, entry, parameters=None):
         node = entries[0]
         args = node.args
         positional = [arg.arg for arg in args.posonlyargs + args.args]
-        valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
-        # Inputs bind positionally (`function(*frames)` below), so only the arity
-        # has to match the ordered inputs; the parameter names are the author's.
         expected = len(parameters) if parameters is not None else 1
-        valid = valid and len(positional) == expected
+        if keywords is None:
+            valid = not (node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults)
+            # Inputs bind positionally (`function(*frames)` below), so only the arity
+            # has to match the ordered inputs; the parameter names are the author's.
+            valid = valid and len(positional) == expected
+        else:
+            required = positional[: len(positional) - len(args.defaults)]
+            optional = positional[len(required):] + [arg.arg for arg in args.kwonlyargs]
+            valid = (
+                not (node.decorator_list or args.vararg or args.kwarg)
+                and all(default is not None for default in args.kw_defaults)
+                and len(required) == expected
+                and all(key in optional for key in keywords)
+            )
     if not valid:
-        if parameters is not None:
+        if keywords is not None:
+            message = (
+                f"Define exactly one synchronous def {entry} whose parameters without a default are its "
+                f"{expected} input table(s) in order ({', '.join(parameters or [])}), followed by parameters with "
+                f"literal defaults; the call passed {', '.join(keywords) or 'no keywords'}. "
+                "No decorators or variadic arguments."
+            )
+        elif parameters is not None:
             message = (
                 f"Define exactly one synchronous def {entry} with {expected} positional parameter(s), one per input "
                 f"in order ({', '.join(parameters)}); names are yours. No decorators, defaults or variadic arguments."
@@ -288,7 +309,19 @@ def validate_native(spec):
     if kind in ("Filter", "Map"):
         _validate_function(spec, props["func"], "func", props.get("entry", "apply"))
     elif kind == "Process":
-        _validate_function(spec, props["code"], "code", props.get("entry", "process" if inputs else "load"), inputs)
+        entry = props.get("entry", "process" if inputs else "load")
+        params = props.get("params")
+        if params is not None and (
+            not isinstance(params, dict)
+            or any(
+                not isinstance(name, str)
+                or (value is not None and type(value) not in (str, int, float, bool))
+                or (type(value) is float and not math.isfinite(value))
+                for name, value in params.items()
+            )
+        ):
+            raise _error(spec, "PARAMETER_VALUE", "Operator settings must be named finite scalars.", stage="validate")
+        _validate_function(spec, props["code"], "code", entry, inputs, params)
     elif kind == "Aggregate":
         aggregates = props.get("aggregations", [])
         if not aggregates:
@@ -412,9 +445,9 @@ def _function(spec, source, field, entry):
     except Exception as error:
         raise _caught(spec, error, source, field, entry) from error
 
-    def call(*args):
+    def call(*args, **kwargs):
         try:
-            return function(*args)
+            return function(*args, **kwargs)
         except Exception as error:
             raise _caught(spec, error, source, field, entry) from error
 
@@ -1933,7 +1966,9 @@ def execute_native(spec, inputs):
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
-        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
+        # A registered operator's settings ride as keyword arguments; the
+        # function's own defaults apply to the ones the call did not pass.
+        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs], **(props.get("params") or {})))
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     _frame(spec, output)

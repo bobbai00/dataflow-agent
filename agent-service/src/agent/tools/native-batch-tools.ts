@@ -51,6 +51,8 @@ import {
 } from "../native/analysis-state";
 import { renderTaskEntry } from "../native/task-entries";
 import type { BindRequest } from "../native/definition-registry";
+import type { Expectation } from "../native/flags";
+import { isRegisteredCall } from "../native/registered-operators";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -78,6 +80,12 @@ export interface NativeBatchResult {
   inspection?: string[];
   /** Registry facts of this call: what a bind resolved to, what was superseded. */
   notes?: string[];
+  /** `answer_from`: the table the runtime composes the final answer from, once it exists. */
+  answerFrom?: string;
+  /** `observe: ["t[a,b]"]`: the columns each projected table shows in this event. */
+  observeColumns?: Record<string, string[]>;
+  /** `expect`: the declared contracts, checked after execution. */
+  expect?: Record<string, Expectation>;
 }
 
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
@@ -128,7 +136,55 @@ export interface DataflowInput {
   /** Definition registry: lineage of a table with the version of each definition it read. */
   explain?: string[];
   observe?: string[];
+  /** The table whose complete contents are the answer; the runtime ends the turn with it. */
+  answer_from?: string;
+  /** What tables must satisfy after this call; failures become ⚠ lines on those tables. */
+  expect?: Record<string, Expectation>;
 }
+
+export interface DataflowToolOptions {
+  reasoning?: boolean;
+  analysisState?: boolean;
+  restore?: boolean;
+  definitionRegistry?: boolean;
+  /** The `answer_from` field. */
+  answerFrom?: boolean;
+  /** The `expect` field (contract flags are on). */
+  contractFlags?: boolean;
+  /** Column projections in `observe` are documented. */
+  leanContext?: boolean;
+  /** A `def` may be called by name as an operator. */
+  registeredOperators?: boolean;
+}
+
+const ANSWER_FROM_PROPERTY = {
+  type: "string",
+  description:
+    "Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, its columns being the requested quantities (rounded as asked). The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its columns; several rows → an object keyed by the first column when it is a unique text key, otherwise a list of row objects under the table's name) and makes no further call. If the table is empty, not completely held or too large, the observation says why and you answer in text instead.",
+};
+
+const EXPECT_PROPERTY = {
+  type: "object",
+  additionalProperties: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      rows: {
+        anyOf: [
+          { type: "integer" },
+          { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 },
+        ],
+        description: "Exact row count, or [min, max].",
+      },
+      nonempty: { type: "boolean" },
+      unique: { type: "array", items: { type: "string" }, description: "Columns whose values must be unique and non-null." },
+      nonnull: { type: "array", items: { type: "string" }, description: "Columns that must hold no null." },
+      columns: { type: "array", items: { type: "string" }, description: "Columns the table must have." },
+    },
+  },
+  description:
+    'What tables must satisfy after this call, e.g. {"cohort": {"rows": [700, 800], "unique": ["id"], "nonnull": ["score"], "columns": ["region"]}}. Each named table gets a ✓ line when every expectation is met and a ⚠ line naming what failed.',
+};
 
 /** Written first when enabled, so the edits follow the stated intent. */
 const REASONING_PROPERTY = {
@@ -137,9 +193,7 @@ const REASONING_PROPERTY = {
     "Written first: one or two sentences on why this call and what you expect the observed tables to show (row count, columns, a value you can check). It is replayed with the call, so compare the next observation against it.",
 };
 
-export function nativeBatchSchema(
-  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean; definitionRegistry?: boolean } = {}
-): Record<string, unknown> {
+export function nativeBatchSchema(options: DataflowToolOptions = {}): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
@@ -183,7 +237,10 @@ export function nativeBatchSchema(
         type: "array",
         items: { type: "string" },
         description:
-          "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear.",
+          "Step 4, after execution: ids of every operator whose table contents you want to see, including existing or re-executed ones. Omitted or [] returns compact receipts only, with no successful table bodies. Errors always appear." +
+          (options.leanContext
+            ? " `table[col1,col2]` shows only those columns of the table (all its rows when that projection is small): use it on a wide table instead of a project built only for reading."
+            : ""),
       },
       ...(options.analysisState
         ? {
@@ -265,6 +322,8 @@ export function nativeBatchSchema(
             },
           }
         : {}),
+      ...(options.answerFrom ? { answer_from: ANSWER_FROM_PROPERTY } : {}),
+      ...(options.contractFlags ? { expect: EXPECT_PROPERTY } : {}),
     },
     required: [...(options.reasoning ? ["reasoning"] : []), ...(options.analysisState ? [] : ["edits"])],
   };
@@ -276,9 +335,7 @@ export const DATAFLOW_TOOL_DESCRIPTION =
   "), where a new id creates an operator and an existing id modifies it and keeps its consumers; (3) new and modified operators execute, with everything downstream of them; (4) the tables of the ids in `observe` are shown (omitted/[] hides successful tables but never errors). Batch a whole dependent chain in one call; the scheduler orders it. A statement that fails alone blocks only its dependents; the rest lands. Empty `edits` with `observe` re-reads cached results without executing. With task history, `restore` rebuilds a table as it was defined at the end of an earlier task (see the field).";
 
 /** The tool description for the agent's settings: with `reasoning`, one sentence says it comes first. */
-export function dataflowToolDescription(
-  options: { reasoning?: boolean; analysisState?: boolean; restore?: boolean; definitionRegistry?: boolean } = {}
-): string {
+export function dataflowToolDescription(options: DataflowToolOptions = {}): string {
   const description =
     options.restore === false
       ? DATAFLOW_TOOL_DESCRIPTION.replace(/ With task history, `restore`[\s\S]*$/, "")
@@ -293,6 +350,15 @@ export function dataflowToolDescription(
       : "") +
     (options.definitionRegistry
       ? " The task starts from `# Definitions`, the graph read as versioned definitions. `bind` evaluates an existing table under chosen versions of the definitions it reads (rollback, counterfactual, composition) as a new table; `supersede` declares a new table the active version of an old one; `explain` prints a table's lineage with the version of each definition it read; the `compare` operator diffs two versions row by row."
+      : "") +
+    (options.registeredOperators
+      ? " A `def` with a docstring whose parameters are its input tables followed by parameters with literal defaults is a registered operator: call it by name like any operator (`ranked = rank_by_score(scores, top=5)`); it persists with the tables that call it and is listed under `Your operators`."
+      : "") +
+    (options.contractFlags
+      ? " Lines marked ⚠ under an operator are contract flags: facts the runtime established from the operator's contract and the table's whole-table profile, inherited by every table built on it; `expect` declares your own contracts on tables and reports whether they hold."
+      : "") +
+    (options.answerFrom
+      ? " `answer_from` names a table whose complete contents are the answer: the runtime composes `Final Answer: <single-line JSON>` from it and the task ends without another call."
       : "")
   );
 }
@@ -312,14 +378,26 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
       ? context.definitionRegistry
       : undefined;
   const definitionRegistry = !!registry;
+  const answerFrom = context?.settings?.nativeAnswerFrom === true;
+  const contractFlags = context?.settings?.nativeContractFlags === true;
+  const leanContext = context?.settings?.nativeLeanContext === true;
+  const registeredOperators = analysisState && context?.settings?.nativeRegisteredOperators === true;
+  const toolOptions: DataflowToolOptions = {
+    reasoning,
+    analysisState,
+    restore,
+    definitionRegistry,
+    answerFrom,
+    contractFlags,
+    leanContext,
+    registeredOperators,
+  };
   let inspectionTask: string | undefined;
   const shownInspections = new Set<string>();
   return {
     [TOOL_NAME_DATAFLOW]: tool({
-      description: dataflowToolDescription({ reasoning, analysisState, restore, definitionRegistry }),
-      inputSchema: jsonSchema<DataflowInput>(
-        nativeBatchSchema({ reasoning, analysisState, restore, definitionRegistry }) as any
-      ),
+      description: dataflowToolDescription(toolOptions),
+      inputSchema: jsonSchema<DataflowInput>(nativeBatchSchema(toolOptions) as any),
       execute: async args => {
         if (analysisState && args && args.edits === undefined) args = { ...args, edits: "" };
         const repairEpoch = repair.epoch;
@@ -404,6 +482,21 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         if (!registry && (args.bind?.length || args.explain?.length || (args.supersede && Object.keys(args.supersede).length)))
           return createErrorResult("bind, supersede and explain require nativeDefinitionRegistry.");
         if ((args.explain?.length ?? 0) > 4) return createErrorResult("Explain at most four tables per call.");
+        if (args.answer_from !== undefined && typeof args.answer_from !== "string")
+          return createErrorResult("answer_from takes the id of one table.");
+        if (args.answer_from && !answerFrom) return createErrorResult("answer_from requires nativeAnswerFrom.");
+        const isExpect = (value: unknown) =>
+          value === undefined ||
+          (!!value &&
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            Object.values(value as object).every(item => item && typeof item === "object" && !Array.isArray(item)));
+        if (!isExpect(args.expect))
+          return createErrorResult(
+            'expect takes {"table": {"rows": n | [min, max], "nonempty": true, "unique": [...], "nonnull": [...], "columns": [...]}}.'
+          );
+        if (args.expect && Object.keys(args.expect).length && !contractFlags)
+          return createErrorResult("expect requires nativeContractFlags.");
         // A bind is realized by the existing planners: an earlier in-place
         // version becomes a restore of that definition, the target becomes a
         // fork bound to the chosen version tables.
@@ -457,7 +550,10 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         const program = restorePlans.length
           ? [args.edits, ...restorePlans.map(plan => plan.program)].join("\n")
           : args.edits;
-        const compileOptions = { profileCollection: context?.settings?.nativeProfileCollection === true };
+        const compileOptions = {
+          profileCollection: context?.settings?.nativeProfileCollection === true,
+          registeredOperators,
+        };
         const compiled = analysisState
           ? await compileAnalysisProgram(program, state, args.delete, compileOptions)
           : await compileProgram(program, compileOptions);
@@ -760,6 +856,18 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
               });
             }
           }
+        // Registered operators: a def called by name persists with its tables;
+        // its versions (distinct bodies over time) are kept for the index.
+        if (registeredOperators && context?.definitionRegistry)
+          for (const [index, statement] of statements.entries()) {
+            const outcome = outcomes[index];
+            const view = statement.view;
+            if (!view || !outcome || (outcome.status !== "added" && outcome.status !== "modified")) continue;
+            if (!isRegisteredCall(view)) continue;
+            const name = String(view.properties.entry);
+            const source = view.functions?.[name];
+            if (source) context.definitionRegistry.recordOperator(name, source, context.activeTaskNumber?.() ?? 0);
+          }
         // Registry: contract hints on new custom code, once per kind per call.
         if (registry) {
           let fitted = false;
@@ -783,8 +891,24 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             }
           }
         }
-        const requested = args.observe ?? [];
+        // `t[a,b]` projects a table to those columns for this event's
+        // observation; the id list stays plain ids. The answer table is always
+        // observed, so its rows reach the entry and, on a refusal, the model.
+        const observeColumns: Record<string, string[]> = {};
+        const requested = (args.observe ?? []).map(item => {
+          const match = /^\s*([A-Za-z_]\w*)\s*\[([^\]]*)\]\s*$/.exec(item);
+          if (!match) return item.trim();
+          const columns = match[2]
+            .split(",")
+            .map(name => name.trim().replace(/^["']|["']$/g, ""))
+            .filter(Boolean);
+          if (columns.length) observeColumns[match[1]] = [...new Set([...(observeColumns[match[1]] ?? []), ...columns])];
+          return match[1];
+        });
         const observationErrors: string[] = [];
+        if (args.answer_from && !state.getOperator(args.answer_from))
+          observationErrors.push(`answer_from: no table \`${args.answer_from}\`; write the final answer yourself.`);
+        else if (args.answer_from && !requested.includes(args.answer_from)) requested.push(args.answer_from);
         const observe = [...new Set(requested)].filter(id => {
           if (state.getOperator(id)) return true;
           observationErrors.push(`Cannot observe \`${id}\`: no such table.`);
@@ -853,6 +977,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           ...(restored.length ? { restored } : {}),
           ...(inspection.length ? { inspection } : {}),
           ...(notes.length ? { notes } : {}),
+          ...(args.answer_from && state.getOperator(args.answer_from) ? { answerFrom: args.answer_from } : {}),
+          ...(Object.keys(observeColumns).length ? { observeColumns } : {}),
+          ...(args.expect && Object.keys(args.expect).length ? { expect: args.expect } : {}),
         } satisfies NativeBatchResult;
       },
     }),

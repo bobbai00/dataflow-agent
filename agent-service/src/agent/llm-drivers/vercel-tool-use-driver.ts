@@ -65,7 +65,7 @@ export class VercelToolUseDriver implements LLMDriver {
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      stopWhen: [stepCountIs(input.maxSteps), () => input.shouldStop?.() === true],
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },

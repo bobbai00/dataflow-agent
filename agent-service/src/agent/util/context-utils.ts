@@ -64,6 +64,7 @@ import { summarize, type OperatorRenderExtras } from "../context/summarize/summa
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
 import { isHiddenTaskSource, writtenInputs } from "../native/task-reference";
+import { flagLine } from "../native/flags";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
@@ -2105,6 +2106,9 @@ function serializeTaskBody(
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
         if (currInfo?.note) obs.push(`  ${currInfo.note}`);
+        // Contract flags travel with the table: shown on every observation of
+        // it, whether or not its rows are requested.
+        for (const flag of currInfo?.flags ?? []) obs.push(`  ${flagLine(flag, op.operatorID)}`);
         // Successful hidden outputs keep a compact receipt. Errors bypass the
         // display choice and continue through the full error renderer below.
         if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {
@@ -3157,6 +3161,9 @@ function renderNativeToolCall(
         lines.push(`  ${field}: ${JSON.stringify(inp[field])}`);
     if (inp.supersede && typeof inp.supersede === "object" && Object.keys(inp.supersede as object).length)
       lines.push(`  supersede: ${JSON.stringify(inp.supersede)}`);
+    if (inp.expect && typeof inp.expect === "object" && Object.keys(inp.expect as object).length)
+      lines.push(`  expect: ${JSON.stringify(inp.expect)}`);
+    if (typeof inp.answer_from === "string" && inp.answer_from) lines.push(`  answer_from: ${inp.answer_from}`);
     const text = edits.trim();
     if (text) {
       lines.push("  edits:");

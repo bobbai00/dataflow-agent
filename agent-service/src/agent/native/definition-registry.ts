@@ -40,6 +40,8 @@ import type { TaskHistory } from "./task-history";
 import type { AnalysisFork } from "./analysis-state";
 import type { RestoreRequest } from "./task-restore";
 import { TASK_SOURCE_PREFIX } from "./task-reference";
+import { renderRegisteredOperators } from "./registered-operators";
+import { flagAlerts } from "./task-entries";
 
 export interface DefinitionVersion {
   /** 1-based, in creation order. */
@@ -92,6 +94,20 @@ const docOf = (op: OperatorPredicate | undefined): string | undefined => {
  * versions is read from the graph and the task history when rendered. */
 export class DefinitionRegistry {
   private readonly supersedes = new Map<string, Supersede>();
+  /** Registered operators: one version per distinct body a name has had. */
+  private readonly operators = new Map<string, Array<{ source: string; task: number }>>();
+
+  /** A def called as an operator landed with this body in this task. */
+  recordOperator(name: string, source: string, task: number): void {
+    const versions = this.operators.get(name) ?? [];
+    if (versions.at(-1)?.source !== source) versions.push({ source, task });
+    this.operators.set(name, versions);
+  }
+
+  /** How many distinct bodies the name has had (1 for a never-revised one). */
+  operatorVersion(name: string): number {
+    return this.operators.get(name)?.length ?? 1;
+  }
 
   /** Declare `table` the active version of the definition `of` belongs to. */
   supersede(table: string, of: string, task: number): void {
@@ -241,6 +257,7 @@ export class DefinitionRegistry {
       "A definition is a table with versions; ACTIVE is what current tables read. Every version is a table you can bind to or read; a superseded in-place version keeps its saved values.",
     ];
     if (versioned.length) lines.push("Versioned:", ...versioned);
+    lines.push(...renderRegisteredOperators(state, name => this.operatorVersion(name)));
     if (hubs.length) lines.push("Tables the analysis stands on:", hubs.join("\n"));
     if (others.length) lines.push(`Other current tables (their entries hold the definitions): ${others.join(" · ")}`);
     if (probes.length) lines.push(`Not read by any table (probes and reports; observe by name): ${probes.join(", ")}`);
@@ -249,7 +266,7 @@ export class DefinitionRegistry {
       if (info?.error) return [`⚠ ${op.operatorID} failed; its dependents have no current result`];
       return [];
     });
-    return [...lines, ...alerts].join("\n");
+    return [...lines, ...alerts, ...flagAlerts(operators, results)].join("\n");
   }
 
   /** `explain`: a result's lineage with the version of each definition it read. */

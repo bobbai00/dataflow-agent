@@ -133,8 +133,18 @@ def _encode(program, node):
 
 def _name_spans(call, statement):
     """Identifier arguments of the call (positional and keyword, inside lists
-    and dicts too) with their (line, column) spans relative to the statement."""
+    and dicts too) with their (line, column) spans relative to the statement,
+    plus the called name itself (marked `operator`), so a statement that calls
+    a registered operator can be rewritten together with its function."""
     spans = []
+
+    def span_of(node):
+        return [
+            node.lineno - statement.lineno + 1,
+            node.col_offset - (statement.col_offset if node.lineno == statement.lineno else 0),
+            node.end_lineno - statement.lineno + 1,
+            node.end_col_offset - (statement.col_offset if node.end_lineno == statement.lineno else 0),
+        ]
 
     def walk(node, argument_index=None):
         if isinstance(node, ast.Name):
@@ -142,12 +152,7 @@ def _name_spans(call, statement):
                 {
                     "name": node.id,
                     **({"argumentIndex": argument_index} if argument_index is not None else {}),
-                    "span": [
-                        node.lineno - statement.lineno + 1,
-                        node.col_offset - (statement.col_offset if node.lineno == statement.lineno else 0),
-                        node.end_lineno - statement.lineno + 1,
-                        node.end_col_offset - (statement.col_offset if node.end_lineno == statement.lineno else 0),
-                    ],
+                    "span": span_of(node),
                 }
             )
         elif isinstance(node, (ast.List, ast.Tuple)):
@@ -157,11 +162,48 @@ def _name_spans(call, statement):
             for value in node.values:
                 walk(value, argument_index)
 
+    if isinstance(call.func, ast.Name):
+        spans.append({"name": call.func.id, "operator": True, "span": span_of(call.func)})
     for index, item in enumerate(call.args):
         walk(item, index)
     for keyword in call.keywords:
         walk(keyword.value)
     return spans
+
+
+def _signature(text, node):
+    """What makes a `def` callable as an operator: its parameters without a
+    default are the input tables, its parameters with a literal default are
+    the settings a call may pass, and its docstring is its doc. A default that
+    is not a literal is recorded as None; variadic or default-less keyword-only
+    parameters mark the function as not callable that way."""
+    args = node.args
+    positional = args.posonlyargs + args.args
+    required = positional[: len(positional) - len(args.defaults)]
+    keywords = {}
+    for arg, default in zip(positional[len(required):], args.defaults):
+        keywords[arg.arg] = _literal(text, default)
+    variadic = bool(args.vararg or args.kwarg)
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+        if default is None:
+            variadic = True
+        else:
+            keywords[arg.arg] = _literal(text, default)
+    doc = ast.get_docstring(node, clean=True)
+    return {
+        "tables": [arg.arg for arg in required],
+        "keywords": keywords,
+        **({"doc": " ".join(doc.split())} if doc else {}),
+        **({"variadic": True} if variadic else {}),
+    }
+
+
+def _literal(text, node):
+    try:
+        value = _encode(text, node)
+    except ProgramError:
+        return None
+    return value if value["kind"] == "const" else None
 
 
 def _arguments(program, call):
@@ -290,6 +332,7 @@ def _collect(text, tree, offset, statements, functions, errors):
                 functions[node.name] = {
                     "name": node.name,
                     "params": [arg.arg for arg in node.args.posonlyargs + node.args.args],
+                    **_signature(text, node),
                     "source": _segment(text, node),
                     "line": node.lineno + offset,
                     **_references(_segment(text, node)),

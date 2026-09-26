@@ -32,6 +32,8 @@ import type { WorkflowState } from "../workflow-state";
 import { TOOL_NAME_DATAFLOW, asNativeBatchResult, nativeBatchResults } from "../tools/native-batch-tools";
 import { getVisibleResultHeaders } from "../tools/tools-utility";
 import type { TaskHistory } from "./task-history";
+import { ownFlags } from "./flags";
+import { renderRegisteredOperators } from "./registered-operators";
 
 export type ChangeStatus = "added" | "modified" | "restored" | "deleted" | "failed";
 
@@ -52,6 +54,8 @@ export interface TaskChange {
   values?: Array<[string, Array<[string, number]>]>;
   /** `EMPTY`, `failed: <reason>`, a restore's verification, … */
   flag?: string;
+  /** Contract flags this table's own operator raised (inherited ones are implied by lineage). */
+  flags?: string[];
   /** For a modification: the task whose definition this one replaced. */
   replaces?: number;
   /** The step (dataflow call) that last landed this change, counted from 0 within the task. */
@@ -207,15 +211,30 @@ export interface BuildTaskEntryInput {
   results: ReadonlyMap<string, OperatorInfo>;
   state: WorkflowState;
   history?: TaskHistory;
+  /** Lean entries: probes keep one line, only answer sources keep rows, a
+   * function body is shown once per session. */
+  lean?: boolean;
 }
 
 /** Fold the task's dataflow receipts into one change per operator: the last
  * status wins, a failure counts only for an id that never landed. */
 export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
-  const { task, steps, results, state, history } = input;
+  const { task, steps, results, state, history, lean } = input;
   const request = steps.find(step => step.role === "user")?.content ?? "";
   const answer = steps.filter(step => step.role === "agent" && step.isEnd).at(-1)?.content ?? "";
   const provenance = history?.provenance();
+  // Lean entries: a table nothing reads and the answer did not come from is a
+  // probe; a function body an earlier entry already shows is referenced.
+  const readBy = new Map<string, number>();
+  for (const op of state.getAllOperators())
+    for (const upstream of op.nativeOp?.inputs ?? []) readBy.set(upstream, (readBy.get(upstream) ?? 0) + 1);
+  const shownFunctions = new Map<string, { task: number; id: string }>();
+  if (lean)
+    for (const entry of history?.entries() ?? [])
+      for (const change of entry.changes)
+        for (const body of change.functions ?? [])
+          if (!body.startsWith("# def ") && !shownFunctions.has(body))
+            shownFunctions.set(body, { task: entry.task, id: change.id });
   const landed = new Map<
     string,
     { status: ChangeStatus; attempted?: string; message?: string; call: number; position: number; step?: string }
@@ -263,10 +282,12 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
       call++;
     }
   }
+  const from = answerSources(answer, observed, results);
   const changes: TaskChange[] = [];
   for (const [id, fold] of landed) {
     const op = state.getOperator(id);
     const info = results.get(id);
+    const probe = lean === true && !(readBy.get(id) ?? 0) && !from.includes(id);
     if (fold.status === "failed") {
       if (op) continue; // a later statement landed this id
       changes.push({
@@ -289,18 +310,25 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
     // Bodies stay with the doc: a later task that revises or reproduces an
     // earlier formula needs the code, not only its one-sentence summary.
     if (op?.nativeOp?.functions && Object.keys(op.nativeOp.functions).length)
-      change.functions = Object.values(op.nativeOp.functions).map(body => {
-        const lines = body.split("\n");
-        return lines.length <= FUNCTION_LINES
-          ? body
-          : [...lines.slice(0, FUNCTION_LINES), `# … ${lines.length - FUNCTION_LINES} more lines`].join("\n");
+      change.functions = Object.entries(op.nativeOp.functions).map(([name, source]) => {
+        const lines = source.split("\n");
+        const body =
+          lines.length <= FUNCTION_LINES
+            ? source
+            : [...lines.slice(0, FUNCTION_LINES), `# … ${lines.length - FUNCTION_LINES} more lines`].join("\n");
+        const earlier = lean ? shownFunctions.get(body) : undefined;
+        return earlier ? `# def ${name}: code as in task ${earlier.task} (${earlier.id})` : body;
       });
     if (info?.totalRowCount !== undefined) change.rows = info.totalRowCount;
-    if (info?.resultSchema?.length) change.columns = info.resultSchema.map(field => field.name);
-    Object.assign(change, profileFacts(info));
+    if (!probe) {
+      if (info?.resultSchema?.length) change.columns = info.resultSchema.map(field => field.name);
+      Object.assign(change, profileFacts(info));
+    }
     if (info?.error) change.flag = "failed: current result unavailable";
     else if (info?.totalRowCount === 0) change.flag = "EMPTY";
     if (info?.note) change.flag = change.flag ? `${change.flag}; ${info.note}` : info.note;
+    const flagged = ownFlags(id, info).filter(flag => flag.code !== "EMPTY");
+    if (flagged.length) change.flags = flagged.map(flag => flag.text);
     if (fold.status === "modified") {
       const events = provenance?.get(id);
       const earlier = [events?.created ?? 0, ...(events?.edited ?? [])].filter(t => t > 0 && t < task);
@@ -310,10 +338,10 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
   }
   const order = new Map([...landed].map(([id, fold]) => [id, fold.position]));
   changes.sort((a, b) => (a.call ?? 0) - (b.call ?? 0) || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-  const from = answerSources(answer, observed, results);
   // The rows the task read, answer-bearing tables first. Rows an earlier entry
   // already shows, unchanged, are named rather than repeated; a table that does
-  // not fit the entry's budget is listed by size alone.
+  // not fit the entry's budget is listed by size alone. Lean entries keep rows
+  // for the answer's sources only.
   const shown = new Map<string, { task: number; text: string }>();
   for (const entry of history?.entries() ?? [])
     for (const table of entry.tables) if (!table.sameAs) shown.set(table.id, { task: entry.task, text: table.text });
@@ -326,6 +354,10 @@ export function buildTaskEntry(input: BuildTaskEntryInput): TaskEntry {
     const earlier = shown.get(id);
     if (earlier && earlier.text === table.text) {
       tables.push({ ...table, text: "", sameAs: earlier.task });
+      continue;
+    }
+    if (lean && !from.includes(id)) {
+      tables.push({ ...table, text: "" });
       continue;
     }
     if (table.text.length > budget) {
@@ -355,6 +387,7 @@ function renderChange(change: TaskChange): string {
   for (const [column, counts] of change.values ?? [])
     lines.push(`           values: ${column} = ${counts.map(([v, n]) => `${clip(v, 40)} ${n}`).join(" | ")}`);
   if (change.doc) lines.push(`           doc: ${change.doc}`);
+  for (const text of change.flags ?? []) lines.push(`           ⚠ ${text}`);
   for (const body of change.functions ?? []) lines.push(`           ${body.replace(/\n/g, "\n           ")}`);
   return lines.join("\n");
 }
@@ -428,6 +461,7 @@ function renderCompactTaskEntry(entry: TaskEntry, signatures = false): string {
       !change.statement.includes(`doc='${change.doc}'`)
     )
       lines.push(`doc: ${change.doc}`);
+    for (const text of change.flags ?? []) lines.push(`⚠ ${text}`);
     for (const body of change.functions ?? []) {
       if (signatures) {
         lines.push(signatureOf(body));
@@ -521,5 +555,27 @@ export function renderLiveIndex(
     if (info?.totalRowCount === 0) return [`⚠ ${op.operatorID} has 0 rows; everything built on it is empty`];
     return [];
   });
-  return ["# Tables now", items.join(" · "), ...alerts].join("\n");
+  return [
+    "# Tables now",
+    items.join(" · "),
+    ...renderRegisteredOperators(state),
+    ...alerts,
+    ...flagAlerts(operators, results),
+  ].join("\n");
+}
+
+/** The contract flags current tables raised themselves, one line each, for a
+ * task-start index; inherited copies are implied by lineage. */
+export function flagAlerts(
+  operators: OperatorPredicate[],
+  results: ReadonlyMap<string, OperatorInfo>,
+  limit = 8
+): string[] {
+  return operators
+    .flatMap(op =>
+      ownFlags(op.operatorID, results.get(op.operatorID))
+        .filter(flag => flag.code !== "EMPTY")
+        .map(flag => `⚠ ${op.operatorID}: ${flag.text}`)
+    )
+    .slice(0, limit);
 }

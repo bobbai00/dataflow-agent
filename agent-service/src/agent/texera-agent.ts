@@ -104,6 +104,9 @@ import { withTaskCatalog } from "./native/task-context";
 import { DefinitionRegistry } from "./native/definition-registry";
 import { buildTaskEntry } from "./native/task-entries";
 import { verifyRestore } from "./native/task-restore";
+import { applyContractFlags, type Expectation } from "./native/flags";
+import { composeAnswer } from "./native/answer";
+import type { NativeBatchResult } from "./tools/native-batch-tools";
 import { retainTaskResult } from "../api/task-results-api";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
@@ -330,6 +333,9 @@ export class TexeraAgent {
   private readonly nativeValidationRepair = new NativeValidationRepair();
   /** Session state of the definition registry: the explicit supersede declarations. */
   private readonly definitionRegistry = new DefinitionRegistry();
+  /** `answer_from`: the final answer the runtime composed from an observed
+   * table during this turn; set on the post-step path, consumed by sendMessage. */
+  private composedAnswer: string | undefined = undefined;
   private readonly taskHistory = new TaskHistory(async (operator, info) => {
     if (!this.delegateConfig || !info.materialization?.executionId)
       throw new Error("Retention requires an engine materialization");
@@ -591,6 +597,10 @@ export class TexeraAgent {
         taskEfficiency: this.settings.nativeTaskEfficiency === true,
         definitionRegistry: this.settings.nativeDefinitionRegistry === true,
         definitionSignatures: this.settings.nativeDefinitionSignatures === true,
+        answerFrom: this.settings.nativeAnswerFrom === true,
+        registeredOperators: this.settings.nativeRegisteredOperators === true,
+        contractFlags: this.settings.nativeContractFlags === true,
+        leanContext: this.settings.nativeLeanContext === true,
         taskHistory: this.settings.nativeTaskHistory === true,
         taskRestore: this.settings.nativeTaskHistory === true && this.settings.nativeTaskRestore !== false,
         reasoning: this.settings.dataflowReasoning === true,
@@ -680,7 +690,9 @@ export class TexeraAgent {
       metadataStore: this.metadataStore,
       nativeValidationRepair: this.nativeValidationRepair,
       taskHistory: this.settings.nativeTaskHistory ? this.taskHistory : undefined,
-      definitionRegistry: this.settings.nativeDefinitionRegistry ? this.definitionRegistry : undefined,
+      // The registry verbs are gated by their setting inside the tool; the
+      // registered-operator versions are recorded in the same session object.
+      definitionRegistry: this.definitionRegistry,
       settings: {
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
         toolTimeoutMs: this.settings.toolTimeoutMs,
@@ -690,6 +702,10 @@ export class TexeraAgent {
         nativeAnalysisState: this.settings.nativeAnalysisState === true,
         nativeTaskEfficiency: this.settings.nativeTaskEfficiency === true,
         nativeDefinitionRegistry: this.settings.nativeDefinitionRegistry === true,
+        nativeAnswerFrom: this.settings.nativeAnswerFrom === true,
+        nativeRegisteredOperators: this.settings.nativeRegisteredOperators === true,
+        nativeContractFlags: this.settings.nativeContractFlags === true,
+        nativeLeanContext: this.settings.nativeLeanContext === true,
         contextWindowTokens: this.settings.contextWindowTokens,
         staticCompaction: this.settings.staticCompaction,
         enableCompactTool: this.settings.enableCompactTool,
@@ -1434,6 +1450,10 @@ export class TexeraAgent {
     nativeTaskEfficiency?: boolean;
     nativeDefinitionRegistry?: boolean;
     nativeDefinitionSignatures?: boolean;
+    nativeAnswerFrom?: boolean;
+    nativeRegisteredOperators?: boolean;
+    nativeContractFlags?: boolean;
+    nativeLeanContext?: boolean;
     nativeTaskMemoryChars?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
@@ -1500,7 +1520,25 @@ export class TexeraAgent {
       nativeTaskEfficiency: updates.nativeTaskEfficiency ?? this.settings.nativeTaskEfficiency,
       nativeDefinitionRegistry: updates.nativeDefinitionRegistry ?? this.settings.nativeDefinitionRegistry,
       nativeDefinitionSignatures: updates.nativeDefinitionSignatures ?? this.settings.nativeDefinitionSignatures,
+      nativeAnswerFrom: updates.nativeAnswerFrom ?? this.settings.nativeAnswerFrom,
+      nativeRegisteredOperators: updates.nativeRegisteredOperators ?? this.settings.nativeRegisteredOperators,
+      nativeContractFlags: updates.nativeContractFlags ?? this.settings.nativeContractFlags,
+      nativeLeanContext: updates.nativeLeanContext ?? this.settings.nativeLeanContext,
     });
+    // The four session-shaped features change the prompt, the tool surface
+    // and what entries hold; a session keeps one shape.
+    for (const name of [
+      "nativeAnswerFrom",
+      "nativeRegisteredOperators",
+      "nativeContractFlags",
+      "nativeLeanContext",
+    ] as const)
+      if (
+        updates[name] !== undefined &&
+        updates[name] !== (this.settings[name] ?? false) &&
+        [...this.stepsById.values()].some(step => step.role === "user" && step.isBegin)
+      )
+        throw new NativeCatalogSettingsError(`Changing ${name} requires a fresh session to preserve history caching`);
     if (
       updates.nativeDefinitionSignatures !== undefined &&
       updates.nativeDefinitionSignatures !== this.settings.nativeDefinitionSignatures &&
@@ -1577,6 +1615,16 @@ export class TexeraAgent {
       this.settings.nativeDefinitionSignatures = updates.nativeDefinitionSignatures;
       promptNeedsRebuild = true;
     }
+    for (const name of [
+      "nativeAnswerFrom",
+      "nativeRegisteredOperators",
+      "nativeContractFlags",
+      "nativeLeanContext",
+    ] as const)
+      if (updates[name] !== undefined && updates[name] !== this.settings[name]) {
+        this.settings[name] = updates[name];
+        promptNeedsRebuild = true;
+      }
     if (updates.nativeTaskHistory !== undefined && updates.nativeTaskHistory !== this.settings.nativeTaskHistory) {
       this.settings.nativeTaskHistory = updates.nativeTaskHistory;
       promptNeedsRebuild = true;
@@ -1989,6 +2037,7 @@ export class TexeraAgent {
           results,
           state: this.workflowState,
           history: this.taskHistory,
+          lean: this.settings.nativeLeanContext === true,
         })
       );
   }
@@ -2009,6 +2058,7 @@ export class TexeraAgent {
       await this.sealTaskHistory(this.headTaskNumber());
       await this.refreshWorkflowFromBackend();
       this.nativeValidationRepair.clear();
+      this.composedAnswer = undefined;
       this.currentMessageId = messageId;
       const estimatedInputTokens = Math.ceil(userMessage.length / 4);
       const userStepId = this.generateStepId();
@@ -2060,6 +2110,9 @@ export class TexeraAgent {
           promptCacheKey: this.settings.nativeTaskContext ? this.agentId : undefined,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
+          // `answer_from`: once the post-step path composed the answer, the
+          // turn ends without another model call.
+          shouldStop: () => this.composedAnswer !== undefined,
           prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
             let compilationResult: WorkflowCompilationResponse | null = null;
             if (this.workflowState.getAllOperators().length > 0) {
@@ -2149,6 +2202,29 @@ export class TexeraAgent {
         });
 
       let result = await runDriverOnce(currentUserMessage);
+
+      // `answer_from`: the turn ended on a tool step because the runtime
+      // composed the answer from the observed table. It becomes the final
+      // agent step (no model call, no usage) and the turn's response.
+      if (this.composedAnswer !== undefined) {
+        const text = this.composedAnswer;
+        this.composedAnswer = undefined;
+        stepIndex++;
+        const answerStepId = this.generateStepId();
+        this.addStep({
+          id: answerStepId,
+          parentId: this.head,
+          messageId,
+          stepId: stepIndex,
+          timestamp: Date.now(),
+          role: "agent",
+          content: text,
+          isBegin: false,
+          isEnd: true,
+        });
+        this.head = answerStepId;
+        result = { ...result, text };
+      }
 
       // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
       // materialized results or state recalled this turn — the property a
@@ -2792,7 +2868,54 @@ export class TexeraAgent {
         }
       }
       this.snapshotStorage.restoreNativeRejectedEdits(owningStepId);
-      this.snapshotStorage.captureNativeObservations(owningStepId, requested, options);
+      const batches = (toolCalls ?? []).flatMap(call => {
+        if (call.toolName !== TOOL_NAME_DATAFLOW) return [];
+        const batch = asNativeBatchResult(toolResults?.find(result => result.toolCallId === call.toolCallId)?.output);
+        return batch ? [batch] : [];
+      });
+      // Contract flags and declared expectations are written before the
+      // observation is frozen, so its lines and the entry read the same facts.
+      if (this.settings.nativeContractFlags) this.applyContractFlags(owningStepId, batches);
+      const columns: Record<string, string[]> = {};
+      for (const batch of batches) Object.assign(columns, batch.observeColumns ?? {});
+      this.snapshotStorage.captureNativeObservations(owningStepId, requested, options, columns);
+      if (this.settings.nativeAnswerFrom) this.composeAnswerFrom(owningStepId, batches);
+    }
+  }
+
+  /** Contract flags on every table that has none yet, plus this call's `expect` checks. */
+  private applyContractFlags(owningStepId: string, batches: NativeBatchResult[]): void {
+    const expectations: Record<string, Expectation> = {};
+    for (const batch of batches) Object.assign(expectations, batch.expect ?? {});
+    try {
+      applyContractFlags(
+        this.snapshotStorage.getResolvedWorkflow(owningStepId).value,
+        id => this.snapshotStorage.getOperatorResult(owningStepId, id),
+        (id, info) => this.snapshotStorage.setOperatorResult(owningStepId, id, info),
+        expectations
+      );
+    } catch (error) {
+      this.log.warn({ err: error instanceof Error ? error.message : String(error) }, "contract flags not applied");
+    }
+  }
+
+  /** `answer_from`: compose the final answer from the observed table, or leave
+   * the reason on that table's observation so the model answers itself. */
+  private composeAnswerFrom(owningStepId: string, batches: NativeBatchResult[]): void {
+    for (const batch of batches) {
+      if (!batch.answerFrom) continue;
+      const id = batch.answerFrom;
+      const info = this.snapshotStorage.getOperatorResult(owningStepId, id);
+      const composed = composeAnswer(id, info);
+      if ("text" in composed) {
+        this.composedAnswer = composed.text;
+        this.log.info({ table: id, chars: composed.json.length }, "final answer composed from table");
+        continue;
+      }
+      this.snapshotStorage.setOperatorResult(owningStepId, id, {
+        ...(info ?? { state: "NotExecuted", inputTuples: 0, outputTuples: 0, resultMode: "table" }),
+        note: `answer_from not applied: ${composed.reason}. Write the final answer yourself.`,
+      } as OperatorInfo);
     }
   }
 

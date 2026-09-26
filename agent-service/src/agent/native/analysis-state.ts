@@ -33,7 +33,7 @@ export interface AnalysisFork {
   task?: number;
 }
 
-type Options = { profileCollection?: boolean; sharedFunctions?: boolean };
+type Options = { profileCollection?: boolean; sharedFunctions?: boolean; registeredOperators?: boolean };
 
 const definitionCache = new Map<string, ReturnType<typeof parseNativeProgram>>();
 function parseDefinitions(source: string) {
