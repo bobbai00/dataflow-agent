@@ -120,6 +120,19 @@ bind-fallback revision (aa256a789, `registry-compact`, appended when done).
 | react-entries (isolated, t3 incomplete) | 64, 67 | 0.709 | $0.495, $0.532 | $0.514 |
 | **react-registry** | **67, 64, 69** | **0.717** | $0.474, $0.426, $0.488 | $0.463 |
 | registry-sig (ablation) | 48 | 0.513 | $0.481 | $0.481 |
+| registry-compact (ablation, aa256a789) | 45 | 0.483 | $0.478 | $0.478 |
+
+The compact-index ablation (BI 29, Water 9, Survey 7) is one trial and is not
+evidence against the index change: on BI nearly every table is read by several
+consumers or feeds an answer, so the rule kept their docs and the index did not
+shrink; on Water the index is 3–4% of the task-start prompt, so trimming it by
+a fifth left the cost unchanged ($0.243 against $0.204–0.248); and Survey fell
+into the known turn-7 trap (the Q40 block stores literal `nan` strings, so a
+naive non-null test counts everyone as shown) after a probe-heavy turn 4, the
+same pair that cut the efficient arm's first trial, with the same tables and
+docs in its index as the main arm's runs had. The bind fallback was not
+exercised in that trial. Both changes stay in the branch; a decision needs
+three trials like the main arm.
 
 Per task, correct answers by trial:
 
@@ -157,3 +170,17 @@ What the trials say:
 - **Judge.** GPT-5.2 with the upstream prompt on all arms; the same
   format-sensitive verdicts recur (BI turn 7's unordered ranking, turn 25's
   interval label).
+
+### Where the cost is, and what would move it
+
+At the same turn, the task-start prompt is 93k–247k characters on Water and
+27k–169k on Survey; the entries transcript is 95–97% of it and the index 3–4%.
+Cache reads therefore scale with entries size times calls per turn, and cache
+writes with what each turn appends (about 5–6k tokens on Water). The registry
+arm's 11% premium over the efficient arm is a slightly larger prefix (the index
+and the registry prompt paragraph) plus a few more calls. Reaching the
+1.25x-DSGym target from here needs the transcript itself to stop growing with
+history (an append-only log of what changed per task instead of full entries,
+with definitions fetched by name) and the two-call turn to become the norm;
+neither is a change to the registry mechanism, which is already the cheapest
+path when the model takes it (one bind for a two-definition rollback).
