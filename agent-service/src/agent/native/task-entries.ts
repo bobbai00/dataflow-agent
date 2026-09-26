@@ -565,13 +565,18 @@ export function renderLiveIndex(
 }
 
 /** The contract flags current tables raised themselves, one line each, for a
- * task-start index; inherited copies are implied by lineage. */
+ * task-start index; inherited copies are implied by lineage. A table nothing
+ * reads is a probe or a report: its flags concern nothing downstream, and a
+ * probe's "filter kept 0 rows" repeated in every prompt of a session was
+ * noise (Survey, 2026-09-26). */
 export function flagAlerts(
   operators: OperatorPredicate[],
   results: ReadonlyMap<string, OperatorInfo>,
   limit = 8
 ): string[] {
+  const read = new Set(operators.flatMap(op => op.nativeOp?.inputs ?? []));
   return operators
+    .filter(op => read.has(op.operatorID))
     .flatMap(op =>
       ownFlags(op.operatorID, results.get(op.operatorID))
         .filter(flag => flag.code !== "EMPTY")

@@ -237,6 +237,58 @@ score no worse than turns the model answered in text: Water 18/59 (31%) vs
 costs Water accuracy; the lean variants' Water scores (7–12) sit at the low
 end of a band where every arm ranges 8–15.
 
+### Final results (2026-09-26, Luna, GPT-5.2 judge, one-hour session cap)
+
+Three representative tasks (Survey 30, BI 30, Water 36 questions), correct
+answers of 96 and model cost per trial:
+
+| Arm | Trial 1 | Trial 2 | Trial 3 | Mean |
+| --- | --- | --- | --- | --- |
+| DSGym | 56, $0.343 | 46, $0.277 | 46, $0.256 | 49.3, $0.292 |
+| react-efficient | 61, $0.411 | 65, $0.419 | 66, $0.423 | 64.0, $0.418 |
+| react-registry | 67, $0.474 | 64, $0.426 | 69, $0.488 | 66.7, $0.463 |
+| react-lean v1 | 63, $0.435 | 60, $0.460 | 46, $0.409 | 56.3, $0.435 |
+| react-lean v2 | 58, $0.392 | | | |
+| react-lean v3 | 60, $0.366 | 58, $0.359 | 43, $0.377 | 53.7, $0.367 |
+
+v3 costs 1.26x DSGym (the ceiling set on 2026-09-25 was 1.25x), 21% less
+than the registry arm and 12% less than the efficient arm; it beat DSGym's
+accuracy in trials 1 and 2 (+4, +12) and lost trial 3 by 3. Both lean
+versions collapsed on one Survey session out of three (7/30 each): v1's from
+the unflagged header row at turn 1, v3's from a definition drift at turn 8
+(the "narrower managed-ML view" adopter count, 1065 against 896) that every
+later turn inherited. Turn 4 of Survey (a funnel with stage-1 retention 100.0)
+fails for every arm. Per turn, `answer_from` composed 44% of v3's 596 answers
+(90% on Survey trial 1) and composed answers score at least as well as written
+ones on every task; calls per turn are at DSGym parity (2.41 over all v3
+sessions; BI 1.47–1.73). Registered operators were called 6 times (NFL used
+one with a changed setting); `expect` once; column projections 88 times.
+
+Six domains (209 questions per trial; Books is 0–2/35 for every arm because
+its gold's percentile definitions are never stated):
+
+| Arm | Trial 1 | Trial 2 | Trial 3 | Mean |
+| --- | --- | --- | --- | --- |
+| DSGym | 57, $0.769 | 47, $0.605 | 50, $0.663 | 51.3, $0.679 |
+| react-entries | 76, $1.351 | 83, $1.541 | (4 of 6 sessions) | 79.5, $1.446 |
+| react-lean v1 | 74, $1.385 | | | |
+| react-lean v3 | 76, $1.369 | 76, $1.414 | 60, $1.037 | 70.7, $1.273 |
+
+Trial 3's cost is lower because its Survey collapsed and its Books session was
+cut at the cap. v3 answers 19 more questions than DSGym per trial (37% more)
+at 1.9x its cost; the gap is the hard domains (Books, LA, NFL), where DSGym
+stops early and cheaply (LA $0.08–0.12 for 0–2 correct) while the dataflow
+keeps computing (LA $0.22–0.28 for 2–5 correct, NFL $0.30–0.34 for 11–14
+against DSGym's 0–2).
+
+What remains structural: output tokens (our tool calls emit about 1.5x
+DSGym's tokens per call, the function-per-operator contract with a DataFrame
+out) and the entries transcript (function bodies are 27–60% of a late
+prompt), while cached prompt reads at $0.02/M leave little to gain from
+slimming context. What remains open: the wide-table transport cap below,
+cascade repair (a root error at turn 1–8 still poisons a session; deps-wrong
+accuracy is 0.25), and registered-operator adoption.
+
 ### Wide tables: the profile never reaches the agent
 
 Survey's raw table has 300 columns. The profiler's `max_columns` was 128 and
