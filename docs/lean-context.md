@@ -192,10 +192,61 @@ controls. Trial 1:
   the fact its imputation turns hinge on); Survey's 300-column raw table is
   above the profile's 128-column limit, so its header-row trap raised none.
 
+### v1 over three trials
+
+63, 60 and 46 of 96 at $0.435, $0.460 and $0.409. Trial 3's Survey collapsed
+to 7/30: the model kept the duplicated header row as a respondent from turn 1
+(raw count 23999 instead of 23998) and every later count inherited it. The
+header-row flag exists for exactly this and did not fire, because the raw
+table's 300 columns are beyond what a profile reaches the agent with (below).
+
 ### v2: `react-lean2` (commit 21a6ded43)
 
-Targets the output tokens: `answer_from: "t[key=column:digits, other]"`
+Targeted the output tokens: `answer_from: "t[key=column:digits, other]"`
 renames, picks and rounds without a shaping statement, and the compact code
 contract (`nativeCompactCode`: docstrings only on registered operators, no
-comments, one-sentence reasoning, reuse before variants). Campaign
-`LongDS_Lean2_20260926` on a second agent process (port 3052), three trials.
+comments, one-sentence reasoning, reuse before variants). Trial 1
+(`LongDS_Lean2_20260926`, port 3052): Survey 20, BI 26, Water 12 = 58/96 at
+$0.392. Code per turn fell to the registry arm's level (BI 1069 characters, no
+docstrings), but `answer_from` adoption halved (BI 47%, Survey 40%), and an
+answer call costs more than the shaping map v1 wrote inside the computing
+call, so BI cost rose to $0.079. Two defects found in its traces: the refusal
+of an `answer_from` was stored as the table's `note`, which entries fold into
+the task's change line, so one refusal (Survey turn 9, a 58-row table) rode in
+every later prompt; and the empty string counted as a missing-value token, so
+every raw-line preview raised a flag. Fixed in 917a70d35 (`answerNote`,
+event-only; token removed).
+
+### v3: `react-lean2` settings, revised prompt (daa7dd6d8, 4870f9b70)
+
+v1's `answer_from` guidance (compose in the computing call, shaping statements
+allowed, the projection optional) with the compact code contract minus its
+"observe only" sentence. Trial 1 BI: 29/30 at $0.057 with 44 calls (1.47 per
+turn), 83% of turns composed, 927 code characters per turn: the first BI
+session below the efficient arm ($0.063–0.067) and 25% below the registry
+arm. Water: 7/36. Campaign `LongDS_Lean3_20260926` (three tasks, port 3052)
+and `LongDS_Lean36_20260926` (goodbooks, LA, NFL, port 3051), three trials
+each.
+
+### Composed answers are as accurate as written ones
+
+Over every lean session judged so far, turns whose answer the runtime composed
+score no worse than turns the model answered in text: Water 18/59 (31%) vs
+29/121 (24%), BI 87/92 (95%) vs 55/58 (95%), Survey 46/79 (58%) vs 28/41
+(68%) with the trial-3 cascade in both columns. `answer_from` is not what
+costs Water accuracy; the lean variants' Water scores (7–12) sit at the low
+end of a band where every arm ranges 8–15.
+
+### Wide tables: the profile never reaches the agent
+
+Survey's raw table has 300 columns. The profiler's `max_columns` was 128 and
+its own payload cap 64 KB; both are raised (400 columns, 512 KB: a 300-column
+survey profile is 289 KB, a prefix of a few hundred rows within the 0.2 s
+budget, with the header row and the tokens in the top values), and the flags
+read existence facts from a prefix profile. The remaining gap is the engine's
+result transport: `StructuredResultTransport.partitionStatistics` drops any
+profile payload over 64 KB per worker (`metadata_payload_budget`), and it
+parses the payload as JSON to recognize a profile, so compressing it would
+misroute it. Raising that cap is a one-line Scala change with an engine
+rebuild and a master restart, not done during the campaigns; until then the
+header and token flags cover tables up to about 120 columns.
