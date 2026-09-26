@@ -2917,9 +2917,11 @@ export class TexeraAgent {
         this.log.info({ table: id, chars: composed.json.length }, "final answer composed from table");
         continue;
       }
+      // An event fact, not a property of the table: the observation of this
+      // event shows it; the task's entry does not carry it.
       this.snapshotStorage.setOperatorResult(owningStepId, id, {
         ...(info ?? { state: "NotExecuted", inputTuples: 0, outputTuples: 0, resultMode: "table" }),
-        note: `answer_from not applied: ${composed.reason}. Write the final answer yourself.`,
+        answerNote: `answer_from not applied: ${composed.reason}. Write the final answer yourself.`,
       } as OperatorInfo);
     }
   }

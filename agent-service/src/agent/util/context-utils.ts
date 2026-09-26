@@ -2106,6 +2106,10 @@ function serializeTaskBody(
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
         if (currInfo?.note) obs.push(`  ${currInfo.note}`);
+        // An answer_from refusal belongs to the event that asked; a later
+        // event's snapshot inherits the result but the remark is not repeated.
+        if (currInfo?.answerNote && (actedVerb.has(op.operatorID) || requestedResults?.has(op.operatorID)))
+          obs.push(`  ${currInfo.answerNote}`);
         // Contract flags travel with the table: shown on every observation of
         // it, whether or not its rows are requested.
         for (const flag of currInfo?.flags ?? []) obs.push(`  ${flagLine(flag, op.operatorID)}`);

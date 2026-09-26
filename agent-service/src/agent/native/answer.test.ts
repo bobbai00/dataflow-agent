@@ -288,9 +288,10 @@ test("a refused answer_from leaves the reason on the table's observation and the
   expect(secondStep).toBe(true);
   expect(result.response).toBe("There are 900 orders.");
   const head = agent.getAllSteps().filter(s => s.role === "agent")[0]!;
-  expect(agent.getSnapshotStorage().getOperatorResult(head.id, "orders")?.note).toBe(
+  expect(agent.getSnapshotStorage().getOperatorResult(head.id, "orders")?.answerNote).toBe(
     "answer_from not applied: only 2 of 900 rows of `orders` are held; the answer needs the complete table. Write the final answer yourself."
   );
+  expect(agent.getSnapshotStorage().getOperatorResult(head.id, "orders")?.note).toBeUndefined();
   // The shared observation renderer shows the note under the table's line.
   const rendered = assembleContext(agent.getAllSteps(), agent.getWorkflowState(), agent.getSnapshotStorage(), ContextMode.DELTA, {
     agentMode: AgentMode.NATIVE,

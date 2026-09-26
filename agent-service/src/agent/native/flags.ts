@@ -55,8 +55,10 @@ export const MISSING_TOKENS = new Set([
   "-",
   "--",
   "?",
-  "",
 ]);
+// Not a token: the empty string. A scan parses empty cells as missing, so an
+// empty text value is a blank line of a raw preview or a deliberate empty
+// field, and flagging it on every preview table was noise (Survey, 2026-09-26).
 const NUMERIC_TEXT = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/;
 const ENCODING = new Set(["LITERAL_MISSING", "NUMERIC_TEXT", "HEADER_IN_DATA"]);
 /** Flags a descendant keeps: about a column it still reads as text, or about every row it holds. */

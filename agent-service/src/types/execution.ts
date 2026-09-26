@@ -83,6 +83,8 @@ export interface OperatorInfo {
   resultSchema?: Array<{ name: string; type: string; encoding: string }>;
   /** A runtime remark shown with the operator's observation line, e.g. a restore's verification. */
   note?: string;
+  /** An `answer_from` refusal: shown on the observation of that event only, never in entries. */
+  answerNote?: string;
   /** Contract flags: judgments the runtime made from the operator's contract
    * and the table's profile, inherited through lineage until resolved. */
   flags?: TableFlag[];
