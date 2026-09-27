@@ -345,3 +345,71 @@ the text "nan" in 300 rows of the first 384 rows" before the time budget was
 raised). The header-row flag does not apply to this table: its first data
 row holds the question texts, not the column names, so no column contains
 its own name.
+
+### The full benchmark, one repetition (v4c, 2026-09-26)
+
+All 68 LongDS tasks (2,225 turns; 20 datasets downloaded from the released
+Hugging Face dataset to complete the set), Luna, GPT-5.2 judge, one-hour
+session cap, one repetition per arm, run in waves of 6 to 9 tasks with up to
+three concurrent sessions per agent service (nine at most on this machine:
+memory, not CPU, is the limit). DSGym is the upstream agent with the
+relative-path mount of fd0e5d031.
+
+| | dataflow v4c | DSGym |
+| --- | --- | --- |
+| Correct of 2,225 | 693 (31.1%) | 688 (30.9%) |
+| Initial / Update / Rollback / Counterfactual | 433 / 121 / 73 / 66 | 425 / 126 / 68 / 69 |
+| Turns attempted within the cap | 2,054 | 2,189 |
+| Turns that executed code | 2,037 (92%) | 1,385 (62%) |
+| Correct on the 1,284 turns both computed | 442 (34.4%) | 607 (47.3%) |
+| Cost | $13.01 | $8.44 |
+| Cost per correct answer | $0.0188 | $0.0123 |
+
+Accuracy is a tie and the dataflow arm costs 1.54x. The six-domain lead of
+earlier campaigns holds on those six tasks in this run (77 vs 69) but not
+across the benchmark: by domain, business 69 vs 59, education 134 vs 107,
+social good 93 vs 88 and sports 26 vs 14 favor the dataflow arm; community
+203 vs 239 and geoscience 168 vs 181 favor DSGym. Per task the swings are
+large in both directions (survey-2020 task 1: 3 vs 25; Kiva task 3: 22 vs 2),
+the signature of single-repetition cascades.
+
+The two arms win differently. The dataflow arm computes nearly every turn;
+DSGym answered 36% of its turns without running code (520 of 684 of them
+give-ups) and gets turn 1 right in only 14 tasks (ours: 40). On the turns
+both computed, DSGym is 13 points more accurate, and the gap is the same
+whether our answer was composed by the runtime (41% vs 55% on 594 turns) or
+written by the model (29% vs 41% on 690), and in every turn-1 group
+(including the 31 tasks where our turn 1 was right and DSGym's wrong). So the
+deficit is per-turn correctness in later turns, not composition and not
+turn-1 roots alone. The earlier finding that full history recovers what the
+catalog loses (LongDS trial 3: full 54 vs catalog 28 vs DSGym 51) points at
+the compact history (entries and the index) as the leading suspect; an
+ablation with full history on the largest-gap tasks is the test.
+
+Harness anomalies, all measured over the run: 22 turns lost to model
+requests that never answered, all before the retry build (4fbff96b5; none
+after); two budget watchers exited on a stale stop file so waves 2 and 3 ran
+uncapped until found (fixed in campaign.py; `report-full.py` drops turns
+past 3,600 s of cumulative wall time, 28 turns); 171 turns unreached in
+capped sessions (ours) vs 36 (DSGym); one DSGym session overflowed the
+gateway's 922k-token context at turn 15 (upstream keeps the whole
+conversation). Neither sandbox can decode Sentinel-5P LZW GeoTIFFs (no
+rasterio or imagecodecs), so both arms score near zero on the two ds4g
+raster tasks.
+
+Three defects found in the traces and fixed (f10b00d99):
+
+- Composed answers printed binary float noise (93.05000000000001), which
+  the exact-match judge fails (PASSNYC turn 2): 12 of 955 composed answers,
+  0 of 1,127 written ones. Numbers are now rounded to 12 significant digits.
+- The engine keeps the head and tail of a sample over its size budget, so
+  an 8-line raw preview of long lines arrived as lines 0, 6 and 7 with
+  nothing saying lines were omitted; the model read the jump as metadata
+  and skipped five real rows (WiDS task 3, cascading). The observation now
+  names the lines it does not show. In the targeted rerun the notice
+  appeared and turn 1 read all 3,193 rows.
+- An inner join silently dropped the 125 respondents whose country spelling
+  had no match in the lookup (survey-2020 task 1, 3 correct of 30 vs 25 for
+  DSGym). The runtime records the most frequent unmatched keys per side and
+  a new contract flag, JOIN_UNMATCHED, states the drop (inner) or the null
+  fill (left) with those keys; descendants inherit it.
