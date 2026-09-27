@@ -151,6 +151,67 @@ class Table(pandas.DataFrame):
             return super().__eq__(other).all()
 
 
+def columnar_supported(table: pa.Table) -> bool:
+    """Whether ``arrow_batches_to_frame`` reproduces the Tuple path for every
+    column of ``table``: integers, floats, booleans, text and timestamps.
+    Binary columns (pickled objects, large-binary references) and fields with
+    metadata keep the Tuple path, whose field accessor decodes them."""
+    for field in table.schema:
+        kind = field.type
+        if field.metadata:
+            return False
+        if not (
+            pa.types.is_integer(kind)
+            or pa.types.is_floating(kind)
+            or pa.types.is_boolean(kind)
+            or pa.types.is_string(kind)
+            or pa.types.is_large_string(kind)
+            or pa.types.is_timestamp(kind)
+        ):
+            return False
+    return True
+
+
+def arrow_batches_to_frame(batches: List[pa.Table], schema: Optional[Schema]) -> Optional[pandas.DataFrame]:
+    """The DataFrame that ``Table(tuples, schema)`` builds from the same rows,
+    converted column by column from Arrow instead of through one Tuple per
+    row. INT, LONG, DOUBLE and BOOL become nullable Int32, Int64, Float64 and
+    boolean (a NaN is missing, as the Tuple path reads it); TIMESTAMP keeps
+    its zone at nanosecond resolution, and an all-null one holds None; other
+    types stay Python objects. None when the Tuple path must run instead: no
+    schema, no rows, or a column the conversion does not cover."""
+    import numpy
+
+    if schema is None or not batches:
+        return None
+    table = pa.concat_tables(batches) if len(batches) > 1 else batches[0]
+    rows = table.num_rows
+    names = list(schema.get_attr_names())
+    if rows == 0 or not columnar_supported(table) or set(names) != set(table.column_names):
+        return None
+    nullable = {AttributeType.INT: "Int32", AttributeType.LONG: "Int64", AttributeType.BOOL: "boolean"}
+    columns = {}
+    for name in names:
+        column = table.column(name)
+        attr_type = schema.get_attr_type(name)
+        if attr_type == AttributeType.DOUBLE:
+            values = column.to_numpy(zero_copy_only=False).astype("float64")
+            columns[name] = pandas.Series(pandas.array(values, dtype="Float64"))
+        elif attr_type in nullable:
+            columns[name] = pandas.Series(pandas.array(column.to_pylist(), dtype=nullable[attr_type]))
+        elif attr_type == AttributeType.TIMESTAMP:
+            if column.null_count == rows:
+                columns[name] = pandas.Series([None] * rows, dtype=object)
+            else:
+                series = column.to_pandas()
+                zone = getattr(series.dtype, "tz", None)
+                columns[name] = series.astype(f"datetime64[ns, {zone}]" if zone is not None else "datetime64[ns]")
+        else:
+            series = column.to_pandas()
+            columns[name] = series.astype(object) if series.dtype != object else series
+    return pandas.DataFrame(columns, index=range(rows))
+
+
 def table_to_ipc_bytes(table: Table) -> bytes:
     """Serialize ``table`` as an Apache Arrow IPC stream.
 
