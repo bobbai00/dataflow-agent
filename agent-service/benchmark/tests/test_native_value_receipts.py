@@ -92,7 +92,14 @@ def test_spellings_that_differ_only_in_case_or_spacing():
     })
     grouped = execute("Aggregate", industries, groupBy=["industry"], aggregations=[{"fn": "count", "as": "rows"}])
     variants = operations(grouped)["spellingVariants"]["industry"]
-    assert variants == [[["Telecommunications", 1], ["Telecommunications ", 1]], [["Internet", 1], ["internet", 1]]]
+    assert variants == [[["Telecommunications", 3], ["Telecommunications ", 1]], [["Internet", 1], ["internet", 1]]]
+    # Label columns are told from free text by repetition, not by a fixed
+    # count: 2,470 distinct industries over 28,152 rows are labels.
+    many = pd.DataFrame({"industry": [f"Industry {i % 2470}" for i in range(28000)] + ["Industry 7 "]})
+    wide = execute("Aggregate", many, groupBy=["industry"], aggregations=[{"fn": "count", "as": "rows"}])
+    assert operations(wide)["spellingVariants"]["industry"] == [[["Industry 7", 12], ["Industry 7 ", 1]]]
+    text = pd.DataFrame({"note": [f"note {i}" for i in range(200)] + ["note 1 "]})
+    assert "spellingVariants" not in operations(execute("Aggregate", text, groupBy=["note"], aggregations=[{"fn": "count", "as": "rows"}]))
     # A custom step reports them in the columns it produced.
     code = "def process(t):\n    return t.assign(label=t['industry'])"
     assert operations(process(code, industries))["spellingVariants"]["label"][0][0][0] == "Telecommunications"

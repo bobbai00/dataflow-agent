@@ -2156,7 +2156,7 @@ def _returned_labels(frame):
 #: Bounds of the value receipts: columns measured, pairs and values listed.
 RECEIPT_COLUMNS = 12
 RECEIPT_PAIRS = 8
-SPELLING_DISTINCT_LIMIT = 2000
+SPELLING_DISTINCT_LIMIT = 20000
 
 
 def _text_column(series):
@@ -2166,8 +2166,9 @@ def _text_column(series):
 def _spelling_variants(frame, columns=None):
     """Text values of a column that differ only in case or spacing ('Internet'
     and 'Internet '): per column, up to five groups of spellings with their
-    row counts, most rows first. Columns with more distinct values than
-    SPELLING_DISTINCT_LIMIT are skipped (free text, not labels)."""
+    row counts, most rows first. Only label columns: values repeat (at most
+    half as many distinct values as rows, up to SPELLING_DISTINCT_LIMIT);
+    free text, where almost every value is distinct, is skipped."""
     found = {}
     for name in columns if columns is not None else list(frame.columns):
         if len(found) >= RECEIPT_COLUMNS or name not in frame.columns:
@@ -2175,8 +2176,9 @@ def _spelling_variants(frame, columns=None):
         series = frame[name]
         if not _text_column(series):
             continue
-        counts = series.dropna().value_counts()
-        if len(counts) < 2 or len(counts) > SPELLING_DISTINCT_LIMIT:
+        present = series.dropna()
+        counts = present.value_counts()
+        if len(counts) < 2 or len(counts) > min(SPELLING_DISTINCT_LIMIT, max(50, len(present) // 2)):
             continue
         texts = [value for value in counts.index if isinstance(value, str)]
         groups = {}
@@ -2389,8 +2391,10 @@ def execute_native(spec, inputs):
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     # A raw preview's line column is file text, not labels.
+    # An aggregate's group keys are measured on its input rows: each key is
+    # one output row, so the output holds no row counts per spelling.
     if (kind == "Scan" and not props.get("preview")) or kind == "Aggregate":
-        variants = _spelling_variants(output, None if kind == "Scan" else props.get("groupBy") or [])
+        variants = _spelling_variants(output) if kind == "Scan" else _spelling_variants(source, props.get("groupBy") or [])
         if variants:
             operations["spellingVariants"] = variants
     if kind in LABELS_FOLLOW:
