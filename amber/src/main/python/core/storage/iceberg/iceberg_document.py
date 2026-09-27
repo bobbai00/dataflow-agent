@@ -94,6 +94,13 @@ class IcebergDocument(VirtualDocument[T]):
         """Get an iterator for reading all records from the table."""
         return self._get_using_file_sequence_order(0, None)
 
+    def get_arrow_tables(self) -> Iterator[pa.Table]:
+        """All records as the Arrow tables of the data files, in the order
+        ``get`` yields their rows, before any conversion to T."""
+        iterator = self._get_using_file_sequence_order(0, None)
+        for task in iterator.usable_file_iterator:
+            yield read_data_file_as_arrow_table(task, iterator.table)
+
     def get_range(self, from_index: int, until_index: int) -> Iterator[T]:
         """Get records within a specified range [from, until)."""
         return self._get_using_file_sequence_order(from_index, until_index)

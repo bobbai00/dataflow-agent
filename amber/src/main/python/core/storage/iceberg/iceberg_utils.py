@@ -405,6 +405,54 @@ def amber_tuples_to_arrow_table(
     return pa.Table.from_pydict(data_dict, schema=arrow_schema)
 
 
+# Types whose stored values the per-row read returns unchanged, apart from
+# NaN, which ``Tuple.cast_to_schema`` turns into null.
+COLUMNAR_READ_TYPES = frozenset(
+    {
+        AttributeType.INT,
+        AttributeType.LONG,
+        AttributeType.DOUBLE,
+        AttributeType.BOOL,
+        AttributeType.STRING,
+        AttributeType.TIMESTAMP,
+    }
+)
+
+
+def columnar_readable(amber_schema) -> bool:
+    """Whether ``arrow_table_to_amber_frame`` reproduces the per-row read for
+    every column of ``amber_schema``."""
+    return all(
+        amber_schema.get_attr_type(name) in COLUMNAR_READ_TYPES
+        for name in amber_schema.get_attr_names()
+    )
+
+
+def arrow_table_to_amber_frame(amber_schema, arrow_table: pa.Table) -> pa.Table:
+    """The Arrow table that the per-row read builds from a data file read from
+    Iceberg (``arrow_table_to_amber_tuples``, ``Tuple.cast_to_schema``, then
+    one Arrow column per field): the file's columns in order, typed by
+    ``amber_schema``, with NaN as null. Only for schemas that
+    ``columnar_readable`` accepts."""
+    import pyarrow.compute as pc
+
+    target = amber_schema.as_arrow_schema()
+    if arrow_table.num_columns != len(target):
+        raise ValueError(
+            f"data file has {arrow_table.num_columns} columns, "
+            f"schema has {len(target)}"
+        )
+    columns = []
+    for index, field in enumerate(target):
+        column = arrow_table.column(index)
+        if column.type != field.type:
+            column = column.cast(field.type)
+        if pa.types.is_floating(field.type) and column.null_count < len(column):
+            column = pc.if_else(pc.is_nan(column), pa.scalar(None, field.type), column)
+        columns.append(column)
+    return pa.Table.from_arrays(columns, schema=target)
+
+
 def arrow_table_to_amber_tuples(
     iceberg_schema: Schema, arrow_table: pa.Table
 ) -> Iterable[Tuple]:
