@@ -39,6 +39,8 @@ import numpy as np
 
 
 PROFILE_PREFIX = "__texera_profile_v1__:"
+#: pandas' name for a serialized index; the native runtime stores row labels under it.
+ROW_LABEL_COLUMN = "__index_level_0__"
 
 
 @dataclass(frozen=True)
@@ -157,6 +159,10 @@ class ProfileAccumulator:
     def add(self, frame):
         if self.finished:
             raise RuntimeError("Profile is already finished")
+        # The native runtime's row labels ride in a reserved column; they are
+        # bookkeeping, not a column of the table.
+        if ROW_LABEL_COLUMN in frame.columns:
+            frame = frame.drop(columns=[ROW_LABEL_COLUMN])
         started = self.clock()
         self.row_count += len(frame)
         self.yields += 1

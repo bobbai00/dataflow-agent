@@ -246,6 +246,19 @@ ROW_EFFECTS = {
 }
 DTYPES = {"str": "string", "int64": "Int64", "float64": "Float64", "bool": "boolean", "datetime": "datetime64[ns, UTC]"}
 
+#: pandas' name for a serialized index. A table whose pandas row labels are not
+#: 0..n-1 carries them in this column between operators, the way pandas'
+#: to_parquet stores such an index. The engine's statistics and profiles and
+#: every result the agent reads leave it out; operators never see it.
+ROW_LABEL = "__index_level_0__"
+#: One output row per input row, in input order: labels pass through.
+LABELS_PASS = {"Project", "Cast", "Map", "Window"}
+#: A subset or reordering of the input rows: each row keeps its label, as a
+#: boolean mask, drop_duplicates, sort_values and head keep it in pandas.
+#: Every other operator builds new rows, numbered from 0 as groupby, merge,
+#: concat(ignore_index=True), melt and pivot number them.
+LABELS_FOLLOW = {"Filter", "Distinct", "Sort", "Limit"}
+
 
 def validate_native(spec):
     """Validate Python source/port contracts without importing runtime packages."""
@@ -367,6 +380,8 @@ def validate_native(spec):
         aggregates = props.get("aggregations", [])
         if not aggregates:
             raise _error(spec, "AGGREGATE_ARGUMENT", "Provide at least one aggregation.", stage="validate")
+        if not isinstance(props.get("dropna", True), bool):
+            raise _error(spec, "AGGREGATE_ARGUMENT", "dropna must be True or False.", stage="validate", field="dropna")
         names = list(props.get("groupBy", []))
         for item in aggregates:
             if item.get("fn") not in (
@@ -704,6 +719,16 @@ def _aggregate(spec, frame, operations):
                 f"{item['fn']} requires numeric {item['col']!r}; cast it explicitly.",
                 field="aggregations",
             )
+    if keys and props.get("dropna", True):
+        # As pandas groupby(dropna=True): a row whose key has a null in any
+        # `by` column belongs to no group. dropna=False keeps them as groups.
+        null_key = frame[keys].isna().any(axis=1).to_numpy()
+        operations["nullKeyRows"] = int(null_key.sum())
+        if null_key.any():
+            operations["nullKeyColumns"] = {
+                name: int(frame[name].isna().sum()) for name in keys if frame[name].isna().any()
+            }
+            frame = frame[~null_key].reset_index(drop=True)
     grouped = _groups(frame, keys)
     values = {name: [] for name in [*keys, *(item["as"] for item in aggregates)]}
     denominators = {item["as"]: {"total": 0, "min": None, "max": None} for item in aggregates}
@@ -1206,6 +1231,89 @@ def _scan_infer(frame, all_text, infer_text=True):
     return output
 
 
+def _pandas_header(cells):
+    """Column names as pandas.read_csv (and read_excel, read_html) derives
+    them from a header row: a blank cell is `Unnamed: <index>`, and a
+    repeated name gets `.1`, `.2`, ... The order is pandas': named columns
+    are numbered before unnamed ones, and a suffix that another header cell
+    already spells is skipped (`b, b, b.1` gives `b, b.2, b.1`). Returns the
+    names, the blank cells' names, and the renamed columns."""
+    names, unnamed = [], []
+    for index, value in enumerate(cells):
+        if _missing(value) or str(value) == "":
+            names.append(f"Unnamed: {index}")
+            unnamed.append(index)
+        else:
+            names.append(str(value))
+    blank = set(unnamed)
+    counts, renamed = {}, []
+    for index in [i for i in range(len(names)) if i not in blank] + unnamed:
+        name = original = names[index]
+        current = counts.get(name, 0)
+        while current > 0:
+            counts[original] = current + 1
+            name = f"{original}.{current}"
+            current = current + 1 if name in names else counts.get(name, 0)
+        if name != original:
+            renamed.append({"column": index, "header": original, "name": name})
+        names[index] = name
+        counts[name] = current + 1
+    return names, [names[i] for i in unnamed], sorted(renamed, key=lambda item: item["column"])
+
+
+# pandas.read_csv's default missing-value tokens (pandas._libs.parsers.
+# STR_NA_VALUES: the same strings in pandas 2.2 and 3.0; a test keeps the two
+# in step). The empty string is already read as missing.
+PANDAS_NA_TOKENS = frozenset(
+    {
+        "#N/A",
+        "#N/A N/A",
+        "#NA",
+        "-1.#IND",
+        "-1.#QNAN",
+        "-NaN",
+        "-nan",
+        "1.#IND",
+        "1.#QNAN",
+        "<NA>",
+        "N/A",
+        "NA",
+        "NULL",
+        "NaN",
+        "None",
+        "n/a",
+        "nan",
+        "null",
+    }
+)
+
+
+def _scan_missing_tokens(frame, source_meta):
+    """Cells that pandas reads as missing by default ("NA", "None", "N/A",
+    "null", "nan", ...) are missing here too: analyses and reference answers
+    written with pandas count them as missing, and a column of numbers with
+    "NA" gaps is numeric in pandas. Whole-cell matches only, as in pandas
+    ("NA" but not " NA" or "na"); header cells are names and stay as they
+    are. The converted cells are counted per column and token for the
+    observation, since a token can be a real value (all_text=True keeps
+    them all as text)."""
+    converted = {}
+    for name in frame.columns:
+        series = frame[name]
+        if series.dtype == object:
+            mask = series.map(lambda value: isinstance(value, str) and value in PANDAS_NA_TOKENS).astype(bool)
+        elif pd.api.types.is_string_dtype(series.dtype):
+            mask = pd.Series(series.isin(PANDAS_NA_TOKENS), index=series.index).fillna(False).astype(bool)
+        else:
+            continue
+        if mask.any():
+            converted[name] = {str(token): int(n) for token, n in series[mask].value_counts().items()}
+            frame[name] = series.mask(mask)
+    if converted:
+        source_meta["missingTokens"] = converted
+    return frame
+
+
 def _scan_header(spec, raw, source_meta):
     props = spec["properties"]
     if props.get("header", True):
@@ -1216,16 +1324,13 @@ def _scan_header(spec, raw, source_meta):
                 "No header is available. Use a raw preview, or header=False with explicit names for an empty source.",
                 field="header",
             )
-        unresolved = []
-        names = []
-        for index, value in enumerate(raw.iloc[0]):
-            if _missing(value) or str(value) == "":
-                # pandas' own name for a blank header cell, which analyses and
-                # reference answers written with pandas use (`Unnamed: 249`).
-                value = f"Unnamed: {index}"
-                unresolved.append(value)
-            names.append(str(value))
+        # pandas' names for blank and repeated header cells, which analyses
+        # and reference answers written with pandas use (`Unnamed: 249`,
+        # `Q7.1`).
+        names, unresolved, renamed = _pandas_header(raw.iloc[0])
         source_meta["unresolvedHeaders"] = unresolved
+        if renamed:
+            source_meta["renamedHeaders"] = renamed
         output = raw.iloc[1:].copy().reset_index(drop=True)
     else:
         names = props.get("names", [f"column{i}" for i in range(len(raw.columns))])
@@ -1240,15 +1345,19 @@ def _scan_header(spec, raw, source_meta):
                 f"Received {len(names)} names for {len(output.columns)} columns; provide exactly one per column.",
                 field="names",
             )
-    if len(names) != len(set(names)):
-        raise _error(
-            spec,
-            "SCAN_HEADER",
-            "Duplicate header names are not renamed automatically; preview and use header=False with names=[...], or a process parser.",
-            field="header",
-        )
+        if len(names) != len(set(names)):
+            repeated = sorted({name for name in names if names.count(name) > 1})
+            raise _error(
+                spec,
+                "SCAN_NAMES",
+                f"names=[...] repeats {', '.join(repr(name) for name in repeated[:5])}; give each column its own name.",
+                field="names",
+            )
     output.columns = names
-    return _scan_infer(output, props.get("allText", False), infer_text=source_meta["format"] != "excel")
+    all_text = props.get("allText", False)
+    if not all_text:
+        output = _scan_missing_tokens(output, source_meta)
+    return _scan_infer(output, all_text, infer_text=source_meta["format"] != "excel")
 
 
 def _html_tables(path, encoding):
@@ -1481,7 +1590,47 @@ def _scan_read(spec, path, fmt, source_meta):
                 )
         except pd.errors.EmptyDataError:
             raw = pd.DataFrame()
+        except pd.errors.ParserError as error:
+            title = _title_lines(path, encoding, source_meta.get("delim"), skip)
+            if title is None:
+                raise
+            raise _error(
+                spec,
+                "SCAN_PARSE",
+                f"Cannot read {path.name!r} as {fmt}: {str(error).strip()} Its first {title} line(s) are a title "
+                f"above the table (one field or blank, where the table rows have more): "
+                f"skip_lines={skip + title} starts at the header.",
+                field="files",
+            ) from error
         return _scan_header(spec, raw, source_meta)
+
+
+def _title_lines(path, encoding, delimiter, skip):
+    """Lines above the header that are not table rows, such as a Google
+    Trends export's `Category: All categories` and a blank line: how many
+    leading records have one field or none, before the field count that most
+    of the first 200 records share. None when the file does not start that
+    way, so the parser's own error stands."""
+    import csv
+    from itertools import islice
+
+    if not delimiter or delimiter == "whitespace":
+        return None
+    try:
+        with path.open(encoding=encoding, newline="") as stream:
+            for _ in range(skip):
+                stream.readline()
+            widths = [len(row) for row in islice(csv.reader(stream, delimiter=delimiter), 200)]
+    except (csv.Error, UnicodeDecodeError, OSError):
+        return None
+    filled = [width for width in widths if width]
+    if len(filled) < 3:
+        return None
+    common = Counter(filled).most_common(1)[0][0]
+    if common < 2:
+        return None
+    first = widths.index(common)
+    return first if first and all(width <= 1 for width in widths[:first]) else None
 
 
 def _scan(spec, operations):
@@ -1774,7 +1923,8 @@ def _filter(spec, source, operations):
             "predicateColumns": sorted(reads),
         }
     )
-    return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy().reset_index(drop=True)
+    # The kept rows' positions stay the index: execute_native maps them to labels.
+    return source.iloc[[i for i, keep in enumerate(mask) if keep]].copy()
 
 
 def _project(spec, source):
@@ -1949,6 +2099,44 @@ def _pivot(spec, source, operations):
     return output
 
 
+def _split_labels(frame):
+    """The frame without its label column, indexed by position, and its row
+    labels (None when they are 0..n-1)."""
+    if not isinstance(frame, pd.DataFrame):
+        return frame, None
+    labels = None
+    if ROW_LABEL in frame.columns:
+        labels = frame[ROW_LABEL].to_numpy(dtype="int64")
+        frame = frame.drop(columns=[ROW_LABEL])
+    return frame.reset_index(drop=True), labels
+
+
+def _returned_labels(frame):
+    """A process function's result as a table, and its row labels. An integer
+    index is row labels, as in pandas (None when it is 0..n-1). A named index
+    holds data, such as the keys of a groupby that was not reset, and becomes
+    columns as `reset_index()` makes them. Any other index is dropped."""
+    index = frame.index
+    if any(name is not None for name in index.names):
+        try:
+            return frame.reset_index(), None
+        except ValueError:
+            return frame.reset_index(drop=True), None
+    if isinstance(index, pd.MultiIndex) or not pd.api.types.is_integer_dtype(index.dtype):
+        return frame.reset_index(drop=True), None
+    labels = index.to_numpy(dtype="int64")
+    return frame.reset_index(drop=True), (None if np.array_equal(labels, np.arange(len(labels))) else labels)
+
+
+def _attach_labels(output, labels):
+    if labels is None or np.array_equal(labels, np.arange(len(output))):
+        return output
+    if len(labels) != len(output):
+        raise AssertionError("row labels must match the output rows")
+    output[ROW_LABEL] = pd.array(labels, dtype="Int64")
+    return output
+
+
 def execute_native(spec, inputs):
     global pd, np
     import pandas as pd
@@ -1957,6 +2145,9 @@ def execute_native(spec, inputs):
     validate_native(spec)
     if len(inputs) != len(spec.get("inputs", [])):
         raise _error(spec, "INPUT_PORTS", "Runtime input count differs from the declared ports.", stage="contract")
+    split = [_split_labels(frame) for frame in inputs]
+    inputs = [frame for frame, _ in split]
+    labels = [row_labels for _, row_labels in split]
     for index, frame in enumerate(inputs):
         try:
             _frame(spec, frame)
@@ -1975,6 +2166,7 @@ def execute_native(spec, inputs):
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}
+    output_labels = None
     if kind == "Parameters":
         output = pd.DataFrame([props["values"]])
     elif kind == "Scan":
@@ -2005,7 +2197,7 @@ def execute_native(spec, inputs):
         columns = props.get("columns", list(source.columns))
         _columns(spec, source, columns, "columns")
         if columns:
-            output = source.drop_duplicates(subset=columns, keep=props.get("keep", "first")).reset_index(drop=True)
+            output = source.drop_duplicates(subset=columns, keep=props.get("keep", "first"))
         else:
             output = source.iloc[-1:] if props.get("keep") == "last" else source.iloc[:1]
         operations["removedRows"] = len(source) - len(output)
@@ -2020,28 +2212,44 @@ def execute_native(spec, inputs):
                 na_position=props.get("nulls", "last"),
                 kind="stable",
             )
-        output = output.reset_index(drop=True)
     elif kind == "Limit":
         start = props.get("offset", 0)
-        output = source.iloc[start : start + props["n"]].copy().reset_index(drop=True)
+        output = source.iloc[start : start + props["n"]].copy()
         operations["removedRows"] = len(source) - len(output)
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
         params = props.get("params")
         tables = props.get("tables")
+
+        def given(position, frame):
+            # The function sees each table's pandas row labels as its index.
+            copy = frame.copy(deep=True)
+            if labels[position] is not None:
+                copy.index = pd.Index(labels[position])
+            return copy
+
         if params is not None and tables is not None:
             # A registered operator: the tables and the settings bind to the
             # parameters by name; the function's defaults fill the rest.
-            frames = dict(zip(tables, (frame.copy(deep=True) for frame in inputs)))
+            frames = dict(zip(tables, (given(i, frame) for i, frame in enumerate(inputs))))
             output = _frame(spec, function(**frames, **params))
         else:
-            output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs], **(params or {})))
+            output = _frame(spec, function(*[given(i, frame) for i, frame in enumerate(inputs)], **(params or {})))
+        output, output_labels = _returned_labels(output)
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
+    if kind in LABELS_FOLLOW:
+        positions = output.index.to_numpy()
+        output = output.reset_index(drop=True)
+        output_labels = (labels[0] if labels[0] is not None else np.arange(len(source)))[positions]
+    elif kind in LABELS_PASS:
+        output = output.reset_index(drop=True)
+        output_labels = labels[0]
     _frame(spec, output)
     if ROW_EFFECTS[kind] == "none" and len(output) != len(source):
         raise _error(spec, "ROW_CONTRACT", "A row-preserving operator changed the row count.", stage="contract")
+    output = _attach_labels(output, output_labels)
     output.attrs["native_v2"] = {
         "version": 1,
         "operatorId": spec.get("id", "operator"),

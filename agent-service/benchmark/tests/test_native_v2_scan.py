@@ -57,12 +57,16 @@ def test_csv_all_text_preserves_codes_and_null_like_literals(tmp_path):
 def test_csv_duplicate_headers_names_exact_width_and_header_only(tmp_path):
     path = tmp_path / "table.csv"
     path.write_text("a,a\n1,2\n")
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path)
+    result = scan(path)
+    assert rows(result) == [{"a": 1, "a.1": 2}]
+    (source,) = result.attrs["native_v2"]["operations"]["scan"]["sources"]
+    assert source["renamedHeaders"] == [{"column": 1, "header": "a", "name": "a.1"}]
     path.write_text("1,2\n3,4\n")
     assert rows(scan(path, header=False, names=["x", "y"])) == [{"x": 1, "y": 2}, {"x": 3, "y": 4}]
     with pytest.raises(runtime.NativeError, match="SCAN_NAMES"):
         scan(path, header=False, names=["x"])
+    with pytest.raises(runtime.NativeError, match="SCAN_NAMES"):
+        scan(path, header=False, names=["x", "x"])
     path.write_text("a,b\n")
     empty = scan(path)
     assert empty.empty and list(empty.columns) == ["a", "b"]
@@ -155,8 +159,7 @@ def test_excel_sheets_headers_offsets_and_preview_schema(tmp_path):
     preview = scan(path, preview=1, skipLines=2, sheet="Data")
     assert rows(preview) == [{"sheet": "Data", "row_no": 2, "line": "1 | 2"}]
     assert scan(path, preview=2, skipLines=100).empty
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path, sheet="Duplicate")
+    assert rows(scan(path, sheet="Duplicate")) == [{"x": 5, "x.1": 6}]
 
 
 def test_html_preview_offsets_and_full_header_validation(tmp_path):
@@ -168,8 +171,7 @@ def test_html_preview_offsets_and_full_header_validation(tmp_path):
     assert rows(scan(path, preview=1, skipLines=1)) == [{"table": 0, "row_no": 2, "line": "3 | 4"}]
     assert rows(scan(path, preview=1))[0] == {"table": 0, "row_no": 0, "line": "a | b"}
     path.write_text("<table><tr><th>a</th><th>a</th></tr><tr><td>1</td><td>2</td></tr></table>")
-    with pytest.raises(runtime.NativeError, match="SCAN_HEADER"):
-        scan(path)
+    assert rows(scan(path)) == [{"a": 1, "a.1": 2}]
 
 
 def test_json_parquet_and_binary_previews_do_not_parse_binary_as_text(tmp_path):
@@ -248,3 +250,73 @@ def test_quoted_line_breaks_are_kept_as_pandas_keeps_them(tmp_path):
     assert result["body"].tolist() == ["first line\r\nsecond line", "plain"]
     assert result["body"].tolist() == pd.read_csv(path)["body"].tolist()
     assert result["id"].tolist() == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "a,a,a",
+        "b,b,b.1,b",
+        "x,x,x.1",
+        "x,x.1,x",
+        "Unnamed: 1,,",
+        "q,,q,",
+        "a.1,a,a",
+    ],
+)
+def test_repeated_header_names_match_pandas(tmp_path, header):
+    # The 2015 Stack Overflow survey, the policing CSVs and the country
+    # profiles repeat header names; pandas-based analyses use pandas' names.
+    path = tmp_path / "source.csv"
+    width = len(header.split(","))
+    path.write_text(header + "\n" + ",".join(str(i) for i in range(width)) + "\n")
+    assert list(scan(path).columns) == list(pd.read_csv(path).columns)
+
+
+def test_missing_value_tokens_are_the_ones_pandas_reads_as_missing():
+    from pandas._libs.parsers import STR_NA_VALUES
+
+    assert runtime.PANDAS_NA_TOKENS == frozenset(STR_NA_VALUES) - {""}
+
+
+def test_pandas_missing_tokens_are_missing_and_counted(tmp_path):
+    # PASSNYC and the Kaggle surveys spell missing values "NA", "None", "N/A";
+    # pandas reads them as missing, and so do analyses written with pandas.
+    path = tmp_path / "source.csv"
+    path.write_text('id,label,score\n1,NA,3\n2,None,NA\n3," NA",4\n4,n/a,\n5,"NA",#N/A\n')
+    result = scan(path)
+
+    def plain(values):
+        return [None if pd.isna(value) else value for value in values]
+
+    assert plain(result["label"]) == plain(pd.read_csv(path)["label"]) == [None, None, " NA", None, None]
+    assert str(result["score"].dtype) == "Int64"
+    assert plain(result["score"]) == [3, None, 4, None, None]
+    (source,) = result.attrs["native_v2"]["operations"]["scan"]["sources"]
+    assert source["missingTokens"] == {"label": {"NA": 2, "None": 1, "n/a": 1}, "score": {"NA": 1, "#N/A": 1}}
+    kept = scan(path, allText=True)
+    assert kept["label"].tolist() == ["NA", "None", " NA", "n/a", "NA"]
+    assert "missingTokens" not in kept.attrs["native_v2"]["operations"]["scan"]["sources"][0]
+
+
+def test_header_cells_spelling_a_token_stay_names(tmp_path):
+    path = tmp_path / "source.csv"
+    path.write_text("NA,None\n1,2\n")
+    assert list(scan(path).columns) == list(pd.read_csv(path).columns) == ["NA", "None"]
+
+
+def test_title_lines_above_the_header_are_named_in_the_error(tmp_path):
+    # A Google Trends export (Netflix task 3): a title, a blank line, then the table.
+    path = tmp_path / "trend.csv"
+    path.write_text("Category: All categories\n\nWeek,netflix: (Australia)\n2015-01-11,8\n2015-01-18,7\n")
+    with pytest.raises(runtime.NativeError, match="skip_lines=2 starts at the header"):
+        scan(path)
+    assert rows(scan(path, skipLines=2)) == [
+        {"Week": "2015-01-11", "netflix: (Australia)": 8},
+        {"Week": "2015-01-18", "netflix: (Australia)": 7},
+    ]
+    # A header shorter than its rows is not a title: the parser's error stands.
+    path.write_text("a,b\n1,2,3\n4,5,6\n7,8,9\n")
+    with pytest.raises(runtime.NativeError, match="SCAN_PARSE") as error:
+        scan(path)
+    assert "title" not in str(error.value)

@@ -86,14 +86,25 @@ CASES = [
     ),
     (
         "scan",
-        "duplicate header",
+        "repeated names",
         "Scan",
         [],
-        dict(files="__dup__"),
-        "SCAN_HEADER",
+        dict(files="__ok__", header=False, names=["a", "a"]),
+        "SCAN_NAMES",
         "execute",
         None,
-        ["Duplicate header"],
+        ["repeats 'a'"],
+    ),
+    (
+        "scan",
+        "title lines above the header",
+        "Scan",
+        [],
+        dict(files="__title__"),
+        "SCAN_PARSE",
+        "execute",
+        None,
+        ["skip_lines=2 starts at the header"],
     ),
     (
         "scan",
@@ -1180,8 +1191,10 @@ def files(tmp_path_factory):
     (root / "dup.csv").write_text("a,b,a\n1,2,3\n")
     (root / "ok.csv").write_text("x,y\n1,p\n2,q\n")
     (root / "blob.npz").write_bytes(b"\x00\x01\x02")
+    (root / "title.csv").write_text("Category: All categories\n\nWeek,value\n2015-01-11,8\n2015-01-18,7\n")
     return {
         "__dup__": str(root / "dup.csv"),
+        "__title__": str(root / "title.csv"),
         "__ok__": str(root / "ok.csv"),
         "__bin__": str(root / "blob.npz"),
         "__missing__/nope.csv": str(root / "nope.csv"),

@@ -30,23 +30,23 @@ def execute(kind, *frames, **properties):
 
 
 def rows(frame):
+    """The table's visible rows; pandas row labels ride in a hidden column."""
+    frame = frame.drop(columns=[runtime.ROW_LABEL], errors="ignore")
     return json.loads(frame.to_json(orient="records", date_format="iso"))
+
+
+AGGREGATIONS = [
+    {"fn": "count", "as": "rows"},
+    {"fn": "count", "col": "v", "as": "present"},
+    {"fn": "sum", "col": "v", "as": "sum"},
+    {"fn": "mean", "col": "v", "as": "mean"},
+    {"fn": "first", "col": "v", "as": "first"},
+]
 
 
 def test_aggregate_null_groups_first_seen_order_counts_and_denominators():
     frame = pd.DataFrame({"g": ["b", None, "b", "a", None], "v": pd.Series([None, 4, 2, None, 6], dtype="Int64")})
-    result = execute(
-        "Aggregate",
-        frame,
-        groupBy=["g"],
-        aggregations=[
-            {"fn": "count", "as": "rows"},
-            {"fn": "count", "col": "v", "as": "present"},
-            {"fn": "sum", "col": "v", "as": "sum"},
-            {"fn": "mean", "col": "v", "as": "mean"},
-            {"fn": "first", "col": "v", "as": "first"},
-        ],
-    )
+    result = execute("Aggregate", frame, groupBy=["g"], dropna=False, aggregations=AGGREGATIONS)
     assert rows(result) == [
         {"g": "b", "rows": 2, "present": 1, "sum": 2, "mean": 2, "first": None},
         {"g": None, "rows": 2, "present": 2, "sum": 10, "mean": 5, "first": 4},
@@ -54,6 +54,34 @@ def test_aggregate_null_groups_first_seen_order_counts_and_denominators():
     ]
     assert str(result["sum"].dtype) == "Int64"
     assert result.attrs["native_v2"]["operations"]["aggregateNonNull"]["mean"]["total"] == 3
+    assert "nullKeyRows" not in result.attrs["native_v2"]["operations"]
+
+
+def test_aggregate_drops_null_keys_as_pandas_groupby_does():
+    # survey-2021 task 2 t4: ten respondents without a country formed a group
+    # of their own and shifted a rank; pandas' groupby leaves them out.
+    frame = pd.DataFrame(
+        {
+            "g": ["b", None, "b", "a", None],
+            "h": ["x", "y", None, "x", "y"],
+            "v": pd.Series([None, 4, 2, None, 6], dtype="Int64"),
+        }
+    )
+    result = execute("Aggregate", frame, groupBy=["g"], aggregations=AGGREGATIONS)
+    assert rows(result) == [
+        {"g": "b", "rows": 2, "present": 1, "sum": 2, "mean": 2, "first": None},
+        {"g": "a", "rows": 1, "present": 0, "sum": None, "mean": None, "first": None},
+    ]
+    operations = result.attrs["native_v2"]["operations"]
+    assert operations["nullKeyRows"] == 2 and operations["nullKeyColumns"] == {"g": 2}
+    assert operations["groupSizes"] == {"min": 1, "max": 2, "total": 3}
+    expected = frame.groupby("g", sort=False).agg(rows=("v", "size"), present=("v", "count")).reset_index()
+    assert rows(result[["g", "rows", "present"]]) == rows(expected)
+    both = execute("Aggregate", frame, groupBy=["g", "h"], aggregations=[{"fn": "count", "as": "n"}])
+    assert rows(both) == [{"g": "b", "h": "x", "n": 1}, {"g": "a", "h": "x", "n": 1}]
+    assert both.attrs["native_v2"]["operations"]["nullKeyColumns"] == {"g": 2, "h": 1}
+    whole = execute("Aggregate", frame, aggregations=[{"fn": "count", "as": "n"}])
+    assert rows(whole) == [{"n": 5}]
 
 
 def test_aggregate_reductions_all_null_and_empty_schemas():

@@ -587,7 +587,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     rowEffect: "create",
     signature:
       'scan(files, format="auto", skip_lines=0, header=True, names=None, all_text=False, delim=None, comment=None, widths=None, sheet=None, encoding=None, file_column=None, preview=None)',
-    doc: 'Reads a file or glob (csv, tsv, txt, xlsx, html, json, parquet; format=lines/fwf/whitespace for non-delimited text) into a table. `preview=n` shows the first n RAW lines (or sheet rows) from `skip_lines` instead of parsing: use it on an unfamiliar file, then scan for real. `all_text=True` keeps codes like 001 as text; `names` requires header=False and one name per column; `sheet` picks an Excel sheet or HTML table index; `file_column` records each row\'s source file. Example: `orders = scan("data/orders.csv")`.',
+    doc: 'Reads a file or glob (csv, tsv, txt, xlsx, html, json, parquet; format=lines/fwf/whitespace for non-delimited text) into a table. `preview=n` shows the first n RAW lines (or sheet rows) from `skip_lines` instead of parsing: use it on an unfamiliar file, then scan for real. Cells read as pandas.read_csv reads them: "NA", "None", "N/A", "null", "nan" and the other pandas missing-value tokens are missing (the observation counts them), a blank header is `Unnamed: <i>`, and a repeated header gets `.1`, `.2`. `all_text=True` keeps every cell as text, codes like 001 and those tokens included; `names` requires header=False and one name per column; `sheet` picks an Excel sheet or HTML table index; `file_column` records each row\'s source file. Example: `orders = scan("data/orders.csv")`.',
     schema: object(
       {
         files: { oneOf: [S, list(S)] },
@@ -796,11 +796,12 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     type: "Aggregate",
     inputs: 1,
     rowEffect: "collapse",
-    signature: 'aggregate(T, by=[], name=reducer("col"), ...)',
-    doc: 'One output row per distinct combination of the `by` columns (null keys form a group; no `by` gives one row). Each keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
+    signature: 'aggregate(T, by=[], name=reducer("col"), ..., dropna=True)',
+    doc: 'One output row per distinct combination of the `by` columns (no `by` gives one row). As in pandas groupby, a row with a null in any `by` column belongs to no group and the observation counts those rows; dropna=False keeps null keys as their own group. Each other keyword is an output column: count() counts rows, count("col") non-null values, and count_distinct, sum, mean, min, max, median, stddev, first reduce a column. Reductions ignore nulls (first keeps them); an all-null sum is null; stddev is the sample standard deviation. Numeric reducers need numeric columns: cast first. Example: `by_region = aggregate(orders, by=["region"], total=sum("amount"), n=count())`.',
     schema: object(
       {
         groupBy: NAMES,
+        dropna: { type: "boolean" },
         aggregations: list(
           object({ fn: { type: "string", enum: [...AGGREGATE_FUNCTIONS] }, col: S, as: S }, ["fn", "as"])
         ),
@@ -814,6 +815,10 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
       for (const [key, value] of Object.entries(kwargs)) {
         if (key === "by") {
           props.groupBy = strList(value, "by");
+          continue;
+        }
+        if (key === "dropna" && value.kind !== "call") {
+          if (!bool(value, "dropna")) props.dropna = false;
           continue;
         }
         if (value.kind !== "call" || !(AGGREGATE_FUNCTIONS as readonly string[]).includes(value.name))
@@ -970,7 +975,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: 1,
     rowEffect: "none",
     signature: "window(T, partition_by=[], order_by=[...], name=fn, ...)",
-    doc: 'Adds columns computed within partitions in the given order, then restores the input row order: `window(t, partition_by=["team"], order_by=["date"], prev=lag("score", 1), rank=dense_rank())`. Functions: lag(col, offset=1), lead(col, offset=1), row_number(), rank(), dense_rank(). Ranks are 1-based; ties follow the order keys, so add a tie-break key when it matters. Null partition keys form one partition; null order values sort last.',
+    doc: 'Adds columns computed within partitions in the given order, then restores the input row order: `window(t, partition_by=["team"], order_by=["date"], prev=lag("score", 1), rank=dense_rank())`. Functions: lag(col, offset=1), lead(col, offset=1), row_number(), rank(), dense_rank(). row_number(), rank() and dense_rank() count from 1, as in SQL; pandas positions (cumcount(), a reset index) count from 0, so subtract 1 for those. Ties follow the order keys, so add a tie-break key when it matters. Null partition keys form one partition; null order values sort last.',
     schema: object(
       {
         partitionBy: NAMES,
@@ -1069,7 +1074,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
     inputs: "many",
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
-    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
+    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. Each DataFrame arrives with its pandas row labels as the index, kept as pandas keeps them through filter, sort, distinct and head, so `full.loc[cleaned.index]` picks the cleaned rows of `full`; aggregate, join, union and pivot number their rows from 0. The index you return is kept the same way, and a named index, such as the keys of a groupby you did not reset, comes back as columns. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
     schema: object(
       {
         code: S,
@@ -1160,7 +1165,7 @@ export function nativeOperatorName(type: string): string {
  * so older programs and forks keep working). */
 export const OWN_OPERATOR_CATALOG_ENTRY =
   'T2 = your_operator(T1, ..., setting=value, ...)   or   T = your_loader()\n' +
-  '    Custom code in Python: a `def` with a docstring, called by name. `def band_report(T, band_column, value, top=5):` with the docstring `"""One row per {band_column} with the mean {value}, the {top} highest first."""`, then `top_edu = band_report(cleaned, band_column="prevEducation", value="composite")`. The function receives one pandas DataFrame per argument that names a table and the other arguments as its settings (literals: strings, numbers, True/False, None, lists), and returns one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; a def with no table arguments loads data itself. The docstring, rendered with the call\'s arguments, is the table\'s doc; every table needs one. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining. Make the columns, thresholds and limits it uses parameters, so the next request that changes one of them is a call with a new argument, not a new def; `Your operators` in the index lists the ones you have.';
+  '    Custom code in Python: a `def` with a docstring, called by name. `def band_report(T, band_column, value, top=5):` with the docstring `"""One row per {band_column} with the mean {value}, the {top} highest first."""`, then `top_edu = band_report(cleaned, band_column="prevEducation", value="composite")`. The function receives one pandas DataFrame per argument that names a table and the other arguments as its settings (literals: strings, numbers, True/False, None, lists), and returns one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; a def with no table arguments loads data itself. Each DataFrame arrives with its pandas row labels as the index, kept as pandas keeps them through filter, sort, distinct and head, so `full.loc[cleaned.index]` picks the cleaned rows of `full`; aggregate, join, union and pivot number their rows from 0. The index you return is kept the same way, and a named index, such as the keys of a groupby you did not reset, comes back as columns. The docstring, rendered with the call\'s arguments, is the table\'s doc; every table needs one. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining. Make the columns, thresholds and limits it uses parameters, so the next request that changes one of them is a call with a new argument, not a new def; `Your operators` in the index lists the ones you have.';
 
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
 export function nativeCatalogText(options: { analysisState?: boolean; registeredOperators?: boolean } = {}): string {

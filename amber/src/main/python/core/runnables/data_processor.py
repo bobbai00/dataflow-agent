@@ -250,6 +250,10 @@ def _embedded_class_name(value: Any) -> Optional[str]:
     return pickled_object_class_name(value)
 
 
+#: pandas' name for a serialized index; the native runtime stores row labels under it.
+ROW_LABEL_COLUMN = "__index_level_0__"
+
+
 class DataProcessor(Runnable, Stoppable):
     def __init__(self, context: Context):
         self._running = Event()
@@ -654,6 +658,12 @@ class DataProcessor(Runnable, Stoppable):
         """
         from core.models.table import deduplicate_columns
 
+        # The native runtime keeps a table's pandas row labels in a reserved
+        # column between operators; it is bookkeeping, not data.
+        if ROW_LABEL_COLUMN in df.columns:
+            attrs = dict(df.attrs)
+            df = df.drop(columns=[ROW_LABEL_COLUMN])
+            df.attrs.update(attrs)
         str_columns = [str(c) for c in df.columns]
         deduped_columns, _ = deduplicate_columns(str_columns)
         stats: Dict[str, str] = {}

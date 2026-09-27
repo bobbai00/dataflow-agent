@@ -17,9 +17,38 @@
  * under the License.
  */
 
-import type { SyncExecutionResult } from "../../types/execution";
+import type { OperatorInfo, SyncExecutionResult } from "../../types/execution";
 import type { LogicalPlan } from "../../types/workflow";
 import { executionFingerprints, producingExecution } from "./result-versions";
+
+/**
+ * pandas' name for a serialized index. The native runtime keeps a table's
+ * pandas row labels in this column between operators when they are not
+ * 0..n-1 (`ROW_LABEL` in python/runtime.py); it is bookkeeping, never a column
+ * of the table, so results reach the agent without it.
+ */
+export const ROW_LABEL_COLUMN = "__index_level_0__";
+
+/** The operator's result without the row-label column in its rows, schema or column stats. */
+export function withoutRowLabels(info: OperatorInfo): OperatorInfo {
+  const inSchema = info.resultSchema?.some(column => column.name === ROW_LABEL_COLUMN) ?? false;
+  const inRows = info.result?.some(row => row != null && Object.hasOwn(row, ROW_LABEL_COLUMN)) ?? false;
+  const inStats = info.columnStats != null && Object.hasOwn(info.columnStats, ROW_LABEL_COLUMN);
+  if (!inSchema && !inRows && !inStats) return info;
+  const out: OperatorInfo = { ...info };
+  if (inSchema) out.resultSchema = info.resultSchema!.filter(column => column.name !== ROW_LABEL_COLUMN);
+  if (inRows)
+    out.result = info.result!.map(row => {
+      if (row == null || !Object.hasOwn(row, ROW_LABEL_COLUMN)) return row;
+      const { [ROW_LABEL_COLUMN]: _label, ...rest } = row;
+      return rest;
+    });
+  if (inStats) {
+    const { [ROW_LABEL_COLUMN]: _stats, ...rest } = info.columnStats!;
+    out.columnStats = rest;
+  }
+  return out;
+}
 
 /** V2 must not silently consume legacy NULL strings or rounded int64 numbers.
  * This negotiation concerns data correctness. Missing optional profiles are
@@ -65,7 +94,7 @@ export function prepareStructuredExecutionResult(
       Object.entries(response.operators).map(([id, info]) => [
         id,
         {
-          ...info,
+          ...withoutRowLabels(info),
           executionContext: {
             ...executionContext,
             ...fingerprints?.get(id),

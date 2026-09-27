@@ -73,7 +73,7 @@ test("two argument failures show the field and signature; identical retries leav
   expect(second.message).toContain("Repeated validation failure (2)");
   expect(second.message).toContain("alias");
   expect(second.message).toContain("identical resubmission stays paused");
-  expect(second.message).toContain('Signature: aggregate(T, by=[], name=reducer("col"), ...)');
+  expect(second.message).toContain('Signature: aggregate(T, by=[], name=reducer("col"), ..., dropna=True)');
   const third = (await execute(bad)).operators[0]!;
   expect(third.message).toContain("Identical invalid submission paused");
   expect(state.getWorkflowContent()).toEqual(before);

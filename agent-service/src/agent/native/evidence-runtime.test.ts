@@ -83,6 +83,10 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     execute('empty_unpivot', 'Unpivot', ['shape_empty'], columns=['y1','y2'])
     execute('empty_window', 'Window', ['empty_unpivot'], partitionBy=['id','tags'], orderBy=[dict(col='variable')], columns=[dict(fn='lag', col='value', **{'as': 'previous'})])
     execute('empty_pivot', 'Pivot', ['empty_window'], index=['id','tags'], columns='variable', values='previous')
+    tokens = Path(directory) / 'tokens.csv'
+    tokens.write_text('a,a,b\\n1,NA,None\\n2,x,3\\n', encoding='utf8')
+    execute('tokens', 'Scan', [], files=str(tokens))
+    execute('null_groups', 'Aggregate', ['typed'], groupBy=['x'], aggregations=[dict(fn='count', **{'as': 'n'})])
 print(json.dumps(records))
 `,
       runtime,
@@ -194,6 +198,10 @@ print(json.dumps(records))
   expect(facts.get("unioned")).toContain("sum=6, output=6");
   expect(facts.get("limited")).toContain("retained=1/6, removed=5");
   expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
+  expect(facts.get("tokens")).toContain('read 2 cells ("NA" 1, "None" 1) in 2 columns');
+  expect(facts.get("tokens")).toContain('renamed repeated header names as pandas does: column 1 "a" is "a.1"');
+  expect(facts.get("null_groups")).toContain("Aggregate dropped 2/3 rows whose group key is null");
+  expect(facts.get("null_groups")).toContain("groups=1 from 3 rows");
   expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
   expect(facts.get("udf")).toContain("row/column mapping unknown");
   expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");

@@ -42,7 +42,8 @@ async function views(program: string): Promise<Record<string, ProgramStatement>>
   return Object.fromEntries(compiled.statements.map(s => [s.id, s]));
 }
 
-/** Run every operator's generated code in dependency order; the answer table as records. */
+/** Run every operator's generated code in dependency order; the answer table as
+ * records, without the row-label column the transport strips from every result. */
 function execute(state: WorkflowState, answer: string): any[] {
   const run = spawnSync(
     python,
@@ -62,7 +63,7 @@ while pending:
         inputs = list(dict.fromkeys(op['nativeOp']['inputs']))
         results[op['operatorID']] = scope['process'](*[results[id] for id in inputs]) if inputs else scope['load']()
         del pending[op['operatorID']]
-print(results[sys.argv[1]].to_json(orient='records'))
+print(results[sys.argv[1]].drop(columns=['__index_level_0__'], errors='ignore').to_json(orient='records'))
 `,
       answer,
     ],

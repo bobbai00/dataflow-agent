@@ -223,6 +223,32 @@ export function collectNativeEvidence(context: NativeEvidenceContext): {
   return result;
 }
 
+/**
+ * The cells a scan read as missing because they spell one of pandas' default
+ * missing-value tokens: totals per token, most common first, then the columns
+ * with the most such cells. Undefined when there were none.
+ */
+export function scanMissingTokens(value: unknown): string | undefined {
+  const perColumn = Object.entries(record(value))
+    .map(([column, tokens]) => {
+      const counts = Object.entries(record(tokens)).filter((entry): entry is [string, number] => count(entry[1]));
+      return { column, counts, total: counts.reduce((sum, [, n]) => sum + n, 0) };
+    })
+    .filter(c => c.total > 0);
+  if (!perColumn.length) return undefined;
+  const byToken = new Map<string, number>();
+  for (const c of perColumn) for (const [token, n] of c.counts) byToken.set(token, (byToken.get(token) ?? 0) + n);
+  const total = perColumn.reduce((sum, c) => sum + c.total, 0);
+  const tokens = [...byToken].sort((a, b) => b[1] - a[1]);
+  const columns = [...perColumn].sort((a, b) => b.total - a.total);
+  const tokenText = tokens.map(([token, n]) => `${json(token)} ${n}`).join(", ");
+  const columnText = columns
+    .slice(0, 8)
+    .map(c => `${json(c.column)} ${c.total}`)
+    .join(", ");
+  return `${total} cell${total === 1 ? "" : "s"} (${tokenText}) in ${perColumn.length} column${perColumn.length === 1 ? "" : "s"} (${columnText}${columns.length > 8 ? `, and ${columns.length - 8} more` : ""})`;
+}
+
 function collectLocalEvidence(context: NativeEvidenceContext): {
   facts: NativeEvidenceFact[];
   omissions: string[];
@@ -328,7 +354,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Cast: `row identities preserved, same order; declared casts=${json(p.columns ?? [])}; errors=${p.errors ?? "raise"}`,
     Map: `${docOf(p)}row identities preserved, same order; added=${json(names(record(info.tableProfile?.native?.operations).addedColumns))}; dropped=${json(names(record(info.tableProfile?.native?.operations).droppedColumns))}; dependencies measured from the columns the function read`,
     Filter: `${docOf(p)}stable subset of input rows; predicate columns=${json(names(record(info.tableProfile?.native?.operations).predicateColumns))}`,
-    Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; null keys form a group`,
+    Aggregate: `one output row per group; group keys=${json(p.groupBy ?? [])}; ${p.dropna === false ? "null keys form a group" : "rows with a null key are dropped (pandas groupby)"}`,
     Join: `declared ${p.type ?? "inner"} join; nullsEqual=${p.nullsEqual ?? false}; validate=${p.validate ?? "many_to_many"}; row order unspecified`,
     Union: "concatenation preserves all rows and input-port order; no deduplication",
     Distinct: `stable retained subset; keys=${p.columns === undefined ? "whole row" : json(p.columns)}; keep=${p.keep ?? "first"}`,
@@ -413,18 +439,22 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     } else omissions.push("invalid_filter_counters");
   } else if (view.type === "Aggregate") {
     const size = record(operations.groupSizes);
-    const emptyGroups = out === 0 && ns[0] === 0 && size.min === null && size.max === null;
+    // Rows whose key is null belong to no group (pandas groupby dropna=True).
+    const dropped = count(operations.nullKeyRows) ? operations.nullKeyRows : 0;
+    const grouped = ns[0] - dropped;
+    const emptyGroups = out === 0 && grouped === 0 && size.min === null && size.max === null;
     if (
       operations.groupCount === out &&
-      size.total === ns[0] &&
+      grouped >= 0 &&
+      size.total === grouped &&
       (emptyGroups ||
         (count(size.min) &&
           count(size.max) &&
           size.min <= size.max &&
-          size.max <= ns[0] &&
+          size.max <= grouped &&
           out > 0 &&
-          size.min * out <= ns[0] &&
-          size.max * out >= ns[0]))
+          size.min * out <= grouped &&
+          size.max * out >= grouped))
     ) {
       add(
         "flow.aggregate",
@@ -433,13 +463,21 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         `Aggregate groups=${out} from ${ns[0]} rows; group size min=${size.min ?? "undefined"}, max=${size.max ?? "undefined"}.`,
         96
       );
+      if (dropped)
+        add(
+          "flow.aggregate.nullKeys",
+          "flow",
+          "measurement",
+          `Aggregate dropped ${fraction(dropped, ns[0])} rows whose group key is null (nulls per key column=${json(operations.nullKeyColumns ?? {})}), as pandas groupby does; dropna=False keeps them as a group.`,
+          96
+        );
       for (const agg of Array.isArray(p.aggregations) ? p.aggregations : []) {
         const a = record(agg),
           denom = record(record(operations.aggregateNonNull)[a.as]);
         if (
           typeof a.as === "string" &&
           count(denom.total) &&
-          denom.total <= ns[0] &&
+          denom.total <= grouped &&
           ((emptyGroups && denom.total === 0 && denom.min === null && denom.max === null) ||
             (count(denom.min) &&
               count(denom.max) &&
@@ -644,13 +682,35 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       );
       for (const [i, source] of (Array.isArray(scan.sources) ? scan.sources : []).entries()) {
         const s = record(source);
-        if (typeof s.path === "string")
+        if (typeof s.path !== "string") continue;
+        add(
+          `flow.scan.source.${i}`,
+          "flow",
+          "measurement",
+          `source=${json(s.path)}, format=${json(s.format)}, sizeBytes=${s.sizeBytes ?? "unknown"}, mtimeNs=${json(s.mtimeNs ?? "unknown")}; parse/coverage=${json(Object.fromEntries(Object.entries(s).filter(([k]) => !["path", "format", "sizeBytes", "mtimeNs", "missingTokens", "renamedHeaders"].includes(k))))}.`,
+          30
+        );
+        const file = s.path.split("/").pop();
+        const missing = scanMissingTokens(s.missingTokens);
+        if (missing)
           add(
-            `flow.scan.source.${i}`,
+            `flow.scan.missing.${i}`,
             "flow",
             "measurement",
-            `source=${json(s.path)}, format=${json(s.format)}, sizeBytes=${s.sizeBytes ?? "unknown"}, mtimeNs=${json(s.mtimeNs ?? "unknown")}; parse/coverage=${json(Object.fromEntries(Object.entries(s).filter(([k]) => !["path", "format", "sizeBytes", "mtimeNs"].includes(k))))}.`,
-            30
+            `Scan of ${json(file)} read ${missing} as missing, as pandas.read_csv does; all_text=True keeps them as text.`,
+            93
+          );
+        const renamed = (Array.isArray(s.renamedHeaders) ? s.renamedHeaders : []).map(record);
+        if (renamed.length)
+          add(
+            `flow.scan.renamed.${i}`,
+            "flow",
+            "measurement",
+            `Scan of ${json(file)} renamed repeated header names as pandas does: ${renamed
+              .slice(0, 12)
+              .map(r => `column ${r.column} ${json(r.header)} is ${json(r.name)}`)
+              .join(", ")}${renamed.length > 12 ? `, and ${renamed.length - 12} more` : ""}.`,
+            93
           );
       }
     } else omissions.push("scan_coverage_unavailable");
