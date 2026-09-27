@@ -388,3 +388,105 @@ the per-row path. Latency probe (`latency-probe.ts`), same calls:
 are identical across engine versions and equal to pandas on the same
 file: 23,998 rows, 4,559 respondents aged 18-21, share of men
 0.7611467622301858, the twelve age counts.
+
+## State, cascades and what the graph can add (2026-09-27, later)
+
+The question: on turns that need an earlier state and whose inputs were
+right, does the dataflow arm do better than DSGym? LongDS labels every turn
+Initial, Update, Counterfactual or Rollback and lists the turns it depends
+on, so the comparison can be made on the same turns.
+
+| Paired turns: dependencies right in both arms, both computed | Turns | Ours | DSGym |
+| --- | --- | --- | --- |
+| v4c vs DSGym upstream | 169 | 67% | 83% |
+| Pandas-semantics build vs DSGym with our task text | 291 | 71% | 75% |
+| Pandas-semantics build vs DSGym upstream | 209 | 72% | 81% |
+
+The gap is the same whether the needed state is one turn back or five or
+more, and our arm reused its stored tables on 74-92% of these turns: the
+earlier state is reached; what is done with it in the turn is where the
+turns are lost. By label, every arm scores alike (Rollback 13-19%,
+Counterfactual 20-23%, Update 21-28%), because 74-80% of all turns sit
+downstream of a wrong result, where every arm is near 20%; turns whose
+dependencies were all right score 66-69% in every arm. The state tools the
+arm carries (bind, supersede, fork, at(name, task=N)) were used on 22 of
+2,038 turns.
+
+Three measurements then decided the next work:
+
+1. **Detectability.** Only 4.1% of dependent turns restate a number that an
+   earlier turn computed, and none of a sample of the "contradictions" with
+   our stored state was real (all were parameters: weights, seeds, grid
+   sizes). LongDS turns depend on hidden state and do not restate it, so an
+   automatic check against the question text cannot trigger repairs.
+2. **Context.** The lean mechanisms over the full session history
+   (react-lean2-full) against the task catalog, five tasks x three trials:
+   87.0 against 93.0 turns right of 137 a trial, at about twice the cost;
+   69% against 77% on clean-input turns that need earlier state. The
+   catalog loses nothing the full history would recover.
+3. **Reading the losses.** The 67 paired turns only DSGym got right (33 for
+   v4c, 34 for the pandas build), read one by one:
+
+| Why ours failed | v4c | pandas build |
+| --- | --- | --- |
+| Engine semantics (index reset, carriage returns) | 5 | 0 |
+| Precision | 7 | 4 |
+| Presentation (order, scale) | 2 | 1 |
+| Incomplete answer | 4 | 4 |
+| Definition in force: a reused table built under another definition, or a re-derivation without the one in force | 4 | 8 |
+| Value slips in a mapping (an alias, a missing key, an untrimmed label) | 2 | 5 |
+| Other analysis errors | 7 | 10 |
+| Judge noise | 1 | 2 |
+
+The pandas build removed the engine and most precision causes. What remains
+for the system are the definition-in-force and value-slip rows (13 of 34),
+both at a custom step, which the evidence treated as opaque, and three
+answer-contract gaps.
+
+### The answer-contract and custom-step evidence build, three repetitions
+
+Built from that reading (196d966e6, 00bdf472f): the stated precision
+reaches numbers nested in list and text cells; a precision no request of the
+session states is refused (56 of 68 tasks state the rule once, at turn 1); a
+projection that keeps only numbers of rows a text column names is refused;
+a custom step's rewrites, nulls and dropped rows are measured per kept text
+column, rows matched by label; text values that differ only in case or
+spacing are named; and each input of a custom step shows its row-changing
+steps back to the scans (a lineage card). Against the build before them
+(ac4509036), same engine and harness, seven tasks x three trials:
+
+| Task (turns) | Previous build | This build | Difference |
+| --- | --- | --- | --- |
+| Survey-2021 task 2 (35) | 23, 17, 22 (20.7) | 17, 17, 24 (19.3) | -1.3 |
+| acea task 3 (37) | 31, 34, 31 (32.0) | 34, 34, 32 (33.3) | +1.3 |
+| LearnPlatform task 1 (25) | 7, 10, 13 (10.0) | 13, 14, 14 (13.7) | +3.7 |
+| LearnPlatform task 2 (30) | 15, 14, 16 (15.0) | 22, 18, 18 (19.3) | +4.3 |
+| careerVillage task 1 (30) | 24, 24, 25 (24.3) | 22, 21, 21 (21.3) | -3.0 |
+| BI task 2 (30) | 19, 29, 26 (24.7) | 26, 28, 28 (27.3) | +2.7 |
+| BI task 1, control (27) | 17, 15, 17 (16.3) | 17, 19, 19 (18.3) | +2.0 |
+| Total (214) | 136, 143, 150 (143.0), $1.05 a trial | 151, 151, 156 (152.7), $1.08 a trial | +9.7 |
+
+Every trial of this build is above the best trial of the previous one (+4.5
+points, +3% cost; the difference of means is about 2.2 standard errors,
+suggestive with three trials). The mechanisms fired: lineage cards on 201
+turns, value receipts on 17, spelling variants on 14, the unlabeled-rows
+refusal on 9, the session-precision refusal on none. The turns they were
+built for moved where the mechanism reached them: BI task 2 t8 (rounding
+inside a text cell) 1 to 3 of 3 trials, acea task 3 t14 (names kept) 2 to
+3, LearnPlatform task 2 t16 (a mean of weekly means) 0 to 3, survey-2021
+task 2 t7 (a role map) 0 to 2. Over all 16 targeted turns the count went 21
+to 22, so most of the gain is elsewhere in the same tasks. careerVillage
+task 1 lost in every trial: at t26 this build's function kept only answered
+questions with a non-negative lag in the denominator (Austin 1.0958 against
+1.0974), 0 of 3 against 3 of 3; reuse of stored tables does not explain it
+(the previous build reused them in two of its trials and was right).
+
+Found in the run and fixed after it: value receipts took a small table
+rebuilt sorted for a rewrite (b9762359b); spelling variants skipped
+careerVillage's industry column (2,470 distinct values over 28,152 rows,
+above a fixed cutoff), now told from free text by repetition (010f47244),
+so t4's untrimmed labels were not yet shown; and seven cells failed at
+session setup because the web service's connection pool was exhausted by
+overlapping workflow saves (each a full rewrite of 0.2-3.3 MB, up to 115 s
+under 18 sessions). The failed cells were rerun at low load, and saves now
+run one at a time per session (1a0fc378c).
