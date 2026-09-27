@@ -198,3 +198,124 @@ lacks NLTK's stop-word corpus and an LZW GeoTIFF decoder (both arms). 32 of
 Caveats: one repetition per arm, so per-task swings are large; the
 classification is a careful reading, not ground truth (17 roots stayed
 unclear, 4 look like judge noise); downstream counts overlap across roots.
+
+## Follow-up (2026-09-27): why DSGym fails, and DSGym with our task text
+
+### DSGym with upstream's prompt
+
+The tie decomposes by what DSGym did on the turn:
+
+| DSGym did | Turns | DSGym right | Dataflow right |
+| --- | --- | --- | --- |
+| Gave up without code | 619 | 0 | 166 |
+| Answered without code | 185 | 45 | 75 |
+| Ran code | 1,385 | 643 | 442 |
+| Session lost (policing task 1, context overflow) | 36 | 0 | 10 |
+
+- **It often never starts.** 45 of 67 sessions began without running code
+  (goodbooks task 1's first reply: "Unable to compute the review pool because
+  the source-data execution results were not available"). Turn 1 right: DSGym
+  14 of 68, dataflow 40.
+- **Refusals are mostly false and self-reinforcing.** 23 of 34 sampled
+  mid-session refusals were false: data never read (10), tables still in the
+  kernel (7), a known calculation declined (6). After a refusal the next turn
+  refuses 75% of the time, after a computed turn 8%.
+- **Invented and retyped numbers.** 38 no-code answers hold numbers no output
+  printed (survey-2018 task 3 turn 1 wrote a full gender table without reading
+  the file); survey-2022 task 2 turn 3 retyped 23,998 where the kernel held
+  23,997.
+- **Output floods.** CDP task 1's prompt went from 2,053 to 503,157 tokens
+  after one print; policing task 1 reached 1.3M tokens, past the model's limit.
+- **Its own computed mistakes are ordinary.** Of 57 read: analysis slips 21,
+  judge or answer-key faults 10, script state 9 (5 rebuilt an earlier step
+  differently, 3 stale columns, 1 retyped number).
+- **Not DSGym problems.** With clean inputs it stays 73-90% accurate at every
+  prompt size, past 60k tokens, and state-changing turns are not worse.
+- **Model-specific.** An older DSGym run on the stronger model gave up on 0 of
+  72 turns. And upstream's prompt names only the data folder, where ours
+  lists every file.
+
+### DSGym with the dataflow arm's task text
+
+`dsgym-shared` (df93f4973) keeps DSGym's agent, system prompt and
+`<python>`/`<answer>` protocol, and sends each turn the text the dataflow arm
+receives (file inventory, session rules, answer contract).
+
+| Run (68 tasks, 2,225 turns) | Right | Accuracy | Cost |
+| --- | --- | --- | --- |
+| DSGym, upstream prompt | 688 | 30.9% | $8.44 |
+| DSGym, our task text | 723 | 32.5% | $9.18 |
+| Dataflow v4c (2026-09-26) | 693 | 31.1% | $13.01 |
+
+- It runs code on 86% of turns (was 63%). Of the 528 turns it used to refuse
+  it now computes, 163 are right.
+- **Refusals persist.** Turn 1 without code in 37 of 68 sessions (21
+  refusals); after a refusal the next refuses 66%, after a computed turn 1%. A
+  new form: 27 answers are JSON objects of nulls. 13 of 23 sampled refusals
+  were false (8 claim it cannot run code or read data it never tried).
+- **Engagement brings cascades.** When it refused it left no state, so later
+  turns recomputed from the raw files; now its early mistakes stay in the
+  kernel. On turns both runs computed, upstream-clean but shared-broken turns
+  fell from 80% to 45%; with both clean the runs are close (79% vs 74%).
+- **Floods and unsupported numbers remain:** 9 prints over 100,000 characters
+  in 5 tasks (policing task 1 overflowed again, 6 of 36 answered); 25
+  no-code answers with numbers never printed.
+- **Its own mistakes** (85 read): analysis slips 36%, missed conventions 14%,
+  judge or answer-key faults 12%, rounding and percent-vs-fraction 9%,
+  script state 14%. Our answer contract played a part in 4.
+- **Clean-chain accuracy** is still the gap: 72% for DSGym vs 56% for dataflow
+  v4c on the same 429 turns.
+
+What dataflow already addresses: engagement (tool calls, the visible table
+index; 92% of turns computed), floods (bounded observations), unsupported
+and retyped numbers (answers composed from computed tables, with stated
+precision), script-state errors (named, versioned tables read by reference),
+and silent data loss (measured conversion failures, unmatched join keys,
+missing-value tokens). What it does not: ordinary analysis slips, hidden
+conventions, and the cascade itself; nothing in a session restates an earlier
+correct result (0.4% of turns), so a wrong root is not signalled.
+
+One correction came out of reading DSGym's traces: the Kaggle surveys' "None"
+option is an answer the gold counts (survey-2022 task 2 turn 7: 5,177 vs
+3,127 with "None" read as missing), as pandas read it before 2.0. The scan
+now uses pandas 1.5's missing-value tokens (cc9dc11c0).
+
+### The pandas-semantics and answer-precision build, one repetition
+
+Changes (8bdf0d5bd, 41eee2551, cc9dc11c0): scan reads pandas' pre-2.0
+missing-value tokens as missing and says so, renames repeated headers as
+pandas does and names title lines in its error; aggregate drops null keys as
+groupby does; tables keep pandas row labels through filter, sort, distinct and
+head, and a process function receives them as the index; composed answers
+state their precision (`t[:4]`, `t[col:2]`, `:full`), round as Python's
+round() does, list several rows in order and refuse an all-null answer.
+
+| Run (68 tasks, 2,225 turns, one-hour cap) | Right | Accuracy | Cost |
+| --- | --- | --- | --- |
+| Dataflow v4c (2026-09-26) | 693 | 31.2% | $13.27 |
+| Dataflow, this build | 638 | 28.7% | $13.91 |
+| DSGym, upstream prompt | 688 | 30.9% | $8.76 |
+| DSGym, our task text | 723 | 32.5% | $9.18 |
+
+The build does not show a gain in one repetition. Of the -55: -40 on the
+1,947 turns both builds reached within the hour, -30 on turns only the old
+build reached and +15 on turns only the new one reached. The tasks the
+changes target moved as intended (survey-2018 task 1 +16, survey-2020 task 1
++11, PASSNYC task 2 +8, WUR task 3 +6, BI task 1 +4), and single tasks swung
+by up to 19 turns on identical data (NFL task 1 21 to 2, WUR task 2 18 to 2:
+a different Mahalanobis method at turn 4 cascaded), so the total is inside
+one-repetition noise (about +-55 turns over 68 correlated tasks). Mechanisms:
+48% of turns ended with a composed answer; 129 turns met a precision refusal
+(the model rarely states precision on the first try, costing about one call);
+16 turns read missing-value tokens, 6 renamed headers, 13 dropped null keys.
+
+Run conditions differed from the earlier run: the survey tasks were rerun
+together after the "None" fix and first ran nine at a time on one engine
+(sessions capped with few turns), memory ran out twice (swap full; one
+orphaned engine worker from a stopped session held 2 GB), and 20 tasks were
+restarted. Next: measure the build against v4c with three repetitions on the
+tasks where the mechanisms fire, before any claim; mark continuation lines of
+quoted multi-line records in raw previews (survey-2022 task 1 skipped a
+respondent after reading a two-line question row as two rows); cut engine
+latency on wide and large tables, which decides the survey and CDP caps.
+
