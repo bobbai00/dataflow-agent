@@ -319,3 +319,72 @@ quoted multi-line records in raw previews (survey-2022 task 1 skipped a
 respondent after reading a two-line question row as two rows); cut engine
 latency on wide and large tables, which decides the survey and CDP caps.
 
+### Three repetitions on the tasks the build targets
+
+The previous build (a663a077c) and this one (ac4509036: pandas semantics,
+answer precision, record numbers in raw CSV previews) ran as two agent
+services on one engine (819fa79ce), with the same harness and judge, three
+trials of the five tasks where the full run moved most. No session reached
+the one-hour cap.
+
+| Task (turns) | Previous build | This build | Difference |
+| --- | --- | --- | --- |
+| Survey-2018 task 1 (30) | 25, 27, 26 (26.0) | 26, 25, 27 (26.0) | 0.0 |
+| Survey-2022 task 1 (27) | 3, 3, 11 (5.7) | 3, 4, 5 (4.0) | -1.7 |
+| PASSNYC task 2 (30) | 4, 8, 9 (7.0) | 15, 11, 12 (12.7) | +5.7 |
+| WUR task 3 (23) | 17, 14, 18 (16.3) | 15, 18, 19 (17.3) | +1.0 |
+| BI task 1 (27) | 15, 19, 17 (17.0) | 17, 18, 17 (17.3) | +0.3 |
+| Total (137) | 64, 71, 81 (72.0), $0.61 a trial | 76, 76, 80 (77.3), $0.64 a trial | +5.3 |
+
+The gain is PASSNYC task 2, where every trial of this build beats every
+trial of the previous one. Its scan of `2016 School Explorer.csv` reads
+1,268 cells (`N/A` 1,263, `NA` 5) in 19 columns as missing, as
+`pandas.read_csv` does (396 in School Income Estimate, 73 to 86 in each
+rating column); the task fills missing values with medians and modes, so
+every later distribution follows. Turns 8, 9, 13 and 17 (Economic Need
+Index spread, SPI group means) are right in 3 of 3 trials against 0 of 3:
+at turn 13 both builds find the same thresholds and group sizes (318 and
+318) but the previous build's ELA mean is 2.7344 against 2.7147. At turn 2
+the previous build reported the correlation as -0.5446474559 and was
+marked wrong only for that; composed answers now state their precision
+(-0.5446). The other four tasks are inside their own spread. The full
+run's survey-2018 +16 was a low draw of v4c (20), not the build: six new
+sessions score 25 to 27 under both builds. Survey-2022 task 1 fails the
+same way under both builds: the model does not fold China's
+administrative-region labels into China, so from turn 3 the qualifying
+countries differ (China missing from the top five, 58 respondents short);
+the preview's record numbers fired at turn 1, and the model read the
+two-line record correctly, but that was not the failure.
+
+Over the 411 turns of this build: 51 turns met a precision refusal, 6 read
+missing-value tokens, 9 dropped null group keys, 1 renamed a repeated
+header. The full run's -55 was one-repetition noise; on the tasks it
+targets the build is +5.3 turns a trial (+7%) at +5% cost.
+
+### Engine latency on wide tables
+
+A new operator over the cached survey (23,998 rows by 296 columns) took
+about a minute: the engine moved the table one row at a time three times,
+though Arrow holds it by column at both ends. The worker's reader turned
+each stored row into a Tuple, cast it and copied each cell back into Arrow
+(19 s); the main loop split each batch into rows again, with an executor
+call and two thread switches per row, for a table operator that only
+buffers them (about 35 s); and an output left as a Tuple per row, with a
+cast and type check per cell, a deep size walk per row for the statistics
+and two cell copies (about 18 s of CPU). Now plain-typed tables move as
+whole Arrow batches (819fa79ce, 1495f4010); binary columns, rows split
+across workers, loop operators and columns the per-row cast bridges keep
+the per-row path. Latency probe (`latency-probe.ts`), same calls:
+
+| Step on the survey | Before | Whole input batches | Whole output too |
+| --- | --- | --- | --- |
+| scan | 33.6 s | 38.8 s | 13.2 s |
+| project two columns | 59.7 s | 6.4 s | 2.9 s |
+| filter | 61.7 s | 8.7 s | 4.0 s |
+| aggregate the narrow table | 6.3 s | 2.3 s | 2.1 s |
+| process (a pandas function) | 21.7 s | 2.8 s | 2.5 s |
+
+(The middle column ran beside 20 benchmark sessions.) The observations
+are identical across engine versions and equal to pandas on the same
+file: 23,998 rows, 4,559 respondents aged 18-21, share of men
+0.7611467622301858, the twelve age counts.
