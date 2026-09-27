@@ -33,13 +33,13 @@ def test_csv_raw_window_offsets_comments_blank_lines_and_eof(tmp_path):
     path.write_text("notes\n# comment\n\nid,value\n1,2\n3,4\n")
     result = scan(path, preview=2, skipLines=4, comment="#")
     assert rows(result) == [
-        {"file": "source.csv", "line_no": 4, "line": "1,2"},
-        {"file": "source.csv", "line_no": 5, "line": "3,4"},
+        {"file": "source.csv", "line_no": 4, "record": 4, "line": "1,2"},
+        {"file": "source.csv", "line_no": 5, "record": 5, "line": "3,4"},
     ]
     assert result.attrs["native_v2"]["operations"]["scan"]["complete"] is False
     assert rows(scan(path, skipLines=3)) == [{"id": 1, "value": 2}, {"id": 3, "value": 4}]
     empty = scan(path, preview=2, skipLines=100)
-    assert empty.empty and list(empty.columns) == ["file", "line_no", "line"]
+    assert empty.empty and list(empty.columns) == ["file", "line_no", "record", "line"]
     assert str(empty["line_no"].dtype) == "Int64"
 
 
@@ -307,6 +307,21 @@ def test_header_cells_spelling_a_token_stay_names(tmp_path):
     path = tmp_path / "source.csv"
     path.write_text("NA,None\n1,2\n")
     assert list(scan(path).columns) == list(pd.read_csv(path).columns) == ["NA", "None"]
+
+
+def test_a_csv_preview_numbers_the_record_of_each_line(tmp_path):
+    # The Kaggle surveys: a header, a question row whose quoted cell holds a
+    # line break, then respondents. Reading lines 1-2 as two rows skipped one.
+    path = tmp_path / "survey.csv"
+    path.write_text('Q1,Q2\n"What is your age\n(# years)?",Gender\n18-21,Man\n"a ""quoted"" word",Woman\n')
+    shown = scan(path, preview=5)
+    assert shown["record"].tolist() == [0, 1, 1, 2, 3]
+    assert shown["line_no"].tolist() == [0, 1, 2, 3, 4]
+    assert scan(path, preview=2, skipLines=2)["record"].tolist() == [1, 2]
+    assert len(scan(path)) == 3 == len(pd.read_csv(path))
+    lines = tmp_path / "notes.txt"
+    lines.write_text("a\nb\n")
+    assert "record" not in scan(lines, format="lines", preview=2).columns
 
 
 def test_title_lines_above_the_header_are_named_in_the_error(tmp_path):

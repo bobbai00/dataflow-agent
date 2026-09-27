@@ -1484,6 +1484,8 @@ def _scan_read(spec, path, fmt, source_meta):
             ]
         result = pd.DataFrame(records, columns=["line_no", "line"])
         result["line_no"] = result["line_no"].astype("Int64")
+        if preview and fmt == "csv":
+            result.insert(1, "record", pd.array(_preview_records(path, encoding, skip, len(result)), dtype="Int64"))
         if preview:
             result.insert(0, "file", path.name)
         return result
@@ -1605,6 +1607,27 @@ def _scan_read(spec, path, fmt, source_meta):
                 field="files",
             ) from error
         return _scan_header(spec, raw, source_meta)
+
+
+def _preview_records(path, encoding, skip, shown):
+    """The CSV record each previewed physical line belongs to, counted from
+    the top of the file: a quoted field may hold line breaks, and the lines it
+    spans are one record (the Kaggle surveys' question row spans two lines, so
+    the header is record 0, the question row record 1 and the first respondent
+    record 2). Quote parity per line tracks whether a field is still open;
+    doubled quotes inside a field keep the parity, as CSV escapes them."""
+    from itertools import islice
+
+    numbers, record, open_quote = [], -1, False
+    with path.open(encoding=encoding) as stream:
+        for index, raw in enumerate(islice(stream, 0, skip + shown)):
+            if not open_quote:
+                record += 1
+            if index >= skip:
+                numbers.append(record)
+            if raw.count('"') % 2:
+                open_quote = not open_quote
+    return numbers
 
 
 def _title_lines(path, encoding, delimiter, skip):

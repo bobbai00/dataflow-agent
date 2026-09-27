@@ -83,10 +83,10 @@ describe("Scan preview executes an offset window", () => {
     const files = fixture("data.csv", "metadata\n# comment\n\nvalue\n10\n20\n30\n");
     const result = preview({ files, preview: 2, skipLines: 4, comment: "#" });
     expect(result).toEqual({
-      columns: ["file", "line_no", "line"],
+      columns: ["file", "line_no", "record", "line"],
       rows: [
-        { file: "data.csv", line_no: 4, line: "10" },
-        { file: "data.csv", line_no: 5, line: "20" },
+        { file: "data.csv", line_no: 4, record: 4, line: "10" },
+        { file: "data.csv", line_no: 5, record: 5, line: "20" },
       ],
     });
   });
@@ -94,10 +94,10 @@ describe("Scan preview executes an offset window", () => {
   test("zero/omitted offset preserves the first raw lines, including blank lines", () => {
     const files = fixture("data.txt", "head\r\n\r\nbody\r\n");
     const expected = {
-      columns: ["file", "line_no", "line"],
+      columns: ["file", "line_no", "record", "line"],
       rows: [
-        { file: "data.txt", line_no: 0, line: "head" },
-        { file: "data.txt", line_no: 1, line: "" },
+        { file: "data.txt", line_no: 0, record: 0, line: "head" },
+        { file: "data.txt", line_no: 1, record: 1, line: "" },
       ],
     };
     expect(preview({ files, preview: 2 })).toEqual(expected);
@@ -119,7 +119,7 @@ describe("Scan preview executes an offset window", () => {
     const files = fixture("data.txt", "first\nlast\n");
     for (const skipLines of [2, 20]) {
       expect(preview({ files, preview: 3, skipLines })).toEqual({
-        columns: ["file", "line_no", "line"],
+        columns: ["file", "line_no", "record", "line"],
         rows: [],
       });
     }
@@ -128,7 +128,7 @@ describe("Scan preview executes an offset window", () => {
   test("an empty file remains a schemaful empty preview", () => {
     const files = fixture("empty.txt", "");
     expect(preview({ files, preview: 2, skipLines: 3 })).toEqual({
-      columns: ["file", "line_no", "line"],
+      columns: ["file", "line_no", "record", "line"],
       rows: [],
     });
   });
@@ -136,8 +136,8 @@ describe("Scan preview executes an offset window", () => {
   test("a short final window is not padded and honors text encoding", () => {
     const files = fixture("latin.csv", Buffer.from("header\ncaf\xe9\nfin", "latin1"));
     expect(preview({ files, preview: 10, skipLines: 1, encoding: "cp1252" }).rows).toEqual([
-      { file: "latin.csv", line_no: 1, line: "café" },
-      { file: "latin.csv", line_no: 2, line: "fin" },
+      { file: "latin.csv", line_no: 1, record: 1, line: "café" },
+      { file: "latin.csv", line_no: 2, record: 2, line: "fin" },
     ]);
   });
 
