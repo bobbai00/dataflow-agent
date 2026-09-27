@@ -78,6 +78,11 @@ def test_no_claim_when_rows_cannot_be_matched():
     # unrelated rows, so the receipt says nothing about the column.
     shuffled = "def process(t):\n    return t.sample(frac=1, random_state=3).reset_index(drop=True)"
     assert "country" not in operations(process(shuffled, PEOPLE)).get("valueReceipts", {})
+    # One row per value, rebuilt sorted (BI task 2 t19: a factor table): a
+    # permutation of the same values is a reordering, not a rewrite.
+    factors = pd.DataFrame({"factor": ["studyHOURS", "Age", "log1p_age"], "r": [0.1, 0.5, 0.3]})
+    ranked = "def process(t):\n    return t.sort_values('r', ascending=False).reset_index(drop=True)"
+    assert "valueReceipts" not in operations(process(ranked, factors))
 
 
 def test_spellings_that_differ_only_in_case_or_spacing():

@@ -2224,6 +2224,14 @@ def _value_receipts(source, source_labels, output, output_labels):
         rewritten = ~old_missing & ~new_missing & (old != new)
         nulled = ~old_missing & new_missing
         changed = rewritten | nulled
+        # The same values in another order: the rows were reordered (a small
+        # table rebuilt sorted), not rewritten; with one row per value a
+        # permutation would otherwise read as a consistent mapping.
+        if rewritten.any() and (
+            pd.Series(old, dtype=object).fillna("\x00").value_counts().to_dict()
+            == pd.Series(new, dtype=object).fillna("\x00").value_counts().to_dict()
+        ):
+            continue
         if changed.any():
             # A rewrite maps each old value to one new value; rows matched by
             # position in a frame the function rebuilt in another order map
