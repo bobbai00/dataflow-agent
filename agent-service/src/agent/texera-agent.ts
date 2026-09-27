@@ -111,6 +111,7 @@ import { retainTaskResult } from "../api/task-results-api";
 import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
+import { singleFlight } from "./util/single-flight";
 import { buildNativeModeSystemPrompt } from "./prompts";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
@@ -1990,7 +1991,9 @@ export class TexeraAgent {
     const workflowChanged$ = this.workflowState.getWorkflowChangedStream();
 
     if (this.delegateConfig?.workflowId && this.delegateConfig.userToken) {
-      const persistSubscription = workflowChanged$.pipe(debounceTime(PERSIST_DEBOUNCE_MS)).subscribe(async () => {
+      // One save in flight per workflow; changes during a save coalesce into
+      // one more save of the content current when it starts (see singleFlight).
+      const persist = singleFlight(async () => {
         if (!this.delegateConfig?.workflowId || !this.delegateConfig.userToken) {
           return;
         }
@@ -2009,6 +2012,9 @@ export class TexeraAgent {
           this.log.error({ err: error }, "failed to auto-persist workflow");
         }
       });
+      const persistSubscription = workflowChanged$
+        .pipe(debounceTime(PERSIST_DEBOUNCE_MS))
+        .subscribe(() => void persist());
 
       subscription.add(persistSubscription);
     }
