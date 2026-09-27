@@ -80,7 +80,7 @@ try {
   const c1 = t1.serviceContext as string;
   contains(c1, "renamed repeated header names as pandas does", "repeated headers");
   contains(c1, 'read 1 cell ("NA" 1)', "Namibia's code NA read as missing, and said so");
-  contains(c1, '"None" 80', "tracking None tokens");
+  assert.ok(!plain(c1).includes('("None" 80)'), "the tracking data's None events stay values");
   contains(c1, "Aggregate dropped 1/5 rows whose group key is null", "null group key");
   assert.ok(!plain(c1).includes("__index_level_0__"), "the row-label column reached the model's context");
   const results = t1.snapshot.results;

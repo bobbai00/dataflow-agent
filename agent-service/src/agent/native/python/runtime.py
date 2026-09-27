@@ -1261,9 +1261,12 @@ def _pandas_header(cells):
     return names, [names[i] for i in unnamed], sorted(renamed, key=lambda item: item["column"])
 
 
-# pandas.read_csv's default missing-value tokens (pandas._libs.parsers.
-# STR_NA_VALUES: the same strings in pandas 2.2 and 3.0; a test keeps the two
-# in step). The empty string is already read as missing.
+# pandas.read_csv's default missing-value tokens as pandas read them before
+# 2.0 (pandas._libs.parsers.STR_NA_VALUES in 1.5; a test checks them against
+# the installed pandas). pandas 2.0 added "None", which stays a value here: the
+# LongDS answer keys count it, since it is the Kaggle surveys' opt-out answer
+# (survey-2022 task 2 turn 7 counts 5,177 respondents; reading "None" as
+# missing gives 3,127). The empty string is already read as missing.
 PANDAS_NA_TOKENS = frozenset(
     {
         "#N/A",
@@ -1280,7 +1283,6 @@ PANDAS_NA_TOKENS = frozenset(
         "NA",
         "NULL",
         "NaN",
-        "None",
         "n/a",
         "nan",
         "null",
@@ -1289,10 +1291,10 @@ PANDAS_NA_TOKENS = frozenset(
 
 
 def _scan_missing_tokens(frame, source_meta):
-    """Cells that pandas reads as missing by default ("NA", "None", "N/A",
-    "null", "nan", ...) are missing here too: analyses and reference answers
-    written with pandas count them as missing, and a column of numbers with
-    "NA" gaps is numeric in pandas. Whole-cell matches only, as in pandas
+    """Cells that pandas reads as missing by default ("NA", "N/A", "null",
+    "nan", ...) are missing here too: analyses and reference answers written
+    with pandas count them as missing, and a column of numbers with "NA" gaps
+    is numeric in pandas. "None" is a value (see PANDAS_NA_TOKENS). Whole-cell matches only, as in pandas
     ("NA" but not " NA" or "na"); header cells are names and stay as they
     are. The converted cells are counted per column and token for the
     observation, since a token can be a real value (all_text=True keeps

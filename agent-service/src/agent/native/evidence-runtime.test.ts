@@ -198,7 +198,7 @@ print(json.dumps(records))
   expect(facts.get("unioned")).toContain("sum=6, output=6");
   expect(facts.get("limited")).toContain("retained=1/6, removed=5");
   expect(facts.get("empty_groups")).toContain("groups=0 from 0 rows");
-  expect(facts.get("tokens")).toContain('read 2 cells ("NA" 1, "None" 1) in 2 columns');
+  expect(facts.get("tokens")).toContain('read 1 cell ("NA" 1) in 1 column');
   expect(facts.get("tokens")).toContain('renamed repeated header names as pandas does: column 1 "a" is "a.1"');
   expect(facts.get("null_groups")).toContain("Aggregate dropped 2/3 rows whose group key is null");
   expect(facts.get("null_groups")).toContain("groups=1 from 3 rows");

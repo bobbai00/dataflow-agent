@@ -273,15 +273,17 @@ def test_repeated_header_names_match_pandas(tmp_path, header):
     assert list(scan(path).columns) == list(pd.read_csv(path).columns)
 
 
-def test_missing_value_tokens_are_the_ones_pandas_reads_as_missing():
+def test_missing_value_tokens_are_the_ones_pandas_read_as_missing_before_2_0():
+    # pandas 2.0 added "None"; the benchmark's answer keys count it as an answer.
     from pandas._libs.parsers import STR_NA_VALUES
 
-    assert runtime.PANDAS_NA_TOKENS == frozenset(STR_NA_VALUES) - {""}
+    assert runtime.PANDAS_NA_TOKENS == frozenset(STR_NA_VALUES) - {"", "None"}
 
 
 def test_pandas_missing_tokens_are_missing_and_counted(tmp_path):
-    # PASSNYC and the Kaggle surveys spell missing values "NA", "None", "N/A";
-    # pandas reads them as missing, and so do analyses written with pandas.
+    # PASSNYC spells missing values "NA" and "N/A"; pandas reads them as
+    # missing, and so do analyses written with pandas. "None" is the Kaggle
+    # surveys' opt-out answer and stays a value, as pandas read it before 2.0.
     path = tmp_path / "source.csv"
     path.write_text('id,label,score\n1,NA,3\n2,None,NA\n3," NA",4\n4,n/a,\n5,"NA",#N/A\n')
     result = scan(path)
@@ -289,11 +291,13 @@ def test_pandas_missing_tokens_are_missing_and_counted(tmp_path):
     def plain(values):
         return [None if pd.isna(value) else value for value in values]
 
-    assert plain(result["label"]) == plain(pd.read_csv(path)["label"]) == [None, None, " NA", None, None]
+    assert plain(result["label"]) == [None, "None", " NA", None, None]
+    assert plain(result["label"]) == plain(pd.read_csv(path, na_values=[], keep_default_na=False).replace(
+        {"NA": None, "n/a": None, "": None})["label"])
     assert str(result["score"].dtype) == "Int64"
     assert plain(result["score"]) == [3, None, 4, None, None]
     (source,) = result.attrs["native_v2"]["operations"]["scan"]["sources"]
-    assert source["missingTokens"] == {"label": {"NA": 2, "None": 1, "n/a": 1}, "score": {"NA": 1, "#N/A": 1}}
+    assert source["missingTokens"] == {"label": {"NA": 2, "n/a": 1}, "score": {"NA": 1, "#N/A": 1}}
     kept = scan(path, allText=True)
     assert kept["label"].tolist() == ["NA", "None", " NA", "n/a", "NA"]
     assert "missingTokens" not in kept.attrs["native_v2"]["operations"]["scan"]["sources"][0]
