@@ -229,3 +229,13 @@ def test_nullable_json_integer_does_not_round_through_float(tmp_path):
     result = scan(path)
     assert result["id"].iloc[0] == 9007199254740993
     assert str(result["id"].dtype) == "Int64"
+
+
+def test_blank_header_cells_take_the_pandas_name(tmp_path):
+    # Reference answers written with pandas name a blank header cell
+    # `Unnamed: <index>` (WiDS task 3 lists "Unnamed: 249" as a removed column).
+    path = tmp_path / "source.csv"
+    path.write_text("id;value;\n1;2;\n3;4;\n")
+    result = scan(path, delim=";")
+    assert list(result.columns) == ["id", "value", "Unnamed: 2"]
+    assert list(result.columns) == list(pd.read_csv(path, sep=";").columns)

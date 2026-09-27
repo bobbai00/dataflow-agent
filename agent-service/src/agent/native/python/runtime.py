@@ -1220,7 +1220,9 @@ def _scan_header(spec, raw, source_meta):
         names = []
         for index, value in enumerate(raw.iloc[0]):
             if _missing(value) or str(value) == "":
-                value = f"column{index}"
+                # pandas' own name for a blank header cell, which analyses and
+                # reference answers written with pandas use (`Unnamed: 249`).
+                value = f"Unnamed: {index}"
                 unresolved.append(value)
             names.append(str(value))
         source_meta["unresolvedHeaders"] = unresolved
