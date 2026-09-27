@@ -1380,7 +1380,12 @@ def _scan_read(spec, path, fmt, source_meta):
         output = pd.read_parquet(path)
         _frame(spec, output)
         return _scan_infer(output, props.get("allText", False), infer_text=False)
-    with path.open(encoding=encoding) as stream:
+    # Delimited text keeps line breaks inside quoted fields byte for byte, as
+    # pandas.read_csv does: universal-newline decoding turned "\r\n" in a
+    # quoted cell into "\n" (careerVillage: 7,719 carriage returns lost, so
+    # text lengths differed from every pandas-based reference).
+    delimited = fmt not in ("json", "fwf", "whitespace")
+    with path.open(encoding=encoding, newline="" if delimited else None) as stream:
         for _ in range(skip):
             stream.readline()
         if fmt == "json":

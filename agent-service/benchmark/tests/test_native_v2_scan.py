@@ -239,3 +239,12 @@ def test_blank_header_cells_take_the_pandas_name(tmp_path):
     result = scan(path, delim=";")
     assert list(result.columns) == ["id", "value", "Unnamed: 2"]
     assert list(result.columns) == list(pd.read_csv(path, sep=";").columns)
+
+
+def test_quoted_line_breaks_are_kept_as_pandas_keeps_them(tmp_path):
+    path = tmp_path / "source.csv"
+    path.write_bytes(b'id,body\r\n1,"first line\r\nsecond line"\r\n2,plain\r\n')
+    result = scan(path)
+    assert result["body"].tolist() == ["first line\r\nsecond line", "plain"]
+    assert result["body"].tolist() == pd.read_csv(path)["body"].tolist()
+    assert result["id"].tolist() == [1, 2]
