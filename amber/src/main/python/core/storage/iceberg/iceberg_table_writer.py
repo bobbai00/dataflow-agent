@@ -100,22 +100,33 @@ class IcebergTableWriter(BufferedItemWriter[T]):
         """
         if not self.buffer:
             return
-        df = self.serde(self.table_schema, self.buffer)
-
-        def append_to_table_with_retry(pa_df: pa.Table) -> None:
-            @retry(
-                wait=wait_random_exponential(0.001, 10),
-                stop=stop_after_attempt(10),
-                reraise=True,
-            )
-            def append_with_retry():
-                self.table.refresh()
-                self.table.append(pa_df)
-
-            append_with_retry()
-
-        append_to_table_with_retry(df)
+        self._append(self.serde(self.table_schema, self.buffer))
         self.buffer.clear()
+
+    def _append(self, pa_df: pa.Table) -> None:
+        """Append one data file, retrying commit conflicts (see _flush_buffer)."""
+
+        @retry(
+            wait=wait_random_exponential(0.001, 10),
+            stop=stop_after_attempt(10),
+            reraise=True,
+        )
+        def append_with_retry():
+            self.table.refresh()
+            self.table.append(pa_df)
+
+        append_with_retry()
+
+    def put_arrow(self, table: pa.Table) -> None:
+        """Append rows already in Arrow, in the port's plain schema, after the
+        buffered items: the data files the serde writes for the same rows,
+        one per ``buffer_size`` rows, without one item per row."""
+        from core.storage.iceberg.iceberg_utils import arrow_to_stored_table
+
+        self._flush_buffer()
+        stored = arrow_to_stored_table(self.table_schema, table)
+        for offset in range(0, stored.num_rows, self.buffer_size):
+            self._append(stored.slice(offset, self.buffer_size))
 
     def close(self) -> None:
         """Close the writer, ensuring any remaining buffered items are flushed."""

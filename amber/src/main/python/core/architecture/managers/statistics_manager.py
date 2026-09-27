@@ -100,6 +100,13 @@ class StatisticsManager:
         count, total_size = self._output_tuple_metrics[port_id]
         self._output_tuple_metrics[port_id] = (count + 1, total_size + size)
 
+    def increase_output_statistics_many(self, port_id: PortIdentity, count: int, size: int) -> None:
+        """``count`` output tuples of ``size`` bytes in total, left as one batch."""
+        if count < 0 or size < 0:
+            raise ValueError("Tuple count and size must be non-negative")
+        tuples, total_size = self._output_tuple_metrics[port_id]
+        self._output_tuple_metrics[port_id] = (tuples + count, total_size + size)
+
     def increase_data_processing_time(self, time: int) -> None:
         if time < 0:
             raise ValueError("Time must be non-negative")

@@ -453,6 +453,18 @@ def arrow_table_to_amber_frame(amber_schema, arrow_table: pa.Table) -> pa.Table:
     return pa.Table.from_arrays(columns, schema=target)
 
 
+def arrow_to_stored_table(iceberg_schema: Schema, table: pa.Table) -> pa.Table:
+    """The Arrow table ``amber_tuples_to_arrow_table`` stores for the same
+    rows, from rows already in a plain port schema (``frame_to_arrow``):
+    each column, by name, cast to its stored type."""
+    arrow_schema = iceberg_schema.as_arrow()
+    columns = [
+        table.column(decode_large_binary_field_name(name)).cast(arrow_schema.field(name).type)
+        for name in arrow_schema.names
+    ]
+    return pa.Table.from_arrays(columns, schema=arrow_schema)
+
+
 def arrow_table_to_amber_tuples(
     iceberg_schema: Schema, arrow_table: pa.Table
 ) -> Iterable[Tuple]:

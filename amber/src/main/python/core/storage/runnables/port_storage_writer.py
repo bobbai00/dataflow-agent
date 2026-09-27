@@ -16,6 +16,9 @@
 # under the License.
 
 from dataclasses import dataclass
+from typing import Optional
+
+import pyarrow as pa
 from overrides import overrides
 
 from core.models import Tuple
@@ -26,7 +29,9 @@ from core.util.customized_queue.queue_base import QueueElement
 
 @dataclass
 class PortStorageWriterElement(QueueElement):
-    data_tuple: Tuple
+    data_tuple: Optional[Tuple]
+    # Rows already in Arrow (see OutputManager.save_arrow_to_storage_if_needed).
+    data_table: Optional[pa.Table] = None
 
 
 class PortStorageWriter(StoppableQueueBlockingRunnable):
@@ -37,7 +42,10 @@ class PortStorageWriter(StoppableQueueBlockingRunnable):
     @overrides
     def receive(self, next_entry: QueueElement) -> None:
         if isinstance(next_entry, PortStorageWriterElement):
-            self.buffered_item_writer.put_one(next_entry.data_tuple)
+            if next_entry.data_table is not None:
+                self.buffered_item_writer.put_arrow(next_entry.data_table)
+            else:
+                self.buffered_item_writer.put_one(next_entry.data_tuple)
         else:
             raise TypeError(f"Unexpected entry {next_entry}")
 

@@ -62,6 +62,11 @@ try {
     const statuses = (result.step?.toolResults?.[0]?.output?.operators ?? []).map((o: any) => `${o.id}:${o.status}`);
     timings.push({ step: label, seconds: Math.round(seconds * 10) / 10, statuses });
     console.log(`${seconds.toFixed(1).padStart(7)} s  ${label}  ${statuses.join(" ")}`);
+    // The observed values, to check an engine change end to end as well.
+    await Bun.write(
+      `${out}/step-${timings.length}.json`,
+      JSON.stringify({ observation: result.observation, results: result.snapshot?.results }, null, 2)
+    );
   }
   await Bun.write(`${out}/timings.json`, JSON.stringify(timings, null, 2));
 } finally {

@@ -55,6 +55,14 @@ class BufferedItemWriter(ABC, Generic[T]):
         """
         pass
 
+    def put_arrow(self, table) -> None:
+        """
+        Write rows already in Arrow (a pyarrow.Table in the port's schema)
+        after the buffered items. Writers that store items one by one do not
+        accept whole tables.
+        """
+        raise NotImplementedError(f"{type(self).__name__} writes items one by one")
+
     @abstractmethod
     def put_one(self, item: T) -> None:
         """

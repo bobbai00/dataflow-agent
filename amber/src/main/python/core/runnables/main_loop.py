@@ -41,7 +41,7 @@ from core.models.internal_queue import (
 )
 from core.models.operator import LoopEndOperator, LoopStartOperator, TableOperator
 from core.models.payload import DataFrame as DataFramePayload
-from core.models.table import columnar_supported
+from core.models.table import ArrowOutput, columnar_supported
 from core.models.state import State
 from core.runnables.data_processor import DataProcessor
 from core.storage.document_factory import DocumentFactory
@@ -234,7 +234,9 @@ class MainLoop(StoppableQueueBlockingRunnable):
 
         for output_tuple in self.process_tuple_with_udf():
             self._check_and_process_control()
-            if output_tuple is not None:
+            if isinstance(output_tuple, ArrowOutput):
+                self._emit_arrow_output(output_tuple.table)
+            elif output_tuple is not None:
                 self.context.statistics_manager.increase_output_statistics(
                     PortIdentity(0), output_tuple.in_mem_size()
                 )
@@ -244,6 +246,16 @@ class MainLoop(StoppableQueueBlockingRunnable):
                 self.context.output_manager.save_tuple_to_storage_if_needed(
                     output_tuple
                 )
+
+    def _emit_arrow_output(self, table) -> None:
+        """Rows an operator yielded whole (``DataProcessor._arrow_output``):
+        the statistics, batches and stored rows the per-row path produces
+        for them, the size counted in Arrow bytes as for whole input batches."""
+        self.context.statistics_manager.increase_output_statistics_many(
+            PortIdentity(0), table.num_rows, table.nbytes
+        )
+        self._emit_batches(self.context.output_manager.arrow_to_batches(table))
+        self.context.output_manager.save_arrow_to_storage_if_needed(table)
 
     def process_input_state(
         self,
