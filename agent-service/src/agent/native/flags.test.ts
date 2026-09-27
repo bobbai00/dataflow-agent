@@ -300,3 +300,35 @@ test("entries and indexes carry a table's own flags, never the inherited copies"
   expect(renderTaskEntry(entry, true)).toContain('⚠ column "q40" holds the text "nan" in 200 rows');
   expect(renderTaskEntry(entry)).toContain('           ⚠ column "q40" holds the text "nan" in 200 rows');
 });
+
+
+test("a join that dropped rows whose key has no match says how many and which keys, and descendants inherit it", () => {
+  const left = info(9893, { country: column("str", 9893, 0) });
+  const right = info(120, { country: column("str", 120, 0) });
+  const facts = {
+    join: {
+      left: { rows: 9893, unmatchedRows: 125, unmatchedExamples: [{ key: "Russia", rows: 101 }, { key: "Viet Nam", rows: 24 }] },
+      right: { rows: 120, unmatchedRows: 66, unmatchedExamples: [{ key: "Andorra", rows: 1 }] },
+    },
+  };
+  const joined = info(9768, { country: column("str", 9768, 0) }, { operations: facts } as any);
+  const inner = contractFlags(op("joined", "Join", ["survey", "lookup"], { type: "inner", validate: "many_to_one" }), joined, [
+    { id: "survey", info: left },
+    { id: "lookup", info: right },
+  ]);
+  expect(inner.map(f => [f.code, f.text])).toEqual([
+    ["JOIN_UNMATCHED", 'inner join dropped 125 rows of survey (of 9893): their key has no match (e.g. "Russia" 101, "Viet Nam" 24)'],
+  ]);
+  // A left join keeps them, with the right side's columns null.
+  const kept = info(9893, { country: column("str", 9893, 0) }, { operations: facts } as any);
+  expect(contractFlags(op("joined", "Join", ["survey", "lookup"], { type: "left" }), kept, [{ id: "survey", info: left }, { id: "lookup", info: right }]).map(f => f.text)).toEqual([
+    'left join kept 125 rows of survey (of 9893) with null in every column from the right side: their key has no match (e.g. "Russia" 101, "Viet Nam" 24)',
+  ]);
+  // Unused keys of the right side (a lookup) are no loss; a full match raises nothing.
+  const full = info(9893, { country: column("str", 9893, 0) }, { operations: { join: { left: { rows: 9893, unmatchedRows: 0 }, right: { unmatchedRows: 66 } } } } as any);
+  expect(codes(contractFlags(op("joined", "Join", ["survey", "lookup"], { type: "inner" }), full, [{ id: "survey", info: left }, { id: "lookup", info: right }]))).toEqual([]);
+  // The population changed for every table built on the join.
+  joined.flags = inner;
+  const summary = info(1, { n: column("int64", 1, 0) });
+  expect(contractFlags(op("summary", "Process", ["joined"]), summary, [{ id: "joined", info: joined }]).map(f => [f.code, f.origin])).toEqual([["JOIN_UNMATCHED", "joined"]]);
+});

@@ -982,7 +982,21 @@ def _join(spec, left, right, operations):
         }
         for i, port in enumerate(("left", "right")):
             matched = sum(counts[i][key] for key in common)
+            unmatched = sorted(
+                ((key, n) for key, n in counts[i].items() if key not in common), key=lambda kv: (-kv[1], str(kv[0]))
+            )[:4]
             facts[port] = {
+                "unmatchedExamples": [
+                    {
+                        "key": (None if key[0] is None else str(key[0])[:60])
+                        if isinstance(key, tuple) and len(key) == 1
+                        else [None if v is None else str(v)[:60] for v in key]
+                        if isinstance(key, tuple)
+                        else str(key)[:60],
+                        "rows": n,
+                    }
+                    for key, n in unmatched
+                ],
                 "rows": len(keys[i]),
                 "eligibleRows": sum(counts[i].values()),
                 "nullKeyRows": sum(any(value is None for value in key) for key in raw_keys[i]),

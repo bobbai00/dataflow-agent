@@ -861,6 +861,10 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       }
     }
     result.omitted.push({ id: "table.complete", reason: complete ? "budget" : "unavailable" });
+    if (rawPreview) {
+      const gap = previewGap(rows, total);
+      if (gap) append(gap, "preview.gap");
+    }
   }
   // Each evidence family gets the room the table's first allocation left
   // (minus the incompleteness notice); the same size for data and flow.
@@ -886,6 +890,31 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const tableLines = notice ? lines.slice(0, -1) : lines;
   result.text = [...tableLines, ...dataLines, ...flowLines, ...(notice ? lines.slice(-1) : [])].join("\n");
   return compactNativeObservation(result, evidence.facts);
+}
+
+/** The raw lines of a preview that the stored sample does not hold, as one
+ * line for the observation: the engine keeps a sample's head and tail within
+ * its size budget, so the middle of a preview of long lines is missing and
+ * must not read as a gap in the file. */
+export function previewGap(rows: ReadonlyArray<Record<string, unknown>>, total: number | undefined): string | undefined {
+  const numbers = rows.map(row => Number(row.line_no)).filter(n => Number.isInteger(n)).sort((a, b) => a - b);
+  if (!numbers.length) return undefined;
+  const missing: string[] = [];
+  let count = 0;
+  for (let i = 1; i < numbers.length; i++)
+    if (numbers[i] - numbers[i - 1] > 1) {
+      const from = numbers[i - 1] + 1;
+      const to = numbers[i] - 1;
+      missing.push(from === to ? `${from}` : `${from}–${to}`);
+      count += to - from + 1;
+    }
+  const held = numbers.length + count;
+  if (total !== undefined && total > held) {
+    missing.push(`${numbers.at(-1)! + 1}…`);
+    count += total - held;
+  }
+  if (!count) return undefined;
+  return `Preview lines not shown here: ${missing.join(", ")} (${count} line${count === 1 ? "" : "s"}; the result's size budget, not the file). They are ordinary lines of the file; read them with a smaller preview or skip_lines.`;
 }
 
 /** Historical compaction is subtractive: it may drop rows or tail chunks,

@@ -234,3 +234,13 @@ def test_join_and_union_do_not_round_nullable_object_integers():
 def test_cross_join_cannot_silently_ignore_a_key_cardinality_constraint():
     with pytest.raises(runtime.NativeError, match="JOIN_KEYS"):
         execute("Join", pd.DataFrame({"a": [1, 2]}), pd.DataFrame({"b": [3, 4]}), type="cross", validate="one_to_one")
+
+
+def test_join_facts_name_the_most_frequent_unmatched_keys_per_side():
+    left = pd.DataFrame({"country": ["US", "US", "Russia", "Russia", "Russia", "Viet Nam", None], "n": range(7)})
+    right = pd.DataFrame({"country": ["US", "Andorra"], "price": [5.0, 3.0]})
+    result = execute("Join", left, right, on="country", type="inner")
+    facts = result.attrs["native_v2"]["operations"]["join"]
+    assert facts["left"]["unmatchedRows"] == 5  # Russia x3, Viet Nam, and the null key
+    assert facts["left"]["unmatchedExamples"] == [{"key": "Russia", "rows": 3}, {"key": "Viet Nam", "rows": 1}]
+    assert facts["right"]["unmatchedExamples"] == [{"key": "Andorra", "rows": 1}]

@@ -65,11 +65,18 @@ export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape
   return { id, shape };
 }
 
+/** A number as a person writes it: binary noise such as 93.05000000000001
+ * or 2.9999999999999996 is removed (12 significant digits), exact values are
+ * unchanged. */
+export function cleanNumber(value: number): number {
+  return Number.isInteger(value) ? value : Number(value.toPrecision(12));
+}
+
 function cell(value: unknown, digits?: number): unknown {
   if (value === undefined || value === null) return null;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
-    return digits === undefined ? value : Number(value.toFixed(digits));
+    return digits === undefined ? cleanNumber(value) : Number(value.toFixed(digits));
   }
   if (typeof value === "bigint") return Number(value);
   return value;

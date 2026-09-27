@@ -62,7 +62,7 @@ export const MISSING_TOKENS = new Set([
 const NUMERIC_TEXT = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/;
 const ENCODING = new Set(["LITERAL_MISSING", "NUMERIC_TEXT", "HEADER_IN_DATA"]);
 /** Flags a descendant keeps: about a column it still reads as text, or about every row it holds. */
-const INHERITED = new Set([...ENCODING, "JOIN_MULTIPLIED", "CAST_LOST", "MAP_ALL_NULL", "UNION_ALIGNED"]);
+const INHERITED = new Set([...ENCODING, "JOIN_MULTIPLIED", "JOIN_UNMATCHED", "CAST_LOST", "MAP_ALL_NULL", "UNION_ALIGNED"]);
 export const MAX_FLAGS = 6;
 
 export interface Expectation {
@@ -189,6 +189,31 @@ export function contractFlags(
         add(
           "JOIN_MULTIPLIED",
           `join produced ${plural(rows, "row")} from ${left} and ${right}: keys repeat on at least one side${multiplicity > 1 ? ` (a key occurs up to ${multiplicity} times)` : ""}, so rows were multiplied`
+        );
+      }
+      // Rows whose key has no match on the other side: an inner join drops
+      // them (the population shrinks), a left join keeps them with the right
+      // side's columns null. The left side is the table being extended; the
+      // right side of a lookup usually has unused keys, which is no loss.
+      const kind = String(view.properties.type ?? view.properties.how ?? "inner");
+      const leftFacts = record(record(ops.join).left);
+      const lost = Number(leftFacts.unmatchedRows) || 0;
+      if (lost > 0 && (kind === "inner" || kind === "left")) {
+        const inputId = view.inputs?.[0] ?? "the left input";
+        const examples = (Array.isArray(leftFacts.unmatchedExamples) ? leftFacts.unmatchedExamples : [])
+          .map(item => {
+            const e = record(item);
+            const key = Array.isArray(e.key) ? e.key.map(k => (k === null ? "null" : q(String(k)))).join("/") : q(String(e.key));
+            return `${key} ${e.rows}`;
+          })
+          .slice(0, 4);
+        const what =
+          kind === "inner"
+            ? `dropped ${plural(lost, "row")} of ${inputId} (of ${left ?? "?"})`
+            : `kept ${plural(lost, "row")} of ${inputId} (of ${left ?? "?"}) with null in every column from the right side`;
+        add(
+          "JOIN_UNMATCHED",
+          `${kind} join ${what}: their key has no match${examples.length ? ` (e.g. ${examples.join(", ")})` : ""}`
         );
       }
       break;

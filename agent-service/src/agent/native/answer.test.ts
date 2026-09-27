@@ -344,3 +344,25 @@ test("settings and prompt: the four session-shaped features validate and documen
     expect(plain).not.toContain(heading);
   expect(() => validateNativeSettings({ agentMode: "code", nativeCompactCode: true })).toThrow(NativeCatalogSettingsError);
 });
+
+
+test("composed answers carry numbers as written: binary float noise is removed, exact values stay", async () => {
+  const { cleanNumber, composeAnswer } = await import("./answer");
+  expect(cleanNumber(93.05000000000001)).toBe(93.05);
+  expect(cleanNumber(2.9999999999999996)).toBe(3);
+  expect(cleanNumber(0.30000000000000004)).toBe(0.3);
+  expect(cleanNumber(4.202270000000013)).toBe(4.20227);
+  expect(cleanNumber(6930.155123456789)).toBe(6930.15512346);
+  expect(cleanNumber(238854)).toBe(238854);
+  const composed = composeAnswer("medians", {
+    state: "Completed",
+    totalRowCount: 1,
+    truncated: false,
+    resultSchema: [
+      { name: "non_feeder_median", type: "float64", encoding: "number" },
+      { name: "schools", type: "int64", encoding: "number" },
+    ],
+    result: [{ non_feeder_median: 93.05000000000001, schools: 364 }],
+  } as any);
+  expect("text" in composed && composed.text).toBe('**Final Answer: {"non_feeder_median":93.05,"schools":364}**');
+});
