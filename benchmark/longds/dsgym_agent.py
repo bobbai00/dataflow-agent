@@ -125,16 +125,25 @@ components to explain a result rather than reconstructing a formula from memory.
 """
 
 
-def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False) -> list[dict]:
+def build_turns(manifest: dict, gold: dict, turn_limit: int | None, *, functions=False, shared=False) -> list[dict]:
     """Upstream's `load_dataset` shape: the system prompt names the data
-    directory; every turn is `context\\nQuestion: question`."""
+    directory; every turn is `context\\nQuestion: question`. With `shared`,
+    each turn's message is instead the text the dataflow arm receives
+    (`official_protocol.build_prompts`, script persistence paragraph): turn 1
+    adds the file inventory, the session rules and the answer contract."""
     system_prompt = SYSTEM_PROMPT.format(PATH=str((WORKTREE / manifest["data_dir"]).resolve()))
     if functions:
         system_prompt += "\n" + FUNCTIONS_GUIDANCE
     gold_by_id = {t["turn_id"]: t for t in gold["turns"]}
+    shared_text = {}
+    if shared:
+        from official_protocol import build_prompts
+
+        shared_text = {p["turn_id"]: p["prompt"] for p in build_prompts(manifest, "script")}
     turns = []
     for item in manifest["turns"][:turn_limit]:
-        message = {"role": "user", "content": f"{item['context']}\nQuestion: {item['question']}"}
+        content = shared_text.get(item["turn_id"]) or f"{item['context']}\nQuestion: {item['question']}"
+        message = {"role": "user", "content": content}
         turns.append(
             {
                 "turn_id": item["turn_id"],
@@ -188,6 +197,8 @@ def main() -> int:
     ap.add_argument("--turn-limit", type=int)
     ap.add_argument("--max-steps", type=int, default=40)
     ap.add_argument("--functions", action="store_true", help="separately labeled reusable-function control")
+    ap.add_argument("--shared-protocol", action="store_true",
+                    help="send the dataflow arm's task text (file inventory, session rules, answer contract)")
     args = ap.parse_args()
 
     api_key = os.environ[args.api_key_env]
@@ -198,7 +209,7 @@ def main() -> int:
     agent_module.AllocatedCodeEnv = TurnMarkingEnv
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())
-    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions)
+    turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol)
     (args.out / "turns.json").write_text(json.dumps(turns, indent=2, ensure_ascii=False))
 
     agent = MultiTurnReActDSAgent(

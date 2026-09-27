@@ -51,7 +51,7 @@ from official_protocol import build_prompts, extract_answer, selftest, write_rec
 
 WORKTREE = Path(__file__).resolve().parents[2]
 SCRIPT_ARMS = {"code"}
-DSGYM_ARMS = {"dsgym", "dsgym-functions"}
+DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared"}
 DATAFLOW_ARMS = {
     "react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient",
     "react-registry", "react-registry-sig", "react-lean", "react-lean2",
@@ -134,7 +134,7 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     return answers
 
 
-def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False):
+def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False, shared=False):
     """The paper's own agent: DSGym's MultiTurnReActDSAgent, SYSTEM_PROMPT and
     <python>/<answer> protocol, unchanged (dsgym_agent.py), over a local
     persistent Jupyter kernel that speaks its executor manager's HTTP contract
@@ -177,6 +177,8 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=F
                 command += ["--turn-limit", str(turn_limit)]
             if functions:
                 command += ["--functions"]
+            if shared:
+                command += ["--shared-protocol"]
             subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=True)
         finally:
             executor.terminate()
@@ -267,6 +269,7 @@ def main() -> int:
                 "runtime": runtime_provenance(),
                 "manifest_sha256": hashlib.sha256((prepared / "manifest.json").read_bytes()).hexdigest(),
                 "functions_guidance": args.arm == "dsgym-functions",
+                "shared_task_text": args.arm == "dsgym-shared",
                 "execution_isolation": (
                     "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network"
                     if args.arm in DSGYM_ARMS else os.environ.get("LONGDS_NATIVE_ISOLATION", "not recorded")
@@ -285,7 +288,11 @@ def main() -> int:
     started = time.time()
     if args.arm in DSGYM_ARMS:
         answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit,
-                                functions=args.arm == "dsgym-functions")
+                                functions=args.arm == "dsgym-functions", shared=args.arm == "dsgym-shared")
+        if args.arm == "dsgym-shared":
+            # Same extraction as the dataflow arm: the payload after the
+            # final-answer marker the shared answer contract asks for.
+            answers = [dict(a, answer=extract_answer(a.get("answer") or "")) for a in answers]
     elif kind == "script":
         answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
     else:
