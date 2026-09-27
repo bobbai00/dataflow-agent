@@ -727,8 +727,14 @@ test("an observed UDF itself is an opaque calculation boundary", () => {
   f.op.nativeOp!.type = "Process";
   const selection = observe(f);
   expect(selection.text).toContain("mapping unknown");
+  // No upstream calculation is attributed to the function's output ...
   expect(selection.selected.some(id => id.startsWith("flow.upstream."))).toBe(false);
-  expect(selection.text).not.toContain("account");
+  // ... but what the function received is stated: its input's grain, so a
+  // reused table's definition is visible (a mean of weekly means read as a
+  // mean over rows, LearnPlatform task 2 t16).
+  expect(selection.text).toContain(
+    'Flow measurement: input `left` was built as `left` aggregate by ["account","region"]: 10 → 5 rows ← `raw` scan: 10 rows.'
+  );
 });
 
 test("missing evidence is not an execution error and never triggers hidden work", () => {

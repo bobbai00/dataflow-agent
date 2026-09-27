@@ -87,6 +87,9 @@ with tempfile.TemporaryDirectory(prefix='native-evidence-unit-') as directory:
     tokens.write_text('a,a,b\\n1,NA,None\\n2,x,3\\n', encoding='utf8')
     execute('tokens', 'Scan', [], files=str(tokens))
     execute('null_groups', 'Aggregate', ['typed'], groupBy=['x'], aggregations=[dict(fn='count', **{'as': 'n'})])
+    execute('reader', 'Process', ['null_groups'], entry='process', code="def process(null_groups):\\n    return null_groups")
+    execute('labels', 'Process', [], entry='load', code="def load():\\n    import pandas as pd\\n    return pd.DataFrame({'country':['Rsa','Rsa','Norway','Kenya'], 'state':['Texas','Ohio','District Of Columbia','Texas'], 'industry':['Internet','Internet ','Oil','Oil']})")
+    execute('aliases', 'Process', ['labels'], entry='process', code="def process(labels):\\n    return labels.assign(country=labels['country'].replace({'Rsa': 'Russia'}), state=labels['state'].map({'Texas': 'TX', 'Ohio': 'OH'}))")
 print(json.dumps(records))
 `,
       runtime,
@@ -204,6 +207,12 @@ print(json.dumps(records))
   expect(facts.get("null_groups")).toContain("groups=1 from 3 rows");
   expect(facts.get("empty_global")).toContain("groups=1 from 0 rows");
   expect(facts.get("udf")).toContain("row/column mapping unknown");
+  expect(facts.get("aliases")).toContain('Process values of "country" (rows matched by label): rewrote 2 rows: "Rsa"→"Russia" 2.');
+  expect(facts.get("aliases")).toContain('Process values of "state" (rows matched by label): rewrote 3 rows: "Texas"→"TX" 2, "Ohio"→"OH" 1; made 1 rows null: "District Of Columbia" 1.');
+  expect(facts.get("reader")).toContain(
+    'Flow measurement: input `null_groups` was built as `null_groups` aggregate by ["x"]: 3 → 1 rows ← `source` scan of "values.csv": 3 rows.'
+  );
+  expect(facts.get("labels")).toContain('"industry" has values that differ only in case or spacing: "Internet" 1 ~ "Internet " 1.');
   expect(facts.get("unpivot")).toContain("Unpivot output=3*2=6");
   expect(facts.get("window")).toContain("partitions=3, ties beyond first=0");
   expect(facts.get("window")).toContain('"previous" boundary nulls=3/6, total nulls=3/6');

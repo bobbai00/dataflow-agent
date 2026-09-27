@@ -170,11 +170,65 @@ function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): Nati
 
 /** Consumes structured, version-bound profiles only. No execution, hidden
  * fetch, human-stat-string parsing, or inference of Python semantics. */
+/** Operators that keep one output row per input row: they do not change a
+ * table's grain, so a lineage card leaves them out. */
+const ROW_PRESERVING = new Set(["Project", "Cast", "Map", "Sort", "Window"]);
+
+/** How a table was built: its row-changing steps back to the scans (the
+ * first input of each, so the main line), with rows in and out and each
+ * step's grouping keys or doc, at most six steps. A custom step that reuses
+ * an earlier table reads its grain here (a mean of weekly means, a 10-row
+ * leader table, a 498-row subset). Undefined when only the table itself is known. */
+export function lineageCard(start: NativeEvidenceContext): string | undefined {
+  const steps: string[] = [];
+  const seen = new Set<string>();
+  let current: NativeEvidenceContext | undefined = start;
+  while (current && steps.length < 6 && !seen.has(current.op.operatorID)) {
+    seen.add(current.op.operatorID);
+    const view = current.op.nativeOp!;
+    const p = view.properties;
+    if (current === start || !ROW_PRESERVING.has(view.type)) {
+      const inputRows = current.info.tableProfile?.native?.inputRows;
+      const rows = current.info.totalRowCount ?? "?";
+      const doc = typeof p.doc === "string" && p.doc ? ` ${json(p.doc)}` : "";
+      const file = (value: unknown) => (typeof value === "string" ? value.split("/").pop() : value);
+      const how =
+        view.type === "Scan"
+          ? `scan${p.files === undefined ? "" : ` of ${json(Array.isArray(p.files) ? p.files.map(file) : file(p.files))}`}`
+          : view.type === "Aggregate"
+            ? `aggregate by ${json(p.groupBy ?? [])}`
+            : view.type === "Join"
+              ? `${p.type ?? "inner"} join on ${json(p.on ?? [])}`
+              : view.type === "Limit"
+                ? `limit ${p.n}`
+                : `${view.type.toLowerCase()}${doc}`;
+      const flow = view.type !== "Scan" && Array.isArray(inputRows) && inputRows.length ? `${inputRows.join("+")} → ` : "";
+      steps.push(`\`${current.op.operatorID}\` ${how}: ${flow}${rows} rows`);
+    }
+    current = boundInputs(current)[0];
+  }
+  return steps.length > 1 ? steps.join(" ← ") : undefined;
+}
+
 export function collectNativeEvidence(context: NativeEvidenceContext): {
   facts: NativeEvidenceFact[];
   omissions: string[];
 } {
   const result = collectLocalEvidence(context);
+  // A custom step's inputs, as they were built: the function reads them with
+  // no other account of their grain or filters.
+  if (context.op.nativeOp?.type === "Process")
+    for (const input of boundInputs(context).slice(0, 2)) {
+      const card = lineageCard(input);
+      if (card)
+        result.facts.push({
+          id: `flow.lineage.${input.op.operatorID}`,
+          family: "flow",
+          kind: "measurement",
+          text: `Flow measurement: input \`${input.op.operatorID}\` was built as ${card}.`,
+          priority: 96,
+        });
+    }
   const queue = (context.op.nativeOp?.type === "Process" ? [] : boundInputs(context)).map(input => ({
     input,
     depth: 1,
@@ -247,6 +301,43 @@ export function scanMissingTokens(value: unknown): string | undefined {
     .map(c => `${json(c.column)} ${c.total}`)
     .join(", ");
   return `${total} cell${total === 1 ? "" : "s"} (${tokenText}) in ${perColumn.length} column${perColumn.length === 1 ? "" : "s"} (${columnText}${columns.length > 8 ? `, and ${columns.length - 8} more` : ""})`;
+}
+
+function pairsOf(value: unknown): unknown[][] {
+  return (Array.isArray(value) ? value : []).filter(Array.isArray) as unknown[][];
+}
+
+/** What a custom step did to the values of one column it kept, as the runtime
+ * measured it with rows matched by their row labels (`_value_receipts` in
+ * runtime.py): the engine cannot read the function, and an alias map that
+ * sent "Rsa" to Russia or a dict that lacked "District Of Columbia" was
+ * otherwise invisible. Undefined when nothing was measured. */
+export function valueReceipt(name: string, receipt: Record<string, unknown>): string | undefined {
+  const parts: string[] = [];
+  const rewritten = pairsOf(receipt.rewritten);
+  if (rewritten.length) {
+    const more = Number(receipt.rewrittenValues) - rewritten.length;
+    parts.push(
+      `rewrote ${receipt.rewrittenRows} rows: ${rewritten.map(([a, b, n]) => `${json(a)}→${json(b)} ${n}`).join(", ")}${more > 0 ? `, and ${more} more values` : ""}`
+    );
+  }
+  const nulled = pairsOf(receipt.nulled);
+  if (nulled.length) parts.push(`made ${receipt.nulledRows} rows null: ${nulled.map(([a, n]) => `${json(a)} ${n}`).join(", ")}`);
+  const dropped = pairsOf(receipt.droppedByValue);
+  if (dropped.length)
+    parts.push(`dropped rows by value: ${dropped.map(([a, n]) => `${a === null ? "null" : json(a)} ${n}`).join(", ")}`);
+  return parts.length ? `Process values of ${json(name)} (rows matched by label): ${parts.join("; ")}.` : undefined;
+}
+
+/** Values of one text column that differ only in case or spacing, with their
+ * row counts ("Telecommunications" and "Telecommunications " were counted
+ * apart). Undefined when there are none. */
+export function spellingVariants(name: string, groups: unknown): string | undefined {
+  const list = pairsOf(groups);
+  if (!list.length) return undefined;
+  return `${json(name)} has values that differ only in case or spacing: ${list
+    .map(group => pairsOf(group).map(([value, n]) => `${json(value)} ${n}`).join(" ~ "))
+    .join("; ")}.`;
 }
 
 function collectLocalEvidence(context: NativeEvidenceContext): {
@@ -722,6 +813,11 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       `Process input rows=${json(ns)}, output=${out}; row/column mapping unknown.`,
       75
     );
+    for (const [name, receipt] of Object.entries(record(operations.valueReceipts)).slice(0, 6)) {
+      if (context.columns?.length && !context.columns.includes(name)) continue;
+      const line = valueReceipt(name, record(receipt));
+      if (line) add(`flow.process.values.${name}`, "flow", "measurement", line, 95);
+    }
   } else if (view.type === "Compare") {
     const c = record(operations.compare);
     if (count(c.rowsA) && count(c.rowsB) && count(c.inBoth) && count(c.onlyA) && count(c.onlyB))
@@ -733,6 +829,11 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         94
       );
     else omissions.push("compare_counters_unavailable");
+  }
+  for (const [name, groups] of Object.entries(record(operations.spellingVariants)).slice(0, 6)) {
+    if (context.columns?.length && !context.columns.includes(name)) continue;
+    const line = spellingVariants(name, groups);
+    if (line) add(`data.spelling.${name}`, "data", "measurement", line, 93);
   }
   if (["Cast", "Map"].includes(view.type) && ns[0] === out) {
     if (view.type === "Cast")

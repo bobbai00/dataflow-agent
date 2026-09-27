@@ -2153,6 +2153,108 @@ def _returned_labels(frame):
     return frame.reset_index(drop=True), (None if np.array_equal(labels, np.arange(len(labels))) else labels)
 
 
+#: Bounds of the value receipts: columns measured, pairs and values listed.
+RECEIPT_COLUMNS = 12
+RECEIPT_PAIRS = 8
+SPELLING_DISTINCT_LIMIT = 2000
+
+
+def _text_column(series):
+    return series.dtype == object or isinstance(series.dtype, pd.StringDtype)
+
+
+def _spelling_variants(frame, columns=None):
+    """Text values of a column that differ only in case or spacing ('Internet'
+    and 'Internet '): per column, up to five groups of spellings with their
+    row counts, most rows first. Columns with more distinct values than
+    SPELLING_DISTINCT_LIMIT are skipped (free text, not labels)."""
+    found = {}
+    for name in columns if columns is not None else list(frame.columns):
+        if len(found) >= RECEIPT_COLUMNS or name not in frame.columns:
+            continue
+        series = frame[name]
+        if not _text_column(series):
+            continue
+        counts = series.dropna().value_counts()
+        if len(counts) < 2 or len(counts) > SPELLING_DISTINCT_LIMIT:
+            continue
+        texts = [value for value in counts.index if isinstance(value, str)]
+        groups = {}
+        for value in texts:
+            groups.setdefault(" ".join(value.split()).casefold(), []).append(value)
+        variants = [
+            [[value, int(counts[value])] for value in sorted(group, key=lambda v: -int(counts[v]))]
+            for group in groups.values()
+            if len(group) > 1
+        ]
+        if variants:
+            variants.sort(key=lambda group: -sum(n for _, n in group))
+            found[str(name)] = variants[:5]
+    return found
+
+
+def _value_receipts(source, source_labels, output, output_labels):
+    """What a custom step did to the text values of the input columns it kept,
+    with rows matched by their row labels (the function sees them as its
+    index): per column, the rewrites (old value, new value, rows), the rows
+    it made null (with their old values) and the rows it dropped (by value).
+    Nothing is claimed when the rows cannot be matched: the output was built
+    fresh (labels 0..n-1 of another length) or most of a column changed."""
+    before = source_labels if source_labels is not None else np.arange(len(source))
+    after = output_labels if output_labels is not None else np.arange(len(output))
+    if output_labels is None and len(output) != len(source):
+        return {}
+    position = {int(label): i for i, label in enumerate(before)}
+    matched = [(position.get(int(label)), j) for j, label in enumerate(after)]
+    if any(i is None for i, _ in matched) or len({i for i, _ in matched}) != len(matched):
+        return {}
+    rows_in = np.array([i for i, _ in matched], dtype="int64")
+    rows_out = np.array([j for _, j in matched], dtype="int64")
+    dropped = np.setdiff1d(np.arange(len(source)), rows_in)
+    receipts = {}
+    for name in source.columns:
+        if len(receipts) >= RECEIPT_COLUMNS:
+            break
+        if name not in output.columns or not _text_column(source[name]) or not _text_column(output[name]):
+            continue
+        old = source[name].to_numpy(dtype=object)[rows_in]
+        new = output[name].to_numpy(dtype=object)[rows_out]
+        old_missing = pd.isna(pd.Series(old)).to_numpy()
+        new_missing = pd.isna(pd.Series(new)).to_numpy()
+        rewritten = ~old_missing & ~new_missing & (old != new)
+        nulled = ~old_missing & new_missing
+        changed = rewritten | nulled
+        if changed.any():
+            # A rewrite maps each old value to one new value; rows matched by
+            # position in a frame the function rebuilt in another order map
+            # one old value to many, and say nothing about the step.
+            pairs = pd.DataFrame({
+                "old": pd.Series(old[changed]).astype(str),
+                "new": pd.Series(new[changed]).map(lambda v: None if pd.isna(v) else str(v)),
+            })
+            targets = pairs.groupby("old")["new"].nunique(dropna=False)
+            if pairs["old"].map(targets).eq(1).mean() < 0.9:
+                continue
+        entry = {}
+        if rewritten.any():
+            pairs = pd.Series(list(zip(old[rewritten], new[rewritten]))).value_counts()
+            entry["rewritten"] = [[str(a), str(b), int(n)] for (a, b), n in pairs.head(RECEIPT_PAIRS).items()]
+            entry["rewrittenRows"] = int(rewritten.sum())
+            entry["rewrittenValues"] = int(len(pairs))
+        if nulled.any():
+            values = pd.Series(old[nulled]).value_counts()
+            entry["nulled"] = [[str(a), int(n)] for a, n in values.head(RECEIPT_PAIRS).items()]
+            entry["nulledRows"] = int(nulled.sum())
+        if 0 < len(dropped) < len(source) and source[name].nunique(dropna=True) <= SPELLING_DISTINCT_LIMIT:
+            values = source[name].iloc[dropped].value_counts(dropna=False)
+            entry["droppedByValue"] = [
+                [None if pd.isna(a) else str(a), int(n)] for a, n in values.head(RECEIPT_PAIRS).items()
+            ]
+        if entry:
+            receipts[str(name)] = entry
+    return receipts
+
+
 def _attach_labels(output, labels):
     if labels is None or np.array_equal(labels, np.arange(len(output))):
         return output
@@ -2262,8 +2364,27 @@ def execute_native(spec, inputs):
         else:
             output = _frame(spec, function(*[given(i, frame) for i, frame in enumerate(inputs)], **(params or {})))
         output, output_labels = _returned_labels(output)
+        if inputs:
+            receipts = _value_receipts(inputs[0], labels[0], output, output_labels)
+            if receipts:
+                operations["valueReceipts"] = receipts
+            # Spellings in the columns this step produced or rewrote.
+            touched = [
+                name for name in output.columns
+                if name not in inputs[0].columns or str(name) in receipts
+            ]
+            variants = _spelling_variants(output, touched)
+        else:
+            variants = _spelling_variants(output)
+        if variants:
+            operations["spellingVariants"] = variants
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
+    # A raw preview's line column is file text, not labels.
+    if (kind == "Scan" and not props.get("preview")) or kind == "Aggregate":
+        variants = _spelling_variants(output, None if kind == "Scan" else props.get("groupBy") or [])
+        if variants:
+            operations["spellingVariants"] = variants
     if kind in LABELS_FOLLOW:
         positions = output.index.to_numpy()
         output = output.reset_index(drop=True)
