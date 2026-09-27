@@ -117,6 +117,13 @@ export function roundHalfEven(value: number, digits: number): number {
   return value < 0 && rounded !== 0 ? -rounded : rounded;
 }
 
+/** A decimal number written in text, not part of a dotted run (a date, a version). */
+const DECIMAL_IN_TEXT = /(?<![\d.])-?\d+\.\d+(?![\d.])/g;
+
+/** A stated precision applies wherever the numbers are: inside a list or
+ * struct cell, and written inside a text cell (BI task 2 t8 returned the
+ * per-gender means as a dict in a string, so 75.99658914728683 stayed where
+ * 75.9966 was asked). */
 function cell(value: unknown, digits?: number | "full"): unknown {
   if (value === undefined || value === null) return null;
   if (typeof value === "number") {
@@ -124,7 +131,32 @@ function cell(value: unknown, digits?: number | "full"): unknown {
     return typeof digits === "number" ? roundHalfEven(value, digits) : cleanNumber(value);
   }
   if (typeof value === "bigint") return Number(value);
+  if (Array.isArray(value)) return value.map(item => cell(item, digits));
+  if (typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, cell(v, digits)]));
+  if (typeof value === "string" && typeof digits === "number")
+    return value.replace(DECIMAL_IN_TEXT, text =>
+      text.split(".")[1].length > digits ? String(roundHalfEven(Number(text), digits)) : text
+    );
   return value;
+}
+
+const WORD_DIGITS: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+
+/** The decimal places a session's requests state ("rounded to three decimal
+ * places", "to 4 decimals"), in the order they were first stated. Most LongDS
+ * tasks state the rule once, in the first request (56 of 68). */
+export function statedDecimals(texts: string[]): number[] {
+  const found = new Set<number>();
+  for (const text of texts)
+    for (const match of text.matchAll(/\b(\d{1,2}|zero|one|two|three|four|five|six)[\s-]+decimal/gi)) {
+      const word = match[1].toLowerCase();
+      found.add(word in WORD_DIGITS ? WORD_DIGITS[word] : Number(word));
+    }
+  return [...found];
+}
+
+function fractional(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && !Number.isInteger(cleanNumber(value));
 }
 
 /** One row → an object of its columns; several rows → `{<table>: [row
@@ -132,7 +164,16 @@ function cell(value: unknown, digits?: number | "full"): unknown {
  * `{<column>: [values]}`. A projection picks and renames the columns and
  * rounds numbers first. Numbers with decimals need a stated precision, and an
  * answer of nothing but nulls is not an answer. */
-export function composeAnswer(id: string, info: OperatorInfo | undefined, shape?: AnswerShape[]): ComposedAnswer {
+export function composeAnswer(
+  id: string,
+  info: OperatorInfo | undefined,
+  shape?: AnswerShape[],
+  options: {
+    /** The decimal places the session's requests state (`statedDecimals`); a
+     * stated precision outside them is refused. */
+    decimalRules?: number[];
+  } = {}
+): ComposedAnswer {
   if (!info) return { reason: `\`${id}\` has no result` };
   if (info.error) return { reason: `\`${id}\` failed` };
   const held = (info.result ?? []) as Array<Record<string, unknown>>;
@@ -174,6 +215,43 @@ export function composeAnswer(id: string, info: OperatorInfo | undefined, shape?
   }
   if (rows.every(row => columns.every(name => row[name] === null)))
     return { reason: `every value answer_from would report from \`${id}\` is null, so the table does not hold the answer` };
+  // A precision no request of the session states (survey-2020 task 3 t17:
+  // 4 decimals where the session's rule is 3).
+  const rules = options.decimalRules ?? [];
+  const off = rules.length
+    ? projection.find(item => {
+        const digits = item.digits ?? every;
+        return typeof digits === "number" && !rules.includes(digits) && held.some(row => fractional(row[item.column]));
+      })
+    : undefined;
+  if (off) {
+    const rule = rules[rules.length - 1];
+    return {
+      reason: `answer_from rounds ${JSON.stringify(off.name)} to ${off.digits ?? every} decimals, but this session's requests state ${rules.join(" or ")} decimal places`,
+      hint: `Set answer_from again with the stated rounding, e.g. "${id}[:${rule}]" (":full" keeps the computed value); if this request asks for another precision, write the final answer yourself.`,
+    };
+  }
+  // Numbers without the column that says which row they belong to (acea task
+  // 3 t14 kept the cv column and dropped the waterbody names).
+  if (rows.length > 1 && named.length) {
+    const kept = new Set(projection.map(item => item.column));
+    const numeric = projection.every(item =>
+      held.every(row => row[item.column] === null || row[item.column] === undefined || typeof row[item.column] === "number")
+    );
+    const label = numeric
+      ? available.find(
+          name =>
+            !kept.has(name) &&
+            held.every(row => typeof row[name] === "string" && row[name] !== "") &&
+            new Set(held.map(row => row[name])).size === held.length
+        )
+      : undefined;
+    if (label)
+      return {
+        reason: `the projection of \`${id}\` keeps only numbers, so its ${rows.length} rows would not say which is which; ${JSON.stringify(label)} names each row`,
+        hint: `Keep ${JSON.stringify(label)} in answer_from, e.g. "${id}[${label}, ...]", or write the final answer yourself.`,
+      };
+  }
   let value: unknown;
   if (rows.length === 1) value = rows[0];
   else if (columns.length === 1) value = { [columns[0]]: rows.map(row => row[columns[0]]) };

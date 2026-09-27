@@ -105,7 +105,7 @@ import { DefinitionRegistry } from "./native/definition-registry";
 import { buildTaskEntry } from "./native/task-entries";
 import { verifyRestore } from "./native/task-restore";
 import { applyContractFlags, type Expectation } from "./native/flags";
-import { composeAnswer } from "./native/answer";
+import { composeAnswer, statedDecimals } from "./native/answer";
 import type { NativeBatchResult } from "./tools/native-batch-tools";
 import { retainTaskResult } from "../api/task-results-api";
 import { formatNativeDiagnostic } from "./native/diagnostics";
@@ -2948,7 +2948,11 @@ export class TexeraAgent {
       if (!batch.answerFrom) continue;
       const id = batch.answerFrom;
       const info = this.snapshotStorage.getOperatorResult(owningStepId, id);
-      const composed = composeAnswer(id, info, batch.answerShape);
+      // Every request of the session so far, for the decimal rule it states.
+      const requests = this.getVisibleReActSteps()
+        .filter(step => step.role === "user" && step.isBegin)
+        .map(step => String(step.content ?? ""));
+      const composed = composeAnswer(id, info, batch.answerShape, { decimalRules: statedDecimals(requests) });
       if ("text" in composed) {
         this.composedAnswer = composed.text;
         this.log.info({ table: id, chars: composed.json.length }, "final answer composed from table");

@@ -16,7 +16,7 @@
  */
 import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
-import { composeAnswer, parseAnswerFrom, roundHalfEven, type AnswerShape } from "./answer";
+import { composeAnswer, parseAnswerFrom, roundHalfEven, statedDecimals, type AnswerShape } from "./answer";
 import { nativeTestTools } from "./test-support";
 import { WorkflowState } from "../workflow-state";
 import { selectNativeObservation } from "./evidence";
@@ -154,6 +154,56 @@ test("a table that cannot be the answer is refused with the reason", () => {
   expect(composeAnswer("t", table(many))).toEqual({ reason: "`t` has 60 rows; an answer table holds at most 50 (aggregate, project or limit it)" });
   const wide = [{ text: "x".repeat(5000) }];
   expect(composeAnswer("t", table(wide))).toEqual({ reason: "the answer composed from `t` is 5011 characters; keep it under 4000" });
+});
+
+test("a stated precision reaches numbers inside list, struct and text cells", () => {
+  // BI task 2 t8: the per-gender means came back as a dict written into a string.
+  const means = table([{ gap: 0.32442, by_gender: "{'Female': 75.99658914728683, 'Male': 75.6721568627451}" }]);
+  expect(composeAnswer("t", means, every(4))).toMatchObject({
+    json: '{"gap":0.3244,"by_gender":"{\'Female\': 75.9966, \'Male\': 75.6722}"}',
+  });
+  const nested = table([{ shares: [0.123456, 0.5], split: { a: 1.23456 } }]);
+  expect(composeAnswer("t", nested, every(2))).toMatchObject({ json: '{"shares":[0.12,0.5],"split":{"a":1.23}}' });
+  // Dotted runs (a date, a version) are not numbers.
+  expect(composeAnswer("t", table([{ note: "v1.2.345 on 2020.01.02", x: 1.25 }]), every(1))).toMatchObject({
+    json: '{"note":"v1.2.345 on 2020.01.02","x":1.2}',
+  });
+});
+
+test("a precision no request of the session states is refused, and the stated one composes", () => {
+  expect(statedDecimals(["Report all decimal-valued results rounded to 3 decimal places.", "Use four-decimal precision."])).toEqual([3, 4]);
+  expect(statedDecimals(["rounded to three decimal places", "No rule here", "to 3 decimals"])).toEqual([3]);
+  expect(statedDecimals(["Report the count of respondents."])).toEqual([]);
+  const incidence = table([{ framework: "PyTorch", incidence: 0.12637 }, { framework: "Keras", incidence: 0.25961 }]);
+  // survey-2020 task 3 t17: 4 decimals where the session's rule is 3.
+  expect(composeAnswer("t", incidence, every(4), { decimalRules: [3] })).toEqual({
+    reason: 'answer_from rounds "incidence" to 4 decimals, but this session\'s requests state 3 decimal places',
+    hint: 'Set answer_from again with the stated rounding, e.g. "t[:3]" (":full" keeps the computed value); if this request asks for another precision, write the final answer yourself.',
+  });
+  expect(composeAnswer("t", incidence, every(3), { decimalRules: [3] })).toMatchObject({
+    json: '{"t":[{"framework":"PyTorch","incidence":0.126},{"framework":"Keras","incidence":0.26}]}',
+  });
+  expect(composeAnswer("t", incidence, every("full"), { decimalRules: [3] })).toHaveProperty("json");
+  // Integers need no rounding, so no rule applies to them.
+  expect(composeAnswer("t", table([{ n: 3 }]), every(4), { decimalRules: [3] })).toHaveProperty("json");
+});
+
+test("a projection that keeps only numbers of rows a text column names is refused", () => {
+  // acea task 3 t14: the cv column kept, the waterbody names dropped.
+  const stability = table([
+    { waterbody: "Lupa", cv: 0.17861 },
+    { waterbody: "Bilancino", cv: 0.20194 },
+    { waterbody: "Madonna di Canneto", cv: 0.20251 },
+  ]);
+  const cvOnly: AnswerShape[] = [{ name: "cv", column: "cv", digits: 4 }];
+  expect(composeAnswer("t", stability, cvOnly)).toEqual({
+    reason: 'the projection of `t` keeps only numbers, so its 3 rows would not say which is which; "waterbody" names each row',
+    hint: 'Keep "waterbody" in answer_from, e.g. "t[waterbody, ...]", or write the final answer yourself.',
+  });
+  expect(composeAnswer("t", stability, [{ name: "waterbody", column: "waterbody" }, ...cvOnly])).toHaveProperty("json");
+  // Without a projection every column is kept; one row names itself.
+  expect(composeAnswer("t", stability, every(4))).toHaveProperty("json");
+  expect(composeAnswer("t", table([{ waterbody: "Lupa", cv: 0.17861 }]), cvOnly)).toHaveProperty("json");
 });
 
 test("the tool records answer_from, observes the answer table, projects observed columns and echoes expectations", async () => {
