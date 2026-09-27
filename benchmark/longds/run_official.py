@@ -54,7 +54,7 @@ SCRIPT_ARMS = {"code"}
 DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared"}
 DATAFLOW_ARMS = {
     "react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient",
-    "react-registry", "react-registry-sig", "react-lean", "react-lean2",
+    "react-registry", "react-registry-sig", "react-lean", "react-lean2", "react-lean2-full",
 }
 HERE = Path(__file__).resolve().parent
 DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py

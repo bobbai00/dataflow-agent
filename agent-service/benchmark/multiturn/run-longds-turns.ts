@@ -42,6 +42,11 @@ const ARMS = [
   "react-lean",
   // react-lean plus the compact code contract and answer_from projections.
   "react-lean2",
+  // react-lean2 with the full session history in place of the task catalog:
+  // completed turns stay as their ReAct traces. Entries, lean entries and the
+  // registry index are shapes of the catalog, so they go with it; answer_from,
+  // registered operators, contract flags and the compact code stay.
+  "react-lean2-full",
 ];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
@@ -51,6 +56,8 @@ mkdirSync(out, { recursive: true });
 const prompts: Array<{ turn_id: number; prompt: string }> = await Bun.file(promptsPath).json();
 
 const LEAN = arm === "react-lean" || arm === "react-lean2";
+// The catalog-independent mechanisms of react-lean2, over the full session history.
+const FULL_LEAN = arm === "react-lean2-full";
 const settings = {
   nativeProfileCollection: true,
   // Data lines are 0-3% of the observations the model reads (complete tables
@@ -59,11 +66,12 @@ const settings = {
   flowEvidence: true,
   // Catalog uses completed entries; entries/restore also expose restoration.
   // Analysis uses bounded task memory and dependency forks instead.
-  nativeTaskContext: arm !== "react-full",
+  nativeTaskContext: arm !== "react-full" && !FULL_LEAN,
   nativeTaskHistory: true,
   // Preserve the recorded restoration setting of the existing arms.
   nativeTaskRestore: arm === "react-restore" || arm === "react-entries",
-  nativeAnalysisState: ["react-analysis", "react-efficient", "react-registry", "react-registry-sig"].includes(arm) || LEAN,
+  nativeAnalysisState:
+    ["react-analysis", "react-efficient", "react-registry", "react-registry-sig"].includes(arm) || LEAN || FULL_LEAN,
   nativeTaskEfficiency: ["react-efficient", "react-registry", "react-registry-sig"].includes(arm) || LEAN,
   // The registry arms: the efficient arm plus versioned definitions in the
   // task-start index, supersede/bind/explain and compare. `-sig` also shows
@@ -73,11 +81,11 @@ const settings = {
   nativeDefinitionSignatures: arm === "react-registry-sig",
   // react-lean: the answer composed from a table, defs callable as operators,
   // contract flags with `expect`, column projections and lean entries.
-  nativeAnswerFrom: LEAN,
-  nativeRegisteredOperators: LEAN,
-  nativeContractFlags: LEAN,
+  nativeAnswerFrom: LEAN || FULL_LEAN,
+  nativeRegisteredOperators: LEAN || FULL_LEAN,
+  nativeContractFlags: LEAN || FULL_LEAN,
   nativeLeanContext: LEAN,
-  nativeCompactCode: arm === "react-lean2",
+  nativeCompactCode: arm === "react-lean2" || FULL_LEAN,
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",
@@ -88,7 +96,7 @@ const settings = {
   thoughtReplay: false,
   // Full history needs visible task numbers to write at(name, task=N); the
   // catalog arm replaces completed turns with its own Q/A layout.
-  sessionTurns: arm === "react-full",
+  sessionTurns: arm === "react-full" || FULL_LEAN,
   versionedMode: false,
   // The task text goes before the turn's events, so every call of a turn extends
   // the previous call's prompt (a task block placed after the events is pushed
