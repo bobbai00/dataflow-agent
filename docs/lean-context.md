@@ -413,3 +413,21 @@ Three defects found in the traces and fixed (f10b00d99):
   DSGym). The runtime records the most frequent unmatched keys per side and
   a new contract flag, JOIN_UNMATCHED, states the drop (inner) or the null
   fill (left) with those keys; descendants inherit it.
+
+Targeted rerun of the three tasks behind these defects (f10b00d99 plus the
+pandas blank-header name of 5c9e74562 for later runs), one repetition:
+
+| Task | Full run | Rerun | DSGym |
+| --- | --- | --- | --- |
+| survey-2020 task 1 | 3 | 19 | 25 |
+| WiDS task 3 | 9 | 9 | 20 |
+| PASSNYC task 1 | 11 | 10 | 26 |
+
+The mechanisms held: no answer carried float noise, the preview notice
+appeared and WiDS turn 1 read all 3,193 rows, and survey-2020 turn 1 was
+exact (9,893 respondents). The join flag never fired: this time the model
+left-joined to count unmatched countries before finalizing, so its live
+effect is unmeasured. Survey-2020 shows what one root costs: with turn 1
+right, 17 later turns flipped to correct. WiDS turn 1 still failed on the
+blank-header name (column249 instead of pandas' Unnamed: 249), fixed in
+5c9e74562; PASSNYC turn 2 failed on percentages written as fractions.
