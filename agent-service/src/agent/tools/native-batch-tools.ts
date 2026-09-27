@@ -170,7 +170,7 @@ export interface DataflowToolOptions {
 const ANSWER_FROM_PROPERTY = {
   type: "string",
   description:
-    'Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, optionally with a projection `table[key=column:digits, other_column]` that names the answer\'s keys, picks the columns and rounds numbers (e.g. "python_mean[imputation_mean=mean_python:4, imputed_rows]"), so no extra statement is needed to shape the answer. The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its keys; several rows → an object keyed by the first column when it is a unique text key, otherwise a list of row objects under the table\'s name) and makes no further call. If the table is empty, not completely held, too large or lacks a named column, the observation says why and you answer in text instead.',
+    'Step 5, after the tables are shown: the id of a table whose complete contents are the answer to the current request, with a projection that states the precision of its numbers: `table[:4]` rounds every number to 4 decimals; `table[key=column:digits, other_column]` names the answer\'s keys, picks the columns and rounds per column (e.g. "python_mean[imputation_mean=mean_python:4, imputed_rows]"); `:full` keeps a number as computed. The runtime then ends the task with `Final Answer: <single-line JSON>` composed from that table (one row → an object of its keys; several rows → a list of row objects under the table\'s name, in the table\'s order; one column → a list of its values) and makes no further call. It rounds as Python\'s round() does. If the table is empty, not completely held, too large, lacks a named column, has numbers with decimals and no stated precision, or holds only nulls, the observation says why and you answer in text or set answer_from again.',
 };
 
 const LIFT_PROPERTY = {
@@ -390,7 +390,7 @@ export function dataflowToolDescription(options: DataflowToolOptions = {}): stri
       ? " Lines marked ⚠ under an operator are contract flags: facts the runtime established from the operator's contract and the table's whole-table profile, inherited by every table built on it; `expect` declares your own contracts on tables and reports whether they hold."
       : "") +
     (options.answerFrom
-      ? " `answer_from` names a table whose complete contents are the answer: the runtime composes `Final Answer: <single-line JSON>` from it and the task ends without another call."
+      ? " `answer_from` names a table whose complete contents are the answer, with the precision of its numbers (`table[:4]`): the runtime composes `Final Answer: <single-line JSON>` from it and the task ends without another call."
       : "")
   );
 }

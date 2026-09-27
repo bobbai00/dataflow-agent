@@ -30,36 +30,53 @@ export const ANSWER_ROW_LIMIT = 50;
 export const ANSWER_CHAR_LIMIT = 4000;
 export const ANSWER_MARKER = "Final Answer:";
 
-export type ComposedAnswer = { text: string; json: string } | { reason: string };
+export type ComposedAnswer = { text: string; json: string } | { reason: string; hint?: string };
+
+/** The key of a projection entry that states the precision of every column
+ * without its own (`t[:4]`, `t[:full]`). */
+export const EVERY_COLUMN = "*";
 
 /** One entry of an `answer_from` projection: `key=column:digits`. */
 export interface AnswerShape {
   /** The key the value gets in the answer. */
   name: string;
-  /** The table column it comes from. */
+  /** The table column it comes from; `*` for the precision of every column. */
   column: string;
-  /** Round a number to this many decimals. */
-  digits?: number;
+  /** Round a number to this many decimals; "full" keeps it as computed. */
+  digits?: number | "full";
 }
 
-/** `table[key=column:2, other]` → the table id and its projection, or the
- * reason the text is not a valid answer_from. */
+/** `table[key=column:2, other, :4]` → the table id and its projection, or the
+ * reason the text is not a valid answer_from. A bare `:digits` (or `:full`)
+ * entry states the precision of every column that has none of its own; with
+ * no column entries the answer takes every column. */
 export function parseAnswerFrom(text: string): { id: string; shape?: AnswerShape[] } | { error: string } {
   const match = /^\s*([A-Za-z_]\w*)\s*(?:\[(.*)\])?\s*$/s.exec(text);
-  if (!match) return { error: `answer_from must be a table id, optionally with a projection [key=column:digits, ...]; got ${JSON.stringify(text)}.` };
+  if (!match)
+    return {
+      error: `answer_from must be a table id, optionally with a projection [key=column:digits, ..., :digits]; got ${JSON.stringify(text)}.`,
+    };
   const [, id, inner] = match;
   if (inner === undefined) return { id };
   const shape: AnswerShape[] = [];
   for (const raw of inner.split(",")) {
     const item = raw.trim();
     if (!item) continue;
-    const spec = /^(?:([^=:]+?)\s*=\s*)?([^=:]+?)\s*(?::\s*(\d{1,2}))?$/.exec(item);
+    const every = /^:\s*(\d{1,2}|full)$/.exec(item);
+    if (every) {
+      if (shape.some(entry => entry.column === EVERY_COLUMN))
+        return { error: "answer_from states the precision of every column twice." };
+      shape.push({ name: EVERY_COLUMN, column: EVERY_COLUMN, digits: every[1] === "full" ? "full" : Number(every[1]) });
+      continue;
+    }
+    const spec = /^(?:([^=:]+?)\s*=\s*)?([^=:]+?)\s*(?::\s*(\d{1,2}|full))?$/.exec(item);
     if (!spec) return { error: `answer_from projection entry ${JSON.stringify(item)} is not key=column:digits.` };
-    const strip = (s: string) => s.trim().replace(/^["']|["']$/g, "");
+    const strip = (value: string) => value.trim().replace(/^["']|["']$/g, "");
     const column = strip(spec[2]);
     const name = spec[1] !== undefined ? strip(spec[1]) : column;
     if (!column || !name) return { error: `answer_from projection entry ${JSON.stringify(item)} names no column.` };
-    shape.push({ name, column, ...(spec[3] !== undefined ? { digits: Number(spec[3]) } : {}) });
+    const digits = spec[3] === undefined ? undefined : spec[3] === "full" ? "full" : Number(spec[3]);
+    shape.push({ name, column, ...(digits !== undefined ? { digits } : {}) });
   }
   if (!shape.length) return { error: "answer_from projection is empty; drop the brackets to take every column." };
   return { id, shape };
@@ -72,20 +89,49 @@ export function cleanNumber(value: number): number {
   return Number.isInteger(value) ? value : Number(value.toPrecision(12));
 }
 
-function cell(value: unknown, digits?: number): unknown {
+/**
+ * `value` rounded to `digits` decimals as Python's `round(value, digits)`
+ * rounds: on the exact binary value, ties to even. `toFixed` would round
+ * exact ties away from zero (0.125 to 0.13, where Python and the pandas-based
+ * references give 0.12).
+ */
+export function roundHalfEven(value: number, digits: number): number {
+  if (!Number.isFinite(value) || Number.isInteger(value)) return value;
+  const buffer = new DataView(new ArrayBuffer(8));
+  buffer.setFloat64(0, Math.abs(value));
+  const bits = buffer.getBigUint64(0);
+  const exponentBits = Number((bits >> 52n) & 0x7ffn);
+  const fraction = bits & ((1n << 52n) - 1n);
+  // |value| = mantissa * 2^exponent exactly.
+  const mantissa = exponentBits === 0 ? fraction : fraction | (1n << 52n);
+  const exponent = (exponentBits === 0 ? 1 : exponentBits) - 1075;
+  const scale = 10n ** BigInt(digits);
+  const numerator = exponent >= 0 ? mantissa * scale * (1n << BigInt(exponent)) : mantissa * scale;
+  const denominator = exponent >= 0 ? 1n : 1n << BigInt(-exponent);
+  let quotient = numerator / denominator;
+  const twice = 2n * (numerator - quotient * denominator);
+  if (twice > denominator || (twice === denominator && quotient % 2n === 1n)) quotient += 1n;
+  const text = quotient.toString().padStart(digits + 1, "0");
+  const decimal = digits ? `${text.slice(0, -digits)}.${text.slice(-digits)}` : text;
+  const rounded = Number(decimal);
+  return value < 0 && rounded !== 0 ? -rounded : rounded;
+}
+
+function cell(value: unknown, digits?: number | "full"): unknown {
   if (value === undefined || value === null) return null;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
-    return digits === undefined ? cleanNumber(value) : Number(value.toFixed(digits));
+    return typeof digits === "number" ? roundHalfEven(value, digits) : cleanNumber(value);
   }
   if (typeof value === "bigint") return Number(value);
   return value;
 }
 
-/** One row → an object of its columns; several rows → an object keyed by the
- * first column when it is a unique text key, else `{<table>: [row objects]}`;
- * one column over several rows → `{<column>: [values]}`. A projection picks
- * and renames the columns and rounds numbers first. */
+/** One row → an object of its columns; several rows → `{<table>: [row
+ * objects]}` in the table's order; one column over several rows →
+ * `{<column>: [values]}`. A projection picks and renames the columns and
+ * rounds numbers first. Numbers with decimals need a stated precision, and an
+ * answer of nothing but nulls is not an answer. */
 export function composeAnswer(id: string, info: OperatorInfo | undefined, shape?: AnswerShape[]): ComposedAnswer {
   if (!info) return { reason: `\`${id}\` has no result` };
   if (info.error) return { reason: `\`${id}\` failed` };
@@ -98,21 +144,38 @@ export function composeAnswer(id: string, info: OperatorInfo | undefined, shape?
     return { reason: `\`${id}\` has ${total} rows; an answer table holds at most ${ANSWER_ROW_LIMIT} (aggregate, project or limit it)` };
   const available = Object.keys(held[0] ?? {}).filter(name => !name.startsWith("__"));
   if (!available.length) return { reason: `\`${id}\` has no columns` };
-  for (const item of shape ?? [])
+  const every = shape?.find(item => item.column === EVERY_COLUMN)?.digits;
+  const named = (shape ?? []).filter(item => item.column !== EVERY_COLUMN);
+  for (const item of named)
     if (!available.includes(item.column))
       return { reason: `\`${id}\` has no column ${JSON.stringify(item.column)} (columns: ${available.join(", ")})` };
-  const projection: AnswerShape[] = shape ?? available.map(name => ({ name, column: name }));
+  const projection: AnswerShape[] = named.length ? named : available.map(name => ({ name, column: name }));
   const columns = projection.map(item => item.name);
   if (new Set(columns).size !== columns.length) return { reason: "the answer_from projection repeats a key" };
-  const rows = held.map(row => Object.fromEntries(projection.map(item => [item.name, cell(row[item.column], item.digits)])));
+  const unstated = new Map<string, number>();
+  const rows = held.map(row =>
+    Object.fromEntries(
+      projection.map(item => {
+        const digits = item.digits ?? every;
+        const raw = row[item.column];
+        if (digits === undefined && typeof raw === "number" && Number.isFinite(raw) && !Number.isInteger(cleanNumber(raw)))
+          if (!unstated.has(item.name)) unstated.set(item.name, raw);
+        return [item.name, cell(raw, digits)];
+      })
+    )
+  );
+  if (unstated.size) {
+    const listed = [...unstated].slice(0, 4).map(([name, raw]) => `${JSON.stringify(name)} (e.g. ${raw})`);
+    const first = [...unstated.keys()][0];
+    return {
+      reason: `\`${id}\` has numbers with decimals and answer_from states no precision for ${listed.join(", ")}${unstated.size > 4 ? ` and ${unstated.size - 4} more` : ""}`,
+      hint: `Set answer_from again with the rounding the request asks for, e.g. "${id}[:2]" for every number or "${id}[${first}:2]" per column (":full" keeps the computed value), or write the final answer yourself.`,
+    };
+  }
+  if (rows.every(row => columns.every(name => row[name] === null)))
+    return { reason: `every value answer_from would report from \`${id}\` is null, so the table does not hold the answer` };
   let value: unknown;
   if (rows.length === 1) value = rows[0];
-  else if (
-    columns.length === 2 &&
-    rows.every(row => typeof row[columns[0]] === "string") &&
-    new Set(rows.map(row => row[columns[0]])).size === rows.length
-  )
-    value = Object.fromEntries(rows.map(row => [row[columns[0]] as string, row[columns[1]]]));
   else if (columns.length === 1) value = { [columns[0]]: rows.map(row => row[columns[0]]) };
   else value = { [id]: rows };
   const json = JSON.stringify(value);

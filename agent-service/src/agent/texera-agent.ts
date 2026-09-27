@@ -2958,7 +2958,7 @@ export class TexeraAgent {
       // event shows it; the task's entry does not carry it.
       this.snapshotStorage.setOperatorResult(owningStepId, id, {
         ...(info ?? { state: "NotExecuted", inputTuples: 0, outputTuples: 0, resultMode: "table" }),
-        answerNote: `answer_from not applied: ${composed.reason}. Write the final answer yourself.`,
+        answerNote: `answer_from not applied: ${composed.reason}. ${composed.hint ?? "Write the final answer yourself."}`,
       } as OperatorInfo);
     }
   }

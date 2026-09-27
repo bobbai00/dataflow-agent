@@ -16,7 +16,7 @@
  */
 import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
-import { composeAnswer, parseAnswerFrom } from "./answer";
+import { composeAnswer, parseAnswerFrom, roundHalfEven, type AnswerShape } from "./answer";
 import { nativeTestTools } from "./test-support";
 import { WorkflowState } from "../workflow-state";
 import { selectNativeObservation } from "./evidence";
@@ -42,27 +42,72 @@ function table(rows: Array<Record<string, unknown>>, extra: Partial<OperatorInfo
   };
 }
 
+const every = (digits: number | "full"): AnswerShape[] => [{ name: "*", column: "*", digits }];
+
 test("the answer is composed from the table by a fixed mapping", () => {
-  expect(composeAnswer("t", table([{ mean_age: 34.2, n: 721, __row_index__: 0 }]))).toEqual({
+  expect(composeAnswer("t", table([{ mean_age: 34.2, n: 721, __row_index__: 0 }]), every(1))).toEqual({
     json: '{"mean_age":34.2,"n":721}',
     text: '**Final Answer: {"mean_age":34.2,"n":721}**',
   });
-  expect(composeAnswer("t", table([{ region: "east", total: 10 }, { region: "west", total: 12.5 }]))).toEqual({
-    json: '{"east":10,"west":12.5}',
-    text: '**Final Answer: {"east":10,"west":12.5}**',
+  // Several rows stay a list of row objects in the table's order, whatever the key
+  // column holds: an object keyed by name read as unordered (BI task 1 t8's ranking).
+  expect(composeAnswer("t", table([{ region: "east", total: 10 }, { region: "west", total: 12.5 }]), every(1))).toEqual({
+    json: '{"t":[{"region":"east","total":10},{"region":"west","total":12.5}]}',
+    text: '**Final Answer: {"t":[{"region":"east","total":10},{"region":"west","total":12.5}]}**',
   });
-  expect(composeAnswer("t", table([{ region: "east", total: 10 }, { region: "east", total: 12.5 }]))).toEqual({
-    json: '{"t":[{"region":"east","total":10},{"region":"east","total":12.5}]}',
-    text: '**Final Answer: {"t":[{"region":"east","total":10},{"region":"east","total":12.5}]}**',
+  // Integers need no stated precision.
+  expect(composeAnswer("t", table([{ region: "east", total: 10 }, { region: "east", total: 12 }]))).toEqual({
+    json: '{"t":[{"region":"east","total":10},{"region":"east","total":12}]}',
+    text: '**Final Answer: {"t":[{"region":"east","total":10},{"region":"east","total":12}]}**',
   });
   expect(composeAnswer("names", table([{ name: "a" }, { name: "b" }]))).toEqual({
     json: '{"name":["a","b"]}',
     text: '**Final Answer: {"name":["a","b"]}**',
   });
+  // An answer of nothing but nulls is not an answer (survey-2022 task 3 t5).
   expect(composeAnswer("t", table([{ x: null, y: Number.NaN, z: undefined }]))).toEqual({
-    json: '{"x":null,"y":null,"z":null}',
-    text: '**Final Answer: {"x":null,"y":null,"z":null}**',
+    reason: "every value answer_from would report from `t` is null, so the table does not hold the answer",
   });
+});
+
+test("numbers with decimals need a stated precision, and the runtime rounds as Python's round() does", () => {
+  // survey-2018 task 1 t11 answered 24.489795918367346 where the request asked for two decimals.
+  const info = table([{ share: 24.489795918367346, rate: 0.12345, n: 49 }]);
+  expect(composeAnswer("t", info)).toEqual({
+    reason: '`t` has numbers with decimals and answer_from states no precision for "share" (e.g. 24.489795918367346), "rate" (e.g. 0.12345)',
+    hint: 'Set answer_from again with the rounding the request asks for, e.g. "t[:2]" for every number or "t[share:2]" per column (":full" keeps the computed value), or write the final answer yourself.',
+  });
+  const two = parseAnswerFrom("t[:2]");
+  expect(two).toEqual({ id: "t", shape: [{ name: "*", column: "*", digits: 2 }] });
+  expect(composeAnswer("t", info, (two as any).shape)).toMatchObject({ json: '{"share":24.49,"rate":0.12,"n":49}' });
+  // A column's own digits win over the precision of every column; `full` keeps the value as computed.
+  const mixed = parseAnswerFrom("t[share:1, rate, n, :3]");
+  expect(composeAnswer("t", info, (mixed as any).shape)).toMatchObject({ json: '{"share":24.5,"rate":0.123,"n":49}' });
+  const full = parseAnswerFrom("t[share:full, n]");
+  expect(full).toEqual({ id: "t", shape: [{ name: "share", column: "share", digits: "full" }, { name: "n", column: "n" }] });
+  expect(composeAnswer("t", info, (full as any).shape)).toMatchObject({ json: '{"share":24.4897959184,"n":49}' });
+  // Only the answer's own columns need a precision.
+  expect(composeAnswer("t", info, (parseAnswerFrom("t[n]") as any).shape)).toMatchObject({ json: '{"n":49}' });
+  expect("error" in parseAnswerFrom("t[:2, :3]")).toBe(true);
+  // Exact ties go to even on the exact binary value, as Python's round() and the
+  // pandas-based references do; toFixed would give 0.13 and 3.
+  const cases: Array<[number, number, number]> = [
+    [0.125, 2, 0.12],
+    [0.375, 2, 0.38],
+    [2.5, 0, 2],
+    [3.5, 0, 4],
+    [-0.125, 2, -0.12],
+    [2.675, 2, 2.67],
+    [1.005, 2, 1],
+    [24.489795918367346, 2, 24.49],
+    [1e-7, 4, 0],
+    [123456.789, 1, 123456.8],
+    [0.5, 0, 0],
+    [-2.5, 0, -2],
+    [10.456, 1, 10.5],
+    [93.05000000000001, 2, 93.05],
+  ];
+  for (const [value, digits, expected] of cases) expect([value, digits, roundHalfEven(value, digits)]).toEqual([value, digits, expected]);
 });
 
 test("an answer_from projection names the keys, picks the columns and rounds", () => {
@@ -93,8 +138,8 @@ test("an answer_from projection names the keys, picks the columns and rounds", (
     reason: '`python_mean` has no column "missing" (columns: mean_python, imputed_rows, n, other)',
   });
   expect(composeAnswer("t", table([{ region: "east", total: 10.456 }, { region: "west", total: 12.5 }]), [{ name: "r", column: "region" }, { name: "t", column: "total", digits: 1 }])).toEqual({
-    json: '{"east":10.5,"west":12.5}',
-    text: '**Final Answer: {"east":10.5,"west":12.5}**',
+    json: '{"t":[{"r":"east","t":10.5},{"r":"west","t":12.5}]}',
+    text: '**Final Answer: {"t":[{"r":"east","t":10.5},{"r":"west","t":12.5}]}**',
   });
 });
 
@@ -221,7 +266,7 @@ test("answer_from ends the turn without another model call: the composed answer 
       await input.prepareStep({ stepNumber: 0, messages: input.initialMessages });
       const args = {
         edits: 'orders = scan("data/orders.csv")\nsummary = aggregate(orders, mean_amount=mean("amount"), n=count())',
-        answer_from: "summary",
+        answer_from: "summary[:1]",
       };
       const output = await input.tools.dataflow.execute(args);
       steps++;
@@ -363,6 +408,6 @@ test("composed answers carry numbers as written: binary float noise is removed, 
       { name: "schools", type: "int64", encoding: "number" },
     ],
     result: [{ non_feeder_median: 93.05000000000001, schools: 364 }],
-  } as any);
+  } as any, [{ name: "*", column: "*", digits: "full" }]);
   expect("text" in composed && composed.text).toBe('**Final Answer: {"non_feeder_median":93.05,"schools":364}**');
 });
