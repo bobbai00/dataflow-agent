@@ -34,6 +34,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -56,6 +57,46 @@ DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared", "dsgym-shared-cs", "ds
 # summary; plus the live kernel inventory), and the dataflow arm's budgeted
 # catalog, all under the budget in LONGDS_CONTEXT_BUDGET (tokens a call).
 COMPACTION = {"dsgym-shared-cs": "summary", "dsgym-shared-ci": "inventory"}
+# The environment-reset condition (LONGDS_RESET=mid|<turn>): before that turn
+# the running session's computed state is lost (DSGym: upstream's
+# reset_env_times, a fresh kernel; dataflow: the engine's cached results
+# cleared). Both arms read this notice at the start of the turn.
+RESET_NOTICE = '(Before this request the analysis environment was restarted: every result computed earlier and held in the running session is gone. The data files are unchanged.)'
+
+
+def refresh_plan(manifest: dict, turns: int) -> dict | None:
+    """The data-refresh condition (LONGDS_REFRESH=mid|<turn>): the corrected
+    extract built by refresh-probe.py under LONGDS_REFRESH_ROOT, where it
+    goes, the notice, and the gold of the refreshed turns."""
+    value = os.environ.get("LONGDS_REFRESH", "").strip()
+    if not value:
+        return None
+    turn = turns // 2 + 1 if value == "mid" else int(value)
+    if not 1 < turn <= turns:
+        return None
+    root = Path(os.environ["LONGDS_REFRESH_ROOT"])
+    name = f"{manifest['key']}-s{os.environ.get('LONGDS_REFRESH_SEED', '1')}"
+    source = root / name / "data"  # the corrected copy of the task's data directory
+    answers = json.loads((root / f"{name}.answers.json").read_text())
+    dest_rel = f"{manifest['data_dir']}/corrected"
+    files = sorted(f"{dest_rel}/{p.relative_to(source)}" for p in source.rglob("*") if p.is_file())
+    notice = (
+        "The data provider has sent a corrected extract of the data files (some records were withdrawn). "
+        "The corrected files have the same names and layout as the originals and are at these paths "
+        "(relative, as before):\n" + "\n".join(f" - {f}" for f in files) + "\n"
+        "From this request on, use the corrected files: every table and result from the earlier requests "
+        "must be recomputed on them. The definitions and rules of this session stay as they were."
+    )
+    return {"turn": turn, "source": source, "dest": WORKTREE / dest_rel, "notice": notice, "answers": answers,
+            "name": name}
+
+
+def reset_turn(turns: int) -> int | None:
+    value = os.environ.get("LONGDS_RESET", "").strip()
+    if not value:
+        return None
+    turn = turns // 2 + 1 if value == "mid" else int(value)
+    return turn if 1 < turn <= turns else None
 DATAFLOW_ARMS = {
     "react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient",
     "react-registry", "react-registry-sig", "react-lean", "react-lean2", "react-lean2-full", "react-lean2-budget",
@@ -138,7 +179,8 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     return answers
 
 
-def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False, shared=False, compaction=None):
+def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False, shared=False, compaction=None,
+                  reset=None, refresh=None):
     """The paper's own agent: DSGym's MultiTurnReActDSAgent, SYSTEM_PROMPT and
     <python>/<answer> protocol, unchanged (dsgym_agent.py), over a local
     persistent Jupyter kernel that speaks its executor manager's HTTP contract
@@ -185,6 +227,11 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=F
                 command += ["--shared-protocol"]
             if compaction:
                 command += ["--context-budget", os.environ["LONGDS_CONTEXT_BUDGET"], "--compaction", compaction]
+            if reset:
+                command += ["--reset-at", str(reset), "--reset-notice", RESET_NOTICE]
+            if refresh:
+                command += ["--refresh-at", str(refresh["turn"]), "--refresh-src", str(refresh["source"]),
+                            "--refresh-dest", str(refresh["dest"]), "--refresh-notice", refresh["notice"]]
             subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=True)
         finally:
             executor.terminate()
@@ -257,6 +304,24 @@ def main() -> int:
     gold = json.loads((prepared / "gold.json").read_text())
     kind = "script" if args.arm in SCRIPT_ARMS | DSGYM_ARMS else "dataflow"
     prompts = build_prompts(manifest, kind)[: args.turn_limit]
+    reset = reset_turn(len(prompts))
+    refresh = refresh_plan(manifest, len(prompts))
+    if refresh:
+        if refresh["dest"].exists():
+            print(f"FATAL: {refresh['dest']} exists (another refresh run, or a leftover); remove it first")
+            return 2
+        # The refreshed turns are judged against the reference notebook replayed on the corrected data.
+        for t in gold["turns"]:
+            if int(t["turn_id"]) >= refresh["turn"]:
+                t["answer"] = refresh["answers"][str(t["turn_id"])]
+    if refresh and kind == "dataflow":
+        prompts[refresh["turn"] - 1] = dict(prompts[refresh["turn"] - 1],
+                                            prompt=f"{refresh['notice']}\n\n{prompts[refresh['turn'] - 1]['prompt']}")
+        os.environ.update(LONGDS_REFRESH_AT=str(refresh["turn"]), LONGDS_REFRESH_SRC=str(refresh["source"]),
+                          LONGDS_REFRESH_DEST=str(refresh["dest"]))
+    if reset and kind == "dataflow":
+        prompts[reset - 1] = dict(prompts[reset - 1], prompt=f"{RESET_NOTICE}\n\n{prompts[reset - 1]['prompt']}")
+        os.environ["LONGDS_RESET_AT"] = str(reset)
 
     sut = args.sut or f"LongDS_Official_{args.arm}_{args.model.split('-')[-1]}"
     run_dir = SCRATCH / sut / args.task
@@ -276,6 +341,10 @@ def main() -> int:
                 "manifest_sha256": hashlib.sha256((prepared / "manifest.json").read_bytes()).hexdigest(),
                 "functions_guidance": args.arm == "dsgym-functions",
                 "shared_task_text": args.arm.startswith("dsgym-shared"),
+                **({"environment_reset_before_turn": reset, "reset_notice": RESET_NOTICE} if reset else {}),
+                **({"data_refresh_before_turn": refresh["turn"], "refresh_extract": refresh["name"],
+                    "refresh_notice": refresh["notice"], "refreshed_gold": "reference notebook on the corrected data"}
+                   if refresh else {}),
                 # The budget arms: tokens a model call may take, and how each fits it.
                 **({"context_budget_tokens": int(os.environ["LONGDS_CONTEXT_BUDGET"]),
                     "context_fit": COMPACTION.get(args.arm, "budgeted catalog")}
@@ -296,18 +365,11 @@ def main() -> int:
         )
     )
     started = time.time()
-    if args.arm in DSGYM_ARMS:
-        answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit,
-                                functions=args.arm == "dsgym-functions", shared=args.arm.startswith("dsgym-shared"),
-                                compaction=COMPACTION.get(args.arm))
-        if args.arm.startswith("dsgym-shared"):
-            # Same extraction as the dataflow arm: the payload after the
-            # final-answer marker the shared answer contract asks for.
-            answers = [dict(a, answer=extract_answer(a.get("answer") or "")) for a in answers]
-    elif kind == "script":
-        answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
-    else:
-        answers = run_dataflow_arm(prompts, run_dir, args.arm, args.model, args.turn_timeout)
+    try:
+        answers = run_arm(args, prepared, run_dir, prompts, kind, reset, refresh)
+    finally:
+        if refresh and refresh["dest"].exists():
+            shutil.rmtree(refresh["dest"])
     write_records(run_dir, args.task, args.arm, args.model, gold, answers)
     print(
         json.dumps(
@@ -323,6 +385,22 @@ def main() -> int:
         )
     )
     return 0
+
+
+def run_arm(args, prepared, run_dir, prompts, kind, reset, refresh):
+    if args.arm in DSGYM_ARMS:
+        answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit,
+                                functions=args.arm == "dsgym-functions", shared=args.arm.startswith("dsgym-shared"),
+                                compaction=COMPACTION.get(args.arm), reset=reset, refresh=refresh)
+        if args.arm.startswith("dsgym-shared"):
+            # Same extraction as the dataflow arm: the payload after the
+            # final-answer marker the shared answer contract asks for.
+            answers = [dict(a, answer=extract_answer(a.get("answer") or "")) for a in answers]
+    elif kind == "script":
+        answers = run_script_arm(prompts, run_dir, args.model, args.env_file, args.turn_timeout)
+    else:
+        answers = run_dataflow_arm(prompts, run_dir, args.arm, args.model, args.turn_timeout)
+    return answers
 
 
 if __name__ == "__main__":

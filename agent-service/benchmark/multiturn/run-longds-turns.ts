@@ -18,9 +18,10 @@
  * protocol. Prompts arrive already built by `benchmark/longds/official_protocol.py`
  * so that every arm, script or dataflow, is given byte-identical task text; this
  * runner only drives the agent and records what it cost. */
-import { mkdirSync, existsSync } from "node:fs";
+import { cpSync, mkdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { nativeTestSession } from "../e2e/native-test-session";
+import { getBackendConfig, login } from "../../src/api";
 import { runAgentTurn } from "../../src/api";
 import { checkedTurn } from "./checked-turn";
 
@@ -155,6 +156,25 @@ try {
   for (const [index, turn] of prompts.entries()) {
     const directory = `t${String(index + 1).padStart(2, "0")}`;
     mkdirSync(`${out}/${directory}`);
+    // The environment-reset condition (run_official.py LONGDS_RESET): before
+    // this turn every result the engine computed for the workflow is dropped
+    // (cached outputs and their stored documents); the workflow and the
+    // agent's context stay, as DSGym keeps its conversation.
+    // The data-refresh condition (run_official.py LONGDS_REFRESH): the corrected
+    // extract appears under the task's data directory as this turn begins.
+    if (Number(process.env.LONGDS_REFRESH_AT) === index + 1) {
+      cpSync(process.env.LONGDS_REFRESH_SRC!, process.env.LONGDS_REFRESH_DEST!, { recursive: true, errorOnExist: true });
+      await write(`${directory}/refresh.json`, { turn: index + 1, dest: process.env.LONGDS_REFRESH_DEST, at: new Date().toISOString() });
+    }
+    if (Number(process.env.LONGDS_RESET_AT) === index + 1) {
+      const token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
+      const cleared = await fetch(`${getBackendConfig().apiEndpoint}/api/executions/${session.workflowId}/cache/clear`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!cleared.ok) throw new Error(`Environment reset failed: HTTP ${cleared.status}`);
+      await write(`${directory}/reset.json`, { turn: index + 1, cleared: true, at: new Date().toISOString() });
+    }
     await write(`${directory}/prompt.json`, turn);
     const start = Date.now();
     const { answer, error, canContinue } = await checkedTurn(

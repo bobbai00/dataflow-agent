@@ -703,3 +703,71 @@ if the pilot opened a gap; it did not, so the sweep was not run. Scripts:
 logs/registry/budget-pilot-select.py, budget-pilot.sh, pilot-summary.py,
 budget-flips.py, pilot-cost.py, pilot-recall.py, pilot-tiers-summary.py,
 pilot-compaction-summary.py.
+
+## When the environment or the data changes under the analysis (2026-09-28)
+
+LongDS never breaks the state: the kernel never dies, the data never
+changes, and each change is restated as a new question. Two conditions test
+what "the analysis is a program" should buy, on the six pilot sessions, one
+trial, both arms reading the same notice at the start of the changed turn
+(N//2 + 1):
+
+- **Reset** (`LONGDS_RESET=mid`; upstream's own `--reset_env_times`): DSGym's
+  kernel restarts with its conversation kept; our engine's computed results
+  are cleared (`/api/executions/{wid}/cache/clear`) with the workflow kept.
+- **Refresh** (`LONGDS_REFRESH=mid`): a corrected extract appears under the
+  task's data directory (10% of each large table's records withdrawn, seeded)
+  and later turns are judged against the reference notebook replayed on it.
+  LongDS ships each task's reference solution as `task.ipynb`; replayed, it
+  reproduces 1,384 of 1,389 gold answers on 42 of 47 local notebooks, so the
+  new gold is exact. A post-refresh answer is *stale* when it is judged right
+  against the old gold but not the new one.
+
+| Turns from the change on | Ours: with / without | DSGym: with / without |
+| --- | --- | --- |
+| Reset, no window (105 turns) | 48 / 46 | 49 / 50 |
+| Reset, 32k window | 35 / 35 (87 turns; one cell lost to the crash) | summary 50 / 44; with kernel list 31 / 43 * |
+| Refresh, no window (90 turns, 5 sessions) | 37 / 41 | 42 / 44 |
+| Stale answers after the refresh (71 changed turns each) | 1 | 3 |
+
+\* Its acea session refused from turn 1 ("data not accessible", 0 of 38),
+before the reset; turns before the reset were also 43 against 58.
+
+No condition opens a gap. The turns before the change, identical in
+condition to the baseline, differ from it by +2 to +12 turns: one trial's
+noise is larger than any effect. DSGym recovers from a reset by re-running
+the code still in its conversation (no NameError followed the notice in any
+session), and from a refresh by reloading and recomputing; it answered from
+the old data on 3 of 71 changed turns. Our arm re-executes the graph (the
+reset turn took up to 199 s against 16 s) and moved its scans to the
+corrected files. When the agent is told what changed, a kernel agent adapts
+as well as a graph. What the graph would uniquely catch is an unannounced
+change (its sources are fingerprinted by size and modification time); that
+was not tested.
+
+### Why we lose turns whose inputs were right (40 cases read)
+
+On turns whose dependencies were right in both arms, the full run is 72%
+against DSGym's 77% (286 turns): 40 only DSGym got right, 25 only we did.
+The 40, read against gold, both answers, the judge and our code
+(logs/registry/analysis/clean-plan-classes.tsv):
+
+| Why ours failed | Turns | Plain pandas would have avoided it |
+| --- | --- | --- |
+| Another analysis mistake (filter, denominator, head(k) through a tie) | 10 | no |
+| Definition in force: computed from a nearby table (an answer view, a one-row report, turn 27's weights for turn 28's) | 10 | no (3 unclear) |
+| Value slip in a mapping (question-part codes one off, trailing spaces) | 6 | no |
+| Incomplete: `answer_from` composed a table and dropped a scalar or verbal part | 4 | yes (3) |
+| Presentation | 3 | yes (1) |
+| Precision, judge noise, operator semantics, expressiveness, other | 7 | yes (2) |
+
+Seven of 40 are the substrate's, and they are about composing the answer; in
+28 the failing step is pandas the model wrote inside a process() body, so
+pandas-native steps would not close the gap. The system-side levers are a
+lineage check at answer time (the answer's upstream against the definitions
+recent turns set, answer views and one-row reports) and answer coverage
+(every part of the question has a field).
+
+Operations note: the machine froze at 04:37 from memory exhaustion (19
+earlyoom kills) with 12-15 of our sessions beside another stack's KramaBench
+runs; later waves ran at 5 concurrent sessions.

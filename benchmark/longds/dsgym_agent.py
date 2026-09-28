@@ -32,6 +32,7 @@ Runs under `.dsgym-venv` (litellm); `run_official.py --arm dsgym` drives it.
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import types
@@ -63,6 +64,7 @@ CALLS: list[dict] = []
 TURN_STARTS: list[int] = []  # index into CALLS where each turn began
 CALLS_FILE: Path | None = None
 ENV = None  # the code environment, for the compaction's kernel inventory
+REFRESH = None  # (turn, corrected copy, destination) under --refresh-at
 COMPACTOR = None  # set by --context-budget
 
 # The budget's estimate, the same as the dataflow arm's (task-context.ts).
@@ -299,6 +301,9 @@ class TurnMarkingEnv(AllocatedCodeEnv):
 
     def reset_turns(self):
         TURN_STARTS.append(len(CALLS))
+        # The data-refresh condition: the corrected extract appears as this turn begins.
+        if REFRESH and len(TURN_STARTS) == REFRESH[0]:
+            shutil.copytree(REFRESH[1], REFRESH[2])
         super().reset_turns()
 
 
@@ -426,6 +431,13 @@ def main() -> int:
     ap.add_argument("--functions", action="store_true", help="separately labeled reusable-function control")
     ap.add_argument("--shared-protocol", action="store_true",
                     help="send the dataflow arm's task text (file inventory, session rules, answer contract)")
+    ap.add_argument("--reset-at", type=int, default=0,
+                    help="restart the kernel before this turn (upstream's reset_env_times), keeping the conversation")
+    ap.add_argument("--reset-notice", default="", help="text prepended to the reset turn's message")
+    ap.add_argument("--refresh-at", type=int, default=0, help="before this turn the corrected extract appears")
+    ap.add_argument("--refresh-src", default="", help="the corrected copy of the task's data directory")
+    ap.add_argument("--refresh-dest", default="", help="where the corrected files appear (under the data directory)")
+    ap.add_argument("--refresh-notice", default="", help="text prepended to the refresh turn's message")
     ap.add_argument("--context-budget", type=int, help="compact the conversation to fit this many tokens a call")
     ap.add_argument("--compaction", choices=["summary", "inventory"], default="summary",
                     help="summary: a running summary of earlier turns; inventory: plus the live kernel variables")
@@ -443,6 +455,14 @@ def main() -> int:
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())
     turns = build_turns(manifest, gold, args.turn_limit, functions=args.functions, shared=args.shared_protocol)
+    if args.reset_at and args.reset_notice:
+        message = turns[args.reset_at - 1]["prompt"][-1]
+        message["content"] = f"{args.reset_notice}\n\n{message['content']}"
+    if args.refresh_at:
+        global REFRESH
+        REFRESH = (args.refresh_at, Path(args.refresh_src), Path(args.refresh_dest))
+        message = turns[args.refresh_at - 1]["prompt"][-1]
+        message["content"] = f"{args.refresh_notice}\n\n{message['content']}"
     (args.out / "turns.json").write_text(json.dumps(turns, indent=2, ensure_ascii=False))
 
     agent = MultiTurnReActDSAgent(
@@ -457,7 +477,7 @@ def main() -> int:
     )
     bak = args.out / "bak"
     bak.mkdir(exist_ok=True)
-    result = agent.solve_task(turns, bak_path=str(bak), reset_env_times=0)
+    result = agent.solve_task(turns, bak_path=str(bak), reset_env_times=args.reset_at)
     (args.out / "traj.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
     (args.out / "calls.json").write_text(json.dumps({"calls": CALLS, "turn_starts": TURN_STARTS}, indent=1))
     if result.get("error") and not result.get("solutions"):
