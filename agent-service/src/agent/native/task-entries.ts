@@ -434,6 +434,49 @@ export function renderTaskEntry(entry: TaskEntry, compact = false, options: { si
   return `## Task ${entry.task}\n${entry.request}\nChanges:\n${changes}${tables}\nAnswer: ${entry.answer || "(none)"}\n  from: ${from}`;
 }
 
+/** Sizes of a shortened entry (a context budget): characters kept of the
+ * request, of each statement and of the answer. */
+const INDEX_REQUEST_CHARS = 600;
+const INDEX_STATEMENT_CHARS = 200;
+const INDEX_ANSWER_CHARS = 500;
+
+/** A completed task in a few lines, for a context budget: its request (the
+ * whole of it with `keepRequest`, which the first task gets, since it states
+ * the session's rules), each table it made with its statement, size, doc and
+ * flag, and its answer. Exact excerpts, not a summary; `recall` returns the
+ * full entry. */
+export function renderIndexTaskEntry(entry: TaskEntry, keepRequest = false): string {
+  const lines = [
+    `## Task ${entry.task} (shortened for the context budget; recall ${entry.task} for the full entry)`,
+    keepRequest ? entry.request : clip(entry.request, INDEX_REQUEST_CHARS),
+  ];
+  for (const change of entry.changes) {
+    if (change.status === "failed") continue;
+    const size = [
+      change.rows !== undefined ? `rows=${change.rows}` : "",
+      change.columns?.length ? `cols=${change.columns.length}` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    // The doc is repeated only when the shown part of the statement lacks it.
+    const statement = clip(change.statement, INDEX_STATEMENT_CHARS);
+    const doc = change.doc && !statement.includes(change.doc) ? `; doc: ${clip(change.doc, 160)}` : "";
+    lines.push(`${change.status} ${statement}${size ? `; ${size}` : ""}${doc}${change.flag ? `; ${change.flag}` : ""}`);
+  }
+  lines.push(`Answer: ${clip(entry.answer || "(none)", INDEX_ANSWER_CHARS)}`);
+  return lines.join("\n");
+}
+
+/** A completed task in one line: its question, the tables it made and its answer. */
+export function renderStubTaskEntry(entry: TaskEntry): string {
+  const question =
+    entry.request.split("\n").find(line => line.trim().startsWith("Question:")) ?? entry.request.split("\n")[0] ?? "";
+  const tables = entry.changes.filter(change => change.status !== "failed").map(change => change.id);
+  return `## Task ${entry.task} (recall ${entry.task}): ${clip(question.trim(), 200)} → tables ${
+    tables.slice(0, 6).join(", ") || "none"
+  }${tables.length > 6 ? ` (+${tables.length - 6})` : ""}; answer ${clip(entry.answer || "(none)", 160)}`;
+}
+
 /** Exact content with shared presentation, not a generated summary. Nothing
  * depends on a future task, so sealed entries stay a reusable cache prefix. */
 function renderCompactTaskEntry(entry: TaskEntry, signatures = false): string {

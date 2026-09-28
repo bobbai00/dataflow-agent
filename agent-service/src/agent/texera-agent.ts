@@ -1458,6 +1458,7 @@ export class TexeraAgent {
     nativeLeanContext?: boolean;
     nativeCompactCode?: boolean;
     nativeTaskMemoryChars?: number;
+    nativeContextBudgetTokens?: number;
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     dataflowReasoning?: boolean;
@@ -1520,6 +1521,7 @@ export class TexeraAgent {
       nativeTaskRestore: updates.nativeTaskRestore ?? this.settings.nativeTaskRestore,
       nativeAnalysisState: updates.nativeAnalysisState ?? this.settings.nativeAnalysisState,
       nativeTaskMemoryChars: updates.nativeTaskMemoryChars ?? this.settings.nativeTaskMemoryChars,
+      nativeContextBudgetTokens: updates.nativeContextBudgetTokens ?? this.settings.nativeContextBudgetTokens,
       nativeTaskEfficiency: updates.nativeTaskEfficiency ?? this.settings.nativeTaskEfficiency,
       nativeDefinitionRegistry: updates.nativeDefinitionRegistry ?? this.settings.nativeDefinitionRegistry,
       nativeDefinitionSignatures: updates.nativeDefinitionSignatures ?? this.settings.nativeDefinitionSignatures,
@@ -1646,6 +1648,8 @@ export class TexeraAgent {
     }
     if (updates.nativeTaskMemoryChars !== undefined)
       this.settings.nativeTaskMemoryChars = updates.nativeTaskMemoryChars;
+    if (updates.nativeContextBudgetTokens !== undefined)
+      this.settings.nativeContextBudgetTokens = updates.nativeContextBudgetTokens;
     if (updates.nativeTaskRestore !== undefined && updates.nativeTaskRestore !== this.settings.nativeTaskRestore) {
       this.settings.nativeTaskRestore = updates.nativeTaskRestore;
       promptNeedsRebuild = true;

@@ -80,6 +80,7 @@ export function validateNativeSettings(
     nativeLeanContext?: unknown;
     nativeCompactCode?: unknown;
     nativeTaskMemoryChars?: unknown;
+    nativeContextBudgetTokens?: unknown;
   } = {}
 ): void {
   validateEvidenceSettings(settings);
@@ -138,6 +139,14 @@ export function validateNativeSettings(
       settings.nativeTaskMemoryChars > 200000)
   )
     throw new NativeCatalogSettingsError("nativeTaskMemoryChars must be an integer from 4000 to 200000");
+  if (
+    settings.nativeContextBudgetTokens !== undefined &&
+    (typeof settings.nativeContextBudgetTokens !== "number" ||
+      !Number.isSafeInteger(settings.nativeContextBudgetTokens) ||
+      settings.nativeContextBudgetTokens < 8000 ||
+      settings.nativeContextBudgetTokens > 2000000)
+  )
+    throw new NativeCatalogSettingsError("nativeContextBudgetTokens must be an integer from 8000 to 2000000");
   // Cache boundaries and restore modify task history and do nothing without it,
   // so their defaults are harmless in either mode.
   for (const name of ["nativeTaskCache", "nativeTaskRestore"] as const) {

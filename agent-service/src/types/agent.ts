@@ -199,6 +199,9 @@ export interface AgentSettings {
   nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
+  /** Model-input budget per call, in estimated tokens: completed tasks are
+   *  shortened, then archived behind `recall`, to fit it (see task-context.ts). */
+  nativeContextBudgetTokens?: number;
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
@@ -699,6 +702,7 @@ export interface AgentSettingsApi {
   nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
+  nativeContextBudgetTokens?: number;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
@@ -822,6 +826,7 @@ export interface UpdateAgentSettingsRequest {
   nativeCompactCode?: boolean;
   /** Character budget for completed-task memory in analysis-state mode. */
   nativeTaskMemoryChars?: number;
+  nativeContextBudgetTokens?: number;
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;

@@ -19,7 +19,8 @@ import type { ContextAssembler, ContextAssemblerInput } from "../llm-drivers/typ
 import type { OperatorPredicate } from "../../types/workflow";
 import type { TaskHistory } from "./task-history";
 import { writtenInputs } from "./task-reference";
-import { renderLiveIndex, renderTaskEntry } from "./task-entries";
+import { renderIndexTaskEntry, renderLiveIndex, renderStubTaskEntry, renderTaskEntry } from "./task-entries";
+import type { TaskEntry } from "./task-entries";
 import { analysisMemory } from "./analysis-memory";
 import type { DefinitionRegistry } from "./definition-registry";
 
@@ -99,6 +100,93 @@ export function taskCatalogParts(
   };
 }
 
+/** Characters per token of the budget's estimate, measured on LongDS model
+ * inputs (3.0-3.8 for history of code, JSON and tables). */
+export const BUDGET_CHARS_PER_TOKEN = 3.3;
+/** Tokens of a call beyond its messages and system prompt: the tool schemas. */
+export const TOOL_SCHEMA_TOKENS = 2500;
+/** Share of the budget kept for the active task's own calls and observations. */
+export const ACTIVE_SHARE = 0.3;
+/** Share of the budget the definitions index may take. */
+export const INDEX_SHARE = 0.2;
+
+export function estimateTokens(value: unknown): number {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return Math.ceil(text.length / BUDGET_CHARS_PER_TOKEN);
+}
+
+/** Completed tasks within `allowance` tokens, in task order: every task starts
+ * as one line, then the newest are widened to shortened entries and then to
+ * their full entries while the allowance lasts; when even one line each does
+ * not fit, the oldest are archived behind `recall` (one line names them). The
+ * first task keeps its whole request whenever it is shown, since it states the
+ * session's rules. */
+export function budgetedEntryTexts(entries: TaskEntry[], full: string[], allowance: number): string[] {
+  const tiers = entries.map((entry, i) => [
+    i === 0 ? renderIndexTaskEntry(entry, true) : renderStubTaskEntry(entry),
+    i === 0 ? renderIndexTaskEntry(entry, true) : renderIndexTaskEntry(entry),
+    full[i],
+  ]);
+  const level = entries.map(() => 0);
+  const shown = entries.map(() => true);
+  const cost = (i: number) => (shown[i] ? estimateTokens(tiers[i][level[i]]) : 0);
+  let used = entries.reduce((sum, _, i) => sum + cost(i), 0);
+  // One line each does not fit: archive from the oldest, keeping the first task.
+  for (let i = 1; i < entries.length && used > allowance; i++) {
+    used -= cost(i);
+    shown[i] = false;
+  }
+  for (const target of [1, 2])
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (!shown[i] || level[i] >= target) continue;
+      const extra = estimateTokens(tiers[i][target]) - estimateTokens(tiers[i][level[i]]);
+      if (used + extra > allowance) continue;
+      level[i] = target;
+      used += extra;
+    }
+  const texts = entries.map((_, i) => (shown[i] ? tiers[i][level[i]] : undefined));
+  const archived = entries.filter((_, i) => !shown[i]).map(entry => entry.task);
+  const out = texts.filter((text): text is string => text !== undefined);
+  if (archived.length)
+    out.splice(
+      1,
+      0,
+      `## Tasks ${archived.join(", ")}: archived for the context budget; recall a task number for its request, changes and answer.`
+    );
+  return out;
+}
+
+/** The active task's messages within what the budget leaves: the oldest tool
+ * observations, all but the last two, are replaced by a note until the total
+ * fits. The calls themselves stay, so the model sees what it ran. */
+export function trimActiveMessages(messages: ModelMessage[], room: number): ModelMessage[] {
+  let total = estimateTokens(messages);
+  if (total <= room) return messages;
+  const out = messages.map(message => ({ ...message }));
+  const tools = out.map((message, i) => (message.role === "tool" ? i : -1)).filter(i => i >= 0);
+  for (const i of tools.slice(0, -2)) {
+    if (total <= room) break;
+    const before = estimateTokens(out[i]);
+    const content = Array.isArray(out[i].content) ? (out[i].content as any[]) : [];
+    out[i] = {
+      ...out[i],
+      content: content.map(part =>
+        part?.type === "tool-result"
+          ? {
+              ...part,
+              output: {
+                type: "text",
+                value: "(observation omitted to fit the context budget; observe the table again if you need it)",
+              },
+            }
+          : part
+      ),
+    } as ModelMessage;
+    total -= before - estimateTokens(out[i]);
+  }
+  return out;
+}
+
 /** Compose task memory with the configured synchronous or async assembler.
  * There is one driver, one prompt, one execution path and one observation
  * renderer. Switching context changes only what completed work is replayed.
@@ -118,6 +206,9 @@ export function withTaskCatalog(
 ): ContextAssembler {
   let frozen: { messageId: string; message: ModelMessage } | undefined;
   let analysisFrozen: { messageId: string; memory: ModelMessage[] } | undefined;
+  // With a context budget: the entries as fitted at the start of the task,
+  // kept for the whole task so its calls share a prompt prefix.
+  let budgeted: { messageId: string; texts: string[]; index: ModelMessage } | undefined;
   return input => {
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
@@ -193,16 +284,40 @@ export function withTaskCatalog(
         input.settings.nativeDefinitionRegistry === true &&
         input.settings.nativeDefinitionSignatures === true &&
         !!registry;
-      memory = [
-        ...entries.map(
-          (entry): ModelMessage => ({
+      const full = entries.map(entry => renderTaskEntry(entry, input.settings.nativeTaskEfficiency, { signatures }));
+      const budget = input.settings.nativeContextBudgetTokens;
+      if (budget) {
+        if (budgeted?.messageId !== current.messageId) {
+          const fixed = estimateTokens(input.settings.systemPrompt ?? "") + TOOL_SCHEMA_TOKENS;
+          const indexText = String(frozen.message.content);
+          const indexLimit = Math.floor(budget * INDEX_SHARE * BUDGET_CHARS_PER_TOKEN);
+          const index: ModelMessage = {
             role: "user",
-            content: renderTaskEntry(entry, input.settings.nativeTaskEfficiency, { signatures }),
-            providerOptions: { texera: { taskHistory: true } },
-          })
-        ),
-        frozen.message,
-      ];
+            content:
+              indexText.length <= indexLimit
+                ? indexText
+                : `${indexText.slice(0, indexLimit)}\n… (index shortened for the context budget; inspect a name for its definition)`,
+          };
+          const allowance = budget - fixed - estimateTokens(index.content) - Math.floor(budget * ACTIVE_SHARE);
+          budgeted = { messageId: current.messageId, texts: budgetedEntryTexts(entries, full, Math.max(0, allowance)), index };
+        }
+        memory = [
+          ...budgeted.texts.map(
+            (content): ModelMessage => ({ role: "user", content, providerOptions: { texera: { taskHistory: true } } })
+          ),
+          budgeted.index,
+        ];
+      } else
+        memory = [
+          ...full.map(
+            (content): ModelMessage => ({
+              role: "user",
+              content,
+              providerOptions: { texera: { taskHistory: true } },
+            })
+          ),
+          frozen.message,
+        ];
     } else {
       const parts = taskCatalogParts(input, undefined);
       if (frozen?.messageId !== current.messageId) frozen = { messageId: current.messageId, message: parts.catalog };
@@ -213,7 +328,11 @@ export function withTaskCatalog(
       visibleSteps: input.visibleSteps.filter(step => step.messageId === current.messageId),
       offBranchTurns: [],
     });
-    const order = (messages: ModelMessage[]) => [...memory, ...messages];
+    const budget = input.settings.nativeContextBudgetTokens;
+    const room = budget
+      ? budget - estimateTokens(input.settings.systemPrompt ?? "") - TOOL_SCHEMA_TOKENS - estimateTokens(memory)
+      : Infinity;
+    const order = (messages: ModelMessage[]) => [...memory, ...(budget ? trimActiveMessages(messages, room) : messages)];
     return active instanceof Promise ? active.then(order) : order(active);
   };
 }
