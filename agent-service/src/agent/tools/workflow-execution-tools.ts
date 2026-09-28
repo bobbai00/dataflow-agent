@@ -315,6 +315,26 @@ function buildLogicalPlanFromSubDAG(
   };
 }
 
+/** How long past the engine's own execution timeout the client keeps waiting:
+ * the engine answers a timed-out run itself ("Timeout after N seconds") after
+ * killing it, so the client deadline must come later. */
+const EXECUTION_REQUEST_MARGIN_MS = 60_000;
+
+/** Request options for an execution call. Bun's fetch drops any request older
+ * than 240-300 s on a periodic sweep unless `timeout: false` (measured: a
+ * never-answered request fails at 300 s with or without a longer signal, and
+ * at our deadline with `timeout: false`). That cut every execution longer
+ * than about four minutes short although the engine was given 10 minutes, and
+ * left the run executing in the engine. The wait is now bounded by the
+ * engine's timeout plus a margin, and by the caller's abort signal. */
+export function executionRequestLimits(
+  timeoutSeconds: number,
+  abortSignal?: AbortSignal
+): { signal: AbortSignal; timeout: false } {
+  const deadline = AbortSignal.timeout(timeoutSeconds * 1000 + EXECUTION_REQUEST_MARGIN_MS);
+  return { signal: abortSignal ? AbortSignal.any([abortSignal, deadline]) : deadline, timeout: false };
+}
+
 async function executeWorkflowHttp(
   config: ExecutionConfig,
   logicalPlan: LogicalPlan,
@@ -369,8 +389,8 @@ async function executeWorkflowHttp(
         Authorization: `Bearer ${config.userToken}`,
       },
       body: JSON.stringify(request),
-      signal: options.abortSignal,
-    });
+      ...executionRequestLimits(timeoutSeconds, options.abortSignal),
+    } as RequestInit);
 
     if (!response.ok) {
       const errorText = await response.text();
