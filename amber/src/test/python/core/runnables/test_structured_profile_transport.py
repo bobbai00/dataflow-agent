@@ -58,16 +58,16 @@ def test_opt_in_profile_survives_legacy_stats_replacement_and_accumulates_yields
     assert published(context)[0] == result
 
 
-def test_disabled_collection_keeps_existing_data_and_stats_identical():
+def test_a_native_table_gets_no_display_stats_and_a_plain_table_keeps_them():
+    # The agent renders a native table from its typed profile only; the display
+    # strings are a full pass per column that nothing reads for it.
     a, b = Context("a", InternalQueue()), Context("b", InternalQueue())
     disabled, plain = frame([1, None], False), frame([1, None], False)
     plain.attrs.clear()
     DataProcessor(a)._publish_column_stats(disabled)
     DataProcessor(b)._publish_column_stats(plain)
-    assert (
-        a.statistics_manager.get_statistics().result_statistics
-        == b.statistics_manager.get_statistics().result_statistics
-    )
+    assert a.statistics_manager.get_statistics().result_statistics == {}
+    assert "x" in b.statistics_manager.get_statistics().result_statistics
     assert published(a) == []
     pd.testing.assert_frame_equal(disabled, plain)
 
@@ -97,7 +97,10 @@ def test_profiler_failure_is_unavailable_metadata_not_a_data_execution_failure(m
     result = published(context)[0]
     assert result["status"] == "unavailable" and not result["coverage"]["complete"]
     assert "private input value" not in json.dumps(result)
-    assert "x" in context.statistics_manager.get_statistics().result_statistics
+    assert all(
+        key.startswith(PROFILE_PREFIX)
+        for key in context.statistics_manager.get_statistics().result_statistics
+    )
 
 
 def test_optional_collector_unavailable_does_not_break_data_or_disabled_path(monkeypatch):
@@ -119,4 +122,5 @@ def test_optional_collector_unavailable_does_not_break_data_or_disabled_path(mon
     assert attempts == []
     processor._publish_column_stats(frame([2], True))
     assert len(attempts) == 1
-    assert "x" in context.statistics_manager.get_statistics().result_statistics
+    # No collector, so no profile; a native table has no display stats either.
+    assert context.statistics_manager.get_statistics().result_statistics == {}

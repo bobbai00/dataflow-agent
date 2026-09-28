@@ -679,10 +679,15 @@ class DataProcessor(Runnable, Stoppable):
         """
         from core.models.table import deduplicate_columns
 
+        # A native operator's table carries its own typed profile
+        # (_publish_table_profile), and the agent renders only that: these
+        # display strings and table hints are never read for it, and they
+        # cost a full pass per column (about 110 s on an 8.6 M-row scan).
+        native = isinstance(df.attrs.get("native_v2"), dict)
         str_columns = [str(c) for c in df.columns]
         deduped_columns, _ = deduplicate_columns(str_columns)
         stats: Dict[str, str] = {}
-        for i, col_name in enumerate(deduped_columns):
+        for i, col_name in enumerate([] if native else deduped_columns):
             col = df.iloc[:, i]
             stats[col_name] = self._compute_column_stats(col)
         # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
@@ -699,7 +704,7 @@ class DataProcessor(Runnable, Stoppable):
         # key from schema/stats rendering and surfaces it only when the gated
         # `tableStructureHint` flag is on, so this is a no-op by default.
         try:
-            table_hints = self._detect_table_structure(df)
+            table_hints = [] if native else self._detect_table_structure(df)
             if table_hints:
                 stats["__table_hints__"] = " || ".join(table_hints)
         except Exception:
