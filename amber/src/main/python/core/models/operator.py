@@ -270,6 +270,9 @@ class TableOperator(TupleOperatorV2):
     be provided upon using.
     """
 
+    # Whether a port's buffered input is kept after on_finish builds its Table.
+    _keeps_input_after_finish = False
+
     def __init__(self):
         super().__init__()
         self._Operator__internal_is_source: bool = False
@@ -296,6 +299,12 @@ class TableOperator(TupleOperatorV2):
 
     def on_finish(self, port: int) -> Iterator[Optional[TableLike]]:
         table = self._buffered_table(port)
+        if not self._keeps_input_after_finish:
+            # The Table holds the rows now. Drop the buffered input so the
+            # operator does not run beside a second copy of it (1.3 GB of
+            # Arrow next to a 3 GB frame for an 8.6 M-row input).
+            self.__table_data.pop(port, None)
+            self.__arrow_data.pop(port, None)
         yield from self.process_table(table, port)
 
     def _buffered_table(self, port: int) -> Table:
@@ -408,6 +417,9 @@ class LoopStartOperator(TableOperator):
     not the reserved ``table``; see the ``_RESERVED_STATE_KEYS`` module comment
     for the ``table`` vs envelope-borne counter/id split.
     """
+
+    # produce_state_on_finish hands the buffered input table to the Loop End.
+    _keeps_input_after_finish = True
 
     @overrides.final
     def process_state(self, state: State, port: int) -> Optional[State]:

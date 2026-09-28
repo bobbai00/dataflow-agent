@@ -407,6 +407,9 @@ class DataProcessor(Runnable, Stoppable):
             self._maybe_apply_runtime_schema(output)
             whole = self._arrow_output(output)
             if whole is not None:
+                # The rows now live in `whole`: let the frame go before they
+                # are sent and written (2.9 GB for an 8.6 M-row scan).
+                output = None
                 self._switch_context()
                 self._context.tuple_processing_manager.current_output_tuple = whole
                 self._switch_context()

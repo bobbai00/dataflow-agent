@@ -97,3 +97,21 @@ def test_a_table_operator_buffers_batches_and_yields_the_same_table():
     (got,) = [t for t in columnar.on_finish(0) if t is not None]
     (want,) = [t for t in rows.on_finish(0) if t is not None]
     pandas.testing.assert_frame_equal(pandas.DataFrame(got), pandas.DataFrame(want))
+
+
+def test_a_table_operator_drops_its_buffered_input_once_the_table_is_built():
+    # The operator runs with the Table only, not beside a second copy of its
+    # input; a later port input starts from an empty buffer.
+    held = []
+
+    class Hold(TableOperator):
+        def process_table(self, table, port):
+            held.append(self._buffered_table(port))
+            yield table
+
+    operator = Hold()
+    operator._set_input_schema(0, SCHEMA)
+    operator._buffer_arrow(0, batch(ROWS))
+    (got,) = [t for t in operator.on_finish(0) if t is not None]
+    assert len(got) == len(ROWS)
+    assert len(held) == 1 and len(held[0]) == 0
