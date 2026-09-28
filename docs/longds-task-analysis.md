@@ -490,3 +490,30 @@ session setup because the web service's connection pool was exhausted by
 overlapping workflow saves (each a full rewrite of 0.2-3.3 MB, up to 115 s
 under 18 sessions). The failed cells were rerun at low load, and saves now
 run one at a time per session (1a0fc378c).
+
+### Full run of the build (one repetition)
+
+The build at 2be719a8f (the pandas semantics and answer precision, record
+numbers in previews, both engine latency changes, the answer contract, the
+custom-step evidence, and one workflow save at a time), 68 tasks, one
+repetition, the one-hour cap as the official score applies it:
+
+| Run (68 tasks, 2,225 turns) | Right | Accuracy | Task mean | Cost |
+| --- | --- | --- | --- | --- |
+| Dataflow, this build | 732 | 32.9% | 34.6% | $15.61 |
+| DSGym, our task text | 723 | 32.5% | 33.9% | $9.18 |
+| Dataflow v4c | 693 | 31.1% | 32.4% | $13.27 |
+| DSGym, upstream prompt | 688 | 30.9% | 32.6% | $8.76 |
+
+The best single run so far, at 1.7 times the cost of DSGym with our task
+text. Every turn was reached within the hour (v4c left 159 unreached; the
+engine latency work removed the cap as a cause). Against DSGym with our
+task text the build leads on 26 tasks, trails on 32 and ties on 10: the +9
+comes from a few large wins (WiDS task 2 +15, survey-2020 task 2 +15, Kiva
+task 1 +9, policing task 1 +9) against more and smaller losses (Netflix
+task 4, survey-2019 task 3, energy task 2 and water task 1, -9 each). By
+domain it leads on community, education, geoscience and social good and
+trails on business (13.6% against 20.2%) and sports (3 tasks). One
+repetition moves about +-55 turns, so the lead over DSGym is inside noise;
+the three-trial comparisons (+5.3 and +9.7 turns a trial on their task
+sets) are the firmer evidence for the changes.
