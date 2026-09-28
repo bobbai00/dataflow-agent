@@ -598,3 +598,108 @@ Of the 40 right-input misses, 17 are the model's own analysis on our side
 (no system mechanism) and 4 are judge noise. The other direction still
 holds: DSGym gets 220 turns we miss, and on the same clean turns it is the
 more accurate arm; without the two flooded sessions it leads by about 14.
+
+## Under a context window: the catalog against DSGym with compaction (2026-09-28)
+
+The catalog is a compression of the session's history. The question: with
+both arms held to the same per-call window, does a structured compression
+(entries, a definitions index, `recall` and `inspect` by name) lose less
+than an LLM summary? Both arms fit every call to a budget counted as the
+provider counts tokens (a 3.3 characters-a-token estimate, corrected by the
+previous call's reported input).
+
+- Ours (`react-lean2-budget`, 369101615): completed tasks are water-filled
+  into what the system prompt, the tool schemas, the definitions index (at
+  most a fifth of the budget) and a 30% reserve for the current task leave.
+  Every task first gets one line (question, tables, answer), then the newest
+  are widened to a shortened entry and to the whole entry; the oldest are
+  archived behind `recall` when one line each no longer fits. Task 1 keeps
+  its whole request (the session's rules). Chosen once per task, so a
+  task's calls share a prompt prefix.
+- DSGym (`dsgym-shared-cs`, 900915333): a summary buffer. Over the budget,
+  a call keeps the system prompt, the first request (file inventory,
+  session rules, answer contract), a running summary the same model writes
+  (names, grain, conventions, every answer; its calls are billed to DSGym),
+  the newest earlier turns verbatim, and the current request.
+  `dsgym-shared-ci` adds a listing of the live kernel's variables (shapes,
+  columns, function signatures), taken once per request.
+
+The windows are not equal in practice: our system prompt and tool schemas
+are about 13.3k tokens (a 50k-character prompt), DSGym's about 1.2k. At 32k
+we work in about 19k, DSGym in about 31k, and our arm cannot run below about
+24k.
+
+Sessions, by a rule fixed before any budgeted run (budget-pilot-select.py):
+30 or more turns, both arms at least a quarter right without a budget, one
+per dataset (survey years count as one), the six where DSGym's largest
+unbudgeted call was largest: WiDS task 1, survey-2021 task 2, LearnPlatform
+task 2, water-potability task 3, PASSNYC task 2, acea task 2. 209 turns; 91
+of them need state from 15 or more turns back. One trial at 32k:
+
+| Arm (6 sessions, 209 turns) | Right at 32k | Right without a budget | Cost at 32k | Cost without |
+| --- | --- | --- | --- | --- |
+| Dataflow, budgeted catalog | 99 | 104 | $1.61 | $1.22 |
+| DSGym, summary | 91 | 101 | $1.41 | $0.94 |
+| DSGym, summary and kernel inventory | 101 | 101 | $1.60 | $0.94 |
+
+The gap did not open. Without a budget we led by 3; at 32k we lead the
+summary-only DSGym by 8 and trail the inventory DSGym by 2. None of the
+changes is outside one trial's noise: between the budgeted and unbudgeted
+runs every arm flipped 23-33 turns each way (ours lost 31 and gained 26),
+and single sessions moved by 11 in both directions (acea: ours 26 to 15,
+DSGym 19 to 26; survey-2021: DSGym summary 25 to 14, ours 19 to 19).
+
+Split by whether a turn's needed state was still in full view when it began
+(ours: the dependency's entry whole; DSGym: the dependency's turn not yet
+summarized), the losses sit where the state was compressed, and about
+equally: ours -4 on 173 such turns, DSGym summary -6 on 100, DSGym inventory
+-5 on 111.
+
+What each arm did with the window:
+- Ours: no earlier task had its whole entry from turn 9-20 (median about
+  15); tasks were cut to one line from turn 10-20 and archived from turn 19-35
+  in four sessions. The definitions index grew to 13-27k characters (4-8k
+  tokens) and task 1's entry to 3-13k characters, together 5-12k tokens of
+  the 19k the window leaves us. The model fetched what was hidden: 93 task recalls and 496
+  definition inspections in 209 turns (none of either in the unbudgeted
+  run), and 56% more calls.
+- DSGym: compaction began at turn 7-27 (median about 15), keeping a median
+  of 3-9 recent turns verbatim. The summaries are good when they are long (exact
+  names, definitions, answers) but their length is the model's choice: on
+  survey-2021 and LearnPlatform the summary-only arm's summary shrank to
+  3.4k and 2.3k characters for 20 or more turns, and those two sessions
+  hold 16 of the 18 turns it lost across its four sessions that went down. The kernel listing is what brought the
+  inventory arm back to parity (+10 over summary-only, +6 on each of those
+  two sessions).
+
+The budget removed DSGym's cost advantage. Unbudgeted, DSGym's
+conversation is append-only and 98% of its input is served from the prompt
+cache; compacted, the prefix changes whenever the summary is extended
+(80-83% cached), and the summarizer's 81-88 calls cost $0.39-0.43. Ours went from
+94% to 86% cached. At 32k our arm and the inventory DSGym cost the same
+($1.61 against $1.60; 1.3 times without a budget).
+
+Why no gap: both arms keep their state outside the context. DSGym's kernel
+holds every variable it made and our workflow holds every table, so what
+the window drops is the description of the state, not the state. A summary
+that names the variables plus a live listing of the kernel recovers about
+what our index and `inspect` do. The window mostly costs us room, through
+our 13.3k-token prompt and an index that grows with every definition; and
+LongDS sessions (30-40 turns) are short enough that neither arm's
+compression runs out.
+
+Defects the pilot found, fixed after it (not in the numbers above): 22 of
+our 791 calls and 11 of DSGym's 1,167 went over 32k (at most 37.2k and
+39.0k): recall results of 22-24k characters were kept whole as the newest
+observations, and the estimate's correction lags a call. Both arms now keep
+a 3% margin and cut the newest outputs to their head and tail as the last
+resort. Still open for ours: the index repeats one line per definition (the
+acea index lists nine near-identical "Replaces every Flow_Rate value..."
+versions, nine correlation counts, nine forests), and task 1's shortened
+entry keeps every change.
+
+The plan ran the sweep (four budgets, three trials, about 15 sessions) only
+if the pilot opened a gap; it did not, so the sweep was not run. Scripts:
+logs/registry/budget-pilot-select.py, budget-pilot.sh, pilot-summary.py,
+budget-flips.py, pilot-cost.py, pilot-recall.py, pilot-tiers-summary.py,
+pilot-compaction-summary.py.
