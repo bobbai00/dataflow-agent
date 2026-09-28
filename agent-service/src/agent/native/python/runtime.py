@@ -586,6 +586,10 @@ def _nullable(series):
         return series.copy()
     if series.dtype == object and pd.api.types.infer_dtype(series, skipna=True) == "bytes":
         return series.copy()
+    if kind == "str":
+        # Text has no float round trip to avoid, and astype builds the same
+        # StringArray without first copying every cell into a Python list.
+        return series.astype(DTYPES[kind])
     return pd.Series(series.tolist(), index=series.index, name=series.name, dtype=DTYPES[kind])
 
 
@@ -860,6 +864,18 @@ def _join(spec, left, right, operations):
     return output
 
 
+def _aligned(frame):
+    """Whether _union of this frame alone returns it unchanged: rows labelled
+    0..n-1 and every column already in the nullable dtype _nullable gives it."""
+    if not frame.index.equals(pd.RangeIndex(len(frame))):
+        return False
+    for name in frame.columns:
+        kind = _logical_dtype(frame[name])
+        if kind is None or (kind != "datetime" and frame[name].dtype != pd.api.types.pandas_dtype(DTYPES[kind])):
+            return False
+    return True
+
+
 def _union(spec, frames, operations):
     mode = spec["properties"].get("schema", "strict")
     names = list(dict.fromkeys(name for frame in frames for name in frame.columns))
@@ -1012,16 +1028,31 @@ def _scan_encoding(path, requested):
 
 
 def _scan_infer(frame, all_text, infer_text=True):
-    output = frame.copy().reset_index(drop=True)
-    for name in output.columns:
-        series = output[name]
+    # The result is built column by column and shares every text column with
+    # the parsed frame. Copying the whole frame here and in _scan_header held
+    # three copies of every cell at once: a 1 GB CSV peaked near 8 GB and its
+    # worker was killed for memory.
+    frame = frame.set_axis(pd.RangeIndex(len(frame)), axis=0, copy=False)
+    text = pd.StringDtype()
+    output = {}
+    for name in frame.columns:
+        series = frame[name]
         if all_text:
-            output[name] = series.map(lambda value: None if _missing(value) else str(value)).astype("string")
+            output[name] = (
+                series
+                if series.dtype == text
+                else series.map(lambda value: None if _missing(value) else str(value)).astype("string")
+            )
             continue
         present = series.dropna()
-        if infer_text and len(present) and all(isinstance(value, str) for value in present):
-            lower = present.str.lower()
-            if lower.isin(["true", "false"]).all():
+        # infer_dtype checks "every present value is text" in C; a Python loop
+        # over the cells was most of a large scan (8.6 M rows: about 58 s).
+        if infer_text and len(present) and pd.api.types.infer_dtype(present, skipna=True) == "string":
+            # Stops at the first value that is not true/false and builds no
+            # lowercased column. (A `.str` accessor is cached on its Series in a
+            # reference cycle: each column's copy then lived until a full
+            # garbage collection, 1.4 GB across one 8.6 M-row scan.)
+            if all(value.lower() in ("true", "false") for value in present):
                 output[name] = series.map(lambda value: None if _missing(value) else value.lower() == "true").astype(
                     "boolean"
                 )
@@ -1039,8 +1070,8 @@ def _scan_infer(frame, all_text, infer_text=True):
                 continue
             except (ValueError, TypeError, OverflowError):
                 pass
-        output[name] = _nullable(series)
-    return output
+        output[name] = series if series.dtype == text else _nullable(series)
+    return pd.DataFrame(output, index=frame.index, copy=False)
 
 
 def _scan_header(spec, raw, source_meta):
@@ -1063,10 +1094,11 @@ def _scan_header(spec, raw, source_meta):
                 unresolved.append(value)
             names.append(str(value))
         source_meta["unresolvedHeaders"] = unresolved
-        output = raw.iloc[1:].copy().reset_index(drop=True)
+        # A view: _scan_infer relabels the rows and shares the text columns.
+        output = raw.iloc[1:]
     else:
         names = props.get("names", [f"column{i}" for i in range(len(raw.columns))])
-        output = raw.copy().reset_index(drop=True)
+        output = raw.iloc[:]
         # An entirely empty headerless file can still have a caller-declared schema.
         if not len(raw.columns) and raw.empty and "names" in props:
             output = pd.DataFrame(columns=names)
@@ -1392,7 +1424,12 @@ def _scan(spec, operations):
         source_meta["outputRows"] = len(part)
         sources.append(source_meta)
         parts.append(part)
-    result = _union({**spec, "properties": {"schema": "align"}}, parts, {})
+    # One source already in _union's dtypes is its own result; _union would
+    # copy every column of it (twice) for nothing.
+    if len(parts) == 1 and _aligned(parts[0]):
+        result = parts[0]
+    else:
+        result = _union({**spec, "properties": {"schema": "align"}}, parts, {})
     operations["scan"] = {
         "preview": bool(props.get("preview")),
         "complete": not bool(props.get("preview")),
