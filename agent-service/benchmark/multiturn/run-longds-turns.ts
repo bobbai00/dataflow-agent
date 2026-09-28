@@ -47,6 +47,9 @@ const ARMS = [
   // registry index are shapes of the catalog, so they go with it; answer_from,
   // registered operators, contract flags and the compact code stay.
   "react-lean2-full",
+  // react-lean2 under a model-input budget (LONGDS_CONTEXT_BUDGET tokens a
+  // call): completed tasks shortened, then archived behind recall, to fit.
+  "react-lean2-budget",
 ];
 if (!promptsPath || !outPath || !ARMS.includes(arm))
   throw new Error(`Usage: run-longds-turns.ts prompts.json output-dir ${ARMS.join("|")} [model]`);
@@ -55,7 +58,10 @@ if (existsSync(out)) throw new Error(`Refusing to overwrite ${out}`);
 mkdirSync(out, { recursive: true });
 const prompts: Array<{ turn_id: number; prompt: string }> = await Bun.file(promptsPath).json();
 
-const LEAN = arm === "react-lean" || arm === "react-lean2";
+const LEAN = arm === "react-lean" || arm === "react-lean2" || arm === "react-lean2-budget";
+const BUDGET = arm === "react-lean2-budget" ? Number(process.env.LONGDS_CONTEXT_BUDGET) : undefined;
+if (arm === "react-lean2-budget" && !(BUDGET && BUDGET >= 8000))
+  throw new Error("react-lean2-budget needs LONGDS_CONTEXT_BUDGET (tokens a call, at least 8000)");
 // The catalog-independent mechanisms of react-lean2, over the full session history.
 const FULL_LEAN = arm === "react-lean2-full";
 const settings = {
@@ -85,7 +91,8 @@ const settings = {
   nativeRegisteredOperators: LEAN || FULL_LEAN,
   nativeContractFlags: LEAN || FULL_LEAN,
   nativeLeanContext: LEAN,
-  nativeCompactCode: arm === "react-lean2" || FULL_LEAN,
+  nativeCompactCode: arm === "react-lean2" || arm === "react-lean2-budget" || FULL_LEAN,
+  ...(BUDGET ? { nativeContextBudgetTokens: BUDGET } : {}),
   nativeTaskMemoryChars: 24000,
   // Every dataflow call states its reasoning (stable's dataflowReasoning); entries group changes by call.
   dataflowReasoning: arm !== "react-full",

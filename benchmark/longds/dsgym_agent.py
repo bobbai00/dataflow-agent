@@ -62,6 +62,173 @@ RATES = {"input": 0.2, "cached": 0.02, "write": 0.25, "output": 1.2}
 CALLS: list[dict] = []
 TURN_STARTS: list[int] = []  # index into CALLS where each turn began
 CALLS_FILE: Path | None = None
+ENV = None  # the code environment, for the compaction's kernel inventory
+COMPACTOR = None  # set by --context-budget
+
+# The budget's estimate, the same as the dataflow arm's (task-context.ts).
+CHARS_PER_TOKEN = 3.3
+
+SUMMARY_SYSTEM = """You maintain the working memory of a long data-analysis session that runs in a
+persistent Python kernel. The conversation is being compacted to fit a limited
+context: after this, the analyst continues from your SUMMARY, the live kernel and
+the current request only. Update the SUMMARY with the NEW TURNS. Keep, with exact
+names and numbers:
+1. The data files loaded and the variable holding each (rows, the columns used).
+2. Every variable, DataFrame and function later questions may need: its exact name,
+   what it holds (filters applied, grain, key columns) and how it was computed.
+3. The definitions and conventions the requests set (rounding, scales, thresholds,
+   mappings, exclusions) and the turn that set each.
+4. Each completed question in one line with its final answer (the exact values).
+5. Open caveats.
+Do not invent anything the turns do not show. Write at most {words} words."""
+
+INVENTORY_CODE = r"""
+import types as _t, inspect as _i
+_rows = []
+for _n, _v in list(globals().items()):
+    if _n.startswith('_') or _n in ('In', 'Out', 'get_ipython', 'exit', 'quit') or isinstance(_v, (_t.ModuleType, type)):
+        continue
+    try:
+        if hasattr(_v, 'columns') and hasattr(_v, 'shape'):
+            _c = [str(c) for c in _v.columns]
+            _rows.append(f"{_n}: DataFrame {_v.shape[0]}x{_v.shape[1]} columns={_c[:12]}" + (f" (+{len(_c) - 12})" if len(_c) > 12 else ""))
+        elif hasattr(_v, 'shape') and hasattr(_v, 'dtype'):
+            _rows.append(f"{_n}: {type(_v).__name__} shape={_v.shape} dtype={_v.dtype}")
+        elif callable(_v):
+            _d = (_i.getdoc(_v) or '').split('
+')[0][:80]
+            _rows.append(f"{_n}{_i.signature(_v)}: function {_d}")
+        elif isinstance(_v, (bool, int, float, str)):
+            _rows.append(f"{_n} = {repr(_v)[:80]}")
+        elif isinstance(_v, (list, tuple, set, dict)):
+            _rows.append(f"{_n}: {type(_v).__name__} len={len(_v)} {repr(_v)[:100]}")
+    except Exception:
+        pass
+print('
+'.join(_rows[:150]))
+"""
+
+
+def estimate_tokens(messages) -> int:
+    return int(sum(len(m["content"] if isinstance(m.get("content"), str) else json.dumps(m.get("content"))) for m in messages)
+               / CHARS_PER_TOKEN)
+
+
+def is_turn_start(message) -> bool:
+    content = message.get("content")
+    return (message.get("role") == "user" and isinstance(content, str)
+            and "Question:" in content and "<information>" not in content)
+
+
+class Compactor:
+    """Fits every model call into a token budget. Under it, the call is sent
+    as is. Over it, the call becomes: the system prompt, a SUMMARY of every
+    turn before the current one (written by the same model, extended by one
+    call per new turn), the kernel inventory in the inventory mode, and the
+    current turn verbatim. A single output above a quarter of the budget is
+    clipped to its head and tail; within the current turn, older observations
+    give way when the turn alone exceeds what is left."""
+
+    def __init__(self, budget: int, mode: str, executor_url: str, log: Path):
+        self.budget = budget
+        self.mode = mode
+        self.executor_url = executor_url
+        self.log = log
+        self.summary = ""
+        self.upto = 0  # turns covered by the summary
+        self.message_cap = int(budget * CHARS_PER_TOKEN / 4)
+        self.summarizing = False
+
+    def clip(self, message):
+        content = message.get("content")
+        if isinstance(content, str) and len(content) > self.message_cap:
+            head, tail = content[: self.message_cap * 2 // 3], content[-self.message_cap // 3:]
+            return {**message, "content": f"{head}\n... ({len(content) - len(head) - len(tail)} characters omitted to fit the context budget) ...\n{tail}"}
+        return message
+
+    def inventory(self) -> str:
+        import urllib.request
+
+        container = getattr(getattr(ENV, "tool_group", None), "allocated_container", None)
+        if container is None:
+            return ""
+        request = urllib.request.Request(
+            f"{self.executor_url}/session/{container}/execute",
+            data=json.dumps({"code": INVENTORY_CODE}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            outputs = json.loads(urllib.request.urlopen(request, timeout=60).read()).get("outputs")
+        except Exception as error:  # the inventory is optional; the summary stands alone
+            return f"(kernel inventory unavailable: {error})"
+        text = outputs if isinstance(outputs, str) else json.dumps(outputs)
+        return text[:6000]
+
+    def transcript(self, turn, limit: int) -> str:
+        """The turn as text within `limit` characters: each message clipped,
+        tighter until the whole fits, then cut to its head and tail."""
+        texts = [(m.get("role"), m.get("content") if isinstance(m.get("content"), str) else json.dumps(m.get("content")))
+                 for m in turn]
+        for cap in (2000, 1000, 500, 250):
+            text = "\n".join(f"[{role}] {content[:cap]}" for role, content in texts)
+            if len(text) <= limit:
+                return text
+        return text[: limit * 2 // 3] + "\n...\n" + text[-limit // 3:]
+
+    def extend_summary(self, turns, call, kwargs):
+        """Folds the turns into the summary, as many turns a call as fit the
+        budget beside the summary so far."""
+        words = max(300, min(3000, int(self.budget * 0.2 * 0.75)))
+        room = int(self.budget * 0.6 * CHARS_PER_TOKEN)
+        chunks, chunk, size = [], [], 0
+        for turn in turns:
+            text = self.transcript(turn, room)
+            if chunk and size + len(text) > room:
+                chunks.append(chunk)
+                chunk, size = [], 0
+            chunk.append(text)
+            size += len(text)
+        chunks.append(chunk)
+        request = dict(kwargs)
+        request.pop("stop", None)
+        self.summarizing = True
+        try:
+            for chunk in chunks:
+                request["messages"] = [
+                    {"role": "system", "content": SUMMARY_SYSTEM.format(words=words)},
+                    {"role": "user", "content": f"SUMMARY SO FAR:\n{self.summary or '(empty)'}\n\nNEW TURNS:\n" + "\n\n".join(chunk)},
+                ]
+                response = call(**request)
+                self.summary = (response.choices[0].message.content or "").strip()[: int(self.budget * 0.25 * CHARS_PER_TOKEN)]
+        finally:
+            self.summarizing = False
+
+    def compact(self, messages, call, kwargs):
+        if self.summarizing or estimate_tokens(messages) <= self.budget:
+            return messages
+        system = [m for m in messages[:1] if m.get("role") == "system"]
+        rest = messages[len(system):]
+        starts = [i for i, m in enumerate(rest) if is_turn_start(m)] or [0]
+        turns = [rest[a:b] for a, b in zip(starts, starts[1:] + [len(rest)])]
+        older, current = turns[:-1], [self.clip(m) for m in turns[-1]]
+        if len(older) > self.upto:
+            self.extend_summary(older[self.upto:], call, kwargs)
+            self.upto = len(older)
+        memory = f"SUMMARY of turns 1-{self.upto} (the earlier conversation, compacted to fit the context budget):\n{self.summary}"
+        if self.mode == "inventory":
+            memory += f"\n\nKERNEL VARIABLES (live, from the kernel now):\n{self.inventory()}"
+        head = system + [{"role": "user", "content": memory}]
+        room = self.budget - estimate_tokens(head)
+        # Within the current turn, older observations give way first.
+        observations = [i for i, m in enumerate(current) if m.get("role") == "user" and "<information>" in str(m.get("content"))]
+        for i in observations[:-2]:
+            if estimate_tokens(current) <= room:
+                break
+            current[i] = {**current[i], "content": "<information>(output omitted to fit the context budget)</information>"}
+        compacted = head + current
+        with self.log.open("a") as stream:
+            stream.write(json.dumps({"turn_index": max(0, len(TURN_STARTS) - 1), "before": estimate_tokens(messages),
+                                     "after": estimate_tokens(compacted), "summarized_turns": self.upto,
+                                     "summary_chars": len(self.summary)}) + "\n")
+        return compacted
 
 
 class TurnMarkingEnv(AllocatedCodeEnv):
@@ -69,6 +236,8 @@ class TurnMarkingEnv(AllocatedCodeEnv):
     where one turn's model calls end and the next one's begin."""
 
     def init(self, prompt, **extras):
+        global ENV
+        ENV = self
         result = super().init(prompt, **extras)
         # Upstream logs allocation errors but still reports initialized=True.
         # A benchmark without an executable kernel is a setup failure.
@@ -88,6 +257,8 @@ def install_usage_capture(provider: str) -> None:
         # The proxy's model names carry no provider prefix; say which API shape
         # they speak so litellm does not have to guess.
         kwargs.setdefault("custom_llm_provider", provider)
+        if COMPACTOR is not None and "messages" in kwargs:
+            kwargs["messages"] = COMPACTOR.compact(kwargs["messages"], completion, kwargs)
         started = time.time()
         response = original(*args, **kwargs)
         usage = getattr(response, "usage", None)
@@ -101,6 +272,7 @@ def install_usage_capture(provider: str) -> None:
                 "cache_write_tokens": getattr(details, "cache_write_tokens", 0) or 0,
                 "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                 "reasoning_tokens": getattr(completion_details, "reasoning_tokens", 0) or 0,
+                **({"summary": True} if COMPACTOR is not None and COMPACTOR.summarizing else {}),
             }
         )
         if CALLS_FILE is not None:
@@ -173,7 +345,8 @@ def stats_for(turn_index: int, elapsed: float) -> dict:
         "cached_tokens": cached,
         "cache_write_tokens": written,
         "reasoning_tokens": total("reasoning_tokens"),
-        "llm_calls": len(calls),
+        "llm_calls": sum(1 for c in calls if not c.get("summary")),
+        "summary_calls": sum(1 for c in calls if c.get("summary")),
         "cost_usd": (
             (input_tokens - cached - written) * RATES["input"]
             + cached * RATES["cached"]
@@ -199,6 +372,9 @@ def main() -> int:
     ap.add_argument("--functions", action="store_true", help="separately labeled reusable-function control")
     ap.add_argument("--shared-protocol", action="store_true",
                     help="send the dataflow arm's task text (file inventory, session rules, answer contract)")
+    ap.add_argument("--context-budget", type=int, help="compact the conversation to fit this many tokens a call")
+    ap.add_argument("--compaction", choices=["summary", "inventory"], default="summary",
+                    help="summary: a running summary of earlier turns; inventory: plus the live kernel variables")
     args = ap.parse_args()
 
     api_key = os.environ[args.api_key_env]
@@ -206,6 +382,9 @@ def main() -> int:
     global CALLS_FILE
     CALLS_FILE = args.out / "calls.jsonl"
     install_usage_capture("openai")
+    if args.context_budget:
+        global COMPACTOR
+        COMPACTOR = Compactor(args.context_budget, args.compaction, args.executor_url, args.out / "compactions.jsonl")
     agent_module.AllocatedCodeEnv = TurnMarkingEnv
     manifest = json.loads(args.manifest.read_text())
     gold = json.loads(args.gold.read_text())

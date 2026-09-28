@@ -51,10 +51,14 @@ from official_protocol import build_prompts, extract_answer, selftest, write_rec
 
 WORKTREE = Path(__file__).resolve().parents[2]
 SCRIPT_ARMS = {"code"}
-DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared"}
+DSGYM_ARMS = {"dsgym", "dsgym-functions", "dsgym-shared", "dsgym-shared-cs", "dsgym-shared-ci"}
+# The context-budget arms: DSGym with our task text and compaction (a running
+# summary; plus the live kernel inventory), and the dataflow arm's budgeted
+# catalog, all under the budget in LONGDS_CONTEXT_BUDGET (tokens a call).
+COMPACTION = {"dsgym-shared-cs": "summary", "dsgym-shared-ci": "inventory"}
 DATAFLOW_ARMS = {
     "react-full", "react-catalog", "react-entries", "react-restore", "react-analysis", "react-efficient",
-    "react-registry", "react-registry-sig", "react-lean", "react-lean2", "react-lean2-full",
+    "react-registry", "react-registry-sig", "react-lean", "react-lean2", "react-lean2-full", "react-lean2-budget",
 }
 HERE = Path(__file__).resolve().parent
 DSGYM_PYTHON = HERE / ".dsgym-venv/bin/python"  # litellm; see dsgym_agent.py
@@ -134,7 +138,7 @@ def run_script_arm(prompts, out_dir, model, env_file, turn_timeout):
     return answers
 
 
-def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False, shared=False):
+def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=False, shared=False, compaction=None):
     """The paper's own agent: DSGym's MultiTurnReActDSAgent, SYSTEM_PROMPT and
     <python>/<answer> protocol, unchanged (dsgym_agent.py), over a local
     persistent Jupyter kernel that speaks its executor manager's HTTP contract
@@ -179,6 +183,8 @@ def run_dsgym_arm(prepared, out_dir, model, env_file, turn_limit, *, functions=F
                 command += ["--functions"]
             if shared:
                 command += ["--shared-protocol"]
+            if compaction:
+                command += ["--context-budget", os.environ["LONGDS_CONTEXT_BUDGET"], "--compaction", compaction]
             subprocess.run(command, cwd=WORKTREE, env=os.environ, stdout=log, stderr=subprocess.STDOUT, check=True)
         finally:
             executor.terminate()
@@ -288,8 +294,9 @@ def main() -> int:
     started = time.time()
     if args.arm in DSGYM_ARMS:
         answers = run_dsgym_arm(prepared, run_dir, args.model, args.env_file, args.turn_limit,
-                                functions=args.arm == "dsgym-functions", shared=args.arm == "dsgym-shared")
-        if args.arm == "dsgym-shared":
+                                functions=args.arm == "dsgym-functions", shared=args.arm.startswith("dsgym-shared"),
+                                compaction=COMPACTION.get(args.arm))
+        if args.arm.startswith("dsgym-shared"):
             # Same extraction as the dataflow arm: the payload after the
             # final-answer marker the shared answer contract asks for.
             answers = [dict(a, answer=extract_answer(a.get("answer") or "")) for a in answers]
