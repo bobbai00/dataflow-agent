@@ -2791,9 +2791,13 @@ export class TexeraAgent {
     // fires `onResult` for every operator that ran on the backend — including
     // ones reporting errors — so the snapshot at HEAD ends up consistent with
     // what the backend actually produced.
-    // Which targets came back with a result — anything missing after a failed
-    // execution gets an explicit error entry below.
+    // Which targets came back with an outcome — anything else after a failed
+    // execution gets an explicit error entry below. An entry the engine never
+    // finished (Uninitialized or Running, no error: its worker died) is not an
+    // outcome, or the run's failure never reached the model.
     const produced = new Set<string>();
+    const finished = (info: OperatorInfo) =>
+      !!info.error || info.state === "Completed" || info.state === "CompletedFromCache";
     let failure: string | undefined;
     try {
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
@@ -2801,7 +2805,7 @@ export class TexeraAgent {
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
           if (!stillOwned()) return;
-          produced.add(opId);
+          if (finished(operatorInfo)) produced.add(opId);
           this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });
@@ -2823,7 +2827,7 @@ export class TexeraAgent {
       for (const opId of targets) {
         if (produced.has(opId)) continue;
         const existing = this.snapshotStorage.getOperatorResult(owningStepId!, opId);
-        if (existing && !existing.error) continue; // keep a real earlier result
+        if (existing && !existing.error && finished(existing)) continue; // keep a real earlier result
         this.snapshotStorage.setOperatorResult(owningStepId!, opId, {
           operatorId: opId,
           state: "ExecutionFailed",
