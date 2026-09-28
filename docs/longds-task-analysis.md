@@ -517,3 +517,84 @@ trails on business (13.6% against 20.2%) and sports (3 tasks). One
 repetition moves about +-55 turns, so the lead over DSGym is inside noise;
 the three-trial comparisons (+5.3 and +9.7 turns a trial on their task
 sets) are the firmer evidence for the changes.
+
+### Why we are right where DSGym is wrong (the full run, both traces read)
+
+The full run against DSGym with our task text: 229 turns only we got right,
+220 only DSGym did. Our 229, by how DSGym failed, with every DSGym root
+behind a cascade and every turn it missed with right inputs read in both
+traces (logs/registry/analysis/win-roots-classes.tsv, win-clean-classes.tsv):
+
+| How DSGym failed | Turns |
+| --- | --- |
+| Its conversation was destroyed by a printed output flood; the session then ran out the hour (2 tasks) | 23 |
+| It ran no code on the turn (declared the data inaccessible, or answered without computing) | 42 |
+| Downstream of a turn where it ran no code (13 roots: 10 refusals, 3 fabricated answers) | 58 |
+| Downstream of a root it computed wrong (23 roots) | 66 |
+| It computed with right inputs and was wrong | 40 |
+
+The floods: survey-2020 task 2 printed an 11.4 MB output at turn 8 ("Invalid
+messages[65].content: string too long ... 11448564") and policing task 1 a
+5.5 MB one (1,540,165 tokens against a 922,000 limit); every later call
+failed until the hour ran out (model time 102 s and 125 s of 3,600). Our
+observations are selected and bounded (2,000 characters an operator
+result), so a flood cannot reach the model.
+
+The refusals come first in a session: acea task 2 t1 ("the execution
+results needed ... are not available in the current execution context"),
+PASSNYC task 2 t1 ("I'm unable to access the supplied data files"), WiDS
+task 2 t1, Kiva task 1 t1, survey-2018 task 2 t1-t3. Where DSGym then built
+its own state later, it often built it differently and never checked it:
+PASSNYC task 2 never built the 535-row benchmark table ("Complete benchmark
+table variable exists: False" at t29) and answered from a 1,280-row merge;
+acea task 2 parsed dd/mm dates without dayfirst (2,945 of 8,154 rows with the
+wrong month). Our first turn is always a file inventory, raw previews and a
+profiled scan: our t1 preview showed '05/03/1998' and every later turn
+parsed with dayfirst.
+
+A wrong answer is not wrong state. In 25 of the cascade wins our own root
+answer was wrong only in how it was reported while the tables later turns
+use were right (WiDS task 2 t1: every denominator right, one table shape
+wrong; Kiva task 1 t1: all five early-pressure values exact, reported as
+percentile components; fraud task 1 t4). In 12 more we were wrong at the
+root and later rebuilt through the lineage with the right definition while
+DSGym kept its stale variable: WUR task 2, where both first read '33 : 67'
+as a quotient; at t5 we recomputed the Mahalanobis distance from the filled
+table with the female share (721 kept, 11 outliers, as gold) and DSGym
+reused its quotient-based distance and re-parsed only the threshold (718,
+14), which fed its t6-t21.
+
+The script-state failures, where DSGym's kernel held the right state and it
+did not use it, or used a variable whose meaning had changed (10 of the 40
+right-input misses, and roots behind 20 more wins):
+- It retyped earlier results from its printed output instead of reading
+  the variables: Netflix task 1 t3 retyped the t2 slate in display order
+  (ranks 7/8 for 6/7); BI task 2 t19 typed 4-decimal correlations back in
+  although the unrounded dict was in the kernel (0.0350 for 0.0351); acea
+  task 1 t33 and t34 hard-coded rounded values and copied MAE for RMSE;
+  GitHub t10 hard-coded the three languages it had printed while its frame
+  held all ten.
+- It reused a variable whose scope had changed: LearnPlatform task 1 t3
+  reused phase_weekly, built at t2 for Virtual Classroom products only, as
+  all products; PASSNYC task 2 t18 applied a cut computed over another
+  pool; survey-2018 task 3 t2 dropped the question-label row a second time
+  and lost a real respondent.
+- It froze a wrong definition in a helper and reused it: survey-2018 task
+  3's bias-corrected Cramer's V, defined at t1, missed every later V
+  question (6 wins).
+Our tables are kept whole and at full precision, with a doc and lineage,
+and the answers read them: the same turns reused the kept 10-row table, the
+unrounded values, the pool built at t3.
+
+Reading, not reasoning, decided others: pandas 2 reads the literal survey
+answer 'None' as missing, which DSGym's read_csv did (survey-2021 task 2
+t13, t14 and survey-2022 task 2 t7 reported 0.00 where gold has 27-58%);
+our scan keeps it, as the pandas the gold was computed with did. DSGym also
+guessed column names that a guard skipped silently (energy task 3: 670 rows
+for 3,597, then 0 of 34) and filtered on a guessed question text (survey-2018
+task 1: 23,860 for 23,859), where our previews showed the real names.
+
+Of the 40 right-input misses, 17 are the model's own analysis on our side
+(no system mechanism) and 4 are judge noise. The other direction still
+holds: DSGym gets 220 turns we miss, and on the same clean turns it is the
+more accurate arm; without the two flooded sessions it leads by about 14.
