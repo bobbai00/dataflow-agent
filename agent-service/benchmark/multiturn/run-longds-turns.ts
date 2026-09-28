@@ -114,6 +114,10 @@ const settings = {
 };
 const session = await nativeTestSession(settings, model);
 const actualSettings = await session.settings();
+if (BUDGET && actualSettings.nativeContextBudgetTokens !== BUDGET) {
+  await session.close();
+  throw new Error(`Agent did not apply nativeContextBudgetTokens: expected ${BUDGET}, got ${actualSettings.nativeContextBudgetTokens}`);
+}
 for (const key of [
   "nativeTaskEfficiency",
   "nativeAnalysisState",

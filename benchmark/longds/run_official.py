@@ -275,7 +275,11 @@ def main() -> int:
                 "runtime": runtime_provenance(),
                 "manifest_sha256": hashlib.sha256((prepared / "manifest.json").read_bytes()).hexdigest(),
                 "functions_guidance": args.arm == "dsgym-functions",
-                "shared_task_text": args.arm == "dsgym-shared",
+                "shared_task_text": args.arm.startswith("dsgym-shared"),
+                # The budget arms: tokens a model call may take, and how each fits it.
+                **({"context_budget_tokens": int(os.environ["LONGDS_CONTEXT_BUDGET"]),
+                    "context_fit": COMPACTION.get(args.arm, "budgeted catalog")}
+                   if args.arm in COMPACTION or args.arm == "react-lean2-budget" else {}),
                 "execution_isolation": (
                     "bubblewrap: raw task data read-only; private persistent kernel scratch; IPC; no network"
                     if args.arm in DSGYM_ARMS else os.environ.get("LONGDS_NATIVE_ISOLATION", "not recorded")

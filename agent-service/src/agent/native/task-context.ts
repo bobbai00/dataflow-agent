@@ -209,10 +209,22 @@ export function withTaskCatalog(
   // With a context budget: the entries as fitted at the start of the task,
   // kept for the whole task so its calls share a prompt prefix.
   let budgeted: { messageId: string; texts: string[]; index: ModelMessage } | undefined;
+  // The budget is on the provider's count: each call's estimate is kept under
+  // the step it answered, and the provider's input count for the latest call
+  // over that estimate converts the budget into the estimate's units.
+  const sent = new Map<string, number>();
+  let scale = 1;
   return input => {
     if (!input.settings.nativeTaskContext) return assemble(input);
     const current = input.visibleSteps.findLast(step => step.role === "user" && step.isBegin);
     if (!current) return assemble(input);
+    const budget = input.settings.nativeContextBudgetTokens;
+    if (budget) {
+      const last = input.visibleSteps.findLast(step => step.role === "agent" && step.usage?.inputTokens);
+      const estimate = last?.parentId ? sent.get(last.parentId) : undefined;
+      if (last?.usage?.inputTokens && estimate) scale = Math.min(1.5, Math.max(0.5, last.usage.inputTokens / estimate));
+    }
+    const units = budget ? Math.floor(budget / scale) : 0;
     const entries = input.settings.nativeTaskHistory && history ? history.entries() : undefined;
     let memory: ModelMessage[];
     if (entries && input.settings.nativeAnalysisState && !input.settings.nativeTaskEfficiency) {
@@ -285,12 +297,11 @@ export function withTaskCatalog(
         input.settings.nativeDefinitionSignatures === true &&
         !!registry;
       const full = entries.map(entry => renderTaskEntry(entry, input.settings.nativeTaskEfficiency, { signatures }));
-      const budget = input.settings.nativeContextBudgetTokens;
       if (budget) {
         if (budgeted?.messageId !== current.messageId) {
           const fixed = estimateTokens(input.settings.systemPrompt ?? "") + TOOL_SCHEMA_TOKENS;
           const indexText = String(frozen.message.content);
-          const indexLimit = Math.floor(budget * INDEX_SHARE * BUDGET_CHARS_PER_TOKEN);
+          const indexLimit = Math.floor(units * INDEX_SHARE * BUDGET_CHARS_PER_TOKEN);
           const index: ModelMessage = {
             role: "user",
             content:
@@ -298,7 +309,7 @@ export function withTaskCatalog(
                 ? indexText
                 : `${indexText.slice(0, indexLimit)}\n… (index shortened for the context budget; inspect a name for its definition)`,
           };
-          const allowance = budget - fixed - estimateTokens(index.content) - Math.floor(budget * ACTIVE_SHARE);
+          const allowance = units - fixed - estimateTokens(index.content) - Math.floor(units * ACTIVE_SHARE);
           budgeted = { messageId: current.messageId, texts: budgetedEntryTexts(entries, full, Math.max(0, allowance)), index };
         }
         memory = [
@@ -328,11 +339,15 @@ export function withTaskCatalog(
       visibleSteps: input.visibleSteps.filter(step => step.messageId === current.messageId),
       offBranchTurns: [],
     });
-    const budget = input.settings.nativeContextBudgetTokens;
-    const room = budget
-      ? budget - estimateTokens(input.settings.systemPrompt ?? "") - TOOL_SCHEMA_TOKENS - estimateTokens(memory)
-      : Infinity;
-    const order = (messages: ModelMessage[]) => [...memory, ...(budget ? trimActiveMessages(messages, room) : messages)];
+    const fixed = estimateTokens(input.settings.systemPrompt ?? "") + TOOL_SCHEMA_TOKENS;
+    const room = budget ? units - fixed - estimateTokens(memory) : Infinity;
+    const order = (messages: ModelMessage[]) => {
+      if (!budget) return [...memory, ...messages];
+      const call = [...memory, ...trimActiveMessages(messages, room)];
+      const head = input.visibleSteps.at(-1)?.id;
+      if (head) sent.set(head, fixed + estimateTokens(call));
+      return call;
+    };
     return active instanceof Promise ? active.then(order) : order(active);
   };
 }
