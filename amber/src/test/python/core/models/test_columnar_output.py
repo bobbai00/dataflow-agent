@@ -158,18 +158,48 @@ def test_rows_split_across_receivers_or_waiting_in_a_batch_keep_the_per_row_path
     assert not waiting.accepts_arrow()
 
 
-def test_the_writer_appends_the_serde_files_after_the_buffered_rows():
+def writer_with(buffer_size, commit_bytes):
     iceberg = amber_schema_to_iceberg_schema(SCHEMA)
     writer = IcebergTableWriter.__new__(IcebergTableWriter)
     writer.table_schema = iceberg
     writer.serde = amber_tuples_to_arrow_table
     writer.buffer = []
-    writer.buffer_size = 2
+    writer.buffer_size = buffer_size
+    writer.commit_bytes = commit_bytes
+    writer.pending = []
+    writer.pending_bytes = 0
     writer.table = MagicMock()
+    return writer, iceberg
+
+
+def committed(writer):
+    return [call.args[0] for call in writer.table.append.call_args_list]
+
+
+def test_the_writer_commits_buffered_and_arrow_rows_together_in_order():
+    writer, iceberg = writer_with(buffer_size=2, commit_bytes=1 << 30)
     tuples, _ = per_row(frame(), SCHEMA)
     writer.put_one(tuples[0])
     writer.put_arrow(frame_to_arrow(frame(), SCHEMA))
-    files = [call.args[0] for call in writer.table.append.call_args_list]
+    assert committed(writer) == []  # nothing reaches the catalog before the cap or close
+    writer.close()
+    files = committed(writer)
+    assert [f.num_rows for f in files] == [4]
+    expected = pa.concat_tables([amber_tuples_to_arrow_table(iceberg, tuples[:1]), amber_tuples_to_arrow_table(iceberg, tuples)])
+    assert files[0].equals(expected, check_metadata=True)
+
+
+def test_many_buffers_become_one_commit_and_a_tiny_cap_commits_each_one():
+    tuples, _ = per_row(frame(), SCHEMA)
+    batched, _ = writer_with(buffer_size=1, commit_bytes=1 << 30)
+    for item in tuples * 4:
+        batched.put_one(item)
+    batched.close()
+    assert [f.num_rows for f in committed(batched)] == [len(tuples) * 4]
+    eager, iceberg = writer_with(buffer_size=2, commit_bytes=1)
+    eager.put_one(tuples[0])
+    eager.put_arrow(frame_to_arrow(frame(), SCHEMA))
+    eager.close()
+    files = committed(eager)
     assert [f.num_rows for f in files] == [1, 2, 1]
-    assert files[0].equals(amber_tuples_to_arrow_table(iceberg, tuples[:1]), check_metadata=True)
     assert pa.concat_tables(files[1:]).equals(amber_tuples_to_arrow_table(iceberg, tuples), check_metadata=True)
