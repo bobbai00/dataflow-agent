@@ -34,6 +34,7 @@ import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
+import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
@@ -546,6 +547,9 @@ async function createAgentInstance(
     // JWT (apache/texera#5421) and injects the LiteLLM master key downstream,
     // so the delegating user's JWT is the only credential this service sends.
     apiKey: delegateConfig.userToken,
+    // Every model request has a deadline; a request that never answers is
+    // abandoned and the turn retries it (TexeraAgent.sendMessage).
+    fetch: withRequestTimeout(),
   });
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml

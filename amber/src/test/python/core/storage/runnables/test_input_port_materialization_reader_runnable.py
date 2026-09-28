@@ -52,6 +52,10 @@ def _build_reader(worker_actor_id, schema=None):
     )
     reader._stopped = False
     reader._finished = False
+    reader.materialization = None
+    reader.state_document = None
+    reader.OPEN_ATTEMPTS = 2
+    reader.OPEN_BACKOFF_SECONDS = 0
     reader.channel_id = ChannelIdentity(
         worker_actor_id, worker_actor_id, is_control=False
     )
@@ -100,6 +104,8 @@ class TestRunStateReadingBlock:
         instance.tuple_schema = Schema(raw_schema={"x": "INTEGER"})
         instance._stopped = False
         instance._finished = False
+        instance.materialization = None
+        instance.state_document = None
         instance.channel_id = ChannelIdentity(me, me, is_control=False)
         instance.queue = MagicMock()
         instance.on_schema = None
@@ -333,6 +339,49 @@ class TestRunErrorHandling:
         assert reader.finished() is False
         reader.queue.put.assert_not_called()
         assert any("catalog unreachable" in str(message) for message in messages)
+
+    def test_open_retries_a_failure_then_reads(self, me):
+        # The catalog can refuse connections for a while ("too many clients").
+        reader = _build_reader(me)
+        reader.partitioner.flush.side_effect = lambda receiver, ecm: [ecm]
+        result_doc = MagicMock()
+        result_doc.get.return_value = iter([])
+        state_doc = MagicMock()
+        state_doc.get.return_value = iter([])
+        handler_id = logger.add(lambda _: None, level="WARNING")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = [
+                    RuntimeError("sorry, too many clients already"),
+                    (result_doc, reader.tuple_schema),
+                    (state_doc, None),
+                ]
+                reader.run()
+        finally:
+            logger.remove(handler_id)
+
+        assert reader.finished() is True
+        assert _emitted_ecm_names(reader) == ["StartChannel", "EndChannel"]
+
+    def test_open_gives_up_after_its_attempts_naming_the_input(self, me):
+        reader = _build_reader(me)
+        handler_id = logger.add(lambda _: None, level="WARNING")
+        try:
+            with patch(DOCUMENT_FACTORY) as mock_factory:
+                mock_factory.open_document.side_effect = RuntimeError(
+                    "sorry, too many clients already"
+                )
+                with pytest.raises(RuntimeError) as raised:
+                    reader.open()
+        finally:
+            logger.remove(handler_id)
+
+        assert str(raised.value) == (
+            f"Could not open the stored input {reader.uri} after 2 attempts: "
+            "sorry, too many clients already"
+        )
+        assert mock_factory.open_document.call_count == 2
+        reader.queue.put.assert_not_called()
 
     def test_failure_midway_leaves_the_reader_unfinished(self, me):
         reader = _build_reader(me)

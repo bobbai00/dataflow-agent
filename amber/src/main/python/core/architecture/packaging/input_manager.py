@@ -112,6 +112,10 @@ class InputManager:
             for reader_runnable in port_reader_runnables:
                 # A completed reader port should not be started again
                 if not reader_runnable.finished():
+                    # Opened here, on the worker's start request, so a stored
+                    # input that cannot be read fails the request instead of
+                    # a detached thread that only logs it.
+                    reader_runnable.open()
                     thread_for_reader_runnable = threading.Thread(
                         target=reader_runnable.run,
                         daemon=True,

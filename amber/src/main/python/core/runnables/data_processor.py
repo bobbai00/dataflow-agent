@@ -32,8 +32,8 @@ from core.architecture.managers import Context
 from core.models import ExceptionInfo, State, TupleLike, InternalMarker, Schema
 from core.models.internal_marker import StartChannel, EndChannel
 from core.models.schema.attribute_type import AttributeType
-from core.models.table import all_output_to_tuple
-from core.models.operator import TableOperator
+from core.models.table import ArrowOutput, all_output_to_tuple, frame_to_arrow
+from core.models.operator import LoopEndOperator, LoopStartOperator, TableOperator
 from core.util import Stoppable
 from core.util.console_message.replace_print import replace_print
 from core.util.console_message.timestamp import current_time_in_local_timezone
@@ -405,6 +405,15 @@ class DataProcessor(Runnable, Stoppable):
         for output in output_iterator:
             # output could be a None, a TupleLike, or a TableLike.
             self._maybe_apply_runtime_schema(output)
+            whole = self._arrow_output(output)
+            if whole is not None:
+                # The rows now live in `whole`: let the frame go before they
+                # are sent and written (2.9 GB for an 8.6 M-row scan).
+                output = None
+                self._switch_context()
+                self._context.tuple_processing_manager.current_output_tuple = whole
+                self._switch_context()
+                continue
             for output_tuple in all_output_to_tuple(output):
                 if output_tuple is not None:
                     output_tuple.finalize(
@@ -416,6 +425,25 @@ class DataProcessor(Runnable, Stoppable):
                 )
                 self._switch_context()
         self._context.tuple_processing_manager.finished_current.set()
+
+    def _arrow_output(self, output: Any) -> Optional[ArrowOutput]:
+        """A yielded DataFrame as one Arrow table, when its rows may leave
+        whole (``OutputManager.accepts_arrow``) and every column already
+        holds the port's type (``frame_to_arrow``): no Tuple, cast, type
+        check and size walk per row. None keeps the per-row path, which also
+        reports any row that does not fit the schema. Loop operators keep it."""
+        if not isinstance(output, pandas.DataFrame) or len(output) == 0:
+            return None
+        if isinstance(self._context.executor_manager.executor, (LoopStartOperator, LoopEndOperator)):
+            return None
+        output_manager = self._context.output_manager
+        if not output_manager.accepts_arrow():
+            return None
+        try:
+            table = frame_to_arrow(output, output_manager.get_port().get_schema())
+        except Exception:
+            return None
+        return ArrowOutput(table) if table is not None else None
 
     # ------------------------------------------------------------------
     # Runtime schema inference + per-column profiling (Table API only)
@@ -654,10 +682,15 @@ class DataProcessor(Runnable, Stoppable):
         """
         from core.models.table import deduplicate_columns
 
+        # A native operator's table carries its own typed profile
+        # (_publish_table_profile), and the agent renders only that: these
+        # display strings and table hints are never read for it, and they
+        # cost a full pass per column (about 110 s on an 8.6 M-row scan).
+        native = isinstance(df.attrs.get("native_v2"), dict)
         str_columns = [str(c) for c in df.columns]
         deduped_columns, _ = deduplicate_columns(str_columns)
         stats: Dict[str, str] = {}
-        for i, col_name in enumerate(deduped_columns):
+        for i, col_name in enumerate([] if native else deduped_columns):
             col = df.iloc[:, i]
             stats[col_name] = self._compute_column_stats(col)
         # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
@@ -674,7 +707,7 @@ class DataProcessor(Runnable, Stoppable):
         # key from schema/stats rendering and surfaces it only when the gated
         # `tableStructureHint` flag is on, so this is a no-op by default.
         try:
-            table_hints = self._detect_table_structure(df)
+            table_hints = [] if native else self._detect_table_structure(df)
             if table_hints:
                 stats["__table_hints__"] = " || ".join(table_hints)
         except Exception:

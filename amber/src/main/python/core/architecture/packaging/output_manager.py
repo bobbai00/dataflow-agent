@@ -96,6 +96,14 @@ class OutputManager:
             PortIdentity, typing.Tuple[Queue, PortStorageWriter, Thread]
         ] = dict()
 
+        # Per link: the single receiver of this worker's rows and the batch
+        # size, or None when rows are split across receivers; and whether a
+        # row has gone through the partitioners (see `accepts_arrow`).
+        self._arrow_routes: typing.Dict[
+            PhysicalLink, typing.Optional[typing.Tuple[ActorVirtualIdentity, int]]
+        ] = dict()
+        self._rows_partitioned = False
+
         # Loop-end operators have a single output port; remember its base
         # URI so `reset_output_storage` can re-provision the iceberg
         # tables on each loop iteration.
@@ -359,6 +367,16 @@ class OutputManager:
                 # causing hash inconsistencies.
                 channel_id.is_control = False
                 self._channels[channel_id] = Channel()
+        receivers = {
+            channel.to_worker_id.name: channel.to_worker_id
+            for channel in the_partitioning.channels
+            if channel.from_worker_id.name == self.worker_id
+        }
+        self._arrow_routes[tag] = (
+            (next(iter(receivers.values())), max(1, the_partitioning.batch_size))
+            if len(receivers) == 1
+            else None
+        )
         partitioner = self._partitioning_to_partitioner[type(the_partitioning)]
         self._partitioners[tag] = (
             partitioner(the_partitioning)
@@ -366,9 +384,34 @@ class OutputManager:
             else partitioner(the_partitioning, self.worker_id)
         )
 
+    def accepts_arrow(self) -> bool:
+        """Whether rows may leave as whole Arrow slices (`arrow_to_batches`):
+        every link sends all of this worker's rows to one receiver, and no
+        row waits in a partitioner's batch (it would then leave after rows
+        yielded later)."""
+        return not self._rows_partitioned and all(
+            route is not None for route in self._arrow_routes.values()
+        )
+
+    def arrow_to_batches(
+        self, table: Table
+    ) -> Iterator[typing.Tuple[ActorVirtualIdentity, DataFrame]]:
+        """The batches the partitioners build for these rows, in order, in
+        slices of each link's batch size (see `accepts_arrow`)."""
+        for receiver, batch_size in self._arrow_routes.values():
+            for offset in range(0, table.num_rows, batch_size):
+                yield receiver, DataFrame(frame=table.slice(offset, batch_size))
+
+    def save_arrow_to_storage_if_needed(self, table: Table) -> None:
+        """`save_tuple_to_storage_if_needed` for rows already in Arrow, to
+        every output port that needs storage."""
+        for writer_queue, _, _ in self._port_storage_writers.values():
+            writer_queue.put(PortStorageWriterElement(data_tuple=None, data_table=table))
+
     def tuple_to_batch(
         self, tuple_: Tuple
     ) -> Iterator[typing.Tuple[ActorVirtualIdentity, DataFrame]]:
+        self._rows_partitioned = True
         return chain(
             *(
                 (

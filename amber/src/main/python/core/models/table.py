@@ -151,6 +151,134 @@ class Table(pandas.DataFrame):
             return super().__eq__(other).all()
 
 
+def columnar_supported(table: pa.Table) -> bool:
+    """Whether ``arrow_batches_to_frame`` reproduces the Tuple path for every
+    column of ``table``: integers, floats, booleans, text and timestamps.
+    Binary columns (pickled objects, large-binary references) and fields with
+    metadata keep the Tuple path, whose field accessor decodes them."""
+    for field in table.schema:
+        kind = field.type
+        if field.metadata:
+            return False
+        if not (
+            pa.types.is_integer(kind)
+            or pa.types.is_floating(kind)
+            or pa.types.is_boolean(kind)
+            or pa.types.is_string(kind)
+            or pa.types.is_large_string(kind)
+            or pa.types.is_timestamp(kind)
+        ):
+            return False
+    return True
+
+
+def arrow_batches_to_frame(batches: List[pa.Table], schema: Optional[Schema]) -> Optional[pandas.DataFrame]:
+    """The DataFrame that ``Table(tuples, schema)`` builds from the same rows,
+    converted column by column from Arrow instead of through one Tuple per
+    row. INT, LONG, DOUBLE and BOOL become nullable Int32, Int64, Float64 and
+    boolean (a NaN is missing, as the Tuple path reads it); TIMESTAMP keeps
+    its zone at nanosecond resolution, and an all-null one holds None; other
+    types stay Python objects. None when the Tuple path must run instead: no
+    schema, no rows, or a column the conversion does not cover."""
+    import numpy
+
+    if schema is None or not batches:
+        return None
+    table = pa.concat_tables(batches) if len(batches) > 1 else batches[0]
+    rows = table.num_rows
+    names = list(schema.get_attr_names())
+    if rows == 0 or not columnar_supported(table) or set(names) != set(table.column_names):
+        return None
+    nullable = {AttributeType.INT: "Int32", AttributeType.LONG: "Int64", AttributeType.BOOL: "boolean"}
+    columns = {}
+    for name in names:
+        column = table.column(name)
+        attr_type = schema.get_attr_type(name)
+        if attr_type == AttributeType.DOUBLE:
+            values = column.to_numpy(zero_copy_only=False).astype("float64")
+            columns[name] = pandas.Series(pandas.array(values, dtype="Float64"))
+        elif attr_type in nullable:
+            columns[name] = pandas.Series(pandas.array(column.to_pylist(), dtype=nullable[attr_type]))
+        elif attr_type == AttributeType.TIMESTAMP:
+            if column.null_count == rows:
+                columns[name] = pandas.Series([None] * rows, dtype=object)
+            else:
+                series = column.to_pandas()
+                zone = getattr(series.dtype, "tz", None)
+                columns[name] = series.astype(f"datetime64[ns, {zone}]" if zone is not None else "datetime64[ns]")
+        else:
+            series = column.to_pandas()
+            columns[name] = series.astype(object) if series.dtype != object else series
+    return pandas.DataFrame(columns, index=range(rows))
+
+
+class ArrowOutput:
+    """Rows an operator yielded, already in its output port's Arrow schema:
+    what the per-row path builds from them (``all_output_to_tuple``,
+    ``Tuple.finalize``, one Arrow column per field), handed over whole."""
+
+    def __init__(self, table: pa.Table):
+        self.table = table
+
+
+def _column_to_arrow(column: pandas.Series, attr_type: AttributeType, arrow_type: pa.DataType):
+    """One column as the per-row path stores it, or None when its dtype does
+    not already hold ``attr_type``: the per-row cast bridges (or reports)
+    those cell by cell. Conversions are safe: an overflowing integer or a
+    sub-microsecond timestamp raises, and the caller keeps the per-row path."""
+    from pandas.api import types
+
+    dtype = column.dtype
+    if dtype == object:
+        kind = types.infer_dtype(column, skipna=True)
+        if kind == "empty":
+            return pa.nulls(len(column), arrow_type)
+        if (attr_type == AttributeType.STRING and kind == "string") or (
+            attr_type == AttributeType.BOOL and kind == "boolean"
+        ):
+            return pa.array(column.to_numpy(), type=arrow_type, from_pandas=True)
+        return None
+    if attr_type == AttributeType.STRING:
+        return pa.array(column, type=arrow_type, from_pandas=True) if isinstance(dtype, pandas.StringDtype) else None
+    if attr_type in (AttributeType.INT, AttributeType.LONG):
+        if types.is_integer_dtype(dtype) and not types.is_bool_dtype(dtype):
+            return pa.array(column, type=arrow_type, from_pandas=True)
+        return None
+    if attr_type == AttributeType.DOUBLE:
+        if types.is_float_dtype(dtype):
+            # NaN and NA are both missing, as the per-row cast reads them.
+            values = column.to_numpy(dtype="float64", na_value=float("nan"))
+            return pa.array(values, type=arrow_type, from_pandas=True)
+        return None
+    if attr_type == AttributeType.BOOL:
+        return pa.array(column, type=arrow_type, from_pandas=True) if types.is_bool_dtype(dtype) else None
+    if attr_type == AttributeType.TIMESTAMP:
+        # Zoned timestamps keep the per-row path.
+        return pa.array(column, type=arrow_type, from_pandas=True) if types.is_datetime64_dtype(dtype) else None
+    return None
+
+
+def frame_to_arrow(frame: pandas.DataFrame, schema: Schema) -> Optional[pa.Table]:
+    """The Arrow table the per-row path builds from ``frame`` for a port typed
+    by ``schema``, converted column by column. Column labels are read as
+    ``Table.as_tuples`` reads them (stringified, then deduplicated). None
+    when the per-row path must run: labels that do not name the port's
+    fields, or a column ``_column_to_arrow`` does not convert."""
+    names = schema.get_attr_names()
+    labels, _ = deduplicate_columns([str(label) for label in frame.columns])
+    if len(labels) != len(names) or set(labels) != set(names):
+        return None
+    position = {label: index for index, label in enumerate(labels)}
+    target = schema.as_arrow_schema()
+    arrays = []
+    for field in target:
+        array = _column_to_arrow(frame.iloc[:, position[field.name]], schema.get_attr_type(field.name), field.type)
+        if array is None:
+            return None
+        arrays.append(array)
+    return pa.Table.from_arrays(arrays, schema=target)
+
+
 def table_to_ipc_bytes(table: Table) -> bytes:
     """Serialize ``table`` as an Apache Arrow IPC stream.
 

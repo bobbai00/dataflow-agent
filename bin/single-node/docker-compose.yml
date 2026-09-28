@@ -63,6 +63,12 @@ services:
     image: groonga/pgroonga:4.0.1-debian-15
     container_name: texera-postgres
     restart: unless-stopped
+    # Every Python worker keeps its own pool of result-catalog connections (up
+    # to 15), so many concurrent executions exceeded the default limit of 100
+    # ("sorry, too many clients already") and a worker's inputs could not be
+    # read. 10,000 reserves 617 MB of shared memory instead of 143 MB;
+    # connections themselves are only opened on demand.
+    command: ["postgres", "-c", "max_connections=10000"]
     env_file:
       - .env
     healthcheck:

@@ -270,10 +270,15 @@ class TableOperator(TupleOperatorV2):
     be provided upon using.
     """
 
+    # Whether a port's buffered input is kept after on_finish builds its Table.
+    _keeps_input_after_finish = False
+
     def __init__(self):
         super().__init__()
         self._Operator__internal_is_source: bool = False
         self.__table_data: Mapping[int, List[Tuple]] = defaultdict(list)
+        # Whole Arrow batches, buffered as they arrive (see `_buffer_arrow`).
+        self.__arrow_data: Mapping[int, List] = defaultdict(list)
         self.__input_schemas: MutableMapping[int, Schema] = {}
 
     def _set_input_schema(self, port: int, schema: Schema) -> None:
@@ -285,8 +290,21 @@ class TableOperator(TupleOperatorV2):
         self.__table_data[port].append(tuple_)
         yield
 
+    def _buffer_arrow(self, port: int, table) -> None:
+        """Buffer a whole input batch as it arrived (a pyarrow.Table). The
+        main loop uses this instead of one ``process_tuple`` call per row;
+        ``_buffered_table`` converts the port's batches once, column by
+        column."""
+        self.__arrow_data[port].append(table)
+
     def on_finish(self, port: int) -> Iterator[Optional[TableLike]]:
         table = self._buffered_table(port)
+        if not self._keeps_input_after_finish:
+            # The Table holds the rows now. Drop the buffered input so the
+            # operator does not run beside a second copy of it (1.3 GB of
+            # Arrow next to a 3 GB frame for an 8.6 M-row input).
+            self.__table_data.pop(port, None)
+            self.__arrow_data.pop(port, None)
         yield from self.process_table(table, port)
 
     def _buffered_table(self, port: int) -> Table:
@@ -298,7 +316,26 @@ class TableOperator(TupleOperatorV2):
         ``self.__table_data`` resolves via normal name mangling, so a future
         rename of ``TableOperator`` keeps callers transparent.
         """
-        return Table(self.__table_data[port], schema=self.__input_schemas.get(port))
+        schema = self.__input_schemas.get(port)
+        tuples = self.__table_data[port]
+        batches = self.__arrow_data[port]
+        if not batches:
+            return Table(tuples, schema=schema)
+        from core.models.table import arrow_batches_to_frame
+        from core.models.tuple import ArrowTableTupleProvider
+
+        frame = arrow_batches_to_frame(batches, schema) if not tuples else None
+        if frame is not None:
+            return Table(frame)
+        # Mixed buffers or columns the conversion does not cover: the Tuple
+        # path, rows in arrival order (tuples arrive only when no batch did).
+        rows = list(tuples)
+        for batch in batches:
+            rows.extend(
+                Tuple({name: accessor for name in batch.column_names}, schema=schema)
+                for accessor in ArrowTableTupleProvider(batch)
+            )
+        return Table(rows, schema=schema)
 
     @abstractmethod
     def process_table(self, table: Table, port: int) -> Iterator[Optional[TableLike]]:
@@ -380,6 +417,9 @@ class LoopStartOperator(TableOperator):
     not the reserved ``table``; see the ``_RESERVED_STATE_KEYS`` module comment
     for the ``table`` vs envelope-borne counter/id split.
     """
+
+    # produce_state_on_finish hands the buffered input table to the Loop End.
+    _keeps_input_after_finish = True
 
     @overrides.final
     def process_state(self, state: State, port: int) -> Optional[State]:

@@ -229,3 +229,75 @@ def test_nullable_json_integer_does_not_round_through_float(tmp_path):
     result = scan(path)
     assert result["id"].iloc[0] == 9007199254740993
     assert str(result["id"].dtype) == "Int64"
+
+
+def test_blank_header_cells_take_the_pandas_name(tmp_path):
+    # Reference answers written with pandas name a blank header cell
+    # `Unnamed: <index>` (WiDS task 3 lists "Unnamed: 249" as a removed column).
+    path = tmp_path / "source.csv"
+    path.write_text("id;value;\n1;2;\n3;4;\n")
+    result = scan(path, delim=";")
+    assert list(result.columns) == ["id", "value", "Unnamed: 2"]
+    assert list(result.columns) == list(pd.read_csv(path, sep=";").columns)
+
+
+def test_quoted_line_breaks_are_kept_as_pandas_keeps_them(tmp_path):
+    path = tmp_path / "source.csv"
+    path.write_bytes(b'id,body\r\n1,"first line\r\nsecond line"\r\n2,plain\r\n')
+    result = scan(path)
+    assert result["body"].tolist() == ["first line\r\nsecond line", "plain"]
+    assert result["body"].tolist() == pd.read_csv(path)["body"].tolist()
+    assert result["id"].tolist() == [1, 2]
+
+
+def test_csv_inference_keeps_nullable_types_for_gaps_empty_columns_and_booleans(tmp_path):
+    # Guards the vectorized inference: an integer column with gaps stays Int64
+    # (not float), exact beyond 2**53; an all-empty column stays text; a column
+    # whose first values look boolean but later are not stays text; true/false
+    # in any case becomes boolean; mixed text stays text.
+    path = tmp_path / "types.csv"
+    lines = ["zip,big,empty,flag,late,mixed"]
+    for i in range(100):
+        zipcode = "" if i % 7 == 0 else str(10000 + i)
+        big = "9007199254740993" if i == 0 else ""
+        late = "true" if i < 70 else "maybe"
+        lines.append(f"{zipcode},{big},,{'TRUE' if i % 2 else 'false'},{late},{'x' if i % 3 else i}")
+    path.write_text("\n".join(lines) + "\n")
+    result = scan(path)
+    dtypes = {name: str(dtype) for name, dtype in result.dtypes.items()}
+    assert dtypes == {
+        "zip": "Int64",
+        "big": "Int64",
+        "empty": "string",
+        "flag": "boolean",
+        "late": "string",
+        "mixed": "string",
+    }
+    assert result["big"].iloc[0] == 9007199254740993
+    assert result["zip"].isna().sum() == 15 and result["zip"].iloc[1] == 10001
+    assert result["flag"].tolist()[:2] == [False, True]
+
+
+def test_csv_inference_leaves_no_reference_cycles_holding_column_copies(tmp_path):
+    # A `.str` accessor is cached on its Series in a reference cycle; used on a
+    # slice of each column's non-null copy, it kept every copy alive until a
+    # full garbage collection (1.4 GB across one 8.6 M-row scan). Only pandas
+    # and numpy objects count: csv.Sniffer makes a small dialect class per call.
+    import gc
+
+    path = tmp_path / "wide.csv"
+    path.write_text("a,b,c\n" + "".join(f"x{i},{i},{'true' if i % 2 else 'False'}\n" for i in range(500)))
+    scan(path)  # warm caches
+    gc.collect()
+    gc.disable()
+    gc.set_debug(gc.DEBUG_SAVEALL)
+    try:
+        result = scan(path)
+        gc.collect()
+        held = [type(o).__name__ for o in gc.garbage if type(o).__module__.split(".")[0] in ("pandas", "numpy")]
+    finally:
+        gc.set_debug(0)
+        gc.garbage.clear()
+        gc.enable()
+    assert held == []
+    assert {name: str(dtype) for name, dtype in result.dtypes.items()} == {"a": "string", "b": "Int64", "c": "boolean"}

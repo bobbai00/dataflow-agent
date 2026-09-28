@@ -103,6 +103,7 @@ import { formatNativeDiagnostic } from "./native/diagnostics";
 import { NativeValidationRepair } from "./native/validation-repair";
 import { writtenOperatorId } from "./util/context-utils";
 import { buildNativeModeSystemPrompt } from "./prompts";
+import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
 import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
 import { createCompactContextTool, TOOL_NAME_COMPACT_CONTEXT } from "./tools/compact-context-tool";
@@ -288,6 +289,11 @@ export function computeOperatorAccess(
   });
   return access;
 }
+
+/** Retries of a turn whose driver run failed transiently (a timed-out or dropped model request). */
+const MODEL_RETRIES_PER_TURN = 2;
+/** Backoff before retry n is n times this many milliseconds. */
+const MODEL_RETRY_BACKOFF_MS = () => Number(process.env.MODEL_RETRY_BACKOFF_MS ?? 3000);
 
 export class TexeraAgent {
   readonly agentId: string;
@@ -1856,16 +1862,23 @@ export class TexeraAgent {
       // Pass only the current user turn; prepareStep rebuilds full context each step
       // (historical interactions + DAG + this message).
       const currentUserMessage: ModelMessage[] = [{ role: "user", content: userMessage }];
-      const runDriverOnce = (seed: ModelMessage[]) =>
+      // Step lifecycle logs (ported from feat/state-registry cc16aedf4) place a
+      // stall: preparing / requesting model / model step finished / post-step done,
+      // each with its duration.
+      let requestedAt = 0;
+      const turnStartStepIndex = stepIndex;
+      const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
         this.driver.runTurn({
           initialMessages: seed,
           systemPrompt: this.systemPrompt,
           tools: this.tools,
-          maxSteps: this.settings.maxSteps,
+          maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
-          prepareStep: async ({ stepNumber: _stepNumber, messages: _currentMessages }) => {
+          prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
+            const preparing = Date.now();
+            this.log.info({ messageId, stepNumber }, "preparing step");
             let compilationResult: WorkflowCompilationResponse | null = null;
             if (this.workflowState.getAllOperators().length > 0) {
               try {
@@ -1875,6 +1888,7 @@ export class TexeraAgent {
                 this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
               }
             }
+            const compiled = Date.now();
 
             const visibleSteps = this.getVisibleReActSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
@@ -1892,10 +1906,33 @@ export class TexeraAgent {
             this.lastRenderedContext = processed
               .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
               .join("\n\n");
+            requestedAt = Date.now();
+            this.log.info(
+              {
+                messageId,
+                stepNumber,
+                compileMs: compiled - preparing,
+                contextMs: requestedAt - compiled,
+                contextChars: this.lastRenderedContext.length,
+              },
+              "requesting model"
+            );
             return { messages: processed };
           },
           onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage }) => {
             stepIndex++;
+            const finishing = Date.now();
+            this.log.info(
+              {
+                messageId,
+                stepIndex,
+                modelMs: requestedAt ? finishing - requestedAt : undefined,
+                toolCalls: toolCalls?.length ?? 0,
+                outputTokens: usage?.outputTokens,
+                text: !!text,
+              },
+              "model step finished"
+            );
 
             const formattedToolCalls = toolCalls?.map(tc => ({
               toolName: tc.toolName,
@@ -1948,12 +1985,43 @@ export class TexeraAgent {
             this.maybeCreateSnapshotForHead(afterStepContent);
 
             await this.runPostStepExecution(toolCalls, toolResults);
+            this.log.info({ messageId, stepIndex, postStepMs: Date.now() - finishing }, "post-step done");
 
             isFirstStep = false;
           },
         });
 
-      let result = await runDriverOnce(currentUserMessage);
+      // A driver run that failed because a model request timed out or its
+      // connection dropped is retried (ported from feat/state-registry
+      // 4fbff96b5). The recorded steps stay: prepareStep rebuilds the context
+      // from them, so the model continues where it stopped, and a retry only
+      // gets the steps left in this turn's budget.
+      const runDriverWithRetry = async (seed: ModelMessage[]) => {
+        for (let attempt = 0; ; attempt++) {
+          const stepsDone = stepIndex - turnStartStepIndex;
+          try {
+            return await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
+          } catch (error) {
+            if (
+              this.abortController?.signal.aborted ||
+              attempt >= MODEL_RETRIES_PER_TURN ||
+              !isTransientModelError(error)
+            )
+              throw error;
+            this.log.warn(
+              {
+                messageId,
+                attempt: attempt + 1,
+                stepsDone,
+                err: error instanceof Error ? error.message : String(error),
+              },
+              "model request failed transiently; retrying the turn"
+            );
+            await new Promise(resolve => setTimeout(resolve, MODEL_RETRY_BACKOFF_MS() * (attempt + 1)));
+          }
+        }
+      };
+      let result = await runDriverWithRetry(currentUserMessage);
 
       // ANSWER GROUNDING (opt-in): a final answer's numbers must trace to
       // materialized results or state recalled this turn — the property a
@@ -1997,7 +2065,7 @@ export class TexeraAgent {
             messageSource: "feedback",
           });
           this.head = nudgeStepId;
-          result = await runDriverOnce([{ role: "user", content: nudge }]);
+          result = await runDriverWithRetry([{ role: "user", content: nudge }]);
         }
       }
 
@@ -2723,9 +2791,13 @@ export class TexeraAgent {
     // fires `onResult` for every operator that ran on the backend — including
     // ones reporting errors — so the snapshot at HEAD ends up consistent with
     // what the backend actually produced.
-    // Which targets came back with a result — anything missing after a failed
-    // execution gets an explicit error entry below.
+    // Which targets came back with an outcome — anything else after a failed
+    // execution gets an explicit error entry below. An entry the engine never
+    // finished (Uninitialized or Running, no error: its worker died) is not an
+    // outcome, or the run's failure never reached the model.
     const produced = new Set<string>();
+    const finished = (info: OperatorInfo) =>
+      !!info.error || info.state === "Completed" || info.state === "CompletedFromCache";
     let failure: string | undefined;
     try {
       const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
@@ -2733,7 +2805,7 @@ export class TexeraAgent {
         opsToViewResult: [...targets],
         onResult: (opId, operatorInfo) => {
           if (!stillOwned()) return;
-          produced.add(opId);
+          if (finished(operatorInfo)) produced.add(opId);
           this.snapshotStorage.setOperatorResult(owningStepId!, opId, operatorInfo);
         },
       });
@@ -2755,7 +2827,7 @@ export class TexeraAgent {
       for (const opId of targets) {
         if (produced.has(opId)) continue;
         const existing = this.snapshotStorage.getOperatorResult(owningStepId!, opId);
-        if (existing && !existing.error) continue; // keep a real earlier result
+        if (existing && !existing.error && finished(existing)) continue; // keep a real earlier result
         this.snapshotStorage.setOperatorResult(owningStepId!, opId, {
           operatorId: opId,
           state: "ExecutionFailed",

@@ -650,6 +650,15 @@ class SyncExecutionResource extends LazyLogging {
           val totalCount = document.getCount.toInt
           val mapper = new ObjectMapper()
           val tupleIterator = document.get()
+          // One row as the response shows it, with its rendered size.
+          def render(tuple: Tuple, index: Int): (ObjectNode, Int) = {
+            val json = ExecutionResultService
+              .convertTuplesToJson(List(tuple), structuredResults = structuredResults)
+              .head
+            val truncated = truncateSingleTuple(json, maxOperatorResultCellCharLimit, resultSchema)
+            StructuredResultTransport.annotateSampleRow(truncated, index, structuredResults)
+            (truncated, estimateTupleSize(truncated, mapper))
+          }
 
           if (totalCount == 0 || !tupleIterator.hasNext) {
             return (
@@ -684,13 +693,7 @@ class SyncExecutionResource extends LazyLogging {
           // __row_index__ preserves the original position so the frontend can show
           // "row N" correctly after symmetric truncation drops the middle.
           var rowIndex = 0
-          val firstJson = ExecutionResultService
-            .convertTuplesToJson(List(firstTuple), structuredResults = structuredResults)
-            .head
-          val truncatedFirst =
-            truncateSingleTuple(firstJson, maxOperatorResultCellCharLimit, resultSchema)
-          StructuredResultTransport.annotateSampleRow(truncatedFirst, rowIndex, structuredResults)
-          val firstSize = estimateTupleSize(truncatedFirst, mapper)
+          val (truncatedFirst, firstSize) = render(firstTuple, rowIndex)
 
           if (firstSize >= maxOperatorResultCharLimit) {
             return (
@@ -708,50 +711,24 @@ class SyncExecutionResource extends LazyLogging {
 
           val frontTuples = mutable.ListBuffer[ObjectNode](truncatedFirst)
           var frontSize = firstSize
-          var processedCount = 1
 
           while (tupleIterator.hasNext && frontSize < halfLimit) {
             val tuple = tupleIterator.next()
             rowIndex += 1
-            processedCount += 1
-            val jsonTuple = ExecutionResultService
-              .convertTuplesToJson(List(tuple), structuredResults = structuredResults)
-              .head
-            val truncatedTuple =
-              truncateSingleTuple(jsonTuple, maxOperatorResultCellCharLimit, resultSchema)
-            StructuredResultTransport.annotateSampleRow(truncatedTuple, rowIndex, structuredResults)
-            val tupleSize = estimateTupleSize(truncatedTuple, mapper)
+            val (truncatedTuple, tupleSize) = render(tuple, rowIndex)
 
             if (frontSize + tupleSize <= halfLimit) {
               frontTuples += truncatedTuple
               frontSize += tupleSize
             } else {
-              // Front is full — switch to a sliding window for the back half.
-              val backBuffer = mutable.ArrayBuffer[(ObjectNode, Int)]()
-              backBuffer += ((truncatedTuple, tupleSize))
-              var backSize = tupleSize
-
-              while (tupleIterator.hasNext) {
-                val t = tupleIterator.next()
-                rowIndex += 1
-                processedCount += 1
-                val jt = ExecutionResultService
-                  .convertTuplesToJson(List(t), structuredResults = structuredResults)
-                  .head
-                val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit, resultSchema)
-                StructuredResultTransport.annotateSampleRow(tt, rowIndex, structuredResults)
-                val ts = estimateTupleSize(tt, mapper)
-
-                backBuffer += ((tt, ts))
-                backSize += ts
-
-                while (backSize > halfLimit - truncationNoticeSize && backBuffer.size > 1) {
-                  val (_, removedSize) = backBuffer.remove(0)
-                  backSize -= removedSize
-                }
-              }
-
-              val backTuples = backBuffer.map(_._1).toList
+              // Front is full: the back half comes from the rows from this one on.
+              val backTuples = tailRows(
+                document,
+                rowIndex,
+                totalCount,
+                halfLimit - truncationNoticeSize,
+                render
+              )
               val allTuples = frontTuples.toList ++ backTuples
               val skippedRows = totalCount - allTuples.size
 
@@ -767,30 +744,13 @@ class SyncExecutionResource extends LazyLogging {
           }
 
           if (tupleIterator.hasNext) {
-            val backBuffer = mutable.ArrayBuffer[(ObjectNode, Int)]()
-            var backSize = 0
-
-            while (tupleIterator.hasNext) {
-              val t = tupleIterator.next()
-              rowIndex += 1
-              processedCount += 1
-              val jt = ExecutionResultService
-                .convertTuplesToJson(List(t), structuredResults = structuredResults)
-                .head
-              val tt = truncateSingleTuple(jt, maxOperatorResultCellCharLimit, resultSchema)
-              StructuredResultTransport.annotateSampleRow(tt, rowIndex, structuredResults)
-              val ts = estimateTupleSize(tt, mapper)
-
-              backBuffer += ((tt, ts))
-              backSize += ts
-
-              while (backSize > halfLimit - truncationNoticeSize && backBuffer.size > 1) {
-                val (_, removedSize) = backBuffer.remove(0)
-                backSize -= removedSize
-              }
-            }
-
-            val backTuples = backBuffer.map(_._1).toList
+            val backTuples = tailRows(
+              document,
+              rowIndex + 1,
+              totalCount,
+              halfLimit - truncationNoticeSize,
+              render
+            )
             val allTuples = frontTuples.toList ++ backTuples
             val skippedRows = totalCount - allTuples.size
 
@@ -855,6 +815,44 @@ class SyncExecutionResource extends LazyLogging {
       }
     }
     truncatedTuple
+  }
+
+  /**
+    * The rows the back half keeps from rows [start, total): the longest run
+    * ending at the last row whose rendered sizes fit `budget`, and at least the
+    * last row. Read backwards in growing ranges. The sliding window this
+    * replaces rendered every remaining row to keep a few: 180 s of JSON
+    * conversion for an 8.6 M-row result.
+    */
+  private[web] def tailRows(
+      document: VirtualDocument[Tuple],
+      start: Int,
+      total: Int,
+      budget: Int,
+      render: (Tuple, Int) => (ObjectNode, Int)
+  ): List[ObjectNode] = {
+    var kept = List.empty[ObjectNode]
+    var size = 0
+    var until = total
+    var chunk = 64
+    var full = false
+    while (!full && until > start) {
+      val from = math.max(start, until - chunk)
+      val rows = document.getRange(from, until).toVector
+      var i = rows.length - 1
+      while (!full && i >= 0) {
+        val (row, rowSize) = render(rows(i), from + i)
+        if (kept.nonEmpty && size + rowSize > budget) full = true
+        else {
+          kept = row :: kept
+          size += rowSize
+        }
+        i -= 1
+      }
+      until = from
+      chunk *= 2
+    }
+    kept
   }
 
   private def estimateTupleSize(
