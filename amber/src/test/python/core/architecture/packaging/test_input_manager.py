@@ -240,6 +240,29 @@ class TestInputPortMaterializationReaderThreads:
         # Daemon threads are started, never joined, by this call.
         threading_mock.Thread.return_value.start.assert_called_once_with()
 
+    def test_start_threads_opens_each_reader_first_and_fails_when_one_cannot(
+        self, manager
+    ):
+        # Opening on the start request makes an unreadable store fail that
+        # request (and so the execution) instead of a thread that only logs it.
+        first = _reader_stub(finished=False, channel_name="first")
+        broken = _reader_stub(finished=False, channel_name="broken")
+        broken.open.side_effect = RuntimeError("Could not open the stored input")
+        manager._input_port_mat_reader_runnables[PortIdentity(0, False)] = [
+            first,
+            broken,
+        ]
+
+        with patch.object(input_manager_module, "threading") as threading_mock:
+            with pytest.raises(RuntimeError, match="Could not open the stored input"):
+                manager.start_input_port_mat_reader_threads()
+
+        first.open.assert_called_once_with()
+        started_targets = [
+            call.kwargs["target"] for call in threading_mock.Thread.call_args_list
+        ]
+        assert started_targets == [first.run]
+
     def test_start_threads_covers_every_port(self, manager):
         first = _reader_stub(finished=False, channel_name="first")
         second = _reader_stub(finished=False, channel_name="second")

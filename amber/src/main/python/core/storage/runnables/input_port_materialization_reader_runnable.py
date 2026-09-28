@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import time
 import typing
 from loguru import logger
 from pyarrow import Table
@@ -78,6 +79,13 @@ from proto.org.apache.texera.amber.engine.architecture.sendsemantics import (
 
 
 class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
+    # Opening the stored input needs the result catalog, which can refuse
+    # connections for a while when many workers start at once (Postgres:
+    # "too many clients already"). Attempts and the first backoff in seconds,
+    # doubled per retry: about 15 s in all.
+    OPEN_ATTEMPTS = 5
+    OPEN_BACKOFF_SECONDS = 1.0
+
     def __init__(
         self,
         uri: str,
@@ -105,6 +113,7 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         self._stopped = False
         self._finished = False
         self.materialization = None
+        self.state_document = None
         self.tuple_schema = None
         self.on_schema = on_schema
         self._partitioning_to_partitioner: dict[
@@ -130,6 +139,40 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         :return: Whether this reader thread has finished its logic.
         """
         return self._finished
+
+    def open(self) -> None:
+        """Open the stored rows and states this reader replays, retrying a
+        failure before giving up. The worker's start request calls this before
+        the reader's thread runs, so a store that cannot be read fails that
+        request, and with it the execution. A failure inside the thread only
+        reached the log: the operator then waited for input that never came
+        until the execution timed out."""
+        if self.materialization is not None:
+            return
+        backoff = self.OPEN_BACKOFF_SECONDS
+        for attempt in range(1, self.OPEN_ATTEMPTS + 1):
+            try:
+                materialization, tuple_schema = DocumentFactory.open_document(
+                    VFSURIFactory.result_uri(self.uri)
+                )
+                self.state_document, _ = DocumentFactory.open_document(
+                    VFSURIFactory.state_uri(self.uri)
+                )
+                self.materialization, self.tuple_schema = materialization, tuple_schema
+                return
+            except Exception as err:
+                if attempt == self.OPEN_ATTEMPTS:
+                    raise RuntimeError(
+                        f"Could not open the stored input {self.uri} after "
+                        f"{attempt} attempts: {err}"
+                    ) from err
+                logger.warning(
+                    f"Opening the stored input {self.uri} failed (attempt "
+                    f"{attempt} of {self.OPEN_ATTEMPTS}): {err}; retrying in "
+                    f"{backoff:.1f} s"
+                )
+                time.sleep(backoff)
+                backoff *= 2
 
     def tuple_to_batch_with_filter(self, tuple_: Tuple) -> typing.Iterator[DataFrame]:
         """
@@ -159,19 +202,14 @@ class InputPortMaterializationReaderRunnable(Runnable, Stoppable):
         data, so each worker needs the full set.
         """
         try:
-            self.materialization, self.tuple_schema = DocumentFactory.open_document(
-                VFSURIFactory.result_uri(self.uri)
-            )
+            self.open()  # already open when the worker's start request opened it
             # The materialized table is authoritative for dynamic outputs.
             # Publish its schema even when no tuple/batch will be emitted.
             if self.on_schema is not None:
                 self.on_schema(self.tuple_schema)
             self.emit_ecm("StartChannel", EmbeddedControlMessageType.NO_ALIGNMENT)
 
-            state_document, _ = DocumentFactory.open_document(
-                VFSURIFactory.state_uri(self.uri)
-            )
-            for state_row in state_document.get():
+            for state_row in self.state_document.get():
                 self.emit_payload(
                     StateFrame(
                         State.from_tuple(state_row),
