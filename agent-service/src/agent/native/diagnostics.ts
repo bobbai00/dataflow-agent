@@ -194,6 +194,40 @@ export function resolveNativeDiagnostic(
       hint: "Check backend health/rate limits before retrying unchanged code.",
       retryable: true,
     };
+  // The result store refused a connection (Postgres 53300 while many workers
+  // start) or a worker could not open an operator's stored input: the engine
+  // was overloaded, not the operator's code at fault.
+  const store = /Could not open the stored input [^\n]*|too many clients already/.exec(raw);
+  if (store)
+    return {
+      ...base,
+      code: "BACKEND_UNAVAILABLE",
+      stage: "infrastructure",
+      message: clipped(
+        store[0].startsWith("Could not")
+          ? store[0]
+          : "The engine's result store refused a connection: sorry, too many clients already.",
+        320
+      ),
+      hint: "Check backend health/rate limits before retrying unchanged code.",
+      retryable: true,
+    };
+  // The engine's report of a Python worker process that ended mid-run
+  // (PythonWorkflowWorker.unexpectedExitMessage). It names the operator whose
+  // worker died; every unfinished operator of the run carries the same text.
+  const exited = /The Python worker for operator \S+ exited with code (\d+)[^\n]*/.exec(raw);
+  if (exited)
+    return {
+      ...base,
+      code: "WORKER_EXITED",
+      stage: "infrastructure",
+      message: clipped(exited[0], 320),
+      hint:
+        Number(exited[1]) > 128
+          ? "A worker killed by a signal usually ran out of memory; retrying unchanged may fail the same way. Make that operator hold fewer rows or columns."
+          : "The worker process crashed; inspect that operator's inputs before retrying unchanged code.",
+      retryable: true,
+    };
   if (/timed?\s*out|timeout/i.test(raw))
     return {
       ...base,

@@ -144,6 +144,42 @@ test("V2 opaque infrastructure errors do not masquerade as callback/syntax failu
   expect(rendered).not.toContain("GENERATED_BOILERPLATE");
 });
 
+test("a Python worker that died mid-run is WORKER_EXITED, named, and not a timeout", () => {
+  const sentence =
+    "The Python worker for operator weather exited with code 143 (killed by signal 15, SIGTERM) while the operator was running; the operator produced no complete result.";
+  const { op, info, state } = fixture();
+  info.error = `execution failed — Execution failed due to the following error:\nError:\n  EXECUTION_FAILURE: java.lang.RuntimeException: ${sentence}`;
+  const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(rendered).toContain("WORKER_EXITED");
+  expect(rendered).toContain("infrastructure");
+  expect(rendered).toContain(sentence);
+  expect(rendered).toContain("ran out of memory");
+  expect(rendered).not.toContain("EXECUTION_TIMEOUT");
+  expect(rendered).not.toContain("java.lang.RuntimeException");
+  info.error =
+    "execution failed — The Python worker for operator weather exited with code 1 while the operator was running.";
+  const crashed = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(crashed).toContain("WORKER_EXITED");
+  expect(crashed).toContain("crashed");
+  expect(crashed).not.toContain("memory");
+});
+
+test("an overloaded result store is BACKEND_UNAVAILABLE, not the operator's code", () => {
+  const { op, info, state } = fixture();
+  info.error =
+    "execution failed — Execution failed due to the following error:\nError:\n  EXECUTION_FAILURE: java.lang.Throwable: (pg8000.dbapi.ProgrammingError) {'S': 'FATAL', 'C': '53300', 'M': 'sorry, too many clients already'}";
+  const refused = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(refused).toContain("BACKEND_UNAVAILABLE");
+  expect(refused).toContain("infrastructure");
+  expect(refused).toContain("too many clients already");
+  expect(refused).not.toContain("EXECUTION_ERROR");
+  info.error =
+    "execution failed — EXECUTION_FAILURE: java.lang.Throwable: Could not open the stored input vfs:///wid/1/eid/2/globalportid/x/result after 5 attempts: No storage is found for the given URI";
+  const unread = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+  expect(unread).toContain("BACKEND_UNAVAILABLE");
+  expect(unread).toContain("Could not open the stored input vfs:///wid/1/eid/2/globalportid/x/result after 5 attempts");
+});
+
 test("backend capability, authorization and availability failures are infrastructure diagnostics", () => {
   for (const [error, code, retryable] of [
     [
