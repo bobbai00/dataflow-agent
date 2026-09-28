@@ -152,8 +152,9 @@ class Compactor:
 
     @property
     def units(self) -> int:
-        """The budget in the estimate's units."""
-        return int(self.budget / self.scale)
+        """The budget in the estimate's units, less a 3% margin for the
+        estimate's error on this call (the scale is the previous call's)."""
+        return int(self.budget * 0.97 / self.scale)
 
     def clip(self, message):
         content = message.get("content")
@@ -264,6 +265,15 @@ class Compactor:
         while recent and estimate_tokens(head + current) > self.units:
             recent = recent[1:]
             head = system + first + memory + recent
+        # Still over: the request's newest outputs are cut to their head and tail.
+        for i in observations[-2:]:
+            excess = estimate_tokens(head + current) - self.units
+            if excess <= 0:
+                break
+            content = str(current[i].get("content"))
+            keep = max(600, len(content) - int(excess * CHARS_PER_TOKEN) - 200)
+            if keep < len(content):
+                current[i] = {**current[i], "content": f"{content[: keep * 7 // 10]}\n... ({len(content) - keep} characters omitted to fit the context budget) ...\n{content[-(keep * 3 // 10):]}"}
         compacted = head + current
         with self.log.open("a") as stream:
             stream.write(json.dumps({"turn_index": max(0, len(TURN_STARTS) - 1), "before": estimate_tokens(messages),

@@ -101,3 +101,21 @@ test("within a task the oldest observations give way first; the last two and eve
   expect(trimmed.filter(m => m.role === "assistant")).toHaveLength(4);
   expect(trimActiveMessages(messages, 1_000_000)).toBe(messages);
 });
+
+test("the budget is hard: when the newest observations alone overflow, they are cut to head and tail", () => {
+  const call = (id: string): ModelMessage => ({
+    role: "assistant",
+    content: [{ type: "tool-call", toolCallId: id, toolName: "dataflow", input: {} }],
+  });
+  const result = (id: string, size: number): ModelMessage => ({
+    role: "tool",
+    content: [{ type: "tool-result", toolCallId: id, toolName: "dataflow", output: { type: "text", value: `${id}:${"x".repeat(size)}:end` } }],
+  });
+  const messages = [call("a"), result("a", 24000), call("b"), result("b", 22000)];
+  const room = 4000;
+  const trimmed = trimActiveMessages(messages, room);
+  expect(estimateTokens(trimmed)).toBeLessThanOrEqual(room);
+  const values = trimmed.filter(m => m.role === "tool").map(m => (m.content as any[])[0].output.value as string);
+  expect(values.every(v => v.includes("characters omitted to fit the context budget"))).toBe(true);
+  expect(values[1].startsWith("b:") && values[1].endsWith(":end")).toBe(true);
+});

@@ -184,6 +184,31 @@ export function trimActiveMessages(messages: ModelMessage[], room: number): Mode
     } as ModelMessage;
     total -= before - estimateTokens(out[i]);
   }
+  // Still over: the newest observations are cut to their head and tail.
+  for (const i of tools.slice(-2)) {
+    if (total <= room) break;
+    const before = estimateTokens(out[i]);
+    const content = Array.isArray(out[i].content) ? (out[i].content as any[]) : [];
+    const keep = Math.max(600, Math.floor((before - (total - room)) * BUDGET_CHARS_PER_TOKEN) - 200);
+    out[i] = {
+      ...out[i],
+      content: content.map(part => {
+        if (part?.type !== "tool-result") return part;
+        const value = part.output?.type === "text" ? String(part.output.value) : JSON.stringify(part.output?.value ?? "");
+        if (value.length <= keep) return part;
+        const head = value.slice(0, Math.floor(keep * 0.7));
+        const tail = value.slice(value.length - Math.floor(keep * 0.3));
+        return {
+          ...part,
+          output: {
+            type: "text",
+            value: `${head}\n… (${value.length - head.length - tail.length} characters omitted to fit the context budget) …\n${tail}`,
+          },
+        };
+      }),
+    } as ModelMessage;
+    total -= before - estimateTokens(out[i]);
+  }
   return out;
 }
 
@@ -224,7 +249,8 @@ export function withTaskCatalog(
       const estimate = last?.parentId ? sent.get(last.parentId) : undefined;
       if (last?.usage?.inputTokens && estimate) scale = Math.min(1.5, Math.max(0.5, last.usage.inputTokens / estimate));
     }
-    const units = budget ? Math.floor(budget / scale) : 0;
+    // Less a 3% margin for the estimate's error on this call (the scale is the previous call's).
+    const units = budget ? Math.floor((budget * 0.97) / scale) : 0;
     const entries = input.settings.nativeTaskHistory && history ? history.entries() : undefined;
     let memory: ModelMessage[];
     if (entries && input.settings.nativeAnalysisState && !input.settings.nativeTaskEfficiency) {
