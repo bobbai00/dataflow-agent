@@ -398,6 +398,7 @@ export function buildNativeModeSystemPrompt(
                 : "Entries show each function's code once; call a function by name to reuse it, since shared functions persist with their tables."
             )
           : "") +
+        (options.definitionRegistry ? PARAMETERS_METHOD : "") +
         (options.registeredOperators ? REGISTERED_OPERATORS_METHOD : "") +
         (options.contractFlags ? CONTRACT_FLAGS_METHOD : "") +
         (options.answerFrom ? ANSWER_FROM_METHOD : "") +
@@ -472,7 +473,27 @@ Read the request in this vocabulary. "The earlier form", "the initial definition
 - Comparison ("compare with the earlier ranking", "which rows moved", "does the winner change"): \`d = compare(new_table, old_table, keys=["prof"])\` gives one row per key with \`in_a\`, \`in_b\`, \`<col>_a\`, \`<col>_b\`, \`<col>_delta\`; aggregate or filter it. Never copy numbers from an earlier observation into code and never re-derive an earlier version in a new function when the version exists as a table.
 - Provenance ("which definition produced this", a result that looks inconsistent): \`explain=["table"]\` prints the lineage with the version of every definition it read and flags ancestors that read a superseded version.
 
-Keep definitions as tables: put a population into its own table (keys and the columns later tasks need) before reporting on it; put adjustable numbers into a parameters(...) table passed as an input instead of literals inside functions; when a process fits a model, return its row-level predictions or error flags as a table, and put the one-row summary in a separate table, so a later task can reuse the exact fit. When a later request contradicts an earlier definition (a unit, a ratio direction, a population), correct that definition where it was established; the graph recomputes its consumers.
+Keep definitions as tables: put a population into its own table (keys and the columns later tasks need) before reporting on it; when a process fits a model, return its row-level predictions or error flags as a table, and put the one-row summary in a separate table, so a later task can reuse the exact fit. When a later request contradicts an earlier definition (a unit, a ratio direction, a population), correct that definition where it was established; the graph recomputes its consumers.
+`;
+
+/** Adjustable values as versioned definitions. A threshold, weight or cutoff
+ * written as a literal inside a process body has no version: a later request
+ * that changes it becomes a rewrite of the body, and the graph cannot tell
+ * which value is in force (2026-09-28: 10 of 40 clean-input losses computed
+ * from a nearby definition, e.g. turn 27's weights where turn 28's applied). */
+const PARAMETERS_METHOD = `
+
+Adjustable values are parameters, not literals. When a request fixes a value a later request may change (a threshold or cutoff, weights, a top-k, bin edges, a date window, a minimum count, the choice of a variant), put it in a parameters table and pass the table to the process that uses it:
+  burden_weights = parameters(energy=0.3333, health=0.3333, race=0.3333, doc="Burden weights, equal")
+  burden = process(county_stats, burden_weights, fn=score, doc="County burden score")
+  def score(df, params):
+      w = params.iloc[0]
+      df["burden"] = w["energy"] * df["e"] + w["health"] * df["h"] + w["race"] * df["r"]
+      return df
+Values are scalars; give a list its own names (edge_1, edge_2, ...). Then:
+- A later request changes the value for good: reassign the same parameters table (burden_weights = parameters(energy=0.45, ...)). Do not edit the literal inside a function and do not write a second function with the new value; the graph recomputes every consumer and the earlier values stay a version.
+- A request asks for a result under other values without changing the default: create a second parameters table and bind or fork the result to it.
+- A request asks under the earlier values: bind the earlier version of the parameters table.
 `;
 
 const TASK_EFFICIENCY_METHOD = `
