@@ -184,13 +184,38 @@ correction by the repeat-failure throttle (`NativeValidationRepair`).
 
 - **DELTA / `native` layout** (default): the tool-call transcript. The
   assistant part carries the expressions as written; the tool result carries the
-  receipt and the observation. Observations are frozen when captured, so the
+  ordered observations, one per action, including errors and skipped actions.
+  These are a numbered text list inside one tool result, paired with the
+  original tool-call ID. Observations are frozen when captured, so the
   transcript stays an append-only prefix for the provider cache.
 - **LATEST / `opSplit`, `opBlock`**: one message per operator. Each block
   shows `Definition:` — the `def`s it uses followed by the statement as
   written — instead of the former `Inputs:` / `Properties:` JSON. A process
   body appears only in `opBlock` (or with code-in-snapshot); the statement
   alone otherwise.
+
+### Live DELTA and cache check
+
+With the backend and this branch's agent service running:
+
+```bash
+cd agent-service
+TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3071 \
+  TEXERA_AGENT_MODEL=gpt-5.6-luna bun benchmark/e2e/dataflow-actions-run.ts
+```
+
+Use the deployment's normal backend endpoint and login environment variables.
+The harness runs one real model task, then deterministic action checks against
+the engine: retrieval without execution, unchanged execution, leaf and upstream
+edits, stale retrieval, and an edit referencing a missing operator.
+
+The printed artifact directory contains the exact system prompt and tool
+definitions, each model request (`request-N.json` and a readable `.txt`), the
+trace, snapshots, provider cache-token counts, and backend execution history.
+The checks compare successive DELTA message prefixes and count backend
+executions around reads and failed actions. Debug contexts are saved separately;
+they are previews and were not sent to a model. The harness deletes its own
+workflows and computing unit once execution is confirmed finished.
 
 ## Errors
 

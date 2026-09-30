@@ -110,6 +110,7 @@ describe("ordered dataflow actions", () => {
 function session(batches: DataflowAction[][]) {
   WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
   const outcomes: DataflowActionsResult[] = [];
+  const contexts: ReturnType<typeof assembleContext>[] = [];
   let executions = 0;
   const agent = new TexeraAgent({
     agentId: "action-test",
@@ -126,6 +127,15 @@ function session(batches: DataflowAction[][]) {
             toolResults: [{ toolCallId: `t${i}`, output }],
           });
           outcomes.push(output);
+          contexts.push(
+            assembleContext(
+              agent.getVisibleReActSteps(),
+              agent.getWorkflowState(),
+              agent.getSnapshotStorage(),
+              ContextMode.DELTA,
+              { agentMode: AgentMode.NATIVE, messageLayout: "native" }
+            )
+          );
           if (input.getFinalAnswer?.() !== undefined) break;
         }
         return { text: input.getFinalAnswer?.() ?? "", messages: [], usage: {} };
@@ -148,7 +158,7 @@ function session(batches: DataflowAction[][]) {
       });
     }
   };
-  return { agent, outcomes, executions: () => executions };
+  return { agent, outcomes, contexts, executions: () => executions };
 }
 
 describe("dataflow action integration", () => {
@@ -214,6 +224,56 @@ describe("dataflow action integration", () => {
     expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("last");
     expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("edges");
     expect(JSON.stringify(s.outcomes[1].actions[1].output)).toContain("def keep(row)");
+  });
+
+  test("a missing edit input preserves independent edits and reports every skipped action in DELTA", async () => {
+    const s = session([
+      [source, { type: "execute" }, read],
+      [
+        { type: "inspect", target: "graph" },
+        {
+          type: "edit",
+          expressions: "good = limit(source, 1)\nbad = limit(missing, 1)\nblocked = limit(bad, 1)",
+          delete: [],
+        },
+        { type: "execute" },
+        { type: "retrieve", operator_id: "good" },
+      ],
+    ]);
+    await s.agent.sendMessage("Check a missing dependency.");
+    expect(s.executions()).toBe(1);
+    expect(s.outcomes[1].actions.map(a => a.status)).toEqual(["ok", "error", "skipped", "skipped"]);
+    expect(s.agent.getWorkflowState().getOperator("good")).toBeDefined();
+    expect(s.agent.getWorkflowState().getOperator("bad")).toBeUndefined();
+    expect(s.agent.getWorkflowState().getOperator("blocked")).toBeUndefined();
+    const output = (s.contexts[1].at(-1)!.content as any[])[0].output.value;
+    expect(output).toContain("missing");
+    expect(output).not.toMatch(/\bprogram\b/i);
+    expect(output.match(/^\d+\. \w+: \w+$/gm)).toEqual([
+      "1. inspect: ok",
+      "2. edit: error",
+      "3. execute: skipped",
+      "4. retrieve: skipped",
+    ]);
+  });
+
+  test("DELTA appends observations without changing prior tool frames after edits and cache reads", async () => {
+    const s = session([
+      [source, { type: "execute" }, read],
+      [read, { type: "inspect", target: "graph" }],
+      [{ type: "edit", expressions: 'source = scan("data/new.csv")', delete: [] }, { type: "execute" }, read],
+      [read],
+    ]);
+    await s.agent.sendMessage("Read, revise, and read again.");
+    for (let i = 1; i < s.contexts.length; i++) {
+      expect(s.contexts[i].slice(0, s.contexts[i - 1].length)).toEqual(s.contexts[i - 1]);
+      expect(s.contexts[i].length).toBe(s.contexts[i - 1].length + 2);
+    }
+    expect(s.executions()).toBe(2);
+    expect(JSON.stringify(s.contexts[0])).toContain("result-1");
+    expect(JSON.stringify(s.contexts[0])).not.toContain("result-2");
+    expect(JSON.stringify(s.contexts.at(-1))).toContain("result-2");
+    expect(JSON.stringify(s.contexts.at(-1))).not.toContain("# Current Dataflow");
   });
 
   test("a rejected revision stops the batch and cannot resurrect the old result on a later execute", async () => {

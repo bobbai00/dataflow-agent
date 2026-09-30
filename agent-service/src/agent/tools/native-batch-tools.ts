@@ -253,7 +253,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
         const byId = new Map<string, number>();
         for (const [index, statement] of statements.entries()) {
           if (byId.has(statement.id)) {
-            const message = `\`${statement.id}\` is assigned twice in one program; define each table once.`;
+            const message = `\`${statement.id}\` is assigned twice in one edit; define each table once.`;
             fail(byId.get(statement.id)!, message);
             fail(index, message);
           } else byId.set(statement.id, index);
@@ -304,9 +304,9 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
           if (outcomes[index]) continue;
           for (const id of inputs.get(statement.id) ?? []) {
             if (syntaxIds.has(id) && !inputs.has(id))
-              fail(index, `Input \`${id}\` did not parse in this program; dependent statement skipped.`, "blocked");
+              fail(index, `Input \`${id}\` did not parse in this edit; dependent statement skipped.`, "blocked");
             else if (!inputs.has(id) && !byId.has(id))
-              fail(index, `Input table \`${id}\` does not exist and is not defined in this program.`);
+              fail(index, `Input table \`${id}\` does not exist and is not defined in this edit.`);
           }
         }
         const visited = new Set<string>();
@@ -354,7 +354,7 @@ export function createNativeTools(state: WorkflowState, context?: ToolContext): 
             if (!outcome || outcome.status === "error" || outcome.status === "blocked") {
               fail(
                 index,
-                `Input \`${id}\` was not updated successfully in this program; dependent statement skipped.`,
+                `Input \`${id}\` was not updated successfully in this edit; dependent statement skipped.`,
                 "blocked"
               );
               return;

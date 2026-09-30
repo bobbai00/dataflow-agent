@@ -14,7 +14,9 @@ Call `dataflow(reasoning, actions)`. In `reasoning`, state the next objective an
 
 Actions run in list order. Batch actions whose arguments you already know, such as edit, execute, retrieve. If your next decision depends on returned information, wait for the result and make that decision in the next call. Read the final result before answering.
 
-Edits do not execute. A changed operator and its downstream tables need execution before their results can be retrieved. Missing or stale results are reported as unavailable. If an action fails, later actions are skipped; completed edits remain. Read the receipt to see what succeeded and repair the reported cause.
+Each call returns an ordered list of observations, one per action, marked `ok`, `error`, or `skipped`. Earlier observations stay as they were when returned.
+
+Edits do not execute. A changed operator and its downstream tables need execution before their results can be retrieved. Missing or stale results are reported as unavailable. If an action fails, later actions are skipped; completed edits remain. Read the observations to see what succeeded and repair the reported cause.
 
 ## Editing the dataflow
 
