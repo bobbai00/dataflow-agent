@@ -126,7 +126,7 @@ automatically after operator edits.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edit programs use `id = operator(input_id, ...)` over the 15-operator catalog. Input references define graph edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
+| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edits use `id = operator(input_id, ...)` over the 15-operator catalog. Input references define graph edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
 Optional pull tools in either mode, all off by default: `recallState`
@@ -135,7 +135,7 @@ Optional pull tools in either mode, all off by default: `recallState`
 the action list is the batch. Actions stop at the first failure; completed
 edits remain. Decisions based on returned results belong in the next call. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) for the
-program grammar, the operator reference and the error taxonomy, and
+expression syntax, the operator reference and the error taxonomy, and
 [native-mode/](native-mode/) for the complete system prompt, the exact tool
 definitions and the operator reference as the model receives them (generated
 from the code; `bun run render:native-reference` in `agent-service/`).
@@ -147,7 +147,7 @@ An agent created with no `settings` uses
 
 | Setting | Default | What it gives the model |
 |---|---|---|
-| `agentMode` | `native` | the expression program above; `code` is the other mode |
+| `agentMode` | `native` | the operator expressions above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `false` | opt-in `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | `false` | opt-in `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, operator contracts) in observed results |

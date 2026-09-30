@@ -134,7 +134,8 @@ test("authorized diagnostic inspection is pinned, bounded and read-only; ordinar
     actions: [
       {
         type: "edit",
-        program: 'def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer, doc="probe")',
+        expressions:
+          'def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer, doc="probe")',
         delete: [],
       },
     ],

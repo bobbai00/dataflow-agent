@@ -20,7 +20,7 @@
 /**
  * System prompts for the Texera agent. Two modes:
  *
- * - `buildNativeModeSystemPrompt` — native mode: the model writes a program of
+ * - `buildNativeModeSystemPrompt` — native mode: the model writes a set of
  *   `name = operator(...)` expressions over the catalog in `native/catalog.ts`
  *   (template `prompts/native-mode.md`; the operator reference is generated
  *   from the catalog, so prompt and parser cannot disagree).
@@ -197,7 +197,7 @@ export function buildCodeModeSystemPrompt(
 }
 
 // ============================================================================
-// NATIVE mode: a program of operator expressions over the catalog in
+// NATIVE mode: named operator expressions over the catalog in
 // native/catalog.ts. Template in prompts/native-mode.md; the operator
 // reference is generated from the same definitions the parser validates
 // against, so prompt and validator cannot drift.

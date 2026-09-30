@@ -6,18 +6,18 @@ What the agent can call, what an operator is, and how a statement becomes an eng
 
 ## Tools versus operators
 
-The model sees one **tool**: `dataflow(reasoning, actions)` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's `program`:
+The model sees one **tool**: `dataflow(reasoning, actions)` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's `expressions` string:
 
 ```python
 id = operator(input_id, ..., parameter=value, ...)
 ```
 
-- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per program.
+- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per edit.
 - **Positional arguments** are the ids of other operators, whose output tables are the inputs. The DAG edges are derived from them; there is no separate edge list.
 - **Keyword arguments** are the operator's parameters. Types are bare names (`str`, `int64`, `float64`, `bool`, `datetime`); reducers and window functions are calls (`mean("x")`, `count()`, `lag("x", 1)`).
 - **No nesting.** `limit(sort(t, by=["x"]), 1)` is refused; every intermediate table gets its own statement so it can be observed, revised and reported on.
-- **Functions** are lambdas or `def`s written in the same edit `program` and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
-- A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
+- **Functions** are lambdas or `def`s written in the same edit and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
+- An edit may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
 ## The catalog (15 operators)
 
@@ -89,7 +89,7 @@ T2 = pivot(T, index, columns, values)
     Long to wide: one row per distinct index combination, one column per distinct value of `columns`, cells from `values`. Each (index, columns) pair must occur once: aggregate first if combining is intended. Absent cells are null; null pivot keys fail. The output schema depends on the data: observe it before naming its columns downstream. Example: `wide = pivot(by_region_year, index=["region"], columns="year", values="total")`.
 
 T2 = process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")
-    Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` from this program taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.
+    Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` supplied in this edit taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.
 ```
 
 ## The three custom operators
@@ -106,7 +106,7 @@ Every custom operator carries a required `doc`: one sentence stating the logical
 
 ## What an operator looks like end to end
 
-Program statement:
+Operator expression:
 
 ```python
 positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0, doc="Keeps rows with a positive value")

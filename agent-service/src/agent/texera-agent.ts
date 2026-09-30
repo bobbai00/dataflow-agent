@@ -2393,7 +2393,10 @@ export class TexeraAgent {
                 if (item.action.type === "edit") {
                   const landed = (item.output as { operators?: Array<{ status: string }> } | undefined)?.operators;
                   if (landed?.some(op => ["added", "modified", "deleted"].includes(op.status))) {
-                    await tool.execute({ edits: item.action.program, delete: item.action.delete });
+                    // Imported action traces may predate the expressions field.
+                    const expressions =
+                      item.action.expressions ?? (item.action as unknown as { program?: string }).program;
+                    await tool.execute({ edits: expressions, delete: item.action.delete });
                   }
                 }
                 if (item.status === "error") break;
@@ -2575,7 +2578,7 @@ export class TexeraAgent {
     const input = {
       reasoning: "Load the supplied source files.",
       actions: [
-        { type: "edit", program: plan.program, delete: [] },
+        { type: "edit", expressions: plan.program, delete: [] },
         { type: "execute" },
         ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id })),
       ],

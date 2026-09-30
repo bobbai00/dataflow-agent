@@ -27,8 +27,8 @@ building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
 1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
-   two modes — **native** (default: the model writes the dataflow as a program
-   of `name = operator(...)` expressions over one operator catalog, with
+   two modes — **native** (default: the model writes the dataflow as
+   `name = operator(...)` expressions over one operator catalog, with
    `filter`/`map`/`process` carrying Python; see
    [docs/native-expression-mode.md](docs/native-expression-mode.md)) and
    **code** (every operator a free Python function) — plus a heavily
@@ -98,9 +98,9 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   (logical → physical plan) → CU-managing (allocate) → Amber engine
   (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
 - **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
-  sbt build. Tools live in `src/agent/tools/` (`dataflow` program tool and
+  sbt build. Tools live in `src/agent/tools/` (`dataflow` action tool and
   upsert for native mode, code authoring for code mode, execution,
-  inspection/recall); the native catalog, program parser and Python runtime
+  inspection/recall); the native catalog, expression parser and Python runtime
   in `src/agent/native/`; context assembly in `src/agent/context/` and
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
@@ -152,8 +152,8 @@ live in [native-mode/](native-mode/), generated from the code by
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs: **`agentMode: native`** (the expression
-program; `code` is the other mode), **`contextMode: delta`**,
+created with no `settings` runs: **`agentMode: native`** (operator
+expressions; `code` is the other mode), **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: false`** and
 **`flowEvidence: false`**. The two booleans independently control selected
 evidence in explicitly observed results; collection is compiled into each

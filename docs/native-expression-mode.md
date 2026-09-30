@@ -17,11 +17,11 @@
   ~ under the License.
 -->
 
-# Native mode: the dataflow as a program of operator expressions
+# Native mode: the dataflow as operator expressions
 
 Since 2026-09-22 the agent has two modes:
 
-- **native** (default): the model writes the dataflow as a program of
+- **native** (default): the model writes the dataflow as
   `name = operator(...)` statements over one operator catalog. Three custom
   operators carry Python: `filter` (row → bool), `map` (row → one value per
   declared column) and `process` (tables → table). The service compiles every
@@ -36,7 +36,7 @@ catalog (SQL predicates and `Compute`) and the V2 JSON batch tool are gone.
 rejected at agent creation and on PATCH, so old experiment configurations
 cannot silently become new arms.
 
-## The program
+## Editing the dataflow
 
 ```python
 def rating_value(row):
@@ -56,7 +56,7 @@ average_rating = aggregate(rated, by=["product"], average=mean("numeric_rating")
 2. Positional arguments are the input tables; keyword arguments are the
    parameters. The DAG's edges are derived from the operands, never declared
    separately.
-3. Statements may refer to tables defined later in the program or in earlier
+3. Statements may refer to tables defined later in the edit or in earlier
    calls; the shared `ToolCallScheduler` orders them. A statement whose input
    was rejected is blocked; independent statements still land.
 4. Functions are lambdas or top-level `def`s referenced by name. A `def` that
@@ -78,12 +78,12 @@ statement of the next objective; `actions` is an ordered list:
 | --- | --- | --- |
 | `inspect` graph | `target: "graph"` | operator IDs, types, and edges with ports |
 | `inspect` operator | `target: "operator"`, `operator_id`, `include_implementation` | semantic expression and inputs, plus registered Python functions when requested |
-| `edit` | `program`, `delete` | per-operator changes or validation errors |
+| `edit` | `expressions`, `delete` | per-operator changes or validation errors |
 | `execute` | none | whole-dataflow execution status and per-operator errors; valid cached results can be reused |
 | `retrieve` | `operator_id` | stored output records and enabled profiles, within result budgets |
 | `answer` | `content` | final response; ends the loop |
 
-All fields shown are required. Use an empty program or delete list when
+All fields shown are required. Use an empty expression string or delete list when
 unused. The complete schema and runnable examples are generated under
 [native-mode/](../native-mode/TOOLS.md); the exact prompt is
 [SYSTEM_PROMPT.txt](../native-mode/SYSTEM_PROMPT.txt).
@@ -94,7 +94,7 @@ For example:
 {
   "reasoning": "Count the source rows and check the result.",
   "actions": [
-    {"type": "edit", "program": "source = scan(\"data/orders.csv\")\ntotal = aggregate(source, n=count())", "delete": []},
+    {"type": "edit", "expressions": "source = scan(\"data/orders.csv\")\ntotal = aggregate(source, n=count())", "delete": []},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "total"}
   ]
@@ -169,7 +169,7 @@ those measurements instead of declarations.
 ## From text to engine
 
 ```text
-program text ──python/program_parser.py (ast, no execution)──▶ statements + defs
+edit text ──python/program_parser.py (ast, no execution)──▶ statements + defs
              ──catalog normalize + Ajv──▶ NativeOpView {type, properties, inputs, source, functions}
              ──graph checks, ToolCallScheduler──▶ applyNativeOperator (native-upsert.ts)
              ──validateNativeOperator (Python syntax + entry signature, one subprocess)
@@ -183,7 +183,7 @@ correction by the repeat-failure throttle (`NativeValidationRepair`).
 ## What the model sees
 
 - **DELTA / `native` layout** (default): the tool-call transcript. The
-  assistant part carries the program as written; the tool result carries the
+  assistant part carries the expressions as written; the tool result carries the
   receipt and the observation. Observations are frozen when captured, so the
   transcript stays an append-only prefix for the provider cache.
 - **LATEST / `opSplit`, `opBlock`**: one message per operator. Each block
@@ -205,7 +205,7 @@ The layers, in the order a statement passes through them:
 
 | Layer | Stage | Catches | Codes |
 |---|---|---|---|
-| Program parse | validate | the statement that does not parse fails at its line; dependents blocked; the rest lands | `PROGRAM_SYNTAX` |
+| Expression parse | validate | the statement that does not parse fails at its line; dependents blocked; the rest lands | `PROGRAM_SYNTAX` |
 | Argument normalizer (TypeScript) | validate | unknown keyword, enum, type, table count, undefined function, non-window function; carries the signature | `INVALID_ARGUMENTS` |
 | Runtime validate (Python, no data) | validate / compile | argument rules, Python syntax, entry signature, duplicate outputs | `*_ARGUMENT`, `*_OPTIONS`, `DTYPE`, `INPUT_PORTS`, `OPERATOR_ID`, `COLUMN_COLLISION`, `PYTHON_SYNTAX`, `CALLBACK_SIGNATURE` |
 | Runtime execute (Python, with data) | execute / contract | missing columns, value and type failures, custom-code failures, output contract | `MISSING_COLUMN`, `SCAN_*`, `CAST_INVALID_VALUE`, `FILL_TYPE`, `FILTER_NULL`, `CALLBACK_*`, `PYTHON_IMPORT`, `AGGREGATE_TYPE/RANGE`, `JOIN_TYPE/CARDINALITY`, `UNION_SCHEMA/TYPE`, `SPLIT_TYPE`, `EXPLODE_JSON/TYPE`, `UNPIVOT_TYPE`, `PIVOT_NULL_KEY/DUPLICATE`, `PROCESS_RETURN_TYPE`, `OUTPUT_SCHEMA`, `OUTPUT_VALUE_TYPE`, `ROW_CONTRACT` |
@@ -238,7 +238,7 @@ asserts the rendered receipts against a live stack.
 Defaults: `agentMode: native`, `nativeProfileCollection: true` (collection
 cannot change on an existing workflow), `dataEvidence: false`,
 `flowEvidence: false`, `contextMode: delta`. Native mode forces provider
-parallel tool calls off; the program is the batch.
+parallel tool calls off; the action list is the batch.
 
 ## Verification
 

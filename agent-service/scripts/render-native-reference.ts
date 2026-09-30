@@ -91,7 +91,7 @@ export function renderTools(): string {
     "\n## Execution rules\n\n" +
     "The whole request is validated before actions begin. Actions then run in order, stopping at the first failure; later actions are marked skipped. Completed changes remain. An edit can contain several operator statements: independent valid statements land even if another statement fails.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
-    "Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit programs define edges; changing those references replaces the corresponding edges.\n\n" +
+    "Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit expressions define edges; changing those references replaces the corresponding edges.\n\n" +
     "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n"
   );
 }
@@ -108,18 +108,18 @@ export function renderOperators(): string {
     ) +
     `## Tools versus operators
 
-The model sees one **tool**: \`dataflow(reasoning, actions)\` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's \`program\`:
+The model sees one **tool**: \`dataflow(reasoning, actions)\` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's \`expressions\` string:
 
 \`\`\`python
 id = operator(input_id, ..., parameter=value, ...)
 \`\`\`
 
-- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per program.
+- The left-hand **id** names the operator and its output table. Assigning to an existing name revises that operator in place and keeps its consumers. Names are Python identifiers that are not Python keywords and not operator names; each name is assigned once per edit.
 - **Positional arguments** are the ids of other operators, whose output tables are the inputs. The DAG edges are derived from them; there is no separate edge list.
 - **Keyword arguments** are the operator's parameters. Types are bare names (\`str\`, \`int64\`, \`float64\`, \`bool\`, \`datetime\`); reducers and window functions are calls (\`mean("x")\`, \`count()\`, \`lag("x", 1)\`).
 - **No nesting.** \`limit(sort(t, by=["x"]), 1)\` is refused; every intermediate table gets its own statement so it can be observed, revised and reported on.
-- **Functions** are lambdas or \`def\`s written in the same edit \`program\` and passed by name. Only \`filter\`, \`map\` and \`process\` take them; the function's return type is the contract (bool, dict, DataFrame).
-- A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
+- **Functions** are lambdas or \`def\`s written in the same edit and passed by name. Only \`filter\`, \`map\` and \`process\` take them; the function's return type is the contract (bool, dict, DataFrame).
+- An edit may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
 ## The catalog (${NATIVE_OPERATORS.length} operators)
 
@@ -151,7 +151,7 @@ Every custom operator carries a required \`doc\`: one sentence stating the logic
 
 ## What an operator looks like end to end
 
-Program statement:
+Operator expression:
 
 \`\`\`python
 positive = filter(typed, lambda row: row["value"] is not None and row["value"] > 0, doc="Keeps rows with a positive value")

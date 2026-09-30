@@ -105,14 +105,14 @@ export async function executeDataflowActionBatch(
       };
     }
     if (action.type === "edit") {
-      if (!action.program.trim() && !action.delete.length)
-        throw new Error("An edit needs a program or at least one operator to delete.");
+      if (!action.expressions.trim() && !action.delete.length)
+        throw new Error("An edit needs expressions or at least one operator to delete.");
       // Parsing and Python validation can await. Stage changes so a checkout
       // or cancellation during validation cannot mutate the new active graph.
       const draft = new WorkflowState();
       draft.setWorkflowContent(state.getWorkflowContent());
       const editTool = createNativeTools(draft, context).dataflow;
-      const output = await editTool.execute!({ edits: action.program, delete: action.delete }, {} as any);
+      const output = await editTool.execute!({ edits: action.expressions, delete: action.delete }, {} as any);
       assertCurrent();
       const batch = asNativeBatchResult(output);
       if (!batch) throw new Error(typeof output === "string" ? output : JSON.stringify(output));

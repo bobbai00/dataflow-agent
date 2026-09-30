@@ -21,7 +21,7 @@
  *
  *   TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3061 bun run benchmark/e2e/native-program-run.ts
  *
- * Drives the `dataflow` program tool through the debug transport: a chain with
+ * Drives the `dataflow` action tool through the debug transport: a chain with
  * a process loader, observe/hidden receipts, a cached read, an upstream
  * revision that refreshes an existing descendant, a preview window with
  * skip_lines, a statement that does not parse, a partial failure, an
@@ -111,16 +111,16 @@ function debug(
   name: string,
   args: Record<string, unknown>
 ): Promise<{ context: string; results: Record<string, any>; error?: string }> {
-  // Expand program fixtures into the public ordered-action protocol.
+  // Expand expression fixtures into the public ordered-action protocol.
   // An empty edit is a cached retrieval; deletion alone does not execute.
   if (name === "dataflow" && !("actions" in args)) {
-    const program = String(args.edits ?? "");
+    const expressions = String(args.edits ?? "");
     const remove = (args.delete ?? []) as string[];
     args = {
-      reasoning: "Check the program and its execution results.",
+      reasoning: "Check the edits and their execution results.",
       actions: [
-        ...(program || remove.length ? [{ type: "edit", program, delete: remove }] : []),
-        ...(program ? [{ type: "execute" }] : []),
+        ...(expressions || remove.length ? [{ type: "edit", expressions, delete: remove }] : []),
+        ...(expressions ? [{ type: "execute" }] : []),
         ...((args.observe ?? []) as string[]).map(operator_id => ({ type: "retrieve", operator_id })),
       ],
     };

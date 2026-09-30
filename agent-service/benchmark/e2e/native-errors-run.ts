@@ -103,16 +103,16 @@ async function observationFromService(): Promise<string> {
 }
 
 function debug(name: string, args: Record<string, unknown>): Promise<{ context: string; tool: any; error?: string }> {
-  // Expand program fixtures into the public ordered-action protocol.
+  // Expand expression fixtures into the public ordered-action protocol.
   // An empty edit is a cached retrieval; deletion alone does not execute.
   if (name === "dataflow" && !("actions" in args)) {
-    const program = String(args.edits ?? "");
+    const expressions = String(args.edits ?? "");
     const remove = (args.delete ?? []) as string[];
     args = {
-      reasoning: "Check the program and its execution results.",
+      reasoning: "Check the edits and their execution results.",
       actions: [
-        ...(program || remove.length ? [{ type: "edit", program, delete: remove }] : []),
-        ...(program ? [{ type: "execute" }] : []),
+        ...(expressions || remove.length ? [{ type: "edit", expressions, delete: remove }] : []),
+        ...(expressions ? [{ type: "execute" }] : []),
         ...((args.observe ?? []) as string[]).map(operator_id => ({ type: "retrieve", operator_id })),
       ],
     };

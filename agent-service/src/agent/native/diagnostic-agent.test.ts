@@ -41,15 +41,15 @@ async function fixture() {
   agent.metadataStore = metadata;
   Object.assign(agent.settings, { agentMode: AgentMode.NATIVE });
   agent.tools = agent.createTools();
-  // Tests describe operators as small objects; the tool receives the program.
+  // Tests describe operators as small objects; the tool receives the expressions.
   const call = async (name: string, args: any) => {
-    const program = name === "dataflow" ? programOf(args.operators as LegacySpec[]) : "";
+    const expressions = name === "dataflow" ? programOf(args.operators as LegacySpec[]) : "";
     const input =
       name === "dataflow"
         ? {
             reasoning: "Check the revision and its diagnostics.",
             actions: [
-              ...(program ? [{ type: "edit", program, delete: [] }] : []),
+              ...(expressions ? [{ type: "edit", expressions, delete: [] }] : []),
               ...(args.execute ? [{ type: "execute" }] : []),
               ...(args.observe ?? []).map((operator_id: string) => ({ type: "retrieve", operator_id })),
             ],

@@ -202,7 +202,7 @@ async function agentFixture() {
       name === "dataflow"
         ? {
             reasoning: "Validate this revision.",
-            actions: [{ type: "edit", program: args.edits, delete: args.delete ?? [] }],
+            actions: [{ type: "edit", expressions: args.edits, delete: args.delete ?? [] }],
           }
         : args;
     const result = await agent.handleDebugInput(
@@ -264,7 +264,7 @@ test("repair state survives tool rebuilding, but resets on checkout, new debug t
     runTurn: async ({ tools, onStepFinish }: any) => {
       const input = {
         reasoning: "Try the revision in a new task.",
-        actions: [{ type: "edit", program: bad, delete: [] }],
+        actions: [{ type: "edit", expressions: bad, delete: [] }],
       };
       modelResult = await tools.dataflow.execute(input);
       await onStepFinish({

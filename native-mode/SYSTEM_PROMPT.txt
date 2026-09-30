@@ -7,7 +7,7 @@ Call `dataflow(reasoning, actions)`. In `reasoning`, state the next objective an
 | Action | Effect |
 | --- | --- |
 | `inspect` | List the graph's operators and edges, or read one operator's expression and registered Python functions. |
-| `edit` | Delete the listed operators, then apply a program that creates or revises operators. |
+| `edit` | Delete the listed operators, then apply expressions that create or revise operators. |
 | `execute` | Run the current dataflow. Valid cached results may be reused. |
 | `retrieve` | Read an operator's existing table and enabled profiles. Does not execute. |
 | `answer` | Return the final response and end the loop. Must be the only action in its call. |
@@ -16,11 +16,11 @@ Actions run in list order. Batch actions whose arguments you already know, such 
 
 Edits do not execute. A changed operator and its downstream tables need execution before their results can be retrieved. Missing or stale results are reported as unavailable. If an action fails, later actions are skipped; completed edits remain. Read the receipt to see what succeeded and repair the reported cause.
 
-## Programs
+## Editing the dataflow
 
 Write one `name = operator(input, ..., parameter=value)` statement per operator. Names persist across calls. A new name creates an operator; reusing a name replaces its definition while preserving its name and downstream consumers. Input references define the edges, so changing an input rewires that dependency.
 
-Use distinct Python identifiers for table names. Assign each name once per program and write nested operations as separate statements. Statements may reference existing tables or other statements in the same program; dependencies determine their application order. A rejected statement keeps its previous definition, blocks dependent statements, and allows independent statements to land.
+Use distinct Python identifiers for table names. Assign each name once per edit and write nested operations as separate statements. Statements may reference existing tables or other statements in the same edit; dependencies determine their application order. A rejected statement keeps its previous definition, blocks dependent statements, and allows independent statements to land.
 
 `filter`, `map`, and `process` take Python functions and a required `doc` describing what the output means. Use a lambda or a top-level `def`. Include the function definitions again in each edit that uses them, and put imports inside functions. A row's missing values are `None`. Handle them explicitly. A map returns scalar values or `None` under the same keys for every row. A process returns a DataFrame with unique string column names, scalar cells, and timezone-aware datetimes.
 
@@ -95,7 +95,7 @@ When the input columns are known, build a chain and retrieve its result:
   "actions": [
     {
       "type": "edit",
-      "program": "orders = scan(\"data/orders.csv\")\ntotals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))\nranked = sort(totals, by=[(\"total\", \"desc\")])\ntop = limit(ranked, 1)",
+      "expressions": "orders = scan(\"data/orders.csv\")\ntotals = aggregate(orders, by=[\"region\"], total=sum(\"amount\"))\nranked = sort(totals, by=[(\"total\", \"desc\")])\ntop = limit(ranked, 1)",
       "delete": []
     },
     {"type": "execute"},
@@ -122,7 +122,7 @@ After a preview reveals one preamble line, revise the scan and recompute its con
 {
   "reasoning": "Skip the preamble so the scan uses the correct header, then check the revised total.",
   "actions": [
-    {"type": "edit", "program": "orders = scan(\"data/orders.csv\", skip_lines=1)", "delete": []},
+    {"type": "edit", "expressions": "orders = scan(\"data/orders.csv\", skip_lines=1)", "delete": []},
     {"type": "execute"},
     {"type": "retrieve", "operator_id": "top"}
   ]

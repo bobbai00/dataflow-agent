@@ -164,7 +164,7 @@ test("with seedSources on, a message that names its sources gets a zero-usage se
       actions: [
         {
           type: "edit",
-          program:
+          expressions:
             'roman_cities = scan("data/archeology/input/roman_cities.csv")\nnotes = scan("data/archeology/input/notes.txt", format="lines")',
           delete: [],
         },

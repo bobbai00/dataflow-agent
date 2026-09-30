@@ -82,7 +82,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "const": "edit"
               },
-              "program": {
+              "expressions": {
                 "type": "string",
                 "description": "One name = operator(...) statement per operator, plus any functions it uses. Reusing a name revises it; input references define edges."
               },
@@ -98,10 +98,10 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             },
             "required": [
               "type",
-              "program",
+              "expressions",
               "delete"
             ],
-            "description": "Delete the listed operators, then apply the expression program. Does not execute. Use an empty program or delete list when unused."
+            "description": "Delete the listed operators, then apply the operator expressions. Does not execute. Use an empty string or delete list when unused."
           },
           {
             "type": "object",
@@ -174,6 +174,6 @@ The whole request is validated before actions begin. Actions then run in order, 
 
 Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.
 
-Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit programs define edges; changing those references replaces the corresponding edges.
+Inspection returns the graph or an operator's expression, inputs and optional registered Python functions. Input references in edit expressions define edges; changing those references replaces the corresponding edges.
 
 Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.

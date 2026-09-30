@@ -545,7 +545,7 @@ describe("native prompt", () => {
           expect(prepareDataflowActions(input).error).toBeUndefined();
           for (const a of input.actions)
             if (a.type === "edit") {
-              const compiled = await compileProgram(a.program);
+              const compiled = await compileProgram(a.expressions);
               expect(compiled.errors).toEqual([]);
               for (const statement of compiled.statements) expect(statement.error, statement.source).toBeUndefined();
             }

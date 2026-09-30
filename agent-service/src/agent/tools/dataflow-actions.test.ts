@@ -29,7 +29,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { assembleContext } from "../util/context-utils";
 import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 
-const edit = { type: "edit", program: 'source = scan("data/orders.csv")', delete: [] };
+const edit = { type: "edit", expressions: 'source = scan("data/orders.csv")', delete: [] };
 
 describe("ordered dataflow actions", () => {
   test("the public tool requires a rationale and a typed action list", () => {
@@ -38,6 +38,8 @@ describe("ordered dataflow actions", () => {
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties.actions.items.anyOf).toHaveLength(6);
     expect(schema.properties.edits).toBeUndefined();
+    const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
+    expect(Object.keys(editSchema.properties)).toEqual(["type", "expressions", "delete"]);
   });
 
   test("validates the entire envelope before any action runs", () => {
@@ -152,7 +154,7 @@ function session(batches: DataflowAction[][]) {
 describe("dataflow action integration", () => {
   const source: DataflowAction = {
     type: "edit",
-    program: 'source = scan("data/orders.csv")\nlast = limit(source, 1)',
+    expressions: 'source = scan("data/orders.csv")\nlast = limit(source, 1)',
     delete: [],
   };
   const read: DataflowAction = { type: "retrieve", operator_id: "last" };
@@ -177,7 +179,7 @@ describe("dataflow action integration", () => {
   test("editing an ancestor invalidates downstream retrieval and preserves old observations", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", program: 'source = scan("data/new.csv")', delete: [] }, read, { type: "execute" }],
+      [{ type: "edit", expressions: 'source = scan("data/new.csv")', delete: [] }, read, { type: "execute" }],
     ]);
     await s.agent.sendMessage("Revise the source.");
     expect(s.executions()).toBe(1);
@@ -201,7 +203,7 @@ describe("dataflow action integration", () => {
       [
         {
           type: "edit",
-          program: 'def keep(row):\n    return True\nkept = filter(source, keep, doc="Keeps every row")',
+          expressions: 'def keep(row):\n    return True\nkept = filter(source, keep, doc="Keeps every row")',
           delete: [],
         },
         { type: "inspect", target: "operator", operator_id: "kept", include_implementation: true },
@@ -217,7 +219,7 @@ describe("dataflow action integration", () => {
   test("a rejected revision stops the batch and cannot resurrect the old result on a later execute", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [{ type: "edit", program: "source = scan()", delete: [] }, { type: "execute" }, read],
+      [{ type: "edit", expressions: "source = scan()", delete: [] }, { type: "execute" }, read],
       [read],
     ]);
     await s.agent.sendMessage("Try a bad revision.");
@@ -228,13 +230,13 @@ describe("dataflow action integration", () => {
 });
 
 describe("action history and model loop", () => {
-  const source: DataflowAction = { type: "edit", program: 'source = scan("data/old.csv")', delete: [] };
+  const source: DataflowAction = { type: "edit", expressions: 'source = scan("data/old.csv")', delete: [] };
   const read: DataflowAction = { type: "retrieve", operator_id: "source" };
 
   test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
     const s = session([
       [source, { type: "execute" }, read],
-      [read, { type: "edit", program: 'source = scan("data/new.csv")', delete: [] }, { type: "execute" }, read],
+      [read, { type: "edit", expressions: 'source = scan("data/new.csv")', delete: [] }, { type: "execute" }, read],
     ]);
     await s.agent.sendMessage("Compare the old and new file.");
     expect(s.executions()).toBe(2);
@@ -278,7 +280,9 @@ describe("action history and model loop", () => {
   });
 
   test("import replays completed edits, skips unrun edits, and never executes", async () => {
-    const s = session([[source, read, { type: "edit", program: 'skipped = scan("data/skipped.csv")', delete: [] }]]);
+    const s = session([
+      [source, read, { type: "edit", expressions: 'skipped = scan("data/skipped.csv")', delete: [] }],
+    ]);
     await s.agent.sendMessage("Prepare the source.");
     const imported = session([]);
     await imported.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
@@ -290,6 +294,29 @@ describe("action history and model loop", () => {
         .map(op => op.operatorID)
     ).toEqual(["source"]);
     expect(imported.agent.getWorkflowState().getOperator("source")?.nativeOp?.source).toContain("data/old.csv");
+
+    // Saved traces from the previous action schema remain replayable.
+    const legacy = structuredClone(s.agent.getReActSteps());
+    const oldField = (action: any) => {
+      if (action.type === "edit") {
+        action.program = action.expressions;
+        delete action.expressions;
+      }
+    };
+    for (const step of legacy) {
+      for (const call of step.toolCalls ?? []) (call.input?.actions ?? []).forEach(oldField);
+      for (const result of step.toolResults ?? [])
+        (result.output?.actions ?? []).forEach((item: any) => oldField(item.action));
+    }
+    const importedLegacy = session([]);
+    await importedLegacy.agent.importReActSteps(legacy);
+    expect(
+      importedLegacy.agent
+        .getWorkflowState()
+        .getAllOperators()
+        .map(op => op.operatorID)
+    ).toEqual(["source"]);
+    expect(importedLegacy.executions()).toBe(0);
   });
 
   test("the real SDK sees completed results on the next request and stops immediately on Answer", async () => {
@@ -342,9 +369,9 @@ describe("action history and model loop", () => {
 test("an aborted execution cannot attach late results or run the next action", async () => {
   const s = session([
     [
-      { type: "edit", program: 'source = scan("data/orders.csv")', delete: [] },
+      { type: "edit", expressions: 'source = scan("data/orders.csv")', delete: [] },
       { type: "execute" },
-      { type: "edit", program: "never = limit(source, 1)", delete: [] },
+      { type: "edit", expressions: "never = limit(source, 1)", delete: [] },
     ],
   ]);
   (s.agent as any).delegateConfig = { workflowId: 1, computingUnitId: 1, userToken: "test" };
@@ -375,7 +402,7 @@ test("an aborted execution cannot attach late results or run the next action", a
 test("an execution failure includes the operator diagnostic and skips retrieval", async () => {
   const s = session([
     [
-      { type: "edit", program: 'source = scan("data/missing.csv")', delete: [] },
+      { type: "edit", expressions: 'source = scan("data/missing.csv")', delete: [] },
       { type: "execute" },
       { type: "retrieve", operator_id: "source" },
     ],
@@ -399,10 +426,10 @@ test("an execution failure includes the operator diagnostic and skips retrieval"
 test("LATEST preserves a retrieved table that a later action supersedes", async () => {
   const s = session([
     [
-      { type: "edit", program: 'source = scan("data/old.csv")', delete: [] },
+      { type: "edit", expressions: 'source = scan("data/old.csv")', delete: [] },
       { type: "execute" },
       { type: "retrieve", operator_id: "source" },
-      { type: "edit", program: 'source = scan("data/new.csv")', delete: [] },
+      { type: "edit", expressions: 'source = scan("data/new.csv")', delete: [] },
     ],
   ]);
   await s.agent.sendMessage("Read the old source, then revise it.");
@@ -456,7 +483,7 @@ test("the step limit reports a missing Answer instead of returning an intermedia
 });
 
 test("import does not apply an edit that failed before committing any statements", async () => {
-  const s = session([[{ type: "edit", program: 'source = scan("data/orders.csv")', delete: [] }]]);
+  const s = session([[{ type: "edit", expressions: 'source = scan("data/orders.csv")', delete: [] }]]);
   await s.agent.sendMessage("Prepare the graph.");
   const trace = structuredClone(s.agent.getReActSteps());
   const result = trace.find(step => step.toolResults?.length)!.toolResults![0]!.output as DataflowActionsResult;

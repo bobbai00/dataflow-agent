@@ -24,7 +24,7 @@ import type { NativeBatchOutcome } from "./native-batch-tools";
 export type DataflowAction =
   | { type: "inspect"; target: "graph" }
   | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
-  | { type: "edit"; program: string; delete: string[] }
+  | { type: "edit"; expressions: string; delete: string[] }
   | { type: "execute" }
   | { type: "retrieve"; operator_id: string }
   | { type: "answer"; content: string };
@@ -95,9 +95,9 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         ),
         action(
           "edit",
-          "Delete the listed operators, then apply the expression program. Does not execute. Use an empty program or delete list when unused.",
+          "Delete the listed operators, then apply the operator expressions. Does not execute. Use an empty string or delete list when unused.",
           {
-            program: {
+            expressions: {
               type: "string",
               description:
                 "One name = operator(...) statement per operator, plus any functions it uses. Reusing a name revises it; input references define edges.",
