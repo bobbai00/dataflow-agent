@@ -40,7 +40,7 @@ T2 = project(T, keep=None, drop=None, rename=None)
     Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.
 
 T2 = cast(T, column=dtype, ..., errors="raise")
-    Types: str, int64, float64, bool, datetime(format=..., tz=...). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.
+    Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes: cast(T, amount=float64). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.
 
 T2 = filter(T, fn, doc="what the predicate keeps")
     fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.

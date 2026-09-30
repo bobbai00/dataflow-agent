@@ -502,7 +502,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "cast",
     brief:
-      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
+      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Write dtype names without quotes: cast(T, amount=float64). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
     type: "Cast",
     inputs: 1,
     rowEffect: "none",

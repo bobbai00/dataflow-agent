@@ -42,6 +42,12 @@ describe("ordered dataflow actions", () => {
     expect(Object.keys(editSchema.properties)).toEqual(["type", "expressions", "delete"]);
   });
 
+  test("system-info exports the same action schema sent to the model", () => {
+    const s = session([]);
+    const exported = s.agent.getSystemInfo().tools.find(tool => tool.name === "dataflow");
+    expect(exported?.inputSchema).toEqual(asSchema(createDataflowTool().inputSchema).jsonSchema);
+  });
+
   test("validates the entire envelope before any action runs", () => {
     for (const input of [
       { edits: "source = scan('x')" },

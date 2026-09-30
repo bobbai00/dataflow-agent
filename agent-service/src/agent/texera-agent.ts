@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import type { ModelMessage } from "ai";
+import { asSchema, type ModelMessage } from "ai";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
@@ -1348,7 +1348,8 @@ export class TexeraAgent {
   } {
     const toolsInfo = Object.entries(this.tools).map(([name, toolDef]) => {
       const description = toolDef.description || "";
-      const inputSchema = toolDef.parameters || {};
+      const schema = toolDef.inputSchema ?? toolDef.parameters;
+      const inputSchema = schema ? asSchema(schema).jsonSchema : {};
       const enabled = !this.settings.disabledTools.has(name);
 
       return {
