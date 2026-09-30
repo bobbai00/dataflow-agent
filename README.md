@@ -120,18 +120,20 @@ curl -s -X DELETE $BASE/agents/$AGENT
 
 ### Modes and tools
 
-`agentMode` selects how the model builds the dataflow. Both modes execute the
-workflow after every edit and observe the results.
+`agentMode` selects how the model builds the dataflow. Native mode uses an
+ordered action list with explicit execution and retrieval. Code mode executes
+automatically after operator edits.
 
 | Mode | Tools the model sees | What one call does |
 |---|---|---|
-| `native` (default) | `dataflow` | `dataflow({edits, delete, observe})`: one call runs in a fixed order: the operators in `delete` are removed, then the `edits` statements (`id = operator(input_id, ...)` over one catalog: scan, project, cast, filter, map, aggregate, join, union, distinct, sort, limit, window, unpivot, pivot, process) create or modify operators, then the changed part of the dataflow executes, then only the tables named in `observe` are shown (errors always are). Three operators carry Python and are classified by what the function returns: `filter` (row to bool), `map` (row to the new row as a dict), `process` (tables to a DataFrame); each takes a required one-sentence `doc` stating the logical semantics of its function. |
+| `native` (default) | `dataflow` | `dataflow({reasoning, actions})`: an ordered list of `inspect`, `edit`, `execute`, `retrieve`, or `answer`. Edit programs use `id = operator(input_id, ...)` over the 15-operator catalog. Input references define graph edges. `filter`, `map`, and `process` carry Python functions and a required `doc`. Edits do not execute; retrieval reads stored results; Answer ends the loop. |
 | `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
 
 Optional pull tools in either mode, all off by default: `recallState`
 (`enableRecallTool`), `resumeFrom` (`enableResumeTool`), `compactContext`
 (`enableCompactTool`). Native mode forces provider parallel tool calls off;
-the program is the batch. See
+the action list is the batch. Actions stop at the first failure; completed
+edits remain. Decisions based on returned results belong in the next call. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) for the
 program grammar, the operator reference and the error taxonomy, and
 [native-mode/](native-mode/) for the complete system prompt, the exact tool
@@ -149,7 +151,7 @@ An agent created with no `settings` uses
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `false` | opt-in `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | `false` | opt-in `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, operator contracts) in observed results |
-| `dataflowReasoning` | `false` | the `dataflow` tool takes a required `reasoning` argument, written first: why this call and what the observed tables should show; it is replayed with the call |
+| `dataflowReasoning` | `true` | retained for archived settings; native action calls always require a brief rationale and normalize this setting to true |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxOperatorResultCellCharLimit` | `2000` | long cells are clipped and marked |

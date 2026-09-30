@@ -18,6 +18,7 @@
  */
 
 import type { PathNode } from "../../../util/context-utils";
+import { asNativeBatchResult, TOOL_NAME_DATAFLOW } from "../../../tools/native-batch-tools";
 
 /**
  * SELECT reinjection ladder — rung "thought-replay" (claude/CONTEXT-DESIGN.md §4.3).
@@ -117,6 +118,25 @@ export function buildReasoning(fullPath: PathNode[]): Reasoning {
     const actions: ReasoningAction[] = [];
     calls.forEach((tc, i) => {
       const inp = (tc.input ?? {}) as Record<string, unknown>;
+      const batch =
+        tc.toolName === TOOL_NAME_DATAFLOW
+          ? asNativeBatchResult(trs.find(tr => tr.toolCallId === tc.toolCallId)?.output)
+          : undefined;
+      if (batch) {
+        for (const op of batch.operators) {
+          if (op.status !== "added" && op.status !== "modified" && op.status !== "deleted") continue;
+          const verb = op.status === "deleted" ? "deleted" : op.status === "added" ? "created" : "modified";
+          if (verb === "deleted") {
+            known.delete(op.id);
+            opToEvent.delete(op.id);
+          } else {
+            known.add(op.id);
+            opToEvent.set(op.id, node.eventIndex);
+          }
+          actions.push({ verb, opId: op.id, status: "ok" });
+        }
+        return;
+      }
       const opId = typeof inp.operatorId === "string" ? inp.operatorId : "";
       if (!opId) return;
       let verb: ActionVerb;
@@ -134,7 +154,11 @@ export function buildReasoning(fullPath: PathNode[]): Reasoning {
       actions.push({ verb, opId, status: classifyStatus(trs[i]?.output) });
     });
 
-    const thought = compressThought(step.content);
+    const rationale = calls
+      .map(tc => tc.input?.reasoning)
+      .filter(value => typeof value === "string")
+      .join(" ");
+    const thought = compressThought(step.content || rationale);
     if (actions.length > 0 || thought.length > 0) {
       events.push({ eventIndex: node.eventIndex, thought, actions });
     }

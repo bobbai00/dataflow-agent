@@ -6,7 +6,7 @@ What the agent can call, what an operator is, and how a statement becomes an eng
 
 ## Tools versus operators
 
-The model sees one **tool**: `dataflow(edits, delete, observe)` (TOOLS.md). Operators are not tools. Every operator is one statement inside `edits`:
+The model sees one **tool**: `dataflow(reasoning, actions)` (TOOLS.md). Operators are not tools. Every operator is one statement inside an edit action's `program`:
 
 ```python
 id = operator(input_id, ..., parameter=value, ...)
@@ -16,7 +16,7 @@ id = operator(input_id, ..., parameter=value, ...)
 - **Positional arguments** are the ids of other operators, whose output tables are the inputs. The DAG edges are derived from them; there is no separate edge list.
 - **Keyword arguments** are the operator's parameters. Types are bare names (`str`, `int64`, `float64`, `bool`, `datetime`); reducers and window functions are calls (`mean("x")`, `count()`, `lag("x", 1)`).
 - **No nesting.** `limit(sort(t, by=["x"]), 1)` is refused; every intermediate table gets its own statement so it can be observed, revised and reported on.
-- **Functions** are lambdas or `def`s written in the same `edits` and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
+- **Functions** are lambdas or `def`s written in the same edit `program` and passed by name. Only `filter`, `map` and `process` take them; the function's return type is the contract (bool, dict, DataFrame).
 - A program may hold many statements, in any order; the scheduler orders them by their inputs. A statement may reference tables from earlier calls.
 
 ## The catalog (15 operators)
@@ -41,7 +41,7 @@ id = operator(input_id, ..., parameter=value, ...)
 
 Row effect is the contract the runtime enforces and flow evidence reports: `none` keeps every row in place, `drop` only removes rows, `unknown` promises nothing.
 
-## Operator reference (as it appears in the system prompt)
+## Full operator reference (the system prompt uses a compact version)
 
 `T` stands for an input table; defaults are shown.
 

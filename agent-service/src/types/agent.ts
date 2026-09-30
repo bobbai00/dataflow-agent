@@ -269,9 +269,8 @@ export interface AgentSettings {
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
-  /** Native mode: the `dataflow` tool takes a required `reasoning` argument, written
-   *  first — why this call and what the observed tables should show — which is
-   *  replayed with the call so later steps see it. Off by default. */
+  /** Retained for archived configurations. Native action calls always require
+   *  reasoning; native settings normalize this field to true. */
   dataflowReasoning: boolean;
   /** Native mode: `check:` lines under every executed operator whose own
    *  assumptions the engine found violated on the full tables (header rows,
@@ -524,7 +523,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   nativeProfileCollection: true,
   dataEvidence: false,
   flowEvidence: false,
-  dataflowReasoning: false,
+  dataflowReasoning: true,
   nativeChecks: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.

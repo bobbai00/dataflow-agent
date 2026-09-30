@@ -521,7 +521,8 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
-  test("the operator reference is generated from the catalog and every example program compiles", async () => {
+  test("all layouts describe the action contract and every JSON example validates", async () => {
+    const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
       for (const layout of [
         {},
@@ -532,125 +533,55 @@ describe("native prompt", () => {
       ]) {
         const prompt = buildNativeModeSystemPrompt(mode, layout);
         expect(prompt).not.toContain("{{");
-        expect(prompt).not.toContain("DuckDB");
-        expect(prompt).toContain(nativeCatalogText());
-        for (const def of NATIVE_OPERATORS) expect(prompt).toContain(`= ${def.signature}`);
-        expect(prompt).not.toContain("inspectError");
-        expect(prompt).toContain("observe");
+        expect(prompt).toContain("dataflow(reasoning, actions)");
+        expect(prompt).toContain(nativeCatalogText(true));
         expect(prompt.includes("recallState")).toBe("recall" in layout);
-        if (mode === ContextMode.LATEST) expect(prompt).toContain("already executed outcomes");
-        else expect(prompt).not.toContain("already executed outcomes");
-        const examples = [...prompt.matchAll(/```python\n([\s\S]*?)\n```/g)].map(m => m[1]);
-        expect(examples.length).toBeGreaterThanOrEqual(8);
-        for (const example of examples) {
-          const compiled = await compileProgram(example);
-          expect(compiled.errors, example).toEqual([]);
-          for (const s of compiled.statements) expect(s.error, s.source).toBeUndefined();
+        expect(prompt).toContain("next call");
+        expect(prompt).toContain("only action");
+        expect(prompt).not.toContain("dataflow(edits");
+        const examples = [...prompt.matchAll(/```json\n([\s\S]*?)\n```/g)].map(m => JSON.parse(m[1]));
+        expect(examples).toHaveLength(4);
+        for (const input of examples) {
+          expect(prepareDataflowActions(input).error).toBeUndefined();
+          for (const a of input.actions)
+            if (a.type === "edit") {
+              const compiled = await compileProgram(a.program);
+              expect(compiled.errors).toEqual([]);
+              for (const statement of compiled.statements) expect(statement.error, statement.source).toBeUndefined();
+            }
         }
       }
     }
   });
 
-  test("dataflowReasoning changes only the tool signature and adds one paragraph", async () => {
+  test("reasoning is always part of the native action contract", () => {
     const plain = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    const withReasoning = buildNativeModeSystemPrompt(ContextMode.DELTA, { reasoning: true });
-    expect(plain).not.toContain("`reasoning`");
-    expect(plain).toContain("`dataflow(edits, delete, observe)` is the only tool.");
-    expect(withReasoning).toContain("`dataflow(reasoning, edits, delete, observe)` is the only tool.");
-    expect(withReasoning).toContain("Write `reasoning` first");
-    expect(withReasoning).not.toContain("{{");
-    const added = withReasoning.split("\n").filter(line => !plain.split("\n").includes(line));
-    expect(added).toHaveLength(2);
+    expect(plain).toBe(buildNativeModeSystemPrompt(ContextMode.DELTA, { reasoning: true }));
+    expect(plain).toContain("reasoning");
   });
 
-  test("the prompt documents exactly the enabled evidence kinds, as meta-level information for the next step", async () => {
-    const variant = (dataEvidence: boolean, flowEvidence: boolean) =>
-      buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence, flowEvidence });
-    const none = variant(false, false);
-    expect(none).toContain("## Results and errors");
-    expect(none).toContain("`Columns:` line");
-    for (const absent of ["Data measurement", "Flow measurement", "meta-level", "Evidence lines"])
-      expect(none).not.toContain(absent);
-    const data = variant(true, false);
-    const flow = variant(false, true);
-    const both = variant(true, true);
-    for (const prompt of [data, flow, both]) {
-      expect(prompt).toContain("## Results, evidence and errors");
-      expect(prompt).toContain("meta-level information");
-      expect(prompt).toContain("Use them to decide your next step");
-      expect(prompt).not.toContain("{{");
-    }
-    expect(data).toContain("`Data measurement` lines");
-    expect(data).not.toContain("`Flow measurement` lines");
-    expect(flow).toContain("`Flow measurement` lines");
-    expect(flow).not.toContain("`Data measurement` lines");
-    expect(both).toContain("`Data measurement` lines");
-    expect(both).toContain("`Flow measurement` lines");
-    expect(both).toContain("Read them together");
-    expect(data).not.toContain("Read them together");
-    // Only the results section differs between the variants.
-    const outside = (prompt: string) => prompt.replace(/## Results[\s\S]*?\n\nErrors name/, "");
-    expect(outside(both)).toBe(outside(none));
+  test("only enabled evidence kinds are described", () => {
+    const data = buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence: true });
+    const flow = buildNativeModeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
+    const both = buildNativeModeSystemPrompt(ContextMode.DELTA, { dataEvidence: true, flowEvidence: true });
+    const none = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    expect(data).toContain("Data measurement");
+    expect(data).not.toContain("Flow measurement");
+    expect(flow).toContain("Flow measurement");
+    expect(flow).not.toContain("Data measurement");
+    expect(both).toContain("Data measurement");
+    expect(both).toContain("Flow measurement");
+    expect(none).not.toContain("Data measurement");
+    expect(none).not.toContain("Flow measurement");
   });
 
-  test("the principles section carries the script agent's guidance, adapted to operators", () => {
+  test("the prompt stays concise, generic, and documents result freshness", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    const section = prompt.slice(prompt.indexOf("## Principles"), prompt.indexOf("## Semantics to keep in mind"));
-    for (const principle of [
-      "One operator, one operation",
-      "Messy files",
-      "Suspicious column names mean a bad parse",
-      "look like data values",
-      "Normalize before grouping or joining",
-      "Dedupe before counting concatenated data",
-      "Duplicate column names after re-headering",
-      "Numeric edge cases",
-      "Units and format",
-      "Late rounding",
-      "Plausibility checks",
-      "Load everything relevant, then subset",
-    ])
-      expect(section, principle).toContain(principle);
-  });
-
-  test("the prompt carries no benchmark-specific files, columns or domains", () => {
-    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA).toLowerCase();
-    for (const token of [
-      "wildfire",
-      "noaa",
-      "roman",
-      "barrington",
-      "hanson",
-      "kalapodi",
-      "sp3",
-      "acres",
-      "fire_difference",
-      "cibersort",
-      "sentinel",
-      "astronomy",
-      "archeology",
-      "biomedical",
-      "data/legal",
-      "data/environment",
-      "kramabench",
-    ]) {
-      expect(prompt.includes(token), token).toBe(false);
-    }
-  });
-
-  test("the prompt's worked examples cover the custom operators and the reference lists each operator once", () => {
-    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    for (const needle of [
-      "= filter(",
-      "= map(",
-      "= process(",
-      "fn=correlate",
-      "lambda row:",
-      'dataflow(edits="", observe=',
-    ]) {
-      expect(prompt).toContain(needle);
-    }
-    const catalog = nativeCatalogText();
-    for (const def of NATIVE_OPERATORS) expect(catalog.split(`${def.name}(`).length).toBeGreaterThanOrEqual(2);
+    expect(prompt.length).toBeLessThan(14000);
+    expect(prompt).toContain("stale");
+    expect(prompt).toContain("preview");
+    expect(prompt).toContain("None");
+    for (const token of ["kramabench", "wildfire", "biomedical", "archeology", "astronomy"])
+      expect(prompt.toLowerCase()).not.toContain(token);
   });
 });

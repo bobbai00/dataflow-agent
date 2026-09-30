@@ -143,6 +143,8 @@ export interface NativeOperatorDef {
   signature: string;
   /** One-paragraph contract shown under the signature. */
   doc: string;
+  /** Compact contract used in the action-mode prompt. */
+  brief: string;
   /** JSON schema of the normalized `properties` (Ajv-validated in the tool). */
   schema: Record<string, unknown>;
   /** Positional arguments after the input tables plus the keyword arguments → runtime properties. */
@@ -375,6 +377,8 @@ const SCAN_KEYWORDS: Record<string, string> = {
 export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "scan",
+    brief:
+      'Read a file or glob: CSV/TSV, text, Excel, HTML, JSON or Parquet. Use format="lines", "fwf" or "whitespace" for other text layouts. preview=n reads a sample of raw lines or sheet rows; use a full scan for computation. names requires header=False; all_text=True preserves codes such as 001. sheet selects an Excel sheet or HTML table; file_column records the source.',
     type: "Scan",
     inputs: 0,
     rowEffect: "create",
@@ -465,6 +469,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "project",
+    brief: "Keep or drop columns, then rename them with {old: new}. Row order and count stay unchanged.",
     type: "Project",
     inputs: 1,
     rowEffect: "none",
@@ -496,6 +501,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "cast",
+    brief:
+      'Types: str, int64, float64, bool, datetime(format=..., tz=...). Failed conversions raise an error, or become missing with errors="null". Naive datetimes need a timezone.',
     type: "Cast",
     inputs: 1,
     rowEffect: "none",
@@ -533,6 +540,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "filter",
+    brief: "fn(row) returns True to keep a row, False or None to drop it. Preserves order and columns.",
     type: "Filter",
     inputs: 1,
     rowEffect: "drop",
@@ -563,6 +571,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "map",
+    brief:
+      'fn(row) returns the whole new row as a dict. Use {**row, "new": value} to retain existing columns. One output row per input, with consistent keys and scalar values.',
     type: "Map",
     inputs: 1,
     rowEffect: "none",
@@ -586,6 +596,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "aggregate",
+    brief:
+      "One row per group; by=[] gives one row. Reducers: count(), count(col), count_distinct, sum, mean, min, max, median, stddev, first. count() counts rows; count(col) counts non-null values. Reductions skip nulls except first; an all-null sum is null. stddev is the sample standard deviation.",
     type: "Aggregate",
     inputs: 1,
     rowEffect: "collapse",
@@ -630,6 +642,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "join",
+    brief:
+      "on is a column, list of columns, or [(left_col, right_col)]. how: inner, left, right, full, cross. Null keys do not match by default. validate: many_to_many, one_to_one, one_to_many, many_to_one. Colliding right columns get suffix; output order is unspecified.",
     type: "Join",
     inputs: 2,
     rowEffect: "multiply",
@@ -684,6 +698,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "union",
+    brief:
+      "Stack tables in input order, retaining duplicates. strict requires matching schemas; align fills absent columns with null. Cast incompatible types first.",
     type: "Union",
     inputs: "many",
     rowEffect: "add",
@@ -700,6 +716,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "distinct",
+    brief:
+      'Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order.',
     type: "Distinct",
     inputs: 1,
     rowEffect: "drop",
@@ -717,6 +735,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "sort",
+    brief: 'Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last".',
     type: "Sort",
     inputs: 1,
     rowEffect: "none",
@@ -741,6 +760,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "limit",
+    brief: "Keep n rows from offset. Sort first when selecting a top-k.",
     type: "Limit",
     inputs: 1,
     rowEffect: "drop",
@@ -759,6 +779,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "window",
+    brief:
+      "Add lag(col, offset=1), lead(col, offset=1), row_number(), rank(), or dense_rank() within partitions. Ranks start at 1; output keeps input row order.",
     type: "Window",
     inputs: 1,
     rowEffect: "none",
@@ -820,6 +842,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "unpivot",
+    brief:
+      "Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types.",
     type: "Unpivot",
     inputs: 1,
     rowEffect: "add",
@@ -839,6 +863,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "pivot",
+    brief:
+      "Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names.",
     type: "Pivot",
     inputs: 1,
     rowEffect: "collapse",
@@ -858,6 +884,8 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   },
   {
     name: "process",
+    brief:
+      "Call fn with one pandas DataFrame per input, in order, and return one DataFrame. With no inputs fn loads data itself. Use for custom formats, statistics, or fitting that the other operators cannot express.",
     type: "Process",
     inputs: "many",
     rowEffect: "unknown",
@@ -893,8 +921,10 @@ export function nativeOperatorName(type: string): string {
 }
 
 /** The operator reference for the system prompt: signature + contract, one block per operator. */
-export function nativeCatalogText(): string {
-  return NATIVE_OPERATORS.map(d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${d.doc}`).join("\n\n");
+export function nativeCatalogText(compact = false): string {
+  return NATIVE_OPERATORS.map(
+    d => `${d.name === "scan" ? "T" : "T2"} = ${d.signature}\n    ${compact ? d.brief : d.doc}`
+  ).join("\n\n");
 }
 
 /** Split a call's positional arguments into input tables (by arity) and the rest.

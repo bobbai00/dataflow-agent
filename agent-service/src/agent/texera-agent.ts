@@ -123,6 +123,8 @@ import {
   shouldNudge,
 } from "./answer-grounding";
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
+import { createDataflowTool, asDataflowActionsResult } from "./tools/dataflow-actions";
+import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
 import {
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
@@ -356,6 +358,7 @@ export class TexeraAgent {
   private tools: Record<string, any>;
 
   private abortController: AbortController | null = null;
+  private nativeActionAnswer: string | undefined;
 
   private workflowChangeSubscription: Subscription | null = null;
 
@@ -383,6 +386,7 @@ export class TexeraAgent {
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
       systemPrompt: this.systemPrompt,
+      parallelToolCalls: DEFAULT_AGENT_SETTINGS.agentMode !== AgentMode.NATIVE,
     };
 
     this.tools = this.createTools();
@@ -668,8 +672,7 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      // NATIVE: the one `dataflow` tool (edits, deletes, observations).
-      Object.assign(tools, createNativeTools(this.workflowState, context));
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool();
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -742,6 +745,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         dataflowReasoning: this.settings.dataflowReasoning === true,
+        nativeProfileCollection: this.settings.nativeProfileCollection,
         nativeChecks: this.settings.nativeChecks === true,
       },
     };
@@ -1512,6 +1516,7 @@ export class TexeraAgent {
     }
     if (this.settings.agentMode === AgentMode.NATIVE) {
       this.settings.parallelToolCalls = false;
+      this.settings.dataflowReasoning = true;
     }
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
@@ -1820,6 +1825,7 @@ export class TexeraAgent {
   ): Promise<AgentMessageResult> {
     const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     let stepIndex = 0;
+    this.nativeActionAnswer = undefined;
 
     await this.refreshWorkflowFromBackend();
 
@@ -1882,6 +1888,8 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
+          requireToolCall: this.settings.agentMode === AgentMode.NATIVE,
+          getFinalAnswer: () => this.nativeActionAnswer,
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -2073,6 +2081,7 @@ export class TexeraAgent {
             messageSource: "feedback",
           });
           this.head = nudgeStepId;
+          this.nativeActionAnswer = undefined;
           result = await runDriverWithRetry([{ role: "user", content: nudge }]);
         }
       }
@@ -2086,7 +2095,7 @@ export class TexeraAgent {
       }
 
       return {
-        response: result.text,
+        response: this.nativeActionAnswer ?? result.text,
         messages: result.messages,
         usage: result.usage,
         stopped: false,
@@ -2373,6 +2382,24 @@ export class TexeraAgent {
             continue;
           }
           try {
+            if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(tc.input?.actions)) {
+              const saved = asDataflowActionsResult(
+                step.toolResults?.find(r => r.toolCallId === tc.toolCallId)?.output
+              );
+              // Replay recorded edits only. Never execute a saved workflow or
+              // apply an action that the original run skipped after a failure.
+              for (const item of saved?.actions ?? []) {
+                if (item.status === "pending" || item.status === "skipped") break;
+                if (item.action.type === "edit") {
+                  const landed = (item.output as { operators?: Array<{ status: string }> } | undefined)?.operators;
+                  if (landed?.some(op => ["added", "modified", "deleted"].includes(op.status))) {
+                    await tool.execute({ edits: item.action.program, delete: item.action.delete });
+                  }
+                }
+                if (item.status === "error") break;
+              }
+              continue;
+            }
             await tool.execute(tc.input);
           } catch (err) {
             this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: tool threw, continuing");
@@ -2545,7 +2572,14 @@ export class TexeraAgent {
     if (!tool || typeof tool.execute !== "function") return false;
     const stepId = this.generateStepId();
     const toolCallId = `call-${stepId}-seed`;
-    const input = { edits: plan.program, observe: plan.observe };
+    const input = {
+      reasoning: "Load the supplied source files.",
+      actions: [
+        { type: "edit", program: plan.program, delete: [] },
+        { type: "execute" },
+        ...plan.observe.map(operator_id => ({ type: "retrieve", operator_id })),
+      ],
+    };
     let output: unknown;
     let isError = false;
     try {
@@ -2589,6 +2623,58 @@ export class TexeraAgent {
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
     overrides?: { maxChars?: number }
   ): Promise<void> {
+    const actions = (toolResults ?? []).map(tr => asDataflowActionsResult(tr.output)).filter(r => r !== undefined);
+    if (actions.length && this.head) {
+      const stepId = this.head;
+      if (actions.length > 1) {
+        for (const result of actions) {
+          result.status = "error";
+          result.error =
+            "Use one dataflow call per turn, with all actions in its ordered actions list. No actions were run.";
+          for (const item of result.actions) {
+            item.status = "skipped";
+            item.output = result.error;
+          }
+        }
+      }
+      for (const result of actions) {
+        if (actions.length > 1) continue;
+        await executeDataflowActionBatch(result, {
+          state: this.workflowState,
+          storage: this.snapshotStorage,
+          stepId,
+          settings: {
+            ...this.settings,
+            maxOperatorResultCharLimit: overrides?.maxChars ?? this.settings.maxOperatorResultCharLimit,
+          },
+          context: {
+            metadataStore: this.metadataStore,
+            nativeValidationRepair: this.nativeValidationRepair,
+            settings: this.settings,
+          },
+          execute: () => this.executePostStepChanges([], [], true),
+          edited: ids => this.recordVersionsFor(ids),
+          isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
+          signal: this.abortController?.signal,
+        });
+        if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
+      }
+      const step = this.stepsById.get(stepId);
+      if (step) {
+        step.operatorAccess = computeOperatorAccess(step.toolCalls, step.toolResults);
+        for (const tr of step.toolResults ?? []) {
+          const result = asDataflowActionsResult(tr.output);
+          if (result) tr.isError = result.status === "error";
+        }
+        if (this.nativeActionAnswer !== undefined) {
+          step.content = this.nativeActionAnswer;
+          step.isEnd = true;
+        }
+        this.stepCallback?.(step);
+      }
+      this.snapshotCallback?.(stepId, this.workflowState.getWorkflowContent());
+      return;
+    }
     const owningStepId = this.head;
     const owningSignal = this.abortController?.signal;
     const requested = batchObservedIds({ toolCalls, toolResults } as Pick<ReActStep, "toolCalls" | "toolResults">);
@@ -2656,7 +2742,8 @@ export class TexeraAgent {
 
   private async executePostStepChanges(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
-    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined
+    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
+    executeAll = false
   ): Promise<void> {
     if (!toolCalls || !toolResults) return;
 
@@ -2679,12 +2766,15 @@ export class TexeraAgent {
       const operatorId = (tc.input as any)?.operatorId;
       if (operatorId) editedOpIds.push(operatorId);
     }
-    if (editedOpIds.length === 0) return;
+    if (editedOpIds.length === 0 && !executeAll) return;
     if (this.head && this.settings.agentMode === AgentMode.NATIVE) {
       this.snapshotStorage.clearNativeRejectedEdits(this.head, editedOpIds);
     }
     const execConfig = this.buildExecutionConfig();
-    if (!execConfig) return;
+    if (!execConfig) {
+      if (executeAll) throw new Error("Execution is unavailable: this agent has no backend workflow connection.");
+      return;
+    }
 
     // WRITE THROUGH TO THE VERSION STORE — every mode. The store is the only
     // place a version is a thing rather than an inference; recording here (on
@@ -2703,6 +2793,7 @@ export class TexeraAgent {
     // trying to "fix" an operator that's actually working. In serial mode this
     // didn't surface because `A` was a sink at the moment of its own edit.
     const targets = new Set<string>();
+    if (executeAll) for (const op of this.workflowState.getAllOperators()) targets.add(op.operatorID);
     for (const opId of editedOpIds) {
       targets.add(opId);
       if (this.settings.agentMode === AgentMode.NATIVE) {
@@ -2847,6 +2938,7 @@ export class TexeraAgent {
       }
     }
     persistBlocked();
+    if (executeAll && failure) throw new Error(failure);
   }
 
   /**
@@ -2907,6 +2999,7 @@ export class TexeraAgent {
     error?: string;
   }> {
     this.abortController = new AbortController();
+    this.nativeActionAnswer = undefined;
     this.state = AgentStateEnum.GENERATING;
 
     try {
@@ -3026,7 +3119,7 @@ export class TexeraAgent {
       return {
         kind: "function_call",
         stopped: false,
-        error: isError ? String(output) : undefined,
+        error: asDataflowActionsResult(output)?.error ?? (isError ? String(output) : undefined),
       };
     } finally {
       this.abortController = null;

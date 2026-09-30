@@ -41,6 +41,7 @@ import { ToolCallScheduler } from "./tool-call-scheduler";
 import { parseNativeDiagnostic, formatNativeDiagnostic, type NativeDiagnostic } from "../native/diagnostics";
 import { NativeValidationRepair } from "../native/validation-repair";
 import { applyNativeOperator, deleteNativeOperator } from "./native-upsert";
+import { asDataflowActionsResult } from "./dataflow-actions";
 
 export const TOOL_NAME_DATAFLOW = "dataflow";
 
@@ -58,7 +59,7 @@ export interface NativeBatchOutcome {
 /** Stored as the tool result on the owning ReAct event. Observation choices
  * are event facts, never mutable preferences on an operator. */
 export interface NativeBatchResult {
-  kind: "native-batch";
+  kind: "native-batch" | "dataflow-actions";
   operators: NativeBatchOutcome[];
   observe: string[];
   observationErrors: string[];
@@ -67,7 +68,11 @@ export interface NativeBatchResult {
 export function asNativeBatchResult(output: unknown): NativeBatchResult | undefined {
   if (!output || typeof output !== "object") return undefined;
   const r = output as NativeBatchResult;
-  return r.kind === "native-batch" && Array.isArray(r.operators) && Array.isArray(r.observe) ? r : undefined;
+  return (r.kind === "native-batch" || r.kind === "dataflow-actions") &&
+    Array.isArray(r.operators) &&
+    Array.isArray(r.observe)
+    ? r
+    : undefined;
 }
 
 export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResults">): NativeBatchResult[] {
@@ -79,7 +84,11 @@ export function nativeBatchResults(step: Pick<ReActStep, "toolCalls" | "toolResu
 }
 
 export function batchObservedIds(step: Pick<ReActStep, "toolCalls" | "toolResults">): Set<string> | undefined {
-  const results = nativeBatchResults(step);
+  const results = nativeBatchResults(step).filter(result => {
+    const actions = asDataflowActionsResult(result);
+    // Structural inspection and answering do not change which tables were read.
+    return !actions || actions.actions.some(item => ["edit", "execute", "retrieve"].includes(item.action.type));
+  });
   return results.length ? new Set(results.flatMap(r => r.observe)) : undefined;
 }
 

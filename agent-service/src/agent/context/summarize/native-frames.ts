@@ -213,6 +213,7 @@ function extractThought(head: string): string {
 function ownOutcome(step: ReActStep | undefined, toolCallId: string): string {
   const r = step?.toolResults?.find(x => x.toolCallId === toolCallId);
   if (!r) return "";
+  if (r.output?.kind === "dataflow-actions") return `dataflow-actions: ${r.output.status}`;
   const out = typeof r.output === "string" ? r.output : JSON.stringify(r.output ?? "");
   const first = out.trim().split("\n")[0]?.trim() ?? "";
   return first.slice(0, 300);

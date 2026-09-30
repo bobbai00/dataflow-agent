@@ -270,6 +270,29 @@ export class WorkflowSnapshotStorage {
     return snapshot;
   }
 
+  /** Advance the owning snapshot while an ordered action batch is running.
+   * Only the unfinished leaf may change. Previously returned action outputs
+   * are separate frozen values; ancestors are never rewritten. */
+  updatePendingWorkflow(reactStepId: string, workflow: WorkflowContent): void {
+    const id = this.snapshotByReactStepId.get(reactStepId);
+    if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
+    const snapshot = this.snapshots.get(id)!;
+    if (snapshot.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
+      throw new Error("Cannot change a completed snapshot");
+    const stale = computeStaleResultOps(snapshot.workflow, workflow);
+    const present = new Set(workflow.operators.map(op => op.operatorID));
+    for (const operatorId of snapshot.results.keys())
+      if (stale.has(operatorId) || !present.has(operatorId)) snapshot.results.delete(operatorId);
+    const owned = structuredClone(workflow);
+    snapshot.workflow = freezeSnapshotValue(owned);
+    if (snapshot.nativeRejectedEdits)
+      snapshot.nativeRejectedEdits = freezeSnapshotValue(
+        Object.fromEntries(
+          Object.entries(snapshot.nativeRejectedEdits).filter(([operatorId]) => present.has(operatorId))
+        )
+      );
+  }
+
   /**
    * Record one operator's result earned by the action at `reactStepId`.
    * The write lands on the snapshot owned by `reactStepId`; descendant
@@ -468,6 +491,38 @@ export class WorkflowSnapshotStorage {
     if (!snapshotId) return;
     const snapshot = this.snapshots.get(snapshotId)!;
     for (const [id, summary] of Object.entries(snapshot.nativeRejectedEdits ?? {})) {
+      // Edits can add a new consumer while a rejected definition is pending.
+      // Give that consumer the same explicit dependency failure as existing ones.
+      const pending = [id],
+        seen = new Set(pending);
+      for (const parent of pending)
+        for (const link of snapshot.workflow.links) {
+          const child = link.target.operatorID;
+          if (link.source.operatorID !== parent || seen.has(child)) continue;
+          seen.add(child);
+          pending.push(child);
+          if (snapshot.results.has(child)) continue;
+          const op = snapshot.workflow.operators.find(item => item.operatorID === child);
+          if (!op?.nativeOp) continue;
+          const blocked: OperatorInfo = {
+            state: "Blocked",
+            resultMode: "table",
+            inputTuples: 0,
+            outputTuples: 0,
+            error:
+              "NATIVE_ERROR_V2:" +
+              JSON.stringify({
+                version: 1,
+                operatorId: child,
+                operatorRevision: op.nativeOp.revision,
+                code: "UPSTREAM_FAILED",
+                stage: "dependency",
+                message: `Not executed: upstream ${id} revision ${summary.operatorRevision} was rejected; repair it before executing this consumer.`,
+              }),
+          };
+          blocked.nativeError = this.recordNativeFailure(snapshot, op, blocked);
+          snapshot.results.set(child, { info: freezeSnapshotValue(blocked), sourceStepId: reactStepId });
+        }
       const info: OperatorInfo = {
         state: "Failed",
         resultMode: "table",

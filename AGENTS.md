@@ -142,7 +142,7 @@ results, and history carry (LongDS-Bench drives it exactly this way).
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Tools per mode: native exposes one tool, `dataflow(edits, delete, observe)`;
+Tools per mode: native exposes one tool, `dataflow(reasoning, actions)`;
 code exposes `createOrModifyOperator` and `deleteOperator`. `recallState`,
 `resumeFrom` and `compactContext` are opt-in in either mode.
 The rendered native system prompt, tool definitions and operator reference
@@ -159,18 +159,22 @@ program; `code` is the other mode), **`contextMode: delta`**,
 evidence in explicitly observed results; collection is compiled into each
 operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Native mode forces provider parallel tool calls off (the program is
+(K=10). Native mode forces provider parallel tool calls off (the action list is
 the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
-"index"` all off), and every pull tool (recall / inspect / resume / compact) is
-off. See [README.md §2](README.md) for the full table.
+"index"` all off). Optional recall, resume, and compaction tools are off;
+graph inspection is built into `dataflow`. See [README.md §2](README.md) for
+the full table.
 
 Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
 `allowedOperatorTypes`, and the old level/statistics overlays) produce an
 error, not a compatibility mapping. Schema and samples fill one result budget;
 each enabled evidence kind appends within its own budget, so evidence never
 displaces rows; a complete small table suppresses redundant data facts.
-`dataflowReasoning` (default off) adds a required `reasoning` argument to the
-`dataflow` tool.
+`dataflowReasoning` is retained for archived settings and normalized to true
+in native mode. Every call requires a brief rationale and an ordered list of
+`inspect`, `edit`, `execute`, `retrieve`, or `answer` actions. Edits do not
+execute; retrieval never executes; Answer must be the sole action and ends
+the loop. A failure skips later actions while completed edits remain.
 `inspectResult` is never exposed. See
 [docs/native-expression-mode.md](docs/native-expression-mode.md) and
 [docs/data-flow-evidence.md](docs/data-flow-evidence.md). Historical benchmark

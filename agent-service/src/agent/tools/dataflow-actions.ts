@@ -1,0 +1,228 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import Ajv from "ajv";
+import { jsonSchema, tool } from "ai";
+import type { NativeBatchOutcome } from "./native-batch-tools";
+
+export type DataflowAction =
+  | { type: "inspect"; target: "graph" }
+  | { type: "inspect"; target: "operator"; operator_id: string; include_implementation: boolean }
+  | { type: "edit"; program: string; delete: string[] }
+  | { type: "execute" }
+  | { type: "retrieve"; operator_id: string }
+  | { type: "answer"; content: string };
+
+export interface DataflowActionsInput {
+  reasoning: string;
+  actions: DataflowAction[];
+}
+
+export interface ActionOutcome {
+  status: "ok" | "error";
+  output: unknown;
+}
+
+export interface DataflowActionsResult {
+  kind: "dataflow-actions";
+  status: "pending" | "completed" | "error";
+  actions: Array<{
+    index: number;
+    action: DataflowAction;
+    status: "pending" | "ok" | "error" | "skipped";
+    output?: unknown;
+  }>;
+  // The existing snapshot renderers and access accounting use these receipts.
+  operators: NativeBatchOutcome[];
+  observe: string[];
+  observationErrors: string[];
+  error?: string;
+  answer?: string;
+}
+
+const text = { type: "string", minLength: 1, pattern: "\\S" };
+const object = (properties: Record<string, unknown>) => ({
+  type: "object",
+  additionalProperties: false,
+  properties,
+  required: Object.keys(properties),
+});
+const action = (type: DataflowAction["type"], description: string, properties = {}) => ({
+  ...object({ type: { type: "string", const: type }, ...properties }),
+  description,
+});
+
+export const DATAFLOW_ACTIONS_SCHEMA = object({
+  reasoning: {
+    ...text,
+    description: "One or two sentences: the next objective and what you expect to learn or verify.",
+  },
+  actions: {
+    type: "array",
+    minItems: 1,
+    maxItems: 32,
+    description:
+      "Actions run in order. Wait for the next turn before making a decision based on a returned result. An answer must be the only action.",
+    items: {
+      anyOf: [
+        action("inspect", "List operator IDs, kinds, and data edges with their ports. Does not execute.", {
+          target: { type: "string", const: "graph" },
+        }),
+        action(
+          "inspect",
+          "Read an operator's expression, inputs and description. Request its registered Python functions when needed.",
+          {
+            target: { type: "string", const: "operator" },
+            operator_id: text,
+            include_implementation: { type: "boolean" },
+          }
+        ),
+        action(
+          "edit",
+          "Delete the listed operators, then apply the expression program. Does not execute. Use an empty program or delete list when unused.",
+          {
+            program: {
+              type: "string",
+              description:
+                "One name = operator(...) statement per operator, plus any functions it uses. Reusing a name revises it; input references define edges.",
+            },
+            delete: { type: "array", items: text, uniqueItems: true },
+          }
+        ),
+        action(
+          "execute",
+          "Execute the current dataflow, reusing valid cached results. Returns status and errors; retrieve table contents separately."
+        ),
+        action(
+          "retrieve",
+          "Read an operator's existing output records and enabled runtime profiles. Never executes; unavailable or stale results require execute.",
+          { operator_id: text }
+        ),
+        action(
+          "answer",
+          "Return the final response and end the loop. Must be the only action; base the answer on results already received.",
+          { content: text }
+        ),
+      ],
+    },
+  },
+});
+
+const ajv = new Ajv({ allErrors: true });
+const validate = ajv.compile<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA);
+
+export const DATAFLOW_ACTIONS_DESCRIPTION =
+  "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
+  "Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. " +
+  "Batch actions whose arguments are already known. A failure stops the remaining actions; completed edits remain. " +
+  "Answer must be the only action in its call.";
+
+/** Validate first. The agent resolves this receipt after creating the step's
+ * snapshot, in onStepFinish, before another model request or stop decision.
+ * This preserves the same ownership boundary as post-step execution in code mode. */
+export function prepareDataflowActions(input: unknown): DataflowActionsResult {
+  const result: DataflowActionsResult = {
+    kind: "dataflow-actions",
+    status: "pending",
+    actions: [],
+    operators: [],
+    observe: [],
+    observationErrors: [],
+  };
+  if (!validate(input)) {
+    result.status = "error";
+    result.error = `Invalid dataflow arguments: ${ajv.errorsText(validate.errors)}`;
+    return result;
+  }
+  const request = input as DataflowActionsInput;
+  if (request.actions.some(a => a.type === "answer") && request.actions.length !== 1) {
+    result.status = "error";
+    result.error = "Answer must be the only action. Retrieve results in an earlier call before answering.";
+    return result;
+  }
+  result.actions = structuredClone(request.actions).map((a, i) => ({ index: i + 1, action: a, status: "pending" }));
+  return result;
+}
+
+export function createDataflowTool() {
+  return tool({
+    description: DATAFLOW_ACTIONS_DESCRIPTION,
+    inputSchema: jsonSchema<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA as any),
+    execute: async input => prepareDataflowActions(input),
+  });
+}
+
+export function asDataflowActionsResult(output: unknown): DataflowActionsResult | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const r = output as DataflowActionsResult;
+  return r.kind === "dataflow-actions" && Array.isArray(r.actions) ? r : undefined;
+}
+
+export async function runDataflowActions(
+  result: DataflowActionsResult,
+  run: (action: DataflowAction, index: number) => Promise<ActionOutcome>
+): Promise<void> {
+  if (result.status !== "pending") return;
+  for (const item of result.actions) {
+    if (result.error) {
+      item.status = "skipped";
+      item.output = "Not run because an earlier action failed.";
+      continue;
+    }
+    try {
+      const outcome = await run(item.action, item.index);
+      item.status = outcome.status;
+      item.output = structuredClone(outcome.output);
+      if (outcome.status === "error")
+        result.error = `Action ${item.index} (${item.action.type}) failed: ${typeof outcome.output === "string" ? outcome.output : JSON.stringify(outcome.output)}`;
+      else if (item.action.type === "answer") result.answer = item.action.content;
+    } catch (error) {
+      item.status = "error";
+      item.output = error instanceof Error ? error.message : String(error);
+      result.error = `Action ${item.index} (${item.action.type}) failed: ${item.output}`;
+    }
+  }
+  result.status = result.error ? "error" : "completed";
+}
+
+export function renderDataflowActionsResult(result: DataflowActionsResult): string {
+  if (!result.actions.length) return `[ERROR] ${result.error ?? "No actions were run."}`;
+  return result.actions
+    .map(item => {
+      let body = typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2);
+      if (item.output && typeof item.output === "object") {
+        const output = item.output as Record<string, any>;
+        if (item.action.type === "retrieve" && typeof output.text === "string") {
+          body = `Operator ${output.operator_id}${output.revision ? ` (revision ${output.revision})` : ""}\n${output.text}`;
+          if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
+        } else if ((item.action.type === "edit" || item.action.type === "execute") && Array.isArray(output.operators)) {
+          body = [
+            ...output.operators.map(
+              (op: any) =>
+                `- ${op.id}: ${op.status}${op.message ? ` — ${op.message}` : `, ${op.rows ?? "unknown"} rows; result not requested`}${op.checks?.length ? `\n${op.checks.join("\n")}` : ""}`
+            ),
+            ...(output.blocked ?? []).map((op: any) => `- ${op.id}: blocked — ${op.message}`),
+            ...(output.error ? [`Execution error: ${output.error}`] : []),
+          ].join("\n");
+        }
+      }
+      return `${item.index}. ${item.action.type}: ${item.status}\n${body ?? ""}`;
+    })
+    .join("\n\n");
+}

@@ -55,13 +55,15 @@ export class VercelToolUseDriver implements LLMDriver {
     // Summed across steps in onStepFinish; the SDK's aggregated totalUsage
     // cannot carry it because its usage schema has no such field.
     let cacheCreationTotal = 0;
+    const updatedToolOutputs = new Map<string, unknown>();
     const result = await generateText({
       model: this.model,
       system: input.systemPrompt,
       messages: input.initialMessages,
       tools: input.tools,
       temperature: this.temperature,
-      stopWhen: stepCountIs(input.maxSteps),
+      stopWhen: [stepCountIs(input.maxSteps), () => input.getFinalAnswer?.() !== undefined],
+      toolChoice: input.requireToolCall ? "required" : "auto",
       prepareStep: async ({ stepNumber, messages }) => {
         return input.prepareStep({ stepNumber, messages });
       },
@@ -87,6 +89,7 @@ export class VercelToolUseDriver implements LLMDriver {
             0
         );
         cacheCreationTotal += stepCacheCreation;
+        const before = new Map(toolResults?.map(tr => [tr.toolCallId, JSON.stringify(tr.output)]));
         await input.onStepFinish({
           text: text || "",
           reasoningText: reasoningText || undefined,
@@ -117,9 +120,22 @@ export class VercelToolUseDriver implements LLMDriver {
               }
             : undefined,
         });
+        // The SDK cloned response.messages before calling this hook. Preserve
+        // outputs completed by the agent here so the returned archive reflects
+        // the same completed actions used by the next prepareStep.
+        for (const tr of toolResults ?? []) {
+          if (JSON.stringify(tr.output) !== before.get(tr.toolCallId)) {
+            updatedToolOutputs.set(tr.toolCallId, structuredClone(tr.output));
+          }
+        }
       },
     });
 
+    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+      throw new Error(
+        "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+      );
+    }
     const finalUsage = (result as any).totalUsage || result.usage;
     const usage: TokenUsage = {
       inputTokens: finalUsage?.inputTokens ?? finalUsage?.promptTokens ?? 0,
@@ -130,8 +146,25 @@ export class VercelToolUseDriver implements LLMDriver {
       cacheCreationInputTokens: cacheCreationTotal,
     };
     return {
-      text: result.text,
-      messages: result.response.messages,
+      text: input.getFinalAnswer?.() ?? result.text,
+      messages: result.response.messages.map(message =>
+        message.role !== "tool"
+          ? message
+          : {
+              ...message,
+              content: message.content.map(part =>
+                part.type === "tool-result" && part.output.type === "json" && updatedToolOutputs.has(part.toolCallId)
+                  ? {
+                      ...part,
+                      output: {
+                        type: "json" as const,
+                        value: JSON.parse(JSON.stringify(updatedToolOutputs.get(part.toolCallId))),
+                      },
+                    }
+                  : part
+              ),
+            }
+      ),
       usage,
     };
   }

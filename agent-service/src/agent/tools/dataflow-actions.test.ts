@@ -1,0 +1,472 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+import { describe, expect, test, spyOn } from "bun:test";
+import * as executionTools from "./workflow-execution-tools";
+import { asSchema } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
+import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
+import { createDataflowTool, prepareDataflowActions, runDataflowActions } from "./dataflow-actions";
+import { TexeraAgent } from "../texera-agent";
+import { AgentMode, ContextMode } from "../../types/agent";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
+import { assembleContext } from "../util/context-utils";
+import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
+
+const edit = { type: "edit", program: 'source = scan("data/orders.csv")', delete: [] };
+
+describe("ordered dataflow actions", () => {
+  test("the public tool requires a rationale and a typed action list", () => {
+    const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
+    expect(schema.required).toEqual(["reasoning", "actions"]);
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(6);
+    expect(schema.properties.edits).toBeUndefined();
+  });
+
+  test("validates the entire envelope before any action runs", () => {
+    for (const input of [
+      { edits: "source = scan('x')" },
+      { reasoning: "", actions: [edit] },
+      { reasoning: "load", actions: [] },
+      { reasoning: "load", actions: [edit, { type: "execute", force: true }] },
+      { reasoning: "load", actions: [{ type: "retrieve", operator_id: 5 }] },
+      { reasoning: "load", actions: [edit, { type: "answer", content: "42" }] },
+    ])
+      expect(prepareDataflowActions(input).error).toBeDefined();
+  });
+
+  test("runs actions in order and never implicitly executes an edit or retrieval", async () => {
+    const called: string[] = [];
+    const result = prepareDataflowActions({
+      reasoning: "Load and read the table.",
+      actions: [edit, { type: "execute" }, { type: "retrieve", operator_id: "source" }],
+    });
+    await runDataflowActions(result, async action => {
+      called.push(action.type);
+      return { status: "ok", output: action.type };
+    });
+    expect(called).toEqual(["edit", "execute", "retrieve"]);
+    expect(result.actions.map(a => a.status)).toEqual(["ok", "ok", "ok"]);
+    expect(result.status).toBe("completed");
+    const read = prepareDataflowActions({
+      reasoning: "Read again.",
+      actions: [{ type: "retrieve", operator_id: "source" }],
+    });
+    await runDataflowActions(read, async action => {
+      called.push(action.type);
+      return { status: "ok", output: "cached" };
+    });
+    expect(called).toEqual(["edit", "execute", "retrieve", "retrieve"]);
+  });
+
+  test("a failure skips later actions and retains completed outcomes", async () => {
+    const result = prepareDataflowActions({
+      reasoning: "Run.",
+      actions: [edit, { type: "execute" }, { type: "retrieve", operator_id: "source" }],
+    });
+    await runDataflowActions(result, async action => {
+      if (action.type === "execute") throw new Error("worker unavailable");
+      return { status: "ok", output: "created" };
+    });
+    expect(result.actions.map(a => a.status)).toEqual(["ok", "error", "skipped"]);
+    expect(result.actions[0].output).toBe("created");
+    expect(result.error).toContain("worker unavailable");
+    expect(result.status).toBe("error");
+  });
+
+  test("an answer is accepted only on its own and ends the batch", async () => {
+    const result = prepareDataflowActions({
+      reasoning: "The retrieved total is 42.",
+      actions: [{ type: "answer", content: "42" }],
+    });
+    await runDataflowActions(result, async action => ({
+      status: "ok",
+      output: action.type === "answer" ? action.content : "",
+    }));
+    expect(result.answer).toBe("42");
+    expect(result.status).toBe("completed");
+  });
+});
+
+function session(batches: DataflowAction[][]) {
+  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  const outcomes: DataflowActionsResult[] = [];
+  let executions = 0;
+  const agent = new TexeraAgent({
+    agentId: "action-test",
+    modelType: "test",
+    contextAssembler: () => [],
+    driver: {
+      async runTurn(input) {
+        for (const [i, actions] of batches.entries()) {
+          const args = { reasoning: "Check the next result.", actions };
+          const output = await input.tools.dataflow.execute(args);
+          await input.onStepFinish({
+            text: "",
+            toolCalls: [{ toolName: "dataflow", toolCallId: `t${i}`, input: args }],
+            toolResults: [{ toolCallId: `t${i}`, output }],
+          });
+          outcomes.push(output);
+          if (input.getFinalAnswer?.() !== undefined) break;
+        }
+        return { text: input.getFinalAnswer?.() ?? "", messages: [], usage: {} };
+      },
+    },
+  });
+  agent.updateSettings({ agentMode: AgentMode.NATIVE });
+  (agent as any).executePostStepChanges = async (_calls: unknown, _results: unknown, explicit: boolean) => {
+    expect(explicit).toBe(true);
+    executions++;
+    for (const op of (agent as any).workflowState.getAllOperators()) {
+      (agent as any).snapshotStorage.setOperatorResult((agent as any).head, op.operatorID, {
+        state: "Completed",
+        inputTuples: 0,
+        outputTuples: 1,
+        totalRowCount: 1,
+        resultMode: "table",
+        result: [{ value: `result-${executions}` }],
+        resultSchema: [{ name: "value", type: "str" }],
+      });
+    }
+  };
+  return { agent, outcomes, executions: () => executions };
+}
+
+describe("dataflow action integration", () => {
+  const source: DataflowAction = {
+    type: "edit",
+    program: 'source = scan("data/orders.csv")\nlast = limit(source, 1)',
+    delete: [],
+  };
+  const read: DataflowAction = { type: "retrieve", operator_id: "last" };
+
+  test("edits are deferred from execution, unavailable reads fail, and later cached reads do not execute", async () => {
+    const s = session([
+      [source],
+      [read],
+      [{ type: "execute" }, read],
+      [read],
+      [{ type: "answer", content: "result-1" }],
+    ]);
+    const response = await s.agent.sendMessage("Read the last table.");
+    expect(s.executions()).toBe(1);
+    expect(s.outcomes[0].status).toBe("completed");
+    expect(s.outcomes[1].error).toContain("execute");
+    expect(JSON.stringify(s.outcomes[2])).toContain("result-1");
+    expect(JSON.stringify(s.outcomes[3])).toContain("result-1");
+    expect(response.response).toBe("result-1");
+  });
+
+  test("editing an ancestor invalidates downstream retrieval and preserves old observations", async () => {
+    const s = session([
+      [source, { type: "execute" }, read],
+      [{ type: "edit", program: 'source = scan("data/new.csv")', delete: [] }, read, { type: "execute" }],
+    ]);
+    await s.agent.sendMessage("Revise the source.");
+    expect(s.executions()).toBe(1);
+    expect(s.outcomes[1].actions.map(a => a.status)).toEqual(["ok", "error", "skipped"]);
+    expect(JSON.stringify(s.outcomes[0])).toContain("result-1");
+    const steps = s.agent.getVisibleReActSteps();
+    const messages = assembleContext(
+      steps,
+      (s.agent as any).workflowState,
+      (s.agent as any).snapshotStorage,
+      ContextMode.DELTA,
+      { agentMode: AgentMode.NATIVE, messageLayout: "native" }
+    );
+    expect(JSON.stringify(messages)).toContain("result-1");
+    expect(JSON.stringify(messages)).toContain("skipped");
+  });
+
+  test("inspection returns graph edges and registered custom code without execution", async () => {
+    const s = session([
+      [source, { type: "inspect", target: "graph" }],
+      [
+        {
+          type: "edit",
+          program: 'def keep(row):\n    return True\nkept = filter(source, keep, doc="Keeps every row")',
+          delete: [],
+        },
+        { type: "inspect", target: "operator", operator_id: "kept", include_implementation: true },
+      ],
+    ]);
+    await s.agent.sendMessage("Inspect the workflow.");
+    expect(s.executions()).toBe(0);
+    expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("last");
+    expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("edges");
+    expect(JSON.stringify(s.outcomes[1].actions[1].output)).toContain("def keep(row)");
+  });
+
+  test("a rejected revision stops the batch and cannot resurrect the old result on a later execute", async () => {
+    const s = session([
+      [source, { type: "execute" }, read],
+      [{ type: "edit", program: "source = scan()", delete: [] }, { type: "execute" }, read],
+      [read],
+    ]);
+    await s.agent.sendMessage("Try a bad revision.");
+    expect(s.executions()).toBe(1);
+    expect(s.outcomes[1].actions.map(a => a.status)).toEqual(["error", "skipped", "skipped"]);
+    expect(s.outcomes[2].status).toBe("error");
+  });
+});
+
+describe("action history and model loop", () => {
+  const source: DataflowAction = { type: "edit", program: 'source = scan("data/old.csv")', delete: [] };
+  const read: DataflowAction = { type: "retrieve", operator_id: "source" };
+
+  test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
+    const s = session([
+      [source, { type: "execute" }, read],
+      [read, { type: "edit", program: 'source = scan("data/new.csv")', delete: [] }, { type: "execute" }, read],
+    ]);
+    await s.agent.sendMessage("Compare the old and new file.");
+    expect(s.executions()).toBe(2);
+    expect(JSON.stringify(s.outcomes[1].actions[0].output)).toContain("result-1");
+    expect(JSON.stringify(s.outcomes[1].actions[3].output)).toContain("result-2");
+    expect(JSON.stringify(s.outcomes[0])).not.toContain("result-2");
+    const latest = JSON.stringify(
+      assembleContext(
+        s.agent.getVisibleReActSteps(),
+        s.agent.getWorkflowState(),
+        s.agent.getSnapshotStorage(),
+        ContextMode.LATEST,
+        { agentMode: AgentMode.NATIVE, messageLayout: "opSplit" }
+      )
+    );
+    expect(latest).toContain("result-1");
+    expect(latest).toContain("result-2");
+    const step = s.agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
+    expect(() =>
+      s.agent.getSnapshotStorage().updatePendingWorkflow(step.id, s.agent.getWorkflowState().getWorkflowContent())
+    ).toThrow("completed snapshot");
+  });
+
+  test("LATEST retains inspection output and the reason a retrieval failed", async () => {
+    const s = session([
+      [source, { type: "inspect", target: "operator", operator_id: "source", include_implementation: false }],
+      [read],
+    ]);
+    await s.agent.sendMessage("Inspect a source before running it.");
+    const messages = assembleContext(
+      s.agent.getVisibleReActSteps(),
+      s.agent.getWorkflowState(),
+      s.agent.getSnapshotStorage(),
+      ContextMode.LATEST,
+      { agentMode: AgentMode.NATIVE, messageLayout: "opSplit" }
+    );
+    const text = JSON.stringify(messages);
+    expect(text).toContain("No current result for source");
+    expect(text).toContain("Inspection @ Event");
+    expect(text).toContain("data/old.csv");
+  });
+
+  test("import replays completed edits, skips unrun edits, and never executes", async () => {
+    const s = session([[source, read, { type: "edit", program: 'skipped = scan("data/skipped.csv")', delete: [] }]]);
+    await s.agent.sendMessage("Prepare the source.");
+    const imported = session([]);
+    await imported.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
+    expect(imported.executions()).toBe(0);
+    expect(
+      imported.agent
+        .getWorkflowState()
+        .getAllOperators()
+        .map(op => op.operatorID)
+    ).toEqual(["source"]);
+    expect(imported.agent.getWorkflowState().getOperator("source")?.nativeOp?.source).toContain("data/old.csv");
+  });
+
+  test("the real SDK sees completed results on the next request and stops immediately on Answer", async () => {
+    const s = session([]);
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async options => {
+        calls++;
+        expect(options.toolChoice).toEqual({ type: "required" });
+        if (calls === 2) {
+          expect(JSON.stringify(options.prompt)).toContain("result-1");
+          expect(JSON.stringify(options.prompt)).not.toContain('"status":"pending"');
+        }
+        if (calls > 2) throw new Error("Answer must end the loop without another model request");
+        const actions = calls === 1 ? [source, { type: "execute" }, read] : [{ type: "answer", content: "result-1" }];
+        return {
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: `call-${calls}`,
+              toolName: "dataflow",
+              input: JSON.stringify({ reasoning: "Check the stored result.", actions }),
+            },
+          ],
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 5, text: 5, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+    (s.agent as any).driver = new VercelToolUseDriver({ model });
+    (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
+      assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: "native",
+      });
+    const response = await s.agent.sendMessage("Read the file and answer.");
+    expect(response.error).toBeUndefined();
+    expect(response.response).toBe("result-1");
+    expect(calls).toBe(2);
+    expect(JSON.stringify(response.messages)).not.toContain('"status":"pending"');
+    expect(s.executions()).toBe(1);
+    expect(s.agent.getVisibleReActSteps().at(-1)?.isEnd).toBe(true);
+  });
+});
+
+test("an aborted execution cannot attach late results or run the next action", async () => {
+  const s = session([
+    [
+      { type: "edit", program: 'source = scan("data/orders.csv")', delete: [] },
+      { type: "execute" },
+      { type: "edit", program: "never = limit(source, 1)", delete: [] },
+    ],
+  ]);
+  (s.agent as any).delegateConfig = { workflowId: 1, computingUnitId: 1, userToken: "test" };
+  (s.agent as any).executePostStepChanges = (TexeraAgent.prototype as any).executePostStepChanges.bind(s.agent);
+  const execute = spyOn(executionTools, "executeWorkflowAndPersist").mockImplementation(
+    async (_state, _config, options = {}) => {
+      s.agent.stop();
+      options.onResult?.("source", {
+        state: "Completed",
+        inputTuples: 0,
+        outputTuples: 1,
+        result: [{ value: "late" }],
+        resultMode: "table",
+      });
+      return { success: true, state: "Completed", opCount: 1, errorCount: 0 };
+    }
+  );
+  try {
+    const response = await s.agent.sendMessage("Prepare the workflow.");
+    expect(response.stopped).toBe(true);
+    expect(s.agent.getWorkflowState().getOperator("never")).toBeUndefined();
+    expect(s.agent.getSnapshotStorage().getOperatorResult(s.agent.getHead(), "source")).toBeUndefined();
+  } finally {
+    execute.mockRestore();
+  }
+});
+
+test("an execution failure includes the operator diagnostic and skips retrieval", async () => {
+  const s = session([
+    [
+      { type: "edit", program: 'source = scan("data/missing.csv")', delete: [] },
+      { type: "execute" },
+      { type: "retrieve", operator_id: "source" },
+    ],
+  ]);
+  (s.agent as any).executePostStepChanges = async () => {
+    s.agent.getSnapshotStorage().setOperatorResult(s.agent.getHead()!, "source", {
+      state: "Failed",
+      inputTuples: 0,
+      outputTuples: 0,
+      resultMode: "error",
+      error: "Missing source file data/missing.csv",
+    });
+    throw new Error("Engine stopped");
+  };
+  await s.agent.sendMessage("Read the file.");
+  expect(s.outcomes[0].actions.map(a => a.status)).toEqual(["ok", "error", "skipped"]);
+  expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("Missing source file");
+  expect(JSON.stringify(s.outcomes[0].actions[1].output)).toContain("Engine stopped");
+});
+
+test("LATEST preserves a retrieved table that a later action supersedes", async () => {
+  const s = session([
+    [
+      { type: "edit", program: 'source = scan("data/old.csv")', delete: [] },
+      { type: "execute" },
+      { type: "retrieve", operator_id: "source" },
+      { type: "edit", program: 'source = scan("data/new.csv")', delete: [] },
+    ],
+  ]);
+  await s.agent.sendMessage("Read the old source, then revise it.");
+  expect(s.outcomes[0].observe).toEqual([]);
+  const text = JSON.stringify(
+    assembleContext(
+      s.agent.getVisibleReActSteps(),
+      s.agent.getWorkflowState(),
+      s.agent.getSnapshotStorage(),
+      ContextMode.LATEST,
+      {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: "opSplit",
+        thoughtReplay: true,
+      }
+    )
+  );
+  expect(text).toContain("result-1");
+  expect(text).toContain("historical result; changed later in this call");
+  expect(text).toContain("Check the next result.");
+});
+
+test("the step limit reports a missing Answer instead of returning an intermediate rationale", async () => {
+  const s = session([]);
+  const model = new MockLanguageModelV3({
+    doGenerate: {
+      content: [
+        { type: "text", text: "I will inspect the graph." },
+        {
+          type: "tool-call",
+          toolCallId: "limit",
+          toolName: "dataflow",
+          input: JSON.stringify({ reasoning: "Inspect the graph.", actions: [{ type: "inspect", target: "graph" }] }),
+        },
+      ],
+      finishReason: { unified: "tool-calls", raw: "tool_calls" },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 1, text: 1, reasoning: 0 },
+      },
+      warnings: [],
+    },
+  });
+  s.agent.updateSettings({ maxSteps: 1 });
+  (s.agent as any).driver = new VercelToolUseDriver({ model });
+  (s.agent as any).contextAssembler = () => [{ role: "user", content: "Inspect the graph." }];
+  const response = await s.agent.sendMessage("Inspect the graph.");
+  expect(response.error).toContain("without an answer action");
+  expect(response.response).not.toBe("I will inspect the graph.");
+  expect(model.doGenerateCalls).toHaveLength(1);
+});
+
+test("import does not apply an edit that failed before committing any statements", async () => {
+  const s = session([[{ type: "edit", program: 'source = scan("data/orders.csv")', delete: [] }]]);
+  await s.agent.sendMessage("Prepare the graph.");
+  const trace = structuredClone(s.agent.getReActSteps());
+  const result = trace.find(step => step.toolResults?.length)!.toolResults![0]!.output as DataflowActionsResult;
+  result.status = "error";
+  result.error = "Validation was cancelled";
+  result.operators = [];
+  result.actions[0].status = "error";
+  result.actions[0].output = result.error;
+  const imported = session([]);
+  await imported.agent.importReActSteps(trace);
+  expect(imported.agent.getWorkflowState().getAllOperators()).toEqual([]);
+  expect(imported.executions()).toBe(0);
+});

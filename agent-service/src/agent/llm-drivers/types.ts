@@ -120,6 +120,10 @@ export interface DriverRunTurnInput {
    *  calls per turn. The local-react driver always supports multiple Action
    *  pairs in a single turn — this flag is effectively a no-op there. */
   parallelToolCalls: boolean;
+  /** Native action mode always finishes through an answer action. */
+  requireToolCall?: boolean;
+  /** Set by onStepFinish after the answer action has been accepted. */
+  getFinalAnswer?: () => string | undefined;
   /** Tool-call dialect for the local text-mode driver — selects which parser
    *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
    *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool

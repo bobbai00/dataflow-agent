@@ -78,7 +78,7 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   for (const key of removed) expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, key)).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).dataEvidence).toBe(false);
   expect((DEFAULT_AGENT_SETTINGS as any).flowEvidence).toBe(false);
-  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(false);
+  expect((DEFAULT_AGENT_SETTINGS as any).dataflowReasoning).toBe(true);
 });
 
 for (const key of removed) {

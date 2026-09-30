@@ -38,6 +38,7 @@ import {
 } from "../native/selection";
 import { nativeOperatorName } from "../native/catalog";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
+import { asDataflowActionsResult, renderDataflowActionsResult } from "../tools/dataflow-actions";
 import {
   clampCodeChars,
   estimateTableChars,
@@ -91,6 +92,14 @@ export function latestNativeActionReceipt(steps: ReActStep[]): string | undefine
       if (!result) continue;
       const args = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
       if (call.toolName === TOOL_NAME_DATAFLOW) {
+        const actionResult = asDataflowActionsResult(result.output);
+        if (actionResult) {
+          lines.push(
+            `dataflow ${actionResult.status}: ${actionResult.actions.map(a => `${a.index}. ${a.action.type} ${a.status}`).join("; ")}.`
+          );
+          if (actionResult.error) lines.push(actionResult.error);
+          continue;
+        }
         const batch = asNativeBatchResult(result.output);
         if (!batch) continue;
         const edits = batch.operators.length
@@ -1955,7 +1964,14 @@ function serializeTaskBody(
       }
     }
 
-    if (node.snapshot && !omitObservation) {
+    const actionResults = (node.step.toolResults ?? [])
+      .map(tr => asDataflowActionsResult(tr.output))
+      .filter(r => r !== undefined);
+    if (actionResults.length && !omitObservation) {
+      lines.push("Observation:", "", ...actionResults.map(renderDataflowActionsResult), "");
+      if (node.snapshot) setPrev(node.snapshot);
+    }
+    if (node.snapshot && !omitObservation && !actionResults.length) {
       // Observation = the execution outcome of the Action: a per-operator list.
       // Each observation uses the same evidence controls as LATEST. Every
       // operator that CHANGED or
@@ -2247,6 +2263,34 @@ function buildInspectionsSection(path: PathNode[]): string | undefined {
     const calls = step.toolCalls ?? [];
     const results = step.toolResults ?? [];
     calls.forEach((tc, i) => {
+      const actionResult = asDataflowActionsResult(results.find(r => r.toolCallId === tc.toolCallId)?.output);
+      if (actionResult) {
+        for (const item of actionResult.actions) {
+          if (
+            item.action.type === "retrieve" &&
+            item.status === "ok" &&
+            (item.output as { superseded_in_call?: boolean })?.superseded_in_call
+          ) {
+            pulls.push({
+              eventIndex: node.eventIndex,
+              toolName: "retrieve",
+              operatorId: item.action.operator_id,
+              argsSummary: "historical result; changed later in this call",
+              output: JSON.stringify(item.output, null, 2),
+            });
+            continue;
+          }
+          if (item.action.type !== "inspect") continue;
+          pulls.push({
+            eventIndex: node.eventIndex,
+            toolName: "inspect",
+            operatorId: item.action.target === "graph" ? "graph" : item.action.operator_id,
+            argsSummary: item.status,
+            output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
+          });
+        }
+        return;
+      }
       if (tc.toolName !== "inspectResult" && tc.toolName !== "inspectError") return;
       const inp = (tc.input ?? {}) as Record<string, unknown>;
       const parts: string[] = [];
@@ -3139,6 +3183,15 @@ function renderNativeToolCall(
   createFlags?: Map<string, boolean>
 ): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
+  if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(inp.actions)) {
+    return [
+      "- dataflow",
+      `  reasoning: ${String(inp.reasoning ?? "")}`,
+      ...JSON.stringify(inp.actions, null, 2)
+        .split("\n")
+        .map(line => `  ${line}`),
+    ];
+  }
   const edits = typeof inp.edits === "string" ? inp.edits : typeof inp.program === "string" ? inp.program : undefined;
   if (tc.toolName === TOOL_NAME_DATAFLOW && edits !== undefined) {
     // The statements exactly as written; the receipt below says what landed.

@@ -204,7 +204,7 @@ describe("native dataflow tool", () => {
     expect(agent.getSettings().parallelToolCalls).toBe(false);
     expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
     expect(agent.getSettings().systemPrompt).toContain("= filter(T, fn");
-    expect(agent.getSettings().systemPrompt).toContain("observe");
+    expect(agent.getSettings().systemPrompt).toContain("retrieve");
     agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
     expect((agent as any).tools.createOrModifyOperator).toBeDefined();
     expect((agent as any).tools.dataflow).toBeUndefined();

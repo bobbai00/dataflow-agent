@@ -71,23 +71,62 @@ fails only its statement.
 
 ## The tool
 
-`dataflow({ edits, delete, observe })` is the only tool. A call runs four
-steps in a fixed order, and the prompt tells the model so:
+Native mode exposes `dataflow({reasoning, actions})`. `reasoning` is a short
+statement of the next objective; `actions` is an ordered list:
 
-1. `delete`: ids of operators to remove. Refused while another operator that
-   survives the call still reads the deleted one (a consumer deleted or
-   re-pointed in the same call counts as handled).
-2. `edits`: the statements above (create or modify operators) plus the `def`s
-   they use. Empty when the call only deletes or re-reads cached results.
-3. Execution: new and modified operators run with everything downstream of
-   them; untouched operators keep their results.
-4. `observe`: the ids whose table contents the model wants to see. Everything
-   else shows only a receipt (`executed, N rows; result not requested`).
-   Errors are always shown.
+| Action | Arguments | Result |
+| --- | --- | --- |
+| `inspect` graph | `target: "graph"` | operator IDs, types, and edges with ports |
+| `inspect` operator | `target: "operator"`, `operator_id`, `include_implementation` | semantic expression and inputs, plus registered Python functions when requested |
+| `edit` | `program`, `delete` | per-operator changes or validation errors |
+| `execute` | none | whole-dataflow execution status and per-operator errors; valid cached results can be reused |
+| `retrieve` | `operator_id` | stored output records and enabled profiles, within result budgets |
+| `answer` | `content` | final response; ends the loop |
 
-There is no separate delete or inspection tool: a rejected edit's diagnostic
-travels in the receipt, and a repeated identical resubmission is paused until
-corrected arguments land.
+All fields shown are required. Use an empty program or delete list when
+unused. The complete schema and runnable examples are generated under
+[native-mode/](../native-mode/TOOLS.md); the exact prompt is
+[SYSTEM_PROMPT.txt](../native-mode/SYSTEM_PROMPT.txt).
+
+For example:
+
+```json
+{
+  "reasoning": "Count the source rows and check the result.",
+  "actions": [
+    {"type": "edit", "program": "source = scan(\"data/orders.csv\")\ntotal = aggregate(source, n=count())", "delete": []},
+    {"type": "execute"},
+    {"type": "retrieve", "operator_id": "total"}
+  ]
+}
+```
+
+The request is validated before any action runs. Actions run in order and
+stop at the first failure; later actions are marked skipped. Completed
+changes remain. Within an edit, deletion happens first and independent
+valid statements still land when another statement fails. Repeated identical
+invalid revisions pause until corrected arguments arrive.
+
+Only `execute` runs the workflow. An edit invalidates the changed operator's
+results and its downstream results. Retrieval never reruns the graph and
+reports missing or stale results explicitly. Each retrieved table is pinned
+to the version that existed at that point in the action list.
+
+A decision that uses returned information belongs in the next call. `answer`
+must be the only action in its call, so the model receives the retrieved
+result before producing its answer.
+
+Edges remain part of the expression language: input references create them.
+Revising an input removes the old dependency and creates its replacement;
+reusing an operator ID keeps downstream consumers attached.
+
+### Compatibility
+
+This branch replaces the public `edits/delete/observe` envelope. Existing
+traces can still be imported: legacy edits replay through the original parser,
+and action traces replay only edits that actually ran. Import never executes
+saved workflows. Historical benchmark arms must use their recorded revision.
+Code-mode tools keep their existing behavior.
 
 ## Operators
 

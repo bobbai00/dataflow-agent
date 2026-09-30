@@ -43,14 +43,24 @@ async function fixture() {
   agent.tools = agent.createTools();
   // Tests describe operators as small objects; the tool receives the program.
   const call = async (name: string, args: any) => {
+    const program = name === "dataflow" ? programOf(args.operators as LegacySpec[]) : "";
     const input =
-      name === "dataflow" && Array.isArray(args?.operators)
-        ? { edits: programOf(args.operators as LegacySpec[]), ...(args.observe ? { observe: args.observe } : {}) }
+      name === "dataflow"
+        ? {
+            reasoning: "Check the revision and its diagnostics.",
+            actions: [
+              ...(program ? [{ type: "edit", program, delete: [] }] : []),
+              ...(args.execute ? [{ type: "execute" }] : []),
+              ...(args.observe ?? []).map((operator_id: string) => ({ type: "retrieve", operator_id })),
+            ],
+          }
         : args;
     const result = await agent.handleDebugInput(
       `Function(name=${JSON.stringify(name)}, arguments=${JSON.stringify(JSON.stringify(input))})`
     );
-    expect(result.error).toBeUndefined();
+    const output = agent.getAllSteps().find((step: any) => step.id === agent.getHead()).toolResults[0].output;
+    expect(result.error).toBe(output.error);
+    expect(output.error ?? "").not.toContain("Invalid dataflow arguments");
     return agent.getHead() as string;
   };
   await agent.handleDebugInput("Test a failing revision and its repair.");
@@ -240,6 +250,7 @@ test("an upstream rerun preserves rejected definitions, independent execution, a
   try {
     const head = await call("dataflow", {
       operators: [{ op: "scan", id: "source", files: "data/revised.csv" }],
+      execute: true,
       observe: [],
     });
     expect(targetSets).toEqual([["source", "independent"]]);
@@ -251,9 +262,10 @@ test("an upstream rerun preserves rejected definitions, independent execution, a
     // DAG hash while the rejected attempt was pending. This is still a repair.
     const repaired = await call("dataflow", {
       operators: [{ ...bad, func: "def apply(row):\n    return row['x'] > 0" }],
+      execute: true,
       observe: ["final"],
     });
-    expect(targetSets[1]).toEqual(["answer", "final"]);
+    expect(targetSets[1]).toEqual(["source", "answer", "final", "independent"]);
     expect(agent.snapshotStorage.getAssociatedSnapshot(repaired).nativeRejectedEdits?.answer).toBeUndefined();
     expect(agent.snapshotStorage.inspectNativeError(repaired, { operatorId: "answer" }).found).toBe(false);
     expect(agent.snapshotStorage.getOperatorResult(repaired, "final")?.result).toEqual([{ x: 7 }]);

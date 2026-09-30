@@ -130,13 +130,19 @@ test("authorized diagnostic inspection is pinned, bounded and read-only; ordinar
   // A variadic loader passes the catalog's arity check and fails Python's
   // signature contract: a per-statement, revision-pinned attempt diagnostic.
   const args = {
-    edits: 'def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer, doc="probe")',
-    observe: [],
+    reasoning: "Check the loader's signature.",
+    actions: [
+      {
+        type: "edit",
+        program: 'def load_answer(*ORIGINAL_FAILURE):\n    return None\nanswer = process(fn=load_answer, doc="probe")',
+        delete: [],
+      },
+    ],
   };
   const debug = await createdAgent.handleDebugInput(
     `Function(name='dataflow', arguments=${JSON.stringify(JSON.stringify(args))})`
   );
-  expect(debug.error).toBeUndefined();
+  expect(debug.error).toContain("CALLBACK_SIGNATURE");
   requests = [];
   const response = await post(`/${id}/inspect-error`, { operatorId: "answer" }, token());
   expect(response.status).toBe(200);

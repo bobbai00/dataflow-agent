@@ -218,87 +218,45 @@ export interface NativePromptLayoutOptions {
   checks?: boolean;
 }
 
-/** What `check:` lines are, when they are on. */
-const CHECKS_PARAGRAPH =
-  "\n\nA `check:` line under an operator reports one of three findings the engine made on the full tables: a scan's header row reads as data (with the nearby row that reads as a header), a sum, mean or count reads records that several source files each list once, or a step inside a process function returned an empty table or combined tables that list the same records. Fix the cause or state why the task wants it as it is. The engine checks nothing else: an operator without a `check:` line is not verified, so keep checking your tables as you would without these lines.";
-
-/** What evidence lines are and how to use them, for the kinds that are enabled.
- * Nothing is added when both are off: the prompt never describes lines the
- * agent will not see. */
+/** Explain only the evidence families enabled for this agent. */
 export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEvidence?: boolean }): string {
-  const data = options.dataEvidence === true;
-  const flow = options.flowEvidence === true;
-  if (!data && !flow) return "";
-  const parts = [
-    "Evidence lines follow the rows. They are meta-level information: measurements the engine took about the table and about the operator that produced it, not rows of the data and not an answer. Each kind has a character budget of its own and never replaces rows. Use them to decide your next step: whether the table is the one you meant to build, whether a parse, filter, join or grouping did what you intended, and what to check or fix before building on it.",
-  ];
-  if (data)
+  const parts: string[] = [];
+  if (options.dataEvidence)
     parts.push(
-      "`Data measurement` lines describe the observed table itself: per column the null, non-null and distinct counts, the value range and the most frequent values; per table, duplicate rows and all-null rows or columns. `full=N rows` covers the whole output; `partial prefix=n/N rows` covers only the processed prefix. A value list marked non-exhaustive is not the complete set, and unknown is not zero. They are left out when the complete table is shown, because the rows already say it. Typical uses: a key with fewer distinct values than rows is not unique, so check it before a lookup join; nulls in a column you will aggregate change the denominator; a range or value list that does not fit what the column should hold (years outside the task's span, numbers stored as text, spelling variants of one category) means the scan or an earlier step needs fixing."
+      "Data measurement lines report null and distinct counts, ranges, and value frequencies. Read their coverage labels: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero."
     );
-  if (flow)
+  if (options.flowEvidence)
     parts.push(
-      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Some lines follow from what an operator means: a scan says when a header row reads as data and which nearby row reads as a header; an aggregate says when a distinct count counts a column that is unique on every row (so it counts rows, not a coarser unit), when its group key determines a column in most groups but not all (so some groups pool different entities), and which columns no operator has read on the way to it, with their values over the rows it reduces (a flag such as an exclusion column that was never applied). Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls; an unread flag or a pooled group means the population or the key may not be the one the task intends."
+      "Flow measurement lines describe rows kept, joined, or grouped, reducer denominators, and relevant upstream operations. They can also identify suspicious headers, grouping keys that combine different entities, or flags that no operation used. Flow guarantees describe operator contracts; custom functions include their doc."
     );
-  if (data && flow)
+  if (parts.length)
     parts.push(
-      "With both kinds, flow lines say how many rows each step kept, matched or grouped, and data lines say what the rows now contain. Read them together: a table can have the right row count with wrong values, or the right values in the wrong number of rows."
+      "These measurements have separate display budgets. Use them to check the computation against the task; they do not establish that the chosen population or formula is correct."
     );
-  parts.push(
-    "No evidence line proves that your population, key or formula is the one the task intends" +
-      (flow ? "; a process reports only its row counts and its `doc`." : ".")
-  );
-  return "\n\n" + parts.join("\n\n");
+  return parts.length ? "\n\n" + parts.join("\n\n") : "";
 }
 
-/** The paragraph that introduces the `reasoning` argument when it is enabled. */
-const REASONING_PARAGRAPH =
-  "\n\nWrite `reasoning` first: one or two sentences on why this call and what you expect the observed tables to show, such as a row count, the columns, or a value you can check. It stays in your history with the call. When the observation arrives, compare it with your expectation. A mismatch (a column name that looks like a value, a missing year, an unexpected row count) means an earlier step is wrong: fix that step instead of adapting later steps to it.";
-
-/** The native-mode system prompt for a context mode and message layout. */
 export function buildNativeModeSystemPrompt(
   contextMode: ContextMode = ContextMode.DELTA,
   options: NativePromptLayoutOptions = {}
 ): string {
-  const delta = contextMode === ContextMode.DELTA;
-  const messageLayout =
-    options.messageLayout ?? (options.versioned || options.session ? "turnSplit" : delta ? "native" : "opSplit");
-  const inlineInspection = delta && messageLayout === "native";
-  const contextLayout = options.versioned
-    ? "Your multi-turn context is a `# Catalog` of `## Turn N` entries: prior tasks, their dataflow changes, and answers, followed by the current task and step observations. LATEST collapses current execution results into `### Dataflow`; DELTA keeps event observations. A table name refers to its current version. Answer only the current turn's task."
+  const context = options.versioned
+    ? "Your context lists prior turns in a catalog, followed by the current task and results. Table names refer to their current versions. Answer the current task."
     : options.session
-      ? "Your multi-turn context groups requests and work under `# Session` / `## Turn N`, with a `# Your Task` directive for the current turn. Earlier tables remain live by name. DELTA retains step observations; LATEST shows the current dataflow. Answer only the current turn's task."
-      : delta
-        ? messageLayout === "native"
-          ? "After `# User Task`, your history is the tool-call transcript. Each dataflow tool result contains its receipt and an `Observation`: what changed, the tables you asked to see, and failures. A cached observation may mention an unchanged operator. The most recent event that changed an operator determines its current definition."
-          : "After `# User Task`, `# Agent Events` contains each action and its `Observation`: what changed, the tables you asked to see, and failures. The most recent event that changed an operator determines its current definition."
-        : "After `# User Task`, `# Current Dataflow` shows every operator's definition as you wrote it, its input row counts, and the results you asked to see. Earlier execution events are collapsed into this snapshot. Current compilation and execution failures remain visible.";
-  const snapshotProgress = delta
-    ? ""
-    : " These are already executed outcomes of your earlier actions, not a proposed workflow. The compact `Last completed action in this task` receipt confirms which call just completed; it does not assert that every operator succeeded. Do not repeat a completed call merely because its tool-call history is collapsed. A visible result body has already been observed; if it already answers the task, answer directly without another tool call." +
-      (messageLayout === "opBlock"
-        ? " A block showing only `Result: executed, N rows` has never been observed; observe it when its contents are necessary. Do not re-observe an operator whose body is already in its block."
-        : " Only a `result not requested` receipt needs a cached observe when its contents are necessary.") +
-      " A saved inspection likewise completes that diagnostic pull; read it and proceed instead of repeating the failed edit.";
-  const scope = delta
-    ? "Each event preserves its own observe choices and result version. A later request does not reveal an earlier hidden table or rewrite the definition echoed by an earlier failure."
-    : messageLayout === "opBlock"
-      ? "Each operator block carries its definition and the result that definition produced. An observed result stays in its block when you go on to observe something else; it is replaced only when that operator is redefined or re-executed, and an operator you have never observed shows its row count alone. Errors bypass result hiding."
-      : "Detailed successful tables follow the most recent call's `observe` list. Other operators keep their definitions and compact result receipts. Errors bypass result hiding.";
-  const recall = options.recall
-    ? "\n`recallState` retrieves an earlier turn's saved task, answer, and operator evidence without execution; use its advertised schema when prior-turn evidence is needed."
+      ? "Your context groups work by user turn. Earlier tables remain available by name. Answer the current task."
+      : contextMode === ContextMode.DELTA
+        ? "Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition."
+        : "Your context shows the current dataflow and its available results. The latest action receipt records what just completed. Earlier execution events may be collapsed; use inspect to recover operator details.";
+  const checks = options.checks
+    ? "\n\nA check line reports a suspicious header, records repeated across sources, or an empty or duplicating operation inside a custom function. Examine the finding before using its result."
     : "";
-  return NATIVE_MODE_TEMPLATE.replace(
-    "{{DATAFLOW_SIGNATURE}}",
-    options.reasoning ? "`dataflow(reasoning, edits, delete, observe)`" : "`dataflow(edits, delete, observe)`"
-  )
-    .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
-    .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
-    .replace("{{EVIDENCE}}", nativeEvidenceText(options) + (options.checks ? CHECKS_PARAGRAPH : ""))
-    .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
-    .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
-    .replace("{{OBSERVATION_SCOPE}}", scope)
-    .replace("{{RECALL_TOOL}}", recall);
+  return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", nativeCatalogText(true))
+    .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
+    .replace("{{CONTEXT_LAYOUT}}", context)
+    .replace(
+      "{{RECALL_TOOL}}",
+      options.recall ? "\nUse recallState to read an earlier turn's saved work without execution." : ""
+    );
 }
 
 // ---------------------------------------------------------------------------

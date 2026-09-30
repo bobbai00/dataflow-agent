@@ -97,7 +97,7 @@ test("legacy prompt-builder inspection flags cannot advertise a removed tool", (
     for (const layout of [{}, { recall: true }, { messageLayout: "opBlock" as const }]) {
       const prompt = buildNativeModeSystemPrompt(mode, layout);
       expect(prompt).not.toContain("inspectResult");
-      expect(prompt).toContain("observe");
+      expect(prompt).toContain("retrieve");
     }
   }
 });
