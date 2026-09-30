@@ -214,7 +214,13 @@ export interface NativePromptLayoutOptions {
   /** Which evidence kinds observed results carry; the prompt documents exactly those. */
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  /** `nativeChecks`: operators carry `check:` lines; the prompt says what they are. */
+  checks?: boolean;
 }
+
+/** What `check:` lines are, when they are on. */
+const CHECKS_PARAGRAPH =
+  "\n\nA `check:` line under an operator reports one of three findings the engine made on the full tables: a scan's header row reads as data (with the nearby row that reads as a header), a sum, mean or count reads records that several source files each list once, or a step inside a process function returned an empty table or combined tables that list the same records. Fix the cause or state why the task wants it as it is. The engine checks nothing else: an operator without a `check:` line is not verified, so keep checking your tables as you would without these lines.";
 
 /** What evidence lines are and how to use them, for the kinds that are enabled.
  * Nothing is added when both are off: the prompt never describes lines the
@@ -232,7 +238,7 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
     );
   if (flow)
     parts.push(
-      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls."
+      "`Flow measurement` lines describe what the operator did to its inputs, from counters the engine recorded: `Filter kept=135/1388` means 135 of 1,388 input rows survived; an aggregate reports its groups and each reducer's non-null count, which is its denominator; a join reports matched output rows, matched input rows and matched keys separately; a scan reports the files it read and the rows it parsed. `Flow guarantee` states the operator's contract, and for filter, map and process it starts with your `doc`. `Flow upstream` summarizes how an ancestor table was computed. Some lines follow from what an operator means: a scan says when a header row reads as data and which nearby row reads as a header; an aggregate says when a distinct count counts a column that is unique on every row (so it counts rows, not a coarser unit), when its group key determines a column in most groups but not all (so some groups pool different entities), and which columns no operator has read on the way to it, with their values over the rows it reduces (a flag such as an exclusion column that was never applied). Typical uses: a filter that kept almost nothing or almost everything, or a join that matched few keys, usually means a wrong predicate, key or value spelling; a reducer whose denominator is below the row count skipped nulls; an unread flag or a pooled group means the population or the key may not be the one the task intends."
     );
   if (data && flow)
     parts.push(
@@ -288,7 +294,7 @@ export function buildNativeModeSystemPrompt(
   )
     .replace("{{REASONING_FIELD}}", options.reasoning ? REASONING_PARAGRAPH : "")
     .replace("{{EVIDENCE_TITLE}}", options.dataEvidence || options.flowEvidence ? ", evidence" : "")
-    .replace("{{EVIDENCE}}", nativeEvidenceText(options))
+    .replace("{{EVIDENCE}}", nativeEvidenceText(options) + (options.checks ? CHECKS_PARAGRAPH : ""))
     .replace("{{OPERATOR_CATALOG}}", nativeCatalogText())
     .replace("{{CONTEXT_LAYOUT}}", contextLayout + snapshotProgress)
     .replace("{{OBSERVATION_SCOPE}}", scope)

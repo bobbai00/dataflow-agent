@@ -20,6 +20,7 @@
 import type { OperatorInfo, ResultVersion } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { NATIVE_BY_TYPE } from "./catalog";
+import { scanLines } from "./checks";
 import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
 import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
@@ -166,6 +167,105 @@ function columnCount(info: OperatorInfo, column: string, c: ProfileColumn): Nati
   };
 }
 
+/** Columns an operator reads, as declared or as measured at execution; a
+ * map's pass-through columns are not reads. Undefined for a process, whose
+ * reads are not known. */
+function readColumns(op: OperatorPredicate, info: OperatorInfo | undefined): string[] | undefined {
+  const type = op.nativeOp?.type;
+  if (type === "Process") return undefined;
+  const operations = record(info?.tableProfile?.native?.operations);
+  if (type === "Map") return [...declaredColumns(op), ...names(operations.readColumns)];
+  if (type === "Filter") return [...declaredColumns(op), ...names(operations.predicateColumns)];
+  return declaredColumns(op);
+}
+
+/** Facts derived from an aggregate's meaning over the rows it reduced:
+ *  - a distinct count of a column that is unique per input row counts rows,
+ *    and the input has coarser columns that may be the intended unit;
+ *  - the group key almost always determines a column but not in some groups
+ *    (measured by the runtime), so those groups pool distinct entities;
+ *  - low-cardinality columns that no operator on the way here has read,
+ *    with their values over the rows being reduced (an unapplied flag). */
+function aggregateSemantics(
+  context: NativeEvidenceContext,
+  input: OperatorInfo | undefined,
+  rowsIn: number,
+  operations: Record<string, any>
+): Array<[string, string]> {
+  const facts: Array<[string, string]> = [];
+  const p = context.op.nativeOp!.properties;
+  const keys = names(p.groupBy);
+  const aggregations = (Array.isArray(p.aggregations) ? p.aggregations : []).map(record);
+  const profile = input && validProfile(input) ? input.tableProfile! : undefined;
+  if (profile) {
+    const columns = Object.entries(profile.columns);
+    for (const a of aggregations) {
+      if (a.fn !== "count_distinct" || typeof a.col !== "string") continue;
+      const c = profile.columns[a.col];
+      if (!c || !fullColumn(input!, c) || c.distinctCount !== rowsIn || c.nullCount) continue;
+      const coarser = columns
+        .filter(([name, x]) => name !== a.col && !keys.includes(name) && x.type === "str" && fullColumn(input!, x))
+        .filter(([, x]) => x.distinctCount !== null && x.distinctCount >= 2 && x.distinctCount * 2 <= rowsIn)
+        .sort(([, x], [, y]) => x.distinctCount! - y.distinctCount!)
+        .slice(0, 3);
+      facts.push([
+        `flow.aggregate.grain.${a.as}`,
+        `${json(a.as)} = count_distinct(${json(a.col)}): ${json(a.col)} is unique on every one of the ${rowsIn} input rows, so it counts rows${coarser.length ? `; input columns with fewer values: ${coarser.map(([name, x]) => `${json(name)} (${x.distinctCount})`).join(", ")}` : ""}.`,
+      ]);
+    }
+  }
+  for (const d of Array.isArray(operations.keyDependencies) ? operations.keyDependencies.map(record) : []) {
+    const example = record(d.example);
+    facts.push([
+      `flow.aggregate.key.${d.column}`,
+      `group key ${json(keys)} determines ${json(d.column)} in most groups but not in ${d.split} of ${d.groups}: e.g. ${json(names(example.key).length === 1 ? names(example.key)[0] : example.key)} has ${json(d.column)} = ${names(example.values).map(v => json(v)).join(", ")}; those rows are pooled into one group.`,
+    ]);
+  }
+  // Columns never read on the way here: over the rows this aggregate reduces
+  // when they are still in its input, else in the source they were dropped
+  // from. Only flag-like columns (two or three values, repeated) qualify.
+  const flagLike = (info: OperatorInfo, c: ProfileColumn, rows: number) =>
+    rows >= 10 &&
+    fullColumn(info, c) &&
+    !!c.frequencies &&
+    !c.frequencies.truncated &&
+    !c.frequencies.otherCount &&
+    c.frequencies.values.length >= 2 &&
+    c.frequencies.values.length <= 3;
+  const values = (c: ProfileColumn) => c.frequencies!.values.map(v => `${scalarText(v.value)}:${v.count}`).join(", ");
+  if (profile) {
+    const read = new Set<string>([...keys, ...aggregations.flatMap(a => (typeof a.col === "string" ? [a.col] : []))]);
+    const sources: NativeEvidenceContext[] = [];
+    const pending = [...boundInputs(context)];
+    for (let seen = 0; pending.length && seen < 32; seen++) {
+      const ancestor = pending.shift()!;
+      const columns = readColumns(ancestor.op, ancestor.info);
+      if (!columns) return facts;
+      columns.forEach(name => read.add(name));
+      if (ancestor.op.nativeOp?.type === "Scan" && !ancestor.op.nativeOp.properties.preview) sources.push(ancestor);
+      pending.push(...boundInputs(ancestor));
+    }
+    const lines: Array<[string, string]> = [];
+    for (const [name, c] of Object.entries(profile.columns))
+      if (!read.has(name) && flagLike(input!, c, rowsIn))
+        lines.push([
+          `flow.aggregate.unread.${name}`,
+          `input column ${json(name)} was read by no operator on the way here; over the ${rowsIn} rows reduced it is ${values(c)}.`,
+        ]);
+    for (const source of sources) {
+      const sourceProfile = validProfile(source.info) ? source.info.tableProfile! : undefined;
+      for (const [name, c] of Object.entries(sourceProfile?.columns ?? {}))
+        if (!read.has(name) && !(name in profile.columns) && flagLike(source.info, c, source.info.totalRowCount ?? 0))
+          lines.push([
+            `flow.aggregate.dropped.${source.op.operatorID}.${name}`,
+            `source \`${source.op.operatorID}\` column ${json(name)} (${values(c)}) was dropped on the way here without any operator reading it.`,
+          ]);
+    }
+    facts.push(...lines.slice(0, 2));
+  }
+  return facts;
+}
+
 /** Consumes structured, version-bound profiles only. No execution, hidden
  * fetch, human-stat-string parsing, or inference of Python semantics. */
 export function collectNativeEvidence(context: NativeEvidenceContext): {
@@ -262,11 +362,26 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   const profile = validProfile(info) ? info.tableProfile : undefined;
   // Preview columns describe transport, not the parsed dataset. Their
   // distributions displace the raw records needed to choose parsing options.
-  const rawPreview = view.type === "Scan" && typeof p.preview === "number" && p.preview > 0;
+  // Raw-line tables (a preview, or rows of a lines-format read) describe the
+  // file's layout, not the parsed dataset; their distributions only displace
+  // what is needed to choose parse options. That holds for the operators that
+  // pass such a table on unchanged, not just the scan itself.
+  const RAW_LINE_COLUMNS = new Set(["file", "line_no", "line", "sheet", "row_no", "table"]);
+  const rawPreview =
+    (view.type === "Scan" && typeof p.preview === "number" && p.preview > 0) ||
+    (!!profile &&
+      Object.keys(profile.columns).includes("line") &&
+      Object.keys(profile.columns).every(name => RAW_LINE_COLUMNS.has(name)));
   if (!profile) omissions.push("profile_unavailable");
 
   if (profile) {
-    for (const [name, c] of Object.entries(profile.columns).sort(([a], [b]) => lexical(a, b))) {
+    // The table's own column order: a lexical order let the budget cut every
+    // late-alphabet column of a fresh scan, before any consumer names one.
+    const order = new Map((info.resultSchema ?? []).map((c, i) => [c.name, i]));
+    const position = (name: string) => order.get(name) ?? Number.MAX_SAFE_INTEGER;
+    for (const [name, c] of Object.entries(profile.columns).sort(
+      ([a], [b]) => position(a) - position(b) || lexical(a, b)
+    )) {
       if (rawPreview) continue;
       if (context.columns?.length && !context.columns.includes(name)) continue;
       const priority = relevant.has(name) ? 85 : 80;
@@ -287,7 +402,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           `${json(name)} (${scope}): range=[${scalarText(c.min)}, ${scalarText(c.max)}].`,
           priority - 23
         );
-      if (c.frequencies) {
+      if (c.frequencies?.values.length) {
         const f = c.frequencies;
         add(
           `data.column.${name}.values`,
@@ -337,7 +452,12 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     Pivot: `unique index/pivot-key pairs, no implicit aggregation; first-seen row/key order; dynamic column values depend on=${json(p.values)}`,
     Process: `${docOf(p)}row/column mapping unknown; equal row counts do not prove preservation`,
   };
-  if (contract[view.type]) add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
+  // Contracts that only restate what the operator name says (a sort keeps
+  // rows, a project keeps order) are not rendered; the rest carry parameters
+  // or the author's doc.
+  const RESTATES = new Set(["Scan", "Project", "Cast", "Union", "Distinct", "Limit", "Sort"]);
+  if (contract[view.type] && !RESTATES.has(view.type))
+    add("flow.contract", "flow", "guarantee", `${view.type}: ${contract[view.type]}.`, 25);
 
   const inputs = view.inputs.map(resolveInput);
   const inputsMatch =
@@ -454,6 +574,9 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
           );
         } else omissions.push("aggregate_denominator_unavailable");
       }
+      aggregateSemantics(context, inputs[0], ns[0], operations).forEach(([id, text]) =>
+        add(id, "flow", "measurement", text, 97)
+      );
     } else omissions.push("invalid_aggregate_counters");
   } else if (view.type === "Join") {
     const join = record(operations.join);
@@ -640,15 +763,21 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
         `Scan ${scan.preview ? "preview only (not full source)" : "parsed selected sources"}; files selected=${scan.selectedFiles}/${scan.resolvedFiles}, omitted=${scan.omittedFiles}; output=${out} rows.`,
         96
       );
+      // Per source, only what the parse found: a header row that reads as
+      // data (with the nearby row that reads as a header) and empty sources.
+      // Paths, sizes and mtimes stay in the audit metadata.
+      scanLines(operations).forEach((text, i) =>
+        add(`flow.scan.header.${i}`, "flow", "measurement", `Scan: ${text}`, 97)
+      );
       for (const [i, source] of (Array.isArray(scan.sources) ? scan.sources : []).entries()) {
         const s = record(source);
-        if (typeof s.path === "string")
+        if (typeof s.path === "string" && s.outputRows === 0 && !scan.preview)
           add(
-            `flow.scan.source.${i}`,
+            `flow.scan.empty.${i}`,
             "flow",
             "measurement",
-            `source=${json(s.path)}, format=${json(s.format)}, sizeBytes=${s.sizeBytes ?? "unknown"}, mtimeNs=${json(s.mtimeNs ?? "unknown")}; parse/coverage=${json(Object.fromEntries(Object.entries(s).filter(([k]) => !["path", "format", "sizeBytes", "mtimeNs"].includes(k))))}.`,
-            30
+            `Scan: source ${json(s.path.split(/[\\/]/).pop())} has no data rows (sizeBytes=${s.sizeBytes ?? "unknown"}).`,
+            97
           );
       }
     } else omissions.push("scan_coverage_unavailable");
@@ -787,8 +916,13 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   if (!completeVisible) {
     const relevant = relevance(context);
     const allowed = schema.filter(c => !context.columns?.length || context.columns.includes(c.name));
+    // Relevant columns first, then the table's own order: a lexical tie-break
+    // showed col0, col1, col10.. col137 of a 180-column table, and the model
+    // read the fourth shown column as col3.
+    const position = new Map(schema.map((c, i) => [c.name, i]));
     const ranked = [...allowed].sort(
-      (a, b) => Number(relevant.has(b.name)) - Number(relevant.has(a.name)) || lexical(a.name, b.name)
+      (a, b) =>
+        Number(relevant.has(b.name)) - Number(relevant.has(a.name)) || position.get(a.name)! - position.get(b.name)!
     );
     const selected: typeof schema = [];
     const schemaBudget = Math.max(0, Math.floor(maxChars * 0.3));
@@ -846,15 +980,37 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       result.omitted.push({ id: fact.id, reason: "redundant_complete_table" });
     else (fact.family === "flow" ? flowCandidates : dataCandidates).push(fact);
   }
-  const byPriority = (a: NativeEvidenceFact, b: NativeEvidenceFact) => b.priority - a.priority || lexical(a.id, b.id);
-  // Full output/input bindings remain in the immutable audit metadata.
-  for (const [facts, add] of [
-    [rowCandidates, append],
-    [dataCandidates, appendData],
-    [flowCandidates, appendFlow],
-  ] as const)
-    for (const fact of facts.sort(byPriority))
-      if (!add(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+  // Ties keep collection order, which follows the table's own column order.
+  const byPriority = (a: NativeEvidenceFact, b: NativeEvidenceFact) => b.priority - a.priority;
+  // Overflow rows fill the table's budget but never the notice's place.
+  const appendRow = pushTo(lines, () => maxChars - (completeVisible ? 0 : NOTICE.length + 1));
+  for (const fact of rowCandidates.sort(byPriority))
+    if (!appendRow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+  // Column counts are rendered as rows of one table, so they are budgeted as
+  // those rows (a header once, then a short line per column), not as the
+  // sentences they were collected as; the rest of the data lines follow.
+  // One table per coverage scope (full vs partial prefix), each contiguous.
+  const scopes = new Map<string, NativeEvidenceFact[]>();
+  for (const fact of dataCandidates.filter(f => f.columnCount).sort(byPriority))
+    scopes.set(fact.columnCount!.scope, [...(scopes.get(fact.columnCount!.scope) ?? []), fact]);
+  for (const [scope, counts] of scopes) {
+    const header = `Data measurement: column counts (${scope})\ncolumn | null | nonnull | distinct(nonnull)`;
+    let shown = false;
+    for (const fact of counts) {
+      const c = fact.columnCount!;
+      const row = `${json(c.column)} | ${c.nulls} | ${c.nonnull} | ${c.distinct ?? "unknown"}`;
+      if (!shown && used(dataLines) + header.length + row.length + 2 > evidenceBudget) {
+        result.omitted.push({ id: fact.id, reason: "budget" });
+        continue;
+      }
+      if (!shown) shown = appendData(header, `data.counts.header.${scope}`);
+      if (!appendData(row, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+    }
+  }
+  for (const fact of dataCandidates.filter(f => !f.columnCount).sort(byPriority))
+    if (!appendData(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+  for (const fact of flowCandidates.sort(byPriority))
+    if (!appendFlow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
   const notice = !completeVisible && append(NOTICE, "view.omissions");
   // Text order = chunk order: the table, the data lines, the flow lines, then the notice.
   const tableLines = notice ? lines.slice(0, -1) : lines;

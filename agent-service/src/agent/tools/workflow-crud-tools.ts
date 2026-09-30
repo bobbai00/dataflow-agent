@@ -40,6 +40,8 @@ export interface ToolContext {
     nativeProfileCollection?: boolean;
     /** Native `dataflow` tool: require the `reasoning` argument. */
     dataflowReasoning?: boolean;
+    /** Native operators carry the lineage their engine-side checks need. */
+    nativeChecks?: boolean;
   };
 }
 

@@ -273,6 +273,11 @@ export interface AgentSettings {
    *  first — why this call and what the observed tables should show — which is
    *  replayed with the call so later steps see it. Off by default. */
   dataflowReasoning: boolean;
+  /** Native mode: `check:` lines under every executed operator whose own
+   *  assumptions the engine found violated on the full tables (header rows,
+   *  records repeated across sources, join fan-out, row effects inside a
+   *  process function). Off by default. */
+  nativeChecks: boolean;
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
@@ -520,6 +525,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataEvidence: false,
   flowEvidence: false,
   dataflowReasoning: false,
+  nativeChecks: false,
   resultSelection: "all",
   // Replay event-owned observations; evidence exposure is explicitly opt-in.
   contextMode: ContextMode.DELTA,
@@ -636,6 +642,7 @@ export interface AgentSettingsApi {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
@@ -736,6 +743,7 @@ export interface UpdateAgentSettingsRequest {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   dataflowReasoning?: boolean;
+  nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */

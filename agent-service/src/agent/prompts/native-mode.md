@@ -102,7 +102,7 @@ trend = process(yearly_totals, fn=fit_trend, doc="Fits a straight line to total 
 
 ## Batching and observing
 
-Batch a chain whose inputs, columns and operations you already know into one call, and observe only the table you need to see. Spend a separate call when the next step depends on data you have not seen: an unfamiliar file layout, unknown column names or types, whether a lookup key is unique, which value spellings occur. `scan(..., preview=n)` shows raw lines and is the right first move on an unfamiliar text file; it is not the parsed table.
+Batch a chain whose inputs, columns and operations you already know into one call, and observe only the table you need to see. Spend a separate call when the next step depends on data you have not seen: an unfamiliar file layout, unknown column names or types, whether a lookup key is unique, which value spellings occur. `scan(..., preview=n)` shows raw lines and is the right first move on an unfamiliar text file; it is not the parsed table. A preview is a sample for choosing parse options (the first lines of at most five files): never parse, filter, count or answer from it. Compute on a full scan of every source the task needs.
 
 Before answering a count or an average, check what one row means after each grouping or join: `count()` counts rows, `count("col")` non-null values, and a many-to-many join multiplies rows. Observe the final table before answering. Never reuse an old successful result after a failed revision of its producer. Remove probes with `delete` once the real operator replaces them.
 

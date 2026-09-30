@@ -576,6 +576,7 @@ export class TexeraAgent {
         reasoning: this.settings.dataflowReasoning === true,
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
+        checks: this.settings.nativeChecks === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -649,6 +650,7 @@ export class TexeraAgent {
         executionTimeoutMs: this.settings.executionTimeoutMs,
         nativeProfileCollection: this.settings.nativeProfileCollection,
         dataflowReasoning: this.settings.dataflowReasoning === true,
+        nativeChecks: this.settings.nativeChecks === true,
       },
     };
 
@@ -740,6 +742,7 @@ export class TexeraAgent {
         toolTimeoutMs: this.settings.toolTimeoutMs,
         executionTimeoutMs: this.settings.executionTimeoutMs,
         dataflowReasoning: this.settings.dataflowReasoning === true,
+        nativeChecks: this.settings.nativeChecks === true,
       },
     };
 
@@ -1376,6 +1379,7 @@ export class TexeraAgent {
     dataEvidence?: boolean;
     flowEvidence?: boolean;
     dataflowReasoning?: boolean;
+    nativeChecks?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1450,6 +1454,10 @@ export class TexeraAgent {
     if (updates.dataflowReasoning !== undefined && updates.dataflowReasoning !== this.settings.dataflowReasoning) {
       // Changes the tool schema (rebuilt below) and the prompt's tool section.
       this.settings.dataflowReasoning = updates.dataflowReasoning;
+      promptNeedsRebuild = true;
+    }
+    if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
+      this.settings.nativeChecks = updates.nativeChecks;
       promptNeedsRebuild = true;
     }
 

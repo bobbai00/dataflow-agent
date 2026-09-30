@@ -63,6 +63,7 @@ import { buildDossier, type Dossier } from "../context/summarize/dossier";
 import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
 import { formatNativeDiagnostic } from "../native/diagnostics";
+import { nativeCheckLines } from "../native/checks";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
@@ -116,6 +117,8 @@ const log = createLogger("ContextAssembler");
 export interface AssembleContextOptions {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
+  /** Native `check:` lines under executed operators (see native/checks.ts). */
+  nativeChecks?: boolean;
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
   messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
@@ -306,7 +309,7 @@ export interface AssembleContextOptions {
   maxOperatorResultCharLimit?: number;
   /** V2 exposure/budget carried through summarize's legacy mapping. This is
    * derived from the existing data/flow settings, not a second budget. */
-  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number };
+  nativeEvidence?: { data: boolean; flow: boolean; maxChars: number; checks?: boolean };
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
   /** Thought-replay reinjection rung (LATEST only). When on, render a
@@ -2093,6 +2096,10 @@ function serializeTaskBody(
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${currInfo?.nativeError?.phase === "attempt" ? "edit rejected (not executed)" : currInfo?.nativeError?.diagnostic.stage === "dependency" ? "blocked (not executed)" : (actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated"))}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
+        // Checks are the operator's own violated assumptions: shown whether or
+        // not its table was requested, from this event's immutable snapshot.
+        if (op.nativeOp && currInfo && !currInfo.error && (options.nativeEvidence?.checks ?? options.nativeChecks))
+          for (const line of nativeCheckLines(op, currInfo)) obs.push(`  check: ${line}`);
         // Successful hidden outputs keep a compact receipt. Errors bypass the
         // display choice and continue through the full error renderer below.
         if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {

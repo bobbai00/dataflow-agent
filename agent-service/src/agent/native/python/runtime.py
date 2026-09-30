@@ -1094,6 +1094,9 @@ def _scan_header(spec, raw, source_meta):
                 unresolved.append(value)
             names.append(str(value))
         source_meta["unresolvedHeaders"] = unresolved
+        check = _header_check(raw, source_meta.pop("_before", None), props.get("skipLines", 0))
+        if check:
+            source_meta["headerCheck"] = check
         # A view: _scan_infer relabels the rows and shares the text columns.
         output = raw.iloc[1:]
     else:
@@ -1210,6 +1213,10 @@ def _scan_read(spec, path, fmt, source_meta):
             raw = workbook.parse(
                 sheets[0], header=None, skiprows=skip, dtype=object, keep_default_na=False, na_values=[""]
             )
+            if skip and props.get("header", True):
+                source_meta["_before"] = workbook.parse(
+                    sheets[0], header=None, nrows=skip, dtype=object, keep_default_na=False, na_values=[""]
+                ).tail(_HEADER_WINDOW)
             return _scan_header(spec, raw, source_meta)
     if fmt == "html":
         tables = _html_tables(path, encoding)
@@ -1337,6 +1344,10 @@ def _scan_read(spec, path, fmt, source_meta):
                     except csv.Error:
                         delimiter = ","
                 source_meta["delim"] = delimiter
+                if skip and props.get("header", True) and delimiter != "whitespace":
+                    with path.open(encoding=encoding, newline="") as head:
+                        above = list(csv.reader(islice(head, skip), delimiter=delimiter))[-_HEADER_WINDOW:]
+                    source_meta["_before"] = pd.DataFrame(above, dtype=object)
                 raw = pd.read_csv(
                     stream,
                     header=None,
@@ -1823,6 +1834,323 @@ def _pivot(spec, source, operations):
     return output
 
 
+# ---------------------------------------------------------------------------
+# Checks: an operator's own assumptions, verified on the full tables it read.
+# Each records facts only; the agent service decides what the model sees.
+
+_HEADER_WINDOW = 5
+_CHECK_ROW_LIMIT = 2_000_000
+
+
+def _data_like(name):
+    """A header cell that reads as a data value: a number, amount or percent.
+
+    Four-digit years stay header-like: wide tables are commonly keyed by year.
+    """
+    import re
+
+    text = str(name).strip().replace(" ", "")
+    if not re.fullmatch(r"[(+\-$€£]*\d[\d,]*(\.\d+)?%?\)?", text):
+        return False
+    return not re.fullmatch(r"(1[89]|20)\d\d", text.replace(",", ""))
+
+
+def _header_cells(values, width):
+    cells = ["" if _missing(value) else str(value).strip() for value in values]
+    return (cells + [""] * width)[:width]
+
+
+def _header_score(cells):
+    named = [cell for cell in cells if cell]
+    return sum(map(_data_like, named)), len(cells) - len(named), len(set(named)) == len(named)
+
+
+def _header_check(raw, before, skip):
+    """Is the first parsed row a header? Also: the best header row nearby."""
+    if raw.empty:
+        return None
+    width = len(raw.columns)
+    current = _header_cells(raw.iloc[0], width)
+    data_like, blanks, _ = _header_score(current)
+    issues = {}
+    if data_like:
+        issues["dataLike"] = [cell for cell in current if cell and _data_like(cell)][:6]
+    if width > 1 and blanks * 2 > width:
+        issues["blank"] = blanks
+    named = [i for i, cell in enumerate(current) if cell]
+    if len(named) >= 2 and len(raw) <= _CHECK_ROW_LIMIT:
+        import numpy as np
+
+        # numpy, not the `.str` accessor: it is cached on its Series in a
+        # reference cycle that holds each column copy until a full collection.
+        def cells(i, rows):
+            values = raw.iloc[1:, i].to_numpy(dtype=object)[rows]
+            return np.char.strip(np.where(pd.isna(values), "", values).astype(str))
+
+        rows = np.flatnonzero(cells(named[0], slice(None)) == current[named[0]])
+        for i in named[1:]:
+            if not len(rows):
+                break
+            rows = rows[cells(i, rows) == current[i]]
+        if len(rows):
+            issues["repeats"] = int(len(rows))
+    if not issues:
+        return None
+    result = {"header": current[:8], **issues}
+    if "dataLike" in issues or "blank" in issues:
+        above = [] if before is None else list(before.itertuples(index=False, name=None))
+        candidates = [(i - len(above), row) for i, row in enumerate(above)]
+        candidates += [(i, tuple(raw.iloc[i])) for i in range(1, min(_HEADER_WINDOW, len(raw) - 1) + 1)]
+        best = None
+        for offset, row in candidates:
+            cells = _header_cells(row, width)
+            like, empty, unique = _header_score(cells)
+            better = empty < blanks if "blank" in issues and not data_like else empty <= blanks
+            if like == 0 and unique and better and empty * 2 <= width:
+                if best is None or abs(offset) < abs(best[0]):
+                    best = (offset, cells)
+        if best:
+            result["suggest"] = {"skipLines": skip + best[0], "header": best[1][:8]}
+    return result
+
+
+def _overlapping_sources(records, origin):
+    """Records present, once each, in two or more sources.
+
+    A record is a row of at least two columns, not mostly empty, that occurs
+    exactly once in its own source. Rows that repeat inside one source are
+    that source's observations (a year and a category, say), not copies, so
+    they never count. A record found in several sources this way is the same
+    entity listed by each of them, and a union of the sources holds one copy
+    per source: a later sum, mean or count counts each copy.
+    """
+    import numpy as np
+
+    if records.shape[1] < 2 or len(records) < 2 or len(records) > _CHECK_ROW_LIMIT:
+        return None
+    text = records.astype("string").fillna("")
+    cells = text.to_numpy(dtype=object)
+    filled = (cells != "").sum(axis=1) * 2 > records.shape[1]
+    keys = pd.util.hash_pandas_object(text, index=False).to_numpy()
+    pairs = pd.DataFrame({"key": keys, "origin": origin})
+    per_source = pairs.groupby(["key", "origin"]).size()
+    once = per_source.groupby(level="key").max() == 1
+    sources = per_source.groupby(level="key").size()
+    shared = sources.index[(sources >= 2) & once.reindex(sources.index).to_numpy()]
+    hit = np.isin(keys, shared) & filled
+    if not hit.any():
+        return None
+    first = cells[int(np.argmax(hit))]
+    return {
+        "rows": int(hit.sum()),
+        "of": len(records),
+        "records": int(len(np.unique(keys[hit]))),
+        "sources": int(len(np.unique(np.asarray(origin)[hit]))),
+        "example": ", ".join(str(v) for v in first)[:160],
+    }
+
+
+def _cross_source_duplicates(parts, synthetic):
+    """Records shared by several of the tables a function concatenates."""
+    import numpy as np
+
+    if len(parts) < 2 or sum(map(len, parts)) > _CHECK_ROW_LIMIT:
+        return None
+    columns = [c for c in parts[0].columns if c not in synthetic]
+    if not columns or any([c for c in part.columns if c not in synthetic] != columns for part in parts):
+        return None
+    records = pd.concat([part[columns] for part in parts], ignore_index=True)
+    origin = np.concatenate([np.full(len(part), i) for i, part in enumerate(parts)])
+    result = _overlapping_sources(records, origin)
+    return {**result, "files": len(parts)} if result else None
+
+
+def _repeated_records(frame, provenance):
+    """The rows an aggregate or process reads that are one record from several sources.
+
+    Only with a provenance column (the scan's file-name column carried
+    downstream): without one, a copy cannot be told from a repeated value.
+    """
+    present = [c for c in provenance if c in frame.columns]
+    columns = [c for c in frame.columns if c not in present]
+    if not present or not columns:
+        return None
+    origin = pd.util.hash_pandas_object(frame[present].astype("string").fillna(""), index=False).to_numpy()
+    result = _overlapping_sources(frame[columns], origin)
+    return {**result, "ignoring": present} if result else None
+
+def _key_dependencies(frame, keys, reduced):
+    """Columns an aggregate's group key almost, but not always, determines.
+
+    A column with one value in most groups is an attribute of the key (a
+    beach's community, a station's elevation). Where some groups hold several
+    values, the key merges entities that the column tells apart, or the data
+    disagrees with itself; either way each such group's rows are pooled.
+    Reduced columns vary within groups by design and are not considered.
+    """
+    import numpy as np
+
+    if not keys or len(frame) < 2 or len(frame) > _CHECK_ROW_LIMIT:
+        return None
+    candidates = [c for c in frame.columns if c not in keys and c not in reduced][:40]
+    if not candidates:
+        return None
+    grouped = frame.groupby(keys, dropna=False, sort=False)
+    # Only groups of two or more rows can show whether a column varies.
+    sizes = grouped.size()
+    multi = sizes.index[sizes.to_numpy() > 1]
+    found = []
+    for column in candidates:
+        per_group = grouped[column].nunique(dropna=True).reindex(multi)
+        groups = len(sizes)
+        split = per_group[per_group > 1]
+        single = int((per_group == 1).sum())
+        # Mostly determined (at least 4 in 5 multi-row groups single-valued), not always.
+        if not len(split) or single < 4 * len(split) or single + len(split) < 5:
+            continue
+        key = split.index[0]
+        key = key if isinstance(key, tuple) else (key,)
+        mask = np.ones(len(frame), dtype=bool)
+        for name, value in zip(keys, key):
+            column_values = frame[name]
+            mask &= (column_values.isna() if _missing(value) else column_values == value).to_numpy(dtype=bool)
+        values = [str(v) for v in pd.unique(frame.loc[mask, column].dropna())[:3]]
+        found.append(
+            {
+                "column": column,
+                "groups": groups,
+                "split": int(len(split)),
+                "example": {"key": [None if _missing(v) else str(v) for v in key], "values": values},
+            }
+        )
+    found.sort(key=lambda item: -item["split"])
+    return found[:3] or None
+
+
+class _ProcessTrace:
+    """Observe the table operations a process function performs.
+
+    The engine sees a process as one opaque step. While its function runs,
+    pandas' readers, merges, row selections and concatenations called from the
+    function's own lines are recorded, so the row effects inside it can be
+    checked like those of relational operators. Calls made by pandas itself
+    are not recorded twice.
+    """
+
+    def __init__(self, filename):
+        self.filename, self.reads, self.events, self._saved, self._depth = filename, [], [], [], 0
+
+    def _line(self):
+        import sys
+
+        # Only calls written in the function itself; pandas calling its own
+        # API (a groupby selecting columns) is not the function's intent.
+        frame = sys._getframe(2)
+        return frame.f_lineno if frame.f_code.co_filename == self.filename else None
+
+    def _wrap(self, owner, name, record):
+        import functools
+
+        original = getattr(owner, name)
+        trace = self
+
+        @functools.wraps(original)
+        def wrapper(*args, **kwargs):
+            if trace._depth:
+                return original(*args, **kwargs)
+            trace._depth += 1
+            try:
+                result = original(*args, **kwargs)
+            finally:
+                trace._depth -= 1
+            line = trace._line()
+            if line is not None:
+                trace._depth += 1
+                try:
+                    record(line, args, kwargs, result)
+                except Exception:
+                    pass
+                finally:
+                    trace._depth -= 1
+            return result
+
+        setattr(owner, name, wrapper)
+        self._saved.append((owner, name, original))
+
+    def _read(self, line, args, kwargs, result):
+        import os
+
+        source = args[0] if args else kwargs.get("filepath_or_buffer", kwargs.get("io", kwargs.get("path")))
+        frames = result.values() if isinstance(result, dict) else [result]
+        rows = sum(len(f) for f in frames if isinstance(f, pd.DataFrame))
+        name = os.path.basename(str(source)) if isinstance(source, (str, os.PathLike)) else type(source).__name__
+        self.reads.append({"line": line, "file": name, "rows": rows})
+
+    def _merge(self, line, args, kwargs, result):
+        left = args[0]
+        right = args[1] if len(args) > 1 else kwargs.get("right")
+        if not all(isinstance(x, pd.DataFrame) for x in (left, right, result)):
+            return
+        how = kwargs.get("how", "inner")
+        event = {"line": line, "op": "merge", "how": how, "in": [len(left), len(right)], "out": len(result)}
+        if len(result) == 0 and len(left) and len(right):
+            self.events.append({**event, "issue": "empty"})
+
+    def _select(self, line, frame, key, result):
+        import numpy as np
+
+        mask = getattr(key, "dtype", None)
+        if not isinstance(result, pd.DataFrame) or not isinstance(frame, pd.DataFrame):
+            return
+        if not (mask is not None and np.dtype(mask) == np.bool_) and not isinstance(key, str):
+            return
+        if isinstance(key, str) or not len(frame) or len(result):
+            return
+        self.events.append({"line": line, "op": "filter", "in": [len(frame)], "out": 0, "issue": "empty"})
+
+    def _getitem(self, line, args, kwargs, result):
+        self._select(line, args[0], args[1] if len(args) > 1 else None, result)
+
+    def _loc(self, line, args, kwargs, result):
+        key = args[1] if len(args) > 1 else None
+        self._select(line, args[0].obj, key[0] if isinstance(key, tuple) else key, result)
+
+    def _query(self, line, args, kwargs, result):
+        if isinstance(result, pd.DataFrame) and len(args[0]) and not len(result):
+            self.events.append({"line": line, "op": "query", "in": [len(args[0])], "out": 0, "issue": "empty"})
+
+    def _concat(self, line, args, kwargs, result):
+        objs = args[0] if args else kwargs.get("objs")
+        parts = list(objs.values() if isinstance(objs, dict) else objs or [])
+        axis = kwargs.get("axis", 0)
+        if axis not in (0, "index") or len(parts) < 2 or not all(isinstance(p, pd.DataFrame) for p in parts):
+            return
+        duplicates = _cross_source_duplicates(parts, [])
+        if duplicates:
+            self.events.append(
+                {"line": line, "op": "concat", "in": [len(p) for p in parts], "out": len(result), "issue": "duplicates", **duplicates}
+            )
+
+    def __enter__(self):
+        import pandas.core.indexing as indexing
+
+        for name in ("read_csv", "read_excel", "read_table", "read_json", "read_parquet", "read_fwf"):
+            self._wrap(pd, name, self._read)
+        self._wrap(pd, "merge", lambda line, args, kwargs, result: self._merge(line, args, kwargs, result))
+        self._wrap(pd.DataFrame, "merge", self._merge)
+        self._wrap(pd.DataFrame, "__getitem__", self._getitem)
+        self._wrap(pd.DataFrame, "query", self._query)
+        self._wrap(indexing._LocIndexer, "__getitem__", self._loc)
+        self._wrap(pd, "concat", self._concat)
+        return self
+
+    def __exit__(self, *exc):
+        for owner, name, original in reversed(self._saved):
+            setattr(owner, name, original)
+        self._saved.clear()
+        return False
+
+
 def execute_native(spec, inputs):
     global pd, np
     import pandas as pd
@@ -1849,6 +2177,11 @@ def execute_native(spec, inputs):
     kind, props = spec["type"], spec["properties"]
     source = inputs[0] if inputs else None
     operations = {}
+    lineage = spec.get("lineage") or {}
+    if kind in ("Aggregate", "Process") and lineage.get("multiSource") and inputs:
+        repeated = _repeated_records(inputs[0], lineage.get("provenanceColumns", []))
+        if repeated:
+            operations["repeatedRecords"] = repeated
     if kind == "Scan":
         output = _scan(spec, operations)
     elif kind == "Map":
@@ -1861,6 +2194,11 @@ def execute_native(spec, inputs):
         output = _project(spec, source)
     elif kind == "Aggregate":
         output = _aggregate(spec, source, operations)
+        dependencies = _key_dependencies(
+            source, props.get("groupBy", []), [a.get("col") for a in props["aggregations"]]
+        )
+        if dependencies:
+            operations["keyDependencies"] = dependencies
     elif kind == "Join":
         output = _join(spec, inputs[0], inputs[1], operations)
     elif kind == "Union":
@@ -1898,7 +2236,10 @@ def execute_native(spec, inputs):
     elif kind == "Process":
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
-        output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
+        with _ProcessTrace(_filename(spec, "code")) as trace:
+            output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
+        if trace.reads or trace.events:
+            operations["process"] = {"reads": trace.reads[:16], "events": trace.events[:8]}
     else:
         raise _error(spec, "OPERATOR_UNAVAILABLE", f"Runtime implementation unavailable for {kind}.", stage="validate")
     _frame(spec, output)

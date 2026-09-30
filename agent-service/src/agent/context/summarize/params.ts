@@ -285,7 +285,9 @@ export type FlowParams = z.infer<typeof FlowParamsSchema>;
 
 export const SummarizeParamsSchema = z.object({
   /** The two evidence controls and their shared result budget. */
-  nativeEvidence: z.object({ data: z.boolean(), flow: z.boolean(), maxChars: z.number().int().min(0) }).optional(),
+  nativeEvidence: z
+    .object({ data: z.boolean(), flow: z.boolean(), maxChars: z.number().int().min(0), checks: z.boolean().optional() })
+    .optional(),
   trajectory: TrajectoryParamsSchema.default({}),
   /** Render the `# Current Dataflow` snapshot section (every operator's block).
    *  The legacy DELTA shape sets this false — state lives inline in the
@@ -394,6 +396,7 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       data: options.dataEvidence === true,
       flow: options.flowEvidence === true,
       maxChars: options.maxOperatorResultCharLimit ?? 2000,
+      ...(options.nativeChecks === true ? { checks: true } : {}),
     },
     trajectory: {
       events: isLatest ? "none" : "interleaved",

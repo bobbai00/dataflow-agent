@@ -60,6 +60,10 @@ export interface NativeOpView {
   revision?: string;
   /** Internal execution setting, never a model-authored operator argument. */
   profileCollection?: boolean;
+  /** Internal, set with `nativeChecks`: what the operator's checks need to know
+   * about its ancestry (whether its rows come from several sources, and which
+   * columns are a scan's file-name provenance). Not part of the revision. */
+  lineage?: { multiSource: boolean; provenanceColumns: string[] };
   /** Runtime type (`Filter`, `Map`, `Process`, …). */
   type: string;
   properties: Record<string, unknown>;

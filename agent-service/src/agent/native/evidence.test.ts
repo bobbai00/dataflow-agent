@@ -176,7 +176,7 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(both.omitted).not.toContainEqual({ id: "data.column.x.counts", reason: "redundant_displayed_fact" });
   const data = observe(f, { flow: false });
   expect(data.selected).toContain("data.column.x.counts");
-  expect(data.text).toContain("null=1/3, nonnull=2; distinct(nonnull)=2");
+  expect(data.text).toContain('"x" | 1 | 2 | 2');
   const flow = observe(f, { data: false });
   expect(flow.text).not.toContain("Data measurement:");
   expect(flow.text).toContain('predicate column "x":');
@@ -186,17 +186,19 @@ test("combined keeps the data count beside the flow comparison: a flow line neve
   expect(unavailable.text).not.toContain('predicate column "x":');
 });
 
-test("count compaction leaves budget savings empty and preserves sampled records", () => {
+test("column counts are budgeted as table rows and preserve sampled records", () => {
   const f = fixture("Scan");
   f.info.tableProfile!.columns = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`field_${i}`, column(3, 0)]));
   const result = observe(f, { flow: false, maxChars: 700 });
   expect(result.text).toContain("column counts (full=3 rows)");
-  expect(result.text.length).toBeLessThan(550);
+  // Counts are budgeted as the table rows they render as, so the room they
+  // save holds more columns instead of going unused; the budget still holds.
+  expect(result.text.split("\n").filter(l => /^"field_\d+" \|/.test(l)).length).toBeGreaterThan(10);
   expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample stored row 1: 1"]);
   const excluded = result.omitted.filter(c => c.reason === "budget").map(c => c.id);
   expect(excluded.some(id => id.startsWith("data.column."))).toBe(true);
   expect(result.selected.some(id => excluded.includes(id))).toBe(false);
-  expect(result.selected.filter(id => id.endsWith(".counts")).length).toBeLessThan(10);
+  expect(result.text.length).toBeLessThanOrEqual(700 + 200);
 });
 
 test("raw preview protects ordered header rows from metadata profiles and long cells", () => {
@@ -428,12 +430,14 @@ test("equijoin distinguishes matched output contribution from row and key covera
   expect(collectNativeEvidence(f).facts.some(x => x.id.startsWith("flow.join."))).toBe(false);
 });
 
-test("projection/derive guarantees are contractual, UDF remains unknown at equal row counts", () => {
+test("guarantees render where they carry parameters or a doc, UDF remains unknown at equal row counts", () => {
   for (const kind of ["Project", "Map", "Cast", "Sort"]) {
     const f = fixture(kind);
     f.info.totalRowCount = f.info.tableProfile!.rowCount = 5;
     f.info.tableProfile!.native!.outputRows = 5;
-    expect(collectNativeEvidence(f).facts.find(x => x.id === "flow.contract")?.kind).toBe("guarantee");
+    const contract = collectNativeEvidence(f).facts.find(x => x.id === "flow.contract");
+    // A project, cast or sort contract only restates the operator's name.
+    expect(contract?.kind).toBe(kind === "Map" ? "guarantee" : undefined);
   }
   const f = fixture("Process");
   f.info.totalRowCount = 5;
@@ -781,4 +785,54 @@ test("empty grouped aggregate has zero groups and undefined per-group range", ()
   });
   expect(factText(f)).toContain("groups=0 from 0 rows");
   expect(factText(f)).toContain('"n" row denominator=0/0 (undefined)');
+});
+
+test("aggregate semantics: what a distinct count counts, a key that pools entities, an unread flag", () => {
+  const str = (distinct: number, values?: Array<[string, number]>): ProfileColumn => ({
+    ...column(12, 0),
+    type: "str",
+    distinctCount: distinct,
+    min: null,
+    max: null,
+    frequencies: values
+      ? { values: values.map(([value, count]) => ({ value: { type: "str", value }, count })), otherCount: 0, truncated: false }
+      : null,
+  });
+  const f = fixture("Aggregate", {
+    groupBy: ["state"],
+    aggregations: [{ fn: "count_distinct", col: "GlobalID", as: "areas" }],
+  });
+  const input = f.results.get("left")!;
+  input.totalRowCount = input.tableProfile!.rowCount = input.tableProfile!.coverage.rowsProcessed = 12;
+  input.tableProfile!.columns = {
+    GlobalID: str(12),
+    GACCName: str(2),
+    state: str(3),
+    Case_excluded: str(2, [
+      ["No", 11],
+      ["Yes", 1],
+    ]),
+  };
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = 3;
+  Object.assign(f.info.tableProfile!.native!, {
+    outputRows: 3,
+    inputRows: [12],
+    operations: {
+      groupCount: 3,
+      groupSizes: { min: 2, max: 6, total: 12 },
+      aggregateNonNull: { areas: { total: 12, min: 2, max: 6 } },
+      keyDependencies: [
+        { column: "Community", groups: 3, split: 1, example: { key: ["CA"], values: ["a", "b"] } },
+      ],
+    },
+  });
+  const text = factText(f);
+  expect(text).toContain(
+    '"areas" = count_distinct("GlobalID"): "GlobalID" is unique on every one of the 12 input rows, so it counts rows; input columns with fewer values: "GACCName" (2)'
+  );
+  expect(text).toContain('group key ["state"] determines "Community" in most groups but not in 1 of 3');
+  expect(text).toContain('input column "Case_excluded" was read by no operator on the way here; over the 12 rows reduced it is "No":11, "Yes":1.');
+  // A flag the lineage filtered on has been read: no line.
+  f.workflow.operators[0].nativeOp!.properties = { keep: ["Case_excluded", "GlobalID", "GACCName", "state"] };
+  expect(factText(f)).not.toContain("was read by no operator");
 });
