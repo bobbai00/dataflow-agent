@@ -505,3 +505,35 @@ test("repair can reuse a pinned historical profile only with the same producer a
   s.setOperatorResult("B", "answer", mismatched.operators.answer);
   expect(s.getOperatorResult("B", "answer")!.tableProfile!.status).toBe("unavailable");
 });
+
+test("a bystander of a failed run keeps its cached result; a consumer of the failure does not", () => {
+  // legal-hard-28: observing `general_imposter` (cached, unrelated) after another
+  // operator failed returned "[ERROR] … not executed" instead of its table.
+  const base = workflow();
+  const s = storage(base);
+  persist(s, response(base));
+  const next = workflow([op("source"), op("answer", ["source"]), op("bad"), op("uses_bad", ["bad"])]);
+  s.createSnapshot("B", next);
+  const failure = (_o: OperatorPredicate): OperatorInfo => ({
+    state: "Failed",
+    resultMode: "table",
+    inputTuples: 0,
+    outputTuples: 0,
+    error:
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({
+        version: 1,
+        operatorId: "bad",
+        operatorRevision: revision,
+        code: "CALLBACK_RUNTIME",
+        stage: "execute",
+        message: "ValueError: boom",
+      }),
+  });
+  for (const o of next.operators) s.setOperatorResult("B", o.operatorID, failure(o));
+  const answer = s.getOperatorResult("B", "answer")!;
+  expect(answer.error).toBeUndefined();
+  expect(answer.result).toEqual([{ x: 1 }]);
+  expect(s.getOperatorResult("B", "uses_bad")!.error).toContain("bad");
+  expect(s.getOperatorResult("B", "bad")!.error).toContain("boom");
+});

@@ -28,6 +28,7 @@ import {
   type NativeDiagnosticRecord,
 } from "./native/diagnostic-record";
 import type { NativeErrorQuery, NativeErrorSummary } from "./native/diagnostics";
+import { resolveNativeDiagnostic } from "./native/diagnostics";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -288,6 +289,25 @@ export class WorkflowSnapshotStorage {
       );
     }
     const snapshot = this.snapshots.get(snapshotId)!;
+    // A run aborts at its first failure and hands every unfinished operator the
+    // same payload. A bystander that does not read from the failed operator
+    // keeps the result it already has for its current definition: that result
+    // is still valid, and observing it must not wait on an unrelated repair.
+    const definition = snapshot.workflow.operators.find(op => op.operatorID === operatorId);
+    const kept = snapshot.results.get(operatorId)?.info;
+    if (
+      info.error &&
+      definition?.nativeOp?.revision &&
+      kept &&
+      !kept.error &&
+      kept.resultVersion?.complete &&
+      kept.resultVersion.operatorRevision === definition.nativeOp.revision
+    ) {
+      const root = resolveNativeDiagnostic(definition, info.error, id =>
+        snapshot.workflow.operators.find(op => op.operatorID === id)
+      ).operatorId;
+      if (root !== operatorId && !upstreamOf(snapshot.workflow, operatorId).has(root)) return;
+    }
     const current = new Map([...snapshot.results].map(([id, entry]) => [id, entry.info]));
     const snapshots = this.snapshots;
     const historicalResults = function* () {
@@ -819,4 +839,19 @@ function sortedArrayEqual(a: string[] | undefined, b: string[] | undefined): boo
   if (av.length !== bv.length) return false;
   for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
   return true;
+}
+
+/** Every operator `operatorId` reads from, directly or through its inputs. */
+function upstreamOf(workflow: WorkflowContent, operatorId: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = [operatorId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    for (const link of workflow.links)
+      if (link.target.operatorID === id && !seen.has(link.source.operatorID)) {
+        seen.add(link.source.operatorID);
+        stack.push(link.source.operatorID);
+      }
+  }
+  return seen;
 }
