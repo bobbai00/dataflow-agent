@@ -1456,3 +1456,15 @@ class TestDetectTableStructure:
 
     def test_empty_frame_returns_no_hints(self):
         assert self._hints(_pd.DataFrame()) == []
+
+
+def test_any_pandas_string_dtype_maps_to_string_not_binary():
+    # 2026-09-29: a shared-environment pandas change gave text columns a
+    # string dtype this map did not name, and every cell was pickled.
+    import pandas
+
+    from core.models.schema.attribute_type import AttributeType
+    from core.runnables.data_processor import DataProcessor
+
+    for dtype in (pandas.StringDtype(), pandas.StringDtype("pyarrow")):
+        assert DataProcessor._map_pandas_dtype_to_attribute_type(dtype) == AttributeType.STRING

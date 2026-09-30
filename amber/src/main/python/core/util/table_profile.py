@@ -229,6 +229,9 @@ class ProfileAccumulator:
                         state["min"] = state["max"] = None
                         row_complete = False
                         continue
+                    if encoded["type"] == "float64" and encoded["value"] == 0:
+                        # -0.0 and 0.0 are one value, as pandas counts them.
+                        encoded = {**encoded, "value": 0.0}
                     row_values.append(encoded)
                     if state["range_valid"] and encoded["type"] in ("int64", "float64", "datetime"):
                         if state["min"] is None or _order(encoded) < _order(state["min"]):

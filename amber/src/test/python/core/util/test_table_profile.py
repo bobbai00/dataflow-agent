@@ -227,3 +227,9 @@ def test_values_after_inference_prefix_are_validated_without_coercion():
     assert result["columns"]["x"]["distinctCount"] is None
     assert result["columns"]["x"]["min"] is None
     assert "unsupported_type" in result["columns"]["x"]["omissions"]
+
+
+def test_negative_and_positive_zero_are_one_value():
+    # Two tasks showed "-0.0" and "0.0" as two distinct values; pandas counts one.
+    _, result = collect(pd.DataFrame({"x": pd.Series([-0.0, 0.0, 1.5], dtype="float64")}))
+    assert result["columns"]["x"]["distinctCount"] == 2

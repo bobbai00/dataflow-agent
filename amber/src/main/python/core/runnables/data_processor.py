@@ -646,8 +646,10 @@ class DataProcessor(Runnable, Stoppable):
         # Pandas nullable boolean.
         if dtype_str == "boolean":
             return AttributeType.BOOL
-        # Pandas StringDtype.
-        if dtype_str == "string":
+        # Pandas StringDtype, under any spelling ("string", "string[pyarrow]",
+        # or pandas 3's default "str"). A new name must not turn text into
+        # pickled bytes: the agent then sees "<builtins.str, size = 55 bytes>".
+        if dtype_str == "string" or pandas.api.types.is_string_dtype(dtype):
             return AttributeType.STRING
         # Categorical — stringify the categories for downstream consumption.
         if hasattr(dtype, "categories"):
