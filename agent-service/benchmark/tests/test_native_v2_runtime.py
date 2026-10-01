@@ -252,6 +252,42 @@ def test_process_is_unknown_even_when_it_preserves_row_count():
     assert result.attrs["native_v2"]["rowEffect"] == "unknown"
 
 
+@pytest.mark.parametrize("dtype", ["Float32", "Float64"])
+@pytest.mark.parametrize(
+    "values, expected",
+    [([3, 4, None, None], [50, 100, 75, 75]),
+     ([3, 3, 4, None], [50, 50, 100, 50]),
+     ([None, None], [np.nan, np.nan])],
+)
+def test_process_numeric_ranks_exclude_missing_float_values(dtype, values, expected):
+    source = pd.DataFrame({"wait": pd.Series(values, dtype=dtype)})
+    original = source.copy(deep=True)
+    result = run("Process", source, code="""def process(source):
+    import pandas as pd
+    values = pd.to_numeric(source['wait'], errors='coerce')
+    count = values.notna().sum()
+    ranks = values.rank(method='average') * 100 / count if count else values
+    source['wait_score'] = ranks.fillna(ranks.median())
+    return source
+""")
+    pd.testing.assert_series_equal(result.wait_score, pd.Series(expected, name="wait_score"), check_dtype=False)
+    pd.testing.assert_frame_equal(source, original)
+
+
+def test_process_float_compatibility_preserves_integer_precision_and_other_columns():
+    source = pd.DataFrame({
+        "amount": pd.Series([1.25, None], dtype="Float64"),
+        "id": pd.Series([2**53 + 1, None], dtype="Int64"),
+        "label": pd.Series(["A", None], dtype="string"),
+        "flag": pd.Series([True, None], dtype="boolean"),
+        "at": pd.to_datetime(["2026-01-01", None], utc=True),
+    }, index=[0, 1])
+    result = run("Process", source, code="def process(source):\n    return source")
+    pd.testing.assert_frame_equal(result.drop(columns="amount"), source.drop(columns="amount"))
+    assert int(result.id.iloc[0]) == 2**53 + 1
+    assert result.amount.iloc[0] == 1.25 and pd.isna(result.amount.iloc[1])
+
+
 def test_process_wrong_shape_and_signature_have_explicit_diagnostics():
     with pytest.raises(runtime.NativeError, match="PROCESS_RETURN_TYPE"):
         runtime.execute_native(

@@ -43,6 +43,11 @@ assert.ok(["gpt-5.6-luna", "gpt-5.6-terra"].includes(model), "Use Luna or Terra"
 const baseUrl = process.env.TEXERA_AGENT_SERVICE_ENDPOINT ?? "http://localhost:3015";
 const wireRoot = process.env.TEXERA_LLM_TRACE_DIR;
 assert.ok(wireRoot, "Actual wire capture must be enabled");
+// Matched first-task experiments can supply the same user message to both
+// interfaces while retaining their own system prompts and action protocols.
+const firstPromptPath = process.env.LONGDS_FIRST_PROMPT_FILE;
+const firstPrompt = firstPromptPath ? readFileSync(resolve(firstPromptPath), "utf8") : undefined;
+assert.ok(firstPrompt === undefined || firstPrompt.trim(), "The first-task prompt override must not be empty");
 mkdirSync(dirname(output), { recursive: true });
 mkdirSync(output);
 const save = (path: string, data: unknown) => writeFileSync(join(output, path), JSON.stringify(data, null, 2) + "\n");
@@ -134,11 +139,18 @@ save("protocol.json", {
     .update(readFileSync(join(prepared, "manifest.json")))
     .digest("hex"),
   prompt_sha256: createHash("sha256").update(system.systemPrompt).digest("hex"),
+  ...(firstPrompt !== undefined
+    ? {
+        first_prompt_override: resolve(firstPromptPath!),
+        first_prompt_sha256: createHash("sha256").update(firstPrompt).digest("hex"),
+      }
+    : {}),
   settings,
 });
 const answerContract =
   "Report the answer as a single-line JSON object holding exactly the quantities this question asks for, and nothing else. For numerical answers, provide the exact value requested (rounded as specified if mentioned). Do not restate the whole chain of reasoning as the answer.\nYour last line MUST BE: **Final Answer: <single-line JSON>**";
 function prompt(turn: any, first: boolean) {
+  if (first && firstPrompt !== undefined) return firstPrompt;
   const question = `[Task ${turn.turn_id}]\n${turn.context}\nQuestion: ${turn.question}`;
   if (!first) return question;
   const persistence =
@@ -266,8 +278,7 @@ try {
       },
     });
     await pending;
-    if (result.completionSource === "rest")
-      alert("completion_recovered_from_rest", { turn_id: turn.turn_id });
+    if (result.completionSource === "rest") alert("completion_recovered_from_rest", { turn_id: turn.turn_id });
     auditWire();
     const steps = [...current.values()];
     for (const step of steps) allPriorIds.add(step.id);

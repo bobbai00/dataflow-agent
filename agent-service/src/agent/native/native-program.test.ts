@@ -577,6 +577,20 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
+  test("historical retrieval examples use an available view", async () => {
+    const { prepareDataflowActions } = await import("../tools/dataflow-actions");
+    for (const view of ["full", "sample", "sample_stats"] as const) {
+      const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, { stateHistory: true, retrievalViews: [view] });
+      const example = prompt.match(/Read an earlier output: (\{[^\n}]*\})/)![1];
+      const action = JSON.parse(example);
+      expect(action.view).toBe(view);
+      expect(prepareDataflowActions({ reasoning: "Read saved state.", actions: [action] }, [view], true).status).toBe(
+        "pending"
+      );
+      expect(prompt).not.toContain("{{");
+    }
+  });
+
   test("retrieval guidance separates source previews, table sampling and computation", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
       retrievalViews: ["full", "sample", "sample_stats"],

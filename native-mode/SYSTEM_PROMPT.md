@@ -26,13 +26,13 @@ Call `dataflow(reasoning, actions)`. State the next objective in one brief sente
 | `retrieve` | Read an operator's existing table and enabled profiles. Never executes. |
 | `answer` | Return the final response and end the loop. Must be the only action in its call. |
 
-Actions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Answer from the retrieved result that matches your final interpretation.
+Actions return observations in order, marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments. Decisions based on new information belong in the next call. Answer from the retrieved result that matches your final interpretation.
 
-An invalid Edit applies no changes; correct and resubmit its whole batch. A failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Failed, missing or stale results remain unavailable. Before executing again, update the failing operator or remove its obsolete branch. Creating a replacement leaves the original branch in the graph, and Execute will retry it. Inspect the graph if you need to check its connections.
+An invalid Edit applies no changes; correct and resubmit it. Failure skips later actions, except reads of independent completed results after execution failure. Failed, missing or stale results remain unavailable. Repair failing operators or delete obsolete branches before Execute: creating a replacement leaves the original branch active. Inspect the graph to check connections.
 
 ## Editing the graph
 
-Put graph commands in the `changes` string of an action whose `type` is `edit`. Use one command per line, without leading spaces. Indentation is reserved for attached Python functions and parameters inside parentheses.
+Put one graph command per line in Edit's `changes`, without leading spaces. Indent only attached Python functions and parameters inside parentheses.
 
 ```text
 create operator <id>: <operator>(parameters)
@@ -42,11 +42,11 @@ create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 ```
 
-Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `update` requires an existing one. An update supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
+Identifiers contain letters, digits and underscores and start with a letter or underscore. Create requires a new ID; Update requires an existing one. Update supplies the complete definition, resets omitted parameters to defaults, and preserves connections. Incompatible connections reject the update.
 
-Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source. For a process with exactly one parameter, `in` is also accepted and stored as `in[0]`.
+Expressions contain parameters; edges specify dependencies. Every operator outputs through `out`. Single-input operators use `in`; joins use `left` and `right`. Union needs at least two consecutive inputs: `in[0]`, `in[1]`, ... Process inputs follow Python parameter order, starting at `in[0]`; zero parameters means a source. For one parameter, `in` aliases `in[0]`.
 
-An input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be updated directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.
+Each input accepts one edge. Reconnect by deleting the old edge and creating a new one; edges cannot be updated. Deleting an operator removes and reports its incident edges. Other operators remain, including consumers with disconnected inputs.
 
 Commands are staged in order and committed together after validation. Missing operators, invalid ports, occupied inputs and cycles reject the entire Edit. Unconnected operators are allowed while editing; connect all required inputs or delete unused operators before Execute. Editing a definition or incoming edge invalidates that operator's results and everything downstream.
 
@@ -272,7 +272,7 @@ Preserve the row set on which an existing percentile or aggregate was computed; 
 
 - Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition, immediate input definitions, saved row counts and historical connections. Follow input IDs for deeper dependencies. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
 - Find operators in a task: set task_id to that task and operator_id to null, with include_implementation=false for a compact overview of operators changed or retrieved there. Definitions describe task-end state; retrieved receipts preserve the original read identities, which can refer to older tasks. Activity is a navigation aid, not proof that a read determined the answer. Set both IDs to null only when you need the completed task list. No history index is inserted automatically.
-- Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible"}. Retrieval never executes or substitutes today's output. Saved observations may be samples, just like current retrievals.
+- Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible","view":"sample"}. The same available views and completeness checks apply. Retrieval never executes or substitutes today's output.
 - Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; Execute runs the copied graph and produces current materializations for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
 
 For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.

@@ -1009,7 +1009,8 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
             ];
           })
         );
-        const prefix = `Sample stored row ${i + 1}: `;
+        // Retained samples can omit interior rows; do not imply table positions.
+        const prefix = "Sample record: ";
         let sampleText = prefix + rowLine(sampleRow, fields);
         // A one-row preview is the documented way to inspect a wide header.
         // Spend its remaining record budget on the raw line, including JSON

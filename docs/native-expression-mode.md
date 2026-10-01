@@ -149,6 +149,11 @@ returns its parsed table. Use predefined operators for subsequent transformation
 Filter and map receive one row; process receives one DataFrame per input and
 returns one DataFrame. All three require a `doc` describing the output's meaning.
 
+Process inputs use NumPy float columns with `NaN` for missing floats. This
+avoids pandas 2.2 nullable-float ranking errors after `to_numeric`. Integer,
+boolean, text and datetime columns retain their types; large integer IDs stay
+exact. Each process receives its own copy of the inputs.
+
 Functions are lambdas or complete definitions indented under the operator that
 uses them. Helpers belong in the same block and imports belong inside functions.
 There are no shared definitions between operators. Include required functions
@@ -196,7 +201,7 @@ request order, starting at 1; only completed tasks have historical state.
 | Inspect saved graph | Same, with `operator_id: null` | Operators and edges at that task |
 | List completed tasks | Same, with both IDs `null` | Earlier requests and answers, fetched only on demand |
 | Fork | `task_id`, `operator_id`, `new_operator_id` | New copies of the operator and all upstream definitions, with an ID mapping |
-| Retrieve saved output | `operator_id`, `task_id` | The observation saved at that task, without execution or fallback to current state |
+| Retrieve saved output | `operator_id`, `task_id`, `view` | Saved records using an available retrieval view, without execution or fallback to current state |
 
 A fork preserves input port positions and assigns new IDs to every dependency.
 It leaves the existing branch intact. Before execution, retrieving the fork can

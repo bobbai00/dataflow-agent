@@ -694,7 +694,10 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(availableRetrievalViews(this.settings), this.settings.stateHistory);
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
+        availableRetrievalViews(this.settings),
+        this.settings.stateHistory
+      );
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler

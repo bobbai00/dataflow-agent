@@ -39,7 +39,7 @@ const edit = { type: "edit", changes: 'create operator source: scan("data/orders
 
 describe("compact action observations", () => {
   async function receipt(action: DataflowAction, output: unknown, status: "ok" | "error" = "ok") {
-    const result = prepareDataflowActions({ reasoning: "Check the result.", actions: [action] }, true);
+    const result = prepareDataflowActions({ reasoning: "Check the result.", actions: [action] }, undefined, true);
     await runDataflowActions(result, async () => ({ status, output }));
     return result;
   }
@@ -119,7 +119,7 @@ describe("compact action observations", () => {
 
   test("requested historical results preserve their exact contents and provenance", async () => {
     const result = await receipt(
-      { type: "retrieve", operator_id: "total", task_id: 2 },
+      { type: "retrieve", operator_id: "total", task_id: 2, view: "full" },
       {
         operator_id: "total",
         revision: "rev-2",
@@ -135,6 +135,22 @@ describe("compact action observations", () => {
 });
 
 describe("ordered dataflow actions", () => {
+  test("historical retrieval honors the same available views as current retrieval", () => {
+    const schema = asSchema(createDataflowTool(["sample"], true).inputSchema).jsonSchema as any;
+    const retrieves = schema.properties.actions.items.anyOf.filter((a: any) => a.properties.type.const === "retrieve");
+    expect(retrieves).toHaveLength(2);
+    for (const retrieve of retrieves) expect(retrieve.properties.view.enum).toEqual(["sample"]);
+    for (const task of [{}, { task_id: 1 }]) {
+      const input = {
+        reasoning: "Read.",
+        actions: [{ type: "retrieve", operator_id: "total", view: "full", ...task }],
+      };
+      expect(prepareDataflowActions(input, ["sample"], true).error).toContain("unavailable");
+      input.actions[0].view = "sample";
+      expect(prepareDataflowActions(input, ["sample"], true).status).toBe("pending");
+    }
+  });
+
   test("only available views validate and unavailable requests run no actions", async () => {
     const tool = createDataflowTool(["sample_stats"]);
     const schema = asSchema(tool.inputSchema).jsonSchema as any;
@@ -158,7 +174,9 @@ describe("ordered dataflow actions", () => {
       { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
     ];
     expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }).status).toBe("error");
-    expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }, undefined, true).status).toBe("pending");
+    expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }, undefined, true).status).toBe(
+      "pending"
+    );
     expect(
       prepareDataflowActions(
         { reasoning: "Read.", actions: [{ type: "retrieve", task_id: 0, operator_id: "total", view: "full" }] },
@@ -403,7 +421,7 @@ describe("dataflow action integration", () => {
       [
         { type: "fork", task_id: 1, operator_id: "source", new_operator_id: "earlier" },
         { type: "retrieve", operator_id: "earlier", view: "full" },
-        { type: "retrieve", task_id: 1, operator_id: "source", view: "full" },
+        { type: "retrieve", task_id: 1, operator_id: "source", view: "sample" },
         { type: "retrieve", operator_id: "source", view: "full" },
       ],
       [{ type: "answer", content: "Compared the two saved views." }]
@@ -415,6 +433,7 @@ describe("dataflow action integration", () => {
     const reads = s.outcomes.at(-2)!;
     expect(reads.status).toBe("completed");
     expect(reads.actions[1].output).toMatchObject({ historical_state: { task_id: 1, operator_id: "source" } });
+    expect(reads.actions.slice(1).map(a => (a.output as any).view)).toEqual(["full", "sample", "full"]);
     const restored = session([]);
     await restored.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
     expect(restored.executions()).toBe(0);
@@ -939,7 +958,7 @@ test("native multi-task requests preserve every earlier request as a prefix", as
                 changes: `${n === 1 ? "create" : "update"} operator source: scan("data/task-${n}.csv")`,
               },
               { type: "execute" },
-              { type: "retrieve", operator_id: "source" },
+              { type: "retrieve", operator_id: "source", view: "full" },
             ]
           : [{ type: "answer", content: `Answer ${n / 2}` }];
       return {

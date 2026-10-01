@@ -81,7 +81,7 @@ export function renderSystemPrompt(): string {
     "Enabling evidence adds the matching paragraphs below. The default exposes neither family.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
     "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +
-    NATIVE_STATE_HISTORY.trim() +
+    NATIVE_STATE_HISTORY.trim().replaceAll("{{RETRIEVE_EXAMPLE_VIEW}}", "sample") +
     "\n"
   );
 }

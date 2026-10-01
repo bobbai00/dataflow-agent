@@ -2162,6 +2162,21 @@ class _ProcessTrace:
         return False
 
 
+def _process_input(frame):
+    """Give custom pandas code float columns with NaN-backed missing values.
+
+    Pandas 2.2 can rank masked nullable floats as ordinary values after
+    to_numeric, even while notna() still excludes them. NumPy floats preserve
+    the mask as NaN through these operations. Keep integer extension arrays
+    intact so identifiers above 2**53 never pass through float conversion.
+    """
+    output = frame.copy(deep=True)
+    for name in output.columns:
+        if isinstance(output[name].dtype, (pd.Float32Dtype, pd.Float64Dtype)):
+            output[name] = output[name].astype("float64")
+    return output
+
+
 def execute_native_from_engine(spec, inputs):
     """Restore UTC metadata stripped by Texera's timezone-free TIMESTAMP wire type.
 
@@ -2271,7 +2286,7 @@ def execute_native(spec, inputs):
         entry = props.get("entry", "process" if inputs else "load")
         function = _function(spec, props["code"], "code", entry)
         with _ProcessTrace(_filename(spec, "code")) as trace:
-            output = _frame(spec, function(*[frame.copy(deep=True) for frame in inputs]))
+            output = _frame(spec, function(*[_process_input(frame) for frame in inputs]))
         if trace.reads or trace.events:
             operations["process"] = {"reads": trace.reads[:16], "events": trace.events[:8]}
     else:

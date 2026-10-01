@@ -120,7 +120,11 @@ try {
   ).id;
   save("resources.json", { agentId, wid, cuid, directory });
   const settings = await (await fetch(`${baseUrl}/api/agents/${agentId}/settings`)).json();
-  assert.equal((settings as { stateHistory: boolean }).stateHistory, true, "The API must report the effective history setting");
+  assert.equal(
+    (settings as { stateHistory: boolean }).stateHistory,
+    true,
+    "The API must report the effective history setting"
+  );
   console.log(`Historical-state engine smoke: ${directory}`);
   const oldFile = join(directory, "old.csv"),
     newFile = join(directory, "new.csv");
@@ -137,7 +141,7 @@ create edge source.out -> eligible.in
 create edge eligible.out -> total.in`,
     },
     { type: "execute" },
-    { type: "retrieve", operator_id: "total" },
+    { type: "retrieve", operator_id: "total", view: "full" },
   ]);
   await actions([{ type: "answer", content: "Two units, total 15." }]);
   await debug("Task 2: change the population and remove the quality condition.");
@@ -154,16 +158,16 @@ update operator eligible: filter(lambda row: row["net"] > 0, doc="Positive net")
   const before = await executions();
   const read = await actions([
     { type: "inspect", target: "state", task_id: null, operator_id: "total", include_implementation: true },
-    { type: "retrieve", task_id: 1, operator_id: "total" },
+    { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
     { type: "fork", task_id: 1, operator_id: "total", new_operator_id: "old_total" },
-    { type: "retrieve", operator_id: "old_total" },
-    { type: "retrieve", operator_id: "total" },
+    { type: "retrieve", operator_id: "old_total", view: "full" },
+    { type: "retrieve", operator_id: "total", view: "full" },
   ]);
   assert.equal(await executions(), before, "Inspect, fork and retrieve must not execute");
   assert.ok(textOf(read, 1).includes("15"));
   assert.equal(textOf(read, 1), textOf(read, 3));
   assert.ok(textOf(read, 4).includes("357"));
-  const executed = await actions([{ type: "execute" }, { type: "retrieve", operator_id: "old_total" }]);
+  const executed = await actions([{ type: "execute" }, { type: "retrieve", operator_id: "old_total", view: "full" }]);
   assert.ok(textOf(executed, 1).includes("15"));
   assert.equal((executed.actions[1].output as any).historical_state, undefined);
   await actions([
@@ -173,13 +177,13 @@ update operator eligible: filter(lambda row: row["net"] > 0, doc="Positive net")
 create edge source.out -> old_total__eligible.in`,
     },
     { type: "execute" },
-    { type: "retrieve", operator_id: "old_total" },
+    { type: "retrieve", operator_id: "old_total", view: "full" },
   ]);
   const snapshot = await getSnapshot(agentId, "head", baseUrl);
   save("final-snapshot.json", snapshot);
   assert.deepEqual((snapshot.results.old_total as any).sampleRecords, [{ n: 3, amount: 157 }]);
   assert.deepEqual((snapshot.results.total as any).sampleRecords, [{ n: 4, amount: 357 }]);
-  const original = await actions([{ type: "retrieve", task_id: 1, operator_id: "total" }]);
+  const original = await actions([{ type: "retrieve", task_id: 1, operator_id: "total", view: "full" }]);
   assert.ok(textOf(original, 0).includes("15"));
   save("trace.json", (await getReActSteps(agentId, baseUrl)).steps);
   save("checks.json", {

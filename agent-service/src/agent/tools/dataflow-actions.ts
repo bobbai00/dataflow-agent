@@ -257,7 +257,12 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
   };
   for (const retrieve of schema.properties.actions.items.anyOf.filter(a => a.properties.type.const === "retrieve")) {
     (retrieve.properties as any).view.enum = [...views];
-    retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
+    const historical = "task_id" in retrieve.properties;
+    const source = historical ? "Read this operator's saved result at a completed task" : "Read an existing result";
+    const freshness = historical
+      ? "Never substitutes a current result. Check completeness; unavailable saved results require forking and executing the historical definitions."
+      : "Check completeness; missing or stale outputs require execute.";
+    retrieve.description = `${source}: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. ${freshness}`;
   }
   return tool({
     description:

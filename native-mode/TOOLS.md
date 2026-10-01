@@ -443,7 +443,7 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "view",
               "task_id"
             ],
-            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read this operator's saved result at a completed task: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Never substitutes a current result. Check completeness; unavailable saved results require forking and executing the historical definitions."
           }
         ]
       }
