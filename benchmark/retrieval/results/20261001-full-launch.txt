@@ -1,0 +1,80 @@
+KramaBench retrieval × flow: full campaign launch, 2026-10-01
+
+Protocol
+--------
+All 104 original top-level tasks, six domains, original KramaBench evaluator.
+Models: gpt-5.6-luna and gpt-5.6-terra.
+Retrieval: full, sample, sample_stats, each crossed with flowEvidence false/true.
+12 model/configuration cells × 104 tasks × one repetition = 1,248 attempts.
+The sample_stats + flow cell is included for both models.
+No outcome-selected retries. Failures and timeouts remain recorded.
+
+Sample records: at most 2,000 characters and five rows per retrieved operator.
+Full records: at most 100,000 characters per retrieved operator.
+Data statistics: a separate 2,000-character budget.
+Flow evidence: a separate 2,000-character budget.
+Evidence does not displace the sample rows. Retrieval is fixed per cell;
+this campaign does not contain an adaptive-choice arm.
+Native mode, DELTA context, 25 agent steps, profile collection enabled in
+all cells, thought replay and code in snapshots disabled. These controls
+match the earlier native campaign and retrieval pilots.
+
+Pass threshold: original official score >= 1.0. Report mean official scores
+as well as full-pass counts. Cost: stats.json cost_usd, including cached-input
+discounts; evaluator calls and engine resources are not included in model cost.
+No full-benchmark result is available at launch.
+
+Execution and artifacts
+-----------------------
+Agent and runner revision: 21fb91a77.
+Engine revision: 04e85b581 (includes the timestamp transport repair).
+KramaBench revision: 4658eb92db753805e0df3edc207ca46379eda43b.
+Frozen checkout: /tmp/texera-retrieval-full-20261001
+Agent: localhost:3075; this branch's web/engine: localhost:8080/8085.
+Six workers; at most one task with >=100 MB of declared inputs in flight.
+Each task has a 900-second harness watchdog; engine limits are unchanged.
+
+Results: /tmp/texera-retrieval-full-fixed-20261001
+Convenience link: .claude/artifacts/retrieval-full-20261001
+Controller: /tmp/texera-retrieval-full-fixed-control-20261001
+Controller files: pids.json, command.json, supervisor.py.log, stack-health.jsonl.
+Campaign files: manifest.json, progress.json, logs/, system_scratch/.
+The controller survives the shell session. Per-SUT harness scratch paths link
+directly to the artifact disk to avoid duplicating large traces on /home.
+
+Every completed attempt records settings, the actual prompt/tool definition,
+trace, workflow, final snapshot, score, token/cost stats, and attempt-audit.json
+when available. Automatic checks cover settings, evidence exposure, append-only
+context prefixes, and profile counts/versions. Integrity violations pause new
+launches. Health checks also pause launches while the backend is unavailable.
+The controller runs aggregate analysis, profile audits, and renderer replay
+after the campaign exits. Manual trace review complements these checks.
+
+Launch anomaly and repair
+-------------------------
+A first launch at 751b631fe was stopped after 21 attempts when manual review
+of Luna / sample_flow1 / legal-easy-12 found incorrect scan-repair evidence.
+The hint reported "# of Reports" while the actual column was " # of Reports ".
+The agent followed that hint and received another MISSING_COLUMN error.
+Repair 21fb91a77 preserves exact column names in scan suggestions while keeping
+normalized names for heuristic detection. Regression validation: 34 Python
+scan/check tests and six TypeScript evidence/renderer tests passed.
+
+All 21 attempts are preserved as diagnostics and excluded from this campaign:
+/tmp/texera-retrieval-full-20261001-results
+.claude/artifacts/retrieval-full-diagnostic-20261001
+Their model cost was $0.392015. Their six computing units were terminated after
+active attempts finished. The corrected cohort starts every cell afresh; it
+does not select better diagnostic answers or mix agent revisions.
+
+Preflight notes
+---------------
+The UDF environment now also provides astropy 8.0.1, pyatmos 1.2.7,
+nrlmsise00 0.1.2, and xlrd 2.0.2. Existing NumPy/pandas versions were retained.
+Exact packages and original source resolution are recorded in preflight.json.
+The original workload contains unresolved path spellings/patterns for four
+astronomy tasks (hard-7, hard-9, hard-11, hard-12). Those tasks remain included
+with the benchmark's original prompts and path-resolution behavior; available
+data and these discrepancies are recorded, rather than silently replacing
+the tasks or changing their ground truth. Legal directory case differences
+are resolved by the existing harness.
