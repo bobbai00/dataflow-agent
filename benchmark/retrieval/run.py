@@ -10,7 +10,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Matched KramaBench pilot: fixed/adaptive retrieval crossed with flow evidence.
+"""Matched KramaBench campaign: retrieval crossed with flow evidence.
 
 Run with benchmark/Kramabench/.venv/bin/python. Records every attempt, including
 errors, and never overwrites a run. Uses the benchmark's official evaluator.
@@ -21,13 +21,17 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import queue
 import random
 import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
+
+from campaign import ResourceQueue, audit_attempt, prepare_artifacts
+from catalog import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
@@ -48,6 +52,10 @@ def main():
     parser.add_argument("--engine-revision", help="Revision built into the running backend; record independently of the agent")
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--all-tasks", action="store_true", help="All original top-level KramaBench tasks")
+    parser.add_argument("--direct-artifacts", action="store_true", help="Write harness scratch directly into output using symlinks")
+    parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
+    parser.add_argument("--large-workers", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--selection", default="Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.")
     parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
@@ -57,6 +65,15 @@ def main():
     parser.add_argument("--arms", nargs="+", default=[f"{view}_flow{flow}" for view in
                         ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]])
     args = parser.parse_args()
+    if min(args.workers, args.large_workers, args.repetitions, args.timeout) < 1:
+        parser.error("Workers, repetitions and timeout must be positive")
+    source_inventory = inventory()
+    if args.all_tasks:
+        args.tasks = sorted(t["task_id"] for t in source_inventory)
+        args.selection = "All 104 original KramaBench top-level tasks; no task exclusions or outcome-selected retries."
+        assert len(args.tasks) == 104
+    assert len(set(args.tasks)) == len(args.tasks), "Duplicate task IDs"
+    assert set(args.tasks) <= {t["task_id"] for t in source_inventory}, "Unknown task IDs"
     output = args.output.resolve()
     if args.source_manifest:
         args.source_manifest = args.source_manifest.resolve()
@@ -100,6 +117,9 @@ def main():
         "selection": args.selection,
         "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
         "task_timeout_seconds": args.timeout, "workers": args.workers,
+        "input_inventory": source_inventory,
+        "large_input_bytes": args.large_input_bytes, "large_workers": args.large_workers,
+        "direct_artifacts": args.direct_artifacts,
     }
     if args.source_manifest:
         manifest["source_inventory"] = json.loads(args.source_manifest.resolve().read_text())
@@ -114,14 +134,45 @@ def main():
         assert not (KB / "system_scratch" / name).exists(), f"Would overwrite {name}"
     manifest["jobs"] = jobs
     save(output / "manifest.json", manifest)
-    pending = queue.Queue()
-    for job in jobs:
-        pending.put(job)
+    if args.direct_artifacts:
+        prepare_artifacts(KB / "system_scratch", output / "system_scratch", [j["sut"] for j in jobs])
+    large_tasks = {t["task_id"] for t in source_inventory if t["bytes"] >= args.large_input_bytes}
+    pending = ResourceQueue(jobs, large_tasks, args.large_workers)
     lock = threading.Lock()
     launch_lock = threading.Lock()
-    progress = {"started_at": datetime.now(timezone.utc).isoformat(), "status": "running", "active": {}, "completed": [], "worker_errors": []}
+    progress = {"started_at": datetime.now(timezone.utc).isoformat(), "status": "running", "active": {}, "completed": [], "worker_errors": [], "waiting": {}}
+    save(output / "progress.json", progress)
+
+    def wait_until_ready(slot):
+        """Pause launches during outages or integrity investigations; keep attempts intact."""
+        while True:
+            problem = None
+            try:
+                if (output / "PAUSE").exists():
+                    raise RuntimeError((output / "PAUSE").read_text()[:300])
+                for base in [args.endpoint, os.environ["TEXERA_API_ENDPOINT"]]:
+                    requests.get(base + "/api/healthcheck", timeout=5).raise_for_status()
+                for base in [os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"], os.environ["TEXERA_WORKFLOW_EXECUTION_ENDPOINT"]]:
+                    url = urlsplit(base)
+                    with socket.create_connection((url.hostname, url.port), timeout=5):
+                        pass
+                if shutil.disk_usage(output).free < 5_000_000_000 or shutil.disk_usage(ROOT).free < 2_000_000_000:
+                    raise RuntimeError("Artifact or backend disk is low on space")
+            except Exception as exc:
+                problem = f"{type(exc).__name__}: {exc}"
+            with lock:
+                if problem:
+                    progress["waiting"][slot] = problem
+                else:
+                    progress["waiting"].pop(slot, None)
+                save(output / "progress.json", progress)
+            if not problem:
+                return
+            print("WAIT", slot, problem, flush=True)
+            time.sleep(15)
 
     def worker(slot):
+        wait_until_ready(slot)
         token = login(api_endpoint=os.environ["TEXERA_API_ENDPOINT"])
         headers = {"Authorization": "Bearer " + token}
         cu_base = os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"]
@@ -132,12 +183,13 @@ def main():
         body = response.json()
         cuid = body.get("computingUnit", body)["cuid"]
         save(output / f"cu-{slot}.json", {"cuid": cuid, "status": "created"})
+        job = None
         try:
             while True:
-                try:
-                    job = pending.get_nowait()
-                except queue.Empty:
+                job = pending.get()
+                if job is None:
                     return
+                wait_until_ready(slot)
                 destination = KB / "system_scratch" / job["sut"] / job["task"]
                 log = output / "logs" / f'{job["sut"]}-{job["task"]}.log'
                 log.parent.mkdir(exist_ok=True)
@@ -161,12 +213,15 @@ def main():
                         timeout = True
                         resource = destination / "resources.json"
                         if resource.exists():
-                            agent_id = json.loads(resource.read_text())["agent_id"]
-                            endpoint = args.endpoint + "/api/agents/" + agent_id
-                            requests.post(endpoint + "/stop", timeout=30)
-                            trace = requests.get(endpoint + "/react-steps", timeout=30)
-                            if trace.ok:
-                                save(destination / "watchdog-react_steps.json", trace.json())
+                            try:
+                                agent_id = json.loads(resource.read_text())["agent_id"]
+                                endpoint = args.endpoint + "/api/agents/" + agent_id
+                                requests.post(endpoint + "/stop", timeout=30)
+                                trace = requests.get(endpoint + "/react-steps", timeout=30)
+                                if trace.ok:
+                                    save(destination / "watchdog-react_steps.json", trace.json())
+                            except Exception as exc:
+                                save(destination / "watchdog-error.json", {"error": str(exc)})
                         proc.terminate()
                         try:
                             proc.wait(timeout=20)
@@ -174,19 +229,28 @@ def main():
                             proc.kill()
                             proc.wait()
                 archive = output / "system_scratch" / job["sut"] / job["task"]
-                if destination.exists():
+                if destination.exists() and destination.resolve() != archive.resolve():
                     shutil.copytree(destination, archive)
                 evaluation = json.loads((archive / "evaluation.json").read_text()) if (archive / "evaluation.json").exists() else {}
                 stats = json.loads((archive / "stats.json").read_text()) if (archive / "stats.json").exists() else {}
                 scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
                 row = {**job, "exit_code": proc.returncode, "timeout": timeout, "score": max(scores) if scores else None,
                        "cost_usd": stats.get("cost_usd"), "seconds": time.monotonic() - started}
+                checks = audit_attempt(archive, {**manifest["settings"], **manifest["arms"][job["arm"]]})
+                save(archive / "attempt-audit.json", checks)
+                row["audit"] = checks
+                if checks["violations"]:
+                    (output / "PAUSE").write_text(f"Trace integrity check failed: {job}: {checks['violations']}\n")
                 with lock:
                     progress["completed"].append(row)
                     progress["active"].pop(slot, None)
                     save(output / "progress.json", progress)
                 print("DONE", row, flush=True)
+                pending.done(job)
+                job = None
         finally:
+            if job is not None:
+                pending.done(job)
             response = requests.delete(cu_base + f"/api/computing-unit/{cuid}/terminate", headers=headers, timeout=30)
             save(output / f"cu-{slot}.json", {"cuid": cuid, "status": "terminated" if response.ok else "cleanup_error"})
 
@@ -198,6 +262,8 @@ def main():
             except Exception as exc:
                 with lock:
                     progress["worker_errors"].append(str(exc))
+                    save(output / "progress.json", progress)
+                    (output / "PAUSE").write_text(f"Worker error requires investigation: {exc}\n")
     progress["status"] = "complete" if len(progress["completed"]) == len(jobs) else "incomplete"
     progress["finished_at"] = datetime.now(timezone.utc).isoformat()
     save(output / "progress.json", progress)
