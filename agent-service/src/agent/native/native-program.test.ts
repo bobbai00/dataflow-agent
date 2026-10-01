@@ -535,6 +535,7 @@ describe("native prompt", () => {
     expect(prompt).toContain("A complete preview is still only a preview of the source");
     expect(prompt).toContain("not a random sample");
     expect(prompt).toContain("Statistics are computed independently of the displayed records");
+    expect(prompt).toContain('prev=lag("value") creates prev');
   });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");

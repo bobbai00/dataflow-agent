@@ -34,7 +34,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `distinct` | in -> out | Keep one whole row per key (all columns by default). keep="first" or "last"; missing keys compare equal. Preserves relative row order. |
 | `sort` | in -> out | Stable sort: by=["amount"] ascending, or by=[("amount", "desc"), "name"]. nulls="first" or "last". |
 | `limit` | in -> out | Keep n rows from offset. Sort first when selecting a top-k. |
-| `window` | in -> out | Add lag(col, offset=1), lead(col, offset=1), row_number(), rank(), or dense_rank() within partitions. Ranks start at 1; output keeps input row order. |
+| `window` | in -> out | Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order. |
 | `unpivot` | in -> out | Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types. |
 | `pivot` | in -> out | Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names. |
 | `process` | in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader | One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators. |
@@ -90,7 +90,7 @@ limit(n, offset=0)
 
 window(partition_by=[], order_by=[...], name=fn, ...)
     Ports: in -> out.
-    Add lag(col, offset=1), lead(col, offset=1), row_number(), rank(), or dense_rank() within partitions. Ranks start at 1; output keeps input row order.
+    Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.
 
 unpivot(columns, name="variable", value="value")
     Ports: in -> out.

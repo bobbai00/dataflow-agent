@@ -782,7 +782,7 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "window",
     brief:
-      "Add lag(col, offset=1), lead(col, offset=1), row_number(), rank(), or dense_rank() within partitions. Ranks start at 1; output keeps input row order.",
+      'Output keywords name columns: prev=lag("value") creates prev. Also lead, row_number, rank, dense_rank. Order within partitions; ranks start at 1; keep input row order.',
     type: "Window",
     inputs: 1,
     rowEffect: "none",
