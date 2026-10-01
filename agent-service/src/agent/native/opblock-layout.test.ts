@@ -228,7 +228,7 @@ test("opBlock: a result the agent never observed is still withheld", async () =>
     expect(hasBody(blockFor(messages, id))).toBe(false);
     expect(blockFor(messages, id)).toContain("Result: executed");
   }
-  expect(messages.join("\n")).not.toContain("Sample stored row 1: -1");
+  expect(messages.join("\n")).not.toContain("Sample record: -1");
 });
 
 test("opBlock: an observed result survives the agent looking elsewhere", async () => {

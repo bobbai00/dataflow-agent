@@ -203,7 +203,7 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
     const text = JSON.stringify(before);
     expect(text.match(/Flow upstream selected:/g)?.length).toBe(1);
     expect(text).toContain("Flow upstream: see");
-    expect(text).not.toContain("Sample stored row 1: -100");
+    expect(text).not.toContain("Sample record: -100");
     expect(text.match(/Output Table: 3 rows/g)?.length).toBe(2);
     const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
     await f.record("B", [], ["second"]);

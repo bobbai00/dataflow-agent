@@ -78,6 +78,44 @@ print(results[sys.argv[1]].to_json(orient='records'))
   return JSON.parse(run.stdout);
 }
 
+describe("cross joins for scalar benchmarks", () => {
+  test("explicit empty keys are equivalent to omitted keys only for cross joins", async () => {
+    const v = await views(`
+a = join(left_table, right_table, how="cross")
+b = join(left_table, right_table, on=[], how="cross")
+c = join(left_table, right_table, on=None, how="cross")
+d = join(left_table, right_table, on=[], how="inner")
+e = join(left_table, right_table, on="id", how="cross")`);
+    for (const name of ["a", "b", "c"]) {
+      expect(v[name].error).toBeUndefined();
+      expect(v[name].view!.properties).toEqual({ type: "cross" });
+    }
+    expect(v.d.error).toBeDefined();
+    expect(v.e.error).toBeDefined();
+  });
+
+  test("an explicit empty-key cross join attaches a scalar without lookup-key operators", async () => {
+    const { state, tools } = nativeTestTools();
+    const result = await tools.dataflow.execute({
+      edits: `
+def load_values():
+    import pandas as pd
+    return pd.DataFrame({"value": [2, 4]})
+def load_threshold():
+    import pandas as pd
+    return pd.DataFrame({"threshold": [3]})
+values = process(fn=load_values, doc="Test values")
+threshold = process(fn=load_threshold, doc="Test scalar benchmark")
+attached = join(values, threshold, on=[], how="cross")`,
+    });
+    expect(result.operators.every((op: any) => op.status === "added")).toBe(true);
+    expect(execute(state, "attached")).toEqual([
+      { value: 2, threshold: 3 },
+      { value: 4, threshold: 3 },
+    ]);
+  });
+});
+
 describe("program → operator definitions", () => {
   test("scan accepts the None defaults advertised in its signature", async () => {
     const v = await views(`

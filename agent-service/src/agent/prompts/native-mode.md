@@ -56,7 +56,7 @@ delete edge <source>.out -> <target>.<input_port>
 
 Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `update` requires an existing one. An update supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
 
-Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source.
+Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source. For a process with exactly one parameter, `in` is also accepted and stored as `in[0]`.
 
 An input accepts one edge. To change a connection, delete its old edge and create a new one. Edges cannot be updated directly. Deleting an operator automatically deletes every incoming and outgoing edge; the observation lists those edges. Other operators remain, including consumers whose inputs are now unconnected.
 
@@ -70,9 +70,9 @@ A row's missing values are `None`; handle them explicitly. A map returns scalar 
 
 ## Working with data
 
-Use the supplied file paths; check any glob against those paths. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
+Use the supplied file paths; check any glob against those paths. For a table assembled from multiple files, verify which supplied files were loaded. Inspect unfamiliar filenames before excluding them. Preview unfamiliar files with `scan(..., preview=n)`, which returns raw lines or sheet rows without requiring valid headers. If a wide header is truncated, set `preview=1` and `skip_lines` to its row offset to give it the full display budget. Compute on a full parsed scan. For repeated headers, skip all preamble/header rows and use `header=False` with exactly one unique, section-aware name per column. If files infer conflicting column types, load with `all_text=True` and cast downstream, or scan and cast each file before union.
 
-Check column meanings, units, missing-value markers and repeated records. Clean numeric formatting before casting. Use `errors="null"` only for values you intend to exclude, then check how many were lost. Establish eligibility flags before aggregating. Normalize join keys and check the row grain. Apply the requested formula and round only at the end.
+Check column meanings, units, missing-value markers and repeated records. Clean numeric formatting before casting. Use `errors="null"` only for values you intend to exclude, then check how many were lost. Establish eligibility flags before aggregating. Normalize join keys and check the row grain. Apply the requested formula, check the result's scale, and round only at the end.
 
 ## Operators and ports
 
@@ -86,7 +86,7 @@ The catalog lists every operator's parameters, ports and meaning. Column names a
 
 {{RETRIEVAL}}
 
-Retrieval reports returned and total rows and columns, and whether the view is complete. Errors name the failing operator and include a repair hint.{{EVIDENCE}}
+Retrieval reports returned and total rows and columns, and whether the view is complete. An incomplete view is a sample; its record order does not establish table positions. Compute on the full table. Errors name the failing operator and include a repair hint.{{EVIDENCE}}
 
 {{CONTEXT_LAYOUT}}{{RECALL_TOOL}}
 

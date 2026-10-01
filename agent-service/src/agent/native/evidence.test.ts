@@ -253,7 +253,27 @@ test("compact counts share coverage labels without losing unknown or null counts
   expect(result.text).toContain('"unknown_distinct" | 0 | 3 | unknown');
   expect(result.text).toContain('"x" | 0 | 3 | 3');
   expect(result.text).not.toContain('"nullable" (full=3 rows): null=');
-  expect(result.text).toContain("Sample stored row 1: 1");
+  expect(result.text).toContain("Sample record: 1");
+});
+
+test("sample records do not claim a row position in the original table", () => {
+  const f = fixture("Sort");
+  f.info.result = [
+    { rank: 1, label: "first" },
+    { rank: 5, label: "fifth" },
+  ];
+  f.info.resultSchema = [
+    { name: "rank", type: "int64", encoding: "number-or-decimal-string" },
+    { name: "label", type: "str", encoding: "string" },
+  ];
+  f.info.totalRowCount = 5;
+  f.info.truncated = true;
+  const result = observe(f, { data: false, flow: false });
+  expect(result.text).toContain('Sample record: 1\t"first"');
+  expect(result.text).toContain('Sample record: 5\t"fifth"');
+  expect(result.text).not.toContain("row 2");
+  expect(result.text).not.toContain("Complete table (all rows)");
+  expect(result.text).toContain("View incomplete");
 });
 
 test("compact count groups do not conflate partial and full column coverage", () => {
@@ -296,7 +316,7 @@ test("column counts are budgeted as table rows and preserve sampled records", ()
   // Counts are budgeted as the table rows they render as, so the room they
   // save holds more columns instead of going unused; the budget still holds.
   expect(result.text.split("\n").filter(l => /^"field_\d+" \|/.test(l)).length).toBeGreaterThan(10);
-  expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample stored row 1: 1"]);
+  expect(result.chunks.filter(c => c.id.startsWith("sample.")).map(c => c.text)).toEqual(["Sample record: 1"]);
   const excluded = result.omitted.filter(c => c.reason === "budget").map(c => c.id);
   expect(excluded.some(id => id.startsWith("data.column."))).toBe(true);
   expect(result.selected.some(id => excluded.includes(id))).toBe(false);
@@ -329,8 +349,8 @@ test("raw preview protects ordered header rows from metadata profiles and long c
     for (const flow of [false, true]) {
       const result = observe(f, { data, flow });
       expect(result.text).toContain("heading_marker | amount");
-      expect(result.text).toContain("Sample stored row 6:");
-      expect(result.text.indexOf("Sample stored row 2:")).toBeLessThan(result.text.indexOf("Sample stored row 6:"));
+      expect(result.text).toContain('Sample record: "Sheet1"\t5\t"heading_marker | amount"');
+      expect(result.text.indexOf('"Sheet1"\t1\t')).toBeLessThan(result.text.indexOf('"Sheet1"\t5\t'));
       expect(result.selected.some(id => id.startsWith("data.column."))).toBe(false);
       expect(result.text).toContain("...[truncated]...");
       expect(result.text.length).toBeLessThanOrEqual(data && flow ? 4000 : 2000);
