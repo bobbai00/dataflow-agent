@@ -75,6 +75,16 @@ test("expression syntax errors name the command's line in the edit", async () =>
   expect(state.getAllOperators()).toEqual([]);
 });
 
+test("an indented graph command reports its own line and leaves the graph intact", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  await expect(edit(state, "delete operator selected\n delete operator total")).rejects.toThrow(
+    "Line 2: start graph commands without indentation"
+  );
+  expect(state.getWorkflowContent()).toEqual(before);
+});
+
 test("modify preserves incoming and outgoing connections and invalidates descendants", async () => {
   const state = new WorkflowState();
   await edit(state, chain);

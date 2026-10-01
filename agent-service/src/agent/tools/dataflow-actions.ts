@@ -86,27 +86,31 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         }),
         action(
           "inspect",
-          "Read an operator's expression, inputs and description. Request its registered Python functions when needed.",
+          "Read an operator's definition, ports, connections and description. Request its registered Python functions when needed.",
           {
             target: { type: "string", const: "operator" },
             operator_id: text,
             include_implementation: { type: "boolean" },
           }
         ),
-        action("edit", "Apply an atomic batch of explicit operator and edge changes. Does not execute.", {
-          changes: {
-            ...text,
-            description:
-              "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes.",
-          },
-        }),
+        action(
+          "edit",
+          'Create, modify or delete operators and edges through commands in changes, with type="edit". Atomic; does not execute.',
+          {
+            changes: {
+              ...text,
+              description:
+                "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes.",
+            },
+          }
+        ),
         action(
           "execute",
-          "Execute the current dataflow, reusing valid cached results. Returns status and errors; retrieve table contents separately."
+          "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
         ),
         action(
           "retrieve",
-          "Read an operator's existing output records and enabled runtime profiles. Never executes; unavailable or stale results require execute.",
+          "Read an operator's existing output records and enabled runtime profiles. Never executes. Missing or stale outputs need a successful execute; failed operators must first be repaired.",
           { operator_id: text }
         ),
         action(
@@ -130,8 +134,13 @@ function validationMessage(input: any): string {
   if (Array.isArray(input?.actions)) {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
-      if (!candidates.length)
+      if (!candidates.length) {
+        if (["create", "modify", "delete"].includes(item?.type)) {
+          const changes = `${item.type} operator <id>${item.type === "delete" ? "" : ": <expression>"}`;
+          return `Action ${index + 1}: ${JSON.stringify(item.type)} is a graph command. Put it inside an edit action: ${JSON.stringify({ type: "edit", changes })}. No actions ran.`;
+        }
         return `Action ${index + 1}: unknown action type ${JSON.stringify(item?.type ?? null)}. Use inspect, edit, execute, retrieve, or answer. Operators such as scan, process and aggregate belong inside an edit.`;
+      }
       const selected = candidates.find(
         v => !("target" in v.schema.properties) || (v.schema.properties as any).target.const === item?.target
       );
@@ -181,6 +190,7 @@ export function prepareDataflowActions(input: unknown): DataflowActionsResult {
 export function createDataflowTool() {
   return tool({
     description: DATAFLOW_ACTIONS_DESCRIPTION,
+    strict: true,
     inputSchema: jsonSchema<DataflowActionsInput>(DATAFLOW_ACTIONS_SCHEMA as any),
     execute: async input => prepareDataflowActions(input),
   });

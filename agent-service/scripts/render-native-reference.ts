@@ -49,9 +49,14 @@ function schemaOf(tool: any): unknown {
   return asSchema(tool.inputSchema ?? tool.parameters).jsonSchema;
 }
 
-export function renderToolDefinitions(): Array<{ name: string; description: string; schema: unknown }> {
+export function renderToolDefinitions(): Array<{
+  name: string;
+  description: string;
+  schema: unknown;
+  strict?: boolean;
+}> {
   const tool = createDataflowTool();
-  return [{ name: "dataflow", description: String(tool.description), schema: schemaOf(tool) }];
+  return [{ name: "dataflow", description: String(tool.description), schema: schemaOf(tool), strict: tool.strict }];
 }
 
 const HEADER = (title: string, what: string) =>
@@ -86,7 +91,10 @@ export function renderTools(): string {
       "Native mode exposes one dataflow tool with a brief rationale and an ordered action list. The definition below is generated from the actual tool in agent-service/src/agent/tools/dataflow-actions.ts. Optional recall, resume and compaction tools are off by default."
     ) +
     renderToolDefinitions()
-      .map(t => `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n`)
+      .map(
+        t =>
+          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The provider receives this flag outside the parameter schema. Graph commands inside \`changes\` are validated by the graph parser.\n`
+      )
       .join("\n") +
     "\n## Execution rules\n\n" +
     "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +

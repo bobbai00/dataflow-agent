@@ -1344,6 +1344,7 @@ export class TexeraAgent {
       name: string;
       description: string;
       inputSchema: any;
+      strict?: boolean;
       enabled: boolean;
     }>;
   } {
@@ -1357,6 +1358,7 @@ export class TexeraAgent {
         name,
         description,
         inputSchema,
+        ...(toolDef.strict !== undefined ? { strict: toolDef.strict } : {}),
         enabled,
       };
     });

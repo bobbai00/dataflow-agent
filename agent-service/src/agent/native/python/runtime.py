@@ -906,11 +906,17 @@ def _union(spec, frames, operations):
     for name in names:
         kinds = {_logical_dtype(frame[name]) for frame in frames if name in frame.columns} - {None}
         if len(kinds) > 1:
+            scanning = spec["type"] == "Scan"
             raise _error(
                 spec,
                 "UNION_TYPE",
-                f"Union column {name!r} has incompatible types {sorted(kinds)}; cast before union.",
-                field="schema",
+                (
+                    f"Files infer incompatible types {sorted(kinds)} for column {name!r}. "
+                    "Load with all_text=True and cast downstream, or scan and cast each file before union."
+                    if scanning
+                    else f"Union column {name!r} has incompatible types {sorted(kinds)}; cast before union."
+                ),
+                field="files" if scanning else "schema",
             )
         types[name] = next(iter(kinds), "str")
     aligned = []
@@ -1116,7 +1122,8 @@ def _scan_header(spec, raw, source_meta):
         raise _error(
             spec,
             "SCAN_HEADER",
-            "Duplicate header names are not renamed automatically; preview and use header=False with names=[...], or a process parser.",
+            f"Duplicate header names across {len(names)} columns. Preview the raw rows, then skip all header rows "
+            f"with skip_lines and use header=False with {len(names)} unique names.",
             field="header",
         )
     output.columns = names

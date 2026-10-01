@@ -72,7 +72,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "operator_id",
               "include_implementation"
             ],
-            "description": "Read an operator's expression, inputs and description. Request its registered Python functions when needed."
+            "description": "Read an operator's definition, ports, connections and description. Request its registered Python functions when needed."
           },
           {
             "type": "object",
@@ -86,14 +86,14 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
                 "type": "string",
                 "minLength": 1,
                 "pattern": "\\S",
-                "description": "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes."
+                "description": "Graph commands: create operator id: expression; modify operator id: expression; delete operator id; create edge source.out -> target.port; delete edge source.out -> target.port. One command per line, without leading spaces; Python functions are indented under their operator. Operator expressions have no upstream table arguments. Deleting an operator automatically deletes its incident edges. Edges cannot be modified. A failed Edit applies no changes."
               }
             },
             "required": [
               "type",
               "changes"
             ],
-            "description": "Apply an atomic batch of explicit operator and edge changes. Does not execute."
+            "description": "Create, modify or delete operators and edges through commands in changes, with type=\"edit\". Atomic; does not execute."
           },
           {
             "type": "object",
@@ -107,7 +107,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             "required": [
               "type"
             ],
-            "description": "Execute the current dataflow, reusing valid cached results. Returns status and errors; retrieve table contents separately."
+            "description": "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",
@@ -127,7 +127,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "type",
               "operator_id"
             ],
-            "description": "Read an operator's existing output records and enabled runtime profiles. Never executes; unavailable or stale results require execute."
+            "description": "Read an operator's existing output records and enabled runtime profiles. Never executes. Missing or stale outputs need a successful execute; failed operators must first be repaired."
           },
           {
             "type": "object",
@@ -159,6 +159,8 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
   ]
 }
 ```
+
+Strict tool input: `true`. The provider receives this flag outside the parameter schema. Graph commands inside `changes` are validated by the graph parser.
 
 ## Execution rules
 

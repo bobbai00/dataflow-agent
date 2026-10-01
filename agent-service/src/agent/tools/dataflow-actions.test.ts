@@ -46,6 +46,7 @@ describe("ordered dataflow actions", () => {
     const s = session([]);
     const exported = s.agent.getSystemInfo().tools.find(tool => tool.name === "dataflow");
     expect(exported?.inputSchema).toEqual(asSchema(createDataflowTool().inputSchema).jsonSchema);
+    expect(exported).toMatchObject({ strict: true });
   });
 
   test("validates the entire envelope before any action runs", () => {
@@ -136,6 +137,15 @@ describe("ordered dataflow actions", () => {
     expect(missingDelete.error).toContain("changes");
     expect(missingDelete.error).not.toContain("operator_id");
     expect(missingDelete.actions).toEqual([]);
+  });
+
+  test("graph verbs in the outer action receive a concrete edit envelope", () => {
+    for (const type of ["create", "modify", "delete"]) {
+      const result = prepareDataflowActions({ reasoning: "Change the graph.", actions: [{ type }] });
+      expect(result.error).toContain('"type":"edit"');
+      expect(result.error).toContain(`"changes":"${type} operator`);
+      expect(result.actions).toEqual([]);
+    }
   });
 
   test("an answer is accepted only on its own and ends the batch", async () => {
@@ -430,6 +440,9 @@ describe("action history and model loop", () => {
       doGenerate: async options => {
         calls++;
         expect(options.toolChoice).toEqual({ type: "required" });
+        expect(options.tools?.find(t => t.type === "function" && t.name === "dataflow")).toMatchObject({
+          strict: true,
+        });
         if (calls === 2) {
           expect(JSON.stringify(options.prompt)).toContain("result-1");
           expect(JSON.stringify(options.prompt)).not.toContain('"status":"pending"');

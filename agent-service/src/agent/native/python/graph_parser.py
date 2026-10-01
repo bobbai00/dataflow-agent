@@ -30,6 +30,7 @@ ENDPOINT = rf"({ID})\.({ID}(?:\[\d+\])?)"
 
 def parse_graph_changes(source):
     try:
+        lines = source.splitlines()
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
         starts = []
         depth = indent = 0
@@ -39,6 +40,11 @@ def parse_graph_changes(source):
             elif token.type == tokenize.DEDENT:
                 indent -= 1
             elif token.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT, tokenize.ENDMARKER):
+                if (not depth and indent and token.type == tokenize.NAME
+                        and re.match(r"^(create|modify|delete) (operator|edge)\b", lines[token.start[0] - 1].lstrip())):
+                    raise ValueError(
+                        f"Line {token.start[0]}: start graph commands without indentation; indent only attached Python functions."
+                    )
                 if not depth and not indent and token.start[1] == 0:
                     starts.append(token.start[0])
                 if token.type == tokenize.OP:
@@ -49,7 +55,6 @@ def parse_graph_changes(source):
         starts = sorted(set(starts))
         if not starts:
             raise ValueError("An edit needs at least one graph command.")
-        lines = source.splitlines()
         commands = []
         for index, start in enumerate(starts):
             end = starts[index + 1] - 1 if index + 1 < len(starts) else len(lines)

@@ -29,6 +29,23 @@ import { assembleContext } from "../util/context-utils";
 import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
 
 const revision = "0123456789abcdef";
+test("a multi-file scan gets a repair hint that can be applied to its definition", () => {
+  for (const type of ["Scan", "Union"]) {
+    const { diagnostic, info, state } = fixture(type);
+    info.error =
+      "NATIVE_ERROR_V2:" +
+      JSON.stringify({ ...diagnostic, code: "UNION_TYPE", message: "Column value has incompatible types." });
+    const output = formatOperatorResult("answer", info, state);
+    if (type === "Scan") {
+      expect(output).toContain("all_text=True");
+      expect(output).toContain("cast");
+    } else {
+      expect(output).toContain("Cast the named column");
+      expect(output).not.toContain("all_text=True");
+    }
+  }
+});
+
 test("redaction preserves submitted-source line coordinates across multiline values", () => {
   const source =
     "def apply(row):\n    private = environ({\n        'SECRET': 'hidden'\n    })\n    PASSWORD='first\nsecond'\n    return row['x'] / 0";

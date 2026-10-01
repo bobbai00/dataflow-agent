@@ -156,7 +156,14 @@ export function resolveNativeDiagnostic(
   const parsed = parseNativeDiagnostic(error);
   if (parsed) {
     const origin = parsed.operatorId === op.operatorID ? op : resolveOperator?.(parsed.operatorId);
-    if (origin?.nativeOp?.revision === parsed.operatorRevision) return parsed;
+    if (origin?.nativeOp?.revision === parsed.operatorRevision) {
+      if (origin.nativeOp.type === "Scan" && parsed.code === "UNION_TYPE")
+        return {
+          ...parsed,
+          hint: "Set all_text=True in this scan and cast its output, or scan and cast each file before union.",
+        };
+      return parsed;
+    }
     return {
       ...base,
       code: "DIAGNOSTIC_BINDING_MISMATCH",
