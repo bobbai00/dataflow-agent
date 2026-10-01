@@ -88,6 +88,8 @@ Retrieval returns the table's row count, typed columns and records within the di
 
 {{CONTEXT_LAYOUT}}{{RECALL_TOOL}}
 
+{{STATE_HISTORY}}
+
 ## Examples
 
 Preview a file, execute and read its raw header:

@@ -135,6 +135,7 @@ import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/c
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
+import { forkState } from "./state-history";
 import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
@@ -294,7 +295,7 @@ export function computeOperatorAccess(
 }
 
 /** Retries of a turn whose driver run failed transiently (a timed-out or dropped model request). */
-const MODEL_RETRIES_PER_TURN = 2;
+const MODEL_RETRIES_PER_TURN = Number(process.env.MODEL_RETRIES_PER_TURN ?? 2);
 /** Backoff before retry n is n times this many milliseconds. */
 const MODEL_RETRY_BACKOFF_MS = () => Number(process.env.MODEL_RETRY_BACKOFF_MS ?? 3000);
 
@@ -582,6 +583,7 @@ export class TexeraAgent {
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
         checks: this.settings.nativeChecks === true,
+        stateHistory: this.settings.stateHistory === true,
       });
     } else {
       this.systemPrompt = buildCodeModeSystemPrompt(
@@ -673,7 +675,7 @@ export class TexeraAgent {
         this.settings.versionedMode ? this.operatorVersionStore() : undefined
       );
     } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool();
+      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(this.settings.stateHistory);
     }
 
     // Opt-in agent-triggered compaction (POC): a marker tool. The DELTA assembler
@@ -878,11 +880,42 @@ export class TexeraAgent {
     return i < 0 ? undefined : i + 1;
   }
 
+  getCurrentMessageId(): string | undefined {
+    return this.currentMessageId;
+  }
+
   /** messageId -> global turn number, for the renderer. */
   turnNumberMap(): Map<string, number> {
     const m = new Map<string, number>();
     this.turnOrder().forEach((id, i) => m.set(id, i + 1));
     return m;
+  }
+
+  /** Resolve completed user tasks directly from the append-only ReAct tree. */
+  private completedStateTasks() {
+    const currentMessage = this.head ? this.stepsById.get(this.head)?.messageId : undefined;
+    return this.turnOrder().flatMap((messageId, i) => {
+      if (messageId === currentMessage) return [];
+      const steps = this.reActStepsByMessageId.get(messageId) ?? [];
+      const end = [...steps].reverse().find(
+        step =>
+          step.role === "agent" &&
+          step.isEnd &&
+          step.toolResults?.some(result => {
+            const actions = asDataflowActionsResult(result.output);
+            return actions?.status === "completed" && actions.answer !== undefined;
+          })
+      );
+      if (!end) return [];
+      return [
+        {
+          taskId: i + 1,
+          stepId: end.id,
+          request: steps.find(step => step.role === "user")?.content ?? "",
+          answer: end.content,
+        },
+      ];
+    });
   }
 
   /**
@@ -1388,6 +1421,7 @@ export class TexeraAgent {
     flowEvidence?: boolean;
     dataflowReasoning?: boolean;
     nativeChecks?: boolean;
+    stateHistory?: boolean;
     resultSelection?: ResultSelection;
     contextMode?: ContextMode;
     parallelToolCalls?: boolean;
@@ -1462,6 +1496,10 @@ export class TexeraAgent {
     if (updates.dataflowReasoning !== undefined && updates.dataflowReasoning !== this.settings.dataflowReasoning) {
       // Changes the tool schema (rebuilt below) and the prompt's tool section.
       this.settings.dataflowReasoning = updates.dataflowReasoning;
+      promptNeedsRebuild = true;
+    }
+    if (updates.stateHistory !== undefined && updates.stateHistory !== this.settings.stateHistory) {
+      this.settings.stateHistory = updates.stateHistory;
       promptNeedsRebuild = true;
     }
     if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
@@ -2394,7 +2432,17 @@ export class TexeraAgent {
               // apply an action that the original run skipped after a failure.
               for (const item of saved?.actions ?? []) {
                 if (item.status === "pending" || item.status === "skipped") break;
-                if (item.action.type === "edit" && "changes" in item.action) {
+                if (item.action.type === "fork" && item.status === "ok") {
+                  const plan = forkState(
+                    this.workflowState.getWorkflowContent(),
+                    this.snapshotStorage,
+                    this.completedStateTasks(),
+                    item.action.task_id,
+                    item.action.operator_id,
+                    item.action.new_operator_id
+                  );
+                  this.workflowState.setWorkflowContent(plan.workflow);
+                } else if (item.action.type === "edit" && "changes" in item.action) {
                   if (item.status === "ok") {
                     const plan = await planGraphEdit(this.workflowState.getWorkflowContent(), item.action.changes, {
                       metadataStore: this.metadataStore,
@@ -2675,6 +2723,7 @@ export class TexeraAgent {
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
+          historicalTasks: this.completedStateTasks(),
         });
         if (result.answer !== undefined) this.nativeActionAnswer = result.answer;
       }

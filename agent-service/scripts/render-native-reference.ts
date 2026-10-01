@@ -38,7 +38,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
 import { ContextMode } from "../src/types/agent";
-import { buildNativeModeSystemPrompt, nativeEvidenceText } from "../src/agent/prompts";
+import { buildNativeModeSystemPrompt, nativeEvidenceText, NATIVE_STATE_HISTORY } from "../src/agent/prompts";
 import { NATIVE_OPERATORS, graphCatalogText, graphOperatorPorts } from "../src/agent/native/catalog";
 import { createDataflowTool } from "../src/agent/tools/dataflow-actions";
 
@@ -80,6 +80,8 @@ export function renderSystemPrompt(): string {
     "\n\n" +
     "Enabling evidence adds the matching paragraphs below. The default exposes neither family.\n\n" +
     nativeEvidenceText({ dataEvidence: true, flowEvidence: true }) +
+    "\n\nEnabling stateHistory adds the following instructions and historical actions:\n\n" +
+    NATIVE_STATE_HISTORY.trim() +
     "\n"
   );
 }
@@ -100,7 +102,10 @@ export function renderTools(): string {
     "The whole request is validated before actions begin. Actions run in order; a failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Completed changes remain. Each Edit is atomic: an invalid command rejects all changes in that Edit.\n\n" +
     "Only execute runs the graph. Retrieve reads existing results for the current graph; editing an operator invalidates its results and those of its downstream consumers. Each retrieved table is frozen at the point of retrieval.\n\n" +
     "Inspection returns definitions, named ports, explicit edges and optional Python implementations. Deleting an operator removes its incident edges and reports them. Edges change only through deletion and creation.\n\n" +
-    "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n"
+    "Answer must be the only action and ends the model loop. Actions that depend on a returned observation belong in the next call.\n" +
+    "\n## Optional historical state actions\n\nWith `stateHistory: true`, the same tool adds historical inspection, retrieval by task, and fork. The complete enabled schema is:\n\n```json\n" +
+    JSON.stringify(schemaOf(createDataflowTool(true)), null, 2) +
+    "\n```\n"
   );
 }
 

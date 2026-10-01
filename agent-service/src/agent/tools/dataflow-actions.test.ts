@@ -32,6 +32,28 @@ import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 const edit = { type: "edit", changes: 'create operator source: scan("data/orders.csv")' };
 
 describe("ordered dataflow actions", () => {
+  test("historical actions are exposed and validated only when enabled", () => {
+    const actions = [
+      { type: "inspect", target: "state", task_id: null, operator_id: "total", include_implementation: true },
+      { type: "fork", task_id: 1, operator_id: "total", new_operator_id: "old_total" },
+      { type: "retrieve", task_id: 1, operator_id: "total" },
+    ];
+    expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }).status).toBe("error");
+    expect(prepareDataflowActions({ reasoning: "Read earlier state.", actions }, true).status).toBe("pending");
+    expect(
+      prepareDataflowActions(
+        { reasoning: "Read.", actions: [{ type: "retrieve", task_id: 0, operator_id: "total" }] },
+        true
+      ).status
+    ).toBe("error");
+    const s = session([]);
+    s.agent.updateSettings({ stateHistory: true });
+    const info = s.agent.getSystemInfo();
+    expect(info.tools.find(tool => tool.name === "dataflow")?.inputSchema).toEqual(
+      asSchema(createDataflowTool(true).inputSchema).jsonSchema
+    );
+    expect(s.agent.getSettings().systemPrompt).toContain("older formula to a current population");
+  });
   test("the public tool requires a rationale and a typed action list", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
@@ -217,6 +239,52 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("later tasks inspect, fork and retrieve the earlier result without executing or changing the baseline", async () => {
+    const batches: DataflowAction[][] = [
+      [{ type: "edit", changes: 'create operator source: scan("old.csv")' }, { type: "execute" }],
+      [{ type: "answer", content: "First result saved." }],
+    ];
+    const s = session(batches);
+    s.agent.updateSettings({ stateHistory: true });
+    await s.agent.sendMessage("Read the baseline.");
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "edit", changes: 'update operator source: scan("new.csv")' }, { type: "execute" }],
+      [{ type: "answer", content: "Second result saved." }]
+    );
+    await s.agent.sendMessage("Use a new input.");
+    batches.splice(
+      0,
+      batches.length,
+      [{ type: "inspect", target: "state", task_id: null, operator_id: "source", include_implementation: true }],
+      [
+        { type: "fork", task_id: 1, operator_id: "source", new_operator_id: "earlier" },
+        { type: "retrieve", operator_id: "earlier" },
+        { type: "retrieve", task_id: 1, operator_id: "source" },
+        { type: "retrieve", operator_id: "source" },
+      ],
+      [{ type: "answer", content: "Compared the two saved views." }]
+    );
+    await s.agent.sendMessage("Compare with the first task.");
+    expect(s.executions()).toBe(2);
+    const inspection = s.outcomes.at(-3)!.actions[0].output as any;
+    expect(inspection.versions.map((v: any) => v.task_id)).toEqual([1, 2]);
+    const reads = s.outcomes.at(-2)!;
+    expect(reads.status).toBe("completed");
+    expect(reads.actions[1].output).toMatchObject({ historical_state: { task_id: 1, operator_id: "source" } });
+    const restored = session([]);
+    await restored.agent.importReActSteps(structuredClone(s.agent.getReActSteps()));
+    expect(restored.executions()).toBe(0);
+    expect(restored.agent.getWorkflowState().getOperator("earlier")?.nativeOp?.source).toContain("old.csv");
+    expect(restored.agent.getWorkflowState().getOperator("earlier")?.stateOrigin?.taskId).toBe(1);
+    expect(JSON.stringify(reads.actions[1].output)).toContain("result-1");
+    expect(JSON.stringify(reads.actions[2].output)).toContain("result-1");
+    expect(JSON.stringify(reads.actions[3].output)).toContain("result-2");
+    expect((reads.actions[1].output as any).superseded_in_call).toBeUndefined();
+    expect(s.agent.getWorkflowState().getOperator("source")!.nativeOp!.source).toContain("new.csv");
+    expect(s.agent.getWorkflowState().getOperator("earlier")!.nativeOp!.source).toContain("old.csv");
+  });
   const source: DataflowAction = {
     type: "edit",
     changes:
@@ -613,4 +681,60 @@ test("import does not apply an edit that failed before committing any statements
   await imported.agent.importReActSteps(trace);
   expect(imported.agent.getWorkflowState().getAllOperators()).toEqual([]);
   expect(imported.executions()).toBe(0);
+});
+
+test("native multi-task requests preserve every earlier request as a prefix", async () => {
+  const s = session([]);
+  const requests: any[][] = [];
+  const model = new MockLanguageModelV3({
+    doGenerate: async options => {
+      requests.push(structuredClone(options.prompt));
+      const n = requests.length;
+      const actions =
+        n % 2 === 1 ? [{ type: "inspect", target: "graph" }] : [{ type: "answer", content: `Answer ${n / 2}` }];
+      return {
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: `prefix-${n}`,
+            toolName: "dataflow",
+            input: JSON.stringify({ reasoning: "Inspect the graph.", actions }),
+          },
+        ],
+        finishReason: { unified: "tool-calls", raw: "tool_calls" },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 5, text: 5, reasoning: 0 },
+        },
+        warnings: [],
+      };
+    },
+  });
+  (s.agent as any).driver = new VercelToolUseDriver({ model });
+  (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage }: any) =>
+    assembleContext(visibleSteps, workflowState, snapshotStorage, ContextMode.DELTA, {
+      agentMode: AgentMode.NATIVE,
+      messageLayout: "native",
+      userTaskPlacement: "bottom",
+    });
+  await s.agent.sendMessage("First question: inspect the graph.");
+  await s.agent.sendMessage("Second question: inspect it again.");
+  expect(requests).toHaveLength(4);
+  for (let i = 1; i < requests.length; i++) {
+    expect(requests[i].slice(0, requests[i - 1].length)).toEqual(requests[i - 1]);
+  }
+  expect(JSON.stringify(requests[3]).split("First question:")).toHaveLength(2);
+  expect(JSON.stringify(requests[3]).split("Second question:")).toHaveLength(2);
+});
+
+test("a failed model turn is not advertised as a completed historical answer", async () => {
+  const s = session([]);
+  (s.agent as any).driver = {
+    runTurn: async () => {
+      throw new Error("Malformed model response");
+    },
+  };
+  await s.agent.sendMessage("First task");
+  await s.agent.handleDebugInput("Second task");
+  expect((s.agent as any).completedStateTasks()).toEqual([]);
 });

@@ -156,6 +156,7 @@ An agent created with no `settings` uses
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
 | `maxOperatorResultCellCharLimit` | `2000` | long cells are clipped and marked |
 | `maxSteps` | `100` | per-turn step budget |
+| `stateHistory` | `false` | native actions can inspect completed task states, fork historical operator branches, and retrieve saved observations; see [historical state](docs/native-expression-mode.md#optional-historical-state) |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |

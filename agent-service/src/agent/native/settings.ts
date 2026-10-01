@@ -55,7 +55,14 @@ export function validateEvidenceSettings(settings: object): void {
             : `${key} was removed; use dataEvidence and flowEvidence booleans`
       );
   }
-  for (const key of ["dataEvidence", "flowEvidence", "nativeProfileCollection", "dataflowReasoning", "nativeChecks"] as const) {
+  for (const key of [
+    "dataEvidence",
+    "flowEvidence",
+    "nativeProfileCollection",
+    "dataflowReasoning",
+    "nativeChecks",
+    "stateHistory",
+  ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);

@@ -216,6 +216,7 @@ export interface NativePromptLayoutOptions {
   flowEvidence?: boolean;
   /** `nativeChecks`: operators carry `check:` lines; the prompt says what they are. */
   checks?: boolean;
+  stateHistory?: boolean;
 }
 
 /** Explain only the evidence families enabled for this agent. */
@@ -253,11 +254,29 @@ export function buildNativeModeSystemPrompt(
   return NATIVE_MODE_TEMPLATE.replace("{{OPERATOR_CATALOG}}", graphCatalogText())
     .replace("{{EVIDENCE}}", nativeEvidenceText(options) + checks)
     .replace("{{CONTEXT_LAYOUT}}", context)
+    .replace("{{STATE_HISTORY}}", options.stateHistory ? NATIVE_STATE_HISTORY.trim() : "")
     .replace(
       "{{RECALL_TOOL}}",
       options.recall ? "\nUse recallState to read an earlier turn's saved work without execution." : ""
     );
 }
+
+export const NATIVE_STATE_HISTORY = `
+## Historical state across tasks
+
+All user tasks share this graph. Each task is a user request, numbered from 1 in conversation order. Completed tasks retain their operator definitions, incoming edges, custom functions, and available result observations. Earlier answers can be incorrect; check the computation you reuse.
+
+Before a task that refers to an earlier stage, identify the population, formula and eligibility gates it requires. Use existing results when they match. Inspect history when a prior definition or input is uncertain; avoid reconstructing a saved gate or copying numbers from prose.
+
+- Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition and historical connections. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
+- Find operators in a task: set task_id to that task and operator_id to null. Set both to null only when you need the completed task list. No history index is inserted automatically.
+- Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible"}. Retrieval never executes or substitutes today's output. Saved observations may be samples, just like current retrievals.
+- Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; Execute runs the copied graph and produces current materializations for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
+
+For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.
+
+Inspect results return after the entire action list. Make edits that depend on them in the next call. Fork followed by Retrieve is a valid batch when the source and new IDs are already known.
+`;
 
 // ---------------------------------------------------------------------------
 // Local-react (in-house local LLM) system prompts — one per tool-call dialect.

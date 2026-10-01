@@ -27,6 +27,7 @@ import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
 import type { ToolContext } from "./workflow-crud-tools";
+import { inspectState, forkState, historicalTask, readForkResult, type HistoricalTask } from "../state-history";
 
 export interface DataflowActionRuntime {
   state: WorkflowState;
@@ -38,6 +39,7 @@ export interface DataflowActionRuntime {
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
+  historicalTasks?: readonly HistoricalTask[];
 }
 
 /** Resolve actions against one owned snapshot. Edits advance its graph;
@@ -59,6 +61,8 @@ export async function executeDataflowActionBatch(
     if (!runtime.isCurrent()) throw new DOMException("The active workflow changed during this action.", "AbortError");
   };
   const retrieved = new Map<number, { operatorId: string; info: OperatorInfo }>();
+  const savedReads = new Set<number>();
+  const forkReads = new Map<number, { operatorId: string; info: OperatorInfo }>();
   const current = (id: string) => storage.getOperatorResult(stepId, id);
   const errorText = (id: string, info: OperatorInfo) =>
     formatOperatorResult(id, info, state, {
@@ -69,6 +73,10 @@ export async function executeDataflowActionBatch(
     assertCurrent();
     if (action.type === "inspect") {
       if (action.target === "graph") return { status: "ok", output: inspectGraph(state.getWorkflowContent()) };
+      if (action.target === "state") {
+        if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
+        return { status: "ok", output: inspectState(storage, runtime.historicalTasks ?? [], action) };
+      }
       const op = state.getOperator(action.operator_id);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
       const view = op.nativeOp;
@@ -96,6 +104,24 @@ export async function executeDataflowActionBatch(
             : {}),
         },
       };
+    }
+    if (action.type === "fork") {
+      if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
+      const plan = forkState(
+        state.getWorkflowContent(),
+        storage,
+        runtime.historicalTasks ?? [],
+        action.task_id,
+        action.operator_id,
+        action.new_operator_id
+      );
+      assertCurrent();
+      state.setWorkflowContent(plan.workflow);
+      storage.updatePendingWorkflow(stepId, plan.workflow);
+      runtime.edited(plan.operators.map(op => op.id));
+      result.operators.push(...plan.operators);
+      const { workflow: _workflow, ...output } = plan;
+      return { status: "ok", output };
     }
     if (action.type === "edit") {
       const plan = await planGraphEdit(state.getWorkflowContent(), action.changes, context);
@@ -146,30 +172,56 @@ export async function executeDataflowActionBatch(
       };
     }
     if (action.type === "retrieve") {
-      const op = state.getOperator(action.operator_id);
+      let workflow = state.getWorkflowContent();
+      let resultStep = stepId;
+      let operatorId = action.operator_id;
+      let historical: { task_id: number; operator_id: string } | undefined;
+      if (action.task_id !== undefined) {
+        if (!settings.stateHistory) throw new Error("Historical state tools are disabled.");
+        const task = historicalTask(runtime.historicalTasks ?? [], action.task_id);
+        resultStep = task.stepId;
+        workflow = storage.getWorkflow(resultStep);
+        historical = { task_id: task.taskId, operator_id: operatorId };
+        savedReads.add(index);
+      } else if (!current(operatorId)) {
+        const saved = readForkResult(workflow, storage, operatorId, stepId);
+        if (saved) {
+          historical = { task_id: saved.taskId, operator_id: saved.operatorId };
+          forkReads.set(index, { operatorId, info: saved.info });
+          workflow = saved.workflow;
+          resultStep = saved.stepId;
+          operatorId = saved.operatorId;
+          savedReads.add(index);
+        }
+      }
+      const op = workflow.operators.find(op => op.operatorID === operatorId);
       if (!op) throw new Error(`Operator ${action.operator_id} does not exist.`);
-      const info = current(action.operator_id);
+      const info = storage.getOperatorResult(resultStep, operatorId);
       if (!info)
         throw new Error(
-          `No current result for ${action.operator_id}. Use execute after creating or editing its dataflow.`
+          historical
+            ? `No saved result for ${operatorId} at task ${historical.task_id}. Fork its definition and execute if recomputation is appropriate.`
+            : `No current result for ${action.operator_id}. Use execute after creating or editing its dataflow.`
         );
-      if (info.error) throw new Error(errorText(action.operator_id, info));
+      if (info.error)
+        throw new Error(historical ? `Saved execution failed: ${info.error}` : errorText(action.operator_id, info));
       if (!["Completed", "CompletedFromCache"].includes(info.state))
         throw new Error(`Result for ${action.operator_id} is ${info.state}; use execute to obtain a completed result.`);
       const observation = selectNativeObservation({
         ...options,
         op,
         info,
-        workflow: state.getWorkflowContent(),
-        resolveInput: current,
+        workflow,
+        resolveInput: id => storage.getOperatorResult(resultStep, id),
       });
-      retrieved.set(index, { operatorId: action.operator_id, info });
+      if (!historical) retrieved.set(index, { operatorId: action.operator_id, info });
       return {
         status: "ok",
         output: {
           operator_id: action.operator_id,
           revision: op.nativeOp?.revision,
           result_version: info.resultVersion?.id,
+          ...(historical ? { historical_state: historical } : {}),
           text: observation.text,
         },
       };
@@ -181,6 +233,14 @@ export async function executeDataflowActionBatch(
   // Its text remains in the action receipt, but must not expose today's table.
   for (const item of result.actions) {
     if (item.action.type !== "retrieve" || item.status !== "ok") continue;
+    const fork = forkReads.get(item.index);
+    if (
+      fork &&
+      (current(fork.operatorId) ||
+        readForkResult(state.getWorkflowContent(), storage, fork.operatorId, stepId)?.info !== fork.info)
+    )
+      (item.output as Record<string, unknown>).superseded_in_call = true;
+    if (savedReads.has(item.index)) continue;
     if (current(item.action.operator_id) !== retrieved.get(item.index)?.info) {
       (item.output as Record<string, unknown>).superseded_in_call = true;
     }

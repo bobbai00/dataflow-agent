@@ -127,6 +127,8 @@ Retrieval returns the table's row count, typed columns and records within the di
 
 Your history contains earlier calls and their results. Each result describes the graph at that point; later edits may have changed it. Use inspect when you need the current definition.
 
+
+
 ## Examples
 
 Preview a file, execute and read its raw header:
