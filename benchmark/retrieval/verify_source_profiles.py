@@ -53,6 +53,10 @@ def verify(directory, sut, cases):
             numeric = column["type"] in ["int64", "float64"]
             if numeric:
                 nonnull = pd.to_numeric(nonnull)
+            elif column["type"] == "str":
+                # Mixed Excel cells become strings in the published table.
+                # Compare values after that conversion, preserving true nulls.
+                nonnull = nonnull.map(str)
             counts = {"nullCount": int(values.isna().sum()), "nonnullCount": len(nonnull)}
             if column["distinctCount"] is not None:
                 counts["distinctCount"] = int(nonnull.nunique())
