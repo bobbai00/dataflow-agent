@@ -57,10 +57,14 @@ def main():
         score = max(scores) if scores else None
         raw = read(path / "react_steps.json", [])
         steps = raw if isinstance(raw, list) else raw.get("steps", [])
-        views, types, statuses = Counter(), Counter(), Counter()
+        views, types, statuses, edits, created = (Counter() for _ in range(5))
+        response = (path / "response.txt").read_text() if (path / "response.txt").exists() else ""
         row = {**job, "score": score, "pass": score is not None and score >= manifest["pass_threshold"],
                "cost_usd": stats.get("cost_usd"), "input_tokens": stats.get("input_tokens", 0),
                "output_tokens": stats.get("output_tokens", 0), "cached_tokens": stats.get("cached_tokens", 0),
+               "reasoning_tokens": stats.get("reasoning_tokens", 0),
+               "cache_creation_tokens": stats.get("cache_creation_tokens", 0),
+               "no_answer": "turn ended without an answer action" in response,
                "model_calls": 0, "prefix_checks": 0, "prefix_failures": 0}
         previous = None
         for step in steps:
@@ -73,6 +77,9 @@ def main():
                 previous = messages
             for result in step.get("toolResults", []):
                 output = result.get("output")
+                if result.get("isError") and (not isinstance(output, dict) or not output.get("actions")):
+                    errors.append({**job, "step": step.get("stepId"), "action": {"type": "tool_envelope"},
+                                   "error": str(output)[:1600]})
                 if not isinstance(output, dict):
                     continue
                 for item in output.get("actions", []):
@@ -82,6 +89,9 @@ def main():
                     if item.get("status") == "error":
                         errors.append({**job, "step": step.get("stepId"), "action": action,
                                        "error": str(observation)[:1600]})
+                    if action.get("type") == "edit" and item.get("status") == "ok" and isinstance(observation, dict):
+                        edits.update(c["operation"] for c in observation.get("changes", []))
+                        created.update(o["op"] for o in observation.get("operators", []) if o.get("status") == "added")
                     if action.get("type") != "retrieve":
                         continue
                     view = action.get("view", "missing")
@@ -94,7 +104,8 @@ def main():
                         "data_facts": sum(e.startswith("data.") for e in evidence),
                         "flow_facts": sum(e.startswith("flow.") for e in evidence),
                         "upstream_facts": sum(e.startswith("flow.upstream.") for e in evidence)})
-        row.update(views=dict(views), actions=dict(types), statuses=dict(statuses))
+        row.update(views=dict(views), actions=dict(types), statuses=dict(statuses),
+                   edit_operations=dict(edits), operators_created=dict(created))
         rows.append(row)
     groups = defaultdict(list)
     for row in rows:
@@ -121,7 +132,16 @@ def main():
              "reads_with_flow": sum(r["flow_facts"] > 0 for r in successful_reads),
              "reads_with_upstream": sum(r["upstream_facts"] > 0 for r in successful_reads),
              "partial_full_reads": sum(r["view"] == "full" and not r.get("complete", False) for r in successful_reads),
+             "successful_reads": len(successful_reads), "no_answer": sum(r["no_answer"] for r in items),
              "prefix_checks": sum(r["prefix_checks"] for r in items), "prefix_failures": sum(r["prefix_failures"] for r in items)}
+        for key in ["input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens", "cache_creation_tokens"]:
+            s[key] = sum(r[key] for r in items)
+        s["cache_fraction"] = s["cached_tokens"] / s["input_tokens"] if s["input_tokens"] else None
+        for key in ["actions", "statuses", "edit_operations", "operators_created"]:
+            counts = Counter()
+            for row in items:
+                counts.update(row[key])
+            s[key] = dict(counts)
         summary.append(s)
         mean = f"{s['mean_score']:.1%}" if s["mean_score"] is not None else "unknown"
         lines.append(f"{model} | {arm} | {s['passes']}/{len(items)} | {len(scores)} | {mean} | ${sum(costs):.6f} ({len(costs)} known) | {s['model_calls']} | {dict(views)}")
