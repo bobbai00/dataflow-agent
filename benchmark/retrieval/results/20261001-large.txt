@@ -1,0 +1,227 @@
+KramaBench retrieval audit and large-data pilot — 2026-10-01
+===========================================================
+
+Finding
+-------
+Sample-plus-statistics substantially reduced recorded model cost relative to
+full retrieval in this pilot: Luna 54.4%, Terra 48.5%. Returned observation text
+fell 76.7% and 77.7%, respectively; input tokens fell 63.1% and 61.6%.
+Adding statistics did not increase the number of full passes over sample-only.
+Automatic flow evidence had opposite accuracy effects for the two models.
+The result supports a cost claim on these tasks. It does not establish a
+general accuracy gain, an optimal retrieval policy, or full-benchmark accuracy.
+
+Protocol and task selection
+---------------------------
+Three complete original KramaBench questions, two models, five settings,
+one repetition per cell: 30 attempts. Full pass means official score >= 1.0;
+partial scores are retained in the accompanying JSON/CSV. No altered answers,
+data subsampling, subquestions, or outcome-selected retries. Every attempt is
+included, including one protocol failure. Official evaluation is unchanged.
+The harness supplies known relevant source files using its truth-subset mode;
+the questions and calculations are complete, but this does not test discovery
+of relevant files across the whole data lake.
+
+All 104 tasks were inventoried by source bytes before observing outcomes.
+Selected primary tasks:
+  biomedical-hard-1: 74,146,479 bytes, 2 workbooks. The main workbook has
+    10,999 global-proteomics and 73,212 phosphoproteomics records, 154 columns.
+    Largest biomedical task by input bytes; sample-restricted correlation.
+  environment-hard-19: 30,474,666 bytes, 24 files. Includes 319,911 water-testing
+    records; annual marine exceedance changes and imputed summer rainfall.
+    Largest environment task by input bytes.
+  astronomy-hard-10: 14,849,567 bytes, 20 files. OMNI2, atmospheric density and
+    satellite orbit records; strongest correlation with hourly altitude change.
+    Largest astronomy task runnable with the installed dependencies. The larger
+    astronomy-hard-11 (115 MB) requires absent atmospheric-model packages and an
+    annual simulation; excluded on preflight requirements before any outcomes.
+
+The largest task overall, wildfire-hard-19 (1,087,272,350 bytes), was designated
+as a separate capacity probe before outcomes. It is not included in the primary
+table. Its weather file has 8,627,182 physical newlines; a newline count alone
+does not establish the number of parsed data records.
+
+Frozen agent and engine revision: 04e85b581. Models: gpt-5.6-luna and
+gpt-5.6-terra. Native mode, DELTA, profile collection on, maxSteps 25,
+thoughtReplay off, code snapshots off. Sample budget: 5 rows / 2,000 characters.
+Full retrieval: up to 100,000 characters of retained records. Data and flow
+evidence each have separate 2,000-character budgets. Four workers for the
+primary matrix; one for the capacity probe. Identical bounded collection in
+all arms; exposure varies. All fixed-view comparisons below have flow off.
+
+A first 30-attempt diagnostic pass used an older backend and exposed a timestamp
+serialization bug. That entire pass is retained under
+.claude/artifacts/retrieval-large-pilot-20261001, cost $1.188450. The whole planned
+matrix was then repeated after the fix; all corrected-pass outcomes are below.
+We neither mix the two passes nor select the better outcome from each.
+
+Official outcomes and recorded model costs
+------------------------------------------
+Costs are TOTALS for three attempts in each cell, not per-task prices.
+
+Setting                 Luna passes   Luna USD    Terra passes  Terra USD
+Full                    1/3           0.039955    1/3           0.380581
+Sample                  1/3           0.014806    2/3           0.156792
+Sample + statistics     1/3           0.018232    2/3           0.196158
+Agent chooses, flow off 3/3           0.015940    1/3           0.262421
+Agent chooses, flow on  1/3           0.020523    3/3           0.209869
+
+The corrected comparison cost $1.315277 in total. Costs come from stats.json
+and include cached-input discounts at the recorded harness rates; engine and
+evaluator costs are excluded. Three passes out of three means these three
+tasks only. It is not a claim of 100% on the 104-task benchmark.
+
+For sample_stats versus full, cache fractions were 77.4% versus 74.2% for Luna
+and 73.3% versus 63.7% for Terra. There were 126 append-only message-prefix
+checks and zero failures. Repricing the same tokens without any cached-input
+discount still gives a 58.4% cost reduction for Luna and 52.2% for Terra.
+That is a counterfactual calculation, not a second invoice: the savings are
+not explained solely by different cache hit rates.
+
+Model choices: reasonable, but inconsistent
+------------------------------------------
+Successful retrieval actions in the six adaptive attempts per model:
+              Sample    Sample + stats    Full    Total
+  Luna        22        14                13      49
+  Terra       10        16                24      50
+Failed/skipped retrievals are excluded here and retained in the trace totals.
+
+29/30 adaptive sample_stats reads actually exposed data facts. The exception
+was a raw-line table; the observation explicitly said its data statistics were
+unavailable. Six reads exposed partial-prefix column statistics with scope
+labels. Every successful adaptive full view fit its retained output; source
+previews still carried the separate warning that the source remained partial.
+
+21/37 adaptive full reads were <=2,000 characters. Full is often appropriate
+for compact final results. Only one exceeded 10,000 characters: Terra read
+11,726 characters from a workbook preview to find README sheet details. It
+could have narrowed the preview to the relevant sheet/records. Several SP3
+reads of 3,000–9,000 characters served record-format inspection; size alone
+does not make a read inappropriate.
+
+Good example: Terra/adaptive_flow0/biomedical-hard-1 used sample previews,
+sample_stats for study metadata and the filtered protein rows, predefined
+unpivot/join/filter operators, and full for the one-row correlation. It returned
+0.4765 correctly. Full retrieval also passed but returned 63,520 characters,
+versus 25,746 for the adaptive run. Cost fell from $0.117692 to $0.081389 despite
+the adaptive run taking five calls rather than four and generating more output.
+
+Remaining misuse: Luna/sample_stats expanded workbook previews from 5 to 20
+rows but the same five stored rows stayed visible. It later loaded the parsed
+sheets and solved the task. Some custom process operators still combine stages
+that the prompt asks to keep separate. Instructions improve the available
+guidance; they do not guarantee compliance.
+
+What the accuracy differences mean
+----------------------------------
+1. Terra astronomy: full retrieved 112,166 characters and cost $0.226231;
+   sample_stats retrieved 15,999 and cost $0.088691. Scores were 0.5 and 1.0.
+   The full run additionally filtered high density readings and used 209 rows;
+   the passing computation used 215. Independently recomputing from original
+   files reproduces -0.191244 after that filter and -0.193443 without it.
+   This is an analytical-choice difference, not proof that statistics caused
+   the accuracy gain. Sample-only also passed this task more cheaply.
+2. Luna astronomy: the sample_stats run used first altitude per hour rather
+   than mean. Independent source calculations give 0.110370 with first and
+   -0.193443 with mean, matching the failed and reference results. This error
+   persists despite available data statistics and is not the fixed UTC bug.
+3. Environment: multiple runs computed different peak years but answered True
+   for 'different'; the official reference is False (same-year test). Some
+   imputation and year-population choices differed too. Scores remain official.
+   These ambiguous Boolean outcomes are weak evidence for a retrieval effect.
+4. Terra with flow corrected station-specific monthly imputation and filtered
+   rainfall to testing years after viewing annual outputs and upstream metadata.
+   The metadata was available during repair, but the records were available too;
+   this trace does not isolate metadata as the cause of the improvement.
+5. Luna/sample/biomedical stopped after a planning sentence without a tool call,
+   despite required tool use. It scores zero and remains in the totals. It cannot
+   support a claim that sample-only lost information: no data was retrieved.
+
+Sample-plus-statistics correctness and limits
+--------------------------------------------
+The record sample is identical with statistics off/on. Evidence has its own
+budget and does not displace records. Observations bind to the producing result
+version; retrieval neither executes the graph nor changes its cache key.
+Statistics describe collected records. The current collector is bounded by
+100,000 rows, 1,000,000 cells, 128 columns and 0.2 seconds per worker. On large or
+wide tables it may profile only a prefix; this is not a random sample or a
+population estimate. A corruption outside that prefix may remain unseen.
+
+Audit evidence:
+  - Earlier 192-attempt pilot: 1,889 final profiles / 16,877 column profiles,
+    zero checked count/frequency/version invariant violations; 732 prefix
+    checks, zero failures. These checks alone do not validate timestamp display.
+  - Corrected large-data pilot: 522 final profiles / 8,963 column profiles,
+    zero checked invariant violations; 66 profiles were partial.
+  - Independent source validation: 352 column checks against worldcities and
+    256 against the two proteomics sheets; zero mismatches in null/nonnull,
+    available exact-distinct and numeric min/max fields over recorded prefixes.
+    These are 608 column checks, not 608 full-table validations.
+  - Renderer replay: 522 current retained tables, zero failures comparing
+    records, budgets, completeness flags, coverage labels and producing versions.
+    Historical replay: 516 provably incomplete tables, also zero failures;
+    old exports lacked transport truncation flags, limiting that replay's scope.
+  - Live 1,000-row probe: sample/stats share five records; full returns all
+    1,000; views keep the same producing version and do not trigger execution.
+  - Live timestamp/cache probe: UTC output and profile clocks now agree across
+    cached reuse; a new consumer of the cached source sees the expected hours.
+
+Fixes and residual failures
+---------------------------
+d8158b320: label source previews even with flow off; expose profile coverage and
+unavailable statistics; suppress misleading duplicate facts on raw-line tables;
+clarify projection, full retrieval, retained samples and workbook-header advice.
+1f9b822f5: retain transport truncation in exported snapshots so audits can detect
+cell clipping even when all rows are present.
+f63952f09: fix structured timestamp serialization. A UTC 08:00 value previously
+appeared as 16:00 on the server's winter timezone while native consumers saw
+08:00. Structured results now preserve the stored UTC clock. Legacy response
+serialization is unchanged. Tests cover UTC, Los Angeles and Kolkata.
+76f322ab8: clarify that Window keyword names become output column names.
+
+After freezing the corrected matrix, f3a395929 improved reserved-identifier
+errors: `global` now receives an actionable rename hint instead of 'invalid
+syntax'. This last diagnostic change was tested locally and was NOT served in
+the reported model runs. The matrix is not evidence of its effect on agents.
+
+Repeat repair categories in the corrected traces: mixed file-type scans (6),
+Python callback errors (6), edit syntax (6), graph-port edits (3), output type
+contracts (2), missing columns (2), and one other edit. Counts are categories
+per failed edit/execute action, excluding dependent retrieval failures.
+These are mostly recoverable model-generated definitions. One no-tool/no-Answer
+protocol failure remains unexplained at the provider/gateway level. We have not
+claimed that every remaining failure or every possible anomaly is eliminated.
+
+Validation: 1,137 agent-service tests pass, typecheck passes, 35 Scala structured
+result/serialization tests pass, and the live retrieval and cache probes pass.
+
+Service ownership
+-----------------
+The pilot agent is frozen in /tmp/texera-retrieval-fixed-20261001 on port 3075.
+This branch's web/engine use 8080/8085; inspected JVM working directories and
+backend storage endpoints belong to dataflow-actions. The other active stack
+uses web/engine 28080/28085, agent 3015, database 25432 and storage 29000, with
+separate processes and configuration. This branch uses database 5432 and
+storage 9000. Launcher profiles pin endpoints; ownership/reachability samples
+are retained in .claude/artifacts/retrieval-audit-20261001/stack-health.jsonl.
+The stacks still share machine resources. The capacity probe uses one worker.
+
+Artifacts and scope of claims
+-----------------------------
+20261001-large.json: manifest, official per-attempt outcomes, tokens, costs,
+  action counts, profile checks and adaptive choices.
+20261001-large-per-task.csv: flat task measurements.
+20261001-large-cost-accuracy.png/.svg: exportable chart, denominators explicit.
+20261001-large-system-prompt.txt and -dataflow-tool.json: actual adaptive prompt
+  and tool schema served in the corrected pilot.
+20261001-large-astronomy-check.json: independent aggregation/filter checks.
+Raw corrected traces: .claude/artifacts/retrieval-large-fixed-20261001.
+Source hashes, inventory and prior independent checks:
+  .claude/artifacts/retrieval-large-selection-20261001.json
+  .claude/artifacts/retrieval-audit-20261001/
+
+For a paper, state that bounded samples plus statistics reduced model token
+cost relative to bounded full records on these selected tasks. To claim an
+accuracy benefit from the statistics themselves, expand matched repetitions
+and include cases where distribution/missingness evidence changes a concrete
+decision. Keep the current counterexamples and ambiguous tasks in the record.

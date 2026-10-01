@@ -128,3 +128,11 @@ records all 192 attempts, official scores, costs and limitations. It used the
 frozen agent at `ab1020138`. A header-clipping issue discovered in its traces
 was subsequently fixed in `84eb8579d`; the saved-result replay validates the
 rendering fix without attributing unmeasured accuracy or cost changes to it.
+
+The [large-data audit and pilot](../benchmark/retrieval/results/20261001-large.txt)
+uses three complete original tasks selected by input size, five settings and
+both models (30 attempts, one repetition). Sample statistics reduced recorded
+model cost relative to full retrieval by 54% for Luna and 48% for Terra. They
+did not increase full passes over sample-only in this pilot. Flow evidence had
+mixed results. The report includes source checks, cache checks, repaired
+timestamp serialization, the exact served prompt and remaining model errors.
