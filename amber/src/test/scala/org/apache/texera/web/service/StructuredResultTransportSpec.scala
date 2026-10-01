@@ -27,6 +27,30 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class StructuredResultTransportSpec extends AnyFlatSpec with Matchers {
+  "Structured timestamp results" should "preserve stored UTC clock values across server timezones" in {
+    val previous = java.util.TimeZone.getDefault
+    try {
+      for (zone <- List("UTC", "America/Los_Angeles", "Asia/Kolkata")) {
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone))
+        for (clock <- List("2025-01-01 08:00:00", "2025-07-01 07:00:00.123456789")) {
+          // Iceberg stores native timestamps without a timezone and its reader
+          // reconstructs them using Timestamp.valueOf(LocalDateTime).
+          val stored = java.sql.Timestamp.valueOf(clock)
+          val tuple = Tuple
+            .builder(Schema(List(new Attribute("when", AttributeType.TIMESTAMP))))
+            .add("when", AttributeType.TIMESTAMP, stored)
+            .build()
+          val result = ExecutionResultService
+            .convertTuplesToJson(List(tuple), structuredResults = true)
+            .head
+            .get("when")
+            .asText()
+          result shouldBe clock.replace(' ', 'T') + "Z"
+        }
+      }
+    } finally java.util.TimeZone.setDefault(previous)
+  }
+
   "Structured table annotations" should "never overwrite or inject a user column" in {
     StructuredResultTransport.capabilities should contain("schema-fields-only-v1")
     val mapper = new ObjectMapper()

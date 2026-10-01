@@ -432,6 +432,60 @@ create edge projected.out -> filtered.in`,
   log("PASS three retrieval views: full=1000 rows, sample=5 rows, stable version, zero new executions");
 }
 
+async function timestampProbe() {
+  const { agentId, wid } = await provision("timestamp-observation");
+  await fetch(`${baseUrl}/api/agents/${agentId}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ retrievalViews: ["sample_stats"], maxResultRows: 1, dataEvidenceCharLimit: 2000 }),
+  });
+  await debug(agentId, [
+    {
+      type: "edit",
+      changes: `create operator dates: process(fn=load_dates, doc="Two known UTC instants")
+    def load_dates():
+        import pandas as pd
+        return pd.DataFrame({"when": pd.to_datetime(["2025-01-01T08:00:00Z", "2025-07-01T07:00:00Z"], utc=True)})
+create operator date_strings: map(lambda row: {"iso": row["when"].isoformat()}, doc="UTC value seen by the next operator")
+create edge dates.out -> date_strings.in`,
+    },
+    { type: "execute" },
+    { type: "retrieve", operator_id: "dates", view: "sample_stats" },
+    { type: "retrieve", operator_id: "date_strings", view: "sample_stats" },
+  ]);
+  const { steps } = await getReActSteps(agentId, baseUrl);
+  const snapshot = await getSnapshot(agentId, "head", baseUrl);
+  save("timestamp-trace.json", steps);
+  save("timestamp-snapshot.json", snapshot);
+  save("timestamp-executions.json", await history(wid));
+  const dates = snapshot.results.dates as any;
+  const strings = snapshot.results.date_strings as any;
+  assert.equal(dates.sampleRecords[0].when, "2025-01-01T08:00:00Z");
+  assert.equal(dates.sampleRecords[1].when, "2025-07-01T07:00:00Z");
+  assert.equal(strings.sampleRecords[0].iso, "2025-01-01T08:00:00+00:00");
+  assert.equal(dates.tableProfile.columns.when.min.value, "2025-01-01T08:00:00.000000000+00:00");
+  await debug(agentId, [{ type: "execute" }, { type: "retrieve", operator_id: "dates", view: "sample_stats" }]);
+  const cached = await getSnapshot(agentId, "head", baseUrl);
+  save("timestamp-cached-snapshot.json", cached);
+  assert.deepEqual((cached.results.dates as any).sampleRecords, dates.sampleRecords);
+  assert.equal((cached.results.dates as any).resultVersion.id, dates.resultVersion.id);
+  await debug(agentId, [
+    {
+      type: "edit",
+      changes:
+        'update operator date_strings: map(lambda row: {"hour": row["when"].hour}, doc="UTC hour from cached source")',
+    },
+    { type: "execute" },
+    { type: "retrieve", operator_id: "date_strings", view: "sample_stats" },
+  ]);
+  const downstream = await getSnapshot(agentId, "head", baseUrl);
+  save("timestamp-new-consumer-snapshot.json", downstream);
+  assert.deepEqual((downstream.results.date_strings as any).sampleRecords, [{ hour: 8 }, { hour: 7 }]);
+  assert.equal((downstream.results.dates as any).resultVersion.id, dates.resultVersion.id);
+  checks.push({ name: "retrieved UTC timestamps agree with profiles and native consumers", passed: true });
+  log("PASS retrieved UTC timestamps agree with profiles and native consumers");
+}
+
 try {
   token = await login(process.env.TEXERA_USERNAME ?? "texera", process.env.TEXERA_PASSWORD ?? "texera");
   const cu = await createComputingUnit(token, `actions-live-${Date.now()}`, {
@@ -439,9 +493,12 @@ try {
     uri: process.env.TEXERA_LOCAL_CU_URI ?? env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
   });
   cuid = cu.computingUnit.cuid;
-  if (!Bun.argv.includes("--probes-only")) await task();
-  if (!Bun.argv.includes("--retrieval-only")) await probes();
-  await retrievalProbes();
+  if (Bun.argv.includes("--timestamps-only")) await timestampProbe();
+  else {
+    if (!Bun.argv.includes("--probes-only")) await task();
+    if (!Bun.argv.includes("--retrieval-only")) await probes();
+    await retrievalProbes();
+  }
   save("summary.json", { passed: true, model, checks });
   log(`All checks passed. Artifacts: ${directory}`);
 } catch (error) {
