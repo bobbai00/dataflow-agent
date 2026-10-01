@@ -126,10 +126,16 @@ create edge source.out -> total.in
 
 ### Python implementations
 
-Prefer the predefined operators whenever they express the calculation. Use
-`process` for calculations the catalog cannot express. Filter and map receive
-one row; process receives one DataFrame per input and returns one DataFrame.
-All three require a `doc` describing the output's meaning.
+Keep loading, deriving columns, filtering, joining and aggregation in separate
+predefined operators. Each stage produces an independently retrievable table.
+Build a known chain and its edges in one Edit, then execute and retrieve the
+needed results.
+
+Use `process` for one operation the catalog cannot express. A custom calculation
+consumes connected tables; a source process loads an unsupported format and
+returns its parsed table. Use predefined operators for subsequent transformations.
+Filter and map receive one row; process receives one DataFrame per input and
+returns one DataFrame. All three require a `doc` describing the output's meaning.
 
 Functions are lambdas or complete definitions indented under the operator that
 uses them. Helpers belong in the same block and imports belong inside functions.

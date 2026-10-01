@@ -37,7 +37,7 @@ Create requires a new identifier. Update replaces the definition and preserves i
 | `window` | in -> out | Add lag(col, offset=1), lead(col, offset=1), row_number(), rank(), or dense_rank() within partitions. Ranks start at 1; output keeps input row order. |
 | `unpivot` | in -> out | Wide to long: one output row per input row and selected column, including nulls. Remaining columns are keys; selected columns need compatible types. |
 | `pivot` | in -> out | Long to wide. Each (index, columns) pair must be unique; aggregate first if needed. Absent cells become null, null pivot keys fail. Retrieve the result to learn its new column names. |
-| `process` | in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader | Call fn with one pandas DataFrame per input, in order, and return one DataFrame. With no inputs fn loads data itself. Use for custom formats, statistics, or fitting that the other operators cannot express. |
+| `process` | in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader | One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators. |
 
 ## Parameters and contracts
 
@@ -102,10 +102,12 @@ pivot(index, columns, values)
 
 process(fn=function, doc="what it does")
     Ports: in[0], in[1], ... -> out; one input per fn parameter, in order; zero for a loader.
-    Call fn with one pandas DataFrame per input, in order, and return one DataFrame. With no inputs fn loads data itself. Use for custom formats, statistics, or fitting that the other operators cannot express.
+    One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.
 ```
 
 ## Python implementations
+
+Keep loading, deriving columns, filtering, joining and aggregation in separate predefined operators. Use process for one operation the catalog cannot express. A custom calculation consumes connected tables; a source process loads an unsupported format and returns a parsed table for downstream operators. Build a known chain and its edges in one Edit.
 
 Filter and map accept lambdas or functions. A filter receives a row and returns a boolean; a map receives a row and returns the complete output row. Process receives one DataFrame per indexed input port and returns a DataFrame. Its function parameter count declares its input ports; a zero-parameter function is a loader. Every callback operator requires doc, describing the output's meaning.
 

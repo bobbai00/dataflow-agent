@@ -887,12 +887,12 @@ export const NATIVE_OPERATORS: readonly NativeOperatorDef[] = [
   {
     name: "process",
     brief:
-      "Call fn with one pandas DataFrame per input, in order, and return one DataFrame. With no inputs fn loads data itself. Use for custom formats, statistics, or fitting that the other operators cannot express.",
+      "One custom operation the catalog cannot express. fn takes one DataFrame per input, in order, and returns one DataFrame. Zero inputs are for loading unsupported formats. Keep filtering, deriving columns, joining and aggregation in predefined operators.",
     type: "Process",
     inputs: "many",
     rowEffect: "unknown",
     signature: 'process(T1, ..., Tn, fn=function, doc="what it does")   or   process(fn=loader, doc="...")',
-    doc: 'Table in, table out, in Python: `summary = process(orders, customers, fn=summarize, doc="Joins orders to customers and fits a linear trend per region")`. `fn` is a `def` supplied in this edit taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes; with no input tables it takes no parameters and loads data itself. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Use it for what no other operator expresses (custom parsers, binary formats, statistics, fitting, report layouts), not for filtering, deriving columns, grouping or joining.',
+    doc: 'One custom operation in Python: `trend = process(yearly_totals, fn=fit_trend, doc="Fits a linear trend to yearly totals")`. `fn` is a `def` supplied in this edit taking one pandas DataFrame per input table, in order (parameter names are yours), and returning one DataFrame with unique string column names, scalar cells and timezone-aware datetimes. A function with no inputs may load a format scan cannot handle and return its parsed table. `doc` is one sentence stating the logical semantics of the function (what the output table holds and how it is derived); it is shown with the results because nothing else about a process can be measured. Import packages inside the function. Reserve process for one operation the catalog cannot express, such as a custom parser, correlation or model fit. Keep filtering, deriving columns, grouping and joining in separate predefined operators, including after a custom loader.',
     schema: object({ code: S, entry: S, doc: S }, ["code", "entry", "doc"]),
     normalize(rest, kwargs, context) {
       keywords("process", kwargs, ["fn", "doc"]);

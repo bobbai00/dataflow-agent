@@ -24,6 +24,9 @@
 
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ContextMode } from "../../types/agent";
 import { buildNativeModeSystemPrompt } from "../prompts";
@@ -32,6 +35,8 @@ import { NATIVE_OPERATORS, nativeCatalogText, graphCatalogText } from "./catalog
 import { compileNativeOp } from "./codegen";
 import { compileProgram, type ProgramStatement } from "./program";
 import { nativeTestTools } from "./test-support";
+import { missingGraphInputs, planGraphEdit } from "../tools/graph-edits";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 
 const python = process.env.UDF_PYTHON_PATH ?? fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
@@ -564,11 +569,48 @@ describe("native prompt", () => {
     const { runNativePython } = await import("./codegen");
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
     const examples = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)];
-    expect(examples.length).toBe(5);
+    expect(examples.length).toBe(6);
     for (const [, changes] of examples) {
       const parsed = (await runNativePython({ changes })) as any;
       expect(parsed).toMatchObject({ ok: true });
       expect(parsed.commands.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("the native calculation example executes as separate connected stages in one edit", async () => {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
+    const example = [...prompt.matchAll(/```dataflow\n([\s\S]*?)\n```/g)].find(([, changes]) =>
+      changes.includes("create operator over_budget:")
+    )?.[1];
+    expect(example).toBeDefined();
+
+    const directory = mkdtempSync(join(tmpdir(), "native-prompt-"));
+    try {
+      const transactions = join(directory, "transactions.csv");
+      const budgets = join(directory, "budgets.csv");
+      writeFileSync(transactions, "region,amount\nnorth,70\nsouth,40\nnorth,50\nunmatched,500\n");
+      writeFileSync(budgets, "region,budget\nnorth,100\nsouth,50\n");
+      const changes = example!
+        .replace('"data/transactions.csv"', JSON.stringify(transactions))
+        .replace('"data/budgets.csv"', JSON.stringify(budgets));
+      const { state } = nativeTestTools();
+      const metadataStore = new WorkflowSystemMetadata();
+      metadataStore.seedCodeModeDefaults();
+      const plan = await planGraphEdit(state.getWorkflowContent(), changes, { metadataStore });
+      state.setWorkflowContent(plan.workflow);
+
+      expect(missingGraphInputs(plan.workflow)).toEqual([]);
+      expect(state.getAllOperators().map(op => op.nativeOp!.type)).toEqual([
+        "Scan",
+        "Scan",
+        "Aggregate",
+        "Join",
+        "Filter",
+      ]);
+      expect(state.getOperator("compared")!.nativeOp!.inputs).toEqual(["spending", "budgets"]);
+      expect(execute(state, "over_budget")).toEqual([{ region: "north", spent: 120, budget: 100 }]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 
@@ -589,7 +631,7 @@ describe("native prompt", () => {
 
   test("the prompt stays concise, generic, and documents result freshness", () => {
     const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA);
-    expect(prompt.length).toBeLessThan(14000);
+    expect(prompt.length).toBeLessThan(16000);
     expect(prompt).toContain("stale");
     expect(prompt).toContain("preview");
     expect(prompt).toContain("None");
