@@ -2801,7 +2801,7 @@ export class TexeraAgent {
             nativeValidationRepair: this.nativeValidationRepair,
             settings: this.settings,
           },
-          execute: () => this.executePostStepChanges([], [], true),
+          execute: operatorIds => this.executePostStepChanges([], [], true, operatorIds),
           edited: ids => this.recordVersionsFor(ids),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
@@ -2893,7 +2893,8 @@ export class TexeraAgent {
   private async executePostStepChanges(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
-    executeAll = false
+    executeAll = false,
+    operatorIds?: readonly string[]
   ): Promise<void> {
     if (!toolCalls || !toolResults) return;
 
@@ -2943,7 +2944,12 @@ export class TexeraAgent {
     // trying to "fix" an operator that's actually working. In serial mode this
     // didn't surface because `A` was a sink at the moment of its own edit.
     const targets = new Set<string>();
-    if (executeAll) for (const op of this.workflowState.getAllOperators()) targets.add(op.operatorID);
+    if (executeAll) {
+      const operators = operatorIds
+        ? this.workflowState.getSubDAGForTargets(operatorIds).operators
+        : this.workflowState.getAllOperators();
+      for (const op of operators) targets.add(op.operatorID);
+    }
     for (const opId of editedOpIds) {
       targets.add(opId);
       if (this.settings.agentMode === AgentMode.NATIVE) {

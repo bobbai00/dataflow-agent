@@ -31,9 +31,10 @@
  * ~$0.90 each, 312 such 400s in one log.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import { WorkflowState } from "../workflow-state";
-import { buildLogicalPlanForTest } from "./workflow-execution-tools";
+import { buildLogicalPlanForTest, executeWorkflowAndPersist } from "./workflow-execution-tools";
+import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 
 /** A chain a→b→c plus an unrelated island x→y, and a diamond d→(e,f)→g. */
@@ -57,7 +58,15 @@ function makeState(extraOps = 0): WorkflowState {
   ws.setWorkflowContent({
     operators,
     operatorPositions: {},
-    links: [link("a", "b"), link("b", "c"), link("x", "y"), link("d", "e"), link("d", "f"), link("e", "g"), link("f", "g")],
+    links: [
+      link("a", "b"),
+      link("b", "c"),
+      link("x", "y"),
+      link("d", "e"),
+      link("d", "f"),
+      link("e", "g"),
+      link("f", "g"),
+    ],
     commentBoxes: [],
     settings: { dataTransferBatchSize: 400 },
   } as any);
@@ -67,6 +76,72 @@ function makeState(extraOps = 0): WorkflowState {
 const idsOf = (plan: { operators: { operatorID: string }[] }): string[] => plan.operators.map(o => o.operatorID).sort();
 
 describe("execution plan carries only the targets' upstream closure", () => {
+  test("execution validation ignores an unrelated branch with missing inputs", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const state = makeState();
+    state.deleteLink("x->y");
+    const requests: any[] = [];
+    const fetch = spyOn(globalThis, "fetch").mockImplementation((async (
+      _url: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({ success: true, state: "Completed", operators: {} });
+    }) as unknown as typeof globalThis.fetch);
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        state,
+        { userToken: "test", workflowId: 789 },
+        { opsToViewResult: ["c"] }
+      );
+      expect(outcome.success).toBe(true);
+      expect(requests).toHaveLength(1);
+      expect(idsOf(requests[0].logicalPlan)).toEqual(["a", "b", "c"]);
+      expect(state.getAllOperators()).toHaveLength(9);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  test("execution rejects a missing upstream input inside the requested branch", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const state = makeState();
+    state.deleteLink("b->c");
+    const fetch = spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error("Must not execute");
+    }) as unknown as typeof globalThis.fetch);
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        state,
+        { userToken: "test", workflowId: 790 },
+        { opsToViewResult: ["c"] }
+      );
+      expect(outcome.success).toBe(false);
+      expect(outcome.errorText).toContain("Operator c");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  test("mixed valid and unknown targets fail before any execution", async () => {
+    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    const fetch = spyOn(globalThis, "fetch").mockImplementation((async () =>
+      Response.json({ success: true, state: "Completed", operators: {} })) as unknown as typeof globalThis.fetch);
+    try {
+      const outcome = await executeWorkflowAndPersist(
+        makeState(),
+        { userToken: "test", workflowId: 791 },
+        { opsToViewResult: ["c", "unknown"] }
+      );
+      expect(outcome.success).toBe(false);
+      expect(outcome.errorText).toContain("unknown");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   test("one target ships its ancestors, not the rest of the workflow", () => {
     const plan = buildLogicalPlanForTest(makeState(), ["c"]);
     expect(idsOf(plan)).toEqual(["a", "b", "c"]);

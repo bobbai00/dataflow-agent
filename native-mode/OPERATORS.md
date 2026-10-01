@@ -17,7 +17,7 @@ create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 ```
 
-Create requires a new identifier. Update replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be updated; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction; Execute requires complete inputs and an acyclic graph.
+Create requires a new identifier. Update replaces the definition and preserves its identifier and every connection. Delete removes the operator and all incident edges, which are listed in the observation. Edges cannot be updated; delete and recreate them. Each Edit is atomic. Unconnected operators may exist during construction. Execute with operator_ids runs those operators and their upstream dependencies, materializing each result. Its scope requires complete inputs and an acyclic graph. Execute without operator_ids runs the whole graph.
 
 ## Catalog (15 operators)
 

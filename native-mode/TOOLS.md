@@ -115,6 +115,31 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
             "properties": {
               "type": {
                 "type": "string",
+                "const": "execute"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "operator_ids"
+            ],
+            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "retrieve"
               },
               "operator_id": {
@@ -284,6 +309,31 @@ With `stateHistory: true`, the same tool adds historical inspection, retrieval b
               "type"
             ],
             "description": "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "execute"
+              },
+              "operator_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "type",
+              "operator_ids"
+            ],
+            "description": "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately."
           },
           {
             "type": "object",

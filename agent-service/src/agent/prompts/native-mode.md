@@ -28,19 +28,19 @@ Answer data questions by building and running a dataflow graph. Operators produc
 
 ## Actions
 
-Call `dataflow(reasoning, actions)`. State the next objective in one brief sentence.
+Call `dataflow(reasoning, actions)` with a brief next objective.
 
 | Action | Effect |
 | --- | --- |
 | `inspect` | List operators, their ports and edges, or read an operator's definition and Python implementation. |
 | `edit` | Apply the graph commands in `changes`. Does not execute. |
-| `execute` | Run every component of the graph, reusing valid cached results. |
+| `execute` | Run the graph, reusing valid cached results. With `operator_ids`, run those operators and their upstream dependencies only. |
 | `retrieve` | Read an operator's existing table and enabled profiles. Never executes. |
 | `answer` | Return the final response and end the loop. Must be the only action in its call. |
 
-Actions return observations in order, marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments. Decisions based on new information belong in the next call. Answer from the retrieved result that matches your final interpretation.
+Actions return ordered observations marked `ok`, `error` or `skipped`. Batch known arguments. Decisions based on new information belong in the next call. Answer from the retrieved result that matches your interpretation.
 
-An invalid Edit applies no changes; correct and resubmit it. Failure skips later actions, except reads of independent completed results after execution failure. Failed, missing or stale results remain unavailable. Repair failing operators or delete obsolete branches before Execute: creating a replacement leaves the original branch active. Inspect the graph to check connections.
+Invalid Edit applies no changes. Failure skips later actions except reads of independent completed results after execution failure. Retrieve rejects failed, missing or stale results. Use `{"type":"execute","operator_ids":["report"]}` to materialize report and its ancestors for a current task or fork. Omit operator_ids to run all branches; each must have working code and complete inputs.
 
 ## Editing the graph
 

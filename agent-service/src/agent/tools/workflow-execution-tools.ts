@@ -153,10 +153,13 @@ function combineValidations(...validations: OperatorValidation[]): OperatorValid
   return { isValid, messages };
 }
 
-function validateWorkflow(workflowState: WorkflowState): WorkflowValidationResult {
+function validateWorkflow(
+  workflowState: WorkflowState,
+  operators: readonly OperatorPredicate[] = workflowState.getAllEnabledOperators()
+): WorkflowValidationResult {
   const errors: Record<string, Record<string, string>> = {};
 
-  for (const operator of workflowState.getAllEnabledOperators()) {
+  for (const operator of operators) {
     const schemaValidation = validateOperatorSchema(operator.operatorType, operator.operatorProperties);
     const connectionValidation = validateOperatorConnection(operator.operatorID, workflowState);
     const combined = combineValidations(schemaValidation, connectionValidation);
@@ -755,15 +758,25 @@ export async function executeWorkflowAndPersist(
   const release = await getWorkflowMutex(config.workflowId).acquire();
 
   try {
-    // Validation is structural and doesn't depend on which subset is
-    // being executed, so run it once up front whether we partition or not.
-    const validationResult = validateWorkflow(workflowState);
+    const opsToView = options.opsToViewResult ?? [];
+    const invalid = opsToView.filter(id => !workflowState.getOperator(id) || workflowState.getOperator(id)?.isDisabled);
+    if (invalid.length) {
+      return {
+        success: false,
+        state: "ValidationFailed",
+        opCount: 0,
+        errorCount: 0,
+        errorText: `Unknown or disabled execution targets: ${invalid.join(", ")}.`,
+      };
+    }
+    // Validate the same upstream closure that will be submitted. Unfinished
+    // explorations outside it must not prevent this task from executing.
+    const operators = opsToView.length ? workflowState.getSubDAGForTargets(opsToView).operators : undefined;
+    const validationResult = validateWorkflow(workflowState, operators);
     if (!validationResult.isValid) {
       const errorText = formatWorkflowValidationErrors(validationResult);
       return { success: false, state: "ValidationFailed", opCount: 0, errorCount: 0, errorText };
     }
-
-    const opsToView = options.opsToViewResult ?? [];
 
     // Multi-op case: partition into independent groups. Only switch to
     // the per-group execution path when partitioning actually yields

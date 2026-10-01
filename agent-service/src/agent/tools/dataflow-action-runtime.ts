@@ -36,7 +36,7 @@ export interface DataflowActionRuntime {
   stepId: string;
   settings: AgentSettings;
   context: ToolContext;
-  execute: () => Promise<void>;
+  execute: (operatorIds?: readonly string[]) => Promise<void>;
   edited: (ids: string[]) => void;
   isCurrent: () => boolean;
   signal?: AbortSignal;
@@ -137,16 +137,23 @@ export async function executeDataflowActionBatch(
       return { status: "ok", output };
     }
     if (action.type === "execute") {
-      const operators = state.getAllOperators();
+      const workflow = state.getWorkflowContent();
+      if (action.operator_ids) {
+        const invalid = action.operator_ids.filter(id => !state.getOperator(id) || state.getOperator(id)?.isDisabled);
+        if (invalid.length)
+          throw new Error(`Unknown or disabled execution targets: ${invalid.join(", ")}. No execution was started.`);
+      }
+      const scope = action.operator_ids ? { ...workflow, ...state.getSubDAGForTargets(action.operator_ids) } : workflow;
+      const operators = scope.operators;
       if (!operators.length) throw new Error("The dataflow is empty. Add an operator before execute.");
-      const missing = missingGraphInputs(state.getWorkflowContent());
+      const missing = missingGraphInputs(scope);
       if (missing.length)
         throw new Error(
           `Unconnected required inputs: ${missing.join(", ")}. Create edges or delete unused operators before execute.`
         );
       let failure: string | undefined;
       try {
-        await runtime.execute();
+        await runtime.execute(action.operator_ids);
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
       }

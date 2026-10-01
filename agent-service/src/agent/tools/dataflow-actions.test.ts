@@ -196,7 +196,7 @@ describe("ordered dataflow actions", () => {
     const schema = asSchema(createDataflowTool().inputSchema).jsonSchema as any;
     expect(schema.required).toEqual(["reasoning", "actions"]);
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.properties.actions.items.anyOf).toHaveLength(6);
+    expect(schema.properties.actions.items.anyOf).toHaveLength(7);
     expect(schema.properties.edits).toBeUndefined();
     const editSchema = schema.properties.actions.items.anyOf.find((a: any) => a.properties.type.const === "edit");
     expect(Object.keys(editSchema.properties)).toEqual(["type", "changes"]);
@@ -377,6 +377,71 @@ function session(batches: DataflowAction[][]) {
 }
 
 describe("dataflow action integration", () => {
+  test("selected execution preserves failed siblings and ignores unconnected old branches", async () => {
+    const s = session([
+      [
+        {
+          type: "edit",
+          changes:
+            'create operator source: scan("data/input.csv")\ncreate operator good: limit(1)\ncreate operator bad: process(fn=fail, doc="Old failed exploration")\n    def fail(df):\n        raise ValueError("old branch")\ncreate operator unfinished: limit(1)\ncreate edge source.out -> good.in\ncreate edge source.out -> bad.in',
+        },
+      ],
+      [{ type: "execute", operator_ids: ["good"] }, { type: "retrieve", operator_id: "good", view: "full" }],
+    ]);
+    delete (s.agent as any).executePostStepChanges;
+    (s.agent as any).buildExecutionConfig = () => ({ userToken: "test", workflowId: 321 });
+    const requests: string[][] = [];
+    const execute = spyOn(executionTools, "executeWorkflowAndPersist").mockImplementation(
+      async (_state, _config, options) => {
+        const ids = options?.opsToViewResult ?? [];
+        requests.push(ids);
+        for (const op of _state.getAllOperators().filter(op => ids.includes(op.operatorID)))
+          options?.onResult?.(op.operatorID, {
+            state: "Completed",
+            inputTuples: 0,
+            outputTuples: 1,
+            resultMode: "table",
+            result: [{ value: 7 }],
+          });
+        return { success: true, state: "Completed", opCount: ids.length, errorCount: 0 };
+      }
+    );
+    try {
+      await s.agent.sendMessage("Run the useful branch.");
+      expect(requests).toHaveLength(1);
+      expect(requests[0].sort()).toEqual(["good", "source"]);
+      expect(s.outcomes[1].status).toBe("completed");
+      expect((s.outcomes[1].actions[0].output as any).operators.map((op: any) => op.id).sort()).toEqual([
+        "good",
+        "source",
+      ]);
+      expect(s.agent.getWorkflowState().getAllOperators()).toHaveLength(4);
+      expect(s.agent.getSnapshotStorage().getOperatorResult(s.agent.getHead(), "good")?.result).toEqual([{ value: 7 }]);
+      expect(s.agent.getSnapshotStorage().getOperatorResult(s.agent.getHead(), "unfinished")).toBeUndefined();
+    } finally {
+      execute.mockRestore();
+    }
+  });
+
+  test("selected execution validates required upstream inputs and rejects unknown targets", async () => {
+    for (const operator_ids of [["unfinished"], ["unknown"]]) {
+      const s = session([
+        [{ type: "edit", changes: 'create operator source: scan("x.csv")\ncreate operator unfinished: limit(1)' }],
+        [{ type: "execute", operator_ids }],
+      ]);
+      await s.agent.sendMessage("Validate the selected branch.");
+      expect(s.executions()).toBe(0);
+      expect(s.outcomes[1].status).toBe("error");
+      expect(JSON.stringify(s.outcomes[1])).toContain(operator_ids[0]);
+    }
+  });
+
+  test("an empty execution selection is rejected instead of executing everything", () => {
+    const result = prepareDataflowActions({ reasoning: "Run.", actions: [{ type: "execute", operator_ids: [] }] });
+    expect(result.status).toBe("error");
+    expect(result.actions).toHaveLength(0);
+  });
+
   test("changing retrieval views reads the same result and freezes each observation", async () => {
     const s = session([
       [

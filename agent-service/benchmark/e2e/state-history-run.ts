@@ -82,14 +82,14 @@ function pythonLiteral(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
-async function actions(items: DataflowAction[]) {
+async function actions(items: DataflowAction[], expectedStatus = "completed") {
   const input = { reasoning: "Verify historical definitions and results.", actions: items };
   await debug(`Function(name="dataflow", arguments=${JSON.stringify(pythonLiteral(input))})`);
   const trace = await getReActSteps(agentId, baseUrl);
   const receipt = trace.steps.at(-1)?.toolResults?.[0]?.output as DataflowActionsResult;
   save(`action-${++sequence}.json`, { input, receipt });
   save("trace.json", trace.steps);
-  assert.equal(receipt?.status, "completed", JSON.stringify(receipt));
+  assert.equal(receipt?.status, expectedStatus, JSON.stringify(receipt));
   return receipt;
 }
 async function executions() {
@@ -185,6 +185,40 @@ create edge source.out -> old_total__eligible.in`,
   assert.deepEqual((snapshot.results.total as any).sampleRecords, [{ n: 4, amount: 357 }]);
   const original = await actions([{ type: "retrieve", task_id: 1, operator_id: "total", view: "full" }]);
   assert.ok(textOf(original, 0).includes("15"));
+  // A failed sibling shares the current source; a disconnected consumer has
+  // incomplete inputs. Both remain in this persistent graph while selected
+  // outputs and their complete ancestry continue to execute.
+  await actions(
+    [
+      {
+        type: "edit",
+        changes:
+          'create operator failed_probe: process(fn=fail, doc="Deliberately failed exploration")\n    def fail(df):\n        raise ValueError("intentional sibling failure")\ncreate edge source.out -> failed_probe.in',
+      },
+      { type: "execute", operator_ids: ["failed_probe"] },
+    ],
+    "error"
+  );
+  await actions([{ type: "edit", changes: "create operator unfinished_probe: limit(1)" }]);
+  const isolated = await actions([
+    { type: "execute", operator_ids: ["total", "old_total"] },
+    { type: "retrieve", operator_id: "total", view: "full" },
+    { type: "retrieve", operator_id: "old_total", view: "full" },
+    { type: "retrieve", task_id: 1, operator_id: "total", view: "full" },
+  ]);
+  const outcomes = (isolated.actions[0].output as any).operators;
+  assert.ok(outcomes.every((op: any) => op.status === "ok"));
+  assert.ok(!outcomes.some((op: any) => ["failed_probe", "unfinished_probe"].includes(op.id)));
+  assert.ok(textOf(isolated, 1).includes("357"));
+  assert.ok(textOf(isolated, 2).includes("157"));
+  assert.equal(textOf(isolated, 3), textOf(original, 0));
+  const isolationSnapshot = await getSnapshot(agentId, "head", baseUrl);
+  save("isolated-snapshot.json", isolationSnapshot);
+  assert.ok(isolationSnapshot.workflow);
+  assert.ok(isolationSnapshot.workflow.operators.some((op: any) => op.operatorID === "failed_probe"));
+  assert.ok(isolationSnapshot.workflow.operators.some((op: any) => op.operatorID === "unfinished_probe"));
+  const whole = await actions([{ type: "execute" }], "error");
+  assert.ok(JSON.stringify(whole).includes("unfinished_probe"));
   save("trace.json", (await getReActSteps(agentId, baseUrl)).steps);
   save("checks.json", {
     passed: true,
@@ -192,6 +226,9 @@ create edge source.out -> old_total__eligible.in`,
     historical_dependency_closure: true,
     old_formula_current_population: true,
     current_baseline_preserved: true,
+    failed_sibling_isolated: true,
+    unfinished_branch_preserved: true,
+    whole_graph_execution_still_validates_all_inputs: true,
   });
   console.log("PASS: historical reads, fork execution, rewiring, and baseline isolation");
 } catch (error) {

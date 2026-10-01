@@ -35,7 +35,7 @@ export type DataflowAction =
     }
   | { type: "fork"; task_id: number; operator_id: string; new_operator_id: string }
   | { type: "edit"; changes: string }
-  | { type: "execute" }
+  | { type: "execute"; operator_ids?: string[] }
   | { type: "retrieve"; operator_id: string; view: RetrievalView; task_id?: number }
   | { type: "answer"; content: string };
 
@@ -117,6 +117,11 @@ export const DATAFLOW_ACTIONS_SCHEMA = object({
         action(
           "execute",
           "Run every component of the graph, including disconnected branches, reusing valid cached results. Repair failed operators and connect or delete unused consumers first. Returns status and errors; retrieve tables separately."
+        ),
+        action(
+          "execute",
+          "Run only these operators and their upstream dependencies, materializing every operator in that scope and reusing valid cached results. Other branches remain in the graph. Use this for the current task or a historical fork when unrelated branches are unfinished or failed. Returns status and errors; retrieve tables separately.",
+          { operator_ids: { type: "array", items: text, minItems: 1, uniqueItems: true } }
         ),
         action(
           "retrieve",

@@ -86,7 +86,16 @@ delete the old edge and create its replacement.
 Commands are staged in order. Each Edit is atomic: a missing operator, invalid
 parameter or port, occupied input, or cycle rejects all changes in that Edit.
 Unconnected inputs are allowed during construction. Execute requires every
-required input to be connected. A rejected Edit leaves previous results valid.
+required input in its execution scope to be connected. A rejected Edit leaves
+previous results valid.
+
+To run one task's branch, use `{"type":"execute","operator_ids":["total"]}`.
+This materializes `total` and every upstream dependency while leaving other
+branches in the graph. Unrelated failed or unfinished operators do not block
+the selected branch. Unknown, disabled or empty target selections are rejected.
+Omitting `operator_ids` runs the whole graph. Retrieve continues to read existing
+results and never executes. Results outside the selected scope retain their
+existing freshness checks.
 
 ### Ports
 

@@ -16,19 +16,19 @@ Answer data questions by building and running a dataflow graph. Operators produc
 
 ## Actions
 
-Call `dataflow(reasoning, actions)`. State the next objective in one brief sentence.
+Call `dataflow(reasoning, actions)` with a brief next objective.
 
 | Action | Effect |
 | --- | --- |
 | `inspect` | List operators, their ports and edges, or read an operator's definition and Python implementation. |
 | `edit` | Apply the graph commands in `changes`. Does not execute. |
-| `execute` | Run every component of the graph, reusing valid cached results. |
+| `execute` | Run the graph, reusing valid cached results. With `operator_ids`, run those operators and their upstream dependencies only. |
 | `retrieve` | Read an operator's existing table and enabled profiles. Never executes. |
 | `answer` | Return the final response and end the loop. Must be the only action in its call. |
 
-Actions return observations in order, marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments. Decisions based on new information belong in the next call. Answer from the retrieved result that matches your final interpretation.
+Actions return ordered observations marked `ok`, `error` or `skipped`. Batch known arguments. Decisions based on new information belong in the next call. Answer from the retrieved result that matches your interpretation.
 
-An invalid Edit applies no changes; correct and resubmit it. Failure skips later actions, except reads of independent completed results after execution failure. Failed, missing or stale results remain unavailable. Repair failing operators or delete obsolete branches before Execute: creating a replacement leaves the original branch active. Inspect the graph to check connections.
+Invalid Edit applies no changes. Failure skips later actions except reads of independent completed results after execution failure. Retrieve rejects failed, missing or stale results. Use `{"type":"execute","operator_ids":["report"]}` to materialize report and its ancestors for a current task or fork. Omit operator_ids to run all branches; each must have working code and complete inputs.
 
 ## Editing the graph
 
@@ -273,7 +273,7 @@ Preserve the row set on which an existing percentile or aggregate was computed; 
 - Inspect one saved operator: {"type":"inspect","target":"state","task_id":2,"operator_id":"eligible","include_implementation":true}. This shows its definition, immediate input definitions, saved row counts and historical connections. Follow input IDs for deeper dependencies. With null task_id it shows the operator across completed tasks, including dependency hashes; unchanged expressions can still have changed upstream state.
 - Find operators in a task: set task_id to that task and operator_id to null, with include_implementation=false for a compact overview of operators changed or retrieved there. Definitions describe task-end state; retrieved receipts preserve the original read identities, which can refer to older tasks. Activity is a navigation aid, not proof that a read determined the answer. Set both IDs to null only when you need the completed task list. No history index is inserted automatically.
 - Read an earlier output: {"type":"retrieve","task_id":2,"operator_id":"eligible","view":"sample"}. The same available views and completeness checks apply. Retrieval never executes or substitutes today's output.
-- Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; Execute runs the copied graph and produces current materializations for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
+- Reuse an earlier branch: {"type":"fork","task_id":2,"operator_id":"eligible","new_operator_id":"earlier_eligible"}. This atomically copies that operator and every upstream definition under new IDs, preserving historical edge positions. The receipt gives the ID mapping. The live branch is unchanged. Retrieve earlier_eligible to read an available saved observation; {"type":"execute","operator_ids":["earlier_eligible"]} recomputes its upstream branch for downstream analysis. Fork preserves definitions, not external file contents; recomputation reads the supplied files.
 
 For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.
 
