@@ -76,6 +76,19 @@ test("expression syntax errors name the command's line in the edit", async () =>
   expect(state.getAllOperators()).toEqual([]);
 });
 
+test("reserved operator names explain the rename and keep the edit atomic", async () => {
+  const state = new WorkflowState();
+  await edit(state, chain);
+  const before = state.getWorkflowContent();
+  await expect(
+    edit(state, 'delete operator selected\ncreate operator global: scan("data.csv")')
+  ).rejects.toThrow("Line 2: `global` is a Python keyword");
+  expect(state.getWorkflowContent()).toEqual(before);
+  await expect(edit(state, 'create operator global: scan("data.csv")')).rejects.toThrow("global_data");
+  await edit(state, 'create operator global_data: scan("data.csv")');
+  expect(state.getOperator("global_data")).toBeDefined();
+});
+
 test("an indented graph command reports its own line and leaves the graph intact", async () => {
   const state = new WorkflowState();
   await edit(state, chain);

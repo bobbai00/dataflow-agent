@@ -20,6 +20,7 @@
 """Parse explicit graph commands and operator-local Python without executing it."""
 import ast
 import io
+import keyword
 import re
 import tokenize
 from program_parser import parse_program
@@ -63,6 +64,11 @@ def parse_graph_changes(source):
             operator = re.match(rf"^(create|update|modify) operator ({ID}):\s*(.*)$", heading)
             if operator:
                 verb, identifier, first = operator.groups()
+                if keyword.iskeyword(identifier):
+                    raise ValueError(
+                        f"Line {start}: `{identifier}` is a Python keyword and cannot be an operator identifier; "
+                        f"rename it (for example `{identifier}_data`) and use that name in its edge endpoints."
+                    )
                 # Replay saved graph edits without exposing the old spelling in
                 # new prompts or receipts.
                 if verb == "modify":
