@@ -24,7 +24,12 @@ const user = { id: "new-user", messageId: "new-message", role: "user", content: 
 const terminal = { id: "new-answer", messageId: "new-message", role: "agent", content: "saved answer", isEnd: true };
 const old = { id: "old-answer", messageId: "old-message", role: "agent", content: "old answer", isEnd: true };
 
-function endpoint(options: { complete?: boolean; omitNewSteps?: boolean; response?: () => unknown }) {
+function endpoint(options: {
+  complete?: boolean;
+  omitNewSteps?: boolean;
+  omitTerminal?: boolean;
+  response?: () => unknown;
+}) {
   let sends = 0;
   let reads = 0;
   const server = Bun.serve({
@@ -44,7 +49,7 @@ function endpoint(options: { complete?: boolean; omitNewSteps?: boolean; respons
         sends++;
         if (!options.omitNewSteps) {
           ws.send(JSON.stringify({ type: "step", step: user }));
-          ws.send(JSON.stringify({ type: "step", step: terminal }));
+          if (!options.omitTerminal) ws.send(JSON.stringify({ type: "step", step: terminal }));
         }
         if (options.complete) ws.send(JSON.stringify({ type: "complete", state: "AVAILABLE" }));
       },
@@ -68,11 +73,26 @@ test("a missing complete frame is confirmed through the same terminal request, w
   }
 });
 
+test("a lost terminal step and complete frame recover only the acknowledged request", async () => {
+  const e = endpoint({ omitTerminal: true });
+  try {
+    const result = await runAgentTurn("test", "current question", { baseUrl: e.baseUrl, timeoutMs: 6200 });
+    expect(result.completed).toBe(true);
+    expect(result.completionSource).toBe("rest");
+    expect(result.finalAnswer).toBe("saved answer");
+    expect(e.sends()).toBe(1);
+    expect(e.reads()).toBe(1);
+  } finally {
+    e.server.stop(true);
+  }
+}, 8000);
+
 test("a terminal answer from init cannot complete the new request", async () => {
   const e = endpoint({ omitNewSteps: true });
   try {
     const result = await runAgentTurn("test", "current question", { baseUrl: e.baseUrl, timeoutMs: 100 });
     expect(result.completed).toBe(false);
+    expect(result.finalAnswer).toBe("");
     expect(e.reads()).toBe(0);
     expect(e.sends()).toBe(1);
   } finally {
