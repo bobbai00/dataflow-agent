@@ -22,7 +22,12 @@ import * as executionTools from "./workflow-execution-tools";
 import { asSchema } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
-import { createDataflowTool, prepareDataflowActions, runDataflowActions } from "./dataflow-actions";
+import {
+  createDataflowTool,
+  prepareDataflowActions,
+  renderDataflowActionsResult,
+  runDataflowActions,
+} from "./dataflow-actions";
 import { TexeraAgent } from "../texera-agent";
 import { AgentMode, ContextMode } from "../../types/agent";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -30,6 +35,103 @@ import { assembleContext } from "../util/context-utils";
 import type { DataflowAction, DataflowActionsResult } from "./dataflow-actions";
 
 const edit = { type: "edit", changes: 'create operator source: scan("data/orders.csv")' };
+
+describe("compact action observations", () => {
+  async function receipt(action: DataflowAction, output: unknown, status: "ok" | "error" = "ok") {
+    const result = prepareDataflowActions({ reasoning: "Check the result.", actions: [action] }, true);
+    await runDataflowActions(result, async () => ({ status, output }));
+    return result;
+  }
+
+  test("successful execution observations stay small as the graph grows without losing stored receipts", async () => {
+    const result = await receipt(
+      { type: "execute" },
+      { operators: Array.from({ length: 250 }, (_, i) => ({ id: `old_branch_${i}`, status: "ok", rows: i })) }
+    );
+    const saved = JSON.stringify(result);
+    const text = renderDataflowActionsResult(result);
+    expect(text).toContain("1. execute: ok");
+    expect(text).toContain("250 operators completed");
+    expect(text.length).toBeLessThan(150);
+    expect(text).not.toContain("old_branch_");
+    expect(JSON.stringify(result)).toBe(saved);
+    expect(renderDataflowActionsResult(structuredClone(result))).toBe(text);
+  });
+
+  test("failed executions retain operator errors, blocked results, diagnostics and engine errors", async () => {
+    const result = await receipt(
+      { type: "execute" },
+      {
+        operators: [
+          { id: "ordinary", status: "ok", rows: 100 },
+          { id: "header", status: "ok", rows: 10, checks: ["check: header row repeats"] },
+          { id: "source", status: "error", message: "File missing: orders.csv" },
+          { id: "unfinished", status: "running", message: "No completed result" },
+        ],
+        blocked: [{ id: "total", message: "source failed" }],
+        error: "Engine stopped",
+      },
+      "error"
+    );
+    const text = renderDataflowActionsResult(result);
+    expect(text).toContain("1. execute: error");
+    expect(text).toContain("2 operators completed");
+    expect(text).toContain("header: ok");
+    expect(text).toContain("check: header row repeats");
+    expect(text).toContain("source: error — File missing: orders.csv");
+    expect(text).toContain("unfinished: running — No completed result");
+    expect(text).toContain("total: blocked — source failed");
+    expect(text).toContain("Execution error: Engine stopped");
+    expect(text).not.toContain("ordinary:");
+  });
+
+  test("edit observations acknowledge atomic changes and retain implicit deletions and stale-input warnings", async () => {
+    const result = await receipt(edit as DataflowAction, {
+      changes: [
+        { operation: "create_operator", operator_id: "source" },
+        { operation: "create_edge", edge: "source.out -> total.in" },
+        { operation: "delete_operator", operator_id: "probe", deleted_edges: ["source.out -> probe.in"] },
+      ],
+      unconnected_inputs: ["total.in"],
+      invalidated_results: ["total"],
+    });
+    const text = renderDataflowActionsResult(result);
+    expect(text).toContain("Applied 3 graph changes");
+    expect(text).not.toContain("create operator: source");
+    expect(text).not.toContain("create edge: source.out -> total.in");
+    expect(text).toContain("automatically deleted edges: source.out -> probe.in");
+    expect(text).toContain("Unconnected required inputs: total.in");
+    expect(text).toContain("Invalidated results: total");
+  });
+
+  test("rejected edits and skipped actions stay explicit, with no success acknowledgment", async () => {
+    const result = prepareDataflowActions({ reasoning: "Load.", actions: [edit, { type: "execute" }] });
+    await runDataflowActions(result, async () => ({
+      status: "error",
+      output: "Atomic edit rejected: missing operator.",
+    }));
+    const text = renderDataflowActionsResult(result);
+    expect(text).toContain("1. edit: error\nAtomic edit rejected: missing operator.");
+    expect(text).toContain("2. execute: skipped\nNot run because an earlier action failed.");
+    expect(text).not.toContain("Applied");
+  });
+
+  test("requested historical results preserve their exact contents and provenance", async () => {
+    const result = await receipt(
+      { type: "retrieve", operator_id: "total", task_id: 2 },
+      {
+        operator_id: "total",
+        revision: "rev-2",
+        historical_state: { task_id: 2, operator_id: "total" },
+        superseded_in_call: true,
+        text: '1 row\n{"amount":42}',
+      }
+    );
+    expect(renderDataflowActionsResult(result)).toBe(
+      '1. retrieve: ok\nHistorical result; changed later in this call.\nSaved result: task 2, operator total.\nOperator total (revision rev-2)\n1 row\n{"amount":42}'
+    );
+  });
+});
 
 describe("ordered dataflow actions", () => {
   test("only available views validate and unavailable requests run no actions", async () => {
@@ -812,14 +914,23 @@ test("native multi-task requests preserve every earlier request as a prefix", as
       requests.push(structuredClone(options.prompt));
       const n = requests.length;
       const actions =
-        n % 2 === 1 ? [{ type: "inspect", target: "graph" }] : [{ type: "answer", content: `Answer ${n / 2}` }];
+        n % 2 === 1
+          ? [
+              {
+                type: "edit",
+                changes: `${n === 1 ? "create" : "update"} operator source: scan("data/task-${n}.csv")`,
+              },
+              { type: "execute" },
+              { type: "retrieve", operator_id: "source" },
+            ]
+          : [{ type: "answer", content: `Answer ${n / 2}` }];
       return {
         content: [
           {
             type: "tool-call",
             toolCallId: `prefix-${n}`,
             toolName: "dataflow",
-            input: JSON.stringify({ reasoning: "Inspect the graph.", actions }),
+            input: JSON.stringify({ reasoning: "Read the next result.", actions }),
           },
         ],
         finishReason: { unified: "tool-calls", raw: "tool_calls" },
@@ -838,14 +949,17 @@ test("native multi-task requests preserve every earlier request as a prefix", as
       messageLayout: "native",
       userTaskPlacement: "bottom",
     });
-  await s.agent.sendMessage("First question: inspect the graph.");
-  await s.agent.sendMessage("Second question: inspect it again.");
+  await s.agent.sendMessage("First question: read the first file.");
+  await s.agent.sendMessage("Second question: read a different file.");
   expect(requests).toHaveLength(4);
   for (let i = 1; i < requests.length; i++) {
     expect(requests[i].slice(0, requests[i - 1].length)).toEqual(requests[i - 1]);
   }
   expect(JSON.stringify(requests[3]).split("First question:")).toHaveLength(2);
   expect(JSON.stringify(requests[3]).split("Second question:")).toHaveLength(2);
+  expect(JSON.stringify(requests[3])).toContain("operators completed");
+  expect(JSON.stringify(requests[3])).toContain("result-1");
+  expect(JSON.stringify(requests[3])).toContain("result-2");
 });
 
 test("a failed model turn is not advertised as a completed historical answer", async () => {

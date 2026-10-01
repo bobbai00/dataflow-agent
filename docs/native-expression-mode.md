@@ -36,8 +36,8 @@ The generated references are the source of truth for the public interface:
 |---|---|---|
 | Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
-| Edit | `changes` | Ordered change receipts, automatically deleted edges, unconnected inputs and invalidated results |
-| Execute | none | Whole-graph execution status; valid cached results can be reused |
+| Edit | `changes` | Applied change count, automatically deleted edges, unconnected inputs and invalidated results |
+| Execute | none | Completed operator count, errors and diagnostics; valid cached results can be reused |
 | Retrieve | `operator_id`, `view` | Existing records as `full`, `sample`, or `sample_stats`, with automatic flow evidence when enabled |
 | Answer | `content` | Final response; ends the loop |
 
@@ -54,6 +54,11 @@ uses the remaining model steps in the same turn and retains the billed usage
 from both requests. Feedback stays in chronological order so the original task
 and context prefix remain intact. A step limit, refusal, or aborted turn does
 not trigger this correction.
+
+Successful edits and executions return short acknowledgments in the model's
+context. Full operator receipts remain in the saved trace. Retrieve provides
+row counts and tables; execution does not repeat every successful operator
+from earlier tasks. Errors and enabled checks remain visible immediately.
 
 ## Graph syntax
 
