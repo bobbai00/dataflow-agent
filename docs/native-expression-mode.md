@@ -225,9 +225,13 @@ and create it with current edges, or rewire the fork explicitly. Forking an
 entire branch also restores its historical input definitions. External files
 are not versioned: executing a fork reads the files at their supplied paths.
 
-The system prompt explains these choices and the observation boundary: edits
-that depend on an inspection belong in the next call. Saved tasks address the
-existing snapshot tree; this feature adds no separate catalog or task store.
+The system prompt includes [generic multitask examples](../agent-service/src/agent/prompts/state-history-examples.md)
+for reading a saved output, continuing from an earlier full population,
+applying an earlier formula to current data, and changing a temporary branch
+while preserving its baseline. Each example separates calls that depend on a
+new observation. These examples are included only when `stateHistory` is
+enabled; the default prompt stays unchanged. Saved tasks address the existing
+snapshot tree; this feature adds no separate catalog or task store.
 
 ### Graph implementation
 

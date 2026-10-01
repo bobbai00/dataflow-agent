@@ -305,7 +305,8 @@ export function buildNativeModeSystemPrompt(
     );
 }
 
-export const NATIVE_STATE_HISTORY = `
+export const NATIVE_STATE_HISTORY =
+  `
 ## Historical state across tasks
 
 All user tasks share this graph. Each task is a user request, numbered from 1 in conversation order. Completed tasks retain their operator definitions, incoming edges, custom functions, and available result observations. Earlier answers can be incorrect; check the computation you reuse.
@@ -324,7 +325,9 @@ Preserve the row set on which an existing percentile or aggregate was computed; 
 For a temporary sensitivity check, fork the baseline before editing its copy. Continue later default work from the baseline unless the user adopts the change. To apply an older formula to a current population, inspect the old expression and use Edit to create it with current input edges, or explicitly rewire a fork after inspecting its mapping. A wholesale historical rollback would also restore the older population. Editing a fork or any ancestor invalidates its saved observation; Execute before retrieving its changed output. Keep custom functions limited to one operation so useful intermediate states remain independently addressable.
 
 Inspect results return after the entire action list. Make edits that depend on them in the next call. Fork followed by Retrieve is a valid batch when the source and new IDs are already known.
-`;
+` +
+  "\n" +
+  rd("state-history-examples.md").replace(/^<!--[\s\S]*?-->\s*/, "");
 
 // ---------------------------------------------------------------------------
 // Local-react (in-house local LLM) system prompts — one per tool-call dialect.
