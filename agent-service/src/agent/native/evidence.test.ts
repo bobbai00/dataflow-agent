@@ -163,6 +163,34 @@ test("sample_stats preserves the sample and has its own statistics budget", () =
   expect(sample.text).not.toContain("Data measurement");
 });
 
+test("partial records do not obscure exhaustive full-table value statistics", () => {
+  const f = fixture("Scan", {});
+  const years = [2003, 2011, 2015, 2018, 2020, 2021, 2022, 2023];
+  f.info.result = years.map(x => ({ x }));
+  f.info.truncated = false;
+  f.info.totalRowCount = f.info.tableProfile!.rowCount = f.info.tableProfile!.coverage.rowsProcessed = years.length;
+  f.info.tableProfile!.columns.x = {
+    ...column(years.length, 0),
+    min: { type: "int64", value: "2003" },
+    max: { type: "int64", value: "2023" },
+    omissions: [],
+    frequencies: {
+      values: years.map(x => ({ value: { type: "int64", value: String(x) }, count: 1 })),
+      otherCount: 0,
+      truncated: false,
+    },
+  };
+  const result = observe(f, { view: "sample_stats", flow: false, maxRows: 5, dataMaxChars: 2000 });
+  expect(result.table?.returnedRows).toBe(5);
+  expect(result.table?.complete).toBe(false);
+  expect(result.text).toContain("Data statistics: full table, 8/8 rows");
+  expect(result.text).toContain(
+    "nonnull values=2003:1, 2011:1, 2015:1, 2018:1, 2020:1, 2021:1, 2022:1, 2023:1; other=0"
+  );
+  expect(result.text).toContain("Records incomplete; statistics coverage is shown separately.");
+  expect(result.text).not.toContain("View incomplete");
+});
+
 test("preview completeness never implies that the full source was read", () => {
   const f = fixture("Scan", { files: "large.csv", preview: 3 });
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];

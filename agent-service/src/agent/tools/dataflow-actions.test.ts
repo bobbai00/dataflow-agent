@@ -77,6 +77,18 @@ describe("ordered dataflow actions", () => {
       expect(prepareDataflowActions(input).error).toBeDefined();
   });
 
+  test("quoted action lists receive array-specific feedback without running or repairing them", () => {
+    for (const actions of [JSON.stringify([edit]), '[{"type":"edit","changes":"broken']) {
+      const result = prepareDataflowActions({ reasoning: "Load.", actions });
+      expect(result.status).toBe("error");
+      expect(result.actions).toEqual([]);
+      expect(result.error).toContain("JSON array");
+      expect(result.error).toContain("string");
+      expect(result.error).toContain('"actions":[{"type":"execute"}]');
+      expect(result.error).toContain("No actions ran");
+    }
+  });
+
   test("runs actions in order and never implicitly executes an edit or retrieval", async () => {
     const called: string[] = [];
     const result = prepareDataflowActions({
@@ -386,6 +398,63 @@ describe("action history and model loop", () => {
   const source: DataflowAction = { type: "edit", changes: 'create operator source: scan("data/old.csv")' };
   const read: DataflowAction = { type: "retrieve", view: "sample", operator_id: "source" };
 
+  test("budget reminders preserve prior context, reserve Answer, and reset for each user turn", async () => {
+    const s = session([]);
+    s.agent.updateSettings({ maxSteps: 5, thoughtReplay: false });
+    const prompts: unknown[][] = [];
+    let calls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async options => {
+        const turnCall = (calls++ % 5) + 1;
+        const prompt = structuredClone(options.prompt);
+        const lastUser = [...prompt].reverse().find(m => m.role === "user");
+        if (turnCall === 1) expect(JSON.stringify(lastUser)).toContain("Check the graph");
+        if (turnCall === 3) expect(JSON.stringify(lastUser)).toContain("3 model calls remain");
+        if (turnCall === 5) expect(JSON.stringify(lastUser)).toContain("1 model call remains");
+        if (turnCall > 1) expect(prompts.at(-1)!).toEqual(prompt.slice(0, prompts.at(-1)!.length));
+        prompts.push(prompt);
+        return {
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: `budget-${calls}`,
+              toolName: "dataflow",
+              input: JSON.stringify({
+                reasoning: "Check the graph.",
+                actions:
+                  turnCall === 5
+                    ? [{ type: "answer", content: "The graph is empty." }]
+                    : [{ type: "inspect", target: "graph" }],
+              }),
+            },
+          ],
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 5, text: 5, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+    (s.agent as any).driver = new VercelToolUseDriver({ model });
+    (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
+      assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+        agentMode: AgentMode.NATIVE,
+        messageLayout: "native",
+        thoughtReplay: false,
+      });
+    for (let turn = 0; turn < 2; turn++) {
+      const response = await s.agent.sendMessage("Check the graph and answer.");
+      expect(response.error).toBeUndefined();
+      expect(response.response).toBe("The graph is empty.");
+    }
+    expect(calls).toBe(10);
+    const feedback = s.agent.getVisibleReActSteps().filter(step => step.messageSource === "feedback");
+    expect(feedback).toHaveLength(4);
+    expect(new Set(feedback.map(step => step.messageId)).size).toBe(2);
+  });
+
   test("two executions in one call keep each retrieved version and preserve prior snapshots", async () => {
     const s = session([
       [source, { type: "execute" }, read],
@@ -471,54 +540,58 @@ describe("action history and model loop", () => {
     expect(importedLegacy.executions()).toBe(0);
   });
 
-  test("the real SDK sees completed results on the next request and stops immediately on Answer", async () => {
-    const s = session([]);
-    let calls = 0;
-    const model = new MockLanguageModelV3({
-      doGenerate: async options => {
-        calls++;
-        expect(options.toolChoice).toEqual({ type: "required" });
-        expect(options.tools?.find(t => t.type === "function" && t.name === "dataflow")).toMatchObject({
-          strict: true,
-        });
-        if (calls === 2) {
-          expect(JSON.stringify(options.prompt)).toContain("result-1");
-          expect(JSON.stringify(options.prompt)).not.toContain('"status":"pending"');
-        }
-        if (calls > 2) throw new Error("Answer must end the loop without another model request");
-        const actions = calls === 1 ? [source, { type: "execute" }, read] : [{ type: "answer", content: "result-1" }];
-        return {
-          content: [
-            {
-              type: "tool-call",
-              toolCallId: `call-${calls}`,
-              toolName: "dataflow",
-              input: JSON.stringify({ reasoning: "Check the stored result.", actions }),
+  test.each(["mock-model-id", "claude-sonnet-5.5", "claude-sonnet-5-5"])(
+    "the SDK (%s) sees completed results and stops immediately on Answer",
+    async modelId => {
+      const s = session([]);
+      let calls = 0;
+      const model = new MockLanguageModelV3({
+        modelId,
+        doGenerate: async options => {
+          calls++;
+          expect(options.toolChoice).toEqual({ type: modelId === "mock-model-id" ? "required" : "auto" });
+          expect(options.tools?.find(t => t.type === "function" && t.name === "dataflow")).toMatchObject({
+            strict: true,
+          });
+          if (calls === 2) {
+            expect(JSON.stringify(options.prompt)).toContain("result-1");
+            expect(JSON.stringify(options.prompt)).not.toContain('"status":"pending"');
+          }
+          if (calls > 2) throw new Error("Answer must end the loop without another model request");
+          const actions = calls === 1 ? [source, { type: "execute" }, read] : [{ type: "answer", content: "result-1" }];
+          return {
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: `call-${calls}`,
+                toolName: "dataflow",
+                input: JSON.stringify({ reasoning: "Check the stored result.", actions }),
+              },
+            ],
+            finishReason: { unified: "tool-calls", raw: "tool_calls" },
+            usage: {
+              inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+              outputTokens: { total: 5, text: 5, reasoning: 0 },
             },
-          ],
-          finishReason: { unified: "tool-calls", raw: "tool_calls" },
-          usage: {
-            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
-            outputTokens: { total: 5, text: 5, reasoning: 0 },
-          },
-          warnings: [],
-        };
-      },
-    });
-    (s.agent as any).driver = new VercelToolUseDriver({ model });
-    (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
-      assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-        agentMode: AgentMode.NATIVE,
-        messageLayout: "native",
+            warnings: [],
+          };
+        },
       });
-    const response = await s.agent.sendMessage("Read the file and answer.");
-    expect(response.error).toBeUndefined();
-    expect(response.response).toBe("result-1");
-    expect(calls).toBe(2);
-    expect(JSON.stringify(response.messages)).not.toContain('"status":"pending"');
-    expect(s.executions()).toBe(1);
-    expect(s.agent.getVisibleReActSteps().at(-1)?.isEnd).toBe(true);
-  });
+      (s.agent as any).driver = new VercelToolUseDriver({ model });
+      (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
+        assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+          agentMode: AgentMode.NATIVE,
+          messageLayout: "native",
+        });
+      const response = await s.agent.sendMessage("Read the file and answer.");
+      expect(response.error).toBeUndefined();
+      expect(response.response).toBe("result-1");
+      expect(calls).toBe(2);
+      expect(JSON.stringify(response.messages)).not.toContain('"status":"pending"');
+      expect(s.executions()).toBe(1);
+      expect(s.agent.getVisibleReActSteps().at(-1)?.isEnd).toBe(true);
+    }
+  );
 });
 
 test("an aborted execution cannot attach late results or run the next action", async () => {
@@ -690,7 +763,11 @@ test("a plain-text plan gets one recorded protocol correction within the origina
   expect(seen[2].slice(0, seen[1].length)).toEqual(seen[1]);
   expect(s.executions()).toBe(1);
   expect(response.usage).toMatchObject({ inputTokens: 30, outputTokens: 15, cachedInputTokens: 6 });
-  expect(s.agent.getVisibleReActSteps().filter(step => step.messageSource === "feedback")).toHaveLength(1);
+  expect(
+    s.agent
+      .getVisibleReActSteps()
+      .filter(step => step.messageSource === "feedback" && step.content.includes("No Dataflow action was called"))
+  ).toHaveLength(1);
 });
 
 test("plain-text protocol correction is bounded and never extends maxSteps", async () => {

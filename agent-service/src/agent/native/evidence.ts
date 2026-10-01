@@ -898,7 +898,12 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const lines: string[] = [];
   const dataLines: string[] = [];
   const flowLines: string[] = [];
-  const NOTICE = "View incomplete; unshown rows/columns or evidence omitted.";
+  const recordNotice = "View incomplete; unshown rows/columns or evidence omitted.";
+  const statsNotice = "Records incomplete; statistics coverage is shown separately.";
+  const NOTICE = context.view === "sample_stats" ? statsNotice : recordNotice;
+  // All sample views reserve the same space, so adding statistics cannot
+  // displace records or change which cells are visible.
+  const noticeChars = Math.max(recordNotice.length, statsNotice.length);
   const used = (list: string[]) => list.join("\n").length + (list.length ? 1 : 0);
   const pushTo =
     (list: string[], budget: () => number) =>
@@ -959,7 +964,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   if (!completeVisible && context.view === "full") {
     // Preserve stored order and cell contents. The transport may itself be
     // truncated; a full request must never label that partial result complete.
-    const reserve = NOTICE.length + 1;
+    const reserve = noticeChars + 1;
     const appendRecord = pushTo(lines, () => Math.max(0, maxChars - reserve));
     if (appendRecord(schemaLine(schema), "table.schema")) {
       columnsShown = schema.length;
@@ -1016,7 +1021,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
         // escaping, instead of applying the multi-row 120-character clip.
         const rawLine = rows[i].line;
         if (rawPreview && order.length === 1 && typeof rawLine === "string" && fields.some(c => c.name === "line")) {
-          const budget = Math.max(0, maxChars - used(lines) - NOTICE.length - 1);
+          const budget = Math.max(0, maxChars - used(lines) - noticeChars - 1);
           const render = (length: number) =>
             prefix +
             rowLine(
@@ -1052,7 +1057,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   }
   // Each evidence family gets the room the table's first allocation left
   // (minus the incompleteness notice); the same size for data and flow.
-  evidenceBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : NOTICE.length + 1));
+  evidenceBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : noticeChars + 1));
   for (const fact of evidence.facts) {
     if (!(fact.family === "data" ? data : flow)) result.omitted.push({ id: fact.id, reason: "disabled" });
     else if (completeVisible && fact.family === "data")
@@ -1062,7 +1067,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   // Ties keep collection order, which follows the table's own column order.
   const byPriority = (a: NativeEvidenceFact, b: NativeEvidenceFact) => b.priority - a.priority;
   // Overflow rows fill the table's budget but never the notice's place.
-  const appendRow = pushTo(lines, () => maxChars - (completeVisible ? 0 : NOTICE.length + 1));
+  const appendRow = pushTo(lines, () => maxChars - (completeVisible ? 0 : noticeChars + 1));
   for (const fact of rowCandidates.sort(byPriority))
     if (!appendRow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
   if (data && context.view === "sample_stats" && !completeVisible) {

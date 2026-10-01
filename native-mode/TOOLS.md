@@ -6,7 +6,7 @@ Native mode exposes one dataflow tool with a brief rationale and an ordered acti
 
 ## `dataflow`
 
-Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. Answer must be the only action in its call.
+Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. Edits do not run the graph; retrieval reads existing results. Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. After an execution failure, inspect and retrieve may still read independent completed results. Answer must be the only action in its call.
 
 ```json
 {
@@ -168,7 +168,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
 }
 ```
 
-Strict tool input: `true`. The provider receives this flag outside the parameter schema. Graph commands inside `changes` are validated by the graph parser.
+Strict tool input: `true`. The SDK sends this flag outside the parameter schema. On configured Claude routes, `bin/strict_tools.py` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; graph commands inside `changes` are validated by the graph parser.
 
 ## Execution rules
 

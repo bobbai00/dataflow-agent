@@ -1920,6 +1920,8 @@ export class TexeraAgent {
       let requestedAt = 0;
       const turnStartStepIndex = stepIndex;
       let protocolFeedbackSteps = 0;
+      let budgetFeedbackSteps = 0;
+      const budgetReminders = new Set<number>();
       const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
         this.driver.runTurn({
           initialMessages: seed,
@@ -1934,6 +1936,36 @@ export class TexeraAgent {
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
             const preparing = Date.now();
             this.log.info({ messageId, stepNumber }, "preparing step");
+            const remaining =
+              this.settings.maxSteps - (stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps);
+            if (
+              this.settings.agentMode === AgentMode.NATIVE &&
+              [3, 1].includes(remaining) &&
+              !budgetReminders.has(remaining)
+            ) {
+              budgetReminders.add(remaining);
+              const content =
+                remaining === 1
+                  ? "1 model call remains in this turn. Use Answer as the sole action now, based on the results already received. State any unresolved limitation in the answer."
+                  : "3 model calls remain in this turn. Reserve one for Answer. Batch any necessary edit, execute and retrieve; verify only unresolved questions. Answer now if the requested result is supported.";
+              const feedbackId = this.generateStepId();
+              // Append an immutable event rather than rewriting a prompt or
+              // earlier frame: the preceding context remains a cacheable prefix.
+              this.addStep({
+                id: feedbackId,
+                parentId: this.head,
+                messageId,
+                stepId: ++stepIndex,
+                timestamp: Date.now(),
+                role: "user",
+                content,
+                isBegin: false,
+                isEnd: true,
+                messageSource: "feedback",
+              });
+              this.head = feedbackId;
+              budgetFeedbackSteps++;
+            }
             let compilationResult: WorkflowCompilationResponse | null = null;
             if (this.workflowState.getAllOperators().length > 0) {
               try {
@@ -2054,7 +2086,7 @@ export class TexeraAgent {
       const runDriverWithRetry = async (seed: ModelMessage[]) => {
         const partials: DriverRunTurnResult[] = [];
         for (let attempt = 0; ; ) {
-          const stepsDone = stepIndex - turnStartStepIndex - protocolFeedbackSteps;
+          const stepsDone = stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps;
           try {
             const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
             if (!partials.length) return result;

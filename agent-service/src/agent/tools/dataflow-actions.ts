@@ -133,6 +133,8 @@ const actionValidators = DATAFLOW_ACTIONS_SCHEMA.properties.actions.items.anyOf.
 }));
 
 function validationMessage(input: any): string {
+  if (typeof input?.actions === "string")
+    return 'Invalid dataflow arguments: actions must be a JSON array, not a string. Example: {"reasoning":"Run the graph.","actions":[{"type":"execute"}]}. Only edit.changes contains graph text. No actions ran.';
   if (Array.isArray(input?.actions)) {
     for (const [index, item] of input.actions.entries()) {
       const candidates = actionValidators.filter(v => (v.schema.properties.type as any).const === item?.type);
@@ -158,7 +160,8 @@ function validationMessage(input: any): string {
 
 export const DATAFLOW_ACTIONS_DESCRIPTION =
   "Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, or answer actions. " +
-  "Start with a brief reasoning description. Edits do not run the graph; retrieval reads existing results. " +
+  "Start with a brief reasoning description. actions is a JSON array of objects; edit.changes is a string of graph commands. " +
+  "Edits do not run the graph; retrieval reads existing results. " +
   "Batch actions whose arguments are already known. A failure skips later actions; completed edits remain. " +
   "After an execution failure, inspect and retrieve may still read independent completed results. " +
   "Answer must be the only action in its call.";

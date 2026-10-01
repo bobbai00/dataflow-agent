@@ -13,15 +13,29 @@
 """Campaign scheduling and trace integrity checks, without live model calls."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import importlib.util
 from pathlib import Path
 import tempfile
 import threading
 import unittest
 
-from benchmark.retrieval.campaign import ResourceQueue, audit_attempt, prepare_artifacts
+from benchmark.retrieval.campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
 
 
 class CampaignTests(unittest.TestCase):
+    def test_sonnet_prices_charge_each_token_class_once_and_keep_other_models(self):
+        path = Path(__file__).resolve().parents[1] / "Kramabench/systems/cost_utils.py"
+        spec = importlib.util.spec_from_file_location("cost_fixture", path)
+        cost = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cost)
+        before = cost.price_schedule("claude-haiku-4.5")
+        frozen = install_provider_prices(cost, ["claude-haiku-4.5", "claude-sonnet-5.5"])
+        self.assertAlmostEqual(cost.compute_cost("claude-sonnet-5.5", 1000, 20, 800, 100), 0.00081)
+        self.assertEqual(cost.price_schedule("claude-haiku-4.5"), before)
+        self.assertEqual(set(frozen), {"claude-sonnet-5.5"})
+        self.assertEqual(frozen["claude-sonnet-5.5"]["rates"]["output"], 10e-6)
+        self.assertIn("platform.claude.com", frozen["claude-sonnet-5.5"]["source"])
+
     def test_large_tasks_wait_while_small_tasks_continue(self):
         jobs = [{"task": task} for task in ["large-a", "large-b", "small"]]
         work = ResourceQueue(jobs, {"large-a", "large-b"}, 1)

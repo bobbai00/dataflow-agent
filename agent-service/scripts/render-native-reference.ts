@@ -93,7 +93,7 @@ export function renderTools(): string {
     renderToolDefinitions()
       .map(
         t =>
-          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The provider receives this flag outside the parameter schema. Graph commands inside \`changes\` are validated by the graph parser.\n`
+          `## \`${t.name}\`\n\n${t.description}\n\n\`\`\`json\n${JSON.stringify(t.schema, null, 2)}\n\`\`\`\n\nStrict tool input: \`${t.strict}\`. The SDK sends this flag outside the parameter schema. On configured Claude routes, \`bin/strict_tools.py\` preserves strictness through LiteLLM and moves unsupported constraints and costly regexes into descriptions. Local validation enforces this original schema; graph commands inside \`changes\` are validated by the graph parser.\n`
       )
       .join("\n") +
     "\n## Execution rules\n\n" +

@@ -30,6 +30,8 @@
 # reasoning_tokens). Used to verify that gpt-5-mini-medium's reasoning_effort
 # actually reaches the OpenAI API. Set back to false once diagnosis is done.
 litellm_settings:
+  # Preserve strict tool inputs on the Anthropic route (LiteLLM 1.83.10).
+  callbacks: [strict_tools.hook]
   set_verbose: true
   # Drop provider-unsupported params (e.g. `stop` for gpt-5.2 reasoning models)
   # instead of 400-erroring. Needed so the smolagents CodeAgent baseline can run
@@ -73,6 +75,20 @@ model_list:
       # default — every request 400s and the task records 0 steps / 0 tokens.
       # Drop it at the proxy so callers need no per-model special-casing.
       additional_drop_params: ["temperature"]
+      cache_control_injection_points:
+        - location: message
+          role: system
+        - location: message
+          index: -2
+        - location: message
+          index: -1
+  # Sonnet 5.5 uses automatic tool choice; native mode still requires Answer.
+  # Leave adaptive thinking and effort at the provider defaults for this arm.
+  - model_name: claude-sonnet-5.5
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      additional_drop_params: ["temperature", "top_p", "top_k"]
       cache_control_injection_points:
         - location: message
           role: system

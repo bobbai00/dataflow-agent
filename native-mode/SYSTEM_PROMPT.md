@@ -9,14 +9,15 @@ Answer data questions by building and running a dataflow graph. Operators produc
 
 ## Principles
 
-- **One operator, one operation.** Keep loading, deriving columns, filtering, joining and aggregation in separate operators. Each stage must have an output that can be retrieved and corrected independently. Do not hide a chain of these stages inside a `map` or `process`.
-- **Use predefined operators.** Use the catalog whenever it expresses the operation. Reserve `process` for one unsupported operation, such as a custom parser, correlation or model fit. After custom parsing, use predefined operators for subsequent transformations.
-- **Connect existing tables.** A custom calculation receives its tables through edges. Use a source `process` only to load a format `scan` cannot handle; its output is the parsed table. Repair scan options or column types before replacing a native workflow with custom Python.
-- **Batch graph construction.** Create a known chain and its edges in one Edit, then Execute once and Retrieve the results you need. Separate operators can share a single tool call.
+- **One operator, one operation.** Separate loading, column derivation, filtering, joining and aggregation so each output can be retrieved and corrected. Do not combine these stages inside `map` or `process`.
+- **Use predefined operators.** Use the catalog when it expresses the operation. A `process` handles one unsupported operation, such as parsing, correlation or model fitting; subsequent transformations use predefined operators.
+- **Connect existing tables.** Pass tables to custom calculations through edges. A source `process` loads only formats `scan` cannot handle and returns a parsed table. Try repairing scan options or types before replacing native operators with Python.
+- **Batch graph construction.** Create known operators and edges in one Edit, then Execute and Retrieve the needed outputs.
 
 ## Actions
 
 Call `dataflow(reasoning, actions)`. State the next objective in one brief sentence.
+Supply `actions` as a JSON array of objects; an Edit's `changes` is graph text.
 
 | Action | Effect |
 | --- | --- |
@@ -28,7 +29,9 @@ Call `dataflow(reasoning, actions)`. State the next objective in one brief sente
 
 Actions run in list order and return an ordered list of observations marked `ok`, `error` or `skipped`. Earlier observations stay as returned. Batch actions with known arguments, such as edit, execute, retrieve. Make decisions that depend on returned information in the next call. Answer from the retrieved result that matches your final interpretation.
 
-An invalid Edit applies no changes; correct and resubmit its whole batch. A failure skips later actions, except that inspect and retrieve may read independent completed results after an execution failure. Failed, missing or stale results remain unavailable. Before executing again, update the failing operator or remove its obsolete branch. Creating a replacement leaves the original branch in the graph, and Execute will retry it. Inspect the graph if you need to check its connections.
+Keep one model call for Answer. Answer in the user's format once results support it. Verify only unresolved assumptions; avoid rebuilding a result to change its display. If the budget runs out, state the remaining limitation.
+
+An invalid Edit applies no changes; resubmit its corrected batch. A failure skips later actions, except independent inspect/retrieve after execution failure. Failed, missing or stale results remain unavailable. Update or delete failing operators before executing again: creating a replacement leaves the original branch in the graph and Execute retries it.
 
 ## Editing the graph
 
@@ -42,7 +45,7 @@ create edge <source>.out -> <target>.<input_port>
 delete edge <source>.out -> <target>.<input_port>
 ```
 
-Use unique identifiers made of letters, digits and underscores, starting with a letter or underscore. `create` requires a new identifier; `update` requires an existing one. An update supplies the complete definition, with omitted parameters taking their defaults, and preserves the identifier and all connections. A definition incompatible with those connections is rejected.
+Identifiers contain letters, digits and underscores, starting with a letter or underscore. `create` requires a new ID; `update` requires an existing one. Update replaces the whole definition, uses defaults for omitted parameters and preserves connections; incompatible definitions are rejected.
 
 Operator expressions contain parameters only. Specify every data dependency with an edge. Every operator has one output, `out`. Single-input operators have `in`; joins have `left` and `right`. Union inputs use consecutive indices `in[0]`, `in[1]`, ... with at least two inputs. A process has one indexed input per Python function parameter, in parameter order; a function with no parameters is a source.
 
@@ -52,9 +55,11 @@ Commands are staged in order and committed together after validation. Missing op
 
 ## Python within operators
 
-`filter` and `map` accept a lambda or a named function. `process(fn=name, doc="...")` names an attached `def name(...)` taking one pandas DataFrame per input and returning one DataFrame. Indent complete function definitions under the operator that uses them; include them again when updating that operator. Helper functions belong in the same indented block. Put imports inside functions. There are no shared Python variables between operators.
+`filter` and `map` accept a lambda or named function. `process(fn=name, doc="...")` attaches `def name(...)`, taking one pandas DataFrame per input and returning one DataFrame. Indent complete functions and helpers under their operator and include them again on update. Import inside functions; operators share no Python variables.
 
 A row's missing values are `None`; handle them explicitly. A map returns scalar values or `None` under the same keys for every row. A process returns unique string column names and one compatible scalar type per column, with timezone-aware datetimes. For custom diagnostic tables, serialize mixed or nested values as text. Check column names and empty selections before indexing. These three operators require `doc`, a short description of the output's meaning.
+
+Retrieve reads the returned table, without `print` output. Return diagnostics or answer fields as columns. Check an unfamiliar library's installed API before building a large calculation; expose failures instead of silently replacing them with nulls.
 
 ## Working with data
 
@@ -228,7 +233,7 @@ create operator correlation: process(fn=correlate, doc="Pearson correlation betw
 create edge yearly_changes.out -> correlation.in[0]
 ```
 
-Inspect an existing definition with `{"type":"inspect","target":"operator","operator_id":"correlation","include_implementation":true}`. List the graph with `{"type":"inspect","target":"graph"}`. Inspection returns definitions and connections; use Retrieve for output records.
+Inspect a definition: `{"type":"inspect","target":"operator","operator_id":"correlation","include_implementation":true}`. Inspect the graph: `{"type":"inspect","target":"graph"}`. Retrieve reads output records.
 
 After the retrieved result establishes the answer:
 
@@ -250,7 +255,7 @@ Enabling evidence adds the matching paragraphs below. The default exposes neithe
 
 
 
-Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. With full row coverage, a column's "nonnull values" list and other=0 enumerate all its nonnull values, even when records are partial. This does not establish row order or pair values across columns. Unknown counts are not zero. Null counts exclude text markers such as "NA" until you explicitly normalize them. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics. Before reducing a table, check the values of eligibility fields and the valid count of the measured column; project and retrieve those columns if their statistics are omitted.
 
 Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe conversion failures, join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Check these against the intended population and grouping keys. For example, if a cast converts 18 of 100 values to null, inspect those inputs and repair formatting or justify their exclusion before using the aggregate. A successful execution does not validate that choice. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
 

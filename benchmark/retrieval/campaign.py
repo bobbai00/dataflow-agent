@@ -15,6 +15,24 @@ import json
 import threading
 
 
+def install_provider_prices(cost_module, models):
+    """Freeze newly supported model prices inside this campaign process only.
+
+    The pinned harness predates Sonnet 5.5 and otherwise reports its cost as
+    zero. Extend its fallback table without modifying the KramaBench checkout
+    or changing prices for historical models. Output already includes thinking.
+    """
+    frozen = {}
+    for model in models:
+        if model not in {"claude-sonnet-5.5", "claude-sonnet-5-5"}:
+            continue
+        rates = {"input": 2e-6, "output": 10e-6, "cache_read": 0.2e-6, "cache_creation": 2.5e-6}
+        cost_module._FALLBACK[model] = tuple(rates.values())
+        frozen[model] = {"rates": rates, "source": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+                         "verified_on": "2026-10-01", "unit": "USD per token"}
+    return frozen
+
+
 class ResourceQueue:
     """Preserve shuffled order where possible, bounding large tasks in flight."""
     def __init__(self, jobs, large_tasks, large_limit):

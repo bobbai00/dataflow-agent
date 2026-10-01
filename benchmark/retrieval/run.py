@@ -30,12 +30,12 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from campaign import ResourceQueue, audit_attempt, prepare_artifacts
+from campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
 from catalog import inventory
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
-MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5"}
+MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5"}
 
 
 def save(path, data):
@@ -97,6 +97,8 @@ def main():
     from dataflow_agent import login
     # kb installs signal handlers, so import it in the main thread.
     import kb
+    from systems import cost_utils
+    pricing_overrides = install_provider_prices(cost_utils, [MODEL_TYPES[m] for m in args.models])
     os.chdir(KB)
     output.mkdir(parents=True)
     tag = output.name.replace("-", "_")
@@ -110,6 +112,7 @@ def main():
         "harness_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
         "models": {m: MODEL_TYPES[m] for m in args.models},
+        "pricing_overrides": pricing_overrides,
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
         "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
