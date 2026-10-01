@@ -121,6 +121,10 @@ incorrect turn's label, and preserves original scores. Reference files remain
 unmodified. Inspect disagreements and distinguish a root state error from its
 later cascades before interpreting accuracy differences.
 
+The [2026-10-01 state-history report](reports/2026-10-01-state-history.md)
+compares Luna/Terra traces with saved DSGym, reports matched costs and error
+labels, and documents the subsequent repairs and remaining accuracy gap.
+
 ## First result — baseline, 2026-08-03
 
 Arm `luna-delta-1k`: gpt-5.6-luna, DELTA, 1k result chars, no stats, no
