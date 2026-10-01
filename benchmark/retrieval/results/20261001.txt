@@ -1,0 +1,68 @@
+KramaBench retrieval pilot — 2026-10-01
+
+Conclusion: the controls work, but this diagnostic pilot does not establish the proposed sample+stats cost/accuracy advantage. Flow evidence has mixed effects. Larger, targeted experiments are needed before making a general accuracy claim.
+
+Protocol: six tasks × eight settings × two models × two independent repetitions = 192 attempts. Six tasks were selected before runs for large tables, parsing, joins and a known sampling mistake. All attempts are retained; there were no outcome-selected retries. This is not the full 104-task benchmark.
+Tasks: archeology-easy-6, astronomy-easy-1, biomedical-hard-3, environment-hard-9, legal-easy-25, legal-hard-30
+Models: gpt-5.6-luna and gpt-5.6-terra, medium reasoning. Live gateway identity and routes were unchanged. Original KramaBench evaluator; score=max(kb.SCORE_METRICS), full pass=score>=1.0. No custom judge.
+Agent revision: ab1020138. Runner revision: 35633b1567e077facd96b717ae402bdec60bc4e3. Harness revision: 4658eb92db753805e0df3edc207ca46379eda43b.
+DELTA; 25 steps; thought replay and code snapshots off; native profile collection on for every arm. Full records capped at 100,000 characters; samples at five rows/2,000 characters; data and flow each have a separate 2,000-character budget. Full collection is identical across arms; only presentation and available choices differ.
+All costs below are total USD for 12 attempts per model/setting, from stats.json with cached-input discounts at recorded harness rates. Engine, scorer, development probes and invalid setup smokes are excluded. All 192 scores and costs are present; no worker errors or watchdog timeouts.
+Total pilot model cost: $4.094663. Completed 2026-10-01T08:15:44.636032+00:00 to 2026-10-01T08:53:38.234357+00:00.
+
+Policy | Flow | Luna full passes | Luna mean official score | Luna USD | Terra full passes | Terra mean official score | Terra USD
+full | off | 10/12 | 83.33% | $0.044637 | 12/12 | 100.00% | $0.444560
+full | on | 11/12 | 91.67% | $0.043440 | 12/12 | 100.00% | $0.433416
+sample | off | 11/12 | 91.67% | $0.042062 | 12/12 | 100.00% | $0.423268
+sample | on | 12/12 | 100.00% | $0.050317 | 11/12 | 91.67% | $0.408065
+sample_stats | off | 11/12 | 91.67% | $0.046592 | 11/12 | 91.67% | $0.503675
+sample_stats | on | 10/12 | 88.89% | $0.045664 | 11/12 | 98.33% | $0.490164
+adaptive | off | 11/12 | 91.67% | $0.046186 | 12/12 | 100.00% | $0.418721
+adaptive | on | 10/12 | 97.14% | $0.052915 | 12/12 | 100.00% | $0.600981
+
+INTERPRETATION
+- Flow-off sample+stats costs 4.4% more than full and 10.8% more than sample for Luna; it has 11 full passes, versus 10 and 11. For Terra it costs 13.3% more than full and 19.0% more than sample, with 11 passes versus 12 for both controls. These controls expose no automatic flow evidence; full/sample also expose no data evidence.
+- Flow-on sample raises Luna from 11 to 12 full passes at 19.6% more cost. For Terra, the same comparison falls from 12 to 11 at 3.6% less cost. Other policies are mixed. The six-task bootstrap intervals are exploratory and do not establish a robust accuracy improvement.
+- End-to-end differences include changes in exploration, graph construction and repairs. Fewer characters per retrieval do not guarantee lower total cost: extra model calls and generated graph edits can offset input savings.
+- Cached-input rates are 81.40% for Luna and 80.38% for Terra. All 732 successive input-message prefix checks pass. This provides no evidence of prefix rewriting in these runs; it does not imply every input token is cacheable.
+- Five Luna attempts end without an Answer action. Native tool choice is already required; the exact gateway/provider cause is unresolved. Those zero-scored attempts and their costs remain included. This limits attributing small accuracy differences to evidence alone.
+
+ACTUAL EVIDENCE EXPOSURE
+Each entry counts successful reads with data facts or upstream flow facts. Selecting sample_stats alone does not guarantee extra facts: raw previews and complete small tables can add none.
+Luna adaptive_flow0: 67 successful reads; 6 with data facts; 0 with upstream facts; 75,520 characters.
+Luna adaptive_flow1: 63 successful reads; 4 with data facts; 17 with upstream facts; 110,504 characters.
+Luna full_flow0: 37 successful reads; 0 with data facts; 0 with upstream facts; 178,737 characters.
+Luna full_flow1: 50 successful reads; 0 with data facts; 16 with upstream facts; 211,469 characters.
+Luna sample_flow0: 82 successful reads; 0 with data facts; 0 with upstream facts; 50,328 characters.
+Luna sample_flow1: 85 successful reads; 0 with data facts; 20 with upstream facts; 76,554 characters.
+Luna sample_stats_flow0: 76 successful reads; 26 with data facts; 0 with upstream facts; 73,933 characters.
+Luna sample_stats_flow1: 79 successful reads; 13 with data facts; 21 with upstream facts; 77,725 characters.
+Terra adaptive_flow0: 56 successful reads; 11 with data facts; 0 with upstream facts; 115,495 characters.
+Terra adaptive_flow1: 53 successful reads; 3 with data facts; 15 with upstream facts; 270,255 characters.
+Terra full_flow0: 57 successful reads; 0 with data facts; 0 with upstream facts; 146,348 characters.
+Terra full_flow1: 44 successful reads; 0 with data facts; 17 with upstream facts; 159,924 characters.
+Terra sample_flow0: 79 successful reads; 0 with data facts; 0 with upstream facts; 48,525 characters.
+Terra sample_flow1: 90 successful reads; 0 with data facts; 16 with upstream facts; 67,657 characters.
+Terra sample_stats_flow0: 75 successful reads; 24 with data facts; 0 with upstream facts; 75,595 characters.
+Terra sample_stats_flow1: 68 successful reads; 16 with data facts; 26 with upstream facts; 81,361 characters.
+Luna adaptive successful view choices: {'sample': 38, 'full': 78, 'sample_stats': 14}.
+Terra adaptive successful view choices: {'full': 84, 'sample_stats': 15, 'sample': 10}.
+
+TRACE FINDINGS
+- Terra full/no-flow biomedical Rep1: correct, four calls, about 76,655 retrieved characters, $0.103329. Wide records drive uncached-input cost. Terra adaptive/flow biomedical Rep2: correct, six calls, $0.225467; two full workbook reads alone contribute 184,433 characters. These show a real cost opportunity, but not a general win for the current statistics policy.
+- Terra sample/flow astronomy Rep1 builds sixteen Limit operators to page through text. Its custom parser then overwrites the requested forecast edition and returns 16 instead of 15. Flow labels the custom mapping unknown; it does not detect the hidden semantic mistake.
+- Luna adaptive/no-flow legal Rep2 switches the same result from sample (5/8 rows) to full (8/8) without execution. It mistakes the complete eight-row preview for the whole file and answers from military status instead of military branch. The flow-on preview warning is a candidate intervention to test with a controlled replay.
+- Several beach failures merge Castle Island into Pleasure Bay inside a parser. Another returns a location suffix that the original scorer penalizes. One has complete correct counts (M Street 77/81) but incorrectly includes it in the final answer. Keep the official scores; the trace audit distinguishes source mapping, exact-name formatting and final comparison errors.
+
+POST-PILOT FIX AND VALIDATION
+The trace audit found an inherited renderer problem: when a one-row preview header exceeds the record budget, fallback clipping shows only 120 characters of its raw line. Fixed in 84eb8579d, after the frozen pilot. It now spends the remaining record budget on that line and retains truncation labels.
+Replaying the exact saved biomedical header changes its display from 327 to 2,000 characters and exposes Age. No new execution or model call was used. Pilot scores/costs above remain from ab1020138; the fix is not credited with measured accuracy or cost improvements.
+Validation: 1,130 unit tests, eight snapshots and TypeScript typecheck pass. Live action/cache/invalidation probes pass. A live 1,000-row retrieval probe returns five identical rows for sample/sample_stats, all 1,000 for full, and the same producing version for all views, with zero additional executions. Both real-model city smoke runs correctly query 44,691 source rows.
+
+NEXT EXPERIMENT
+Use paired replays from identical graph/result states with known missingness, join fan-out or preview-coverage mistakes. Vary only the rendered evidence and measure repair quality and total remaining cost. This isolates the information effect before testing broader adaptive policies. Retain held-out tasks and keep constructed cases separate from original KramaBench scores.
+
+ARTIFACTS AND REPRODUCTION
+Committed measurements: 20261001.json and 20261001-per-task.csv in this directory. They include all paired outcomes and bootstrap contrasts.
+Local complete traces/settings/workflows: .claude/artifacts/retrieval-pilot-20261001/. See TRACE-AUDIT.txt, METHODS.txt, PROMPT-adaptive-flow1.txt, dataflow-tool.json, HEADER-REPLAY.json, and cost-accuracy.png/.svg.
+Code: benchmark/retrieval/run.py, evaluate_task.py, analyze.py and plot.py. Protocol and settings: docs/retrieval-views.md. The pilot manifest records revisions, settings, job order and source tasks.

@@ -37,7 +37,7 @@ def main():
     colors = {"full": "#4477AA", "sample": "#EEAA33", "sample_stats": "#228833", "adaptive": "#AA3377"}
     lookup = {(s["model"], s["arm"]): s for s in report["summary"]}
     fig, axes = plt.subplots(len(models), 2, figsize=(12, 4.1 * len(models)), squeeze=False,
-                             gridspec_kw={"wspace": .36, "hspace": .44})
+                             gridspec_kw={"wspace": .18, "hspace": .44})
     for model_index, model in enumerate(models):
         for metric_index in range(2):
             ax = axes[model_index][metric_index]
@@ -50,7 +50,10 @@ def main():
                 annotation = f"{summary['passes']}/{summary['attempts']}" if metric_index == 0 else f"${value:.4f}"
                 ax.annotate(annotation, (value, i), xytext=(5, 0), textcoords="offset points", va="center", fontsize=10)
             ax.set_yticks(range(len(arms)), [labels[a.rsplit("_flow", 1)[0]] +
-                          (" · flow on" if a.endswith("1") else " · flow off") for a in arms])
+                          (" · flow on" if a.endswith("1") else " · flow off") for a in arms]
+                          if metric_index == 0 else [""] * len(arms))
+            if metric_index == 1:
+                ax.tick_params(axis="y", length=0)
             ax.invert_yaxis()
             ax.set_xlim(0, 119 if metric_index == 0 else max(heights) * 1.3)
             ax.set_xlabel("Full passes (%) · official score ≥ 1" if metric_index == 0 else "Mean model cost per attempt (USD)")

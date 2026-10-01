@@ -100,3 +100,16 @@ they are not a representative accuracy estimate for all 104 KramaBench tasks.
 Freeze task selection before viewing results, retain every outcome, and inspect
 traces to distinguish information effects from errors or changes in strategy.
 Report cache-aware model costs separately from evaluator and engine overhead.
+
+Summarize a completed run and export its chart:
+
+```bash
+benchmark/Kramabench/.venv/bin/python benchmark/retrieval/analyze.py .claude/artifacts/retrieval-pilot-20261001
+benchmark/Kramabench/.venv/bin/python benchmark/retrieval/plot.py .claude/artifacts/retrieval-pilot-20261001
+```
+
+The [2026-10-01 pilot report](../benchmark/retrieval/results/20261001.txt)
+records all 192 attempts, official scores, costs and limitations. It used the
+frozen agent at `ab1020138`. A header-clipping issue discovered in its traces
+was subsequently fixed in `84eb8579d`; the saved-result replay validates the
+rendering fix without attributing unmeasured accuracy or cost changes to it.
