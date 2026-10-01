@@ -30,39 +30,85 @@ const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 let replayed = 0;
 let partialProfiles = 0;
 const failures: Array<{ path: string; operator: string; error: string }> = [];
-for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({ cwd: directory, absolute: true })) {
+for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
+  cwd: directory,
+  absolute: true,
+})) {
   const snapshot = read(path);
   const settings = read(resolve(dirname(path), "settings.json"));
   const workflow: WorkflowContent = snapshot.workflow;
   const results = new Map<string, OperatorInfo>(
     Object.entries(snapshot.results).map(([id, raw]: [string, any]) => [
-      id, { ...raw, result: raw.sampleRecords, truncated: true, resultMode: "table" },
-    ])
+      id,
+      {
+        ...raw,
+        result: raw.sampleRecords,
+        truncated: true,
+        resultMode: "table",
+      },
+    ]),
   );
   for (const op of workflow.operators) {
     const info = results.get(op.operatorID);
-    if (!info?.resultVersion?.complete || info.error || !op.nativeOp ||
-        !info.result?.length || (info.totalRowCount ?? 0) <= info.result.length ||
-        info.resultVersion.operatorRevision !== op.nativeOp.revision) continue;
+    if (
+      !info?.resultVersion?.complete ||
+      info.error ||
+      !op.nativeOp ||
+      !info.result?.length ||
+      (info.totalRowCount ?? 0) <= info.result.length ||
+      info.resultVersion.operatorRevision !== op.nativeOp.revision
+    )
+      continue;
     replayed++;
     partialProfiles += Number(info.tableProfile?.status === "partial");
     try {
-      const context = { op, info, workflow, resolveInput: (id: string) => results.get(id),
-        maxChars: settings.maxOperatorResultCharLimit, maxRows: settings.maxResultRows,
-        dataMaxChars: settings.dataEvidenceCharLimit, flowMaxChars: settings.flowEvidenceCharLimit };
-      const sample = selectNativeObservation({ ...context, view: "sample", data: false, flow: false });
-      const stats = selectNativeObservation({ ...context, view: "sample_stats", data: true, flow: false });
-      const both = selectNativeObservation({ ...context, view: "sample_stats", data: true, flow: true });
-      const records = (observation: typeof sample) => observation.chunks.filter(c => /^(table|sample|record)\./.test(c.id));
+      const context = {
+        op,
+        info,
+        workflow,
+        resolveInput: (id: string) => results.get(id),
+        maxChars: settings.maxOperatorResultCharLimit,
+        maxRows: settings.maxResultRows,
+        dataMaxChars: settings.dataEvidenceCharLimit,
+        flowMaxChars: settings.flowEvidenceCharLimit,
+      };
+      const sample = selectNativeObservation({
+        ...context,
+        view: "sample",
+        data: false,
+        flow: false,
+      });
+      const stats = selectNativeObservation({
+        ...context,
+        view: "sample_stats",
+        data: true,
+        flow: false,
+      });
+      const both = selectNativeObservation({
+        ...context,
+        view: "sample_stats",
+        data: true,
+        flow: true,
+      });
+      const records = (observation: typeof sample) =>
+        observation.chunks.filter((c) => /^(table|sample|record)\./.test(c.id));
       assert.deepEqual(records(sample), records(stats));
       assert.deepEqual(records(stats), records(both));
       assert.deepEqual(sample.table, stats.table);
       assert.equal(sample.resultVersion, stats.resultVersion);
       assert.equal(stats.table?.complete, false);
-      assert.ok(stats.text.length <= context.maxChars + context.dataMaxChars + 2);
-      assert.ok(both.text.length <= context.maxChars + context.dataMaxChars + context.flowMaxChars + 3);
-      if (info.tableProfile && info.tableProfile.coverage.rowsProcessed < info.totalRowCount! &&
-          stats.text.includes("column counts")) {
+      assert.ok(
+        stats.text.length <= context.maxChars + context.dataMaxChars + 2,
+      );
+      assert.ok(
+        both.text.length <=
+          context.maxChars + context.dataMaxChars + context.flowMaxChars + 3,
+      );
+      if (
+        info.tableProfile &&
+        info.tableProfile.coverage.rowsProcessed < info.totalRowCount! &&
+        stats.text.includes("column counts")
+      ) {
         assert.ok(stats.text.includes("partial prefix"));
         assert.ok(!stats.text.includes("column counts (full="));
       }
@@ -71,8 +117,16 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({ c
     }
   }
 }
-const result = { replayed, partialProfiles, failures,
-  scope: "Provably incomplete retained tables; archived completeness flags were unavailable. Rendering only, no new executions or model calls." };
-writeFileSync(resolve(directory, "renderer-replay.json"), JSON.stringify(result, null, 2) + "\n");
+const result = {
+  replayed,
+  partialProfiles,
+  failures,
+  scope:
+    "Provably incomplete retained tables; archived completeness flags were unavailable. Rendering only, no new executions or model calls.",
+};
+writeFileSync(
+  resolve(directory, "renderer-replay.json"),
+  JSON.stringify(result, null, 2) + "\n",
+);
 console.log(JSON.stringify(result, null, 2));
 if (failures.length) process.exitCode = 1;
