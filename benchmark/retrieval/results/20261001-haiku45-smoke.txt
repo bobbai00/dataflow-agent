@@ -1,0 +1,36 @@
+Claude Haiku 4.5 smoke test — 2026-10-01
+
+Status: blocked by provider authentication. Neither task received a successful
+model response. Accuracy, tool behavior, and actual prefix-cache reads/writes
+cannot be assessed from these attempts.
+
+Tasks: biomedical-easy-2 and legal-hard-14, original KramaBench tasks, one
+attempt each. Retrieval: sample_stats with flow evidence; 2,000-character
+samples (at most five rows), separate 2,000-character data and flow budgets,
+DELTA context, 25 model steps. No extended-thinking setting on this alias.
+
+Model alias claude-haiku-4.5 resolves to claude-haiku-4-5-20251001.
+The live gateway has cache breakpoints on system, message -2 and message -1.
+Configuration alone does not verify that the provider creates or reads caches.
+
+Both attempts returned:
+  AnthropicException: authentication_error: API key is invalid.
+
+The gateway's credential matches the repo-root .env; no stale credential was
+found in the container. No credential values were printed or saved in this
+report. A current Anthropic credential is required to continue.
+
+The harness recorded zero model calls, tokens, cost and tool actions. Its
+official evaluations record failures, but those are infrastructure failures,
+not evidence about Haiku's ability to solve the tasks. Original attempts remain
+preserved. Computing unit 353 was terminated; the engine was not restarted.
+
+Agent/runner revision: 26b5e59f9
+Engine: 04e85b581 JVM; 41a3a4516 Python profiler
+Raw artifacts: /tmp/texera-haiku45-smoke-20261001
+Detailed check: /tmp/texera-haiku45-smoke-20261001/smoke-audit.json
+Runner now accepts --models Haiku45. Four campaign tests passed.
+
+After authentication is repaired, run the same two tasks into a new output
+directory and inspect each successful request's cache-read/cache-write usage,
+context-prefix continuity, original evaluator score, observations and costs.
