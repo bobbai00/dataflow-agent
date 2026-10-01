@@ -38,7 +38,7 @@ The generated references are the source of truth for the public interface:
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
 | Edit | `changes` | Ordered change receipts, automatically deleted edges, unconnected inputs and invalidated results |
 | Execute | none | Whole-graph execution status; valid cached results can be reused |
-| Retrieve | `operator_id` | Existing output records and enabled profiles within display budgets |
+| Retrieve | `operator_id`, `view` | Existing records as `full`, `sample`, or `sample_stats`, with automatic flow evidence when enabled |
 | Answer | `content` | Final response; ends the loop |
 
 The complete request is validated before actions begin. Actions run in order,
@@ -156,6 +156,13 @@ Only Execute runs the graph. Retrieve never reruns it and reports missing or
 stale results explicitly. Editing a definition or incoming edge invalidates
 that operator and its descendants; independent results stay available. The
 engine can reuse valid upstream and independent results on the next Execute.
+
+Each Retrieve selects `view="full"`, `"sample"`, or `"sample_stats"` from the
+session's enabled choices. Samples and statistics have separate budgets;
+automatic flow evidence has its own budget in every view. The observation
+reports returned and total rows and columns, completeness, and the producing
+result version. Switching views does not execute or change the cache key.
+See [Retrieval views](retrieval-views.md) for settings and experimental controls.
 
 DELTA context records the tool calls and ordered observations. Every retrieved
 table is frozen at its observation's graph version. Later changes do not rewrite

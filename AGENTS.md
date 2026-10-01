@@ -155,9 +155,9 @@ live in [native-mode/](native-mode/), generated from the code by
 created with no `settings` runs: **`agentMode: native`** (explicit graph
 commands; `code` is the other mode), **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: false`** and
-**`flowEvidence: false`**. The two booleans independently control selected
-evidence in explicitly observed results; collection is compiled into each
-operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
+**`flowEvidence: false`**. Native retrieval choices control data-statistics
+exposure; `flowEvidence` independently adds flow metadata. Collection is
+compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
 (K=10). Native mode forces provider parallel tool calls off (the action list is
 the batch). Layout is flat (`sessionTurns` / `versionedMode` / `turnHistory:
