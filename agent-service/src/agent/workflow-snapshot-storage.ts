@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
@@ -246,7 +247,7 @@ export class WorkflowSnapshotStorage {
     }
 
     const id = this.generateSnapshotId();
-    const ownedWorkflow = structuredClone(workflow);
+    const ownedWorkflow = copyWorkflow(workflow, parentSnap.workflow);
     if (ownedWorkflow.operators.some(op => op.nativeOp)) freezeSnapshotValue(ownedWorkflow);
     const snapshot: SnapshotData = {
       id,
@@ -289,7 +290,7 @@ export class WorkflowSnapshotStorage {
     const present = new Set(workflow.operators.map(op => op.operatorID));
     for (const operatorId of snapshot.results.keys())
       if (stale.has(operatorId) || !present.has(operatorId)) snapshot.results.delete(operatorId);
-    const owned = structuredClone(workflow);
+    const owned = copyWorkflow(workflow, snapshot.workflow);
     snapshot.workflow = freezeSnapshotValue(owned);
     if (snapshot.nativeRejectedEdits)
       snapshot.nativeRejectedEdits = freezeSnapshotValue(
@@ -782,6 +783,20 @@ export class WorkflowSnapshotStorage {
     // "clear() yields a new root id" invariant.
     return `S${this.snapshotCounter++}`;
   }
+}
+
+/** Native snapshots freeze definitions. Share an unchanged frozen operator
+ * instead of duplicating its generated Python runtime at every ReAct step.
+ * Each graph still owns its edges, positions and mutable incoming definitions. */
+function copyWorkflow(workflow: WorkflowContent, previous: WorkflowContent): WorkflowContent {
+  const prior = new Map(previous.operators.map(op => [op.operatorID, op]));
+  return {
+    ...structuredClone({ ...workflow, operators: [] }),
+    operators: workflow.operators.map(op => {
+      const saved = prior.get(op.operatorID);
+      return saved && Object.isFrozen(saved) && isDeepStrictEqual(saved, op) ? saved : structuredClone(op);
+    }),
+  };
 }
 
 // ── tight-accuracy helpers ─────────────────────────────────────────────
