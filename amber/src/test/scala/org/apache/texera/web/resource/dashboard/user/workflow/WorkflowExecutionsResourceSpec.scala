@@ -777,6 +777,85 @@ class WorkflowExecutionsResourceSpec
     assert(found.isEmpty)
   }
 
+  it should "resolve an exact cached producer after execution registry cleanup" in {
+    val producer = ExecutionIdentity(insertExecution().getEid.longValue())
+    val consumer = ExecutionIdentity(insertExecution().getEid.longValue())
+    val op = OperatorIdentity("saved-population")
+    val port = GlobalPortIdentity(PhysicalOpIdentity(op, "main"), PortIdentity(), input = false)
+    val uri = VFSURIFactory.resultURI(
+      VFSURIFactory.createPortBaseURI(WorkflowIdentity(testWorkflowWid), producer, port)
+    )
+    insertOperatorPortResult(producer, port, uri)
+    insertOperatorPortResult(consumer, port, uri)
+    getDSLContext
+      .insertInto(OPERATOR_PORT_CACHE)
+      .set(OPERATOR_PORT_CACHE.WORKFLOW_ID, Integer.valueOf(testWorkflowWid))
+      .set(OPERATOR_PORT_CACHE.GLOBAL_PORT_ID, port.serializeAsString)
+      .set(OPERATOR_PORT_CACHE.SUBDAG_HASH, "retained-producer")
+      .set(OPERATOR_PORT_CACHE.FINGERPRINT_JSON, "{}")
+      .set(OPERATOR_PORT_CACHE.RESULT_URI, uri.toString)
+      .set(OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID, java.lang.Long.valueOf(producer.id))
+      .execute()
+
+    // Cached consumer requests can name a URI produced by an earlier execution.
+    assert(
+      WorkflowExecutionsResource
+        .getResultUriByLogicalPortId(consumer, op, PortIdentity())
+        .contains(uri)
+    )
+    WorkflowExecutionsResource.deleteConsoleMessageAndExecutionResultUris(producer)
+    WorkflowExecutionsResource.deleteConsoleMessageAndExecutionResultUris(consumer)
+
+    assert(
+      WorkflowExecutionsResource
+        .getResultUriByLogicalPortId(producer, op, PortIdentity())
+        .contains(uri)
+    )
+    // A missing historical mapping must not silently resolve to the latest cache.
+    assert(
+      WorkflowExecutionsResource.getResultUriByLogicalPortId(consumer, op, PortIdentity()).isEmpty
+    )
+    assert(
+      WorkflowExecutionsResource
+        .getResultUriByLogicalPortId(producer, OperatorIdentity("other"), PortIdentity())
+        .isEmpty
+    )
+    assert(
+      WorkflowExecutionsResource.getResultUriByLogicalPortId(producer, op, PortIdentity(1)).isEmpty
+    )
+
+    getDSLContext
+      .deleteFrom(OPERATOR_PORT_CACHE)
+      .where(OPERATOR_PORT_CACHE.WORKFLOW_ID.eq(testWorkflowWid))
+      .execute()
+    assert(
+      WorkflowExecutionsResource.getResultUriByLogicalPortId(producer, op, PortIdentity()).isEmpty
+    )
+  }
+
+  it should "reject cached URIs whose producer identity disagrees with the cache record" in {
+    val expected = ExecutionIdentity(insertExecution().getEid.longValue())
+    val other = ExecutionIdentity(insertExecution().getEid.longValue())
+    val op = OperatorIdentity("saved-population")
+    val port = GlobalPortIdentity(PhysicalOpIdentity(op, "main"), PortIdentity(), input = false)
+    val uri = VFSURIFactory.resultURI(
+      VFSURIFactory.createPortBaseURI(WorkflowIdentity(testWorkflowWid), other, port)
+    )
+    getDSLContext
+      .insertInto(OPERATOR_PORT_CACHE)
+      .set(OPERATOR_PORT_CACHE.WORKFLOW_ID, Integer.valueOf(testWorkflowWid))
+      .set(OPERATOR_PORT_CACHE.GLOBAL_PORT_ID, port.serializeAsString)
+      .set(OPERATOR_PORT_CACHE.SUBDAG_HASH, "mismatched-producer")
+      .set(OPERATOR_PORT_CACHE.FINGERPRINT_JSON, "{}")
+      .set(OPERATOR_PORT_CACHE.RESULT_URI, uri.toString)
+      .set(OPERATOR_PORT_CACHE.SOURCE_EXECUTION_ID, java.lang.Long.valueOf(expected.id))
+      .execute()
+
+    assert(
+      WorkflowExecutionsResource.getResultUriByLogicalPortId(expected, op, PortIdentity()).isEmpty
+    )
+  }
+
   // ─── new: getNonDownloadableOperatorMap (private — via PrivateMethodTester) ─
 
   "getNonDownloadableOperatorMap" should "flag operators reading non-downloadable datasets they don't own" in {
