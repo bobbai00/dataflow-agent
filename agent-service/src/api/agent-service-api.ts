@@ -268,13 +268,18 @@ export function runAgentTurn(
       clearTimeout(completionCheck);
 
       const steps = orderedStepIds.map(id => stepsByMessageId.get(id)).filter((s): s is ReActStep => Boolean(s));
+      // Init includes old answers. Retain that trace, but never return a prior
+      // task's answer when the current request times out or is unacknowledged.
+      const currentSteps = steps.filter(s => s.messageId === currentMessageId);
 
       // Prefer the step the server explicitly flagged as terminal (`isEnd`).
       // Fall back to the last agent step that has free-text content even if
       // it carried tool calls — the agent often emits its final summary in a
       // step that also fired one last tool call.
-      const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
-      const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
+      const endStep = [...currentSteps].reverse().find(s => s.role === "agent" && s.isEnd);
+      const lastWithContent = [...currentSteps]
+        .reverse()
+        .find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
       const finalAnswer = (endStep?.content ?? lastWithContent?.content ?? "").trim();
 
       resolve({ steps, finalState, finalAnswer, snapshots, completed, completionSource, errors });
@@ -292,8 +297,8 @@ export function runAgentTurn(
     };
 
     // A large snapshot burst can leave a client without its complete frame.
-    // Confirm the already-received terminal request; never submit it again or
-    // treat an old answer in the init frame as completion of the new request.
+    // Confirm the acknowledged request even if its terminal step was dropped;
+    // never resend it or accept an old answer from the init frame.
     const confirmCompletion = async () => {
       completionCheck = undefined;
       if (resolved || !currentMessageId) return;
@@ -324,7 +329,7 @@ export function runAgentTurn(
         // The normal websocket and hard timeout remain authoritative when
         // the read cannot confirm completion.
       }
-      if (!resolved) completionCheck = setTimeout(confirmCompletion, 1000);
+      if (!resolved && !completionCheck) completionCheck = setTimeout(confirmCompletion, 5000);
     };
 
     ws.onopen = () => {
@@ -361,13 +366,13 @@ export function runAgentTurn(
             if (!currentMessageId && frame.step.role === "user" && frame.step.content === message)
               currentMessageId = frame.step.messageId;
             recordStep(frame.step);
-            if (
-              !completionCheck &&
-              frame.step.messageId === currentMessageId &&
-              frame.step.role === "agent" &&
-              frame.step.isEnd
-            )
-              completionCheck = setTimeout(confirmCompletion, 1000);
+            if (currentMessageId && frame.step.messageId === currentMessageId && !resolved) {
+              clearTimeout(completionCheck);
+              completionCheck = setTimeout(
+                confirmCompletion,
+                frame.step.role === "agent" && frame.step.isEnd ? 1000 : 5000
+              );
+            }
           }
           break;
         case "state":
