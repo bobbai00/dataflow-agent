@@ -1299,7 +1299,32 @@
     "pearson_all": -0.004725208839664483,
     "pearson_july": -0.011635324876752735,
     "spearman_july": 0.04871455002226558,
-    "matches_sonnet": true
+    "matches_sonnet": true,
+    "haiku_july_semantics": {
+      "predicate": "182 <= start_day_of_year <= 212",
+      "rows": 2003,
+      "calendar_july_rows": 2000,
+      "false_inclusions": 15,
+      "false_exclusions": 12,
+      "incorrectly_included_dates": {
+        "6/30/2004": 2,
+        "6/30/2008": 4,
+        "6/30/2012": 3,
+        "6/30/2016": 6
+      },
+      "incorrectly_excluded_dates": {
+        "7/31/2004": 1,
+        "7/31/2008": 2,
+        "7/31/2012": 4,
+        "7/31/2016": 5
+      },
+      "pearson": -0.010354101410384979,
+      "matches_haiku_trace": true,
+      "official_answer_remains": "No",
+      "official_score_unchanged": true,
+      "status": "Identified by follow-up source audit; not fixed by the interface commits.",
+      "benchmark_reference_predicate": "181 <= start_day_of_year < 213; also a fixed day-of-year approximation."
+    }
   },
   "protocol": {
     "tasks": [
@@ -1338,5 +1363,42 @@
     "all_cost_matches_stats": true,
     "profile_checks": 77,
     "column_checks": 484
+  },
+  "mechanism_audit": {
+    "source_round": "/tmp/texera-claude-answer-pilot-20261001",
+    "environment": {
+      "initial_preview_model_calls": 3,
+      "failed_build_or_execute_attempts": 4,
+      "errors": [
+        "UNION_TYPE",
+        "CAST_INVALID_VALUE: Indicator Level decimal cast to int",
+        "CALLBACK_RUNTIME: redundant parser expects file column",
+        "unsupported conditional aggregate expression"
+      ],
+      "full_answer_years_available_at_model_call": 21,
+      "evidence": "above_avg: full=8/8 rows; exhaustive Year values; other=0",
+      "subsequent_model_calls": 4,
+      "final_filter_project_executed": false
+    },
+    "wildfire": {
+      "description_discovery_model_calls": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "failed_execute_attempts": 3,
+      "failure_observations": 6,
+      "errors": [
+        "missing show_all_desc.in[0] edge",
+        "missing print_desc.in[0] edge",
+        "missing Description column"
+      ],
+      "repeated_retrieval_and_process_wrappers": "Unchanged five-row sample; filtered descriptions finally return all three relevant rows."
+    }
   }
 }

@@ -156,3 +156,43 @@ per-task usage, scores, action counts, final operator counts and cache checks.
 The initial manifest's engine hash typo was corrected to the frozen engine
 provenance (04e85b581 JVM; 41a3a4516 Python profiler), with the original argument
 and explanation retained. The engine and experiment settings did not change.
+
+Follow-up manual audit: why Haiku used more calls
+
+The environment trace used three calls for the initial Edit, Execute and
+Retrieve, although those actions had known arguments and could be batched.
+It then confused the raw-line preview schema with the parsed full-scan schema,
+adding a redundant CSV parser that expected file/line columns. Four failing
+build/execute attempts involved the mixed-file union types, a cast of decimal
+Indicator Level values to integers, that redundant parser and unsupported
+conditional aggregate syntax. Indicator Level was not needed for this answer.
+
+By trace step 21 (model call 21), above_avg already contained all eight answer
+years. Its statistics said full=8 rows, enumerated all eight Year values and
+reported other=0. Haiku explicitly recognized the full list, then spent four
+more model calls creating, running and reshaping another verification table.
+The final filter/project edits were not executed before Answer. The Answer was
+supported by the earlier retrieved result. Remaining-budget feedback occupies
+trace steps 23 and 26 but is not counted as a model call.
+
+In wildfire, calls 3-10 were description discovery and repairs. A repeated
+Retrieve and identity/renaming Process wrappers kept returning five sampled
+rows. The sample_stats-only arm did not offer full retrieval. Filtering the
+original description table to size/wind rows ultimately returned the three
+needed rows. Two missing-edge executions and one wrong-column execution each
+also produced a failure on the following Retrieve, yielding six failure
+observations from three failed execution attempts. Across the pair, ten failure
+observations therefore represent seven failing build/execute attempts, not ten
+independent faults.
+
+A semantic issue escaped the official Yes/No score. Haiku filtered July with
+182 <= start_day_of_year <= 212 for every year. Independent source replay found
+2,003 selected rows versus 2,000 calendar-July rows: 15 June 30 inclusions and
+12 July 31 exclusions in leap years. Its Pearson result -0.010354101410384979
+matches that incorrect selection; calendar July gives -0.011635324876752735.
+Both support No, so the official pass remains unchanged. Sonnet used the month
+from start_date. The benchmark reference script itself uses a fixed day range
+(181 <= day < 213), so it cannot validate calendar-boundary correctness.
+Engine/profile invariant checks do not prove the model's transformation is
+semantically correct. This issue has been identified, not fixed by the two
+interface commits; the original evaluator and task scores were left intact.
