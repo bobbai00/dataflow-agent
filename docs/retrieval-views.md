@@ -24,6 +24,21 @@ claim. Samples use the existing stored-record selection, not uniform sampling.
 Statistics retain their full/partial coverage and unknown-value labels; complete
 small tables suppress redundant data statistics.
 
+Every view labels scan previews as source previews, even if all preview rows
+fit. That completeness refers to the preview output, not the source file.
+`sample_stats` reports collected row/column coverage and explicitly identifies
+unavailable statistics. Raw-line tables need parsing before column statistics
+are meaningful; repeated raw lines are not reported as duplicate data records.
+The collector currently bounds profiles by 100,000 rows, 1,000,000 cells, 128
+columns and 0.2 seconds per worker. Large-table profiles can therefore cover a
+prefix. Counts and ranges describe that prefix; they are not population estimates.
+
+The prompt recommends sample statistics for large parsed tables, projections
+to relevant columns, and graph computations before requesting large record
+views. It reserves `full` for decisions that need individual records and small
+final results. Workbook header inspection uses a one-row preview; increasing
+its length reads data rows from each sheet as well.
+
 `flowEvidence` independently appends bounded metadata about the requested
 operator and its producing ancestors, including intermediate projections,
 joins, filters and aggregates. Its `flowEvidenceCharLimit` is independent of

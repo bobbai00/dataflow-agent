@@ -226,7 +226,7 @@ export function nativeEvidenceText(options: { dataEvidence?: boolean; flowEviden
   const parts: string[] = [];
   if (options.dataEvidence)
     parts.push(
-      "Data measurement lines report null and distinct counts, ranges, and value frequencies. Read their coverage labels: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero."
+      "Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics."
     );
   if (options.flowEvidence)
     parts.push(
@@ -244,14 +244,25 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
   const rows = options.maxResultRows ? ` and at most ${options.maxResultRows} records` : "";
   const descriptions = {
-    full: `- \`full\`: request all records, bounded by ${nativeResultTransportLimit(options)} characters. Use it when you need every record or a complete small result. Check completeness; a capped full view is still partial.`,
-    sample: `- \`sample\`: schema and a small record view, bounded by ${sampleLimit} characters${rows}. Use it to check record structure and example values.`,
-    sample_stats: `- \`sample_stats\`: the same small record view (${sampleLimit} characters${rows}) plus up to ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT} characters of data statistics. Use it to inspect large tables when missingness, ranges, distinct counts or value frequencies are more useful than many records.`,
+    full: `- \`full\`: records up to ${nativeResultTransportLimit(options)} characters. For small final results or decisions requiring individual records; a capped view remains partial.`,
+    sample: `- \`sample\`: schema and example records, bounded by ${sampleLimit} characters${rows}. For layout and type checks.`,
+    sample_stats: `- \`sample_stats\`: the same small record view (${sampleLimit} characters${rows}) plus up to ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT} characters of data statistics. Use it to check missingness, ranges, distinct counts and value frequencies.`,
   };
   return [
     "Choose the `view` on every Retrieve. Available views:",
     ...views.map(v => descriptions[v]),
-    "Changing the view reads the same existing result without execution. Compute aggregates and searches through operators over the full data; displayed samples do not define the population.",
+    ...(views.includes("sample_stats")
+      ? [
+          "For a large parsed table, start with `sample_stats` when checking data quality or distributions. Project to relevant columns if a wide table hides the needed statistics.",
+        ]
+      : []),
+    ...(views.includes("full")
+      ? [
+          "For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.",
+        ]
+      : []),
+    "Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.",
+    "A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.",
     ...(options.flowEvidence
       ? [
           `Automatic flow evidence has a separate ${options.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget in every view.`,

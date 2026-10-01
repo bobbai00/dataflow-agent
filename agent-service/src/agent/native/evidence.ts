@@ -149,6 +149,14 @@ function validProfile(info: OperatorInfo): boolean {
   );
 }
 
+/** Raw-line columns describe file layout, not the parsed data's distribution. */
+function isRawLineTable(op: OperatorPredicate, info: OperatorInfo): boolean {
+  if (op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0) return true;
+  const columns = Object.keys(info.tableProfile?.columns ?? {});
+  const transportColumns = new Set(["file", "line_no", "line", "sheet", "row_no", "table"]);
+  return columns.includes("line") && columns.every(name => transportColumns.has(name));
+}
+
 function fullColumn(info: OperatorInfo, c: ProfileColumn): boolean {
   const coverage = info.tableProfile?.coverage;
   return (
@@ -382,12 +390,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
   // file's layout, not the parsed dataset; their distributions only displace
   // what is needed to choose parse options. That holds for the operators that
   // pass such a table on unchanged, not just the scan itself.
-  const RAW_LINE_COLUMNS = new Set(["file", "line_no", "line", "sheet", "row_no", "table"]);
-  const rawPreview =
-    (view.type === "Scan" && typeof p.preview === "number" && p.preview > 0) ||
-    (!!profile &&
-      Object.keys(profile.columns).includes("line") &&
-      Object.keys(profile.columns).every(name => RAW_LINE_COLUMNS.has(name)));
+  const rawPreview = isRawLineTable(op, info);
   if (!profile) omissions.push("profile_unavailable");
 
   if (profile) {
@@ -434,6 +437,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
       ? "full table"
       : `partial prefix=${profile.coverage.rowsProcessed}/${info.totalRowCount ?? "?"} rows`;
     if (
+      !rawPreview &&
       !context.columns?.length &&
       ((s.duplicateRows ?? 0) > 0 || (s.allNullRows ?? 0) > 0 || s.allNullColumns.length)
     ) {
@@ -901,7 +905,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const schema =
     info.resultSchema ?? Object.keys(rows[0] ?? {}).map(name => ({ name, type: "unknown", encoding: "unknown" }));
   const total = count(info.totalRowCount) ? info.totalRowCount : undefined;
-  const summary = `Output Table: ${total ?? "?"} rows, ${schema.length} cols`;
+  const summary = `Output Table: ${total ?? "?"} rows, ${schema.length} cols${rawPreview ? " (source preview only)" : ""}`;
   if (!append(summary, "table.shape")) {
     result.text = maxChars >= 9 ? "[omitted]" : "…".slice(0, maxChars);
     result.omitted.push({ id: "table", reason: "budget" });
@@ -925,7 +929,11 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
         c => own(row, c.name) && !(typeof row[c.name] === "string" && row[c.name].includes("...[truncated]..."))
       )
     );
-  const table = [schemaLine(schema), "Complete table (all rows):", ...rows.map(row => rowLine(row, schema))].join("\n");
+  const table = [
+    schemaLine(schema),
+    rawPreview ? "Complete preview output (source remains partial):" : "Complete table (all rows):",
+    ...rows.map(row => rowLine(row, schema)),
+  ].join("\n");
   const completeVisible = complete && append(table, "table.complete");
   let columnsShown = completeVisible ? schema.length : 0;
   const evidence = collectNativeEvidence(context);
@@ -1044,6 +1052,15 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const appendRow = pushTo(lines, () => maxChars - (completeVisible ? 0 : NOTICE.length + 1));
   for (const fact of rowCandidates.sort(byPriority))
     if (!appendRow(fact.text, fact.id)) result.omitted.push({ id: fact.id, reason: "budget" });
+  if (data && context.view === "sample_stats" && !completeVisible) {
+    const profile = validProfile(info) ? info.tableProfile : undefined;
+    const status = isRawLineTable(op, info)
+      ? "Parse raw lines into columns to obtain data statistics."
+      : !profile
+        ? "Data statistics unavailable for this result."
+        : `Data statistics: ${profile.coverage.complete && profile.coverage.rowsProcessed === total ? "full table" : "partial prefix"}, ${profile.coverage.rowsProcessed}/${total ?? "?"} rows; ${Object.keys(profile.columns).length}/${schema.length} columns profiled.`;
+    if (!appendData(status, "view.data_status")) result.omitted.push({ id: "view.data_status", reason: "budget" });
+  }
   // Column counts are rendered as rows of one table, so they are budgeted as
   // those rows (a header once, then a short line per column), not as the
   // sentences they were collected as; the rest of the data lines follow.

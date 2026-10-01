@@ -204,9 +204,10 @@ export function createDataflowTool(views: readonly RetrievalView[] = availableRe
   const retrieve = schema.properties.actions.items.anyOf.find(a => a.properties.type.const === "retrieve")!;
   (retrieve.properties as any).view.enum = [...views];
   const descriptions = {
-    full: "full requests all records up to its character cap",
-    sample: "sample returns a small record view",
-    sample_stats: "sample_stats adds data statistics to the small record view",
+    full: "full requests records up to its character cap; narrow large tables first",
+    sample: "sample checks layout and example values with a small record view",
+    sample_stats:
+      "sample_stats checks distributions and data quality with a small record view plus independently collected, coverage-labeled statistics",
   };
   retrieve.description = `Read an existing result: ${views.map(v => descriptions[v]).join("; ")}. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute.`;
   return tool({

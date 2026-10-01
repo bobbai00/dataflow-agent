@@ -526,6 +526,16 @@ crossed = join(source, source, how="cross", validate="one_to_one")`,
 });
 
 describe("native prompt", () => {
+  test("retrieval guidance separates source previews, table sampling and computation", () => {
+    const prompt = buildNativeModeSystemPrompt(ContextMode.DELTA, {
+      retrievalViews: ["full", "sample", "sample_stats"],
+    });
+    expect(prompt).toContain("For a large parsed table, start with `sample_stats`");
+    expect(prompt).toContain("project, filter or aggregate before requesting `full`");
+    expect(prompt).toContain("A complete preview is still only a preview of the source");
+    expect(prompt).toContain("not a random sample");
+    expect(prompt).toContain("Statistics are computed independently of the displayed records");
+  });
   test("retrieval choices, limits and examples follow the session configuration", async () => {
     const { prepareDataflowActions } = await import("../tools/dataflow-actions");
     for (const view of ["full", "sample", "sample_stats"] as const) {

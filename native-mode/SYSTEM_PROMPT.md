@@ -131,9 +131,11 @@ process(fn=function, doc="what it does")
 ## Reading results
 
 Choose the `view` on every Retrieve. Available views:
-- `full`: request all records, bounded by 100000 characters. Use it when you need every record or a complete small result. Check completeness; a capped full view is still partial.
-- `sample`: schema and a small record view, bounded by 2000 characters. Use it to check record structure and example values.
-Changing the view reads the same existing result without execution. Compute aggregates and searches through operators over the full data; displayed samples do not define the population.
+- `full`: records up to 100000 characters. For small final results or decisions requiring individual records; a capped view remains partial.
+- `sample`: schema and example records, bounded by 2000 characters. For layout and type checks.
+For large tables, project, filter or aggregate before requesting `full`. Explain why individual records are needed.
+Views reuse results without execution. Samples use retained records, not a random sample. Compute searches, comparisons and aggregates over the full data in the graph.
+A complete preview is still only a preview of the source. Remove `preview` and execute before computation. Use `preview=1` for workbook headers; larger previews add data rows.
 
 Retrieval reports returned and total rows and columns, and whether the view is complete. Errors name the failing operator and include a repair hint.
 
@@ -248,7 +250,7 @@ Enabling evidence adds the matching paragraphs below. The default exposes neithe
 
 
 
-Data measurement lines report null and distinct counts, ranges, and value frequencies. Read their coverage labels: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero.
+Statistics are computed independently of the displayed records, with bounded collection and display budgets. Data measurement lines report null and distinct counts, ranges, and value frequencies. Check row and column coverage: a partial prefix or non-exhaustive list does not describe every value. Unknown counts are not zero. Raw-line previews have no parsed-column statistics; complete small tables omit redundant statistics.
 
 Retrieval automatically adds selected flow evidence about the result and the intermediate operators that produced it, even when you did not request their tables. Flow measurement lines describe join matching, filter retention and reducer denominators; flow guarantees describe operator contracts. Use these and the upstream grouping keys to check the calculation. Retrieve an intermediate table if the evidence suggests a problem. Evidence refers to the producing versions. Custom functions have unknown internal row/column mapping.
 

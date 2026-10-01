@@ -135,7 +135,7 @@ Work with a dataflow using an ordered list of inspect, edit, execute, retrieve, 
               "operator_id",
               "view"
             ],
-            "description": "Read an existing result: full requests all records up to its character cap; sample returns a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
+            "description": "Read an existing result: full requests records up to its character cap; narrow large tables first; sample checks layout and example values with a small record view. Enabled flow evidence is added automatically. Never executes. Check completeness; missing or stale outputs require execute."
           },
           {
             "type": "object",

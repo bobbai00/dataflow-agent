@@ -163,6 +163,56 @@ test("sample_stats preserves the sample and has its own statistics budget", () =
   expect(sample.text).not.toContain("Data measurement");
 });
 
+test("preview completeness never implies that the full source was read", () => {
+  const f = fixture("Scan", { files: "large.csv", preview: 3 });
+  f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
+  f.info.truncated = false;
+  for (const view of ["full", "sample", "sample_stats"] as const) {
+    const result = observe(f, { view, data: view === "sample_stats", flow: false });
+    expect(result.table?.complete).toBe(true);
+    expect(result.text).toContain("source preview only");
+    expect(result.text).toContain("source remains partial");
+    expect(result.text).not.toContain("Complete table (all rows)");
+  }
+});
+
+test("sample statistics disclose partial coverage without changing the sample", () => {
+  const f = fixture("Scan");
+  f.info.totalRowCount = 100000;
+  f.info.tableProfile!.coverage = {
+    scope: "partial",
+    complete: false,
+    expectedWorkers: 1,
+    receivedWorkers: 1,
+    rowsProcessed: 3,
+  };
+  f.info.tableProfile!.status = "partial";
+  const sample = observe(f, { view: "sample", data: false, flow: false });
+  const stats = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(stats.text).toContain("Data statistics: partial prefix, 3/100000 rows");
+  expect(stats.text).toContain("1/1 columns profiled");
+  expect(stats.text.split("Data statistics:")[0]).toEqual(sample.text.split("View incomplete")[0]);
+  expect(stats.table).toEqual(sample.table);
+});
+
+test("raw-line transport artifacts are not presented as parsed data statistics", () => {
+  const f = fixture("Scan", { format: "lines" });
+  f.info.tableProfile!.columns = { line: { ...column(3, 0), type: "str" } };
+  f.info.tableProfile!.structure.duplicateRows = 2;
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("Parse raw lines into columns to obtain data statistics");
+  expect(result.text).not.toContain("duplicate rows=2");
+  expect(result.selected.some(id => id.startsWith("data."))).toBe(false);
+});
+
+test("unavailable statistics are explicit and do not fabricate zero counts", () => {
+  const f = fixture("Scan");
+  f.info.tableProfile = undefined;
+  const result = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
+  expect(result.text).toContain("Data statistics unavailable for this result");
+  expect(result.text).not.toContain("null=0");
+});
+
 test("flow evidence remains available when a full record view fills its budget", () => {
   const f = fixture();
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
