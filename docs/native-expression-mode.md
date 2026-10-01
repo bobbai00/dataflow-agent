@@ -36,8 +36,8 @@ The generated references are the source of truth for the public interface:
 |---|---|---|
 | Inspect graph | `target: "graph"` | Operator IDs, types, named ports, edges and unconnected inputs |
 | Inspect operator | `target: "operator"`, `operator_id`, `include_implementation` | Definition, ports, connections and optional Python implementation |
-| Edit | `changes` | Ordered change receipts, automatically deleted edges, unconnected inputs and invalidated results |
-| Execute | none | Whole-graph execution status; valid cached results can be reused |
+| Edit | `changes` | Applied change count, automatically deleted edges, unconnected inputs and invalidated results |
+| Execute | none | Completed operator count, errors and diagnostics; valid cached results can be reused |
 | Retrieve | `operator_id` | Existing output records and enabled profiles within display budgets |
 | Answer | `content` | Final response; ends the loop |
 
@@ -47,6 +47,11 @@ skips later actions, except that Inspect and Retrieve may read independent
 completed results after an Execute failure. Earlier completed actions remain.
 Answer must be the only action in its call. Decisions that depend on a returned
 observation belong in the next call.
+
+Successful edits and executions return short acknowledgments in the model's
+context. Full operator receipts remain in the saved trace. Retrieve provides
+row counts and tables; execution does not repeat every successful operator
+from earlier tasks. Errors and enabled checks remain visible immediately.
 
 ## Graph syntax
 

@@ -294,11 +294,13 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
           if (output.historical_state)
             body = `Saved result: task ${output.historical_state.task_id}, operator ${output.historical_state.operator_id}.\n${body}`;
           if (output.superseded_in_call) body = `Historical result; changed later in this call.\n${body}`;
-        } else if (item.action.type === "edit" && Array.isArray(output.changes)) {
+        } else if (item.action.type === "edit" && item.status === "ok" && Array.isArray(output.changes)) {
           body = [
-            ...output.changes.map(
-              (change: any) =>
-                `- ${change.operation.replaceAll("_", " ")}: ${change.operator_id ?? change.edge}${change.deleted_edges?.length ? `\n  automatically deleted edges: ${change.deleted_edges.join("; ")}` : ""}`
+            `Applied ${output.changes.length} graph changes.`,
+            ...output.changes.flatMap((change: any) =>
+              change.deleted_edges?.length
+                ? [`- ${change.operator_id}: automatically deleted edges: ${change.deleted_edges.join("; ")}`]
+                : []
             ),
             ...(output.unconnected_inputs?.length
               ? [`Unconnected required inputs: ${output.unconnected_inputs.join(", ")}`]
@@ -308,8 +310,20 @@ export function renderDataflowActionsResult(result: DataflowActionsResult): stri
               : []),
           ].join("\n");
         } else if ((item.action.type === "edit" || item.action.type === "execute") && Array.isArray(output.operators)) {
+          // The full receipt stays in the trace. Replaying every successful
+          // operator after every execution makes multi-task context grow with
+          // all prior branches, even when the model only needs one new result.
+          const compact = item.action.type === "execute";
+          const operators = compact
+            ? output.operators.filter((op: any) => op.status !== "ok" || op.message || op.checks?.length)
+            : output.operators;
           body = [
-            ...output.operators.map(
+            ...(compact
+              ? [
+                  `${output.operators.filter((op: any) => op.status === "ok").length} operators completed. Retrieve results separately.`,
+                ]
+              : []),
+            ...operators.map(
               (op: any) =>
                 `- ${op.id}: ${op.status}${op.message ? ` — ${op.message}` : `, ${op.rows ?? "unknown"} rows; result not requested`}${op.checks?.length ? `\n${op.checks.join("\n")}` : ""}`
             ),
