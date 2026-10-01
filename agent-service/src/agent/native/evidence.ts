@@ -881,6 +881,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   const lines: string[] = [];
   const dataLines: string[] = [];
   const flowLines: string[] = [];
+  const NOTICE = "View incomplete; unshown rows/columns or evidence omitted.";
   const used = (list: string[]) => list.join("\n").length + (list.length ? 1 : 0);
   const pushTo =
     (list: string[], budget: () => number) =>
@@ -937,7 +938,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   if (!completeVisible && context.view === "full") {
     // Preserve stored order and cell contents. The transport may itself be
     // truncated; a full request must never label that partial result complete.
-    const reserve = "View incomplete; unshown rows/columns or evidence omitted.".length + 1;
+    const reserve = NOTICE.length + 1;
     const appendRecord = pushTo(lines, () => Math.max(0, maxChars - reserve));
     if (appendRecord(schemaLine(schema), "table.schema")) {
       columnsShown = schema.length;
@@ -987,11 +988,38 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
             ];
           })
         );
+        const prefix = `Sample stored row ${i + 1}: `;
+        let sampleText = prefix + rowLine(sampleRow, fields);
+        // A one-row preview is the documented way to inspect a wide header.
+        // Spend its remaining record budget on the raw line, including JSON
+        // escaping, instead of applying the multi-row 120-character clip.
+        const rawLine = rows[i].line;
+        if (rawPreview && order.length === 1 && typeof rawLine === "string" && fields.some(c => c.name === "line")) {
+          const budget = Math.max(0, maxChars - used(lines) - NOTICE.length - 1);
+          const render = (length: number) =>
+            prefix +
+            rowLine(
+              { ...sampleRow, line: rawLine.slice(0, length) + (length < rawLine.length ? "...[truncated]..." : "") },
+              fields
+            );
+          const fullLine = render(rawLine.length);
+          if (fullLine.length <= budget) sampleText = fullLine;
+          else if (render(0).length <= budget) {
+            let lower = 0;
+            let upper = rawLine.length - 1;
+            while (lower < upper) {
+              const middle = Math.ceil((lower + upper) / 2);
+              if (render(middle).length <= budget) lower = middle;
+              else upper = middle - 1;
+            }
+            sampleText = render(lower);
+          }
+        }
         const fact: NativeEvidenceFact = {
           id: `sample.${i}`,
           family: "data",
           kind: "measurement",
-          text: `Sample stored row ${i + 1}: ${rowLine(sampleRow, fields)}`,
+          text: sampleText,
           priority: rank === 0 ? 105 : 35 - rank,
         };
         if (sampleChars + fact.text.length + 1 <= sampleBudget && append(fact.text, fact.id)) {
@@ -1003,7 +1031,6 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
   }
   // Each evidence family gets the room the table's first allocation left
   // (minus the incompleteness notice); the same size for data and flow.
-  const NOTICE = "View incomplete; unshown rows/columns or evidence omitted.";
   evidenceBudget = Math.max(0, maxChars - used(lines) - (completeVisible ? 0 : NOTICE.length + 1));
   for (const fact of evidence.facts) {
     if (!(fact.family === "data" ? data : flow)) result.omitted.push({ id: fact.id, reason: "disabled" });

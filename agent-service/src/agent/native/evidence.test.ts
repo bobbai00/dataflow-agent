@@ -272,6 +272,28 @@ test("raw preview protects ordered header rows from metadata profiles and long c
     }
 });
 
+test("one-row header previews use the record budget when the complete header is too wide", () => {
+  const f = fixture("Scan", { files: "book.xlsx", preview: 1 });
+  const header = "column | ".repeat(80) + "Age | " + 'quoted "field" | '.repeat(300);
+  f.info.result = [{ sheet: "Sheet1", row_no: 0, line: header }];
+  f.info.resultSchema = [
+    { name: "sheet", type: "str", encoding: "string" },
+    { name: "row_no", type: "int64", encoding: "number-or-decimal-string" },
+    { name: "line", type: "str", encoding: "string" },
+  ];
+  f.info.totalRowCount = 1;
+  f.info.truncated = false;
+  for (const data of [false, true]) {
+    const result = observe(f, { data, flow: false, maxChars: 2000, maxRows: 5 });
+    expect(result.text).toContain("Age |");
+    expect(result.text).toContain("...[truncated]...");
+    expect(result.text).toContain("View incomplete");
+    expect(result.text.length).toBeGreaterThan(1850);
+    expect(result.text.length).toBeLessThanOrEqual(2000);
+    expect(result.table?.complete).toBe(false);
+  }
+});
+
 test("result bindings remain exact audit metadata without a model-facing version preamble", () => {
   const f = fixture();
   const result = observe(f);
