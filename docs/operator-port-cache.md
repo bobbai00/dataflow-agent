@@ -81,10 +81,13 @@ V1 assumes unlimited storage. Eviction, TTL, and garbage collection are research
 
 - Utility: `FingerprintUtil.computeSubdagFingerprint(physicalPlan, globalPortId) -> (fingerprintJson, subdagHash)`.
 - Canonical payload (sorted):
+  - Format version (`2`).
   - Target port ID.
-  - Upstream physical operators with exec init info (proto string) and output schemas (string form).
+  - Upstream physical operators with a SHA-256 digest of each full exec init info proto string and output schemas (string form).
   - Edges between those operators.
 - Hash: SHA-256 of the payload JSON.
+- Operator programs remain in the workflow. Their digests keep cache metadata small when many downstream outputs share large generated Python programs.
+- Version 1 entries safely miss after this change; new executions populate version 2 entries. Code, language, schema mode, upstream dependencies, and port positions still participate in cache identity.
 
 ## End-to-End Workflow
 
