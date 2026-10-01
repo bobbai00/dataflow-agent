@@ -48,6 +48,12 @@ assert.ok(wireRoot, "Actual wire capture must be enabled");
 const firstPromptPath = process.env.LONGDS_FIRST_PROMPT_FILE;
 const firstPrompt = firstPromptPath ? readFileSync(resolve(firstPromptPath), "utf8") : undefined;
 assert.ok(firstPrompt === undefined || firstPrompt.trim(), "The first-task prompt override must not be empty");
+const promptsPath = process.env.LONGDS_PROMPTS_FILE;
+const matchedPrompts: { turn_id: number; prompt: string }[] | undefined = promptsPath
+  ? JSON.parse(readFileSync(resolve(promptsPath), "utf8"))
+  : undefined;
+const settingsPath = process.env.LONGDS_AGENT_SETTINGS_FILE;
+const settingsOverride = settingsPath ? JSON.parse(readFileSync(resolve(settingsPath), "utf8")) : {};
 mkdirSync(dirname(output), { recursive: true });
 mkdirSync(output);
 const save = (path: string, data: unknown) => writeFileSync(join(output, path), JSON.stringify(data, null, 2) + "\n");
@@ -99,7 +105,10 @@ const settings = {
   flowEvidence: false,
   thoughtReplay: false,
   thoughtReplayK: 10,
+  ...settingsOverride,
 };
+assert.equal(settings.agentMode, "native");
+assert.equal(settings.stateHistory, arm === "history", "Settings cannot change the declared history condition");
 const agent = await createAgent({
   baseUrl,
   userToken: token,
@@ -107,6 +116,14 @@ const agent = await createAgent({
   workflowId: wid,
   computingUnitId: cuid,
   settings,
+  ...(promptsPath
+    ? {
+        matched_prompts_file: resolve(promptsPath),
+        matched_prompts_sha256: createHash("sha256")
+          .update(readFileSync(resolve(promptsPath)))
+          .digest("hex"),
+      }
+    : {}),
 });
 const agentUrl = `${baseUrl}/api/agents/${agent.id}`;
 const wireDir = join(wireRoot!, agent.id);
@@ -150,6 +167,12 @@ save("protocol.json", {
 const answerContract =
   "Report the answer as a single-line JSON object holding exactly the quantities this question asks for, and nothing else. For numerical answers, provide the exact value requested (rounded as specified if mentioned). Do not restate the whole chain of reasoning as the answer.\nYour last line MUST BE: **Final Answer: <single-line JSON>**";
 function prompt(turn: any, first: boolean) {
+  if (matchedPrompts) {
+    const matches = matchedPrompts.filter(p => p.turn_id === turn.turn_id);
+    assert.equal(matches.length, 1, `Expected one matched prompt for task ${turn.turn_id}`);
+    assert.ok(matches[0].prompt.trim());
+    return matches[0].prompt;
+  }
   if (first && firstPrompt !== undefined) return firstPrompt;
   const question = `[Task ${turn.turn_id}]\n${turn.context}\nQuestion: ${turn.question}`;
   if (!first) return question;
