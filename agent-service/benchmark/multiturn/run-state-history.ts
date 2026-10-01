@@ -28,6 +28,7 @@ import { createComputingUnit, createWorkflow, login, terminateComputingUnit } fr
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { env } from "../../src/config/env";
 import { ActionMonitor, compareRequests } from "../e2e/state-history-diagnostics";
+import { requiredToolChoiceRecovery } from "../../src/agent/llm-drivers/required-tool-choice";
 
 const [preparedArg, outputArg, arm, limitArg] = Bun.argv.slice(2);
 assert.ok(
@@ -165,6 +166,7 @@ function auditWire() {
     }
     const usage = response?.usage;
     const cached = usage?.prompt_tokens_details?.cached_tokens ?? null;
+    const recoveredChoice = requiredToolChoiceRecovery(body, response);
     const check = previous ? compareRequests(previous.body, body) : null;
     const boundary = previous ? previous.meta.messageId !== meta.messageId : true;
     const row = {
@@ -180,7 +182,9 @@ function auditWire() {
         usage?.prompt_tokens_details?.cache_creation_tokens ??
         usage?.cache_creation_input_tokens ??
         null,
-      finish_reason: response?.choices?.[0]?.finish_reason ?? null,
+      finish_reason: response?.choices?.[recoveredChoice ?? 0]?.finish_reason ?? null,
+      response_choice_count: response?.choices?.length ?? null,
+      recovered_tool_choice: recoveredChoice ?? null,
       prefix: check,
       task_boundary: boundary,
     };
@@ -191,6 +195,12 @@ function auditWire() {
       if (row.max_output_tokens !== 8192)
         alert("output_limit_mismatch", { call: prefix, observed: row.max_output_tokens });
       if (row.finish_reason === "length") alert("output_limit_reached", { call: prefix });
+      if (row.response_choice_count > 1)
+        alert("multiple_response_choices", {
+          call: prefix,
+          count: row.response_choice_count,
+          recovered_tool_choice: recoveredChoice ?? null,
+        });
       if (meta.error || response?.error) alert("provider_error", { call: prefix, error: meta.error ?? response.error });
       if (check && !boundary && (check.changed_fields.length || check.first_changed_message !== null))
         alert("within_task_prefix_change", { call: prefix, check });
