@@ -48,6 +48,13 @@ completed results after an Execute failure. Earlier completed actions remain.
 Answer must be the only action in its call. Decisions that depend on a returned
 observation belong in the next call.
 
+If the model stops with plain text before calling Answer, the agent records one
+feedback message asking it to continue through `dataflow`. This continuation
+uses the remaining model steps in the same turn and retains the billed usage
+from both requests. Feedback stays in chronological order so the original task
+and context prefix remain intact. A step limit, refusal, or aborted turn does
+not trigger this correction.
+
 ## Graph syntax
 
 ```text

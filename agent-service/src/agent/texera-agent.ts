@@ -137,7 +137,12 @@ import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/c
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeFunctionCall, parseFunctionCall } from "./debug-parser";
-import type { LLMDriver, ContextAssembler } from "./llm-drivers/types";
+import {
+  MissingAnswerActionError,
+  type LLMDriver,
+  type ContextAssembler,
+  type DriverRunTurnResult,
+} from "./llm-drivers/types";
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
@@ -1914,6 +1919,7 @@ export class TexeraAgent {
       // each with its duration.
       let requestedAt = 0;
       const turnStartStepIndex = stepIndex;
+      let protocolFeedbackSteps = 0;
       const runDriverOnce = (seed: ModelMessage[], maxSteps: number = this.settings.maxSteps) =>
         this.driver.runTurn({
           initialMessages: seed,
@@ -2046,27 +2052,68 @@ export class TexeraAgent {
       // from them, so the model continues where it stopped, and a retry only
       // gets the steps left in this turn's budget.
       const runDriverWithRetry = async (seed: ModelMessage[]) => {
-        for (let attempt = 0; ; attempt++) {
-          const stepsDone = stepIndex - turnStartStepIndex;
+        const partials: DriverRunTurnResult[] = [];
+        for (let attempt = 0; ; ) {
+          const stepsDone = stepIndex - turnStartStepIndex - protocolFeedbackSteps;
           try {
-            return await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
+            const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
+            if (!partials.length) return result;
+            const segments = [...partials, result];
+            const keys = new Set(segments.flatMap(segment => Object.keys(segment.usage))) as Set<keyof TokenUsage>;
+            return {
+              ...result,
+              messages: segments.flatMap(segment => segment.messages),
+              usage: Object.fromEntries(
+                [...keys].map(key => [key, segments.reduce((n, segment) => n + (segment.usage[key] ?? 0), 0)])
+              ),
+            };
           } catch (error) {
+            if (
+              error instanceof MissingAnswerActionError &&
+              error.canContinue &&
+              this.settings.agentMode === AgentMode.NATIVE &&
+              !protocolFeedbackSteps &&
+              !this.abortController?.signal.aborted
+            ) {
+              partials.push(error.partial);
+              const feedback =
+                "No Dataflow action was called. Continue by calling dataflow with the next actions, or use its Answer action when the result is ready.";
+              const feedbackId = this.generateStepId();
+              this.addStep({
+                id: feedbackId,
+                parentId: this.head,
+                messageId,
+                stepId: ++stepIndex,
+                timestamp: Date.now(),
+                role: "user",
+                content: feedback,
+                isBegin: false,
+                isEnd: true,
+                messageSource: "feedback",
+              });
+              this.head = feedbackId;
+              protocolFeedbackSteps++;
+              seed = [{ role: "user", content: feedback }];
+              this.log.info({ messageId }, "recorded one missing-action correction");
+              continue;
+            }
             if (
               this.abortController?.signal.aborted ||
               attempt >= MODEL_RETRIES_PER_TURN ||
               !isTransientModelError(error)
             )
               throw error;
+            attempt++;
             this.log.warn(
               {
                 messageId,
-                attempt: attempt + 1,
+                attempt,
                 stepsDone,
                 err: error instanceof Error ? error.message : String(error),
               },
               "model request failed transiently; retrying the turn"
             );
-            await new Promise(resolve => setTimeout(resolve, MODEL_RETRY_BACKOFF_MS() * (attempt + 1)));
+            await new Promise(resolve => setTimeout(resolve, MODEL_RETRY_BACKOFF_MS() * attempt));
           }
         }
       };

@@ -870,7 +870,7 @@ export interface BuiltPath {
   initSnapshot: SnapshotData | undefined;
 }
 
-/** Pick the latest user-role node from a full path. Used to hoist the
+/** Pick the latest external user request from a full path. Used to hoist the
  *  latest user message into the `# User Task` block at the top of the
  *  rendered context, and to skip rendering the same node inline within
  *  `# Recent Agent Events` (older user messages still render inline as
@@ -878,7 +878,9 @@ export interface BuiltPath {
 function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
   for (let i = path.length - 1; i >= 0; i--) {
     const n = path[i];
-    if (n.step.role === "user" && n.step.content) return n;
+    // Runtime feedback belongs at its chronological position. Hoisting it
+    // replaces the task and rewrites the cacheable prefix during a repair.
+    if (n.step.role === "user" && n.step.messageSource !== "feedback" && n.step.content) return n;
   }
   return undefined;
 }

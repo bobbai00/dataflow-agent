@@ -637,6 +637,88 @@ test("the step limit reports a missing Answer instead of returning an intermedia
   expect(model.doGenerateCalls).toHaveLength(1);
 });
 
+test("a plain-text plan gets one recorded protocol correction within the original step budget", async () => {
+  const s = session([]);
+  const seen: any[] = [];
+  const model = new MockLanguageModelV3({
+    doGenerate: async options => {
+      seen.push(options.prompt);
+      const call = seen.length;
+      return {
+        content:
+          call === 1
+            ? [{ type: "text" as const, text: "I will inspect the file." }]
+            : [
+                {
+                  type: "tool-call" as const,
+                  toolCallId: `repair-${call}`,
+                  toolName: "dataflow",
+                  input: JSON.stringify({
+                    reasoning: "Read and answer.",
+                    actions:
+                      call === 2
+                        ? [edit, { type: "execute" }, { type: "retrieve", operator_id: "source", view: "sample" }]
+                        : [{ type: "answer", content: "result-1" }],
+                  }),
+                },
+              ],
+        finishReason: {
+          unified: call === 1 ? ("stop" as const) : ("tool-calls" as const),
+          raw: call === 1 ? "stop" : "tool_calls",
+        },
+        usage: {
+          inputTokens: { total: 10, noCache: 8, cacheRead: 2, cacheWrite: 0 },
+          outputTokens: { total: 5, text: 5, reasoning: 0 },
+        },
+        warnings: [],
+      };
+    },
+  });
+  s.agent.updateSettings({ maxSteps: 3 });
+  (s.agent as any).driver = new VercelToolUseDriver({ model });
+  (s.agent as any).contextAssembler = ({ visibleSteps, workflowState, snapshotStorage, settings }: any) =>
+    assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
+      agentMode: AgentMode.NATIVE,
+      messageLayout: "native",
+    });
+  const response = await s.agent.sendMessage("Read the file and answer.");
+  expect(response.error).toBeUndefined();
+  expect(response.response).toBe("result-1");
+  expect(seen).toHaveLength(3);
+  expect(JSON.stringify(seen[1])).toContain("No Dataflow action was called");
+  expect(seen[1].slice(0, seen[0].length)).toEqual(seen[0]);
+  expect(seen[2].slice(0, seen[1].length)).toEqual(seen[1]);
+  expect(s.executions()).toBe(1);
+  expect(response.usage).toMatchObject({ inputTokens: 30, outputTokens: 15, cachedInputTokens: 6 });
+  expect(s.agent.getVisibleReActSteps().filter(step => step.messageSource === "feedback")).toHaveLength(1);
+});
+
+test("plain-text protocol correction is bounded and never extends maxSteps", async () => {
+  for (const [maxSteps, expectedCalls] of [
+    [1, 1],
+    [10, 2],
+  ]) {
+    const s = session([]);
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ type: "text", text: "I will inspect the file." }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 5, text: 5, reasoning: 0 },
+        },
+        warnings: [],
+      },
+    });
+    s.agent.updateSettings({ maxSteps });
+    (s.agent as any).driver = new VercelToolUseDriver({ model });
+    const response = await s.agent.sendMessage("Read the file and answer.");
+    expect(response.error).toContain("without an answer action");
+    expect(model.doGenerateCalls).toHaveLength(expectedCalls);
+    expect(s.executions()).toBe(0);
+  }
+});
+
 test("import does not apply an edit that failed before committing any statements", async () => {
   const s = session([[{ type: "edit", changes: 'create operator source: scan("data/orders.csv")' }]]);
   await s.agent.sendMessage("Prepare the graph.");

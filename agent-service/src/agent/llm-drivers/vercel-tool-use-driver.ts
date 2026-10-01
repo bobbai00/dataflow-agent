@@ -33,6 +33,7 @@
 
 import { generateText, stepCountIs, type LanguageModel } from "ai";
 import type { LLMDriver, DriverRunTurnInput, DriverRunTurnResult } from "./types";
+import { MissingAnswerActionError } from "./types";
 import type { TokenUsage } from "../../types/agent";
 
 export interface VercelToolUseDriverOptions {
@@ -131,11 +132,6 @@ export class VercelToolUseDriver implements LLMDriver {
       },
     });
 
-    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
-      throw new Error(
-        "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
-      );
-    }
     const finalUsage = (result as any).totalUsage || result.usage;
     const usage: TokenUsage = {
       inputTokens: finalUsage?.inputTokens ?? finalUsage?.promptTokens ?? 0,
@@ -145,7 +141,7 @@ export class VercelToolUseDriver implements LLMDriver {
       cachedInputTokens: finalUsage?.cachedInputTokens ?? 0,
       cacheCreationInputTokens: cacheCreationTotal,
     };
-    return {
+    const completed: DriverRunTurnResult = {
       text: input.getFinalAnswer?.() ?? result.text,
       messages: result.response.messages.map(message =>
         message.role !== "tool"
@@ -167,5 +163,12 @@ export class VercelToolUseDriver implements LLMDriver {
       ),
       usage,
     };
+    if (input.requireToolCall && input.getFinalAnswer?.() === undefined) {
+      throw new MissingAnswerActionError(
+        completed,
+        result.finishReason === "stop" && !result.toolCalls.length && result.steps.length < input.maxSteps
+      );
+    }
+    return completed;
   }
 }

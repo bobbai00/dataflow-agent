@@ -145,6 +145,20 @@ export interface DriverRunTurnResult {
   usage: TokenUsage;
 }
 
+/** Native turns end through Answer. Preserve billed usage when a provider
+ * stops with a plain-text plan so the agent can offer one protocol correction. */
+export class MissingAnswerActionError extends Error {
+  constructor(
+    readonly partial: DriverRunTurnResult,
+    readonly canContinue: boolean
+  ) {
+    super(
+      "The turn ended without an answer action. The model stopped or reached the step limit; no final answer was produced."
+    );
+    this.name = "MissingAnswerActionError";
+  }
+}
+
 /**
  * Strategy interface that hides the LLM call style from `TexeraAgent`.
  * Both implementations preserve the agent's bookkeeping invariants — they
